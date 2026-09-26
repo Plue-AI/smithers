@@ -54,9 +54,19 @@ repositories, personal accounts, the contact rule, and hiring limits.
 Anything not listed is not granted.
 
 A knowledge grant is an exact file (`Org/Roles/builder.md`) or a subtree
-ending in `/` (`Org/Playbooks/`). Globs, `.` and `..`, hidden segments,
-absolute paths, backslashes, colons, and control characters are refused, so
-containment is decided by comparing segments.
+ending in `/` (`Org/Playbooks/`), and exactly `./` is the whole wiki: the
+subtree of no segments, which still holds no hidden page. Globs, `.` and
+`..`, hidden segments, absolute paths, backslashes, colons, and control
+characters are refused, so containment is decided by comparing segments; a
+hire gets `./` only from a hirer holding it.
+
+`wiki-write` lets a role write, edit, and append Markdown pages its
+knowledge grants cover. The authority and configuration pages (roles,
+policy, specialists, skills, cases, setup, the organization, connections,
+meetings, routines, and common instructions pages, `AGENTS.md`, `CLAUDE.md`,
+and hidden pages) are refused whatever the grants say, through links and
+differently cased spellings too: a role proposes those changes and the owner
+applies them.
 
 `Grants.subsetOf` decides whether a hire's grants stay inside its hirer's:
 every tool, repository, container and access bit, and knowledge path the hire

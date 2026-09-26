@@ -4,7 +4,9 @@
  * A knowledge grant names wiki content a principal may read. The grammar is
  * deliberately smaller than a glob so that containment is decidable by
  * comparing path segments: a grant is either an exact file (`Org/Roles/a.md`)
- * or a subtree (`Org/Playbooks/`, trailing slash). Paths are relative,
+ * or a subtree (`Org/Playbooks/`, trailing slash). The one token `./` is the
+ * whole wiki: the subtree of no segments, which covers every file the grammar
+ * admits and so still no hidden one. Paths are relative,
  * NFC-normalized, and made of non-empty segments that never start with a dot,
  * so `.`, `..`, hidden files, absolute paths, and every glob metacharacter are
  * refused rather than interpreted.
@@ -56,6 +58,14 @@ export const maxLength = 1024
  */
 export const maxSegments = 32
 
+/**
+ * The whole-wiki grant: exactly `./`, the served root.
+ *
+ * @private
+ * @since 1.0.0
+ */
+export const wholeWiki = "./"
+
 const globCharacters = /[*?[\]{}!]/
 // Backslash, colon (drive letters and alternate data streams), and every C0
 // or DEL control character, including NUL.
@@ -72,6 +82,7 @@ export const parse = (
   text: string
 ): { readonly ok: true; readonly path: KnowledgePath } | { readonly ok: false; readonly refusal: Refusal } => {
   if (text.length === 0) return { ok: false, refusal: "empty" }
+  if (text === wholeWiki) return { ok: true, path: { kind: "subtree", segments: [] } }
   if (text.length > maxLength) return { ok: false, refusal: "too-long" }
   if (text.normalize("NFC") !== text) return { ok: false, refusal: "not-normalized" }
   if (text.startsWith("/")) return { ok: false, refusal: "absolute" }

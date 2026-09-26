@@ -54,6 +54,7 @@ import meetingsPrepare from "./meetings-prepare/flow.ts"
 import meetingsReply from "./meetings-reply/flow.ts"
 import * as Schedule from "./schedule.ts"
 import status from "./status/flow.ts"
+import * as Wiki from "./wiki.ts"
 
 /**
  * The flows a client may start, by the name their paths give them.
@@ -208,7 +209,14 @@ const resources = (platform: NativeControl.Platform, settings: Settings) =>
     const files = yield* Layer.build(NodeServices.layer)
     return RoleHost.layerResources({
       memory,
-      wiki: { root: settings.root, services: files },
+      // Role edits never reach an authority or configuration page, never
+      // overwrite the owner's uncommitted work, and are committed as theirs.
+      wiki: {
+        root: settings.root,
+        services: files,
+        protected: RoleHost.protectedWikiPaths(settings.organization),
+        journal: Wiki.journal(settings.root, settings.organization.wiki.commit)
+      },
       retrieval: { logDir: join(settings.stateDir, "retrieval") },
       // A role result is an answer, not a workspace claim, when no judge is configured.
       ...(settings.organization.judge === "none" ? { claimCap: 0 } : {})

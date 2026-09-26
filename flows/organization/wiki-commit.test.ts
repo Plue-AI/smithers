@@ -176,3 +176,69 @@ test("a backup commits the host's writes first, so its revision holds them", asy
   // The owner's own edits are still uncommitted, and the manifest says so.
   assert.equal(manifest.wiki?.dirty, true)
 })
+
+test("commits the pages roles edited, names the roles, and never writes over the owner's uncommitted work", async () => {
+  const { root } = wiki("role-edits")
+  const journal = Wiki.journal(root, true)
+  const guard = (path: string) => Effect.runPromise(Effect.flip(journal.guard(path)).pipe(Effect.orElseSucceed(() => "allowed")))
+  // The owner's unstaged, staged and untracked pages are refused; a clean or new page is not.
+  assert.equal(await guard("Org/Roles/lead.md"), "has uncommitted changes the host did not make; commit or discard them first")
+  assert.equal(await guard("Org/Roles/docs.md"), "has uncommitted changes the host did not make; commit or discard them first")
+  assert.equal(await guard("Org/Notes.md"), "has uncommitted changes the host did not make; commit or discard them first")
+  assert.equal(await guard("Org/Organization.md"), "allowed")
+  assert.equal(await guard("Org/Team/docs/Onboarding.md"), "allowed")
+  // A role's edit is journaled, so its next edit of the same page is allowed.
+  write(root, "Org/Team/docs/Onboarding.md", "# Onboarding\n")
+  await Effect.runPromise(journal.record({ principal: "docs", path: "Org/Team/docs/Onboarding.md", op: "write", bytes: 13 }))
+  assert.equal(await guard("Org/Team/docs/Onboarding.md"), "allowed")
+  write(root, "Org/Proposals/2026-09-26-support-inbox.md", "proposal\n")
+  Wiki.recordWritten(root, [{ path: "Org/Proposals/2026-09-26-support-inbox.md" }])
+  Wiki.recordWritten(root, [])
+  assert.deepEqual(Wiki.pending(root).map((entry) => entry.path), [
+    "Org/Team/docs/Onboarding.md",
+    "Org/Proposals/2026-09-26-support-inbox.md"
+  ])
+  // A failed commit keeps the journal for the next one.
+  writeFileSync(join(root, ".git", "index.lock"), "")
+  assert.throws(() => Wiki.commit(root, paths), /^Error: git add: /)
+  rmSync(join(root, ".git", "index.lock"))
+  write(root, "Org/Team/support/Onboarding.md", "# Support\n")
+  Wiki.recordWritten(root, [{ path: "Org/Team/support/Onboarding.md", principal: "support" }])
+  assert.equal(Wiki.pending(root).length, 3)
+  const made = Wiki.commit(root, paths)
+  assert.equal(made?.message, "organization: record edits by docs, support")
+  assert.deepEqual(git(root, "show", "--name-only", "--format=", "HEAD").split("\n").sort(), [
+    "Org/Proposals/2026-09-26-support-inbox.md",
+    "Org/Team/docs/Onboarding.md",
+    "Org/Team/support/Onboarding.md"
+  ])
+  assert.deepEqual(Wiki.pending(root), [])
+  // The owner's own edits are untouched.
+  assert.deepEqual(git(root, "status", "--porcelain").split("\n"), [
+    "M  Org/Roles/docs.md",
+    " M Org/Roles/lead.md",
+    "?? Org/Notes.md"
+  ])
+  // A journaled page that did not change commits nothing and clears the journal.
+  Wiki.recordWritten(root, [{ path: "Org/Team/docs/Onboarding.md", principal: "docs" }])
+  assert.equal(Wiki.commit(root, paths), undefined)
+  assert.deepEqual(Wiki.pending(root), [])
+  // With wiki.commit off nothing is journaled; outside git nothing is guarded or journaled.
+  await Effect.runPromise(Wiki.journal(root, false).record({ principal: "docs", path: "Org/Team/x.md", op: "write", bytes: 1 }))
+  assert.deepEqual(Wiki.pending(root), [])
+  const plain = join(scratch, "plain-journal")
+  write(plain, "Org/Notes.md", "mine\n")
+  assert.equal(Wiki.conflict(plain, "Org/Notes.md"), undefined)
+  assert.equal(Wiki.journalFile(plain), undefined)
+  assert.deepEqual(Wiki.pending(plain), [])
+  Wiki.recordWritten(plain, [{ path: "Org/Notes.md" }])
+  // A line cut by a crash is skipped.
+  writeFileSync(Wiki.journalFile(root)!, "{\"path\":\"Org/Team/a.md\"}\n{\"pa")
+  assert.deepEqual(Wiki.pending(root), [{ path: "Org/Team/a.md" }])
+  assert.deepEqual(Wiki.hostPaths(JSON.parse(JSON.stringify({ rosterDir: "Org/", wiki: { generatedDir: "Org/Runs/", statusFile: "Org/Status.md" } })), ["Org/Team/"]), [
+    "Org/Runs",
+    "Org/Specialists",
+    "Org/Status.md",
+    "Org/Team"
+  ])
+})

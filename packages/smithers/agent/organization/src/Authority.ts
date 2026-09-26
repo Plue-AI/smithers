@@ -50,6 +50,7 @@ import * as Grants from "./Grants.ts"
 import * as Confined from "./internal/confined.ts"
 import { canonicalDigest, sha256Hex } from "./internal/digest.ts"
 import * as RetrievalLog from "./internal/retrievalLog.ts"
+import * as WikiEdit from "./internal/wikiEdit.ts"
 import * as Profile from "./Profile.ts"
 import * as Prompt from "./Prompt.ts"
 import * as RoleHost from "./RoleHost.ts"
@@ -529,6 +530,8 @@ const guarded = <A, E, R>(
       const retrievals = authorized.profile.grants.tools.includes("retrieval")
         ? RetrievalLog.task(retrievalStore, execution)
         : undefined
+      // Every wiki page the task edits becomes file evidence on its result.
+      const edited: Array<RoleHost.WikiEdited> = []
       const built = yield* RoleHost.make({
         base: base.value,
         profile: authorized.profile,
@@ -536,7 +539,8 @@ const guarded = <A, E, R>(
         executionId: execution,
         resources,
         workspace: tools,
-        retrievals: retrievals?.log
+        retrievals: retrievals?.log,
+        edits: { record: (edit) => Effect.sync(() => void edited.push(edit)) }
       })
       const hosted = handler.pipe(
         Effect.provideService(AgentAction.Host, built.host),
@@ -547,8 +551,9 @@ const guarded = <A, E, R>(
       const result = yield* (boundary === undefined
         ? hosted
         : Effect.provideService(hosted, FlowEngine.SnapshotBoundary, boundary))
-      if (retrievals === undefined) return result
-      return RetrievalLog.withEvidence(result, yield* retrievals.entries)
+      const withEdits = WikiEdit.withEvidence(result, edited)
+      if (retrievals === undefined) return withEdits
+      return RetrievalLog.withEvidence(withEdits, yield* retrievals.entries)
     }))
   })
 

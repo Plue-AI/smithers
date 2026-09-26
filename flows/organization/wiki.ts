@@ -9,19 +9,107 @@
  * Hooks and signing are skipped: the commit is the host's record, made
  * unattended. A repository busy with another git command is left for the
  * next attempt.
+ *
+ * Pages roles edit with `wiki-edit` (and any page the host writes elsewhere,
+ * through {@link recordWritten}) are kept in a journal inside the wiki's git
+ * directory (`smithers-organization-edits.jsonl`) until a commit takes them,
+ * and the commit names the roles that edited. {@link journal} is the role
+ * hosts' side of it: a page with uncommitted changes the host did not make
+ * is refused, so the owner's own work is never overwritten.
  */
 import { spawnSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import { join } from "node:path"
+import { appendFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs"
+import { isAbsolute, join } from "node:path"
 import { Effect } from "effect"
 import * as Config from "../../packages/smithers/agent/organization/src/Config.ts"
+import type * as RoleHost from "../../packages/smithers/agent/organization/src/RoleHost.ts"
 
-/** The wiki paths the host writes, relative to the root. */
-export const hostPaths = (organization: Pick<Config.Organization, "rosterDir" | "wiki">): ReadonlyArray<string> => [
+/**
+ * The wiki paths the host writes, relative to the root: the generated
+ * directory, hired profiles, the status page, then `extra` (directories or
+ * files the host writes besides them).
+ */
+export const hostPaths = (
+  organization: Pick<Config.Organization, "rosterDir" | "wiki">,
+  extra: ReadonlyArray<string> = []
+): ReadonlyArray<string> => [
   organization.wiki.generatedDir.replace(/\/+$/, ""),
   `${organization.rosterDir.replace(/\/+$/, "")}/Specialists`,
-  organization.wiki.statusFile
+  organization.wiki.statusFile,
+  ...extra.map((path) => path.replace(/\/+$/, ""))
 ]
+
+/** One journaled write: the page, and the role that wrote it (absent for the host itself). */
+export interface Written {
+  readonly path: string
+  readonly principal?: string | undefined
+}
+
+const journalName = "smithers-organization-edits.jsonl"
+
+/** The journal file in the wiki's git directory, or `undefined` outside a git work tree. */
+export const journalFile = (root: string): string | undefined => {
+  const found = spawnSync("git", ["-C", root, "rev-parse", "--absolute-git-dir"], { encoding: "utf8" })
+  const directory = found.stdout.trim()
+  return found.status === 0 && isAbsolute(directory) ? join(directory, journalName) : undefined
+}
+
+const readJournal = (file: string): ReadonlyArray<Written> => {
+  if (!existsSync(file)) return []
+  return readFileSync(file, "utf8").split("\n").flatMap((line) => {
+    try {
+      const entry = JSON.parse(line) as Written
+      return typeof entry.path === "string" ? [entry] : []
+    } catch {
+      // A line cut by a crash mid-append is not an entry.
+      return []
+    }
+  })
+}
+
+/** Everything journaled and not yet committed, including a commit still being made. */
+export const pending = (root: string): ReadonlyArray<Written> => {
+  const file = journalFile(root)
+  return file === undefined ? [] : [...readJournal(`${file}.committing`), ...readJournal(file)]
+}
+
+/**
+ * Journals pages the host or a role wrote, so the next commit takes them.
+ * Nothing happens outside a git work tree.
+ */
+export const recordWritten = (root: string, written: ReadonlyArray<Written>): void => {
+  const file = journalFile(root)
+  if (file === undefined || written.length === 0) return
+  appendFileSync(file, written.map((entry) => `${JSON.stringify(entry)}\n`).join(""), { mode: 0o600 })
+}
+
+/**
+ * Why `path` must not be written now, or `undefined`: a page git reports as
+ * changed (staged, unstaged, or untracked) that no journaled write explains
+ * holds the owner's own uncommitted work.
+ */
+export const conflict = (root: string, path: string): string | undefined => {
+  if (journalFile(root) === undefined) return undefined
+  if (pending(root).some((entry) => entry.path === path)) return undefined
+  if (changed(root, [path]).length === 0) return undefined
+  return "has uncommitted changes the host did not make; commit or discard them first"
+}
+
+/**
+ * The role hosts' journal over the wiki at `root`: a write is refused over
+ * the owner's uncommitted changes, and each edit is journaled for the next
+ * commit when `commits` (the organization page's `wiki.commit`) is on.
+ */
+export const journal = (root: string, commits: boolean): RoleHost.WikiJournal => ({
+  guard: (path) => {
+    const reason = conflict(root, path)
+    return reason === undefined ? Effect.void : Effect.fail(reason)
+  },
+  record: (edit) =>
+    Effect.sync(() => {
+      if (commits) recordWritten(root, [{ path: edit.path, principal: edit.principal }])
+    })
+})
 
 /** What one commit recorded. */
 export interface Committed {
@@ -52,8 +140,12 @@ export const changed = (root: string, paths: ReadonlyArray<string>): ReadonlyArr
 const brief = (names: ReadonlyArray<string>, max = 4) =>
   names.length <= max ? names.join(", ") : `${names.slice(0, max).join(", ")} +${names.length - max}`
 
-/** The commit message: which runs, hires and pages the host recorded. */
-export const message = (paths: ReadonlyArray<string>, files: ReadonlyArray<string>): string => {
+/** The commit message: which runs, hires and pages the host recorded, and which roles edited. */
+export const message = (
+  paths: ReadonlyArray<string>,
+  files: ReadonlyArray<string>,
+  editors: ReadonlyArray<string> = []
+): string => {
   const [generated, specialists, status] = paths
   const under = (prefix: string | undefined) =>
     prefix === undefined
@@ -64,7 +156,8 @@ export const message = (paths: ReadonlyArray<string>, files: ReadonlyArray<strin
   const parts = [
     ...(runs.length === 0 ? [] : [`runs ${brief(runs)}`]),
     ...(hires.length === 0 ? [] : [`specialists ${brief(hires)}`]),
-    ...(status !== undefined && files.includes(status) ? ["status"] : [])
+    ...(status !== undefined && files.includes(status) ? ["status"] : []),
+    ...(editors.length === 0 ? [] : [`edits by ${brief(editors)}`])
   ]
   return `organization: record ${parts.length === 0 ? `${files.length} file(s)` : parts.join("; ")}`
 }
@@ -84,13 +177,30 @@ const fallbackIdentity = {
  */
 export const commit = (root: string, paths: ReadonlyArray<string>): Committed | undefined => {
   if (git(root, ["rev-parse", "--is-inside-work-tree"]).stdout.trim() !== "true") return undefined
-  const files = changed(root, paths)
-  if (files.length === 0) return undefined
-  const present = paths.filter((path) => existsSync(join(root, path)) || git(root, ["ls-files", "--", path]).stdout !== "")
+  // The journal is moved aside for this commit; a write journaled meanwhile
+  // waits for the next one, and a failed commit keeps it for a retry.
+  const file = journalFile(root)!
+  if (existsSync(file)) {
+    const kept = readJournal(`${file}.committing`)
+    renameSync(file, `${file}.committing`)
+    if (kept.length > 0) appendFileSync(`${file}.committing`, kept.map((entry) => `${JSON.stringify(entry)}\n`).join(""))
+  }
+  const journaled = readJournal(`${file}.committing`)
+  const all = [...new Set([...paths, ...journaled.map((entry) => entry.path)])]
+  const files = changed(root, all)
+  const done = () => rmSync(`${file}.committing`, { force: true })
+  if (files.length === 0) {
+    done()
+    return undefined
+  }
+  const present = all.filter((path) => existsSync(join(root, path)) || git(root, ["ls-files", "--", path]).stdout !== "")
   const env = git(root, ["config", "user.email"]).stdout.trim() === ""
     ? { ...process.env, ...fallbackIdentity }
     : process.env
-  const text = message(paths, files)
+  const editors = [
+    ...new Set(journaled.flatMap((entry) => entry.principal === undefined || !files.includes(entry.path) ? [] : [entry.principal]))
+  ].sort()
+  const text = message(paths, files, editors)
   const add = git(root, ["add", "-A", "--", ...present], env)
   if (add.status !== 0) throw new Error(`git add: ${add.stderr.trim().split("\n")[0]}`)
   const made = git(
@@ -99,6 +209,7 @@ export const commit = (root: string, paths: ReadonlyArray<string>): Committed | 
     env
   )
   if (made.status !== 0) throw new Error(`git commit: ${(made.stderr || made.stdout).trim().split("\n")[0]}`)
+  done()
   return { revision: git(root, ["rev-parse", "HEAD"]).stdout.trim(), files, message: text }
 }
 

@@ -14,6 +14,8 @@ import { Action, Flow, Interpreter } from "@smthrs/flow"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import { ProviderError } from "@smthrs/sandbox/RemoteChildProcessSpawner"
 import { Cause, Effect, Exit, Layer, Option, Result, Schema } from "effect"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Actions from "../src/Actions.ts"
 import * as Authority from "../src/Authority.ts"
@@ -135,6 +137,44 @@ ctx.done(JSON.stringify(result))`
     expect(exit.value.fields["reply"]).toContain("Org/Organization.md is not granted")
     expect(recorded[0]!.flows).toEqual(["recall", "remember", "web-fetch", "wiki-read"])
     expect(recorded[0]!.envelope).toEqual(["net:get:*"])
+  })
+
+  it("gives a wiki-write principal wiki-edit, refuses its own role page, and cites each edit as evidence", async () => {
+    const base = await loadSnapshot()
+    const assistant = base.roster.profiles.get("assistant")!
+    const writer: Profile.Profile = {
+      ...assistant,
+      grants: { ...assistant.grants, tools: ["memory", "wiki-read", "wiki-write"], knowledge: ["./"] }
+    }
+    const snapshot = {
+      ...base,
+      roster: { ...base.roster, profiles: new Map([...base.roster.profiles, ["assistant", writer]]) }
+    }
+    const root = wikiRoot()
+    const edit =
+      `const wrote = await ctx.call("wiki-edit", { op: "write", path: "Org/Team/assistant/Onboarding.md", content: "# Onboarding\\n" });
+let denied;
+try { denied = JSON.stringify(await ctx.call("wiki-edit", { op: "write", path: "Org/Roles/assistant.md", content: "tools: [workspace]" })) } catch (error) { denied = String(error && error.message || error) }
+const result = ${JSON.stringify(done({ route: "lead", reply: "" }))};
+result.fields.route = wrote.path;
+result.fields.reply = denied;
+ctx.done(JSON.stringify(result))`
+    const { exit, recorded } = await dispatch({
+      snapshot,
+      payload: payloadFor(snapshot, "assistant", task()),
+      cells: [edit],
+      resources: { memory: memoryServices, wiki: { root, services: fileServices }, claimCap: 0 }
+    })
+    if (Exit.isFailure(exit)) throw new Error(String(failureOf(exit)))
+    expect(exit.value.fields["route"]).toBe("Org/Team/assistant/Onboarding.md")
+    expect(exit.value.fields["reply"]).toContain("Org/Roles/assistant.md is an authority or configuration page")
+    expect(exit.value.evidence.at(-1)).toEqual({
+      kind: "file",
+      ref: "Org/Team/assistant/Onboarding.md",
+      detail: "wiki-edit write by assistant: 13 bytes"
+    })
+    expect(recorded[0]!.flows).toEqual(["recall", "remember", "wiki-edit", "wiki-read"])
+    expect(readFileSync(join(root, "Org/Roles/assistant.md"), "utf8")).not.toContain("tools: [workspace]")
   })
 
   it("ignores a Profile placed in the payload and refuses a composition built from one", async () => {
