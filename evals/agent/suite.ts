@@ -231,11 +231,16 @@ const scenarios: Readonly<Record<string, Scenario>> = {
         flows: [Subject.probeSource(recorder)]
       })
     },
-    // Two handler runs for four frames: a call whose flow and input repeat is
-    // replayed from its durable boundary instead of executed again, so the
-    // tally lists the distinct calls the run made — one before the demand and
-    // one after it.
-    expected: failed("/harness/HarnessError", 4, ["probe:reading", "probe:demanded"])
+    // Four handler runs for four frames, two before the demand and two after
+    // it. The subject measures no workspace tree, so a sealed read keys on the
+    // run and frame that made it (#1986): a later frame reads again rather
+    // than replaying an answer the tree may have outgrown during the model wait.
+    expected: failed("/harness/HarnessError", 4, [
+      "probe:reading",
+      "probe:reading",
+      "probe:demanded",
+      "probe:demanded"
+    ])
   },
 
   "sufficiency-signal-reaches-the-next-frame": {
@@ -541,7 +546,13 @@ const scenarios: Readonly<Record<string, Scenario>> = {
     // The demand arrives at the cap, the
     // justification buys quiet frames without resetting the counter, and the
     // run still stops at twice the cap rather than reporting work it never did.
-    expected: failed("/harness/HarnessError", 4, ["probe:reading", "probe:demanded"])
+    // Each frame reads again; see read-only-cap-stops-a-reading-run.
+    expected: failed("/harness/HarnessError", 4, [
+      "probe:reading",
+      "probe:reading",
+      "probe:demanded",
+      "probe:demanded"
+    ])
   },
 
   "max-frames-stops-the-run": {
