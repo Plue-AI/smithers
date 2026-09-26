@@ -795,7 +795,6 @@ describe("Supervisor", () => {
     expect(textsOf(last).filter((text) => text.includes(layout.text))).toHaveLength(1)
     const settled = of(read.seen, "supervisor-settled")
     expect(settled[0]).toMatchObject({ remembered: [0], nudged: false })
-    expect(settled[0]).not.toHaveProperty("inserted")
     expect(of(read.seen, "relevance-settled")[0]).toMatchObject({
       source: "supervisor",
       frame: 0,

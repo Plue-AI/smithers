@@ -335,7 +335,6 @@ describe("AgentEvent", () => {
         needsHelp: "stuck",
         crossed: true,
         nudged: false,
-        inserted: [],
         remembered: [0],
         latencyMs: 310
       }),
@@ -664,7 +663,6 @@ describe("AgentEvent", () => {
       crossed: true,
       nudged: true,
       steer: true,
-      inserted: [0],
       remembered: [],
       latencyMs: 310
     },
@@ -708,13 +706,19 @@ describe("AgentEvent", () => {
     expect(Schema.encodeSync(AgentEvent.AgentEvent)(decoded)).toEqual(payload)
   })
 
-  it("decodes a compaction without a summary and a reading without inserted rows", () => {
-    const [compaction, supervisor] = [jevEvents[4]!, jevEvents[5]!]
-    for (const event of [compaction, supervisor]) {
-      const encoded = Schema.encodeSync(AgentEvent.AgentEvent)(event) as Record<string, unknown>
-      expect("summary" in encoded || "inserted" in encoded).toBe(false)
-      expect(Schema.decodeUnknownSync(AgentEvent.AgentEvent)(encoded)).toEqual(event)
-    }
+  it("decodes a compaction without a summary", () => {
+    const compaction = jevEvents[4]!
+    const encoded = Schema.encodeSync(AgentEvent.AgentEvent)(compaction) as Record<string, unknown>
+    expect("summary" in encoded).toBe(false)
+    expect(Schema.decodeUnknownSync(AgentEvent.AgentEvent)(encoded)).toEqual(compaction)
+  })
+
+  it("decodes a reading journaled with the retired inserted rows and drops them", () => {
+    const reading = jevEvents[5]!
+    const encoded = Schema.encodeSync(AgentEvent.AgentEvent)(reading) as Record<string, unknown>
+    const decoded = Schema.decodeUnknownSync(AgentEvent.AgentEvent)({ ...encoded, inserted: [0] })
+    expect(decoded).toEqual(reading)
+    expect("inserted" in decoded).toBe(false)
   })
 
   it("decodes a legacy cell settlement without inventing an execution frontier", () => {

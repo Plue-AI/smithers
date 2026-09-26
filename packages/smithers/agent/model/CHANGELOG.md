@@ -34,8 +34,8 @@
   Responses route sends `prompt_cache_key` too. `Protocol.headers` is the new
   hook a protocol derives per-request public headers through.
 
-- `Evaluator.layerVercelGateway` asks again after a 429 or 503, up to
-  `attempts` requests (`Evaluator.defaultAttempts`, 3) with a pause of
+- `Evaluator.layerVercelGateway` asks again after a 429, 502, 503 or 504, or
+  a connection that failed before any status, up to `attempts` requests (`Evaluator.defaultAttempts`, 3) with a pause of
   `Evaluator.retryBackoffMs` (100 ms) that doubles each time. `typesafe-ai/jev`
   shed about one request in seven with a fast 503 on 2026-09-23, which failed
   11 of 45 benchmark runs as `completion_unjudged`. A request shed on every

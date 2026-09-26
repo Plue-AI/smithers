@@ -429,7 +429,8 @@ export const defaultTimeoutMs = 3000
 
 /**
  * How many requests one evaluation may send when an option names none. Only
- * a 429 or a 503 is asked again; see {@link layerVercelGateway}.
+ * a 429, 502, 503 or 504, or a connection that failed before any status, is
+ * asked again; see {@link layerVercelGateway}.
  *
  * @category constants
  * @since 1.0.0-rc.0

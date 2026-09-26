@@ -170,6 +170,10 @@
   `ModelCatalog.contextWindowTokensFor`. `CellTurn` still resolves a seat with
   no host callback through it, and `@smthrs/agent` still re-exports it as
   `SeatResolver.contextWindowTokensFor`.
+- Removed `AgentEvent.SupervisorSettled.inserted`. Recalled rows reach the run
+  through `SteeringDrained.memory`, and no writer set the field. A journal or
+  recorded reading that carries it still decodes and drops the key, and the
+  `control.agent.supervisor-settled` trace no longer projects it.
 
 ### Added
 

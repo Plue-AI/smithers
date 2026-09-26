@@ -179,7 +179,6 @@ describe("trace", () => {
       needsHelp: "permission" as const,
       crossed: true,
       nudged: false,
-      inserted: [1],
       remembered: [0],
       latencyMs: 23,
       ...(present
@@ -2002,7 +2001,7 @@ describe("Jev receipts", () => {
         })
       ],
       [
-        new AgentEvent.SupervisorSettled({ ...reading, inserted: [0] }),
+        new AgentEvent.SupervisorSettled(reading),
         new AgentEvent.SupervisorSettled({ ...reading, monitors: [{ id: "m", kind: "lint", p: 1, crossed: true }] })
       ],
       [

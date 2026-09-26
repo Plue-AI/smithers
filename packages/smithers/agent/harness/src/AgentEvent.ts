@@ -1063,8 +1063,6 @@ export class SupervisorSettled extends Schema.TaggedClass<SupervisorSettled>(
    * Absent from readings journaled before it existed.
    */
   steer: Schema.optional(Schema.Boolean),
-  /** Indexes of recalled rows handed to the next boundary; later writers omit it. */
-  inserted: Schema.optional(Schema.Array(Schema.Int)),
   /** Indexes of candidates written to memory. */
   remembered: Schema.Array(Schema.Int),
   /**

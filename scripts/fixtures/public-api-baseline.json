@@ -4271,7 +4271,7 @@
         }
       },
       "declarations": {
-        "AgentEvent.d.ts": "4f33519c41173585dbf1e6b306c90254e415d377c29a7a82a7f40028fbe1a071",
+        "AgentEvent.d.ts": "a8c4d085f2f8b0006f3ca3161d24e2f3c035ef8722474809e22107c751e59ec1",
         "CallLedger.d.ts": "2c34625780674b6c076ca7eebf4f1d6db5a17aa3d7e49aec2ed11d0b5d9358b2",
         "Cell.d.ts": "5dcbafc00484e56de009b006d77ae7d071600e99222fb0ea6165f0db896820a0",
         "CellCalls.d.ts": "15cfe63a27703482b71c49eff10802c79fbbf678a7a32f9d9657978c0e394759",
@@ -6671,7 +6671,7 @@
         "Classifier.d.ts": "afd32607454ef40e3d07354d29e946f0afd415b110251ef98905ef68b16bbeb5",
         "DeferredTools.d.ts": "894315a5e3236694de183caf68e639ff61fbd2832f305f7fc8dab4f103cab50d",
         "Endpoint.d.ts": "e5916d7d7300b4f08bd49838534e268b5e3659e4eb8cef9252e41dacb3162c9c",
-        "Evaluator.d.ts": "1581d12d4f17aeb543b341b48b2b4b4ba89958993e712fda2a8996fb65191546",
+        "Evaluator.d.ts": "6eb934786e17e196b9255c351497c109463e72b18d8ae7962ec6756707486e3d",
         "FailureCopy.d.ts": "45fa49e5f381f6e41470664b7a7b0b8f7668b281b1d6c430c0ce992b77cb0fbf",
         "Framing.d.ts": "4a7b89a9112526415faad498c6ba629b73449226dbcdf2f75d61dec804cc64f6",
         "HttpStatusClassifier.d.ts": "9809a8290a5ddc3956edd00dd680316e2b65a3d8a0374a9108511a201cd5a1b5",
@@ -7111,7 +7111,7 @@
         "Actions.d.ts": "c228395b460d5e1c219b881a40f54bb0ba5601db3fcf18cf84c8e455678c2bde",
         "Authority.d.ts": "6e63159a955b9d7528264ccc9477bf0941500f7bb7076471c89a7079f13a867e",
         "Budgets.d.ts": "55d5fd69da87cd4ed5f6acfb38c934622898922b4623264b37c5dbf6cad3f954",
-        "Config.d.ts": "968eeb2f64f8c8eaf2df8370a8d7cc710241755dd95cd01e9c7d6c9d1e2867dc",
+        "Config.d.ts": "67f4aa38952b11d1c630b8d3140159f61deb17bc5ce8130b57f21eeaa2c75936",
         "Gates.d.ts": "328c62cdfe11ffd83ddf50a2ac4d14a1d5d2225fc5793cf1c9957676afe4f5dd",
         "GatesLive.d.ts": "09c744ddb55211da08f3c4210261e0acd6a68718f5600876815e2c58bcf9d17a",
         "Grants.d.ts": "d52d3b6bdf5adadaa26ea9855b890c4b8a4de2e96182505d5191fd56d023fc85",
@@ -7119,7 +7119,7 @@
         "Meetings.d.ts": "1c878913dbbb0c6df46e2dfad8d6657ba908c4adc0237983566f3994a53c8b6d",
         "Profile.d.ts": "dd4d7bf835f29d6a23d0296d5e8a5448a00ab14d3fd22b2eb6005a4f23ef1d3e",
         "Prompt.d.ts": "b9d91e897d593d9d138467240a08f6d4fdf748cd30770ebbb1a43d2eed9f8ecd",
-        "RoleHost.d.ts": "c50acb48887e6bca9b1ad7c5c626d53b45a4d9b6bdcc064e6b5cd2639c2a6983",
+        "RoleHost.d.ts": "e728d2f46466cdb2318a449850f2e8e6f7ee028856ce4efa12f4560a7e6ea355",
         "Roster.d.ts": "d754a568917589ee93b5c5fdf16bf00337d0e40014699b64e5f39cbbb5bbedeb",
         "Skills.d.ts": "6c0249720f9b350e22b9a1a71f1ea1fdca675ee3bfb338952166ed035938c64d",
         "Workspace.d.ts": "fd88452acd4e94969811da11431298c322450d9ec4b2e05cdd83d20d15737f2d",
@@ -7128,10 +7128,11 @@
         "internal/digest.d.ts": "5f329f29d3cb85d7fa25f8d9b02298a2c85262bcf63a5103e75b1e80f825d497",
         "internal/frontmatter.d.ts": "ba094332fe8dd79fc6663d411b98c6a982a251cc04370461555bd5188402d607",
         "internal/issues.d.ts": "8e56e67493ad95338ed0b9b69ee02e9fb0571aecb8c4701b29f8a57612e559a2",
-        "internal/knowledgePath.d.ts": "9d8a3ea153963b1bb264cc3d1cd9bb2933e53cada0327b9fdb13f2bea702a5d1",
+        "internal/knowledgePath.d.ts": "9a268ba4c1edaa7282638b7d961a4ba0116d07ef6d2a5cab51454edd9721d82b",
         "internal/process.d.ts": "476a977dfdff27c8322f3fab10e9092aa8cc8876f5177465f5075f73cae20794",
         "internal/retrievalLog.d.ts": "06c584afb41a5b2be5c4d13ac1a17fe79841b784cd60c7b6d4f616ce6bd96a36",
-        "internal/webFetch.d.ts": "4ee32aee4a8735222e1125b31e7ef9ed405912e752cb37d48199b962b912b41c"
+        "internal/webFetch.d.ts": "4ee32aee4a8735222e1125b31e7ef9ed405912e752cb37d48199b962b912b41c",
+        "internal/wikiEdit.d.ts": "8b8f5f41af73ca07cdc6da64287b2210232ad646cfdd36a5744ebab5c5f34e1e"
       }
     },
     "@smthrs/patterns": {

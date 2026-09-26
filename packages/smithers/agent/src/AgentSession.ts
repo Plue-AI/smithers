@@ -335,10 +335,9 @@ const lateFields: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   // and later writers omit it again for `judged`; either way a record in a
   // resumed prefix may or may not carry it.
   ["control.agent.discipline-armed", new Set(["supervisorSteer", "judged", "relevance", "monitors", "stance"])],
-  // The Jev fields. `inserted` is listed because later writers omit it, which
-  // changes the payload of a reading a pre-change run already journaled.
+  // The Jev fields.
   ["control.agent.decision-settled", new Set(["usage"])],
-  ["control.agent.supervisor-settled", new Set(["inserted", "monitors", "skillsCapped"])],
+  ["control.agent.supervisor-settled", new Set(["monitors", "skillsCapped"])],
   ["control.agent.compaction-settled", new Set(["marks", "removedTokens", "unaligned"])]
 ])
 
@@ -1041,7 +1040,6 @@ export const trace = (
           crossed: event.crossed,
           nudged: event.nudged,
           ...(event.steer === undefined ? {} : { steer: event.steer }),
-          ...(event.inserted === undefined ? {} : { inserted: event.inserted }),
           remembered: event.remembered,
           latencyMs: event.latencyMs,
           ...(event.usage === undefined ? {} : { usage: event.usage }),
