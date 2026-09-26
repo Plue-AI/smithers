@@ -1,0 +1,73 @@
+---
+title: "How Smithers works"
+description: "The six ideas behind Smithers: threads, tasks, wiki, agents, triggers, and flows, and how they fit together."
+sidebar:
+  order: 1
+---
+
+import DocsDiagram from "../../../../components/DocsDiagram.astro"
+
+Smithers is built from six ideas. Learn these and the rest of the product reads as detail.
+
+| Idea | In one line |
+| --- | --- |
+| [Thread](/docs/how-it-works/threads/) | A conversation that lasts: a chat or an issue. |
+| [Task](/docs/how-it-works/tasks/) | An issue that someone intends to finish, with state and owners. |
+| [Wiki](/docs/how-it-works/wiki/) | What your team knows, versioned and kept current. |
+| [Agent](/docs/how-it-works/agents/) | A profile you write once: what a worker does, which model it uses, and what it may touch. |
+| [Trigger](/docs/how-it-works/triggers-and-flows/) | Something that happens: a message, a schedule, a webhook, an issue event. |
+| [Flow](/docs/how-it-works/triggers-and-flows/) | The steps Smithers runs when a trigger fires. |
+
+## How they fit
+
+<DocsDiagram
+  id="how-smithers-works"
+  title="How the pieces connect"
+  caption="A trigger starts a flow. The flow puts one or more agents to work. The agents read and write threads, tasks, and the wiki. Every step is recorded, so work survives restarts."
+  rows={[
+    [{ label: "Trigger", detail: "A message, a schedule, a webhook, an event" }],
+    [{ label: "Flow", detail: "The steps to run, recorded as they happen" }],
+    [{ label: "Agents", detail: "Profiles the flow picks for the job" }],
+    [
+      { label: "Threads", detail: "Chats and issues" },
+      { label: "Tasks", detail: "Issues with intent" },
+      { label: "Wiki", detail: "Versioned knowledge" }
+    ]
+  ]}
+/>
+
+Read it top to bottom:
+
+1. **Something happens.** Someone writes in a thread, a schedule comes due, or a service sends a webhook.
+2. **A flow starts.** The flow is a recipe of steps: research, plan, change, check, report.
+3. **The flow picks agents.** For each step it chooses the right agent profile, such as a builder for a code change or a reviewer for a check.
+4. **Agents work on your records.** They reply in threads, move tasks forward, and update the wiki.
+
+## Where your records live
+
+Threads, tasks, and wiki pages live in Smithers. They can also mirror into the tools your team already uses, such as Slack, Linear, or Notion. Sync goes both ways: a reply in Slack lands in the Smithers thread, and a reply in Smithers lands in Slack. Each concept page says which syncs exist today.
+
+## Nothing is lost
+
+Smithers records each step of a flow as it finishes. If a machine restarts, the run picks up where it stopped, and finished steps are not repeated. You can open any run and see what happened, in order. [Durable execution](/docs/concepts/durable-execution/) explains the engine underneath.
+
+## What is available today
+
+Smithers is in alpha, and parts of this model are still being built. Each concept page marks its sections **Available now**, **Partly available**, or **Planned**.
+
+| Capability | Status |
+| --- | --- |
+| Issues in the app | Available now |
+| Chat in the app | Available now |
+| Chats stored as threads, with two-way Slack sync | Planned |
+| Task state and owners on issues | Available now |
+| Two-way Linear sync | Partly available |
+| Wiki notes and generated repository pages | Available now |
+| Two-way Notion sync | Planned |
+| Agent profiles as files, run by a local organization host | Available now |
+| Agent profiles in the app | Planned |
+| Schedule triggers | Available now |
+| Slack messages that start work | Available now, in the local organization host |
+| Issue event triggers | Available now in the local organization host, for GitHub issues |
+| Task event triggers, and issue events everywhere | Planned |
+| Flows | Available now |

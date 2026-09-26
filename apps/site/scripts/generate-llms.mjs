@@ -59,8 +59,9 @@ function walk(dir) {
 }
 walk(docsRoot)
 
-const groups = ["app", "tutorials", "guides", "concepts", "reference", "troubleshooting", "migration", "examples"]
+const groups = ["how-it-works", "app", "tutorials", "guides", "concepts", "reference", "troubleshooting", "migration", "examples"]
 const groupLabel = {
+  "how-it-works": "How Smithers works",
   app: "Use the app",
   tutorials: "Tutorials",
   guides: "How-to guides",

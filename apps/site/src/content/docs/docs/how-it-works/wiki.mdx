@@ -1,0 +1,35 @@
+---
+title: "Wiki"
+description: "The wiki is what your team knows: versioned, tied to its sources, and kept current as the code changes."
+sidebar:
+  order: 4
+---
+
+The **wiki** is what your team and your agents know about the project. People and agents both read it and write it. Agents read it as context when they plan work, so a good wiki makes every agent better.
+
+## Always versioned
+
+**Available now.** Every edit to a Smithers Cloud wiki page is saved as a new revision, and earlier revisions are kept. Two people editing the same page cannot silently overwrite each other: an edit names the revision it started from.
+
+The local [organization host](/docs/how-it-works/agents/#run-agents-with-the-organization-host) keeps its wiki as Markdown files in a git repository. Agents with write access edit pages there, and the host commits their edits and can push them to a shared remote. Pages that define the agents themselves are protected: an agent proposes those changes and you apply them.
+
+## Always tied to sources
+
+**Available now.** A note records where its facts came from, so you can check a claim before relying on it. In the app, open **Wiki** to read and edit notes, and use `/wiki.create owner/repo` to generate pages from the repository's code. See [Read and edit the Wiki](/docs/app/wiki/).
+
+## Always up to date
+
+The wiki follows the code. When a change lands, Smithers regenerates the pages that the change affects, reviews each against the code it describes, and publishes it. A page a person edited is kept as they wrote it.
+
+**Partly available.** the refresh after each landed change has been built in Smithers Cloud and is being rolled out. Until it is confirmed ([#1923](https://github.com/smithersai/smithers/issues/1923)), check a page's source revision before treating it as current.
+
+## Sync with knowledge tools
+
+A wiki can mirror into the knowledge tool your team uses, such as Notion. Sync is two-way: an edit on either side becomes a new revision on the other.
+
+**Planned.** No knowledge-tool sync exists yet.
+
+## Next
+
+- [Agents](/docs/how-it-works/agents/): agents read the wiki before they work.
+- [Read and edit the Wiki](/docs/app/wiki/): use the Wiki pane.

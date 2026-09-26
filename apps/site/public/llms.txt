@@ -13,6 +13,15 @@
 - [Installation](https://smithers.sh/docs/installation/): Install the Smithers CLI and libraries from the source checkout and verify the install.
 - [CLI quickstart](https://smithers.sh/docs/cli-quickstart/): Install the CLI, scaffold a flow, choose its model, and run it in your project.
 
+## How Smithers works
+
+- [How Smithers works](https://smithers.sh/docs/how-it-works/): The six ideas behind Smithers: threads, tasks, wiki, agents, triggers, and flows, and how they fit together.
+- [Threads](https://smithers.sh/docs/how-it-works/threads/): A thread is a conversation that lasts. Issues are threads, chats are threads, and threads can mirror into chat apps.
+- [Tasks](https://smithers.sh/docs/how-it-works/tasks/): A task is an issue that someone intends to finish: a thread with state, owners, and a definition of done.
+- [Wiki](https://smithers.sh/docs/how-it-works/wiki/): The wiki is what your team knows: versioned, tied to its sources, and kept current as the code changes.
+- [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a profile you write once: its job, its model, what it may touch, and what it remembers. Create one, configure it, and make it useful.
+- [Triggers and flows](https://smithers.sh/docs/how-it-works/triggers-and-flows/): A trigger is something that happens; a flow is the steps Smithers runs in response. Flows pick the right agent profile for each step at run time.
+
 ## Use the app
 
 - [The interface](https://smithers.sh/docs/app/): Find your way around the Smithers app: repositories, chat, cards, and the six main areas.
