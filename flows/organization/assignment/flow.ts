@@ -33,7 +33,7 @@ import { fieldTurn } from "../field-turn.ts"
 import type { Answer, Stage } from "../schema.ts"
 import { TeamPost } from "../team-channel.ts"
 
-const implementationVersion = "organization/assignment/v1"
+const implementationVersion = "organization/assignment/v2"
 
 const blocked = (payload: typeof Assignment.Type, summary: Planned.Planned<string> | string): Node.Node<AssignmentReport> =>
   Node.succeed({ key: payload.key, status: "blocked", summary, principal: payload.role, paths: [] } as unknown as AssignmentReport)
@@ -91,14 +91,16 @@ export default Flow.make("organization/assignment", {
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
         Actions.WriteReceipt.call({ runId: payload.key, name: "assignment", receipt: { assignment: payload, report: outcome } as never }).pipe(
           Node.bindPlanned(Node.capture({ implementationVersion }, (written) =>
-            Node.succeed(outcome).pipe(
-              Node.map(Node.capture({ implementationVersion, title: payload.title }, function(ended) {
-                return ended.status === "done"
-                  ? `Done: ${this.title}${ended.paths.length === 0 ? "" : ` · ${ended.paths.join(", ")}`}`
-                  : `Blocked: ${this.title}: ${ended.summary}`
+            Node.all({ ended: Node.succeed(outcome), receipt: Node.succeed(written.path) }).pipe(
+              // The pages it wrote, then its receipt, as links.
+              Node.map(Node.capture({ implementationVersion, title: payload.title }, function({ ended, receipt }) {
+                return {
+                  text: ended.status === "done" ? `Done: ${this.title}` : `Blocked: ${this.title}: ${ended.summary}`,
+                  refs: [...(ended.status === "done" ? ended.paths : []), receipt].map((path) => ({ kind: "page" as const, path }))
+                }
               })),
-              Node.bindPlanned(Node.capture({ implementationVersion }, (text) =>
-                TeamPost.call({ thread: payload.key, role: payload.role, text, link: written.path }))),
+              Node.bindPlanned(Node.capture({ implementationVersion }, (post) =>
+                TeamPost.call({ thread: payload.key, role: payload.role, text: post.text, refs: post.refs }))),
               Node.andThen(SettleAssignment.call({ report: outcome, receipt: written.path }))
             )))
         )))

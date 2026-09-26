@@ -3,11 +3,12 @@
  * fixture (the Web API over HTTP, Socket Mode over a real WebSocket) with
  * scripted seats: at start the host creates `#smithers-team`, joins it and
  * invites the owner, and a restart finds it again and invites nobody twice;
- * a hire is announced under the hiring role's name and starts a thread; a
+ * a hire is announced under the hiring role's name, linking the hire's page
+ * (pushed to the wiki's remote first), and starts a thread; a
  * role asked in that thread reads it back from Slack and answers there under
  * its own name, and a role it names answers in turn, never itself; nobody
  * mentions the owner; the app's own posts are not taken as requests; and the
- * owner's message in the thread is that thread's input, acknowledged there.
+ * owner's message in the thread is that thread's input, marked 👀.
  * A second host whose app lacks the channel scopes keeps the wiki log only.
  *
  * Run: node --test flows/test/organization-team-channel.test.mjs
@@ -17,7 +18,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { after, describe, it } from "node:test"
 import { ok, refuse, startSlackFixture } from "../../packages/smithers/agent/integrations/test/SlackFixture.ts"
-import { cleanup, host, organization, pause, repository, settled } from "../organization/testing/harness.mjs"
+import { cleanup, host, organization, pause, pushed, repository, settled, wikiRemote } from "../organization/testing/harness.mjs"
 
 const fixtures = []
 after(async () => {
@@ -59,8 +60,13 @@ describe("the organization's team channel", () => {
   it("creates, joins and invites once, threads persona posts, reads them back, and routes the owner's input", { timeout: 300_000 }, async () => {
     const channels = []
     let posted = 0
+    const root = organization()
+    const bare = wikiRemote(root)
+    const unpushed = []
     const fixture = await startSlackFixture((request, response) => {
       switch (request.method) {
+        case "reactions.add":
+          return ok(response, {})
         case "apps.connections.open":
           return ok(response, { url: fixture.socketUrl() })
         case "conversations.list":
@@ -81,13 +87,16 @@ describe("the organization's team channel", () => {
             ]
           })
         case "chat.postMessage":
+          // Every wiki page a post links is on the wiki's remote already.
+          for (const [, path] of (request.params.text ?? "").matchAll(/<https:\/\/github\.com\/example\/wiki\/blob\/main\/([^|>]+)\|/g)) {
+            if (!pushed(bare, decodeURIComponent(path))) unpushed.push(path)
+          }
           return ok(response, { channel: request.params.channel, ts: `1800000100.${String(++posted).padStart(6, "0")}` })
         default:
           return refuse(response, "unknown_method")
       }
     })
     fixtures.push(fixture)
-    const root = organization()
     const handle = await host(root, repository(), slackEnvironment(fixture))
     await handle.start()
     const peer = await fixture.nextPeer()
@@ -102,8 +111,11 @@ describe("the organization's team channel", () => {
     // A hire is announced under the hiring role's name and starts its thread.
     const hired = await handle.ops.start("organization/hire", { key: "hire-research", parent: "lead", need: "A sourced pricing brief." }, "hire-research")
     assert.equal((await settled(handle, hired.runId)).status, "completed", handle.output())
-    const announcement = posts().find((call) => call.params.text === "Hired lead.researcher · Org/Specialists/lead.researcher.md")
+    const announcement = posts().find((call) =>
+      call.params.text === "Hired <https://github.com/example/wiki/blob/main/Org/Specialists/lead.researcher.md|lead.researcher>"
+    )
     assert.ok(announcement, JSON.stringify(posts().map((call) => call.params.text)))
+    assert.deepEqual(unpushed, [])
     assert.equal(announcement.params.username, "Lead")
     assert.equal(announcement.params.thread_ts, undefined)
     const parent = "1800000100.000001"
@@ -129,7 +141,7 @@ describe("the organization's team channel", () => {
     assert.equal(posts().filter((call) => call.params.username === "Checker").length, 1)
     assert.ok(fixture.calls.every((call) => !String(call.params.text ?? "").includes("<@UOWNER>")))
     const wiki = readFileSync(join(root, "Org/Team/Channel.md"), "utf8")
-    assert.match(wiki, /lead · Hired lead\.researcher · Org\/Specialists\/lead\.researcher\.md · \[hire-research\]/)
+    assert.match(wiki, /lead · Hired \[\[Org\/Specialists\/lead\.researcher\|lead\.researcher\]\] · \[hire-research\]/)
     assert.match(wiki, /builder · Noted: @checker verify the hire · \[hire-research\]/)
 
     // The app's own post in the channel is not a request.
@@ -149,10 +161,11 @@ describe("the organization's team channel", () => {
     await pause(2_000)
     assert.equal((await handle.ops.runs({})).length, before)
 
-    // The owner's message in the thread is that thread's input: acknowledged in the thread, kept in the wiki.
+    // The owner's message in the thread is that thread's input: marked 👀, kept in the wiki.
     event(2, { user: "UOWNER", text: "Hold the brief until Friday." })
-    const ack = await waitFor(() => posts().find((call) => call.params.text === "On it."), "the acknowledgment")
-    assert.equal(ack.params.thread_ts, parent)
+    const ack = await waitFor(() => calls("reactions.add").find((call) => call.params.name === "eyes"), "the acknowledgment")
+    assert.deepEqual([ack.params.channel, ack.params.timestamp], ["C0TEAM", "1800000300.000002"])
+    assert.equal(posts().some((call) => call.params.text === "On it."), false)
     assert.match(readFileSync(join(root, "Org/Team/Channel.md"), "utf8"), /owner · Hold the brief until Friday\. · \[hire-research\]/)
 
     // A restart finds the channel and invites nobody twice.
@@ -179,6 +192,6 @@ describe("the organization's team channel", () => {
     const hired = await handle.ops.start("organization/hire", { key: "hire-research", parent: "lead", need: "A sourced pricing brief." }, "hire-research")
     assert.equal((await settled(handle, hired.runId)).status, "completed", handle.output())
     assert.equal(fixture.calls.filter((call) => call.method === "chat.postMessage").length, 0)
-    assert.match(readFileSync(join(root, "Org/Team/Channel.md"), "utf8"), /lead · Hired lead\.researcher/)
+    assert.match(readFileSync(join(root, "Org/Team/Channel.md"), "utf8"), /lead · Hired \[\[Org\/Specialists\/lead\.researcher\|lead\.researcher\]\]/)
   })
 })

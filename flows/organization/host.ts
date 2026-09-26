@@ -57,6 +57,7 @@ import meetingsReply from "./meetings-reply/flow.ts"
 import * as Schedule from "./schedule.ts"
 import status from "./status/flow.ts"
 import * as Autonomy from "./autonomy.ts"
+import * as Links from "./links.ts"
 import assignment from "./assignment/flow.ts"
 import digest from "./digest/flow.ts"
 import routine from "./routine/flow.ts"
@@ -125,6 +126,8 @@ export interface Options {
   readonly environment: Readonly<Record<string, string | undefined>>
   /** The gateway's bearer credential; its principal may decide what the local operator may. */
   readonly credential: string
+  /** Renders what the host posts to Slack with links; {@link linksOf} the settings when absent. */
+  readonly links?: Links.Linker | undefined
 }
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex")
@@ -315,6 +318,28 @@ export const pullsOf = (settings: Settings): Record<string, { readonly remote: s
     return entry?.landing === "pr" && github !== undefined ? [[name, { remote: entry.remote ?? "origin", github }]] : []
   }))
 
+/**
+ * The host's linker (`links.ts`): the wiki's pages at `wiki.webUrl` or its
+ * GitHub upstream, pushed first when the page has `wiki.commit` and
+ * `wiki.sync: push`; the configured repositories' issues, pull requests,
+ * commits and branches on GitHub.
+ */
+export const linksOf = (settings: Settings): Links.Linker => {
+  const wiki = settings.organization.wiki
+  return Links.make({
+    root: settings.root,
+    stateDir: settings.stateDir,
+    generatedDir: wiki.generatedDir,
+    webUrl: wiki.webUrl,
+    publish: wiki.commit && wiki.sync === "push" ? Wiki.hostPaths(settings.organization) : undefined,
+    repositories: Object.fromEntries(Object.entries(settings.repositories).map(([name, path]) => [name, {
+      path,
+      github: githubOf(settings, name),
+      remote: settings.organization.repositories?.[name]?.remote
+    }]))
+  })
+}
+
 /** The teams' pages, where the organization page does not say otherwise. */
 export const teamDirs = (settings: Settings) => ({
   teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team",
@@ -339,7 +364,8 @@ const autonomyOf = (settings: Settings, options: Options): Autonomy.Options => (
     return github === undefined ? [] : [[name, { github, ...(issues === undefined ? {} : { issues }) }]]
   })),
   environment: options.environment,
-  owner: options.slack ? settings.owners[0] : undefined
+  owner: options.slack ? settings.owners[0] : undefined,
+  links: options.links ?? linksOf(settings)
 })
 
 /**
@@ -400,6 +426,7 @@ const registrations = (
       Layer.provide(SlackConnections.layerFromEnvironment({ containers: ["*"] }, options.environment))
     )
     : Layer.empty
+  const links = options.links ?? linksOf(settings)
   return Layer.mergeAll(
     Actions.layer({
       repositories: settings.repositories,
@@ -418,9 +445,10 @@ const registrations = (
       generatedDir: organization.wiki.generatedDir,
       statusFile: organization.wiki.statusFile,
       pulls: pullsOf(settings),
-      environment: options.environment
+      environment: options.environment,
+      links
     }),
-    Autonomy.layer(autonomyOf(settings, options), platform),
+    Autonomy.layer(autonomyOf(settings, { ...options, links }), platform),
     Staff.layer({
       root: settings.root,
       rosterDir: organization.rosterDir,
@@ -436,7 +464,8 @@ const registrations = (
       assistant: organization.assistant,
       owner: options.slack ? settings.owners[0] : undefined,
       environment: options.environment,
-      calendar: Meetings.calendarOf(options.environment)
+      calendar: Meetings.calendarOf(options.environment),
+      links
     }),
     slack,
     TeamChannel.layer({
@@ -444,7 +473,8 @@ const registrations = (
       stateDir: settings.stateDir,
       teamDir: organization.autonomy?.teamDir ?? "Org/Team",
       environment: options.environment,
-      assistant: organization.assistant
+      assistant: organization.assistant,
+      links
     }),
     ...registered.map((declaration) => Interpreter.layer(declaration as never))
   ).pipe(

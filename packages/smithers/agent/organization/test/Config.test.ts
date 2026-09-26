@@ -178,6 +178,20 @@ describe("the organization page", () => {
     expect(on.vm.network).toBe(true)
   })
 
+  it("takes the wiki's web address, and refuses one that is not https", async () => {
+    const page = (url: string) => organizationPage.replace("  push: false\n", `  push: false\n  webUrl: ${url}\n`)
+    const parsed = await run(Config.parseOrganization("o.md", page("https://github.com/acme/wiki/blob/main")))
+    expect(parsed.wiki.webUrl).toBe("https://github.com/acme/wiki/blob/main")
+    expect(await flip(Config.parseOrganization("o.md", page("http://example.com/wiki")))).toMatchObject({
+      code: "schema",
+      field: "wiki.webUrl"
+    })
+    expect(await flip(Config.parseOrganization("o.md", page("https://example.com/wiki/")))).toMatchObject({
+      code: "schema",
+      field: "wiki.webUrl"
+    })
+  })
+
   it("parses each repository's environment and converts it for the workspaces", async () => {
     const page = organizationPage.replace(
       "  maxConcurrentVMs: 2\n",

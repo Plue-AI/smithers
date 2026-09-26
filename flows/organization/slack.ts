@@ -1,7 +1,8 @@
 /**
  * The host's one Slack app: owner messages become `organization/intake`
  * runs, and approval gates parked under a Slack request are asked in its
- * thread with buttons.
+ * thread with buttons, their references linked (`links.ts`), and the owner's
+ * message marked ⏸️ until the gate is answered.
  *
  * Admission is the source's, fail-closed: only the configured workspace,
  * and only the owners' direct messages or mentions in a listed channel;
@@ -25,6 +26,7 @@ import type * as Payload from "../../packages/smithers/agent/integrations/src/sl
 import * as SlackClient from "../../packages/smithers/agent/integrations/src/slack/SlackClient.ts"
 import * as SocketSource from "../../packages/smithers/agent/integrations/src/slack/SocketSource.ts"
 import { type Control, operations } from "./client.ts"
+import * as Links from "./links.ts"
 import { meetingThread } from "./meetings.ts"
 import type { Request } from "./schema.ts"
 import * as TeamChannel from "./team-channel.ts"
@@ -32,7 +34,7 @@ import * as TeamChannel from "./team-channel.ts"
 /** What the host remembers about Slack between restarts. */
 interface State {
   /** The intake run a Slack thread started. */
-  readonly threads: Record<string, { readonly channel: string; readonly thread: string }>
+  readonly threads: Record<string, { readonly channel: string; readonly thread: string; readonly message?: string | undefined }>
   /** Approval prompts by button token. */
   readonly prompts: Record<string, {
     readonly runId: string
@@ -73,7 +75,7 @@ export const requestOf = (event: ExternalEvent): Request | undefined => {
     text: text.slice(0, 8_000),
     source: "slack",
     user,
-    conversation: { provider: "slack", channel, thread }
+    conversation: { provider: "slack", channel, thread, message: ts }
   }
 }
 
@@ -89,6 +91,8 @@ export interface Options {
   readonly pollEvery?: Duration.Input | undefined
   /** The team channel's wiki copy: the owner's messages there are recorded in it. */
   readonly team?: { readonly root: string; readonly teamDir: string } | undefined
+  /** Renders a gate prompt's references as links. */
+  readonly links?: Links.Linker | undefined
 }
 
 /**
@@ -125,6 +129,17 @@ export const run = (options: Options) =>
     const client = SlackClient.make({}, options.environment)
     const owners = options.policy.allowedUserIds ?? []
     const call = (method: string, params: Readonly<Record<string, unknown>>) => client.call(method, params)
+    const links = options.links ?? Links.none
+    // The owner's message is marked while a gate waits; a reaction already there, or gone, is no error.
+    const mark = (method: "reactions.add" | "reactions.remove", thread: State["threads"][string] | undefined) =>
+      thread === undefined
+        ? Effect.void
+        : call(method, { channel: thread.channel, timestamp: thread.message ?? thread.thread, name: "double_vertical_bar" }).pipe(
+          Effect.catch((error) =>
+            /already_reacted|no_reaction/.test(error.message) ? Effect.void : Effect.logWarning(`organization gate ${method}`, error.message)
+          ),
+          Effect.asVoid
+        )
 
     const onEvent = (event: ExternalEvent) =>
       Effect.gen(function*() {
@@ -166,6 +181,7 @@ export const run = (options: Options) =>
           ops.answer({ gateId: prompt.gateId, runId: prompt.runId, approved: decision.approved, reason: `decided in Slack by ${decision.decidedBy}` })
         )
         update((current) => ({ ...current, prompts: { ...current.prompts, [token]: { ...prompt, settled: true } } }))
+        yield* mark("reactions.remove", state.threads[prompt.runId])
         yield* call("chat.update", {
           channel: prompt.channel,
           ts: prompt.ts,
@@ -182,12 +198,13 @@ export const run = (options: Options) =>
         if (thread === undefined) continue
         const token = Approval.token(`${gate.runId}/${gate.gateId}/${gate.subjectDigest}`)
         if (state.prompts[token] !== undefined) continue
+        const text = links.slack(gate.prompt.slice(0, 2_900))
         const posted = yield* call("chat.postMessage", {
           channel: thread.channel,
           thread_ts: thread.thread,
-          text: gate.prompt.slice(0, 3_000),
+          text: text.slice(0, 3_000),
           blocks: [
-            { type: "section", text: { type: "mrkdwn", text: gate.prompt.slice(0, 2_900) } },
+            { type: "section", text: { type: "mrkdwn", text: text.slice(0, 2_900) } },
             ...Approval.blocks({ mode: "approve", token, allowedUserIds: owners })
           ]
         })
@@ -204,6 +221,7 @@ export const run = (options: Options) =>
             }
           }
         }))
+        yield* mark("reactions.add", thread)
       }
     }).pipe(Effect.catchCause((cause) => Effect.logWarning("organization gate prompts", cause)))
 

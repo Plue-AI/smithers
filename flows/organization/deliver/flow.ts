@@ -11,7 +11,12 @@
  * repository's landing `pr` that branch is pushed and opened as a pull
  * request. Every handoff and verdict is posted to the team channel. Every
  * ending, including a failure, writes a receipt under the organization's
- * generated directory and, for a Slack request, ends its thread with one line.
+ * generated directory and, for a Slack request, ends its thread with one line
+ * that links what it names, and turns the owner's 👀 into ✅ or ❌.
+ *
+ * A question is not a task: the assistant answers it (`fields.answer`), or
+ * routes it to the role that knows (`fields.question`), which answers it in
+ * one reply with no contract, workspace, or checks.
  *
  * Gates attach at two named boundaries, from the admission's policy:
  *
@@ -35,10 +40,12 @@ import {
   Admission,
   AgainTask,
   Answer,
+  AnswerTask,
   Assign,
   type Assignment,
   BuildTask,
   CheckTask,
+  Closing,
   CorrectTask,
   Decide,
   DeliveryFailed,
@@ -52,20 +59,22 @@ import {
   type Stage,
   StepFailure,
   DisposeWorkspaces,
-  Headline,
   hostFields,
   HostRoute,
   PublishChange,
+  React,
   ReadAsk,
   WriteDocument
 } from "../schema.ts"
+import { fieldTurn } from "../field-turn.ts"
+import type { Ref } from "../links.ts"
 import Delegate from "../delegate/flow.ts"
 import Hire from "../hire/flow.ts"
 import MeetingsBook from "../meetings-book/flow.ts"
 import { slackConnection } from "../slack-connection.ts"
 import { TeamPost } from "../team-channel.ts"
 
-const implementationVersion = "organization/deliver/v10"
+const implementationVersion = "organization/deliver/v11"
 
 /** Why a builder whose turn left no change is asked again. */
 const noChangeAgain =
@@ -394,6 +403,7 @@ const work = (payload: Payload) => {
       routed(payload, pin.revision).pipe(
         Node.bindPlanned(Node.capture({ implementationVersion }, (routed) =>
           withAsk(payload, routed, () =>
+          questioned(payload, pin.revision, routed, () =>
           say(payload, admission.assistant, Node.succeed(routed).pipe(
             Node.map(Node.capture({ implementationVersion }, (seen) => {
               const handoff = seen.result.handoffs[0]
@@ -483,9 +493,48 @@ const work = (payload: Payload) => {
                 ))))
                 )
             })
-          ))))
+          )))))
       )))
   )
+}
+
+/**
+ * A question's delivery: the assistant's own answer, or the answer of the one
+ * role it routed the question to (`fields.question`), as the report whose
+ * thread ends with it. Anything else is not a question and goes on.
+ */
+const questioned = (
+  payload: Payload,
+  revision: Planned.Planned<string>,
+  routed: Planned.Planned<Answer>,
+  otherwise: () => Node.Node<Report, Failure, any>
+): Node.Node<Report, Failure, any> => {
+  const answeredBy = (answer: Node.Node<Answer, any, any>) =>
+    answer.pipe(Node.map(Node.capture({ implementationVersion, key: payload.request.key, assistant: payload.admission.assistant }, function(seen): Report {
+      // The answer a valid `done` result carries in `fields.answer`; empty when none.
+      const field = seen.result.fields["answer"]
+      const text = seen.valid && seen.result.status === "done" && typeof field === "string" ? field.trim() : ""
+      const principals = { assistant: this.assistant, lead: seen.principal }
+      return text === ""
+        ? { key: this.key, status: "blocked", summary: seen.result.summary, principals, rounds: 0 }
+        : { key: this.key, status: "answered", summary: text.slice(0, 2_000), principals, rounds: 0, answer: { principal: seen.principal, text } }
+    }))) as Node.Node<Report, Failure, any>
+  return Node.succeed(routed).pipe(Node.branch({
+    if: Node.capture({ implementationVersion }, (seen) =>
+      seen.valid && seen.result.status === "done" && seen.result.handoffs.length === 0 &&
+      typeof seen.result.fields["answer"] === "string" && seen.result.fields["answer"].trim() !== ""),
+    then: () => answeredBy(Node.succeed(routed)),
+    else: () =>
+      Node.succeed(routed).pipe(Node.branch({
+        if: Node.capture({ implementationVersion }, (seen) =>
+          seen.valid && seen.result.status === "done" && seen.result.fields["question"] === true && seen.result.handoffs.length === 1),
+        then: () =>
+          AnswerTask.call({ revision, request: payload.request, routed }).pipe(
+            Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => answeredBy(fieldTurn(revision, stage, ["answer"]))))
+          ),
+        else: () => otherwise()
+      }))
+  })) as Node.Node<Report, Failure, any>
 }
 
 /**
@@ -603,11 +652,12 @@ const progress = (
   payload: Payload,
   speaker: Planned.Planned<string> | string,
   text: Planned.Planned<string> | string,
-  step: string
+  step: string,
+  refs?: Planned.Planned<ReadonlyArray<Ref>>
 ): Node.Node<unknown, Failure, any> => {
   const conversation = payload.request.conversation
   if (conversation === undefined) return Node.succeed(undefined)
-  return RenderReply.call({ speaker, text }).pipe(
+  return RenderReply.call({ speaker, text, ...(refs === undefined ? {} : { refs: refs as unknown as ReadonlyArray<Ref> }) }).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (reply) =>
       Slack.PostMessage.call({
         connectionId: slackConnection,
@@ -634,6 +684,18 @@ const failed = (payload: Payload, failure: unknown): Node.Node<Report, Failure, 
     }))
   )
 
+/** The owner's message's reactions: `remove`, then `add`; nothing for a request with no thread. */
+const reacted = (payload: Payload, remove: ReadonlyArray<string>, add: Planned.Planned<string>): Node.Node<unknown, Failure, any> => {
+  const conversation = payload.request.conversation
+  if (conversation === undefined) return Node.succeed(null)
+  return React.call({
+    channel: conversation.channel,
+    ts: conversation.message ?? conversation.thread,
+    remove,
+    add: [add as unknown as string]
+  }) as Node.Node<unknown, Failure, any>
+}
+
 /** Receipt, reply, and the run's own ending, for any report. */
 const finish = (payload: Payload, outcome: Planned.Planned<Report>) =>
   Actions.WriteReceipt.call({
@@ -642,12 +704,18 @@ const finish = (payload: Payload, outcome: Planned.Planned<Report>) =>
     receipt: { request: payload.request, admission: payload.admission, report: outcome }
   }).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (written) =>
-      // The owner's thread and the team channel get one line; the contract
-      // and the checker's verdict are in the receipt.
-      Headline.call({ report: outcome, receipt: written.path }).pipe(
-        Node.bindPlanned(Node.capture({ implementationVersion }, (line) =>
-          TeamPost.call({ thread: payload.request.key, role: payload.admission.assistant, text: line }).pipe(
-            Node.andThen(progress(payload, payload.admission.assistant, line, "result"))
+      // The owner's thread and the team channel get one line, with its
+      // links; the contract and the checker's verdict are in the receipt.
+      Closing.call({
+        report: outcome,
+        receipt: written.path,
+        assistant: payload.admission.assistant,
+        repository: payload.admission.repository
+      }).pipe(
+        Node.bindPlanned(Node.capture({ implementationVersion }, (closing) =>
+          TeamPost.call({ thread: payload.request.key, role: closing.speaker, text: closing.text, refs: closing.refs }).pipe(
+            Node.andThen(progress(payload, closing.speaker, closing.text, "result", closing.refs)),
+            Node.andThen(reacted(payload, ["eyes", "double_vertical_bar"], closing.reaction))
           ))),
         Node.andThen(Settle.call({ report: outcome, receipt: written.path }))
       )))

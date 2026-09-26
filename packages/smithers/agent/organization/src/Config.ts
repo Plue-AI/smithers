@@ -365,7 +365,15 @@ export const Organization = Schema.Struct({
      * upstream with a rebase and pushes to its tracking branch; a conflict is
      * aborted and reported, never forced. Default `off`.
      */
-    sync: Schema.optionalKey(Schema.Literals(["push", "off"]))
+    sync: Schema.optionalKey(Schema.Literals(["push", "off"])),
+    /**
+     * The wiki's web address that a page path is appended to, such as
+     * `https://github.com/owner/wiki/blob/main`. Default: derived from a
+     * GitHub upstream remote.
+     */
+    webUrl: Schema.optionalKey(Schema.String.check(
+      Schema.isPattern(/^https:\/\/[^\s<>|]+[^/\s<>|]$/, { expected: "an https URL without a trailing slash" })
+    ))
   })
 })
 

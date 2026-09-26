@@ -70,6 +70,33 @@ export const organization = (edit = () => {}) => {
   return root
 }
 
+/**
+ * Makes the organization root a git checkout whose `main` tracks a local bare
+ * remote, with `wiki.commit`, `wiki.sync: push`, and `wiki.webUrl`, so the
+ * host pushes a page before it posts a link to it. Returns the bare remote.
+ */
+export const wikiRemote = (root, webUrl = "https://github.com/example/wiki/blob/main") => {
+  const page = join(root, "Org/Organization.md")
+  writeFileSync(page, readFileSync(page, "utf8").replace(
+    "  commit: false\n  push: false\n",
+    `  commit: true\n  push: false\n  sync: push\n  webUrl: ${webUrl}\n`
+  ))
+  const bare = mkdtempSync(join(tmpdir(), "organization-e2e-wiki-"))
+  scratch.push(bare)
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare])
+  git(root, "init", "-q", "-b", "main")
+  git(root, "config", "user.name", "Fixture")
+  git(root, "config", "user.email", "fixture@example.invalid")
+  git(root, "add", ".")
+  git(root, "commit", "-qm", "Organization")
+  git(root, "remote", "add", "origin", bare)
+  git(root, "push", "-q", "-u", "origin", "main")
+  return bare
+}
+
+/** Whether the bare remote's `main` holds `path`. */
+export const pushed = (bare, path) => spawnSync("git", ["--git-dir", bare, "cat-file", "-e", `main:${path}`]).status === 0
+
 /** A fixture repository named `example/demo` in the example roster's grants. */
 export const repository = () => {
   const repo = mkdtempSync(join(tmpdir(), "organization-e2e-repo-"))

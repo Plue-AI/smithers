@@ -4,16 +4,20 @@
  * threaded per key, written to the wiki copy, never twice; the owner
  * mentioned only by the assistant, once per thread; replies a post asks of
  * other roles, within the thread's budget; the thread read back from Slack;
- * an owner's message in a thread routed as that thread's input; and the wiki
- * log alone while the app lacks its scopes.
+ * an owner's message in a thread routed as that thread's input; the wiki
+ * log alone while the app lacks its scopes; and every kind of post with its
+ * references as links whose pages the upstream holds when Slack gets it.
  */
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
 import { Effect, Fiber } from "effect"
 import { ok, refuse, type SlackFixture, startSlackFixture } from "../../packages/smithers/agent/integrations/test/SlackFixture.ts"
+import { closing } from "./actions.ts"
+import * as Links from "./links.ts"
 import { teamRequest } from "./slack.ts"
 import * as TeamChannel from "./team-channel.ts"
 
@@ -220,4 +224,109 @@ test("an owner's message in a team thread is that thread's input, recorded in th
   // A DM is not a team message.
   const direct = { ...request, conversation: { provider: "slack" as const, channel: "D0OWNER", thread: "1" } }
   assert.equal(teamRequest(stateDir, { root, teamDir: "Org/Team" }, direct, 0), direct)
+})
+
+test("every kind of post links what it names, each page pushed before the post, the label in place of the path", async () => {
+  const world: World = { channels: [{ id: "C0TEAM", name: "smithers-team" }], scopes: true, posted: 0 }
+  const { root, stateDir } = dirs()
+  const git = (cwd: string, ...args: ReadonlyArray<string>) =>
+    execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+  const bare = join(root, "..", "wiki.git")
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare])
+  git(root, "init", "-q", "-b", "main")
+  git(root, "config", "user.name", "Fixture")
+  git(root, "config", "user.email", "fixture@example.invalid")
+  const page = (path: string, text = `# ${path}\n`) => {
+    mkdirSync(join(root, path, ".."), { recursive: true })
+    writeFileSync(join(root, path), text)
+  }
+  const comment = "Org/Proposals/2026-09-26-security-vm-cancel-revocation-proof.md"
+  page(comment)
+  git(root, "add", ".")
+  git(root, "commit", "-qm", "init")
+  git(root, "remote", "add", "origin", bare)
+  git(root, "push", "-q", "-u", "origin", "main")
+  // What each post links must be on the upstream when Slack receives the post.
+  const web = "https://github.com/acme/wiki/blob/main/"
+  const missing: Array<string> = []
+  const fixture = await startSlackFixture((call, response) => {
+    if (call.method === "chat.postMessage") {
+      for (const [, path] of (call.params.text ?? "").matchAll(/<https:\/\/github\.com\/acme\/wiki\/blob\/main\/([^|>]+)\|/g)) {
+        try {
+          execFileSync("git", ["--git-dir", bare, "cat-file", "-e", `main:${decodeURIComponent(path!)}`], { stdio: "ignore" })
+        } catch {
+          missing.push(decodeURIComponent(path!))
+        }
+      }
+      return ok(response, { channel: call.params.channel, ts: `1800000000.${String(++world.posted).padStart(6, "0")}` })
+    }
+    if (call.method === "conversations.list") return ok(response, { channels: world.channels, response_metadata: { next_cursor: "" } })
+    return call.method === "conversations.join" || call.method === "conversations.invite" ? ok(response, {}) : refuse(response, "unknown_method")
+  })
+  fixtures.push(fixture)
+  const env = environment(fixture)
+  await Effect.runPromise(TeamChannel.ensure({ stateDir, environment: env }, () => {}))
+  const links = Links.make({
+    root,
+    stateDir,
+    generatedDir: "Org/Runs",
+    webUrl: "https://github.com/acme/wiki/blob/main",
+    publish: ["Org/Runs", "Org/Specialists", "Org/Team", "Org/Proposals", "Org/Requests"],
+    repositories: { "acme/demo": { path: root, github: "acme/demo" } }
+  })
+  const options = { root, stateDir, teamDir: "Org/Team", environment: env, assistant: "assistant", links }
+  const say = (entry: Omit<TeamChannel.Post, "name">, name = entry.role) =>
+    Effect.runPromise(TeamChannel.post(options, { ...entry, name }))
+  const landed = closing({
+    key: "cli-1",
+    status: "landed",
+    summary: "ok",
+    principals: {},
+    rounds: 1,
+    applied: { branch: "organization/cli-1", commit: "0123456789abcdef0123456789abcdef01234567" } as never
+  }, "Org/Runs/cli-1/deliver.json", "assistant", "acme/demo")
+  const kinds: ReadonlyArray<readonly [string, Omit<TeamChannel.Post, "name">, ReadonlyArray<string>]> = [
+    ["hire", { thread: "hire-1", role: "lead", text: "Hired lead.researcher", link: "Org/Specialists/lead.researcher.md" }, ["Org/Specialists/lead.researcher.md"]],
+    ["handoff", { thread: "issue-7", role: "lead", text: "Handoff → builder: fix it", refs: [{ kind: "issue", github: "acme/demo", number: 7 }] }, []],
+    ["progress", { thread: "cli-1", role: "checker", text: "Round 1: changes requested: see Org/Runs/cli-1/findings.md and #7" }, ["Org/Runs/cli-1/findings.md"]],
+    ["onboarding", { thread: "onboarding-1", role: "lead", text: "Onboarding written", link: "Org/Team/lead/Onboarding.md" }, ["Org/Team/lead/Onboarding.md"]],
+    ["proposal", { thread: "onboarding-1", role: "lead", text: "Proposal: Ship X", link: "Org/Proposals/2026-09-26-lead-ship-x.md" }, ["Org/Proposals/2026-09-26-lead-ship-x.md"]],
+    ["comment", { thread: "onboarding-2", role: "builder", text: "Commented on 2026-09-26-security-vm-cancel-revocation-proof", link: comment }, []],
+    ["request", { thread: "onboarding-2", role: "assistant", text: "Needs you: Pick the release", link: "Org/Requests/2026-09-26-lead-pick.md", mention: true }, ["Org/Requests/2026-09-26-lead-pick.md"]],
+    ["routine", { thread: "routine-weekly", role: "lead", text: "Done: weekly", refs: [{ kind: "page", path: "Org/Runs/routines/weekly/2026-09-26.md" }, { kind: "page", path: "Org/Runs/routine-weekly/assignment.json" }] }, ["Org/Runs/routines/weekly/2026-09-26.md", "Org/Runs/routine-weekly/assignment.json"]],
+    ["priorities", { thread: "onboarding-3", role: "lead", text: "Priorities: 1 accepted of 2", link: "Org/Team/Priorities.md" }, ["Org/Team/Priorities.md"]],
+    ["reply", { thread: "hire-1", role: "builder", text: "@checker `Org/Team/lead/Onboarding.md` is in Org/Team/lead/Onboarding.md." }, []],
+    ["final", { thread: "cli-1", role: landed.speaker, text: landed.text, refs: landed.refs }, ["Org/Runs/cli-1/deliver.json"]]
+  ]
+  const texts: Record<string, string> = {}
+  for (const [kind, entry, written] of kinds) {
+    // Each page is new when its post goes out, as the host writes it just before.
+    for (const path of written) page(path)
+    assert.equal(await say(entry), "slack", kind)
+    texts[kind] = methods(fixture, "chat.postMessage").at(-1)!.params.text!
+  }
+  assert.deepEqual(missing, [])
+  const link = (path: string, label: string) => `<${web}${path}|${label}>`
+  assert.deepEqual(texts, {
+    hire: `Hired ${link("Org/Specialists/lead.researcher.md", "lead.researcher")}`,
+    handoff: "Handoff → builder: fix it · <https://github.com/acme/demo/issues/7|#7>",
+    progress: `Round 1: changes requested: see ${link("Org/Runs/cli-1/findings.md", "findings")} and <https://github.com/acme/demo/issues/7|#7>`,
+    onboarding: `${link("Org/Team/lead/Onboarding.md", "Onboarding")} written`,
+    proposal: `Proposal: Ship X · ${link("Org/Proposals/2026-09-26-lead-ship-x.md", "2026-09-26-lead-ship-x")}`,
+    comment: `Commented on ${link(comment, "2026-09-26-security-vm-cancel-revocation-proof")}`,
+    request: `<@UOWNER> Needs you: Pick the release · ${link("Org/Requests/2026-09-26-lead-pick.md", "2026-09-26-lead-pick")}`,
+    routine: `Done: weekly · ${link("Org/Runs/routines/weekly/2026-09-26.md", "2026-09-26")} · ${link("Org/Runs/routine-weekly/assignment.json", "receipt")}`,
+    priorities: `${link("Org/Team/Priorities.md", "Priorities")}: 1 accepted of 2`,
+    reply: `@checker \`Org/Team/lead/Onboarding.md\` is in ${link("Org/Team/lead/Onboarding.md", "Onboarding")}.`,
+    // Neither the branch nor the commit is on the remote: code, not a link.
+    final: `Landed on \`organization/cli-1\` \`0123456789ab\` · ${link("Org/Runs/cli-1/deliver.json", "receipt")}`
+  })
+  // No raw vault path outside code, and a path that does not exist is left as it is.
+  for (const text of Object.values(texts)) assert.doesNotMatch(text.replaceAll(/`[^`]*`|<[^>]*>/g, ""), /Org\//)
+  await say({ thread: "cli-9", role: "lead", text: "See Org/Nowhere.md" })
+  assert.equal(methods(fixture, "chat.postMessage").at(-1)!.params.text, "See Org/Nowhere.md")
+  // The wiki's copy names pages as wikilinks.
+  const wiki = readFileSync(join(root, "Org/Team/Channel.md"), "utf8")
+  assert.match(wiki, /builder · Commented on \[\[Org\/Proposals\/2026-09-26-security-vm-cancel-revocation-proof\|2026-09-26-security-vm-cancel-revocation-proof\]\] · \[onboarding-2\]/)
+  assert.match(wiki, /assistant · Landed on organization\/cli-1 0123456789ab · \[\[Org\/Runs\/cli-1\/deliver\.json\|receipt\]\] · \[cli-1\]/)
 })

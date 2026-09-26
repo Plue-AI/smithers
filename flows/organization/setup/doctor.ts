@@ -32,7 +32,7 @@ import {
 } from "./settings.ts"
 import * as NodeResolve from "./node.ts"
 import * as Subscriptions from "./subscriptions.ts"
-import { modelSeats, teamChannelScopes } from "./templates.ts"
+import { modelSeats, reactionScopes, teamChannelScopes } from "./templates.ts"
 import { atLeast } from "./version.ts"
 import * as Wiki from "../wiki.ts"
 import * as GitHub from "../github.ts"
@@ -288,6 +288,10 @@ const slackLines = async (env: DoctorOptions["env"], fetcher: Fetch): Promise<Ar
       lines.push(missing.length === 0
         ? pass("slack team", `#${nonEmpty(env.SMITHERS_SLACK_TEAM_CHANNEL) ?? "smithers-team"}`)
         : fail("slack team", `missing scopes ${missing.join(", ")}; the team channel is the wiki log until then`, "reinstall the app from the updated manifest"))
+      const unreacting = auth.scopes === undefined ? [] : reactionScopes.filter((scope) => !auth.scopes!.includes(scope))
+      lines.push(unreacting.length === 0
+        ? pass("slack reactions", "acknowledges with reactions")
+        : fail("slack reactions", `missing scope ${unreacting.join(", ")}; acknowledgements are posted as text until then`, "reinstall the app from the updated manifest"))
     }
   } catch (error) {
     lines.push(fail("slack", `auth.test: ${error instanceof Error ? error.message : String(error)}`, "check the network and rerun doctor"))

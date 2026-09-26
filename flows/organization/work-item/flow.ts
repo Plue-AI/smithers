@@ -34,7 +34,7 @@ import Intake from "../intake/flow.ts"
 import type { Report, Request } from "../schema.ts"
 import { TeamPost } from "../team-channel.ts"
 
-const implementationVersion = "organization/work-item/v1"
+const implementationVersion = "organization/work-item/v2"
 
 type Item = typeof WorkItem.Type
 
@@ -140,7 +140,12 @@ const take = (item: Item, triage: Planned.Planned<string>, taken: Planned.Planne
           Node.succeed(taken).pipe(
             Node.map(Node.capture({ implementationVersion }, (accepted) => `Handoff → ${accepted.owner}: ${accepted.reason}`)),
             Node.bindPlanned(Node.capture({ implementationVersion }, (text) =>
-              TeamPost.call({ thread: item.key, role: triage, text, ...(item.issue === undefined ? {} : { link: item.issue.url }) }))),
+              TeamPost.call({
+                thread: item.key,
+                role: triage,
+                text,
+                ...(item.issue === undefined ? {} : { refs: [{ kind: "issue" as const, github: item.issue.github, number: item.issue.number }] })
+              }))),
             Node.andThen(delivered(item, taken.owner, requestOf(item, taken)))
           )
       }))))

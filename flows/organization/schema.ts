@@ -19,6 +19,7 @@ import * as Gates from "../../packages/smithers/agent/organization/src/Gates.ts"
 import * as Profile from "../../packages/smithers/agent/organization/src/Profile.ts"
 import * as Prompt from "../../packages/smithers/agent/organization/src/Prompt.ts"
 import * as Workspace from "../../packages/smithers/agent/organization/src/Workspace.ts"
+import { Ref } from "./links.ts"
 
 /** A request key: the durable deduplication key of one request, such as `slack:T1:Ev1` or `cli:<uuid>`. */
 export const RequestKey = Schema.String.check(
@@ -29,7 +30,9 @@ export const RequestKey = Schema.String.check(
 export const Conversation = Schema.Struct({
   provider: Schema.Literal("slack"),
   channel: Schema.NonEmptyString,
-  thread: Schema.NonEmptyString
+  thread: Schema.NonEmptyString,
+  /** The message itself, which the host reacts to; the thread's parent when absent. */
+  message: Schema.optionalKey(Schema.NonEmptyString)
 })
 export type Conversation = typeof Conversation.Type
 
@@ -147,8 +150,19 @@ export const AgainTask = Action.make("organization/again-task", {
 
 /** The assistant's routing task for a request. */
 export const RouteTask = Action.make("organization/route-task", {
-  implementationVersion: "route-task/v2",
+  implementationVersion: "route-task/v3",
   payload: { revision: Schema.NonEmptyString, assistant: Profile.PrincipalId, request: Request },
+  success: Stage,
+  error: Authority.DispatchRefused
+})
+
+/**
+ * The task of the role the assistant routed a question to: answer it in
+ * `fields.answer`, with no contract, workspace, or checks.
+ */
+export const AnswerTask = Action.make("organization/answer-task", {
+  implementationVersion: "answer-task/v1",
+  payload: { revision: Schema.NonEmptyString, request: Request, routed: Answer },
   success: Stage,
   error: Authority.DispatchRefused
 })
@@ -189,8 +203,12 @@ export const Assignment = Schema.Struct({
 })
 export type Assignment = typeof Assignment.Type
 
-/** The host fields a role result may carry besides its charter's: asks the host acts on. */
-export const hostFields = ["hire", "meeting"] as const
+/**
+ * The host fields a role result may carry besides its charter's: asks the
+ * host acts on, and a question's answer (`answer`) or its routing to the
+ * role that knows (`question`).
+ */
+export const hostFields = ["hire", "meeting", "answer", "question"] as const
 
 /**
  * What a result asks the host for: a hire (`fields.hire`: `{ need, task?,
@@ -377,7 +395,9 @@ export const Report = Schema.Struct({
     summary: Schema.String,
     paths: Schema.Array(Schema.String)
   })),
-  receipt: Schema.optionalKey(Schema.String)
+  receipt: Schema.optionalKey(Schema.String),
+  /** A question's answer and the role that gave it: the thread's one reply. */
+  answer: Schema.optionalKey(Schema.Struct({ principal: Profile.PrincipalId, text: Schema.String }))
 })
 export type Report = typeof Report.Type
 
@@ -386,6 +406,41 @@ export const Headline = Action.make("organization/headline", {
   implementationVersion: "headline/v1",
   payload: { report: Report, receipt: Schema.String },
   success: Schema.NonEmptyString
+})
+
+/**
+ * How a delivery's thread ends: who says the one line, the line, what it
+ * points to (the pull request or branch and commit, the document, the
+ * receipt), and the reaction the owner's message ends with.
+ */
+export const Closing = Action.make("organization/closing", {
+  implementationVersion: "closing/v1",
+  payload: { report: Report, receipt: Schema.String, assistant: Profile.PrincipalId, repository: Profile.Container },
+  success: Schema.Struct({
+    speaker: Profile.PrincipalId,
+    text: Schema.NonEmptyString,
+    refs: Schema.Array(Ref),
+    reaction: Schema.NonEmptyString
+  })
+})
+
+/**
+ * Reacts to a Slack message: `remove` first, then `add`. A reaction already
+ * there, or already gone, is no error, so a retry repeats nothing. `reacted`
+ * is false when Slack is not connected or refused (a missing
+ * `reactions:write` most often), with the reason.
+ */
+export const React = Action.make("organization/react", {
+  implementationVersion: "react/v1",
+  payload: {
+    channel: Schema.NonEmptyString,
+    ts: Schema.NonEmptyString,
+    add: Schema.Array(Schema.NonEmptyString),
+    remove: Schema.Array(Schema.NonEmptyString)
+  },
+  success: Schema.Struct({ reacted: Schema.Boolean, reason: Schema.String }),
+  tier: "irreversible",
+  idempotencyKey: (payload) => `organization/react:${payload.channel}:${payload.ts}:${payload.remove.join(",")}:${payload.add.join(",")}`
 })
 
 /** Every failure a delivery step can raise. */
@@ -425,10 +480,10 @@ export const Reply = Schema.Struct({
   persona: Schema.Struct({ username: Schema.NonEmptyString })
 })
 
-/** Renders a report or a stage as a thread reply. */
+/** Renders a report or a stage as a thread reply, its references as Slack links (`links.ts`). */
 export const RenderReply = Action.make("organization/render-reply", {
-  implementationVersion: "render-reply/v1",
-  payload: { speaker: Schema.String, text: Schema.String },
+  implementationVersion: "render-reply/v2",
+  payload: { speaker: Schema.String, text: Schema.String, refs: Schema.optionalKey(Schema.Array(Ref)) },
   success: Reply
 })
 

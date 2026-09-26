@@ -17,8 +17,10 @@
  * `SMITHERS_ORGANIZATION_SCRIPTED_ROLES` names others, as JSON from principal
  * id to `route:<to>`, `contract:<builder>,<checker>`, `build`, `check`, or
  * `document` (the role answers the request itself, with no handoff),
- * `ask-hire` (it asks the host for a hire with a first task), or `ask-meeting`
- * (it asks for thirty minutes with the owner), so
+ * `ask-hire` (it asks the host for a hire with a first task), `ask-meeting`
+ * (it asks for thirty minutes with the owner), `answer` (it answers a
+ * question itself in `fields.answer`), or `question:<to>` (it routes a
+ * question to `<to>`, which answers it with {@link scriptedAnswer}), so
  * the same script drives any roster.
  *
  * With `SMITHERS_ORGANIZATION_SCRIPTED_HOLD=<file>` set and that file
@@ -80,6 +82,9 @@ import { environmentOf, resolve } from "../settings.ts"
 /** The line the scripted builder appends. */
 export const scriptedLine = "hello from the organization"
 
+/** A question's scripted answer: a page of the example organization and an issue, as a model names them. */
+export const scriptedAnswer = "Control evidence is what a check records as proof. See Org/Organization.md and #1."
+
 const done = (fields: Record<string, unknown>, summary: string, handoffs: ReadonlyArray<unknown> = []) => ({
   status: "done",
   summary,
@@ -104,10 +109,14 @@ type Part =
   | { readonly kind: "document" }
   | { readonly kind: "ask-hire" }
   | { readonly kind: "ask-meeting" }
+  | { readonly kind: "answer" }
+  | { readonly kind: "question"; readonly to: string }
 
 const partOf = (spec: string): Part => {
   const [kind = "", rest = ""] = spec.split(":")
   if (kind === "route" && rest !== "") return { kind, to: rest }
+  if (kind === "question" && rest !== "") return { kind, to: rest }
+  if (kind === "answer") return { kind }
   const [builder = "", checker = ""] = rest.split(",")
   if (kind === "contract" && builder !== "" && checker !== "") return { kind, builder, checker }
   if (kind === "build" || kind === "check" || kind === "document" || kind === "ask-hire" || kind === "ask-meeting") {
@@ -256,6 +265,7 @@ const hostTask = (system: string, principal: string): string | undefined => {
     const revise = process.env.SMITHERS_ORGANIZATION_SCRIPTED_REVISE === "1" && review[1] === "1"
     return answering(done({ verdict: revise ? "revise" : "accept" }, revise ? "Add the source date to every row." : "Verified against the pricing page."))
   }
+  if (task.endsWith("/answer")) return answering(done({ answer: scriptedAnswer }, `${principal} answered.`))
   if (task.endsWith("/prepare")) {
     return answering(done({ agenda: [`${principal}: progress`, "Decision needed: none"] }, `${principal}'s agenda is ready.`))
   }
@@ -351,6 +361,14 @@ ctx.done(JSON.stringify(result))`
       ))
     case "document":
       return answering(done(filled(system, "Drafted in the wiki."), "The brief is written."))
+    case "answer":
+      return answering(done({ ...filled(system, "A question."), answer: scriptedAnswer }, "Answered the question."))
+    case "question":
+      return answering(done(
+        { ...filled(system, `Asking ${part.to}.`), question: true },
+        `A question ${part.to} answers.`,
+        [{ to: part.to, objective: "What is control evidence?", inputs: [] }]
+      ))
     default:
       return answering({
         status: "declined",

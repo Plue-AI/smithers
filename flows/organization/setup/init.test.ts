@@ -45,7 +45,7 @@ test("the manifest is one Socket Mode app with the Slack guide's scopes, events,
   assert.equal(manifest.display_information.name, "Acme Org")
   assert.deepEqual([...manifest.oauth_config.scopes.bot].sort(), [
     "app_mentions:read", "channels:history", "channels:join", "channels:manage", "channels:read", "chat:write", "chat:write.customize",
-    "chat:write.public", "im:history", "im:read", "im:write", "users:read"
+    "chat:write.public", "im:history", "im:read", "im:write", "reactions:read", "reactions:write", "users:read"
   ])
   assert.deepEqual(manifest.oauth_config.scopes.bot, [...slackBotScopes])
   assert.deepEqual(manifest.settings.event_subscriptions.bot_events, [...slackBotEvents])

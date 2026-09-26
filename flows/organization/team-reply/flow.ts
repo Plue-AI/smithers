@@ -12,10 +12,10 @@ import { Schema } from "effect"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import { fieldTurn } from "../field-turn.ts"
-import { RenderReply, StepFailure } from "../schema.ts"
+import { StepFailure } from "../schema.ts"
 import { ReplyTask, TeamPost } from "../team-channel.ts"
 
-const implementationVersion = "organization/team-reply/v1"
+const implementationVersion = "organization/team-reply/v2"
 
 /** Answer one post in a team thread. */
 export default Flow.make("organization/team-reply", {
@@ -53,17 +53,20 @@ export default Flow.make("organization/team-reply", {
             seen.valid && seen.result.status === "done" && typeof seen.result.fields["reply"] === "string" &&
             (seen.result.fields["reply"] as string).trim() !== ""),
           else: () => Node.succeed({ key: payload.key, status: "no reply", reply: "" }),
+          // The post renders its links; the reply is kept as the role wrote it.
           then: () =>
-            RenderReply.call({ speaker: payload.to, text: answer.result.fields["reply"] as unknown as string }).pipe(
-              Node.bindPlanned(Node.capture({ implementationVersion }, (rendered) =>
-                Node.all({
-                  posted: TeamPost.call({ thread: payload.thread, role: payload.to, text: rendered.text, depth: payload.depth }),
-                  reply: Node.succeed(rendered.text)
-                }).pipe(
-                  Node.map(Node.capture({ implementationVersion, key: payload.key }, function(done) {
-                    return { key: this.key, status: done.posted.posted, reply: done.reply as string }
-                  }))
-                )))
+            Node.all({
+              posted: TeamPost.call({
+                thread: payload.thread,
+                role: payload.to,
+                text: answer.result.fields["reply"] as unknown as string,
+                depth: payload.depth
+              }),
+              reply: Node.succeed(answer.result.fields["reply"])
+            }).pipe(
+              Node.map(Node.capture({ implementationVersion, key: payload.key }, function(done) {
+                return { key: this.key, status: done.posted.posted, reply: String(done.reply).trim() }
+              }))
             )
         })))
     )

@@ -261,7 +261,8 @@ const organizationHost = Smithers.NodeTest({
   srcs: codingSources, deps: [...codingDependencies, ...organizationPackages, organizationFixture], cwd, timeout: "20m"
 })
 // The organization's local commands: setup (`init`, `doctor`, subscriptions,
-// the service, backups, hygiene) and the client commands against a stand-in control RPC;
+// the service, backups, hygiene), the client commands against a stand-in control RPC,
+// the team channel, and the links posts carry;
 // the probe case boots one real microVM and names its skip where none can boot.
 const organizationSetup = Smithers.NodeTest({
   runtime: node,
@@ -273,7 +274,7 @@ const organizationSetup = Smithers.NodeTest({
     Smithers.file("//flows/organization/wiki-commit.test.ts"), Smithers.file("//flows/organization/setup/node.test.ts"),
     Smithers.file("//flows/organization/notify.test.ts"),
     Smithers.file("//flows/organization/qualify/cases.test.ts"), Smithers.file("//flows/organization/setup/github-doctor.test.ts"),
-    Smithers.file("//flows/organization/team-channel.test.ts")]),
+    Smithers.file("//flows/organization/team-channel.test.ts"), Smithers.file("//flows/organization/links.test.ts")]),
   srcs: codingSources, deps: [...codingDependencies, ...organizationPackages], cwd, timeout: "20m"
 })
 

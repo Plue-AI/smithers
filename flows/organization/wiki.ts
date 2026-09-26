@@ -126,8 +126,8 @@ export interface Committed {
   readonly message: string
 }
 
-const git = (root: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) =>
-  spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: env ?? process.env })
+const git = (root: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv, timeout?: number) =>
+  spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: env ?? process.env, ...(timeout === undefined ? {} : { timeout }) })
 
 /** The files under `paths` git reports as changed, untracked ones included. */
 export const changed = (root: string, paths: ReadonlyArray<string>): ReadonlyArray<string> => {
@@ -268,7 +268,8 @@ const saveSync = (stateDir: string, state: SyncState) => {
   renameSync(`${syncFile(stateDir)}.tmp`, syncFile(stateDir))
 }
 
-const first = (result: ReturnType<typeof git>) => (result.stderr || result.stdout).trim().split("\n")[0] ?? ""
+const first = (result: ReturnType<typeof git>) =>
+  (result.stderr || result.stdout || result.error?.message || "").trim().split("\n")[0] ?? ""
 
 const rebasing = (root: string) => {
   const directory = git(root, ["rev-parse", "--absolute-git-dir"]).stdout.trim()
@@ -290,9 +291,10 @@ const rebasing = (root: string) => {
  * - a push the upstream refused (it moved meanwhile) is retried next time.
  *
  * A conflict is recorded in `<stateDir>/wiki-sync.json` until a sync
- * succeeds; `announce` is set the first time it is seen.
+ * succeeds; `announce` is set the first time it is seen. `timeoutMs` bounds
+ * the fetch and the push; one that runs out fails the sync.
  */
-export const sync = (root: string, stateDir: string, now: number = Date.now()): Synced => {
+export const sync = (root: string, stateDir: string, now: number = Date.now(), timeoutMs?: number): Synced => {
   if (git(root, ["rev-parse", "--is-inside-work-tree"]).stdout.trim() !== "true") {
     return { status: "skipped", message: "the wiki is not a git work tree" }
   }
@@ -308,7 +310,7 @@ export const sync = (root: string, stateDir: string, now: number = Date.now()): 
     saveSync(stateDir, { ...recorded, conflict: { at: fresh ? now : recorded.conflict!.at, message } })
     return { status: "conflict", message, ...(fresh ? { announce: message } : {}) }
   }
-  const fetched = git(root, ["fetch", "--quiet", remote, branch])
+  const fetched = git(root, ["fetch", "--quiet", remote, branch], undefined, timeoutMs)
   if (fetched.status !== 0) return { status: "failed", message: `git fetch: ${first(fetched)}` }
   const behind = Number(git(root, ["rev-list", "--count", "HEAD..@{u}"]).stdout.trim())
   if (behind > 0) {
@@ -337,7 +339,7 @@ export const sync = (root: string, stateDir: string, now: number = Date.now()): 
   }
   const ahead = Number(git(root, ["rev-list", "--count", "@{u}..HEAD"]).stdout.trim())
   if (ahead > 0) {
-    const pushed = git(root, ["push", "--quiet", remote, `HEAD:refs/heads/${branch}`])
+    const pushed = git(root, ["push", "--quiet", remote, `HEAD:refs/heads/${branch}`], undefined, timeoutMs)
     if (pushed.status !== 0) return { status: "failed", message: `git push: ${first(pushed)}` }
   }
   saveSync(stateDir, { syncedAt: now })

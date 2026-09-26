@@ -54,6 +54,7 @@ import type * as Prompt from "../../packages/smithers/agent/organization/src/Pro
 import type * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
 import { atomicWrite, fence, line, lines, paragraph, readReceipts, renderDocument, taskId } from "./actions.ts"
 import * as GitHub from "./github.ts"
+import * as Links from "./links.ts"
 import * as TeamChannel from "./team-channel.ts"
 import { Answer, DeliveryFailed, IntakeRefused, IssueRef, PullRef, RequestKey, Stage, StepFailure } from "./schema.ts"
 import { ReceiptFailed } from "../../packages/smithers/agent/organization/src/Actions.ts"
@@ -322,7 +323,7 @@ export const GatherDigest = Action.make("organization/gather-digest", {
 
 /** Writes the digest to the wiki and posts it to the owner as the assistant, once per day. */
 export const PostDigest = Action.make("organization/post-digest", {
-  implementationVersion: "post-digest/v1",
+  implementationVersion: "post-digest/v2",
   payload: { digest: DigestText },
   success: Schema.Struct({ path: Schema.String, slack: Schema.String }),
   tier: "irreversible",
@@ -401,6 +402,8 @@ export interface Options {
   readonly environment: Readonly<Record<string, string | undefined>>
   /** The owner's Slack user id when Slack is connected. */
   readonly owner: string | undefined
+  /** Renders the team channel's and the digest's references as links. */
+  readonly links?: Links.Linker | undefined
 }
 
 /** How long an issue whose triage was unusable, or whose claim someone else held, waits before it is looked at again. */
@@ -1284,11 +1287,11 @@ export const layer = (options: Options, platform: NativeControl.Platform) => {
         if (Result.isFailure(allowed)) return { path, slack: allowed.failure.message }
         const posted = yield* Effect.result(slack.call("chat.postMessage", {
           channel,
-          text: digest.text,
+          text: (options.links ?? Links.none).slack(digest.text),
           username: assistantName(snapshot).slice(0, 80)
         }))
         return { path, slack: Result.isFailure(posted) ? line(posted.failure.message, 200) : "posted" }
-      }), { implementationVersion: "post-digest/v1" })
+      }), { implementationVersion: "post-digest/v2" })
   )
 }
 

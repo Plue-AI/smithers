@@ -18,6 +18,8 @@ export const slackBotScopes = [
   "im:history",
   "im:read",
   "im:write",
+  "reactions:read",
+  "reactions:write",
   "users:read"
 ] as const
 
@@ -26,6 +28,9 @@ export const slackBotEvents = ["app_mention", "message.channels", "message.im"] 
 
 /** The scopes the team channel needs: find, create, join, and post in it under each role's name. */
 export const teamChannelScopes = ["channels:history", "channels:join", "channels:manage", "channels:read", "chat:write", "chat:write.customize", "chat:write.public"] as const
+
+/** The scope the owner's acknowledgements need: 👀, then ✅ or ❌, on the owner's message. */
+export const reactionScopes = ["reactions:write"] as const
 
 /** Slack's app-manifest YAML for one Socket Mode app with the App Home messages tab open. */
 export const slackManifest = (name: string): string => {

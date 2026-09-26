@@ -185,9 +185,27 @@ issue, or proposal. The host finds the channel by name (or creates it), joins
 it, and invites the owners once. A post naming `@<role>` asks that role for a
 reply (`organization/team-reply`, at most 3 per thread). Only the assistant
 mentions the owner, once per thread, when a role needs them. The owner's
-message in the channel is a request in that thread. The owner's own thread
-(a DM or a mention) gets "On it." and one final line: the outcome, the pull
-request or branch, and the receipt.
+message in the channel is a request in that thread. The owner's message
+(a DM, a mention, or a team-channel message) is marked 👀, and ⏸️ while an
+approval waits in its thread; its thread gets one final line (the outcome,
+the pull request or branch, and the receipt) and the 👀 becomes ✅, or ❌ for
+anything but a landed change or an answer. An app without `reactions:write`
+(`doctor` flags it) says "On it." in the thread instead.
+
+### Links
+
+Every Slack post links what it names (`links.ts`): a wiki page or receipt
+under its name (`receipt` for a receipt) at the wiki's web address,
+`#12`/`owner/repo#12` and pull request URLs of a configured repository, and a
+commit or branch its remote holds (in code format otherwise). A flow that
+knows what it points at passes a typed reference; a model's text is linked
+only for a path that exists in the wiki, a known issue, commit or branch, and
+never inside code. The web address is `wiki.webUrl`
+(`https://github.com/<owner>/<wiki>/blob/<branch>`), else derived from the
+wiki's GitHub upstream. With `wiki.commit` and `wiki.sync: push`, a post that
+names a page its upstream lacks commits and pushes first; a page never pushed
+is named, unlinked, and a push that fails still posts the link.
+`Channel.md` names pages as wikilinks (`[[path|name]]`).
 
 ## Flows
 
@@ -196,8 +214,9 @@ request or branch, and the receipt.
   the organization's own work (see [Autonomous work](#autonomous-work) and
   [Team channel](#team-channel)).
 - `organization/intake` — admits a request (a Slack author must be in
-  `SMITHERS_SLACK_USER_IDS`; the repository must be configured), says "On it."
-  in a Slack thread as the assistant, and starts delivery. A request key
+  `SMITHERS_SLACK_USER_IDS`; the repository must be configured), marks a
+  Slack message 👀 (or says "On it." in its thread as the assistant when the
+  app cannot react), and starts delivery. A request key
   (`slack:<team>:<event>` or `cli:<key>`) deduplicates: the same key joins the
   run it started.
 - `organization/deliver` — assistant routes (or the host, for an issue,
@@ -207,7 +226,10 @@ request or branch, and the receipt.
   checker decides, for at most `--max-rounds` rounds → the change lands on
   `organization/<key>-<hash>` (never the checked-out branch; pushed and opened
   as a pull request only with `landing: pr`) → receipt → one line in the
-  thread. A builder whose turn leaves no change is asked
+  thread. A question is not a task: the assistant answers it
+  (`fields.answer`), or routes it to the role that knows (`fields.question`),
+  which answers it (`organization/answer-task`) in one reply with links; no
+  contract, workspace, or check runs, and the delivery ends `answered`. A builder whose turn leaves no change is asked
   once more; a second empty diff blocks the delivery (`no change`, a failing
   `change` check) and nothing is checked or lands. A role whose result breaks its charter is
   asked again once with the violations; a second break stops the delivery,
@@ -460,14 +482,16 @@ array.
 
 ```sh
 node --test flows/test/organization-host.test.mjs        # land, duplicate, gate + restart, kill mid-build, charter correction, provider refusal, retired, forged, credential
-node --test flows/test/organization-host-slack.test.mjs  # DM, thread replies, buttons
+node --test flows/test/organization-host-slack.test.mjs  # DM, reactions, buttons, linked final line pushed first, a question answered, "On it." fallback
 node --test flows/test/organization-host-document.test.mjs  # wiki document answer, missing wiki-write, declined landing removes its machine
 node --test flows/test/organization-host-qualify.test.mjs   # qualify: scorecard, pending/invalid cases, scratch clones, uncaught refused wiki read
 node --test flows/test/organization-host-relocate.test.mjs  # a parked run resumes after the state directory moved
 node --test flows/test/organization-hiring.test.mjs         # hire, delegate, review, budget block, retire, refused hires, restart
 node --test flows/test/organization-meetings.test.mjs       # plan + triggers, prepare, Slack DM open/reply/follow-up, not held, bookings, calendar
 node --test flows/test/organization-autonomy.test.mjs       # issue intake + claims + PR (lost answer reconciled), claim released, kill mid-build, onboarding once, proposals → work, routine, digest
-node --test flows/test/organization-team-channel.test.mjs   # team channel: create/join/invite, persona posts, threads, replies, mentions, fallback
+node --test flows/test/organization-team-channel.test.mjs   # team channel: create/join/invite, persona posts with links, threads, replies, mentions, fallback
+node --test flows/organization/team-channel.test.ts         # every kind of post links what it names, pushed first
+node --test flows/organization/links.test.ts                # pages, receipts, issues, pull requests, commits, branches
 node --test flows/organization/cli.test.ts                  # client commands against a stand-in control RPC
 node --test flows/organization/setup/*.test.ts              # every setup command
 ```
@@ -478,7 +502,7 @@ step as a model's edit is) and real microVMs,
 and skip by name where none can boot. The scripted seats play the example
 roster's parts; `SMITHERS_ORGANIZATION_SCRIPTED_ROLES` maps another roster's
 principals to them (`route:<to>`, `contract:<builder>,<checker>`, `build`,
-`check`, `document`), `SMITHERS_ORGANIZATION_SCRIPTED_OMIT` makes a principal
+`check`, `document`, `answer`, `question:<to>`), `SMITHERS_ORGANIZATION_SCRIPTED_OMIT` makes a principal
 leave a charter field out, and `SMITHERS_ORGANIZATION_SCRIPTED_READ` makes
 every role but a builder first read a wiki page without catching a refusal.
 Host tasks answer by task id: a hire with the spec

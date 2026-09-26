@@ -48,6 +48,7 @@ import * as Meetings from "../../packages/smithers/agent/organization/src/Meetin
 import * as Profile from "../../packages/smithers/agent/organization/src/Profile.ts"
 import * as TriggerStore from "../../packages/smithers/agent/triggers/src/TriggerStore.ts"
 import * as Trigger from "../../packages/smithers/agent/triggers/src/Trigger.ts"
+import * as Links from "./links.ts"
 import { Answer, Stage } from "./schema.ts"
 
 const minute = 60_000
@@ -189,7 +190,7 @@ export const OpenDirect = Action.make("organization/meetings-open-direct", {
 
 /** The agenda to post: the note's Agenda section. */
 export const ReadAgenda = Action.make("organization/meetings-read-agenda", {
-  implementationVersion: "meetings-read-agenda/v1",
+  implementationVersion: "meetings-read-agenda/v2",
   payload: { occurrence: Occurrence },
   success: Schema.Struct({ text: Schema.NonEmptyString, persona: Schema.Struct({ username: Schema.NonEmptyString }) }),
   nondeterministic: true
@@ -347,6 +348,8 @@ export interface Options {
   /** The Slack app's environment (its tokens); only read when `owner` is set. */
   readonly environment: Readonly<Record<string, string | undefined>>
   readonly calendar: Calendar | undefined
+  /** Renders an agenda's references as Slack links. */
+  readonly links?: Links.Linker | undefined
 }
 
 /** The flows the schedule triggers start, and when, relative to a slot. */
@@ -875,10 +878,10 @@ export const layer = (options: Options) => {
         const agenda = note === undefined ? "" : sections(note).get("Agenda") ?? ""
         const heading = `1:1 · ${occurrence.localDate} ${occurrence.startLocal} ${occurrence.timezone}`
         return {
-          text: `${heading}\n${agenda.trim() === "" ? "No agenda was prepared." : agenda.trim()}`.slice(0, 3_000),
+          text: (options.links ?? Links.none).slack(`${heading}\n${agenda.trim() === "" ? "No agenda was prepared." : agenda.trim()}`.slice(0, 3_000)),
           persona: yield* personaOf(occurrence.principal)
         }
-      }), { implementationVersion: "meetings-read-agenda/v1" }),
+      }), { implementationVersion: "meetings-read-agenda/v2" }),
     RecordThread.toLayer(({ channel, occurrence, thread }) =>
       Effect.sync(() => {
         recordThread(options.stateDir, channel, thread, {

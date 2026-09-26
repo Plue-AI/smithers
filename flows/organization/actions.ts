@@ -12,6 +12,7 @@ import { dirname, join, relative, resolve, sep } from "node:path"
 import { Clock, Effect, Layer } from "effect"
 import { fromIntegrationError } from "../../packages/smithers/agent/integrations/src/core/ActionFailure.ts"
 import { IntegrationError } from "../../packages/smithers/agent/integrations/src/core/IntegrationError.ts"
+import * as SlackClient from "../../packages/smithers/agent/integrations/src/slack/SlackClient.ts"
 import { ReceiptFailed, runDirectory } from "../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Authority from "../../packages/smithers/agent/organization/src/Authority.ts"
 import type * as Gates from "../../packages/smithers/agent/organization/src/Gates.ts"
@@ -22,6 +23,8 @@ import {
   Admit,
   AgainTask,
   type Answer,
+  AnswerTask,
+  Closing,
   Assign,
   type Assignment,
   BuildTask,
@@ -46,9 +49,11 @@ import {
   Headline,
   HostRoute,
   PublishChange,
+  React,
   type Report
 } from "./schema.ts"
 import * as GitHub from "./github.ts"
+import * as Links from "./links.ts"
 
 /** What the host decided at startup that every admission uses. */
 export interface Options {
@@ -70,8 +75,10 @@ export interface Options {
   readonly statusFile: string
   /** Repositories whose landed branches become pull requests: the remote pushed to and the GitHub repository. */
   readonly pulls?: Readonly<Record<string, { readonly remote: string; readonly github: string }>> | undefined
-  /** The environment the GitHub client reads its token and API base from. */
+  /** The environment the GitHub client reads its token and API base from, and the Slack client its tokens. */
   readonly environment?: Readonly<Record<string, string | undefined>> | undefined
+  /** Renders a reply's references as Slack links; without it they are named as they are. */
+  readonly links?: Links.Linker | undefined
 }
 
 /** A report as the one line its thread ends with: the outcome, the pull request or branch, and the receipt. */
@@ -87,6 +94,42 @@ export const headline = (report: Report, receipt: string): string => {
     return `${label}: ${short(report.summary, 160)}`
   })()
   return `${outcome} · ${receipt}`
+}
+
+/**
+ * How a report's thread ends: a question's answer from the role that gave
+ * it; otherwise the assistant's line with the pull request, or the branch
+ * and commit, or the document, then the receipt. ✅ for a landed change or an
+ * answer, ❌ for anything else.
+ */
+export const closing = (
+  report: Report,
+  receipt: string,
+  assistant: string,
+  repository: string
+): { speaker: string; text: string; refs: Array<Links.Ref>; reaction: string } => {
+  const reaction = report.status === "landed" || report.status === "answered" ? "white_check_mark" : "x"
+  if (report.answer !== undefined && report.answer.text.trim() !== "") {
+    return { speaker: report.answer.principal, text: report.answer.text.trim(), refs: [], reaction }
+  }
+  const receiptRef: Array<Links.Ref> = receipt === "" ? [] : [{ kind: "page", path: receipt }]
+  const ended = (text: string, refs: Array<Links.Ref> = []) => ({ speaker: assistant, text, refs: [...refs, ...receiptRef], reaction })
+  if (report.status === "landed") {
+    if (report.pull !== undefined) {
+      const github = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\//.exec(report.pull.url)?.[1]
+      return ended("Landed", [github === undefined ? { kind: "url", url: report.pull.url } : { kind: "pull", github, number: report.pull.number, url: report.pull.url }])
+    }
+    if (report.applied === undefined) return ended("Landed")
+    return ended(`Landed on ${report.applied.branch} ${report.applied.commit.slice(0, 12)}`, [
+      { kind: "branch", repository, branch: report.applied.branch },
+      { kind: "commit", repository, sha: report.applied.commit }
+    ])
+  }
+  if (report.status === "answered") {
+    return report.document === undefined ? ended(`Answered: ${line(report.summary, 160)}`) : ended("Answered", [{ kind: "page", path: report.document }])
+  }
+  const label = report.status === "changes-requested" ? "Changes requested" : `${report.status[0]!.toUpperCase()}${report.status.slice(1)}`
+  return ended(`${label}: ${line(report.summary, 160)}`)
 }
 
 /** A pull request's body: the issue it fixes, the checks, and the receipt. */
@@ -298,6 +341,28 @@ export const readReceipts = async (root: string, generatedDir: string) => {
   return receipts.sort((left, right) => right.at - left.at || (left.key < right.key ? -1 : 1))
 }
 
+/** Slack errors that mean the reaction is already as asked. */
+const settledReaction = /already_reacted|no_reaction/
+
+/** Removes then adds reactions on one message; see `React`. */
+export const react = (
+  environment: Readonly<Record<string, string | undefined>>,
+  payload: { readonly channel: string; readonly ts: string; readonly add: ReadonlyArray<string>; readonly remove: ReadonlyArray<string> }
+) =>
+  Effect.gen(function*() {
+    if ((environment.SMITHERS_SLACK_BOT_TOKEN ?? "") === "") return { reacted: false, reason: "Slack is not connected" }
+    const slack = SlackClient.make({}, environment)
+    for (const [method, names] of [["reactions.remove", payload.remove], ["reactions.add", payload.add]] as const) {
+      for (const name of names) {
+        const done = yield* Effect.result(slack.call(method, { channel: payload.channel, timestamp: payload.ts, name }))
+        if (done._tag === "Failure" && !settledReaction.test(done.failure.message)) {
+          return { reacted: false, reason: `${method} ${name}: ${line(done.failure.message, 200)}` }
+        }
+      }
+    }
+    return { reacted: true, reason: "" }
+  })
+
 /** Every organization step the flows call, over the trusted registry and the host's options. */
 export const layer = (options: Options) =>
   Layer.mergeAll(
@@ -350,8 +415,10 @@ export const layer = (options: Options) =>
             ]),
             acceptance: lines([
               "Return done.",
+              "A question is not a task. When the request asks for an explanation or a fact rather than a change, a document, or a decision, answer it: put one to three short lines in `fields.answer`, from the wiki, the repository, and the docs, naming pages by their wiki path and issues as #n, and include no handoff.",
+              "When another role knows the answer better, include one handoff to that role and set `fields.question` to true; it answers with no contract, workspace, or checks.",
               "When the request needs work, include exactly one handoff: `to` is the accountable role's id from the inputs, `objective` restates the request, and `inputs` lists what the role needs.",
-              "When it needs no work, include no handoff and put the answer in the summary.",
+              "When it needs no work and is not a question, include no handoff and put the answer in the summary.",
               ...askLines(profile),
               "Fill every output field your charter declares."
             ]),
@@ -361,7 +428,34 @@ export const layer = (options: Options) =>
           },
           context: [requestContext(request, at)]
         }
-      }), { implementationVersion: "route-task/v2" }),
+      }), { implementationVersion: "route-task/v3" }),
+    AnswerTask.toLayer(({ request, revision, routed }) =>
+      Effect.gen(function*() {
+        const registry = yield* Authority.RosterRegistry
+        const at = yield* Clock.currentTimeMillis
+        const handoff = routed.result.handoffs[0]!
+        // An inactive or unknown role is a refusal, as a route to it would be.
+        yield* registry.resolve(revision, handoff.to)
+        return {
+          proceed: true,
+          outcome: "answered" as const,
+          reason: "",
+          principal: handoff.to,
+          task: {
+            id: taskId(request.key, "answer"),
+            objective: paragraph(`Answer the owner's question: ${handoff.objective}`),
+            inputs: lines(["The owner's question, in the context below.", ...handoff.inputs]),
+            acceptance: lines([
+              "Return done with `fields.answer`: one to three short lines that answer the question from the wiki, the repository, and the docs.",
+              "Name pages by their wiki path and issues as #n; no preamble."
+            ]),
+            evidence: ["What the answer rests on."],
+            requestedBy: routed.principal,
+            ...conversationOf(request)
+          },
+          context: [requestContext(request, at)]
+        }
+      }), { implementationVersion: "answer-task/v1" }),
     LeadTask.toLayer(({ repository, request, revision, routed }) =>
       Effect.gen(function*() {
         const registry = yield* Authority.RosterRegistry
@@ -618,6 +712,10 @@ export const layer = (options: Options) =>
         }
       }), { implementationVersion: "host-route/v1" }),
     Headline.toLayer(({ receipt, report }) => Effect.sync(() => headline(report, receipt)), { implementationVersion: "headline/v1" }),
+    Closing.toLayer(({ assistant, receipt, report, repository }) => Effect.sync(() => closing(report, receipt, assistant, repository)), {
+      implementationVersion: "closing/v1"
+    }),
+    React.toLayer((payload) => react(options.environment ?? {}, payload), { implementationVersion: "react/v1" }),
     PublishChange.toLayer((payload) =>
       Effect.gen(function*() {
         const path = options.repositories[payload.repository]
@@ -690,17 +788,18 @@ export const layer = (options: Options) =>
           }))
         }
       }), { implementationVersion: "decide/v3" }),
-    RenderReply.toLayer(({ speaker, text }) =>
+    RenderReply.toLayer(({ refs, speaker, text }) =>
       Effect.gen(function*() {
         const registry = yield* Authority.RosterRegistry
         const snapshot = yield* registry.current
         const profile = snapshot.roster.profiles.get(speaker)
         const trimmed = text.trim()
+        const cut = trimmed === "" ? "Done." : trimmed.length <= 3_000 ? trimmed : `${trimmed.slice(0, 2_999)}…`
         return {
-          text: trimmed === "" ? "Done." : trimmed.length <= 3_000 ? trimmed : `${trimmed.slice(0, 2_999)}…`,
+          text: (options.links ?? Links.none).slack(cut, refs),
           persona: { username: (profile?.name ?? (speaker === "" ? "Organization" : speaker)).slice(0, 80) }
         }
-      }), { implementationVersion: "render-reply/v1" }),
+      }), { implementationVersion: "render-reply/v2" }),
     Describe.toLayer(({ failure }) =>
       Effect.sync(() => {
         const tag = failure._tag.split("/").at(-1) ?? failure._tag

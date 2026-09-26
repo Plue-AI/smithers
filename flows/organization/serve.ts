@@ -32,7 +32,7 @@ import type * as NativeControl from "../../packages/smithers/src/internal/Native
 import * as Serve from "../../packages/smithers/src/Serve.ts"
 import type { Control as ControlPort } from "./client.ts"
 import { ControlRefused, credentialFile, operations, readCredential } from "./client.ts"
-import { executionRoot, layer } from "./host.ts"
+import { executionRoot, layer, linksOf } from "./host.ts"
 import type { Settings } from "./settings.ts"
 import * as SetupMicrosandbox from "./setup/microsandbox.ts"
 import * as Subscriptions from "./setup/subscriptions.ts"
@@ -199,6 +199,8 @@ export const start = async (options: StartOptions) => {
   const bind: Serve.Bind = { host: settings.host, port: settings.port, listen: false, credential }
   const refusal = Serve.refuse(bind)
   if (refusal !== undefined) throw refusal
+  // One linker for every post, so each push before a post is the host's one wiki sync.
+  const links = linksOf(settings)
   const program = Effect.gen(function*() {
     if (policy !== undefined) {
       const control = yield* Control.Control
@@ -208,7 +210,8 @@ export const start = async (options: StartOptions) => {
         stateDir: settings.stateDir,
         environment,
         allowPlaintextSocket: options.allowPlaintextSocket,
-        team: { root: settings.root, teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team" }
+        team: { root: settings.root, teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team" },
+        links
       }).pipe(Effect.catchCause((cause) => Effect.logError("organization Slack intake stopped", cause))))
     }
     {
@@ -250,7 +253,8 @@ export const start = async (options: StartOptions) => {
               stateDir: settings.stateDir,
               teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team",
               environment,
-              assistant
+              assistant,
+              links
             }, {
               thread: "wiki-sync",
               role: assistant,
@@ -265,7 +269,7 @@ export const start = async (options: StartOptions) => {
     return yield* Serve.host(bind, settings.root)
   }).pipe(
     Effect.scoped,
-    Effect.provide(layer(options.platform, { settings, sdk, holder, slack, environment, credential }, options.seats)),
+    Effect.provide(layer(options.platform, { settings, sdk, holder, slack, environment, credential, links }, options.seats)),
     Effect.provide(Logger.layer([hostLogger(log), Logger.tracerLogger]))
   )
   return program

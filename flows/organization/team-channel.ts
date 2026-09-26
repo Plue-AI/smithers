@@ -22,6 +22,10 @@
  * - **Reading.** {@link recent} reads the wiki's copy; {@link history} reads
  *   the Slack thread, the owner's messages included, and falls back to it.
  *
+ * - **Links.** A post's link and references (`links.ts`) are Slack links in
+ *   the channel, a page's name in place of its path, and wikilinks in
+ *   `Channel.md`.
+ *
  * Every post is deduplicated by its thread, role, text, and link, so a step
  * that runs again posts nothing twice. What the host learned (the channel, the
  * invites, each thread's parent, what it posted) is in `team-channel.json`.
@@ -34,6 +38,7 @@ import { dirname, join, resolve } from "node:path"
 import * as SlackClient from "../../packages/smithers/agent/integrations/src/slack/SlackClient.ts"
 import * as Authority from "../../packages/smithers/agent/organization/src/Authority.ts"
 import * as Profile from "../../packages/smithers/agent/organization/src/Profile.ts"
+import * as Links from "./links.ts"
 import { Stage } from "./schema.ts"
 
 /** What the team channel needs from the host. */
@@ -45,6 +50,8 @@ export interface Options {
   readonly environment: Readonly<Record<string, string | undefined>>
   /** The assistant, the one role that may mention the owner. Without it nobody may. */
   readonly assistant?: string | undefined
+  /** Renders links; without it a post names its references as they are. */
+  readonly links?: Links.Linker | undefined
 }
 
 /** One post: who says it, in which thread, and the link it points to. */
@@ -55,7 +62,10 @@ export interface Post {
   /** The role's display name, the post's persona. */
   readonly name: string
   readonly text: string
+  /** A wiki path or a URL the post points to. */
   readonly link?: string | undefined
+  /** What else the post points to, typed. */
+  readonly refs?: ReadonlyArray<Links.Ref> | undefined
   /** The assistant alone may mention the owner, when a role needs them. */
   readonly mention?: boolean | undefined
   /** How many replies deep this post is in its thread; a reply's own post carries its depth. */
@@ -64,12 +74,13 @@ export interface Post {
 
 /** A post from a flow step. */
 export const TeamPost = Action.make("organization/team-post", {
-  implementationVersion: "team-post/v1",
+  implementationVersion: "team-post/v2",
   payload: {
     thread: Schema.NonEmptyString,
     role: Profile.PrincipalId,
     text: Schema.NonEmptyString,
     link: Schema.optionalKey(Schema.String),
+    refs: Schema.optionalKey(Schema.Array(Links.Ref)),
     mention: Schema.optionalKey(Schema.Boolean),
     depth: Schema.optionalKey(Schema.Int)
   },
@@ -216,7 +227,19 @@ const flat = (text: string, max: number) => {
 const timeOf = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ")
 
 const digest = (entry: Post) =>
-  createHash("sha256").update(JSON.stringify([entry.thread, entry.role, entry.text, entry.link ?? ""])).digest("hex").slice(0, 24)
+  createHash("sha256").update(JSON.stringify([
+    entry.thread,
+    entry.role,
+    entry.text,
+    entry.link ?? "",
+    ...(entry.refs === undefined || entry.refs.length === 0 ? [] : [entry.refs])
+  ])).digest("hex").slice(0, 24)
+
+/** A post's references: its link, then the typed ones. */
+const refsOf = (entry: Post): ReadonlyArray<Links.Ref> => [
+  ...(entry.link === undefined || entry.link === "" ? [] : [Links.refOf(entry.link)]),
+  ...(entry.refs ?? [])
+]
 
 /** The role ids a post names as `@<id>`. */
 export const mentionsOf = (text: string): ReadonlyArray<string> =>
@@ -245,7 +268,9 @@ export const post = (options: Options, entry: Post) =>
     const at = yield* Clock.currentTimeMillis
     const key = digest(entry)
     const text = flat(entry.text, 300)
-    const line = `${entry.role} · ${text}${entry.link === undefined ? "" : ` · ${entry.link}`} · [${flat(entry.thread, 128)}]`
+    const links = options.links ?? Links.none
+    const refs = refsOf(entry)
+    const line = `${entry.role} · ${links.wiki(text, refs)} · [${flat(entry.thread, 128)}]`
     const state = readState(options.stateDir)
     if (state.posted.includes(key)) return "duplicate"
     appendWiki(options, at, line)
@@ -261,7 +286,7 @@ export const post = (options: Options, entry: Post) =>
     if (channel !== undefined) {
       const slack = SlackClient.make({}, options.environment)
       const parent = state.threads[entry.thread]
-      const body = `${tagged.map((user) => `<@${user}> `).join("")}${text}${entry.link === undefined ? "" : ` · ${entry.link}`}`
+      const body = `${tagged.map((user) => `<@${user}> `).join("")}${links.slack(text, refs)}`
       const sent = yield* Effect.result(slack.call("chat.postMessage", {
         channel: channel.id,
         text: body,
@@ -388,13 +413,13 @@ export const dispatcher = (
 /** Implements {@link TeamPost} (posting under the role's profile name) and {@link ReplyTask}. */
 export const layer = (options: Options) =>
   Layer.mergeAll(
-    TeamPost.toLayer(({ depth, link, mention, role, text, thread }) =>
+    TeamPost.toLayer(({ depth, link, mention, refs, role, text, thread }) =>
       Effect.gen(function*() {
         const snapshot = yield* (yield* Authority.RosterRegistry).current
         const name = snapshot.roster.profiles.get(role)?.name ?? role
-        const posted = yield* post(options, { thread, role, name, text, link, mention, depth })
+        const posted = yield* post(options, { thread, role, name, text, link, refs, mention, depth })
         return { posted }
-      }), { implementationVersion: "team-post/v1" }),
+      }), { implementationVersion: "team-post/v2" }),
     ReplyTask.toLayer(({ from, key, revision, text, thread, to }) =>
       Effect.gen(function*() {
         const registry = yield* Authority.RosterRegistry

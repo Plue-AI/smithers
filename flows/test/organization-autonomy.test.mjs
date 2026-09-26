@@ -285,7 +285,7 @@ describe("the organization's own work", { skip: missing === undefined ? false : 
     // Exactly once: each assignment ran once, and the channel says each thing once.
     const channel = readFileSync(join(team, "Channel.md"), "utf8")
     for (const role of ["lead", "builder"]) {
-      assert.equal(channel.split("\n").filter((entry) => entry.includes(` · ${role} · Onboarding written`)).length, 1, channel)
+      assert.equal(channel.split("\n").filter((entry) => entry.includes(` · ${role} · [[Org/Team/${role}/Onboarding|Onboarding]] written`)).length, 1, channel)
     }
     const routineRuns = (await handle.ops.runs()).filter((view) => view.flowId === "organization/routine")
     assert.equal(routineRuns.length, 1, JSON.stringify(routineRuns))
