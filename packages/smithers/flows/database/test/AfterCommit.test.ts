@@ -143,7 +143,7 @@ describe("DurableWriter.afterCommit", () => {
         }))
         if (attempt < 3) return yield* Effect.fail(busy)
       })).pipe(Effect.forkChild({ startImmediately: true }))
-      yield* TestClock.adjust("1 second")
+      yield* TestDatabase.until(TestClock.adjust("1 second").pipe(Effect.map(() => fiber.pollUnsafe() !== undefined)))
       yield* Fiber.join(fiber)
       expect(attempts).toBe(3)
       expect(published).toEqual([3])

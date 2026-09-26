@@ -16,12 +16,11 @@ import * as UnsupportedBackend from "../src/UnsupportedBackend.ts"
 describe("names rc.0 ignores (X-01, the release policy)", () => {
   it.each([
     "SMITHERS_TEST_PG_URL",
-    "SMITHERS_POSTGRES_URL",
     "SMITHERS_POSTGRES_MAX_CONNECTIONS"
   ])("announces %s and does not act on it", (name) => {
     expect(UnsupportedBackend.ignoredNames({ [name]: "postgres://localhost/smithers" })).toEqual([name])
     expect(UnsupportedBackend.ignoredNotice(name)).toBe(
-      `ignored: ${name} has no effect in 1.0.0-rc.1 (SQLite only)`
+      `ignored: ${name} has no effect in 1.0.0-rc.1 (use SMITHERS_POSTGRES_URL to select PostgreSQL)`
     )
   })
 
@@ -34,13 +33,19 @@ describe("names rc.0 ignores (X-01, the release policy)", () => {
       PATH: "/usr/bin"
     })).toEqual([
       "SMITHERS_POSTGRES_MAX_CONNECTIONS",
-      "SMITHERS_POSTGRES_URL",
       "SMITHERS_TEST_PG_URL"
     ])
   })
 
   it("announces nothing about a name rc.0 does support", () => {
-    expect(UnsupportedBackend.ignoredNames({ SMITHERS_BACKEND: "sqlite", SMITHERS_REMOTE: "http://x" })).toEqual([])
+    expect(
+      UnsupportedBackend.ignoredNames({
+        SMITHERS_BACKEND: "sqlite",
+        SMITHERS_POSTGRES_URL: "postgres://localhost/db",
+        SMITHERS_POSTGRES_SCHEMA: "flows",
+        SMITHERS_REMOTE: "http://x"
+      })
+    ).toEqual([])
   })
 
   /**

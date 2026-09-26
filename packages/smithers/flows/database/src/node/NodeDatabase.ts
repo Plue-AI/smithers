@@ -6,6 +6,7 @@ import { type Duration, Effect, Layer } from "effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { closeSync, openSync, statSync } from "node:fs"
 import { DatabaseSync } from "node:sqlite"
+import * as PostgresSelection from "../internal/PostgresSelection.ts"
 import * as ReleasePolicy from "../internal/ReleasePolicy.ts"
 import * as SqliteOpen from "../internal/SqliteOpen.ts"
 
@@ -88,6 +89,8 @@ export const layer = (options: NodeDatabaseOptions): Layer.Layer<SqlClient.SqlCl
           `Use @smthrs/database/bun/BunDatabase under Bun; NodeDatabase requires Node.js ${ReleasePolicy.nodeFloor}`
       })
     }
+    const postgres = PostgresSelection.layer(options.filename)
+    if (postgres !== undefined) return postgres
     return SqliteOpen.layer(
       options.filename,
       readTableNames,

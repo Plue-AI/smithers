@@ -126,7 +126,7 @@ describe("composed migrations", () => {
           yield* Migrations.loader([])
         }).pipe(
           Effect.provideService(SqlClient.SafeIntegers, true),
-          Effect.provide(TestDatabase.layer)
+          Effect.provide(TestDatabase.sqliteLayer)
         )
       )
 
@@ -248,7 +248,7 @@ describe("composed migrations", () => {
           const sql = yield* SqlClient.SqlClient
           return yield* sql<
             { readonly name: string }
-          >`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`
+          >`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE type = 'table' ORDER BY name`
         }).pipe(Effect.provide(Migrations.layer([alpha, beta])))
       )
       expect(exit._tag === "Success" ? exit.value.map((row) => row.name) : []).toEqual([
@@ -354,7 +354,7 @@ describe("composed migrations", () => {
         }
         const exit = yield* Effect.exit(Migrations.run([next, beta]))
         expect(exit._tag).toBe("Failure")
-        expect(yield* sql`SELECT name FROM sqlite_master WHERE name = 'alpha_second'`).toEqual([])
+        expect(yield* sql`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE name = 'alpha_second'`).toEqual([])
         expect(yield* sql`SELECT migration_id FROM flows_migrations WHERE migration_id IN (2, 3)`).toEqual([])
         const corrected = { ...next, migrations: { ...next.migrations, "0003_failure": createTable("alpha_third") } }
         expect(yield* Migrations.run([corrected, beta])).toEqual([[2, "alpha_second"], [3, "alpha_failure"]])
@@ -394,14 +394,14 @@ describe("composed migrations", () => {
           const failed = yield* Effect.exit(Migrations.run([broken]))
           const tablesAfterFailure = yield* sql<
             { readonly name: string }
-          >`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`
+          >`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE type = 'table' ORDER BY name`
           const recordsAfterFailure = yield* sql<
             { readonly migration_id: number }
           >`SELECT migration_id FROM ${sql(Migrations.table)} ORDER BY migration_id`
           const completed = yield* Migrations.run([corrected])
           const tablesAfterRerun = yield* sql<
             { readonly name: string }
-          >`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`
+          >`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE type = 'table' ORDER BY name`
           return { completed, failed, recordsAfterFailure, tablesAfterFailure, tablesAfterRerun }
         }).pipe(Effect.provide(TestDatabase.layer))
       )
@@ -436,7 +436,7 @@ describe("composed migrations", () => {
           const completed = yield* Migrations.run([])
           const tables = yield* sql<
             { readonly name: string }
-          >`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`
+          >`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE type = 'table' ORDER BY name`
           return { completed, tables }
         }).pipe(Effect.provide(TestDatabase.layer))
       )

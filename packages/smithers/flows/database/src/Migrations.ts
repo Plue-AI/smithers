@@ -439,6 +439,16 @@ export const run = (
 > => {
   const plan = snapshotMigrationSets(sets)
   return Effect.gen(function*() {
+    const sql = yield* SqlClient.SqlClient
+    // Effect's PostgreSQL migrator probes before creating its ledger. Serialize
+    // that first creation as well as the migration pass on a fresh schema.
+    yield* sql.onDialectOrElse({
+      pg: () =>
+        sql.withTransaction(sql`CREATE TABLE IF NOT EXISTS ${sql(table)} (
+        migration_id INTEGER PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), name TEXT NOT NULL
+      )`),
+      orElse: () => Effect.void
+    })
     const loaderApplied = yield* Ref.make<ReadonlyArray<readonly [id: number, name: string]>>([])
     const completed = yield* WriteRetry.withWriteRetry(
       Migrator.make({})({

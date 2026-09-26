@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite"
 import type { Layer } from "effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { statSync } from "node:fs"
+import * as PostgresSelection from "../internal/PostgresSelection.ts"
 import * as SqliteOpen from "../internal/SqliteOpen.ts"
 
 export { isUnsupportedDatabase, UnsupportedDatabase, UnsupportedDatabaseCode } from "../internal/SqliteOpen.ts"
@@ -41,7 +42,7 @@ const readTableNames = (filename: string): ReadonlyArray<string> | undefined => 
  * @category layers
  */
 export const layer = (options: BunDatabaseOptions): Layer.Layer<SqlClient.SqlClient> =>
-  SqliteOpen.layer(
+  PostgresSelection.layer(options.filename) ?? SqliteOpen.layer(
     options.filename,
     readTableNames,
     SqliteClient.layer({ ...options.sqlite, filename: options.filename }),

@@ -1,20 +1,4 @@
-/**
- * The environment half of the SQLite-only contract.
- *
- * rc.0 stores run state in local SQLite only. A project migrating from a 0.x
- * PostgreSQL or PGlite deployment still exports that deployment's connection
- * strings, and rc.0 ignores them. Ignoring them *silently* is the failure
- * The release policy was written to remove: the project would run against
- * SQLite believing it ran against PostgreSQL, and nothing in the run would say
- * otherwise.
- *
- * The names and the sentence live here, beside the driver that decides what a
- * supported database is, rather than in the CLI: the CLI chooses where a
- * notice is printed, not what rc.0 supports. The notice is a notice, not a
- * refusal — it changes no exit code and no result. The refusal for a *chosen*
- * backend (`SMITHERS_BACKEND`, `--backend`) is the CLI's `unsupported_database`
- * error.
- *
+/** Notices for legacy database settings that are no longer consumed.
  * @since 1.0.0
  */
 import * as ReleasePolicy from "./internal/ReleasePolicy.ts"
@@ -43,7 +27,9 @@ type Source = Readonly<Record<string, string | undefined>>
 export const ignoredNames = (environment: Source): ReadonlyArray<string> =>
   Object.keys(environment)
     .filter((name) =>
-      (name === "SMITHERS_TEST_PG_URL" || name.startsWith("SMITHERS_POSTGRES_")) &&
+      (name === "SMITHERS_TEST_PG_URL" ||
+        (name.startsWith("SMITHERS_POSTGRES_") && name !== "SMITHERS_POSTGRES_URL" &&
+          name !== "SMITHERS_POSTGRES_SCHEMA")) &&
       environment[name] !== undefined && environment[name] !== ""
     )
     .sort()
@@ -55,4 +41,4 @@ export const ignoredNames = (environment: Source): ReadonlyArray<string> =>
  * @since 1.0.0
  */
 export const ignoredNotice = (name: string): string =>
-  `ignored: ${name} has no effect in ${ReleasePolicy.releaseVersion} (SQLite only)`
+  `ignored: ${name} has no effect in ${ReleasePolicy.releaseVersion} (use SMITHERS_POSTGRES_URL to select PostgreSQL)`

@@ -44,7 +44,9 @@
     "./index": "./src/index.ts",
     "./node/NodeDatabase": "./src/node/NodeDatabase.ts",
     "./test/TestDatabase": "./src/test/TestDatabase.ts",
-    "./bun/BunDatabase": "./src/bun/BunDatabase.ts"
+    "./bun/BunDatabase": "./src/bun/BunDatabase.ts",
+    "./Dialect": "./src/Dialect.ts",
+    "./postgres/PostgresDatabase": "./src/postgres/PostgresDatabase.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -154,6 +156,26 @@
           "types": "./dist/cjs/bun/BunDatabase.d.ts",
           "default": "./dist/cjs/bun/BunDatabase.js"
         }
+      },
+      "./Dialect": {
+        "import": {
+          "types": "./dist/esm/Dialect.d.ts",
+          "default": "./dist/esm/Dialect.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Dialect.d.ts",
+          "default": "./dist/cjs/Dialect.js"
+        }
+      },
+      "./postgres/PostgresDatabase": {
+        "import": {
+          "types": "./dist/esm/postgres/PostgresDatabase.d.ts",
+          "default": "./dist/esm/postgres/PostgresDatabase.js"
+        },
+        "require": {
+          "types": "./dist/cjs/postgres/PostgresDatabase.d.ts",
+          "default": "./dist/cjs/postgres/PostgresDatabase.js"
+        }
       }
     }
   },
@@ -164,7 +186,8 @@
     "check": "tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit",
     "circular": "node ../../../repo-targets/scripts/circular.mjs",
     "test": "vitest",
-    "coverage": "vitest --coverage"
+    "coverage": "vitest --coverage",
+    "test:matrix": "node scripts/test-matrix.mjs"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -186,18 +209,23 @@
     "typescript-eslint": "8.69.0",
     "vitest": "5.0.0",
     "@effect/sql-sqlite-bun": "4.0.0-rc.115",
-    "@types/bun": "1.3.6"
+    "@types/bun": "1.3.6",
+    "@effect/sql-pg": "4.0.0-rc.115"
   },
   "peerDependencies": {
     "@effect/sql-sqlite-node": "4.0.0-rc.115",
     "effect": "4.0.0-rc.115",
-    "@effect/sql-sqlite-bun": "4.0.0-rc.115"
+    "@effect/sql-sqlite-bun": "4.0.0-rc.115",
+    "@effect/sql-pg": "4.0.0-rc.115"
   },
   "peerDependenciesMeta": {
     "@effect/sql-sqlite-node": {
       "optional": true
     },
     "@effect/sql-sqlite-bun": {
+      "optional": true
+    },
+    "@effect/sql-pg": {
       "optional": true
     }
   }
