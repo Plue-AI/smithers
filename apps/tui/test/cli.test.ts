@@ -50,7 +50,9 @@ it("refuses redirected interactive streams while print mode still works", () => 
   expect(printed.status, printed.stderr).toBe(0)
   expect(printed.stdout.trim()).toBe("pong")
   expect(printed.stderr).toBe("")
-})
+  // The test's own bound covers both child bounds; Bun's 5 s default did not,
+  // and killed a print run that was still inside its 10 s allowance.
+}, 15_000)
 
 it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])(
   "does not load terminal libraries for %j",
@@ -68,5 +70,6 @@ it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])(
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain(args[0] === "--help" ? "Usage: smithers-tui" : "pong")
     expect(result.stderr).toBe("")
-  }
+  },
+  12_000
 )
