@@ -45,7 +45,8 @@ import { refuseCloudSignIn } from "./CloudSignIn"
  * succeeded | failed` for a ref). A FAILED ref is retryable on its own since
  * plue#491; every other ref is not, because plue's route refuses it.
  */
-import type { Card,GitHubAppStatusInput } from "../AppState"
+import { CardSchema, type Card, type GitHubAppStatusInput } from "../AppState"
+import { canonicalStoredJsonValue } from "../EventValue"
 import { resolveTargetRepo } from "../RepoContext"
 import { createRunEpochs } from "./RunEpochs"
 import type { GitHubRefusal,SeamContext } from "./SeamContext"
@@ -566,7 +567,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
 
   const mirrorCardIdOf = (repo: string): string => `sync-ops-mirror-${repo}`
 
-  const upsertMirrorCard = (repo: string, patch: Partial<SyncPayload>): void => {
+  const upsertMirrorCard = (repo: string, patch: Partial<SyncPayload>, observation = false): ReturnType<SeamContext["dispatch"]> | undefined => {
     const id = mirrorCardIdOf(repo)
     const existing = ctx.store.collections.cards.get(id)
     const prior = existing?.kind === "sync-ops" ? existing.payload : undefined
@@ -605,7 +606,14 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       ordinal: existing?.ordinal ?? ctx.nextOrdinal(),
       payload
     }
-    ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card })
+    if (observation) {
+      // Only unchanged, committed observations are idle. An optimistic edit
+      // must not hide a missing receipt or an intervening card change.
+      const value = (row: Card | undefined) => row === undefined ? undefined : canonicalStoredJsonValue(CardSchema.parse(row))
+      const next = value(card)
+      if (value(existing) === next && value(ctx.store.committedCard(id)) === next) return
+    }
+    return ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card })
   }
 
   /*
@@ -653,11 +661,12 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         settle()
         return
       }
-      upsertMirrorCard(repo, { runState: run.state, ops: [...run.refs] })
+      await upsertMirrorCard(repo, { runState: run.state, ops: [...run.refs] }, true)?.isPersisted.promise
+      if (!epochs.isLive(repo, epoch)) return
       if (RUN_SETTLED.has(run.state)) {
         /* The run moved the mirror: re-read the repository's own words and counts for it. */
         const mirror = await readMirrorStatus(repo)
-        if (mirror !== null && epochs.isLive(repo, epoch)) upsertMirrorCard(repo, mirrorPatch(mirror))
+        if (mirror !== null && epochs.isLive(repo, epoch)) await upsertMirrorCard(repo, mirrorPatch(mirror), true)?.isPersisted.promise
         settle()
         return
       }
@@ -682,7 +691,9 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       error: undefined,
       ...mirror
     })
-    void trackMirrorRun(repo, runId, epochs.start(repo))
+    const epoch = epochs.start(repo)
+    // The store surfaces failed writes; this observer must stop reading.
+    void trackMirrorRun(repo, runId, epoch).catch(() => epochs.settle(repo, epoch))
   }
 
   const mirrorSync: GitHubSeam["mirrorSync"] = async (explicit) => {

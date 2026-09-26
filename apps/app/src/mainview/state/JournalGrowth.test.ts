@@ -629,3 +629,86 @@ test.each(["commit", "reject"] as const)("desktop progress deduplicates committe
     clock.mockRestore()
   }
 })
+
+
+test.each(["commit", "reject"] as const)("unchanged mirror polls do not grow SQLite and await changed receipts: %s", async outcome => {
+  const { createGitHubSeam, mirrorSyncPolling } = await import("./seams/GitHubSeam")
+  const previous = { ...mirrorSyncPolling }
+  mirrorSyncPolling.delayMs = 1
+  const fixture = await open(), { store } = fixture
+  await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null }).isPersisted.promise
+  const reads: Array<ReturnType<typeof Promise.withResolvers<Response>>> = []
+  const waitFor = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 2_000
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error("Mirror observation did not settle")
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+  }
+  let terminal = false, launches = 0
+  const answer = (state = "running", status = "pending") => Response.json({ state,
+    refs: [{ name: "refs/heads/main", from: "aa", to: "bb", status, error: status === "failed" ? "Push refused" : null }]
+  })
+  const seam = createGitHubSeam({ store, dispatch: store.dispatch, baseUrl: "", actor: () => "user", nextOrdinal: () => 1,
+    http: async (input, init) => {
+      if (init?.method === "POST") { launches++; return Response.json({ run_id: 91 }) }
+      if (input.endsWith("/mirror-sync/91")) {
+        const read = Promise.withResolvers<Response>(); reads.push(read); return read.promise
+      }
+      return Response.json({ mirror_status: terminal ? "failed" : "behind", behind_refs: 1, failed_refs: terminal ? 1 : 0 })
+    }
+  })
+  const failures: Error[] = []
+  store.onStorageFailure(error => { failures.push(error) })
+  const id = "sync-ops-mirror-owner/repo"
+  const payload = () => { const card = store.committedCard(id); return card?.kind === "sync-ops" ? card.payload : undefined }
+  try {
+    await seam.mirrorSync("owner/repo")
+    await waitFor(() => reads.length === 1)
+    reads[0]!.resolve(answer())
+    await waitFor(() => reads.length === 2)
+    const before = await store.eventHistory(), physical = fixture.footprint()
+    for (let index = 1; index <= 10; index++) {
+      reads[index]!.resolve(answer())
+      await waitFor(() => reads.length === index + 2)
+    }
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    expect(fixture.footprint()).toEqual(physical)
+    const held = fixture.pauseNextWrite()
+    reads[11]!.resolve(answer("running", "succeeded"))
+    await held.entered
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(reads).toHaveLength(12)
+    if (outcome === "reject") {
+      held.fail(new Error("Mirror write refused"))
+      await waitFor(() => failures.length === 1)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(reads).toHaveLength(12)
+      expect(launches).toBe(1)
+      expect(failures).toMatchObject([{ message: "Changes could not be saved." }])
+      await expect(Promise.resolve(store.dispose?.())).rejects.toThrow("Mirror write refused")
+      stores.splice(stores.indexOf(store), 1)
+      const reopened = await open(fixture.path)
+      expect(reopened.store.committedCard(id)).toMatchObject({ payload: { runState: "running", ops: [{ status: "pending" }] } })
+      expect((await reopened.store.verifyState()).valid).toBe(true)
+      return
+    }
+    held.release()
+    await waitFor(() => reads.length === 13)
+    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
+    terminal = true
+    reads[12]!.resolve(answer("failed", "failed"))
+    await waitFor(() => payload()?.mirrorStatus === "failed")
+    await store.settled?.()
+    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 3)
+    expect(launches).toBe(1)
+    const reopened = await open(fixture.path)
+    expect(reopened.store.committedCard(id)).toMatchObject({ payload: { runState: "failed", mirrorStatus: "failed", ops: [{ status: "failed", error: "Push refused" }] } })
+    expect((await reopened.store.verifyState()).valid).toBe(true)
+  } finally {
+    // Terminal replies retire outstanding test polls even when a regression fails.
+    for (const read of reads) read.resolve(answer("failed", "failed"))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    Object.assign(mirrorSyncPolling, previous)
+  }
+})
