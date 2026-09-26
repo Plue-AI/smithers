@@ -1807,6 +1807,9 @@ importers:
 
   evals/agent:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@smthrs/agent':
         specifier: workspace:*
         version: link:../../packages/smithers/agent
@@ -1840,6 +1843,9 @@ importers:
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
     devDependencies:
       '@smthrs/targets':
         specifier: workspace:*

@@ -1,0 +1,16 @@
+# A minimal character suite: an assistant profile in a tiny invented company.
+# It is the offline gate for the runner itself (goldens pass, counterexamples
+# fail) and a template for real suites, which live in private configuration.
+name: example-assistant
+role: assistant
+org: ./org
+world: ./world
+seat: openai:gpt-6-astra
+judgeSeat: openai:gpt-6-sol
+voice:
+  openers: ["on it", "got it", "sure", "will do", "noted", "done:", "handoff"]
+  forbid: ["i hope this helps", "let me know if you have any", "status:", "/\\b[0-9a-f]{10,40}\\b/"]
+  terms: [receipt, readback, deliverable, outcomeUnknown]
+references:
+  - { pattern: "(?<![\\w/&])#(\\d{1,4})\\b", url: "https://example.invalid/acme/issues/$1" }
+booking: { days: [1, 2, 3, 4, 5], start: "09:00", end: "17:00" }

@@ -1,0 +1,18 @@
+id: answer-with-link
+title: A status question gets a direct, linked answer
+category: everyday
+tests: [answer-first, link]
+where: dm
+trigger: { from: owner, text: "is the safari signup bug fixed?" }
+expect:
+  reply:
+    words: { max: 60 }
+    include: [["not yet", "No", "in review"]]
+    links: [["https://example.invalid/acme/pull/8", "https://example.invalid/acme/issues/7"]]
+  focus: Not fixed yet; the fix (#8) is in review with passing checks.
+golden:
+  calls: [{ tool: issue_read, input: { number: 7 } }]
+  reply: "Not yet: the fix ([#8](https://example.invalid/acme/pull/8)) is in review with passing checks."
+counterexamples:
+  - { label: acknowledgment, reply: "On it." }
+  - { label: unlinked and cut off, reply: "The fix #8 is in revi…" }

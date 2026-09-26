@@ -10173,6 +10173,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/evals/src/Trials.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/evals/src/index.ts"
       },
       {
@@ -11101,7 +11105,15 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/scorers/src/Checks.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/scorers/src/Migrations.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/scorers/src/Rubric.ts"
       },
       {
         "kind": "file",
@@ -16316,6 +16328,37 @@
     }
   },
   {
+    "label": "//evals/agent:character",
+    "package": "evals/agent",
+    "name": "character",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "evals/agent/character/run.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/agent/character/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/agent/character/example/**",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "evals/agent/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//evals/agent:check",
     "package": "evals/agent",
     "name": "check",
@@ -16333,6 +16376,16 @@
       {
         "kind": "file",
         "path": "evals/agent/baseline.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/agent/character/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/agent/character/example/**",
+        "exclude": []
       },
       {
         "kind": "file",

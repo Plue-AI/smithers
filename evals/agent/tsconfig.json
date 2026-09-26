@@ -9,6 +9,6 @@
     "sourceMap": false,
     "types": ["node"]
   },
-  "include": ["*.ts"],
+  "include": ["*.ts", "character/*.ts"],
   "exclude": ["PACKAGE.ts"]
 }

@@ -3,12 +3,14 @@
   "private": true,
   "type": "module",
   "version": "0.0.0",
-  "description": "Offline flows-agent evaluation suite, gated on the committed baseline",
+  "description": "Offline flows-agent evaluation suite, gated on the committed baseline, and the character runner for agent profiles",
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "bun run.ts"
+    "test": "bun run.ts",
+    "character": "bun character/run.ts"
   },
   "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.115",
     "@smthrs/agent": "workspace:*",
     "@smthrs/core": "workspace:*",
     "@smthrs/engine": "workspace:*",
@@ -19,7 +21,8 @@
     "@smthrs/plan": "workspace:*",
     "@smthrs/registry": "workspace:*",
     "@smthrs/scorers": "workspace:*",
-    "effect": "4.0.0-rc.115"
+    "effect": "4.0.0-rc.115",
+    "yaml": "2.9.0"
   },
   "devDependencies": {
     "@smthrs/targets": "workspace:*",

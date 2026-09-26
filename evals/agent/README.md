@@ -167,3 +167,50 @@ red run:
   `/harness/HarnessError` would still pass if the harness raised that tag for a
   different reason. The tag is the stable half of the contract; the message is
   not.
+
+## Character evals: how an agent profile speaks and acts
+
+`character/` runs an agent profile (shared instructions, a charter, skills)
+through the same agent loop, one conversational turn at a time, in a simulated
+workplace, and scores what people would read and what the agent did. It is for
+behaviour a unit test can't pin down: whether a chat agent leads with the
+answer, avoids jargon, links what it names, routes work to the right owner,
+keeps private things private, and ignores instructions hidden in content.
+
+```bash
+node evals/agent/character/run.ts                                  # offline example gate
+node evals/agent/character/run.ts --suite <dir>                    # offline: goldens pass, counterexamples fail
+node evals/agent/character/run.ts --suite <dir> --live --judge --trials 3
+node evals/agent/character/run.ts --suite <dir> --calibrate        # judge agreement on labelled turns
+```
+
+Offline runs spend nothing and work under Bun or Node. `--live` needs Node (the
+egress HTTP client uses Undici's dispatcher, which Bun lacks) and runs on the
+owner's subscription login (`SMITHERS_OPENAI_AUTH=chatgpt`, the codex login in
+`$CODEX_HOME/auth.json`); API key variables are removed. At most
+`--concurrency` (default 2) conversations run at once.
+
+| File | What it is |
+| --- | --- |
+| `character/world.ts` | The simulated workplace: `world.yaml`, `wiki/`, `repo/`, and the tools a role may call (chat, handoffs, requests, calendar, email, wiki, issues, web), each recording its calls. |
+| `character/profile.ts` | Composes a profile's system segments: the host's turn contract, shared instructions, charter, skills, with byte caps. |
+| `character/event.ts` | Renders the event that starts a turn: time, where it arrived, the conversation so far, the new message. |
+| `character/subject.ts` | Runs one turn through `Agent` on a live subscription seat or a replay seat. |
+| `character/score.ts` | Deterministic checks (`@smthrs/scorers` `Checks`): voice rules on text Will reads, leakage on text agents read, expected calls, booking rules. |
+| `character/rubric.ts` | The seven-criterion rubric judge (`@smthrs/scorers` `Rubric`) on a subscription seat. |
+| `character/suite.ts` | Loads `suite.yaml` and `cases/*.yaml`. |
+| `character/run.ts` | Runs cases through `@smthrs/evals` (`Suite`, `Runner`, `Trials`), prints pass@1, pass@k and pass^k, and writes results and a regression log for live runs. |
+| `character/example/` | A three-case suite in a tiny invented company: the offline gate and a template. |
+
+A case file holds the world patch, the conversation so far, the trigger (or
+`turns` for a conversation), expectations (`reply`, `owner`, `calls`,
+`booking`, `leakage`, `allow`, `focus`), a golden transcript and
+counterexamples. Offline, each counterexample replaces one turn of the golden
+conversation and must make the case fail on its own; a counterexample that
+passes means the case can't see that failure.
+
+Limits: the world's tools are simulations, so a live pass shows how the
+profile behaves against this world, not that real integrations work. The
+judge shares a model family with most roles. The harness keys the provider's
+prompt cache on the whole system prompt including the task, so the first model
+call of every turn reads nothing from cache and dominates a pass's cost.

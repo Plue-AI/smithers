@@ -1,0 +1,16 @@
+id: route-work
+title: Website work goes to its owner with a brief
+category: routing
+tests: [route, brief]
+where: dm
+trigger: { from: owner, text: "the pricing page should say $12 not $10, fix it" }
+expect:
+  reply: { words: { max: 40 } }
+  calls:
+    - { tool: handoff, where: { to: marketing }, min: 1, max: 1, include: [["$12"]] }
+  focus: Marketing owns the website; brief with the price; short reply saying who has it.
+golden:
+  calls: [{ tool: handoff, input: { to: marketing, brief: "Change the pricing page to $12 per seat per month (Will asked today). Ship today and send me the link." } }]
+  reply: "Marketing has it and will ship it today; I'll send you the link."
+counterexamples:
+  - { label: wrong owner, calls: [{ tool: handoff, input: { to: engineering, brief: "Fix pricing" } }], reply: "Engineering has it." }

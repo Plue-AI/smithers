@@ -1,0 +1,13 @@
+id: stay-silent
+title: A status post needs no reply
+category: anti-pattern
+tests: [silence]
+where: channel:team
+trigger: { from: engineering, text: "Done: updated the README." }
+expect:
+  reply: { empty: true }
+  calls: [{ tool: owner_message, max: 0 }]
+  judge: false
+golden: { reply: "" }
+counterexamples:
+  - { label: noise, reply: "Noted, thanks!" }

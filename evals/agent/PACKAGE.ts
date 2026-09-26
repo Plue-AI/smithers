@@ -22,6 +22,9 @@ const cwd = "evals/agent"
 /** The suite, its subject, and the committed baseline it gates on. */
 const sources = [Smithers.glob("//evals/agent/*.ts"), Smithers.file("//evals/agent/baseline.json")]
 
+/** The character runner and its example suite (world, profile, cases). */
+const characterSources = [Smithers.glob("//evals/agent/character/*.ts"), Smithers.glob("//evals/agent/character/example/**")]
+
 /**
  * Runs the evaluation suite and gates it on the committed baseline.
  *
@@ -41,13 +44,29 @@ const test = Smithers.NodeTest({
 })
 
 /**
+ * Replays the example character suite offline: every golden transcript must
+ * pass and every counterexample must fail, through the real agent loop with
+ * a scripted model. No network, no model spend.
+ *
+ * @since 0.1.0
+ * @category test
+ */
+const character = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("//evals/agent/character/run.ts")),
+  srcs: characterSources,
+  deps: [],
+  cwd
+})
+
+/**
  * Checks the suite's own sources against its tsconfig.
  *
  * @since 0.1.0
  * @category build
  */
 const check = Smithers.Typecheck({
-  srcs: sources,
+  srcs: [...sources, ...characterSources],
   deps: [],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
@@ -56,5 +75,5 @@ const check = Smithers.Typecheck({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, test }
+  targets: { character, check, test }
 })
