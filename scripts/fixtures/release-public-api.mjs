@@ -25,14 +25,17 @@ for (const name of ["StandardPackage", "ReviewLint"]) {
   }
 }
 
-const migration = "core/migrations/0001_integration_cursors"
-await assert.rejects(load(`@smthrs/integrations/${migration}`), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" })
 const integrationRoot = dirname(require.resolve("@smthrs/integrations/package.json"))
-for (const file of [`src/${migration}.ts`, `dist/esm/${migration}.js`, `dist/esm/${migration}.d.ts`, `dist/cjs/${migration}.js`, `dist/cjs/${migration}.d.ts`]) {
-  assert.equal(existsSync(join(integrationRoot, file)), false, `${mode}: raw migration remains in ${file}`)
+const migrations = ["0001_integration_cursors", "0002_integration_records"]
+for (const name of migrations) {
+  const migration = `core/migrations/${name}`
+  await assert.rejects(load(`@smthrs/integrations/${migration}`), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" })
+  for (const file of [`src/${migration}.ts`, `dist/esm/${migration}.js`, `dist/esm/${migration}.d.ts`, `dist/cjs/${migration}.js`, `dist/cjs/${migration}.d.ts`]) {
+    assert.equal(existsSync(join(integrationRoot, file)), false, `${mode}: raw migration remains in ${file}`)
+  }
 }
 const { Core } = await load("@smthrs/integrations")
-assert.deepEqual(Object.keys(Core.Migrations.set.migrations), ["0001_integration_cursors"])
+assert.deepEqual(Object.keys(Core.Migrations.set.migrations), migrations)
 
 const target = targets.Shell.Test({ shell: "printf smoke" })
 assert.equal(Target.isTarget(target), true)
