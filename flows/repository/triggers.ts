@@ -20,7 +20,7 @@ import { TriggerRegistration, TriggerRequest, TriggerResult, triggerCandidate } 
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 const json = (value: unknown): Schema.Json => JSON.parse(JSON.stringify(value))
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
-const rows = (value: unknown): unknown[] => Array.isArray(value) ? value : Array.isArray(record(value).items) ? record(value).items as unknown[] : []
+const rows = (value: unknown): Array<unknown> => Array.isArray(value) ? value : Array.isArray(record(value).items) ? record(value).items as Array<unknown> : []
 const requireRemote = Effect.gen(function*() {
   const remote = yield* Effect.serviceOption(RepositoryRemote)
   return Option.isSome(remote) ? remote.value : yield* invalid("Connect the repository host before registering a schedule")

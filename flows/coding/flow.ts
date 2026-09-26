@@ -1,8 +1,8 @@
 /** Linear implementation with a parallel slow-validation branch at every Change. */
-import { Action, Flow } from "@smthrs/flow"
+import { type Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Assess, Implement, RunCheck, FastGate, ValidatePlan } from "./workflow.ts"
-import { CodingError, Plan, Result, ValidatedChange } from "./schema.ts"
+import { CodingError, Plan, Result, type ValidatedChange } from "./schema.ts"
 
 type Requirements = Action.Requirement<(typeof ValidatePlan | typeof Implement | typeof RunCheck | typeof FastGate | typeof Assess)["name"]>
 type Stages = Node.Node<ReadonlyArray<ValidatedChange>, CodingError, Requirements>

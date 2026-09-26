@@ -3,7 +3,7 @@
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
-import { Effect, Layer, Redacted, Result, Schema } from "effect"
+import { Effect, Layer, Result, Schema } from "effect"
 import { matchesGlob } from "node:path"
 import { CodingError } from "../coding/schema.ts"
 import type { Comparison, SemanticVerdict } from "./checks.ts"

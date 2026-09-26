@@ -1,5 +1,5 @@
 /** Private host composition: immutable native source in scoped scratch, never copy-back. */
-import { Effect, FileSystem, Layer, Path, Schema, Stream } from "effect"
+import { Effect, type FileSystem, Layer, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NativeCoding, type NativeOptions } from "./native.ts"
 import { CapturePocSource, RetainPoc, invalid, sourceDigest, validPath } from "./poc.ts"

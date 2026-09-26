@@ -229,6 +229,13 @@ jobs:
           "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
           "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+      - name: "Repository flows lint"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//flows/...' --known-red '.github/ci-known-red.json' --verbose"
+        env:
+          "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
+          "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
+          "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Public export JSDoc"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//:jsdocTree' --known-red '.github/ci-known-red.json' --verbose"
@@ -295,6 +302,13 @@ jobs:
       - name: "SWE-bench rig typecheck"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs build '//evals/swebench:check' --known-red '.github/ci-known-red.json' --verbose"
+        env:
+          "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
+          "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
+          "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+      - name: "SWE-bench rig lint"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs lint '//evals/swebench/...' --known-red '.github/ci-known-red.json' --verbose"
         env:
           "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
           "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
@@ -489,7 +503,7 @@ jobs:
           "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
           "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
-      - name: "TUI typecheck and tests"
+      - name: "TUI typecheck, lint and tests"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs ci '//apps/tui/...' --known-red '.github/ci-known-red.json' --verbose"
         env:

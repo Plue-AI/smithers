@@ -111,7 +111,6 @@ const selectedVerdicts = verdictsOf("flows-cell-harness", `${options.prefix}-sel
 const bytesOf = (path) => existsSync(path) ? statSync(path).size : 0
 
 const cell = (report, id) => report === undefined ? "not graded" : report[id] ?? "not graded"
-const resolved = (report, id) => cell(report, id) === "resolved"
 
 /**
  * Verdicts from best to worst, for the one column that is allowed to pick.

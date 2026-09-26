@@ -83,7 +83,7 @@ export const make = (options: {
           undefined,
           undefined,
           modules
-        ) as Layer.Layer<Control.Control>
+        )
       )
       return { runtime, catalog }
     })().catch((error) => {
@@ -163,7 +163,7 @@ export const make = (options: {
       throw new FlowError("unknown_flow", `Unknown flow ${flow}`)
     },
     plan: (flow, input) =>
-      control((service) => service.plan({ flowId: flow, input: input as Control.PlanInput["input"] })).then((card) => ({
+      control((service) => service.plan({ flowId: flow, input: input })).then((card) => ({
         // Wildcards take the same y/n/a rows as every consequential envelope, in `start`.
         raw: card
       })),
@@ -281,7 +281,7 @@ export const make = (options: {
               startsRuns: false,
               evaluator: judge,
               ...(options.stateRoot === undefined ? {} : { stateRoot: options.stateRoot })
-            }) as Layer.Layer<Control.Control>
+            })
           )
         )
       )

@@ -6,9 +6,9 @@
  * a built CLI and evaluator venv. Docker and funded-model benchmarks remain
  * documented operator commands.
  *
- * There is no `lint` or `fmt` target. Most of this directory is captured
- * evaluator output — `baseline/`, `reports/`, `fixtures/` — whose bytes are
- * evidence of what a wave measured, and a formatting gate would rewrite them.
+ * `lint` and `fmt` cover the rig's code only. The rest of this directory is
+ * captured evaluator output (`baseline/`, `reports/`, `fullbench/`, fixture
+ * data) whose bytes are evidence of what a wave measured.
  */
 import { Smithers } from "@smthrs/targets"
 
@@ -26,6 +26,38 @@ const check = Smithers.Typecheck({
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
   incremental: false,
+  cwd
+})
+
+/** The rig's code, as `eslint.config.js` and `dprint.json` scope it. */
+const code = [Smithers.glob("*.ts"), Smithers.glob("*.mjs"), Smithers.glob("lib/*.mjs")]
+
+/**
+ * Lints the rig's scripts.
+ *
+ * @since 1.0.0
+ * @category lint
+ */
+const lint = Smithers.EsLint({
+  sources: code,
+  configs: [Smithers.file("eslint.config.js"), Smithers.file("//eslint.invariants.js")],
+  deps: [],
+  maxWarnings: 0,
+  fix: false,
+  cwd
+})
+
+/**
+ * Checks formatting of the rig's scripts and fixture checks.
+ *
+ * @since 1.0.0
+ * @category lint
+ */
+const fmt = Smithers.Dprint({
+  sources: [...code, Smithers.glob("fixtures/*.mjs")],
+  config: Smithers.file("dprint.json"),
+  deps: [],
+  fix: false,
   cwd
 })
 
@@ -68,5 +100,5 @@ const prerequisites = Smithers.Shell.Run({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, offline, prerequisites }
+  targets: { check, lint, fmt, offline, prerequisites }
 })

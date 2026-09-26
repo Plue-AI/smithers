@@ -127,7 +127,7 @@ const requestOf = (item: Item, taken: Planned.Planned<Decision>): Node.Node<Requ
       repository: it.repository,
       ...(it.issue === undefined ? {} : { issue: it.issue })
     }
-  }))) as Node.Node<Request>
+  })))
 
 /** A taken issue: claimed, handed to its owner in the team channel, delivered. */
 const take = (item: Item, triage: Planned.Planned<string>, taken: Planned.Planned<Decision>): Node.Node<ItemReport, any, any> =>
@@ -149,7 +149,7 @@ const take = (item: Item, triage: Planned.Planned<string>, taken: Planned.Planne
             Node.andThen(delivered(item, taken.owner, requestOf(item, taken)))
           )
       }))))
-  ) as Node.Node<ItemReport, any, any>
+  )
 
 const decide = (item: Item, triage: Planned.Planned<string>, decision: Planned.Planned<Decision>): Node.Node<ItemReport, any, any> =>
   Node.succeed(decision).pipe(Node.branch({
@@ -176,7 +176,7 @@ const decide = (item: Item, triage: Planned.Planned<string>, decision: Planned.P
             else: (invalid) => ended(item, { status: "invalid", summary: invalid.reason })
           }))
       }))
-  })) as Node.Node<ItemReport, any, any>
+  }))
 
 /** An accepted proposal: its owner delivers it. */
 const proposal = (item: Item): Node.Node<ItemReport, any, any> => {

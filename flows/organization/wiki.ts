@@ -23,7 +23,7 @@
 import { spawnSync } from "node:child_process"
 import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import * as Config from "../../packages/smithers/agent/organization/src/Config.ts"
 import type * as RoleHost from "../../packages/smithers/agent/organization/src/RoleHost.ts"
 
@@ -307,7 +307,7 @@ export const sync = (root: string, stateDir: string, now: number = Date.now(), t
   const recorded = syncState(stateDir)
   const conflict = (message: string): Synced => {
     const fresh = recorded.conflict?.message !== message
-    saveSync(stateDir, { ...recorded, conflict: { at: fresh ? now : recorded.conflict!.at, message } })
+    saveSync(stateDir, { ...recorded, conflict: { at: fresh ? now : recorded.conflict.at, message } })
     return { status: "conflict", message, ...(fresh ? { announce: message } : {}) }
   }
   const fetched = git(root, ["fetch", "--quiet", remote, branch], undefined, timeoutMs)
@@ -384,7 +384,7 @@ export const committer = (
     return synced.announce === undefined || syncing.announce === undefined
       ? Effect.void
       : syncing.announce(`Wiki sync conflict: ${synced.announce}`).pipe(
-        Effect.catchCause(() => Effect.sync(() => log("wiki sync conflict could not be posted")))
+        Effect.catchCause((cause) => Effect.sync(() => log(`wiki sync conflict could not be posted: ${Cause.pretty(cause)}`)))
       )
   })
   return Effect.addFinalizer(() => once).pipe(

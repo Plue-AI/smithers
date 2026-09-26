@@ -15,7 +15,7 @@ import { DeliverChange } from "./delivery.ts"
 import { Work, finalCheckWork, retainedStepError } from "./jobs.ts"
 import { CheckStep, diffPaths, materializeProposal } from "./checks.ts"
 import { rawCheckId } from "./ci-policy.ts"
-import { Check, Proposal, StepResult } from "./schema.ts"
+import { type Check, Proposal, StepResult } from "./schema.ts"
 import { admitSourcePath } from "./source.ts"
 
 const invalid =(message: string) => new CodingError({ code: "invalid_receipt", message })

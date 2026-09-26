@@ -1,6 +1,6 @@
 /** Repository CI runs cheap commands first and records semantic checks on exact source. */
 import * as Digest from "@smthrs/core/Digest"
-import * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Option, Path, Schema } from "effect"
@@ -59,7 +59,7 @@ export interface RecordedCheck {
 }
 /** Read only the host's direct check or proposal.checks shape, never arbitrary
  * nested model JSON. Baselines remain measured evidence, not final coverage. */
-export const recordedChecks = (step: typeof StepResult.Type, sourceRevision: string): readonly RecordedCheck[] | undefined => {
+export const recordedChecks = (step: typeof StepResult.Type, sourceRevision: string): ReadonlyArray<RecordedCheck> | undefined => {
   const raw = object(step.output), direct = Schema.decodeUnknownOption(CheckOutput)(step.output)
   if (Option.isSome(direct)) {
     if (direct.value.candidate !== sourceRevision) throw invalid("The recorded check names another source")
@@ -183,7 +183,7 @@ export const CheckStep = Flow.make("repository/CheckStep", { payload: { work: Wo
   body: input => CaptureChecks.call(input).pipe(Node.bindPlanned(plan => RunChecks.call(plan))) })
 
 /** A nonempty diff with unsupported path encoding cannot become an empty scope. */
-export const diffPaths = (diff: string): string[] => {
+export const diffPaths = (diff: string): Array<string> => {
   const paths = new Set<string>()
   for (const line of diff.split("\n")) {
     if (!line.startsWith("diff --git ")) continue
@@ -209,7 +209,7 @@ export const selectedComparison = (comparison: typeof Comparison.Type, check: ty
   const paths = comparison.paths.filter(path => matched(check, path) && reviewable(check, path))
   return { ...comparison, paths, files: comparison.files.filter(file => paths.includes(file.path)), changes: comparison.changes.filter(file => paths.includes(file.path)) }
 }
-export const refusedComparison = (comparison: typeof Comparison.Type, check: typeof Check.Type): string[] =>
+export const refusedComparison = (comparison: typeof Comparison.Type, check: typeof Check.Type): Array<string> =>
   comparison.paths.filter(path => matched(check, path) && !reviewable(check, path))
 
 /** Full-file proposals alter only the private exported tree and name their exact preimages. */
@@ -283,7 +283,7 @@ export const captureChecks = (options: ImmutableSourceOptions, work: typeof Work
   const paths = proposal.length ? proposal.map(file => file.path) : yield* Effect.try({ try: () => diffPaths(entireDiff), catch: error => error instanceof CodingError ? error : invalid("Invalid comparison paths") })
   const selected = new Set<string>()
   for (const check of semantic) {
-    const scoped = yield* Effect.try({ try: () => selectedComparison({ base: comparisonBase!, candidate: work.evidence.source.commitId, diff: "", paths, files: [], changes: [] }, check),
+    const scoped = yield* Effect.try({ try: () => selectedComparison({ base: comparisonBase, candidate: work.evidence.source.commitId, diff: "", paths, files: [], changes: [] }, check),
       catch: error => error instanceof CodingError ? error : invalid("Invalid configured scope") })
     for (const name of scoped.paths) selected.add(name)
   }
@@ -307,7 +307,7 @@ export const captureChecks = (options: ImmutableSourceOptions, work: typeof Work
       if (text.includes("\u0000") || bytes > 128_000) return yield* invalid("Changed source is binary or exceeds the complete review bound")
       files.push({ path: name, text, digest: Digest.digest(text), truncated: false })
     }
-    const comparison = { base: comparisonBase!, candidate: proposal.length
+    const comparison = { base: comparisonBase, candidate: proposal.length
       ? `${work.evidence.source.commitId}+${Digest.digest(Digest.canonical(proposal))}` : work.evidence.source.commitId, diff, paths, files, changes }
     // A rule can explicitly name a removed file outside its changed-path
     // scope. Only actual diff/proposal paths may use historical rule evidence.
@@ -386,7 +386,7 @@ export const assessSemantic = (comparison: typeof Comparison.Type, verdict: type
 
 /** A configured check that never ran is not a measured pass, so a run that
  * measured nothing says so and names the locations this step probed. */
-export const checksSummary = (plan: typeof CheckPlan.Type, results: readonly (typeof CheckResult.Type)[]): string => {
+export const checksSummary = (plan: typeof CheckPlan.Type, results: ReadonlyArray<typeof CheckResult.Type>): string => {
   const blocking = results.filter(result => result.policy === "required" && (result.status === "failed" || result.status === "error"))
   if (blocking.length) return `${blocking.length} required checks blocked`
   const ran = results.filter(result => result.status !== "skipped")
@@ -421,7 +421,7 @@ export const checkLayers = (options: ImmutableSourceOptions & { readonly evaluat
     const ordered = [...plan.work.checks].sort((a, b) => Number(a.kind === "ai") - Number(b.kind === "ai"))
     for (const check of ordered) {
       const id = Digest.digest(Digest.canonical(["repository/check/v1", executionId, plan.comparison.candidate, check]))
-      const base = { checkId: check.id, policy: check.policy, executionId: id, evidence: [] as string[], detail: null }
+      const base = { checkId: check.id, policy: check.policy, executionId: id, evidence: [] as Array<string>, detail: null }
       if (Date.now() >= plan.work.deadlineAt) { results.push({ ...base, status: "error", summary: "The configured check deadline expired" }); continue }
       if (check.kind === "ai" && results.some(result => result.policy === "required" && (result.status === "error" || result.status === "failed"))) {
         results.push({ ...base, status: "skipped", summary: "An earlier required check blocked this AI check" }); continue

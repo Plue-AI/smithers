@@ -349,7 +349,7 @@ export class Workspace {
     catch (error) { Log.write("worker.history", error); return [] }
   }
   private boundedHistory(entries: ReadonlyArray<Context.Entry>): ReadonlyArray<Context.Entry> {
-    const kept: Context.Entry[] = []
+    const kept: Array<Context.Entry> = []
     let remaining = 24_000
     for (const entry of entries.toReversed()) {
       const value: Context.Entry = entry.kind === "exchange"

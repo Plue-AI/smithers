@@ -14,7 +14,7 @@
 import { Action, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer } from "effect"
-import { NativeCoding, NativeCodingError, Operation, OperationResult, requestIdFor } from "./native.ts"
+import { NativeCoding, NativeCodingError, Operation, type OperationResult, requestIdFor } from "./native.ts"
 import { CodingError, Revision, StackBase } from "./schema.ts"
 
 export { StackBase } from "./schema.ts"

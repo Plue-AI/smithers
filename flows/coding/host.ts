@@ -221,12 +221,12 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
     const fs = yield* FileSystem.FileSystem
     const wikiEnabled = options.planning?.wiki === true
     const reviewerPolicy = !wikiEnabled ? undefined : yield* runningWikiPolicy
-    const wikiOutput = !wikiEnabled ? undefined : yield* separateWikiOutput(options.repositoryPath, options.planning!.wikiOutput!)
+    const wikiOutput = !wikiEnabled ? undefined : yield* separateWikiOutput(options.repositoryPath, options.planning.wikiOutput!)
     // No per-workspace identity (the gateway is the binding): the stack carries
     // reviews from one refresh workspace to the next.
-    const wikiReviewer = !wikiEnabled ? undefined : Digest.canonical({ policy: options.planning!.reviewer,
+    const wikiReviewer = !wikiEnabled ? undefined : Digest.canonical({ policy: options.planning.reviewer,
       model: effectiveSeats(options)["wiki/reviewer"] ?? options.wikiModel ?? options.implementationModel, hostPolicy: reviewerPolicy })
-    const wikiOptions = !wikiEnabled ? undefined : { ...options.planning!, pages: options.planning!.pages!, wikiOutput: wikiOutput!,
+    const wikiOptions = !wikiEnabled ? undefined : { ...options.planning, pages: options.planning.pages!, wikiOutput: wikiOutput!,
       repositoryPath: options.repositoryPath, reviewer: wikiReviewer!, hostPolicy: reviewerPolicy!, evaluator }
     const repositoryBundle = yield* runningRepositoryPolicy
     const repositoryPolicy = Digest.digest(Digest.canonical({ bundle: repositoryBundle, implementationModel: options.implementationModel,

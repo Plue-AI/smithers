@@ -387,6 +387,8 @@ const ci = Smithers.GithubCiGen({
         { name: "Repository flow fixtures", verb: Smithers.Verb.Test, pattern: "//flows:repository" },
         { name: "Wiki and release fixtures", verb: Smithers.Verb.Test, pattern: "//flows:fixtures" },
         { name: "Product gateway", verb: Smithers.Verb.Test, pattern: "//flows:productHost" },
+        // ESLint and dprint over the flows tree: `//flows:lint` and `//flows:fmt`.
+        { name: "Repository flows lint", verb: Smithers.Verb.Lint, pattern: "//flows/..." },
         { name: "Public export JSDoc", verb: Smithers.Verb.Lint, pattern: "//:jsdocTree" },
         { name: "Script lint", verb: Smithers.Verb.Lint, pattern: "//scripts:lint" },
         { name: "JSDoc rule harness", verb: Smithers.Verb.Test, pattern: "//:jsdocRules" },
@@ -414,6 +416,7 @@ const ci = Smithers.GithubCiGen({
         // benchmark runs remain operator commands.
         { name: "SWE-bench offline fixtures", verb: Smithers.Verb.Test, pattern: "//evals/swebench:offline", parallelism: 1 },
         { name: "SWE-bench rig typecheck", verb: Smithers.Verb.Build, pattern: "//evals/swebench:check" },
+        { name: "SWE-bench rig lint", verb: Smithers.Verb.Lint, pattern: "//evals/swebench/..." },
         // The review app, the two Workers, and the seeded-bug eval. Without
         // these steps the only pipeline that ran them was the 0.x one this
         // repository replaced: `//packages/...` does not reach `apps/`, and the
@@ -507,9 +510,9 @@ const ci = Smithers.GithubCiGen({
         // only; it is its own lint target over `apps/app/lint/conformance`.
         { name: "UI conformance lint", verb: Smithers.Verb.Test, pattern: "//apps/app:conformance" },
         { name: "UI browser end-to-end suite", verb: Smithers.Verb.Test, pattern: "//apps/app:browserE2e" },
-        // The terminal UI's typecheck and Bun suite. Its shell-change capture
-        // runs the native helper this job installs.
-        { name: "TUI typecheck and tests", verb: Smithers.Verb.Ci, pattern: "//apps/tui/..." }
+        // The terminal UI's typecheck, lint, format check and Bun suite. Its
+        // shell-change capture runs the native helper this job installs.
+        { name: "TUI typecheck, lint and tests", verb: Smithers.Verb.Ci, pattern: "//apps/tui/..." }
       ]
     },
     {

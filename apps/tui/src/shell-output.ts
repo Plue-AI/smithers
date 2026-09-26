@@ -50,7 +50,7 @@ export const redactor = (env: NodeJS.ProcessEnv) => {
   return { write: (text: string) => take(text, false), end: () => take("", true) }
 }
 
-export const redact = (text: string, env: NodeJS.ProcessEnv = process.env): string => {
+export const redact = (text: string, env: NodeJS.ProcessEnv): string => {
   const stream = redactor(env)
   return stream.write(text) + stream.end()
 }

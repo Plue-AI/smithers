@@ -149,7 +149,7 @@ export const feedbackLayer = ReceiveFeedback.toLayer(receiveFeedback)
  * the existing journals; it never truncates accepted instructions silently.
  */
 export const appendFeedback = (feedback: string, receipt: FeedbackReceipt): Effect.Effect<string, CodingError> => {
-  const rendered: string[] = []
+  const rendered: Array<string> = []
   for (const message of receipt.messages) {
     const payload = SteerPayload.decode(message.payload)
     if (payload?.kind !== "Message") return Effect.fail(new CodingError({

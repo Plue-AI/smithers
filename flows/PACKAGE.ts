@@ -30,6 +30,17 @@ const suite = Smithers.NodeTest({
   srcs: [sources, scripts, Smithers.file("//pnpm-workspace.yaml")], deps: [], cwd
 })
 
+// Lints flow sources; suites and fixtures are formatted, not linted.
+const lint = Smithers.EsLint({
+  sources: [Smithers.glob("**/*.ts")],
+  configs: [Smithers.file("eslint.config.js"), Smithers.file("//eslint.invariants.js")],
+  deps: [], maxWarnings: 0, fix: false, cwd
+})
+const fmt = Smithers.Dprint({
+  sources: [Smithers.glob("**/*.{ts,tsx,js,jsx,mjs,json,md}")],
+  config: Smithers.file("dprint.json"), deps: [], fix: false, cwd
+})
+
 const recording = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//flows/test/recording.test.ts")]),
   srcs: [sources], deps: [], cwd
@@ -280,4 +291,4 @@ const organizationSetup = Smithers.NodeTest({
 
 export const Package = Smithers.Package({ targets: { coding, codingPolicy, codingRuntime, codingConfigBun,
   codingNative, codingNativeBun, codingBundle, codingBundleBun, egress, fixtures, organizationHost, organizationSetup,
-  pack, check, productHost, repository, suite, recording, provider, wiki } })
+  pack, check, lint, fmt, productHost, repository, suite, recording, provider, wiki } })

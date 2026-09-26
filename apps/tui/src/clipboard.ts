@@ -10,8 +10,8 @@ import { spawn } from "node:child_process"
 
 /** Clipboard commands to try in order: macOS, Windows, then Wayland before X11. */
 export const commands = (
-  platform: NodeJS.Platform = process.platform,
-  env: NodeJS.ProcessEnv = process.env
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv
 ): ReadonlyArray<readonly [string, ReadonlyArray<string>]> =>
   platform === "darwin"
     ? [["pbcopy", []]]
@@ -33,7 +33,7 @@ const pipe = (command: string, args: ReadonlyArray<string>, text: string): Promi
   })
 
 /** Writes `text` to the system clipboard without blocking the render loop; false when no command took it. */
-export const write = async (text: string, candidates = commands()): Promise<boolean> => {
+export const write = async (text: string, candidates: ReadonlyArray<readonly [string, ReadonlyArray<string>]>): Promise<boolean> => {
   for (const [command, args] of candidates) if (await pipe(command, args, text)) return true
   return false
 }

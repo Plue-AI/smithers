@@ -120,7 +120,7 @@ export const patch = (path: string, before: string | null, after: string | null,
  * The files a write flow's input names; `undefined` when it names them in a
  * form this reads no further, such as a patch `apply_patch` would refuse.
  */
-export const touched = (flow: string, input: unknown): string[] | undefined => {
+export const touched = (flow: string, input: unknown): Array<string> | undefined => {
   if (input === null || typeof input !== "object") return []
   const value = input as Record<string, unknown>
   if ((flow === "edit" || flow === "write") && typeof value.path === "string") return [value.path]
@@ -130,11 +130,11 @@ export const touched = (flow: string, input: unknown): string[] | undefined => {
   }
   return []
 }
-export const paths = (flow: string, input: unknown): string[] => touched(flow, input) ?? []
+export const paths = (flow: string, input: unknown): Array<string> => touched(flow, input) ?? []
 const command = async (
   program: string,
   cwd: string,
-  args: string[],
+  args: Array<string>,
   env: Record<string, string> = {}
 ): Promise<string | undefined> => {
   try {
@@ -166,8 +166,8 @@ const command = async (
     return undefined
   }
 }
-const git = (cwd: string, args: string[], env?: Record<string, string>) => command("git", cwd, args, env)
-export const splitPatch = (diff: string): Patch[] =>
+const git = (cwd: string, args: Array<string>, env?: Record<string, string>) => command("git", cwd, args, env)
+export const splitPatch = (diff: string): Array<Patch> =>
   diff.split(/(?=^diff --git )/m).filter((part) => part.trim() !== "").map((patch) => {
     const added = patch.match(/^\+\+\+ (?:b\/)?(.+)$/m)?.[1]
     const removed = patch.match(/^--- (?:a\/)?(.+)$/m)?.[1]
@@ -189,7 +189,7 @@ const changedPatch = (path: string, old: FileState, next: FileState): Patch | un
  * Candidate files in the working tree, including untracked paths, without
  * staging or consulting HEAD. Ignored files are not candidates for receipts.
  */
-const gitPaths = async (cwd: string): Promise<string[] | undefined> => {
+const gitPaths = async (cwd: string): Promise<Array<string> | undefined> => {
   const output = await git(cwd, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."])
   return output === undefined ? undefined : [...new Set(output.split("\0").filter(Boolean))]
 }
@@ -231,11 +231,11 @@ const sameStat = (a: FileStat | null | undefined, b: FileStat | null | undefined
   a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs && a.ino === b.ino && a.mode === b.mode
 
 /** Paths with pre-call bytes that differ from the index, including untracked files. */
-const dirtyPaths = async (cwd: string): Promise<string[] | undefined> => {
+const dirtyPaths = async (cwd: string): Promise<Array<string> | undefined> => {
   const output = await git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."])
   if (output === undefined) return undefined
   const entries = output.split("\0").filter(Boolean)
-  const paths: string[] = []
+  const paths: Array<string> = []
   for (let at = 0; at < entries.length; at++) {
     const entry = entries[at]!
     paths.push(entry.slice(3))
@@ -273,7 +273,7 @@ const indexState = async (cwd: string, blob: string, before: FileStat): Promise<
 /** A bash call's changes against pre-call files, relative to `cwd`; no receipt outside a repository. */
 const shell = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPatch: (receipt: Receipt) => void) =>
   Effect.gen(function*() {
-    const jj = Subprocess.which("jj") !== null
+    const jj = Subprocess.which("jj", process.env) !== null
       ? (yield* Effect.promise(() => command("jj", cwd, ["log", "--no-graph", "-r", "@", "-T", "commit_id"])))?.trim()
       : undefined
     if (jj) {
@@ -293,7 +293,7 @@ const shell = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPat
     if (afterPaths === undefined) return result
     const allPaths = [...new Set([...candidates, ...afterPaths])]
     const afterStats = yield* Effect.promise(() => stats(cwd, allPaths))
-    const patches: Patch[] = []
+    const patches: Array<Patch> = []
     let verified = true
     for (const path of allPaths) {
       const pre = beforeStats.has(path) ? beforeStats.get(path) : null
@@ -320,7 +320,7 @@ const named = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPat
     const files = paths(call.flowName, call.input)
     const before = yield* Effect.promise(() => states(cwd, files))
     const result = yield* binding.run(call)
-    const patches: Patch[] = []
+    const patches: Array<Patch> = []
     let additional = 0
     for (const path of files) {
       const old = before.get(path)

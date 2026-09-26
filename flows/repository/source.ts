@@ -2,7 +2,7 @@
 import { Effect, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { contained, ExportedTree, runSourceProcess, type ImmutableSourceOptions } from "../coding/immutable-source.ts"
-import { CodingError, Revision } from "../coding/schema.ts"
+import { CodingError, type Revision } from "../coding/schema.ts"
 import { normalizePath } from "../coding/planning-sources.ts"
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 /** Check every ancestor before creating a directory or opening a destination. */

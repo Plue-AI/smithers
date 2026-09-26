@@ -2,8 +2,8 @@
 import { Cause, Context, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/unstable/http"
 import { ChangeId, Resolved, SourcePublication } from "./native-schema.ts"
-import { AppendObservation, AppendPreparation, AppendPreparationInput, AppendRequest, type Delivery, GitHubPull, LandingIdentity,
-  LaneReceipt, LaneSubmission, QueuedAppend, StackState } from "./landing-schema.ts"
+import { AppendObservation, AppendPreparation, AppendPreparationInput, type AppendRequest, type Delivery, GitHubPull, type LandingIdentity,
+  LaneReceipt, LaneSubmission, type QueuedAppend, StackState } from "./landing-schema.ts"
 import { CodingError } from "./schema.ts"
 
 /** Trusted provisioned workspace binding, never workflow or model input. */
@@ -122,7 +122,7 @@ export const make = (options: Options) => Effect.gen(function*() {
       ? Effect.succeed({ requestId: value.request_id, number: value.number })
       : Effect.fail(invalid("Landing receipt does not identify this exact request and native stack"))
   const readMain = Effect.gen(function*() {
-    const cursors = new Set<string>(), candidates: string[] = []
+    const cursors = new Set<string>(), candidates: Array<string> = []
     let cursor = ""
     // Existing bookmark pagination, bounded to 10,000 entries. Incomplete pages refuse.
     for (let page = 0; page < 100; page++) {
@@ -131,7 +131,7 @@ export const make = (options: Options) => Effect.gen(function*() {
       for (const bookmark of response.items) if (bookmark.name === "main") candidates.push(bookmark.target_commit_id)
       if (response.next_cursor === "") {
         if (candidates.length !== 1 || !Schema.is(Resolved.fields.commitId)(candidates[0])) return yield* invalid("Repository must have one unambiguous immutable local main bookmark")
-        return candidates[0]!
+        return candidates[0]
       }
       if (cursors.has(response.next_cursor) || response.items.length === 0) return yield* invalid("Bookmark traversal is incomplete or cyclic")
       cursors.add(response.next_cursor); cursor = response.next_cursor

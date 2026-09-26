@@ -20,7 +20,7 @@ import * as Actions from "../../../packages/smithers/agent/organization/src/Acti
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import { turn } from "../deliver/flow.ts"
 import { fieldTurn } from "../field-turn.ts"
-import { Describe, RequestKey, StepFailure } from "../schema.ts"
+import { Describe, RequestKey, type StepFailure } from "../schema.ts"
 import { DelegateTask, Judge, PublishWork, ReviewTask, SettleStaff, StaffFailed, StaffReport } from "../staff.ts"
 
 const implementationVersion = "organization/delegate/v1"
@@ -114,7 +114,7 @@ const round = (
           })
         )
     })
-  ) as Node.Node<StaffReport, any, any>
+  )
 
 /** The report of a delegation a step failure ended: a refused principal, a failed turn. */
 const failed = (payload: Payload, failure: unknown): Node.Node<StaffReport, any, any> =>
@@ -126,7 +126,7 @@ const failed = (payload: Payload, failure: unknown): Node.Node<StaffReport, any,
         summary: `${described.code}: ${described.message}`,
         principal: this.principal,
         paths: []
-      } as StaffReport
+      }
     }))
   )
 
@@ -153,6 +153,6 @@ export default Flow.make("organization/delegate", {
       Node.bindPlanned(Node.capture({ implementationVersion }, (pin) => round(payload, pin.revision, 1, []))),
       Node.catch({ onFailure: Node.capture({ implementationVersion }, (failure) => failed(payload, failure)) }),
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-        finish(payload.key, "delegate", payload, outcome as Planned.Planned<StaffReport>)))
+        finish(payload.key, "delegate", payload, outcome)))
     )
 })

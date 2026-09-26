@@ -22,7 +22,7 @@ const encoder = new TextEncoder()
 
 /** Bare prose and package names are not file requirements. Slash paths and
  * explicitly quoted filenames in the reviewed rule are repository inputs. */
-export const rulePaths = (rule: string): string[] => {
+export const rulePaths = (rule: string): Array<string> => {
   const text = rule.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, " ")
   const normalized = text.replace(/(?<![\w./])\.\//g, "")
   const quoted = new Set([...normalized.matchAll(/[`'"]([^`'"\n]+)[`'"]/g)].map(match => match[1]))
@@ -35,7 +35,7 @@ export const rulePaths = (rule: string): string[] => {
 
 /** Literal module edges only. Dynamic expressions cannot establish a known
  * local dependency; external package imports are recorded, never fetched. */
-export const sourceImports = (name: string, text: string): string[] => {
+export const sourceImports = (name: string, text: string): Array<string> => {
   if (!script.test(name)) return []
   // A small lexical pass keeps examples, comments and ordinary strings from
   // becoming module edges. It does not execute or transpile repository code.
@@ -80,7 +80,7 @@ export const sourceImports = (name: string, text: string): string[] => {
   return [...imports]
 }
 
-export const contextFailure = (context: CheckContext, source: string, checkId: string, paths: readonly string[] = []): string | undefined => {
+export const contextFailure = (context: CheckContext, source: string, checkId: string, paths: ReadonlyArray<string> = []): string | undefined => {
   if (context.source !== source || context.checkId !== checkId) return "Supporting context names another check or source"
   // The comparison carries every changed file's own complete verified source, so
   // a changed path this capture dropped at its read, file or byte budget is
@@ -98,17 +98,17 @@ export const contextFailure = (context: CheckContext, source: string, checkId: s
 }
 
 export const captureCheckContext = (options: ImmutableSourceOptions, root: string, input: {
-  readonly source: string; readonly check: typeof Check.Type; readonly paths: readonly string[]; readonly deadlineAt: number
+  readonly source: string; readonly check: typeof Check.Type; readonly paths: ReadonlyArray<string>; readonly deadlineAt: number
   /** Host-selected direct rule paths for this source side. Imports never cross sides. */
-  readonly ruleInputs?: readonly string[]
-  readonly conventionPaths?: readonly string[]
+  readonly ruleInputs?: ReadonlyArray<string>
+  readonly conventionPaths?: ReadonlyArray<string>
   /** Changed paths this check may not read. They are recorded as refused
    * evidence so the checker sees what the change touched and was withheld. */
-  readonly refusedPaths?: readonly string[]
+  readonly refusedPaths?: ReadonlyArray<string>
 }) => Effect.gen(function*() {
   const path = yield* Path.Path, fs = options.fs, reader = yield* repositorySourceReader(root, fs)
   type Pending = { path: string; from: string; reason: typeof ContextRead.Type["reason"]; required: boolean; depth: number }
-  const files: Array<typeof Source.Type> = [], reads: Array<typeof ContextRead.Type> = [], pending: Pending[] = []
+  const files: Array<typeof Source.Type> = [], reads: Array<typeof ContextRead.Type> = [], pending: Array<Pending> = []
   const seen = new Map<string, number>(), directories = new Set<string>(), external = new Set<string>()
   let bytes = 0
   const add = (name: string, from: string, reason: Pending["reason"], required = true, depth = 0) => pending.push({ path: name, from, reason, required, depth })

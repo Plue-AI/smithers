@@ -3,8 +3,8 @@ import * as Subprocess from "../src/subprocess.ts"
 
 describe("Subprocess", () => {
   it("finds a program on PATH like Bun.which", () => {
-    expect(Subprocess.which("sh")).toBe(Bun.which("sh"))
-    expect(Subprocess.which("smithers-no-such-program")).toBeNull()
+    expect(Subprocess.which("sh", process.env)).toBe(Bun.which("sh"))
+    expect(Subprocess.which("smithers-no-such-program", process.env)).toBeNull()
     expect(Subprocess.which("sh", { PATH: "" })).toBeNull()
   })
 

@@ -45,7 +45,7 @@ import * as SourceStore from "../../packages/smithers/agent/integrations/src/cor
 import * as Sync from "../../packages/smithers/agent/integrations/src/core/Sync.ts"
 import * as GitHubSync from "../../packages/smithers/agent/integrations/src/github/Sync.ts"
 import * as SlackClient from "../../packages/smithers/agent/integrations/src/slack/SlackClient.ts"
-import { runDirectory } from "../../packages/smithers/agent/organization/src/Actions.ts"
+import { runDirectory , ReceiptFailed } from "../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Authority from "../../packages/smithers/agent/organization/src/Authority.ts"
 import * as Config from "../../packages/smithers/agent/organization/src/Config.ts"
 import * as Grants from "../../packages/smithers/agent/organization/src/Grants.ts"
@@ -57,7 +57,6 @@ import * as GitHub from "./github.ts"
 import * as Links from "./links.ts"
 import * as TeamChannel from "./team-channel.ts"
 import { Answer, DeliveryFailed, IntakeRefused, IssueRef, PullRef, RequestKey, Stage, StepFailure } from "./schema.ts"
-import { ReceiptFailed } from "../../packages/smithers/agent/organization/src/Actions.ts"
 
 const minute = 60_000
 const day = 86_400_000
@@ -982,7 +981,7 @@ export const layer = (options: Options, platform: NativeControl.Platform) => {
             const again = record !== undefined && ["invalid", "held"].includes(record.status) && now - record.at >= retryAfterMs
             if (record !== undefined && !again && (record.hash === hash || ["claimed", "pull-request", "answered"].includes(record.status))) continue
             const held = GitHub.heldBy(
-              { ...issue, labels: issue.labels ?? [], updated_at: "", assignees: issue.assignees ?? [] } as GitHub.Issue,
+              { ...issue, labels: issue.labels ?? [], updated_at: "", assignees: issue.assignees ?? [] },
               open,
               false
             )
@@ -1369,7 +1368,7 @@ const qualification = (options: Options, key: string): Promise<{ scorecard: stri
     let output = ""
     const child = spawn(argv[0]!, argv.slice(1), {
       cwd: options.root,
-      env: { ...process.env, ...options.environment } as NodeJS.ProcessEnv,
+      env: { ...process.env, ...options.environment },
       stdio: ["ignore", "pipe", "pipe"]
     })
     const keep = (data: Buffer) => {

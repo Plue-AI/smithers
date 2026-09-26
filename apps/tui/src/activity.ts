@@ -4,11 +4,9 @@ import type { AgentEvent } from "@smthrs/harness/AgentEvent"
 import { CallIdentity, displayDescriptor } from "@smthrs/harness/Cell"
 import { Schema } from "effect"
 import {
-  phaseExtent,
   traceFoldModel,
   traceFoldSync,
   type JournalRecord,
-  type Milestone,
   type TraceFold,
   type TraceModel
 } from "@smthrs/gateway/RunTrace"

@@ -49,7 +49,7 @@
  *
  * @since 0.1.0
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { traceFailures } from "./breach-scan.mjs"
 import { attempted, population } from "./lib/codex-backfill-queue.mjs"

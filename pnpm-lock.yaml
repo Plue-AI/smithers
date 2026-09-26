@@ -1741,6 +1741,9 @@ importers:
         specifier: 7.2.0
         version: 7.2.0
     devDependencies:
+      '@eslint/js':
+        specifier: 9.39.5
+        version: 9.39.5
       '@types/react':
         specifier: 19.2.18
         version: 19.2.18
@@ -1750,9 +1753,27 @@ importers:
       bun-types:
         specifier: ^1.4.0
         version: 1.4.2
+      dprint:
+        specifier: 0.57.1
+        version: 0.57.1
+      eslint:
+        specifier: 9.39.5
+        version: 9.39.5(jiti@2.7.0)(supports-color@10.2.2)
+      eslint-import-resolver-typescript:
+        specifier: 4.4.5
+        version: 4.4.5(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
+      eslint-plugin-import:
+        specifier: 2.32.0
+        version: 2.32.0(@typescript-eslint/parser@8.69.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2))(eslint-import-resolver-typescript@4.4.5)(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
+      eslint-plugin-unicorn:
+        specifier: 65.0.0
+        version: 65.0.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
+      typescript-eslint:
+        specifier: 8.69.0
+        version: 8.69.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
 
   apps/tui-docs:
     dependencies:
@@ -1919,15 +1940,36 @@ importers:
         specifier: workspace:*
         version: link:../../packages/smithers/agent/harness
     devDependencies:
+      '@eslint/js':
+        specifier: 9.39.5
+        version: 9.39.5
       '@smthrs/targets':
         specifier: workspace:*
         version: link:../../packages/smithers/build/targets
       '@types/node':
         specifier: 26.4.1
         version: 26.4.1
+      dprint:
+        specifier: 0.57.1
+        version: 0.57.1
+      eslint:
+        specifier: 9.39.5
+        version: 9.39.5(jiti@2.7.0)(supports-color@10.2.2)
+      eslint-import-resolver-typescript:
+        specifier: 4.4.5
+        version: 4.4.5(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
+      eslint-plugin-import:
+        specifier: 2.32.0
+        version: 2.32.0(@typescript-eslint/parser@8.69.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2))(eslint-import-resolver-typescript@4.4.5)(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
+      eslint-plugin-unicorn:
+        specifier: 65.0.0
+        version: 65.0.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      typescript-eslint:
+        specifier: 8.69.0
+        version: 8.69.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
 
   examples:
     dependencies:
@@ -2113,12 +2155,33 @@ importers:
         specifier: 1.62.1
         version: 1.62.1
     devDependencies:
+      '@eslint/js':
+        specifier: 9.39.5
+        version: 9.39.5
       '@types/node':
         specifier: 26.4.1
         version: 26.4.1
+      dprint:
+        specifier: 0.57.1
+        version: 0.57.1
+      eslint:
+        specifier: 9.39.5
+        version: 9.39.5(jiti@2.7.0)(supports-color@10.2.2)
+      eslint-import-resolver-typescript:
+        specifier: 4.4.5
+        version: 4.4.5(eslint-plugin-import@2.32.0)(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
+      eslint-plugin-import:
+        specifier: 2.32.0
+        version: 2.32.0(@typescript-eslint/parser@8.69.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2))(eslint-import-resolver-typescript@4.4.5)(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
+      eslint-plugin-unicorn:
+        specifier: 65.0.0
+        version: 65.0.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      typescript-eslint:
+        specifier: 8.69.0
+        version: 8.69.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
 
   packages/errors:
     devDependencies:

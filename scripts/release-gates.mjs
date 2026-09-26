@@ -75,6 +75,7 @@ export const releaseGates = [
   { name: "Repository flow fixtures", verb: "test", target: "//flows:repository" },
   { name: "Wiki and release fixtures", verb: "test", target: "//flows:fixtures" },
   { name: "Product gateway", verb: "test", target: "//flows:productHost" },
+  { name: "Repository flows lint", verb: "lint", target: "//flows/..." },
   {
     name: "Root flows typecheck", verb: "ci", target: "//flows:check",
     flowOnly: "The generated ci.yml declares no job for the root flows, so release.yml mirrors none; the flow gates its own sources."
@@ -93,10 +94,11 @@ export const releaseGates = [
   { name: "Authoring eval typecheck", verb: "build", target: "//evals/authoring:check" },
   { name: "SWE-bench offline fixtures", verb: "test", target: "//evals/swebench:offline", jobs: 1 },
   { name: "SWE-bench rig typecheck", verb: "build", target: "//evals/swebench:check" },
+  { name: "SWE-bench rig lint", verb: "lint", target: "//evals/swebench/..." },
   { name: "UI typecheck", verb: "build", target: "//apps/app:check" },
   { name: "UI unit tests", verb: "test", target: "//apps/app:unitTests" },
   { name: "UI conformance lint", verb: "test", target: "//apps/app:conformance" },
-  { name: "TUI typecheck and tests", verb: "ci", target: "//apps/tui/..." },
+  { name: "TUI typecheck, lint and tests", verb: "ci", target: "//apps/tui/..." },
   { name: "Server typecheck and tests", verb: "ci", target: "//apps/server/..." },
   { name: "Review app and workers", verb: "ci", target: "//apps/review/..." },
   { name: "Bug worker", verb: "ci", target: "//apps/bug-worker/..." },

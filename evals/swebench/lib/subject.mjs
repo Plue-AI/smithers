@@ -61,7 +61,7 @@
  */
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { join, relative, resolve, sep } from "node:path"
 

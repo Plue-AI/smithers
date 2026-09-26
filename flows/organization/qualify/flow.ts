@@ -20,7 +20,7 @@ import * as Profile from "../../../packages/smithers/agent/organization/src/Prof
 import * as Prompt from "../../../packages/smithers/agent/organization/src/Prompt.ts"
 import * as Workspace from "../../../packages/smithers/agent/organization/src/Workspace.ts"
 import { turn } from "../deliver/flow.ts"
-import { Answer, Describe, RequestKey, type Stage, StepFailure } from "../schema.ts"
+import { Answer, Describe, RequestKey, type Stage, type StepFailure } from "../schema.ts"
 
 const implementationVersion = "organization/qualify/v3"
 
@@ -137,7 +137,7 @@ export default Flow.make("organization/qualify", {
                 checks: ran
               }) as Node.Node<Outcome, any, any>))
           )))
-      ) as Node.Node<Outcome, any, any>
+      )
     /** The turn in a workspace machine of `repo`, removed once the turn has answered and its change is checked. */
     const inWorkspace = (revision: Planned.Planned<string>, planned: Planned.Planned<Stage>, repo: string): Node.Node<Outcome, any, any> =>
       Actions.PrepareWorkspace.call({ repository: repo, commit, slug: "qualify" }).pipe(
@@ -152,7 +152,7 @@ export default Flow.make("organization/qualify", {
             Node.bindPlanned(Node.capture({ implementationVersion }, (settled) => disposing(prepared).then(settled)))
           ) as Node.Node<Outcome, any, any>
         }))
-      ) as Node.Node<Outcome, any, any>
+      )
     return Actions.PinRoster.call({}).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (pin) =>
         Node.succeed(stage).pipe(

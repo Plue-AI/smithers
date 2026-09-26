@@ -16,7 +16,7 @@ import { changelogNarrative, checkContent, digest, renderCard } from "./content.
 import { atomicWrite, commandRunner, inside, json, maybeRead, postTweet, type RunCommand } from "./io.ts"
 import { recordUi } from "./recording.ts"
 import {
-  Artifact, Candidate, ContentInput, Evidence, GateEvidence, ReleaseError, ReleaseInput,
+  Artifact, type Candidate, type ContentInput, type Evidence, GateEvidence, ReleaseError, type ReleaseInput,
   type Analysis, type Draft, type Review, type Brief, type DocumentationAudit
 } from "./schema.ts"
 
@@ -34,7 +34,7 @@ interface Bundle {
   readonly brief: typeof Brief.Type
   readonly draft: Draft
   readonly review: Review
-  readonly writes: readonly Write[]
+  readonly writes: ReadonlyArray<Write>
 }
 type Manifest = Parameters<typeof candidateIntegrity>[0]
 
@@ -73,7 +73,7 @@ export const runReleaseGates = async (
 
 /** All I/O lives in registered action implementations, never in flow planning. */
 export const operations = ({ root, run = commandRunner(root), tweet = postTweet, reviewDirectory, gates = releaseGateSetForHost() }: Options) => {
-  const git = (args: readonly string[], signal?: AbortSignal) => run("git", args, signal ? { signal } : {})
+  const git = (args: ReadonlyArray<string>, signal?: AbortSignal) => run("git", args, signal ? { signal } : {})
   const head = async (signal?: AbortSignal) => (await git(["rev-parse", "HEAD"], signal)).trim()
   const assertHead = async (expected: string, signal?: AbortSignal) => {
     if (await head(signal) !== expected) throw new Error("Source HEAD changed; start a new release run")
@@ -109,7 +109,7 @@ export const operations = ({ root, run = commandRunner(root), tweet = postTweet,
       ...changed.filter((path) => /(?:\/docs\/.*\.(?:md|mdx)|\/src\/.*\.ts)$/.test(path)),
       ...files.filter((path) => /^(?:packages\/.*\/docs\/|apps\/site\/docs\/)/.test(path) && /\.(md|mdx)$/.test(path))
     ])].filter((path) => files.includes(path))
-    const documents: string[] = []
+    const documents: Array<string> = []
     const sources = commits.split("\n").filter(Boolean).map((line) => line.split(" ")[0]!)
     let remaining = 220_000
     for (const path of candidates) {
@@ -149,7 +149,7 @@ export const operations = ({ root, run = commandRunner(root), tweet = postTweet,
 
   const preview = async (value: Omit<Bundle, "writes">): Promise<Artifact> => {
     const { input, evidence, analysis, draft } = value
-    const writes: Write[] = []
+    const writes: Array<Write> = []
     const add = async (path: string, value: string | Buffer) => {
       let before: Buffer | undefined
       try { before = await readFile(await inside(root, path)) } catch (error) {
@@ -192,7 +192,7 @@ export const operations = ({ root, run = commandRunner(root), tweet = postTweet,
       ...recordingFiles
     }
     if (input.channels.media) contents["release-card.svg"] = renderCard(input.version, analysis)
-    const files: Artifact["files"][number][] = []
+    const files: Array<Artifact["files"][number]> = []
     for (const [path, text] of Object.entries(contents)) {
       await atomicWrite(root, `${directory}/${path}`, text)
       files.push({ path, digest: digest(text) })
@@ -213,7 +213,7 @@ export const operations = ({ root, run = commandRunner(root), tweet = postTweet,
     return artifact
   }
 
-  const publishFiles = async (artifact: Artifact, signal?: AbortSignal): Promise<readonly string[]> => {
+  const publishFiles = async (artifact: Artifact, signal?: AbortSignal): Promise<ReadonlyArray<string>> => {
     const bundle = await verifyArtifact(artifact, true)
     if (!bundle.input.publish) throw new Error("Content publication was not requested")
     await assertHead(artifact.sourceSha, signal)
@@ -231,7 +231,7 @@ export const operations = ({ root, run = commandRunner(root), tweet = postTweet,
     return bundle.writes.map((entry) => entry.path)
   }
 
-  const commitFiles = async (artifact: Artifact, files: readonly string[], signal?: AbortSignal): Promise<readonly string[]> => {
+  const commitFiles = async (artifact: Artifact, files: ReadonlyArray<string>, signal?: AbortSignal): Promise<ReadonlyArray<string>> => {
     const bundle = await verifyArtifact(artifact, true)
     if (!bundle.input.publish || !bundle.input.autoCommit) throw new Error("Content commit was not requested")
     if (JSON.stringify(files) !== JSON.stringify(bundle.writes.map((entry) => entry.path))) throw new Error("Commit file set differs from the approved write set")
@@ -265,13 +265,13 @@ export const operations = ({ root, run = commandRunner(root), tweet = postTweet,
     if (receipt.digest !== artifact.digest || receipt.sha !== current) throw new Error("Source changed after content approval")
   }
 
-  const postThread = async (artifact: Artifact, signal?: AbortSignal): Promise<readonly string[]> => {
+  const postThread = async (artifact: Artifact, signal?: AbortSignal): Promise<ReadonlyArray<string>> => {
     const bundle = await verifyArtifact(artifact, true)
     if (!bundle.input.publish || !bundle.input.postX || !bundle.input.channels.thread) throw new Error("X publication was not requested")
     await assertContentHead(artifact, signal)
     const receiptPath = `${artifact.directory}/x-receipt.json`
     const stored = await maybeRead(await inside(root, receiptPath))
-    const receipt = stored ? json<{ digest: string; ids: string[]; pending: number | null }>(stored) : { digest: artifact.digest, ids: [], pending: null }
+    const receipt = stored ? json<{ digest: string; ids: Array<string>; pending: number | null }>(stored) : { digest: artifact.digest, ids: [], pending: null }
     if (receipt.digest !== artifact.digest) throw new Error("X receipt belongs to different content")
     // X does not supply a publish idempotency key. An uncertain acknowledgement
     // must be reconciled by the operator; retrying it could duplicate a post.

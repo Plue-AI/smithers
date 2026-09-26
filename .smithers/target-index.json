@@ -16122,6 +16122,67 @@
     }
   },
   {
+    "label": "//apps/tui:fmt",
+    "package": "apps/tui",
+    "name": "fmt",
+    "rule": "Dprint",
+    "kinds": [
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/**/*.{ts,tsx,json,md}",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/dprint.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/tui/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/tui:lint",
+    "package": "apps/tui",
+    "name": "lint",
+    "rule": "EsLint",
+    "kinds": [
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/src/**/*.tsx",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/eslint.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "eslint.invariants.js"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/tui/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/tui:recordingSources",
     "package": "apps/tui",
     "name": "recordingSources",
@@ -16794,6 +16855,87 @@
       {
         "kind": "file",
         "path": "evals/swebench/tsconfig.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "evals/swebench/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//evals/swebench:fmt",
+    "package": "evals/swebench",
+    "name": "fmt",
+    "rule": "Dprint",
+    "kinds": [
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/lib/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/fixtures/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "evals/swebench/dprint.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "evals/swebench/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//evals/swebench:lint",
+    "package": "evals/swebench",
+    "name": "lint",
+    "rule": "EsLint",
+    "kinds": [
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/lib/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "evals/swebench/eslint.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "eslint.invariants.js"
       }
     ],
     "outputs": [],
@@ -20129,6 +20271,62 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/model/docs/guides/decide-with-jev.md"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//flows:fmt",
+    "package": "flows",
+    "name": "fmt",
+    "rule": "Dprint",
+    "kinds": [
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.{ts,tsx,js,jsx,mjs,json,md}",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/dprint.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//flows:lint",
+    "package": "flows",
+    "name": "lint",
+    "rule": "EsLint",
+    "kinds": [
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/eslint.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "eslint.invariants.js"
       }
     ],
     "outputs": [],

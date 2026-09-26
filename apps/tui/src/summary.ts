@@ -76,10 +76,10 @@ const cellLabel = (cell: Extract<Transcript.Item, { kind: "cell" }>): string => 
   return cell.printed.trim() === "" ? "Finished the calculation" : "Collected the results"
 }
 export const panel = (transcript: Transcript.Transcript, id = "summary", title = "Summary"): Panels.Panel => {
-  const rows: Panels.Row[] = []
+  const rows: Array<Panels.Row> = []
   for (const item of transcript.items) {
     if (item.kind === "cell") {
-      const diffs = item.calls.flatMap((call): Panels.Block[] =>
+      const diffs = item.calls.flatMap((call): Array<Panels.Block> =>
         call.patches !== undefined
           ? call.patches.map((patch) => ({ kind: "diff", ...patch }))
           : call.status !== "ok" || call.change === undefined

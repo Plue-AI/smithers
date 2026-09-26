@@ -60,7 +60,7 @@ export const IncrementalWiki = Flow.make("smithers/IncrementalWiki", {
         Node.bindPlanned(Select.call({ evidence: evidence[`page-${index}`]!, pool, reviewer: input.reviewer }), (selection) =>
           Node.branch(Node.succeed(selection), {
             if: (selected) => selected.review !== null,
-            then: (selected) => Node.succeed(selected.review!),
+            then: (selected) => Node.succeed(selected.review),
             else: () => ReviewPage.call({ evidence: evidence[`page-${index}`]! })
           }).pipe(Node.bindPlanned(review => validateOrRepairReview(evidence[`page-${index}`]!, review)),
             Node.bindPlanned((review) => Bind.call({ evidence: evidence[`page-${index}`]!, review,
@@ -168,7 +168,7 @@ export const reuseOperations = (options: ReuseOptions) => {
         originRunId: Option.isSome(inherited) ? inherited.value.provenance.originRunId : priorRunId }
     }
     if (current.policySources.some((source) => captured.get(source.path) !== source.digest)) return empty
-    return { ...current, candidates } as Pool
+    return { ...current, candidates }
   })
   const select = ({ evidence, pool, reviewer }: { evidence: Evidence; pool: Pool; reviewer: string }) => guarded(Effect.gen(function*() {
     const instance = yield* FlowRuntime.FlowInstance

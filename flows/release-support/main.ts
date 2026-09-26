@@ -84,7 +84,7 @@ const drive = (stored: StoredRun, answer?: boolean) => Effect.gen(function*() {
   return yield* statusEffect(stored.id)
 })
 
-export const main = async (argv: readonly string[]) => {
+export const main = async (argv: ReadonlyArray<string>) => {
   const command = argv[0]
   if (argv.includes("--help") || command === undefined) { process.stdout.write(help); return }
   const { values, positionals } = parseArgs({

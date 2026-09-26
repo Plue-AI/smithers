@@ -4,7 +4,7 @@
  * with the sentence it is attached to. That judgement has three answers and
  * Jev gives it, one (claim, citation) pair at a time. */
 import * as Classifier from "@smthrs/model/Classifier"
-import * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Result, Schema } from "effect"
 import { batches } from "../repository/jev-checks.ts"
 import { visibleLine } from "./evidence.ts"

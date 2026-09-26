@@ -16,14 +16,14 @@ export const panel = (
   transcript: (id: string) => Transcript.Transcript,
   now = Date.now()
 ): Panels.Panel => {
-  const byParent = new Map<string, Tab[]>()
+  const byParent = new Map<string, Array<Tab>>()
   for (const tab of tabs) {
     const siblings = byParent.get(tab.parent ?? "") ?? []
     siblings.push(tab)
     byParent.set(tab.parent ?? "", siblings)
   }
   const root = tabs.find((tab) => tab.id === rootId)
-  const rows: Panels.Row[] = []
+  const rows: Array<Panels.Row> = []
   const visit = (tab: Tab, level: number) => {
     const children = byParent.get(tab.id) ?? []
     const done = children.filter((child) => child.status === "done").length

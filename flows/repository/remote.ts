@@ -3,7 +3,7 @@ import { Context, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/unstable/http"
 import type { Options as RepositoryBinding } from "../coding/landing.ts"
 import { CodingError } from "../coding/schema.ts"
-import { Event, Job, Record, SourceStatus } from "./schema.ts"
+import type { Event, Job, Record, SourceStatus } from "./schema.ts"
 
 export interface RemoteOptions extends RepositoryBinding { readonly gatewayId: string; readonly credential: string }
 /** The five reviewed responsibilities, or one repository's own `flow:<slug>`
@@ -40,7 +40,7 @@ export class RepositoryRemote extends Context.Service<RepositoryRemote, {
 const failed = (message: string) => new CodingError({ code: "unavailable", message })
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const string = (value: unknown, limit = 16000) => typeof value === "string" ? value.slice(0, limit) : ""
-const rows = (value: unknown): unknown[] => Array.isArray(value) ? value : Array.isArray(object(value).items) ? object(value).items as unknown[] : []
+const rows = (value: unknown): Array<unknown> => Array.isArray(value) ? value : Array.isArray(object(value).items) ? object(value).items as Array<unknown> : []
 const readJson = (response: HttpClientResponse.HttpClientResponse) => Effect.gen(function*() {
   const captured = yield* Stream.runFoldEffect(response.stream, () => ({ bytes: 0, text: "", decoder: new TextDecoder() }), (state, chunk) =>
     state.bytes + chunk.length > 2 * 1024 * 1024 ? Effect.fail(failed("Repository response exceeds the bounded inspection size"))
@@ -73,7 +73,7 @@ export const makeRemote = (options: RemoteOptions) => Effect.gen(function*() {
           : response.status === 409 ? ["source_changed", "The selected repository source changed; capture its latest event"] as const
           : response.status === 400 || response.status === 401 || response.status === 403 ? ["source_refused", "The repository refused this source identity or workspace binding"] as const
           : ["source_unavailable", "The selected repository source could not be retained"] as const
-        return yield* new CodingError({ code: refusal[0]!, message: refusal[1]! })
+        return yield* new CodingError({ code: refusal[0], message: refusal[1] })
       }
       return yield* failed(`Repository operation returned HTTP ${response.status}`)
     }
@@ -150,6 +150,7 @@ export const makeRemote = (options: RemoteOptions) => Effect.gen(function*() {
         return { payload: event.payload, sourceRevision: object(direct.head).sha as string }
       }
       const body = string(object(original.issue).body), link = body.match(/https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/(\d+)/)
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
       const specified = yield* Effect.try({ try: () => object(JSON.parse(body)), catch: () => failed("Select a real PR for the review trial") }).pipe(Effect.orElseSucceed(() => ({} as Record<string, unknown>)))
       const nativeManual = event.manualStep !== undefined && typeof direct.number === "number"
       const githubEvent = event.source === "github" && (event.type === "pull_request" || event.manualStep !== undefined)
@@ -167,7 +168,7 @@ export const makeRemote = (options: RemoteOptions) => Effect.gen(function*() {
         if (pr.number !== Number(number) || object(object(pr.base).repo).full_name !== fullName ||
             typeof head !== "string" || !/^[0-9a-f]{40}$/.test(head) || typeof baseSHA !== "string" || !/^[0-9a-f]{40}$/.test(baseSHA)) return yield* failed("The PR has no verified repository, immutable base and candidate")
         if (githubEvent && (object(direct.head).sha !== head || object(direct.base).sha !== baseSHA)) return yield* failed("The selected PR changed; capture its latest event before review")
-        return { payload: { ...original, pull_request: { ...pr, source: "github" } } as Schema.Json, sourceRevision: head }
+        return { payload: { ...original, pull_request: { ...pr, source: "github" } }, sourceRevision: head }
       }
       if (source !== "smithers-cloud") return yield* failed("Select GitHub or Smithers as the PR source")
       const landing = object(yield* send(HttpClientRequest.get(`${base}/landings/${number}`))), ids = landing.change_ids

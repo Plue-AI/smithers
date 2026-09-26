@@ -1,6 +1,6 @@
 /** The release flow's graph: the file discovery reads, and the value a host runs. */
 import * as AgentAction from "@smthrs/agent/AgentAction"
-import { Action, Flow, HumanTask } from "@smthrs/flow"
+import { type Action, Flow, HumanTask } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
 import { Collect } from "../release-content/workflow.ts"

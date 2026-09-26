@@ -38,7 +38,7 @@ const executable = (path: string): boolean => {
 /** The absolute path `command` resolves to on `PATH`, or `null`. */
 export const which = (
   command: string,
-  environment: Record<string, string | undefined> = process.env
+  environment: Record<string, string | undefined>
 ): string | null => {
   const extensions = process.platform === "win32"
     ? ["", ...(environment["PATHEXT"] ?? ".EXE;.CMD;.BAT;.COM").split(";")]

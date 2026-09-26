@@ -40,7 +40,7 @@ const decode = <S extends Schema.Top & { readonly DecodingServices: never }>(sch
 const canonicalRepo = (repo: string) => decode(Repo, repo).toLowerCase()
 const copyCheck = (check: typeof Check.Type): typeof Check.Type => ({ id: check.id, name: check.name, kind: check.kind,
   rule: check.rule, paths: [...check.paths], policy: check.policy })
-const checks = (value: unknown): readonly typeof Check.Type[] => {
+const checks = (value: unknown): ReadonlyArray<typeof Check.Type> => {
   const parsed = SetupCheckSchema.array().max(50).safeParse(value)
   if (!parsed.success || new Set(parsed.data.map(check => check.id)).size !== parsed.data.length) throw unavailable()
   return parsed.data.map(copyCheck)
@@ -55,7 +55,7 @@ export const readCiPolicy = (repo: string, response: unknown, repositoryId?: num
   const expected = canonicalRepo(repo)
   if (!Array.isArray(response) || response.length > 200) throw unavailable()
   if (repositoryId !== undefined) decode(Positive, repositoryId)
-  const active: typeof Registration.Type[] = []
+  const active: Array<typeof Registration.Type> = []
   for (const value of response) {
     if (!Schema.is(CiRow)(value)) continue
     const row = decode(Registration, value)
@@ -97,7 +97,7 @@ export const rawCheckId = (ref: CiPolicyRef, reviewed: ReadonlyArray<{ readonly 
   if (matches.length > 1) throw unavailable()
   return matches[0]?.id
 }
-export const composeCiChecks = (local: readonly typeof Check.Type[], policy: CiPolicy): readonly typeof Check.Type[] => {
+export const composeCiChecks = (local: ReadonlyArray<typeof Check.Type>, policy: CiPolicy): ReadonlyArray<typeof Check.Type> => {
   const own = checks(local), selected = decode(CiPolicy, policy)
   if (own.some(check => reserved.test(check.id))) throw conflict()
   if (selected.kind === "none") return own
@@ -121,6 +121,7 @@ export const inheritsCiPolicy = (input: { readonly job: typeof Job.Type; readonl
  * a refused or malformed read is unavailable and never absence. */
 export const captureCiPolicy = (repo: string) => Effect.gen(function*() {
   const remote = yield* Effect.serviceOption(RepositoryRemote)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
   if (Option.isNone(remote)) return { kind: "none" } as CiPolicy
   const landing = yield* Effect.serviceOption(Landing)
   const response = yield* remote.value.registrations.pipe(Effect.mapError(error => error instanceof CodingError ? error : unavailable()))

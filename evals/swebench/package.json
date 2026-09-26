@@ -5,7 +5,8 @@
   "version": "0.0.0",
   "description": "SWE-bench benchmark rig: the operator-run wave scripts and the scorecard generator that grades their output",
   "scripts": {
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint '*.ts' '*.mjs' 'lib/*.mjs' --max-warnings=0 && dprint check"
   },
   "dependencies": {
     "@smthrs/cli": "workspace:*",
@@ -13,8 +14,15 @@
     "@smthrs/harness": "workspace:*"
   },
   "devDependencies": {
+    "@eslint/js": "9.39.5",
     "@smthrs/targets": "workspace:*",
     "@types/node": "26.4.1",
-    "typescript": "5.9.3"
+    "dprint": "0.57.1",
+    "eslint": "9.39.5",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-import": "2.32.0",
+    "eslint-plugin-unicorn": "65.0.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.69.0"
   }
 }

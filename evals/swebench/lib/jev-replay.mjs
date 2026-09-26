@@ -579,7 +579,7 @@ const evaluatorLayer = (environment) => {
  * @category conversions
  * @since 0.1.0
  */
-export const replay = async (options, environment = process.env) => {
+export const replay = async (options, environment) => {
   const labels = labelsOf(options.manifest)
   const journals = journalsUnder(options.journals, options.suffix).slice(0, options.limit)
   const unjudged = {}
@@ -650,7 +650,7 @@ const main = async () => {
     console.error(error.message)
     process.exit(2)
   }
-  const report = await replay(options)
+  const report = await replay(options, process.env)
   if (options.json) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n")
   } else if (options.dryRun) {

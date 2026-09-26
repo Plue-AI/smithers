@@ -4,7 +4,7 @@ import { relative } from "node:path"
 import { randomUUID } from "node:crypto"
 import { atomicWrite, inside } from "./io.ts"
 import { digest } from "./content.ts"
-import { Recording, type Evidence } from "./schema.ts"
+import type { Recording, Evidence } from "./schema.ts"
 
 /** Record an explicitly supplied local product scenario in an isolated browser. */
 export const recordUi = async (
@@ -18,7 +18,7 @@ export const recordUi = async (
   const browser = await chromium.launch()
   const stop = () => { void browser.close() }
   signal?.addEventListener("abort", stop, { once: true })
-  const assets: Evidence["recordings"][number][] = []
+  const assets: Array<Evidence["recordings"][number]> = []
   const capture = async (name: string, bytes: Buffer) => {
     const path = `${directory}/${name}`
     await atomicWrite(root, path, bytes)
@@ -31,7 +31,7 @@ export const recordUi = async (
       recordVideo: { dir: output, size: { width: 1280, height: 800 } }
     })
     const page = await context.newPage()
-    const errors: string[] = []
+    const errors: Array<string> = []
     page.on("pageerror", (error) => errors.push(error.message))
     // A recording is local-only, including redirects and page resources.
     await context.route("**/*", async (route) => {

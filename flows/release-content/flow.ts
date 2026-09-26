@@ -1,11 +1,11 @@
 /** The release-content flow's graph: the file discovery reads, and the value a host runs. */
 import * as AgentAction from "@smthrs/agent/AgentAction"
-import { Action, Flow, HumanTask } from "@smthrs/flow"
+import { type Action, Flow, HumanTask } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import type * as Planned from "@smthrs/plan/Planned"
 import { Schema } from "effect"
 import {
-  Analysis, Brief, ContentInput, ContentResult, Draft, Evidence, ReleaseError, Review
+  type Analysis, type Brief, ContentInput, ContentResult, type Draft, type Evidence, ReleaseError, type Review
 } from "../release-support/schema.ts"
 import {
   Analyze, Check, Collect, CommitFiles, DraftBlog, DraftChangelog, DraftThread, Outcome, OutlineBlog,
@@ -60,7 +60,7 @@ const finish = (
       then: () => Node.bindPlanned(RecordApproval.call({ artifact }), (approved) => {
         if (!input.publish) return Outcome.call({ status: "approved" as const, artifact: approved, files: [], tweetIds: [] })
         return Node.bindPlanned(PublishFiles.call({ artifact: approved }), (files) => {
-          const complete = (written: Planned.Planned<readonly string[]>): Node.Node<ContentResult, Failure, Requirements> => {
+          const complete = (written: Planned.Planned<ReadonlyArray<string>>): Node.Node<ContentResult, Failure, Requirements> => {
             if (!input.postX) return Outcome.call({ status: "published" as const, artifact: approved, files: written, tweetIds: [] })
             return Node.bindPlanned(PostThread.call({ artifact: approved }), (tweetIds) =>
               Outcome.call({ status: "published" as const, artifact: approved, files: written, tweetIds }))

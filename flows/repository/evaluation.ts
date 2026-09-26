@@ -1,7 +1,7 @@
 /** Held-out inputs execute the production investigation; scoring is a separate action. */
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Digest from "@smthrs/core/Digest"
-import * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Option, Schema } from "effect"
@@ -11,7 +11,7 @@ import { checkExecutionFailed, recordedChecks, reviewCheckId, unavailableCheck }
 import { jevScore } from "./jev-score.ts"
 import { CaptureRepository, currentExecutionId } from "./inspection.ts"
 import { Investigate } from "./jobs.ts"
-import { EvalCase, EvalResult, Event, JobInput, JobResult, RepositoryEvidence, SetupInput } from "./schema.ts"
+import { EvalCase, EvalResult, Event, type JobInput, JobResult, RepositoryEvidence, SetupInput } from "./schema.ts"
 
 /** Machine checks supplement semantic review. Neither enters the worker input. */
 export const CaseInput = Schema.Struct({ event: Event, sourceRevision: Schema.NonEmptyString,
@@ -23,7 +23,7 @@ export const Score = Schema.Struct({ verdict: ScoreVerdict, reason: Schema.NonEm
  * the evidence IDs are integers picked out of a numbered index, which a
  * decision model cannot produce, so those two stay where they were. */
 export const SeatScore = Schema.Struct({ reason: Score.fields.reason, evidenceIds: Score.fields.evidenceIds })
-const evidenceReferences = (observed: JobResult): string[] => [...new Set(observed.results.flatMap(result => [`execution:${result.executionId}`, ...result.evidence]))]
+const evidenceReferences = (observed: JobResult): Array<string> => [...new Set(observed.results.flatMap(result => [`execution:${result.executionId}`, ...result.evidence]))]
 /** Whether a recorded job met a frozen expectation is a judgment over three
  * named answers, which is a decision. Jev answers it and the seat is never
  * asked, so a Jev failure fails the score rather than buying a second opinion. */
@@ -91,7 +91,7 @@ export const repinnedEvent = (event: typeof Event.Type, from: string, to: string
   const payload = object(event.payload), pr = object(payload.pull_request)
   const rewritten = object(pr.head).sha === from ? { ...payload, pull_request: { ...pr, head: { ...object(pr.head), sha: to } } }
     : payload.head_commit_id === from ? { ...payload, head_commit_id: to } : { ...payload, candidateCommitId: to }
-  return { ...event, payload: rewritten as Schema.Json }
+  return { ...event, payload: rewritten }
 }
 const pointer = (value: unknown, path: string): unknown => path.slice(1).split("/").reduce<unknown>((current, token) =>
   current !== null && typeof current === "object" ? (current as Record<string, unknown>)[token.replace(/~1/g, "/").replace(/~0/g, "~")] : undefined, value)
@@ -112,7 +112,7 @@ const executionFailed = (step: JobResult["results"][number], sourceRevision: str
 }
 export const assessScore = (test: typeof EvalCase.Type, observed: JobResult, score: typeof Score.Type) => {
   const refs = evidenceReferences(observed)
-  const evidence = [...new Set(score.evidenceIds.flatMap(id => Number.isSafeInteger(id) && id >= 0 && refs[id] !== undefined ? [refs[id]!] : []))]
+  const evidence = [...new Set(score.evidenceIds.flatMap(id => Number.isSafeInteger(id) && id >= 0 && refs[id] !== undefined ? [refs[id]] : []))]
   const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(CaseInput))(test.input)
   if (Option.isNone(decoded)) return { status: "review" as const, observed: "Define an executable event, source revision, and deterministic assertions.", evidence }
   // A row scored against substituted source reads like any other pass unless it says so.

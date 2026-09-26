@@ -79,7 +79,7 @@ export const profile = (
     system: MarkdownFlow.renderPrompt(new FlowBodyPrompt({ text: body.text, baseDirectory: body.baseDirectory }), { args: "" }),
     ...(seat === undefined ? {} : { seat }),
     ...(fallbackSeats === undefined ? {} : { fallbackSeats }),
-    ...(descriptor.effort === undefined ? {} : { thinking: descriptor.effort as ModelRequest.ReasoningEffort }),
+    ...(descriptor.effort === undefined ? {} : { thinking: descriptor.effort }),
     flows: descriptor.flows,
     envelope: envelope.length === declared.length ? envelope : []
   }

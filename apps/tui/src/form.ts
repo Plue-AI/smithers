@@ -44,7 +44,7 @@ const control = (ast: SchemaAST.AST): Pick<Field, "kind" | "options"> => {
   if (ast._tag === "Boolean") return { kind: "boolean" }
   if (ast._tag === "Literal") return { kind: "select", options: [ast.literal as Value] }
   if (ast._tag === "Union" && ast.types.length > 0 && ast.types.every((member) => member._tag === "Literal")) {
-    return { kind: "select", options: ast.types.map((member) => (member as SchemaAST.Literal).literal as Value) }
+    return { kind: "select", options: ast.types.map((member) => (member).literal as Value) }
   }
   return { kind: "text" }
 }

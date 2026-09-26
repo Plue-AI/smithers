@@ -68,7 +68,7 @@ export const authoringBodies: Effect.Effect<ReadonlyMap<string, string>, Error, 
         ? yield* fs.readFileString(fileURLToPath(new URL(authoringSource(name), import.meta.url))).pipe(
           Effect.mapError(cause => new Error(`The built-in flow ${name} could not be read: ${cause.message}`))
         )
-        : Object.hasOwn(compiled, name) && typeof compiled[name] === "string" ? compiled[name]!
+        : Object.hasOwn(compiled, name) && typeof compiled[name] === "string" ? compiled[name]
         : yield* Effect.fail(new Error(`The deployed host carries no body for the built-in flow ${name}`))
       if (text.trim() === "") return yield* Effect.fail(new Error(`The built-in flow ${name} has an empty body`))
       bodies.set(name, text)

@@ -1,5 +1,5 @@
 /** Private coding policy around the existing guarded standard file tools. */
-import { Cause, Effect, FileSystem, PlatformError, Schema, Sink, Stream } from "effect"
+import { Cause, Effect, type FileSystem, PlatformError, Schema, Sink, Stream } from "effect"
 import { ChildProcess, type ChildProcessSpawner } from "effect/unstable/process"
 import { basename, isAbsolute, relative, resolve, sep } from "node:path"
 import type { NativeOptions } from "./native.ts"

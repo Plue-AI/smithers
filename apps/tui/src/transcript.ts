@@ -137,7 +137,7 @@ type Unsaved = Item extends infer Each ? Each extends Item ? Omit<Each, "id"> : 
 
 const withId = (transcript: Transcript, item: Unsaved, at?: number): Transcript => ({
   ...transcript,
-  items: [...transcript.items, { ...item, id: String(transcript.nextId), ...(at === undefined ? {} : { at }) } as Item],
+  items: [...transcript.items, { ...item, id: String(transcript.nextId), ...(at === undefined ? {} : { at }) }],
   nextId: transcript.nextId + 1
 })
 
@@ -470,7 +470,7 @@ const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number
           ...(exit === undefined || exit === 0 ? {} : { exit }),
           ...(calls[at_]!.change === undefined || startLine(event.result.value) === undefined
             ? {}
-            : { change: { ...calls[at_]!.change!, line: startLine(event.result.value)! } }),
+            : { change: { ...calls[at_]!.change, line: startLine(event.result.value)! } }),
           endedAt: at
         }
         return { ...cell, calls }

@@ -39,7 +39,7 @@ import type * as Workspace from "../../../packages/smithers/agent/organization/s
 import {
   Admission,
   AgainTask,
-  Answer,
+  type Answer,
   AnswerTask,
   Assign,
   type Assignment,
@@ -233,7 +233,7 @@ const round = (
             })
           )))
       )))
-  ) as Node.Node<Report, Failure, any>
+  )
 
   function judged(build: Planned.Planned<Answer>, diff: Planned.Planned<Workspace.Diff>): Node.Node<Report, Failure, any> {
     return Actions.RunChecks.call({
@@ -342,12 +342,12 @@ const round = (
                     // landing refused) removes this round's machines too.
                     Node.catch({
                       onFailure: Node.capture({ implementationVersion }, (failure) =>
-                        disposeAll(all).pipe(Node.andThen(Node.fail(failure as Planned.Planned<Failure>))))
+                        disposeAll(all).pipe(Node.andThen(Node.fail(failure))))
                     })
                   )
                 }))
               )))
-          ) as Node.Node<Report, Failure, any>
+          )
   }
 }
 
@@ -534,7 +534,7 @@ const questioned = (
           ),
         else: () => otherwise()
       }))
-  })) as Node.Node<Report, Failure, any>
+  }))
 }
 
 /**
@@ -622,7 +622,7 @@ const withAsk = (
             }))
         }))
     })
-  ) as Node.Node<Report, Failure, any>
+  )
 
 /** A role's own answer written to the wiki as a document, or why it could not be. */
 const documented = (payload: Payload, revision: Planned.Planned<string>, contract: Planned.Planned<Answer>) =>
@@ -692,7 +692,7 @@ const reacted = (payload: Payload, remove: ReadonlyArray<string>, add: Planned.P
     channel: conversation.channel,
     ts: conversation.message ?? conversation.thread,
     remove,
-    add: [add as unknown as string]
+    add: [add]
   }) as Node.Node<unknown, Failure, any>
 }
 
@@ -735,6 +735,6 @@ export default Flow.make("organization/deliver", {
   body: (payload) =>
     work(payload).pipe(
       Node.catch({ onFailure: Node.capture({ implementationVersion }, (failure) => failed(payload, failure)) }),
-      Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) => finish(payload, outcome as Planned.Planned<Report>)))
+      Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) => finish(payload, outcome)))
     )
 })

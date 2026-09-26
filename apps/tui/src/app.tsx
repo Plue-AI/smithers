@@ -571,7 +571,7 @@ export function App(props: AppProps) {
   useEffect(() =>
     Clipboard.copyOnSelect(
       renderer,
-      (text) => Clipboard.write(text),
+      (text) => Clipboard.write(text, Clipboard.commands(process.platform, process.env)),
       () => setStatus("Copied"),
       () => setStatus("Copy failed: no pbcopy, wl-copy, xclip or xsel", "warning")
     ), [renderer])
@@ -1061,7 +1061,7 @@ export function App(props: AppProps) {
           setStatus("No answer to copy", "warning")
           return true
         }
-        void Clipboard.write(answer.text).then((copied) =>
+        void Clipboard.write(answer.text, Clipboard.commands(process.platform, process.env)).then((copied) =>
           copied
             ? setStatus("Copied the last answer")
             : setStatus("Copy failed: no pbcopy, wl-copy, xclip or xsel", "warning")

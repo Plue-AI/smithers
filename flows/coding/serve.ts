@@ -71,7 +71,7 @@ if (parsed.values.version) {
     checkEnvironment: Object.fromEntries([
       "PATH", "HOME", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
       "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"
-    ].flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]!]])) }
+    ].flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]]])) }
   // The reserved repository credential leaves process.env here, before the
   // host, model seats or any approved shell tool can inherit it.
   const run = (platform: NativeControl.Platform, http: Layer.Layer<HttpClient.HttpClient>) =>

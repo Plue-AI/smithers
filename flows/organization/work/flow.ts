@@ -41,7 +41,7 @@ const slot = (scanned: Planned.Planned<Scanned>, index: number): Node.Node<Ended
         })
       ),
     else: () => Node.succeed(null)
-  })) as Node.Node<Ended>
+  }))
 
 /** Take in the organization's work. */
 export default Flow.make("organization/work", {

@@ -2,7 +2,7 @@
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { AdmitVerifySource, verifyImplementation, VerifyInput, VerifyResult, verifySummary } from "../verify-schema.ts"
-import { CodingError, Receipt, Revision } from "../schema.ts"
+import { CodingError, type Receipt, type Revision } from "../schema.ts"
 import { RunCheck } from "../workflow.ts"
 
 /**

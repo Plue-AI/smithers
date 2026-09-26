@@ -9,8 +9,8 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, type HttpClientResponse
 import { ChangeId, Resolved, SourcePublication } from "../coding/native-schema.ts"
 import { CodingError } from "../coding/schema.ts"
 import { CheckOutput, CheckStep } from "./checks.ts"
-import { CiPolicy, CiPolicyRef, rawCheckId } from "./ci-policy.ts"
-import { Work, finalCheckWork } from "./jobs.ts"
+import { CiPolicy, type CiPolicyRef, rawCheckId } from "./ci-policy.ts"
+import { type Work, finalCheckWork } from "./jobs.ts"
 import { ownedAncestry } from "./receipts.ts"
 import { JobInput, StepResult } from "./schema.ts"
 

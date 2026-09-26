@@ -16,7 +16,7 @@ import * as Actions from "../../../packages/smithers/agent/organization/src/Acti
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import { BookTime, MeetingFailed, MeetingReport } from "../meetings.ts"
 import { finish } from "../meetings-shared.ts"
-import { Describe, RequestKey, StepFailure } from "../schema.ts"
+import { Describe, RequestKey, type StepFailure } from "../schema.ts"
 
 const implementationVersion = "organization/meetings-book/v1"
 
@@ -53,6 +53,7 @@ export default Flow.make("organization/meetings-book", {
         onFailure: Node.capture({ implementationVersion }, (failure) =>
           Describe.call({ failure: failure as Planned.Planned<typeof StepFailure.Type> }).pipe(
             Node.map(Node.capture({ implementationVersion, key: payload.key, principal: payload.requestedBy }, function(described) {
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
               return {
                 key: this.key,
                 status: "refused",

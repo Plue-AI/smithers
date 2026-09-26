@@ -6,7 +6,7 @@ import { Effect, Option, Result, Schema } from "effect"
 import * as Journal from "../../packages/smithers/flows/journal/src/Journal.ts"
 import * as JournalEvent from "../../packages/smithers/flows/journal/src/JournalEvent.ts"
 import { CodingError } from "../coding/schema.ts"
-import { IntakeScreening, type Event } from "./schema.ts"
+import type { IntakeScreening, Event } from "./schema.ts"
 
 /** The step whose decision the journal event records. It runs inside the
  * recorded, nondeterministic `repository/capture-job` action, so its answers
@@ -199,7 +199,7 @@ export const screenEvent = (input: { readonly repo: string; readonly event: type
       : yield* intakeClassifier.evaluateAll(texts.map(text => intakeState(input.repo, text)))
         .pipe(Effect.provideService(Evaluator.Evaluator, evaluator.value))
     const answers: Array<typeof IntakeScreening.Type["answers"][number]> = []
-    const failures: string[] = []
+    const failures: Array<string> = []
     const withheld = new Set<string>()
     let primary: typeof answers[number] | undefined
     for (const [index, text] of texts.entries()) {

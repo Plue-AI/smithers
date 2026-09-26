@@ -48,7 +48,7 @@ export const normalizePath = (value: string): string | null => {
 
 /** Path-like tokens named by prose, oldest mention first and deduplicated. */
 export const extractPaths = (...texts: ReadonlyArray<string>): ReadonlyArray<string> => {
-  const found: string[] = []
+  const found: Array<string> = []
   const seen = new Set<string>()
   for (const text of texts) {
     // A URL names a network resource, not a file in this workspace.

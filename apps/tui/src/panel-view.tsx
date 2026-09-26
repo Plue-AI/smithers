@@ -1,8 +1,8 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { type RefObject, useEffect, useRef } from "react"
-import * as Panels from "./panels.ts"
+import type * as Panels from "./panels.ts"
 import * as Workspace from "./workspace.ts"
-import * as Transcript from "./transcript.ts"
+import type * as Transcript from "./transcript.ts"
 import { color, syntax } from "./theme.ts"
 import { bar } from "./view.tsx"
 

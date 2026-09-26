@@ -1,7 +1,7 @@
 /** Native step execution retains measured output and never promotes a proposal to a fact. */
 import * as Digest from "@smthrs/core/Digest"
 import * as Budget from "@smthrs/agent/Budget"
-import * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { FlowRuntime } from "@smthrs/flow"
 import { Effect, Layer, Option, Path, Schema } from "effect"
 import { contained, runSourceProcess, withImmutableSource, type ImmutableSourceOptions } from "../coding/immutable-source.ts"
@@ -10,7 +10,7 @@ import { CodingError } from "../coding/schema.ts"
 import { captureCiPolicy, composeCiChecks, inheritsCiPolicy, revalidateCiPolicy } from "./ci-policy.ts"
 import { captureRepository, currentExecutionId } from "./inspection.ts"
 import { ApproveStep, AwaitReply, CaptureFollowup, CaptureJob, CheckReply, ContinueAuthor, ExecuteRepro, FailedStep, FinishJob, Investigate, InvestigateStep, JevDuplicates, JevReproduction, RetainObservation, RetainReproductionReview, RunSteps, ValidateReply, retainedStepError, type Observation, type ReproductionReview, type Work } from "./jobs.ts"
-import { Event, StepResult, type IntakeScreening, type JobInput } from "./schema.ts"
+import { Event, type StepResult, type IntakeScreening, type JobInput } from "./schema.ts"
 import { screenEvent } from "./intake.ts"
 import { jevDuplicates } from "./jev-duplicates.ts"
 import { jevReproduction } from "./jev-reproduction.ts"
@@ -44,7 +44,7 @@ export const runIndependentSteps = <A, B, E, R>(steps: ReadonlyArray<A>, execute
   const owner = yield* Effect.serviceOption(ModuleOwner)
   const usage = Option.isSome(budget) ? Option.isSome(owner) ? budget.value.usageOf(owner.value.rootId) : budget.value.usage
     : Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 })
-  const completed: B[] = []
+  const completed: Array<B> = []
   let cursor = 0
   while (cursor < steps.length && (yield* usage).largestCall === 0) {
     completed.push(yield* execute(steps[cursor++]!))

@@ -10,7 +10,6 @@
  */
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import type * as Planned from "@smthrs/plan/Planned"
 import { Schema } from "effect"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
@@ -34,6 +33,7 @@ export default Flow.make("organization/retire", {
   body: (payload) =>
     Retire.call({ key: payload.key, principal: payload.principal }).pipe(
       Node.map(Node.capture({ implementationVersion, key: payload.key, principal: payload.principal }, function(outcome) {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
         return {
           key: this.key,
           status: outcome.retired.length === 0 ? "refused" : "retired",
@@ -43,6 +43,6 @@ export default Flow.make("organization/retire", {
         } as StaffReport
       })),
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-        finish(payload.key, "retire", payload, outcome as Planned.Planned<StaffReport>)))
+        finish(payload.key, "retire", payload, outcome)))
     )
 })

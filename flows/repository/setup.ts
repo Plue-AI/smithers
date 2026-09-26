@@ -2,22 +2,19 @@
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Digest from "@smthrs/core/Digest"
 import * as Executable from "@smthrs/registry/Executable"
-import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
-import { RunState } from "@smthrs/engine-store/RunState"
-import * as RunStore from "@smthrs/run-store/RunStore"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, Exit, Layer, Option, Path, Schema } from "effect"
+import { Effect, Layer, Option, Path, Schema } from "effect"
 import { setupConfiguration, SetupOperationResponseSchema } from "../../packages/rpc/src/RepositorySetup.ts"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
 import { NativeCoding } from "../coding/native.ts"
 import { CodingError } from "../coding/schema.ts"
-import { CaptureRepository, currentExecutionId, StartBudget, type InspectionOptions } from "./inspection.ts"
+import { CaptureRepository, StartBudget, type InspectionOptions } from "./inspection.ts"
 import { CaseInput, Evaluate, repinnedEvent } from "./evaluation.ts"
 import { RepositoryRemote } from "./remote.ts"
-import { Draft, EvalCase, Event, JobInput, JobResult, OperationResult, Receipt, RepositoryEvidence, SetupInput, Step } from "./schema.ts"
+import { Draft, EvalCase, Event, JobInput, JobResult, OperationResult, type Receipt, RepositoryEvidence, SetupInput, Step } from "./schema.ts"
 import { Observation, RepositoryJob } from "./jobs.ts"
 import { CheckResult } from "./checks.ts"
 import { priorSetupReceipt } from "./receipts.ts"
@@ -47,7 +44,7 @@ const SuggestedDraft = Schema.Struct({ ...Draft.fields,
   steps: Schema.optionalKey(Schema.Array(SuggestedStep).check(Schema.isMaxLength(30))),
   cases: Schema.Array(Schema.Struct({ ...EvalCase.fields, input: SuggestedCaseInput })).check(Schema.isMinLength(1), Schema.isMaxLength(100)) })
 /** An override may only adjust a step the current draft already defines. */
-export const suggestedSteps = (existing: Draft["steps"], overrides: readonly (typeof SuggestedStep.Type)[] = []): Draft["steps"] =>
+export const suggestedSteps = (existing: Draft["steps"], overrides: ReadonlyArray<typeof SuggestedStep.Type> = []): Draft["steps"] =>
   existing.map(step => {
     const override = overrides.find(value => value.id === step.id)
     return override === undefined ? step : { ...step, ...(override.mode === undefined ? {} : { mode: override.mode }),

@@ -86,6 +86,9 @@ plans/
 .pi_config/
 .money-scratch/
 
+# apps/tui/test/host.test.ts leaks writes here (#2090).
+apps/tui/sessions/
+
 # Working copies
 .worktrees/
 worktrees/

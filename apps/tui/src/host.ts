@@ -26,7 +26,7 @@ import * as NodeControl from "@smthrs/cli/NodeControl"
 import { FlowEngine } from "@smthrs/engine"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
-import * as FlowBinding from "@smthrs/harness/FlowBinding"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Judgement from "@smthrs/harness/Judgement"
 import * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
@@ -138,6 +138,8 @@ export interface Host {
  */
 const executor = RequestExecutor.layer.pipe(
   Layer.provide(KernelHttpClient.layer),
+  // Model seat HTTP only; tool calls are authorized by `Approvals.layer` below.
+  // eslint-disable-next-line no-restricted-syntax -- model HTTP, see above
   Layer.provide(GrantStore.layerNoop),
   Layer.provide(FetchHttpClient.layer)
 )
@@ -194,7 +196,7 @@ export const make = (options: {
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
   const env = options.environment
-  const available = detect(env as NodeJS.ProcessEnv)
+  const available = detect(env)
   const judged = options.judge !== undefined || (env[Evaluator.environmentKey] ?? "").trim() !== ""
   const judge = judged
     ? options.judge ?? Evaluator.layerFromEnvironment(env, "smithers-tui").pipe(Layer.provide(FetchHttpClient.layer))
@@ -203,11 +205,14 @@ export const make = (options: {
   // The operator's stance, validated where `smithers run` validates it.
   const stance = NodeControl.supervisorStance(env)
   const layer = Layer.mergeAll(
+    // The local TUI runs without an approved envelope, so no spend ceiling exists.
+    // eslint-disable-next-line no-restricted-syntax -- no envelope, see above
     Agent.layer.pipe(Layer.provide(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layerUnbounded()))),
     Agent.layerDefaults,
     NodeControl.layerSeatResolver(env).pipe(Layer.provide(executor)),
     judge,
     QuotaPolicy.layerDefault(),
+    // eslint-disable-next-line no-restricted-syntax -- no envelope, see above
     Budget.layerUnbounded(),
     FlowEngine.layerMemory,
     snapshots,
@@ -474,7 +479,7 @@ export const workerSources = (
   // `rg` searches this repository in seconds; the in-process walk took
   // longer than grep's 120 s ceiling. It stays the fallback without rg.
   Changes.capture(
-    StandardFlows.filesystem(services, Subprocess.which("rg") === null ? undefined : NativeSearch.make(services)),
+    StandardFlows.filesystem(services, Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)),
     cwd,
     onPatch
   ),

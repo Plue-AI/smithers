@@ -8,7 +8,7 @@ export interface CommandOptions {
   readonly env?: Readonly<Record<string, string>>
   readonly signal?: AbortSignal
 }
-export type RunCommand = (command: string, args: readonly string[], options?: CommandOptions) => Promise<string>
+export type RunCommand = (command: string, args: ReadonlyArray<string>, options?: CommandOptions) => Promise<string>
 
 /** Argument arrays only; subprocess interruption belongs to the action's scope. */
 export const commandRunner = (root: string): RunCommand => async (command, args, options = {}) =>

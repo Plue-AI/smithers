@@ -1,7 +1,7 @@
 /** Files, hashing and publication checks use injected Effect platform services. */
-import { Crypto, Effect, FileSystem, Path, Schema } from "effect"
+import { Crypto, Effect, FileSystem, Path } from "effect"
 import { canonical } from "@smthrs/core/Digest"
-import { Evidence, type ReviewedPage, type PageSpec, type Receipt, WikiError } from "./schema.ts"
+import { type ReviewedPage, type PageSpec, type Receipt, WikiError } from "./schema.ts"
 import { reviewEvidence, visibleLine } from "./evidence.ts"
 import type { Provenance } from "./reuse.ts"
 
@@ -26,8 +26,8 @@ const safePath = (value: string) => {
 
 /** Heading sections keep the review obligation small and explicit. */
 export const sections = (markdown: string) => {
-  const result: { id: string; markdown: string }[] = []
-  let lines: string[] = [], fence = false
+  const result: Array<{ id: string; markdown: string }> = []
+  let lines: Array<string> = [], fence = false
   const flush = () => { if (lines.join("\n").trim()) result.push({ id: `section-${result.length + 1}`, markdown: lines.join("\n").trim() }); lines = [] }
   for (const line of markdown.split("\n")) {
     if (/^```/.test(line)) fence = !fence
@@ -99,7 +99,7 @@ export const operations = (options: { readonly root: string; readonly output: st
     if (invalidCitationCount) return yield* Effect.fail(fail("review-failed", `Review citation is not exact source evidence: ${page.evidence.spec.id}/${invalidCitations[0]!.section}; ${JSON.stringify({ invalidCitationCount, citations: invalidCitations })}`))
     return page
   })
-  const write = (pages: readonly ReviewedPage[], mode: "preview" | "verified", provenance: Readonly<Record<string, Provenance>> = {}) => Effect.gen(function*() {
+  const write = (pages: ReadonlyArray<ReviewedPage>, mode: "preview" | "verified", provenance: Readonly<Record<string, Provenance>> = {}) => Effect.gen(function*() {
     const fs = options.fs ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
     if (!pages.length || new Set(pages.map((page) => page.evidence.spec.id)).size !== pages.length) return yield* Effect.fail(fail("invalid-input", "Wiki page ids must be nonempty and unique"))
     const allIds = new Set(pages.map((page) => page.evidence.spec.id))
@@ -179,7 +179,7 @@ export const operations = (options: { readonly root: string; readonly output: st
     if (mode === "verified" && !verified) return yield* Effect.fail(fail("review-failed", `Semantic review did not pass; inspect ${currentPath}`))
     return { schemaVersion: 1, sourceRevision, inputDigest, output: root, pages: pages.length, verification } satisfies Receipt
   })
-  const check = (specs: readonly PageSpec[], requireVerified = false) => Effect.gen(function*() {
+  const check = (specs: ReadonlyArray<PageSpec>, requireVerified = false) => Effect.gen(function*() {
     const fs = options.fs ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
     // A workspace root can have a logical OS alias (for example /var on
     // macOS). Compare immutable files under the same canonical output root
@@ -190,7 +190,7 @@ export const operations = (options: { readonly root: string; readonly output: st
       return yield* Effect.fail(fail("output-conflict", "Output must be a real, dedicated directory"))
     }
     const text = yield* fs.readFileString(path.join(root, "current.json"))
-    const current = yield* Effect.try({ try: () => JSON.parse(text) as { artifactDigest: string; directory: string; verification: string; pages: { id: string; inputDigest: string; body: string }[] }, catch: () => fail("output-conflict", "Invalid snapshot pointer") })
+    const current = yield* Effect.try({ try: () => JSON.parse(text) as { artifactDigest: string; directory: string; verification: string; pages: Array<{ id: string; inputDigest: string; body: string }> }, catch: () => fail("output-conflict", "Invalid snapshot pointer") })
     if (!/^[a-f0-9]{64}$/.test(current.artifactDigest) || current.directory !== `snapshots/${current.artifactDigest}`) return yield* Effect.fail(fail("output-conflict", "Invalid snapshot directory"))
     if (JSON.stringify(current.pages.map((page) => page.id)) !== JSON.stringify(specs.map((spec) => spec.id))) return yield* Effect.fail(fail("stale-source", "The wiki catalog changed"))
     for (const spec of specs) {
@@ -216,6 +216,6 @@ export const operations = (options: { readonly root: string; readonly output: st
     return { pages: specs.length, verification: current.verification }
   })
   const boundary = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.catch((error) => Effect.fail(error instanceof WikiError ? error : fail("io", error instanceof Error ? error.message : String(error)))))
-  return { check: (specs: readonly PageSpec[], requireVerified = false) => boundary(check(specs, requireVerified)), collect: (spec: PageSpec) => boundary(collect(spec)), assess,
-    write: (pages: readonly ReviewedPage[], mode: "preview" | "verified", provenance?: Readonly<Record<string, Provenance>>) => boundary(write(pages, mode, provenance)) }
+  return { check: (specs: ReadonlyArray<PageSpec>, requireVerified = false) => boundary(check(specs, requireVerified)), collect: (spec: PageSpec) => boundary(collect(spec)), assess,
+    write: (pages: ReadonlyArray<ReviewedPage>, mode: "preview" | "verified", provenance?: Readonly<Record<string, Provenance>>) => boundary(write(pages, mode, provenance)) }
 }

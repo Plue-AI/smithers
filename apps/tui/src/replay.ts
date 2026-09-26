@@ -44,7 +44,7 @@ export const replies = (recorded: string): ReadonlyArray<ReadonlyArray<Timed>> =
       last = at
     }
     if (event._tag === "replay-failure" && out.length > 0) {
-      out.at(-1)!.push({ after: Math.max(0, at - last), delta: { type: "settle", stopReason: "error" } as ModelEvent.ModelEvent, failure: new ModelError({
+      out.at(-1)!.push({ after: Math.max(0, at - last), delta: { type: "settle", stopReason: "error" }, failure: new ModelError({
         code: (event.code ?? "unknown") as ModelErrorCode,
         message: typeof event.message === "string" ? event.message : "Recorded model failure"
       }) })

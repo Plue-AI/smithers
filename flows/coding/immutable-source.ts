@@ -1,5 +1,5 @@
 /** Shared private immutable-source boundary for command and semantic checks. */
-import { Effect, FileSystem, Path, Schema, Stream } from "effect"
+import { Effect, type FileSystem, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CodingError, type Revision } from "./schema.ts"
 

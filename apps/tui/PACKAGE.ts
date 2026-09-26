@@ -1,5 +1,6 @@
 /**
- * Targets for the terminal UI: the typecheck and the transcript suite.
+ * Targets for the terminal UI: the typecheck, lint, format check, and the
+ * transcript suite.
  *
  * The suite replays a recorded cell run through the transcript fold, so a
  * change to `AgentEvent` that the screen no longer understands fails here.
@@ -52,11 +53,40 @@ const unitTests = Smithers.NodeTest({
   cwd
 })
 
+/**
+ * Lints the app sources against the package rule set.
+ *
+ * @since 1.0.0
+ * @category lint
+ */
+const lint = Smithers.EsLint({
+  sources: [Smithers.glob("src/**/*.ts"), Smithers.glob("src/**/*.tsx")],
+  configs: [Smithers.file("eslint.config.js"), Smithers.file("//eslint.invariants.js")],
+  deps: [],
+  maxWarnings: 0,
+  fix: false,
+  cwd
+})
+
+/**
+ * Checks formatting across the app, its suites, and its docs.
+ *
+ * @since 1.0.0
+ * @category lint
+ */
+const fmt = Smithers.Dprint({
+  sources: [Smithers.glob("**/*.{ts,tsx,json,md}")],
+  config: Smithers.file("dprint.json"),
+  deps: [],
+  fix: false,
+  cwd
+})
+
 /** Colocated source documentation consumed by the dedicated Astro site. */
 const docsFiles = Smithers.Filegroup({ srcs: [Smithers.glob("docs/**/*.md")], cwd })
 /** The real renderer and replay fixture used to execute documentation scripts. */
 const recordingSources = Smithers.Filegroup({ srcs: [...sources, Smithers.file("package.json")], cwd })
 
 export const Package = Smithers.Package({
-  targets: { check, unitTests, docsFiles, recordingSources }
+  targets: { check, unitTests, lint, fmt, docsFiles, recordingSources }
 })

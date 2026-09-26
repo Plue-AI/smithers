@@ -11,7 +11,7 @@
  * role's prepare, open, and follow-up triggers (`meetings.ts`).
  */
 import { Control } from "@smthrs/control"
-import { Duration, Effect, Layer, Result } from "effect"
+import { type Duration, Effect, Layer, Result } from "effect"
 import { join } from "node:path"
 import * as Scheduler from "../../packages/smithers/agent/triggers/src/Scheduler.ts"
 import * as SqlTriggerStore from "../../packages/smithers/agent/triggers/src/SqlTriggerStore.ts"

@@ -24,7 +24,7 @@ import * as Actions from "../../../packages/smithers/agent/organization/src/Acti
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import Delegate, { finish } from "../delegate/flow.ts"
 import { fieldTurn } from "../field-turn.ts"
-import { CorrectTask, Describe, RequestKey, StepFailure } from "../schema.ts"
+import { CorrectTask, Describe, RequestKey, type StepFailure } from "../schema.ts"
 import { HireTask, StaffFailed, StaffReport, StoreHire } from "../staff.ts"
 import { TeamPost } from "../team-channel.ts"
 
@@ -47,7 +47,7 @@ const failed = (payload: Payload, failure: unknown): Node.Node<StaffReport, any,
         summary: `${described.code}: ${described.message}`,
         principal: this.principal,
         paths: []
-      } as StaffReport
+      }
     }))
   )
 

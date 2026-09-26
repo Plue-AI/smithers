@@ -41,7 +41,7 @@ export const runningWikiPolicy = Effect.gen(function*() {
   for (const source of policySources) {
     const data = yield* Stream.runFoldEffect(fs.stream(fileURLToPath(new URL(`../../${source}`, import.meta.url)), {
       bytesToRead: maximumBytes + 1, chunkSize: 64 * 1024
-    }), () => ({ chunks: [] as Uint8Array[], bytes: 0 }), (state, chunk) => {
+    }), () => ({ chunks: [] as Array<Uint8Array>, bytes: 0 }), (state, chunk) => {
       if (state.bytes + chunk.length > maximumBytes) return Effect.fail(new Error("Coding reviewer policy source exceeds 2 MiB"))
       state.chunks.push(chunk)
       state.bytes += chunk.length

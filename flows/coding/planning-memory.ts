@@ -13,7 +13,7 @@ import { operations as wikiOperations } from "../wiki/operations.ts"
 import type { PageSpec } from "../wiki/schema.ts"
 import { NativeCoding } from "./native.ts"
 import { collectSources, extractPaths, repositoryContextPaths, reader as sourceReader, staleSources } from "./planning-sources.ts"
-import { changedPaths, driftOf, GatherContext, memoryRevision, type Observed, PlanningContext, type PlanningInput, staleRevisionMessage, VerifyContext } from "./planning.ts"
+import { changedPaths, driftOf, GatherContext, memoryRevision, PlanningContext, type PlanningInput, staleRevisionMessage, VerifyContext } from "./planning.ts"
 import { type Check, CodingError } from "./schema.ts"
 
 export interface MemoryOptions {
@@ -100,7 +100,6 @@ export const gather = (options: MemoryOptions, input: typeof PlanningInput.Type,
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(maximum) || maximum < 1024 || maximum > 90 * 1024) {
     return yield* failure("Planning memory requires historyLimit 1..100 and maxMemoryBytes 1024..92160")
   }
-  const fs = hostFilesystem ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
   const native = yield* NativeCoding, jj = yield* Jj.Jj
   // The configured Jj captures current bytes in the SAME native atom. It never
   // opens a new change merely because memory needs an immutable code identity.
@@ -188,11 +187,11 @@ export const memoryLayer = (options: MemoryOptions, hostFilesystem?: FileSystem.
     const jj = yield* Jj.Jj, native = yield* NativeCoding
     yield* jj.snapshot("coding planning freshness")
     const current = yield* native.read(context.history.map(row => row.changeId))
-    const headDrift = driftOf(context.head, current.head as Observed)
+    const headDrift = driftOf(context.head, current.head)
     const drift = [
       ...(headDrift === undefined ? [] : [`head ${headDrift}`]),
       ...context.history.flatMap(row => {
-        const reason = driftOf(row, current.revisions.find(value => value.changeId === row.changeId) as Observed | undefined)
+        const reason = driftOf(row, current.revisions.find(value => value.changeId === row.changeId))
         return reason === undefined ? [] : [reason]
       })
     ]

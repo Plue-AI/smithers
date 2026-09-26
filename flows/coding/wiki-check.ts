@@ -39,7 +39,7 @@ const reviewOne = (evidence: Evidence, captured: typeof Captured.Type) => Node.b
   Select.call({ evidence, pool: captured.pool, reviewer: captured.reviewer }), selection => Node.bindPlanned(
     Node.branch(Node.succeed(selection), {
       if: value => value.review !== null,
-      then: value => Node.succeed(value.review!),
+      then: value => Node.succeed(value.review),
       else: () => ReviewPage.call({ evidence })
     }), review => validateOrRepairReview(evidence, review).pipe(Node.bindPlanned(review =>
       Bind.call({ evidence, review, reviewer: captured.reviewer, provenance: selection.provenance })))

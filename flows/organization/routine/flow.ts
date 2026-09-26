@@ -43,7 +43,7 @@ type Ended = { readonly key: string; readonly status: string; readonly summary: 
 
 /** One assignment; a failure is its report, so the next one still runs. */
 const assign = (payload: Omit<AssignmentPayload, "after">, after: Planned.Planned<string> | undefined): Node.Node<Ended> =>
-  Assignment.child({ ...payload, ...(after === undefined ? {} : { after }) } as unknown as AssignmentPayload).pipe(
+  Assignment.child({ ...payload, ...(after === undefined ? {} : { after }) }).pipe(
     Node.map(Node.capture({ implementationVersion }, (report: AssignmentReport): Ended => ({ key: report.key, status: report.status, summary: report.summary }))),
     Node.catch({
       onFailure: Node.capture({ implementationVersion }, (failure): Node.Node<Ended> =>
@@ -52,7 +52,7 @@ const assign = (payload: Omit<AssignmentPayload, "after">, after: Planned.Planne
           summary: Node.succeed((failure as Planned.Planned<{ readonly message: string }>).message)
         }).pipe(Node.map(Node.capture({ implementationVersion }, ({ key, summary }): Ended => ({ key, status: "blocked", summary })))))
     })
-  ) as Node.Node<Ended>
+  )
 
 /** Runs `steps` one after another: each starts once the one before it ended. */
 const sequence = (steps: ReadonlyArray<Omit<AssignmentPayload, "after">>): Node.Node<ReadonlyArray<Ended>> => {
@@ -69,7 +69,7 @@ const sequence = (steps: ReadonlyArray<Omit<AssignmentPayload, "after">>): Node.
           )
         }))),
       Node.map(Node.capture({ implementationVersion }, ({ done, next }): ReadonlyArray<Ended> => [...done, next]))
-    ) as Node.Node<ReadonlyArray<Ended>>
+    )
   })
   return chain
 }
@@ -131,7 +131,7 @@ export default Flow.make("organization/routine", {
               ) as Node.Node<ReadonlyArray<Ended>>
               : assign(taskOf(routine, occurrence.key), undefined).pipe(
                 Node.map(Node.capture({ implementationVersion }, (ended): ReadonlyArray<Ended> => [ended]))
-              ) as Node.Node<ReadonlyArray<Ended>>
+              )
             return work.pipe(
               Node.bindPlanned(Node.capture({ implementationVersion }, (assignments) =>
                 FinishRoutine.call({ routine, key: occurrence.key, summary: routine.id }).pipe(

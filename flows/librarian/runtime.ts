@@ -4,7 +4,7 @@ import * as Budget from "@smthrs/agent/Budget"
 import { Action, FlowRuntime } from "@smthrs/flow"
 import { ModelError, ModelErrorCode } from "@smthrs/model/ModelError"
 import * as Registry from "@smthrs/registry/Registry"
-import { Context, Effect, Layer, Option, Schema, Stream } from "effect"
+import { Context, Effect, Layer, Option, Schema, type Scope, Stream } from "effect"
 import { HarnessError } from "../../packages/smithers/agent/harness/src/HarnessError.ts"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 
@@ -91,10 +91,10 @@ export const bounded = <A, E, R>(effect: Effect.Effect<A, E, R>, budget: Budget.
   // Keep the approved native budget too. A host ceiling cannot widen a tighter
   // allowance on the admitted plan. Nested inline actions reuse this service.
   const previous = Option.isSome(current) ? current.value : undefined
-  const combine = (first: Effect.Effect<Budget.Verdict, Budget.AccountingUnavailable, import("effect/Scope").Scope>,
-    second: Effect.Effect<Budget.Verdict, Budget.AccountingUnavailable, import("effect/Scope").Scope>) =>
+  const combine = (first: Effect.Effect<Budget.Verdict, Budget.AccountingUnavailable, Scope.Scope>,
+    second: Effect.Effect<Budget.Verdict, Budget.AccountingUnavailable, Scope.Scope>) =>
     first.pipe(Effect.flatMap(verdict => verdict._tag === "refuse" ? Effect.succeed(verdict) : second))
-  const shared: Budget.Service = Option.isSome(installed) && installed.value === previous ? previous! : previous === undefined ? local : {
+  const shared: Budget.Service = Option.isSome(installed) && installed.value === previous ? previous : previous === undefined ? local : {
     check: step => local.check(step).pipe(Effect.flatMap(verdict => verdict._tag === "refuse" ? Effect.succeed(verdict) : previous.check(step))),
     reserve: step => combine(local.reserve(step), previous.reserve(step)),
     record: (step, usage) => local.record(step, usage).pipe(Effect.andThen(previous.record(step, usage))),

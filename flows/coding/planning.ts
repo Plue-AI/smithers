@@ -181,7 +181,7 @@ export const driftOf = (expected: Revision, actual: Observed | undefined): strin
  * @category getters
  */
 export const changedPaths = (diff: string, limit = 10): ReadonlyArray<string> => {
-  const paths: string[] = []
+  const paths: Array<string> = []
   for (const line of diff.split("\n")) {
     const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line)
     if (match === null) continue
@@ -227,7 +227,7 @@ export const finalize = (input: typeof PlanningInput.Type, context: PlanningCont
   const baseIndex = context.history.findIndex(atom => atom.changeId === draft.baseChangeId)
   if (baseIndex < 0) throw invalid("The proposed base is outside the gathered native history; gather its missing context first")
   const remaining = context.history.slice(baseIndex + 1).map(atom => atom.changeId)
-  const actual: string[] = []
+  const actual: Array<string> = []
   const checks = new Map(context.checks.map(check => [check.id, check]))
   if (checks.size !== context.checks.length) throw invalid("Configured planning checks have duplicate IDs")
   const changes = draft.changes.map(change => {

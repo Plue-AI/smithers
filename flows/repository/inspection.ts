@@ -18,7 +18,7 @@ export const CaptureRepository = Action.make("repository/capture", {
     heldOut: Schema.optionalKey(Schema.Boolean), event: Schema.optionalKey(Event) }, success: RepositoryEvidence, error: CodingError,
   nondeterministic: true
 })
-export interface InspectionOptions extends ImmutableSourceOptions {}
+export type InspectionOptions = ImmutableSourceOptions
 const unavailable = (message: string) => new CodingError({ code: "unavailable", message })
 /** The job already receives its reviewed configuration explicitly. Repository
  * links cannot smuggle its retained eval expectations into model evidence. */
@@ -40,7 +40,7 @@ export const readRepositorySources = (options: InspectionOptions, root: string, 
   const sourceReader = yield* repositorySourceReader(root, fs)
   const directory = yield* fs.realPath(path.join(root, ".github/workflows")).pipe(Effect.orElseSucceed(() => ""))
   const ciNames = directory.startsWith(root + path.sep)
-    ? yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => [] as string[])) : []
+    ? yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => [] as Array<string>)) : []
   const ciPaths = ciNames.filter(name => /^[^/\\]+\.(?:yml|yaml)$/.test(name)).sort().slice(0, 12).map(name => `.github/workflows/${name}`)
   const first = yield* collectSources(sourceReader, [...extractPaths(prompt), ".github/workflows", ...ciPaths, ...(yield* repositoryContextPaths(sourceReader))])
   return yield* collectSources(sourceReader, [...first.sources.map(file => file.path), ...first.missing,

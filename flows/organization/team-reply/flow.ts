@@ -51,7 +51,7 @@ export default Flow.make("organization/team-reply", {
         Node.branch(Node.succeed(answer), {
           if: Node.capture({ implementationVersion }, (seen) =>
             seen.valid && seen.result.status === "done" && typeof seen.result.fields["reply"] === "string" &&
-            (seen.result.fields["reply"] as string).trim() !== ""),
+            (seen.result.fields["reply"]).trim() !== ""),
           else: () => Node.succeed({ key: payload.key, status: "no reply", reply: "" }),
           // The post renders its links; the reply is kept as the role wrote it.
           then: () =>

@@ -6,7 +6,7 @@ import * as Digest from "@smthrs/core/Digest"
 import { Cause, Context, Effect, Layer, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
-import { CreateSource, SourceCreation, ChangeId, FileRecovery, ImportSource, isNativeCode, NativeCode, NativeCodingError, NativeRevision, Operation, OperationResult, PublishSource, ReadResult, SourceImport, SourcePublication } from "./native-schema.ts"
+import { CreateSource, SourceCreation, ChangeId, FileRecovery, ImportSource, isNativeCode, type NativeCode, NativeCodingError, Operation, OperationResult, PublishSource, ReadResult, SourceImport, SourcePublication } from "./native-schema.ts"
 import { helperPath } from "./helper.ts"
 export * from "./native-schema.ts"
 

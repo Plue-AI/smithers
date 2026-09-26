@@ -25,7 +25,7 @@ export const changelogNarrative = (text: string, version: string, date: string, 
 export const checkContent = (
   input: ContentInput, evidence: Evidence, analysis: Analysis, draft: Draft, review: Review
 ): Review => {
-  const failures: string[] = []
+  const failures: Array<string> = []
   const sources = new Set(evidence.sources)
   const claims = new Map<string, Analysis["claims"][number]>()
   for (const claim of analysis.claims) {
@@ -74,7 +74,7 @@ const xml = (text: string) => text.replace(/[&<>"']/g, (char) => ({
 export const renderCard = (version: string, analysis: Analysis): string => {
   const lines = [analysis.title, ...analysis.highlights.slice(0, 4)].flatMap((line) => {
     const words = line.split(/\s+/)
-    const wrapped: string[] = []
+    const wrapped: Array<string> = []
     for (const word of words) {
       if (!wrapped.length || wrapped.at(-1)!.length + word.length > 66) wrapped.push(word)
       else wrapped[wrapped.length - 1] += ` ${word}`

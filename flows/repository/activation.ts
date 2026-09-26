@@ -12,7 +12,7 @@ import { evaluatedCandidate } from "./evaluation.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { RepositoryRemote } from "./remote.ts"
 import { completedJob } from "./receipts.ts"
-import { JobInput, JobResult, SetupInput } from "./schema.ts"
+import { type JobInput, JobResult, SetupInput } from "./schema.ts"
 
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 const json = (value: unknown): Schema.Json => JSON.parse(JSON.stringify(value))
@@ -23,7 +23,7 @@ const requireRemote = Effect.gen(function*() {
 })
 const RegistrationRow = Schema.Struct({ id: Schema.NonEmptyString, job: Schema.String, mode: Schema.Literals(["trial", "enabled"]),
   revision: Schema.Int, digest: Schema.String, source_revision: Schema.String, enabled: Schema.Boolean })
-const registrationRows = (response: unknown): readonly (typeof RegistrationRow.Type)[] => {
+const registrationRows = (response: unknown): ReadonlyArray<typeof RegistrationRow.Type> => {
   const listed = Array.isArray(response) ? response : object(response).items
   return (Array.isArray(listed) ? listed : []).flatMap(value => {
     const row = Schema.decodeUnknownOption(RegistrationRow)(value)

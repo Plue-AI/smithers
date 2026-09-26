@@ -2,14 +2,14 @@ import { spawn } from "node:child_process"
 export class GitError extends Error {
   readonly code: number | null
   readonly stderr: string
-  constructor(args: readonly string[], code: number | null, stderr: string) {
+  constructor(args: ReadonlyArray<string>, code: number | null, stderr: string) {
     super(`git ${args.join(" ")} exited ${code}${stderr.trim() ? `: ${stderr.trim()}` : ""}`)
     this.code = code
     this.stderr = stderr
   }
 }
 /** Argument arrays only; never checks out, resets, stages, or touches the worktree. */
-export const git = (cwd: string, args: readonly string[], input?: string, env: Record<string, string> = {}): Promise<string> => new Promise((resolve, reject) => {
+export const git = (cwd: string, args: ReadonlyArray<string>, input?: string, env: Record<string, string> = {}): Promise<string> => new Promise((resolve, reject) => {
   const child = spawn("git", ["-C", cwd, ...args], { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] })
   let out = "", error = ""
   child.stdout.setEncoding("utf8").on("data", chunk => { out += chunk })

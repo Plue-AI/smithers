@@ -127,7 +127,7 @@ export const cleanupLayers = Layer.mergeAll(
     const native = yield* NativeCoding
     const original = admission.request.outcome.result!.changes
     const ids = [admission.request.plan.base.changeId, ...original.flatMap(change => change.implementation.atoms.map(atom => atom.changeId))]
-    const revisions: NativeRevision[] = []
+    const revisions: Array<NativeRevision> = []
     // The existing native point-read protocol accepts 100 IDs per request.
     // Every batch must observe the same operation and source head.
     for (let offset = 0; offset < ids.length; offset += 100) {
@@ -138,9 +138,9 @@ export const cleanupLayers = Layer.mergeAll(
     const base = revisions.find(value => value.changeId === admission.request.plan.base.changeId)
     if (base?.kind !== "resolved" || !sameCode(base, admission.request.plan.base)) return yield* stale("Final cleanup changed the validated base")
     let parent = admission.request.plan.base
-    const refreshed: Implementation[] = []
+    const refreshed: Array<Implementation> = []
     for (const change of original) {
-      const previous = parent, atoms: Revision[] = []
+      const previous = parent, atoms: Array<Revision> = []
       for (const old of change.implementation.atoms) {
         const atom = revisions.find(value => value.changeId === old.changeId)
         if (atom?.kind !== "resolved" || atom.treeId !== old.treeId || atom.parentCommitIds.length !== 1 || atom.parentCommitIds[0] !== parent.commitId) {

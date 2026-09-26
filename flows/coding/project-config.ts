@@ -40,7 +40,7 @@ export const loadProject = (repositoryPath: string, filename: string | undefined
   // exact-bound document from a truncated one. Check emitted bytes as well.
   const data = yield* Stream.runFoldEffect(fs.stream(selected, {
     bytesToRead: maximumBytes + 1, chunkSize: 16 * 1024
-  }), () => ({ chunks: [] as Uint8Array[], bytes: 0 }), (state, chunk) => {
+  }), () => ({ chunks: [] as Array<Uint8Array>, bytes: 0 }), (state, chunk) => {
     if (state.bytes + chunk.length > maximumBytes) return Effect.fail(fail("JSON exceeds 256 KiB"))
     state.chunks.push(chunk)
     state.bytes += chunk.length

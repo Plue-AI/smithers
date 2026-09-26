@@ -48,7 +48,7 @@ const interruptOnFeedback = (plan: Plan) => Effect.gen(function*() {
   const first = yield* runtime.deferredResult(First)
   if (Option.isNone(first)) return
   const trigger = yield* first.value
-  const changes: ValidatedChange[] = []
+  const changes: Array<ValidatedChange> = []
   for (const [index, change] of plan.changes.entries()) {
     const saved = yield* runtime.deferredResult(gated(index))
     if (Option.isNone(saved)) return yield* invalid("The implementation-ready marker has no corresponding native implementation")

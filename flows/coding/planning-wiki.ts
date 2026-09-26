@@ -3,10 +3,10 @@ import * as Digest from "@smthrs/core/Digest"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
 import { RunState } from "@smthrs/engine-store/RunState"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
-import * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Node } from "@smthrs/plan"
 import * as RunStore from "@smthrs/run-store/RunStore"
-import { Effect, Exit, FileSystem, Layer, Option, Path, Schema } from "effect"
+import { Effect, Exit, FileSystem, Layer, Option, Schema } from "effect"
 import { IncrementalWiki, policySources, Pool, reuseLayers } from "../wiki/reuse.ts"
 import { actionLayers } from "../wiki/runtime.ts"
 import { Input as WikiInput, type PageSpec, Receipt, WikiError } from "../wiki/schema.ts"
@@ -97,7 +97,7 @@ export const findPlanningWikiReview = (config: typeof Config.Type) => guarded(Ef
 /** The same private configuration identity is used by planning and slow wiki checks. */
 export const planningWikiConfiguration = (options: PlanningWikiOptions, hostFilesystem?: FileSystem.FileSystem) =>
   guarded(Effect.gen(function*() {
-    const fs = hostFilesystem ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
+    const fs = hostFilesystem ?? (yield* FileSystem.FileSystem)
     const input = yield* Schema.decodeUnknownEffect(WikiInput)({ pages: options.pages, mode: "verified", reviewer: options.reviewer })
     if (!input.reviewer.trim() || bytes(JSON.stringify(input)) > maximumCatalogBytes) return yield* fail("Wiki reviewer and catalog must fit 128 KiB")
     const sources = new Set(input.pages.flatMap(page => [page.document, ...page.inputs]))

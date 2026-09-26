@@ -47,7 +47,6 @@ import { isExcluded, renderExclusions } from "./lib/excluded.mjs"
 
 const money = (usd) => `$${usd.toFixed(2)}`
 const signed = (value) => `${value < 0 ? "-" : "+"}${Math.abs(value).toFixed(2)}`
-const signedInt = (value) => `${value < 0 ? "-" : "+"}${Math.abs(value)}`
 
 /** How one instance reads in a column, or an em dash where a wave has no row. */
 const cell = (facts) => (facts === undefined ? "—" : facts.resolved ? "resolved" : facts.verdict)

@@ -6,7 +6,7 @@
 import { Action } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
 import { NativeCoding, NativeCodingError, requestIdFor } from "./native.ts"
-import { Check, CodingError, Implementation, Receipt, receiptMatches, Revision, StackBase } from "./schema.ts"
+import { Check, CodingError, type Implementation, Receipt, receiptMatches, Revision, StackBase } from "./schema.ts"
 export const VerifyInput = Schema.Struct({
   source: StackBase,
   checks: Schema.Array(Check).check(Schema.isMinLength(1), Schema.isMaxLength(64))

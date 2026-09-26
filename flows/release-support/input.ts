@@ -6,7 +6,7 @@ const record = (value: unknown): Record<string, unknown> => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Input must be a JSON object")
   return value as Record<string, unknown>
 }
-const keys = (value: Record<string, unknown>, allowed: readonly string[]) => {
+const keys = (value: Record<string, unknown>, allowed: ReadonlyArray<string>) => {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) throw new Error(`Unknown input field: ${key}`)
 }
 
