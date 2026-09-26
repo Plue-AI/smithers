@@ -1,7 +1,7 @@
 /**
  * The organization's configuration pages, parsed from the private wiki.
  *
- * Four Markdown pages configure a host. Each keeps its settings in YAML
+ * Five Markdown pages configure a host. Each keeps its settings in YAML
  * frontmatter and its explanation for people in the body, which the host
  * never reads:
  *
@@ -15,7 +15,9 @@
  * - `Org/Connections.md` — {@link Connections}: provider connections by
  *   credential reference name only. A token-shaped reference is refused;
  * - `Org/Meetings.md` — {@link Meetings}: the weekly one-on-one inputs, `null`
- *   until the owner sets them.
+ *   until the owner sets them;
+ * - `Org/Routines.md` — {@link Routines}: each role's scheduled standing
+ *   work, and the one-time onboarding.
  *
  * Unknown keys are refused. An error names the page and the field and says
  * what the field expects; it never repeats a value, because a page can hold a
@@ -151,6 +153,116 @@ export const RepositoryCheck = Schema.Struct({
 export type RepositoryCheck = typeof RepositoryCheck.Type
 
 /**
+ * Where a repository's landed change goes: `local` keeps it on its
+ * `organization/…` branch; `pr` also pushes that branch to the repository's
+ * remote and opens a pull request.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Landing = Schema.Literals(["pr", "local"])
+
+/**
+ * A git remote name.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const RemoteName = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/, { expected: "a git remote name" })
+)
+
+/**
+ * A GitHub repository: `owner/name`.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const GitHubRepository = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/, {
+    expected: "a GitHub repository (owner/name)"
+  })
+)
+
+const Label = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(50))
+
+/**
+ * Issue intake for one repository: which open issues are considered.
+ * `labels` admits only issues carrying one of them (every open issue when
+ * empty or absent); `skipLabels` refuses issues carrying any of them.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const IssueIntake = Schema.Struct({
+  labels: Schema.optionalKey(Schema.Array(Label)),
+  skipLabels: Schema.optionalKey(Schema.Array(Label))
+})
+
+/**
+ * Issue intake for one repository.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type IssueIntake = typeof IssueIntake.Type
+
+/**
+ * A cron schedule in an IANA time zone: five fields, minute to weekday.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const CronSchedule = Schema.Struct({
+  cron: Schema.String.check(
+    Schema.isPattern(/^\S+(?: \S+){4}$/, { expected: "a five-field cron expression" }),
+    Schema.isMaxLength(100)
+  ),
+  timezone: Text(64)
+})
+
+/**
+ * A cron schedule in an IANA time zone.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type CronSchedule = typeof CronSchedule.Type
+
+/**
+ * The organization's autonomous work: who triages issues and proposals, how
+ * often issues are taken in, how many autonomous deliveries run at once, when
+ * the daily digest goes out, and where the team's pages live.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Autonomy = Schema.Struct({
+  /** The principal that triages issues and accepts proposals. */
+  triage: Profile.PrincipalId,
+  /** Issue and proposal intake. Default every 30 minutes. */
+  intake: Schema.optionalKey(CronSchedule),
+  /** Autonomous deliveries (issues and proposals) one intake runs at once. Default 1. */
+  maxConcurrent: Schema.optionalKey(Count(1, 8)),
+  /** The owner's daily digest. Default 18:00 America/Los_Angeles. */
+  digest: Schema.optionalKey(CronSchedule),
+  /** Each role's onboarding page, the priorities page, and the team channel. Default `Org/Team`. */
+  teamDir: Schema.optionalKey(WikiPath),
+  /** Proposals. Default `Org/Proposals`. */
+  proposalsDir: Schema.optionalKey(WikiPath),
+  /** Requests for the owner. Default `Org/Requests`. */
+  requestsDir: Schema.optionalKey(WikiPath)
+})
+
+/**
+ * The organization's autonomous work.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type Autonomy = typeof Autonomy.Type
+
+/**
  * A repository's environment on the organization page: how its prepared
  * base is made (`prepare`: the command, the key paths, and the network the
  * command runs with), the network its builders and checks run with (default
@@ -163,7 +275,15 @@ export const RepositoryEnvironment = Schema.Struct({
   base: Schema.optionalKey(Workspace.BaseRef),
   prepare: Schema.optionalKey(Workspace.Prepare),
   network: Schema.optionalKey(Workspace.Network),
-  checks: Schema.optionalKey(Schema.Array(RepositoryCheck))
+  checks: Schema.optionalKey(Schema.Array(RepositoryCheck)),
+  /** Where a landed change goes: a local branch (the default), or that branch pushed and opened as a pull request. */
+  landing: Schema.optionalKey(Landing),
+  /** The git remote a pull request's branch is pushed to. Default `origin`. */
+  remote: Schema.optionalKey(RemoteName),
+  /** The GitHub repository pull requests and issues belong to. Default the entry's own name. */
+  github: Schema.optionalKey(GitHubRepository),
+  /** Issue intake: the repository's open issues are synchronized and triaged. Off when absent. */
+  issues: Schema.optionalKey(IssueIntake)
 })
 
 /**
@@ -212,6 +332,8 @@ export const Organization = Schema.Struct({
   policyFile: Schema.optionalKey(WikiPath),
   connectionsFile: Schema.optionalKey(WikiPath),
   meetingsFile: Schema.optionalKey(WikiPath),
+  /** The routines page: each role's scheduled standing work. */
+  routinesFile: Schema.optionalKey(WikiPath),
   weeklyMeeting: Schema.optionalKey(Schema.Boolean),
   /** Seats a hire may hold besides its hirer's own. */
   hireSeats: Schema.optionalKey(Schema.Array(Profile.Seat)),
@@ -229,6 +351,7 @@ export const Organization = Schema.Struct({
     network: Schema.optionalKey(Schema.Boolean)
   }),
   repositories: Schema.optionalKey(Schema.Record(RepositoryName, RepositoryEnvironment)),
+  autonomy: Schema.optionalKey(Autonomy),
   limits: Schema.optionalKey(Schema.Struct({
     usdPerMonth: Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))
   })),
@@ -236,7 +359,13 @@ export const Organization = Schema.Struct({
     generatedDir: WikiPath,
     statusFile: WikiPath,
     commit: Schema.Boolean,
-    push: Schema.Boolean
+    push: Schema.Boolean,
+    /**
+     * `push`: after each commit, and on a timer, the host pulls the wiki's
+     * upstream with a rebase and pushes to its tracking branch; a conflict is
+     * aborted and reported, never forced. Default `off`.
+     */
+    sync: Schema.optionalKey(Schema.Literals(["push", "off"]))
   })
 })
 
@@ -359,6 +488,122 @@ export const weeklyRequest = (meetings: Meetings): Meeting.WeeklyRequest | undef
       firstDate: meetings.firstDate
     }
 
+/**
+ * The host-gathered context a routine's task may carry, read on the host
+ * when the task starts: the repository's commits since the last occurrence,
+ * its open issues, the organization's recent receipts, the proposals, the
+ * team channel, and the repository's documentation file list.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const RoutineContext = Schema.Literals(["commits", "issues", "receipts", "proposals", "channel", "docs"])
+
+/**
+ * One kind of routine context.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type RoutineContext = typeof RoutineContext.Type
+
+const RoutineId = Schema.String.check(
+  Schema.isPattern(/^[a-z][a-z0-9-]{0,62}$/, { expected: "a lowercase routine id" })
+)
+
+const Instant = Schema.String.check(
+  Schema.makeFilter<string>((text) =>
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(text) &&
+      Number.isFinite(Date.parse(text))
+      ? undefined
+      : "must be an ISO date and time with a zone offset"
+  )
+)
+
+/**
+ * One routine: a role's standing work. Exactly one of `cron` (with its
+ * `timezone`), `once` (an instant), or `onboarding: true` says when it runs.
+ * A cron or once routine names its `role` and its `task`; an onboarding
+ * routine runs every listed role's first-week sequence (every active core
+ * role when `roles` is absent) once, one step at a time. `run: qualify`
+ * runs the organization's qualification first and hands the role its
+ * scorecard. The role's report is written under `output` (a directory) as
+ * `<date>.md`, or under the generated directory when absent.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Routine = Schema.Struct({
+  id: RoutineId,
+  role: Schema.optionalKey(Profile.PrincipalId),
+  cron: Schema.optionalKey(CronSchedule.fields.cron),
+  timezone: Schema.optionalKey(Text(64)),
+  once: Schema.optionalKey(Instant),
+  onboarding: Schema.optionalKey(Schema.Boolean),
+  roles: Schema.optionalKey(Schema.Array(Profile.PrincipalId)),
+  task: Schema.optionalKey(Text(4_000)),
+  repository: Schema.optionalKey(RepositoryName),
+  context: Schema.optionalKey(Schema.Array(RoutineContext)),
+  workspace: Schema.optionalKey(Schema.Boolean),
+  run: Schema.optionalKey(Schema.Literal("qualify")),
+  output: Schema.optionalKey(WikiPath),
+  enabled: Schema.Boolean
+}).check(
+  Schema.makeFilter<{
+    readonly cron?: string
+    readonly timezone?: string
+    readonly once?: string
+    readonly onboarding?: boolean
+    readonly role?: string
+    readonly roles?: ReadonlyArray<string>
+    readonly task?: string
+    readonly run?: string
+  }>((routine) => {
+    const kinds = [routine.cron !== undefined, routine.once !== undefined, routine.onboarding === true]
+    if (kinds.filter(Boolean).length !== 1) return "must set exactly one of cron, once, or onboarding: true"
+    if (routine.cron !== undefined && routine.timezone === undefined) return "a cron routine names its timezone"
+    if (routine.onboarding === true) {
+      return routine.role === undefined && routine.task === undefined && routine.run === undefined
+        ? undefined
+        : "an onboarding routine names roles, not a role, a task, or a run"
+    }
+    if (routine.roles !== undefined) return "only an onboarding routine names roles"
+    return routine.role !== undefined && routine.task !== undefined
+      ? undefined
+      : "a routine names its role and its task"
+  })
+)
+
+/**
+ * One routine.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type Routine = typeof Routine.Type
+
+/**
+ * The routines page: the organization's `routinesFile`.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Routines = Schema.Struct({
+  routines: Schema.Array(Routine).check(
+    Schema.makeFilter<ReadonlyArray<Routine>>((routines) =>
+      new Set(routines.map((routine) => routine.id)).size === routines.length ? undefined : "routine ids must be unique"
+    )
+  )
+})
+
+/**
+ * The routines page.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type Routines = typeof Routines.Type
+
 const strict = { onExcessProperty: "error" } as const
 
 const frontmatterOf = (path: string, text: string): Effect.Effect<Record<string, unknown>, ConfigError> => {
@@ -421,6 +666,16 @@ export const parseMeetings: (path: string, text: string) => Effect.Effect<Meetin
   Meetings
 )
 
+/**
+ * Parses the routines page. `path` only names the page in errors.
+ *
+ * @category parsing
+ * @since 1.0.0
+ */
+export const parseRoutines: (path: string, text: string) => Effect.Effect<Routines, ConfigError> = decodePage(
+  Routines
+)
+
 const decodePolicy = decodePage(Gates.GatePolicy)
 
 /**
@@ -457,6 +712,7 @@ export interface Loaded {
   readonly policy: Gates.GatePolicy
   readonly connections: Connections | undefined
   readonly meetings: Meetings | undefined
+  readonly routines: Routines | undefined
 }
 
 /**
@@ -469,7 +725,7 @@ export const defaultOrganizationFile = "Org/Organization.md"
 
 /**
  * Reads and checks the organization page at `file` (relative to `root`) and
- * the policy, connections, and meetings pages it names. Every page must
+ * the policy, connections, meetings, and routines pages it names. Every page must
  * resolve, through any symlinks, inside the real path of `root`, be a regular
  * file, and be at most {@link maxPageBytes}.
  *
@@ -533,6 +789,7 @@ export const load = (
       organization,
       policy: (yield* page(organization.policyFile, parseGatePolicy)) ?? Gates.empty("none"),
       connections: yield* page(organization.connectionsFile, parseConnections),
-      meetings: yield* page(organization.meetingsFile, parseMeetings)
+      meetings: yield* page(organization.meetingsFile, parseMeetings),
+      routines: yield* page(organization.routinesFile, parseRoutines)
     }
   })

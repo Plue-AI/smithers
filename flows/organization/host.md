@@ -80,25 +80,134 @@ gate or run, across restarts (`<state>/notified.json`).
 With `wiki.commit: true` on the organization page, the host commits what it
 wrote to the wiki's git repository every 30 seconds and when it stops:
 `wiki.generatedDir` (receipts, documents, meeting notes, bookings),
-`<rosterDir>/Specialists/` (hires) and `wiki.statusFile`. The commit is
-limited to those paths, so your own edits elsewhere stay as they are, staged
-or not. It skips hooks and signing, and never pushes. `backup` commits them
-first, so the manifest's wiki revision holds every receipt and hire the state
-cites.
+`<rosterDir>/Specialists/` (hires), `wiki.statusFile`, with an `autonomy`
+section the team, proposals, and requests directories, and every page a role
+edited with `wiki-edit`. The commit is limited to those paths, so your own
+edits elsewhere stay as they are, staged or not. It skips hooks and signing.
+`backup` commits them first, so the manifest's wiki revision holds every
+receipt and hire the state cites. With `wiki.sync: push` the host then
+rebases onto the wiki's upstream and pushes to its tracking branch, after
+each commit and every 5 minutes; a conflicting rebase is aborted and kept
+local, posted once to the team channel, listed in the digest
+(`<state>/wiki-sync.json`), and retried. It never force-pushes.
+
+## Autonomous work
+
+The organization works without being asked when the organization page has an
+`autonomy` section. Everything runs through the host's scheduler and the flows
+below; nothing is purchased, granted, merged, or pushed to a default branch.
+
+```yaml
+repositories:
+  owner/name:
+    landing: pr            # local (default) | pr: push organization/… to `remote` and open a pull request
+    remote: origin         # default origin
+    github: owner/name     # default the entry's name
+    issues: { labels: [], skipLabels: [duplicate, invalid, wontfix, epic, umbrella, tracking] }
+autonomy:
+  triage: product-release  # triages issues, writes the onboarding priorities
+  intake: { cron: "*/30 * * * *", timezone: UTC }        # default
+  maxConcurrent: 1                                        # items one intake works at once
+  digest: { cron: "0 18 * * *", timezone: America/Los_Angeles }  # default
+routinesFile: Org/Routines.md
+```
+
+- **Issue intake** (`organization/work`, trigger `organization-work:intake`,
+  skipped while the previous intake runs). Each repository with `issues` is
+  synchronized through the GitHub source (`<state>/sources.db`). An open issue
+  is left alone when it has an assignee, an `org:` label, a `skipLabels`
+  label, or an open pull request that closes it or works it on
+  `smithers/issue-<n>` (Smithers Cloud's coding factory, whose claims live in
+  its own database and show on GitHub only as that branch or pull request).
+  Every other issue that is new, or whose title or body changed since it was
+  decided, is triaged by the `triage` role: `take` (an owner role and a
+  contract), `skip`, or `needs-will` (a request page, below). A taken issue is
+  claimed with the label `org:<role>` and one comment, after checking again
+  that nobody holds it, and delivered through `organization/intake` under the
+  owner role (the assistant does not route it). Decisions are kept in
+  `<state>/autonomy.json`, so a restart decides nothing twice.
+- **Pull requests.** With `landing: pr` a landed branch is pushed to `remote`
+  (never forced; a remote branch at another commit is refused) and opened as
+  a pull request into the GitHub default branch: title the commit message,
+  body `Fixes #<n>`, the checks, and the receipt path; labels `organization`
+  and `org:<role>`. A retried landing reuses the branch and the pull request;
+  a create whose answer was lost is looked up before it is repeated. The
+  claim comment then links the pull request. A delivery that fails, or ends
+  without a pull request, removes the label and says so in the same comment.
+  The token is `SMITHERS_GITHUB_TOKEN`, else `gh auth token`; `doctor` checks
+  that it may push and that the remote takes a dry-run push.
+- **Routines** (`organization/routine`, one trigger `organization-routine:<id>`
+  per routine on the routines page). A `cron` routine runs in its `timezone`;
+  a `once` routine at its instant (or at the next minute when that passed);
+  an `onboarding` routine once, a minute after the host first sees it. Each
+  task is an `organization/assignment`: the role's host task with the context
+  the routine names (`commits`, `issues`, `receipts`, `proposals`, `channel`,
+  `docs`), its report written to `<output>/<date>.md`. `run: qualify` runs
+  `qualify --runs 1 --real-budgets` first and hands the role the scorecard.
+  A routine removed from the page is disabled.
+- **Onboarding.** Each listed role (every active core role by default), one
+  at a time: reads the wiki and the repository and writes
+  `<teamDir>/<role>/Onboarding.md` (what it owns, what it learned, the state
+  of its area with sources, open questions, 30/60/90) and 1 to 3
+  `<proposalsDir>/<date>-<role>-<slug>.md`; then reviews two other roles'
+  pages or proposals (a signed `## Comment` section) and files requests; then
+  the triage role writes `<teamDir>/Priorities.md` and marks proposals
+  `accepted`, `deferred`, or `rejected`. Every step is keyed, so a restart
+  joins what already ran.
+- **Proposals become work.** The intake picks up each `status: accepted`
+  proposal: `work: code` is delivered through intake under its `owner`
+  (a pull request with `landing: pr`), `work: document` as an assignment. The
+  page then says `status: done` (or `failed`).
+- **Requests** (`<requestsDir>/<date>-<role>-<slug>.md`, `status: open`,
+  `via: <assistant>`): what a role needs from the owner. The assistant
+  mentions the owner once in the work's team-channel thread, and the digest
+  lists every open request.
+- **Digest** (`organization/digest`, trigger `organization-digest:daily`):
+  one direct message from the assistant, and `<generatedDir>/digest/<date>.md`:
+
+  ```text
+  Digest 2026-09-26
+  1 landed · 1 PRs · 0 answered · 0 failed · 1 need you
+  PRs
+  - https://github.com/owner/name/pull/12 …
+  Needs you
+  - product-release: #7 Pick the pricing (Org/Requests/…)
+  ```
+
+## Team channel
+
+Roles talk to each other in the open: every handoff (`Handoff → builder`),
+round verdict, delivery ending, proposal, review comment, onboarding page,
+hire, request, and routine result is one line under the role's name in
+`<teamDir>/Channel.md`, and, with Slack, in the team channel
+(`SMITHERS_SLACK_TEAM_CHANNEL`, default `smithers-team`), threaded per task,
+issue, or proposal. The host finds the channel by name (or creates it), joins
+it, and invites the owners once. A post naming `@<role>` asks that role for a
+reply (`organization/team-reply`, at most 3 per thread). Only the assistant
+mentions the owner, once per thread, when a role needs them. The owner's
+message in the channel is a request in that thread. The owner's own thread
+(a DM or a mention) gets "On it." and one final line: the outcome, the pull
+request or branch, and the receipt.
 
 ## Flows
 
+- `organization/work`, `organization/work-item`, `organization/assignment`,
+  `organization/routine`, `organization/digest`, `organization/team-reply` —
+  the organization's own work (see [Autonomous work](#autonomous-work) and
+  [Team channel](#team-channel)).
 - `organization/intake` — admits a request (a Slack author must be in
   `SMITHERS_SLACK_USER_IDS`; the repository must be configured), says "On it."
   in a Slack thread as the assistant, and starts delivery. A request key
   (`slack:<team>:<event>` or `cli:<key>`) deduplicates: the same key joins the
   run it started.
-- `organization/deliver` — assistant routes → the role it hands to writes a
+- `organization/deliver` — assistant routes (or the host, for an issue,
+  routine, or proposal that names its role) → the role it hands to writes a
   contract naming a builder and a checker → the builder works in a microVM
   workspace → the diff is collected → checks run in a fresh microVM → the
   checker decides, for at most `--max-rounds` rounds → the change lands on
-  `organization/<key>-<hash>` (never the checked-out branch, never pushed) →
-  receipt → thread reply. A builder whose turn leaves no change is asked
+  `organization/<key>-<hash>` (never the checked-out branch; pushed and opened
+  as a pull request only with `landing: pr`) → receipt → one line in the
+  thread. A builder whose turn leaves no change is asked
   once more; a second empty diff blocks the delivery (`no change`, a failing
   `change` check) and nothing is checked or lands. A role whose result breaks its charter is
   asked again once with the violations; a second break stops the delivery,
@@ -357,6 +466,8 @@ node --test flows/test/organization-host-qualify.test.mjs   # qualify: scorecard
 node --test flows/test/organization-host-relocate.test.mjs  # a parked run resumes after the state directory moved
 node --test flows/test/organization-hiring.test.mjs         # hire, delegate, review, budget block, retire, refused hires, restart
 node --test flows/test/organization-meetings.test.mjs       # plan + triggers, prepare, Slack DM open/reply/follow-up, not held, bookings, calendar
+node --test flows/test/organization-autonomy.test.mjs       # issue intake + claims + PR (lost answer reconciled), claim released, kill mid-build, onboarding once, proposals → work, routine, digest
+node --test flows/test/organization-team-channel.test.mjs   # team channel: create/join/invite, persona posts, threads, replies, mentions, fallback
 node --test flows/organization/cli.test.ts                  # client commands against a stand-in control RPC
 node --test flows/organization/setup/*.test.ts              # every setup command
 ```

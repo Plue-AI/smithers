@@ -20160,6 +20160,14 @@
         "path": "flows/test/organization-host-qualify.test.mjs"
       },
       {
+        "kind": "file",
+        "path": "flows/test/organization-autonomy.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/organization-team-channel.test.mjs"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []
@@ -20254,6 +20262,14 @@
       {
         "kind": "file",
         "path": "flows/organization/qualify/cases.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/organization/setup/github-doctor.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/organization/team-channel.test.ts"
       },
       {
         "kind": "glob",

@@ -63,6 +63,8 @@ export interface Settings {
   readonly maxConcurrentVMs: number
   readonly host: string
   readonly port: number
+  /** The routines page's routines; none without one. */
+  readonly routines: ReadonlyArray<Config.Routine>
 }
 
 /** The flags `serve` takes; each overrides its variable. */
@@ -193,6 +195,7 @@ export const resolve = async (
       64
     ),
     host: flags.host ?? "127.0.0.1",
-    port
+    port,
+    routines: loaded.loaded.routines?.routines ?? []
   }
 }

@@ -387,7 +387,170 @@ describe("the meetings page", () => {
   })
 })
 
+const routinesPage = (routines: string) =>
+  `---
+routines:
+${routines}
+---
+
+# Routines
+`
+
+describe("autonomy settings", () => {
+  it("parses landing, the remote, the GitHub repository, issue intake, and the autonomy section", async () => {
+    const page = organizationPage.replace(
+      "limits:\n",
+      [
+        "routinesFile: Org/Routines.md",
+        "repositories:",
+        "  smithersai/smithers:",
+        "    landing: pr",
+        "    remote: upstream",
+        "    github: smithersai/smithers",
+        "    issues: { labels: [org], skipLabels: [wontfix] }",
+        "autonomy:",
+        "  triage: lead",
+        "  intake: { cron: '*/30 * * * *', timezone: UTC }",
+        "  maxConcurrent: 2",
+        "  digest: { cron: '0 18 * * *', timezone: America/Los_Angeles }",
+        "  teamDir: Org/Team",
+        "  proposalsDir: Org/Proposals",
+        "  requestsDir: Org/Requests",
+        "limits:",
+        ""
+      ].join("\n")
+    )
+    const organization = await run(Config.parseOrganization("o.md", page))
+    expect(organization.routinesFile).toBe("Org/Routines.md")
+    expect(organization.wiki.sync).toBeUndefined()
+    const synced = await run(
+      Config.parseOrganization("o.md", organizationPage.replace("  push: false\n", "  push: false\n  sync: push\n"))
+    )
+    expect(synced.wiki.sync).toBe("push")
+    expect(organization.repositories?.["smithersai/smithers"]).toEqual({
+      landing: "pr",
+      remote: "upstream",
+      github: "smithersai/smithers",
+      issues: { labels: ["org"], skipLabels: ["wontfix"] }
+    })
+    expect(Config.environmentOf(organization.repositories!["smithersai/smithers"]!)).toEqual({})
+    expect(organization.autonomy).toEqual({
+      triage: "lead",
+      intake: { cron: "*/30 * * * *", timezone: "UTC" },
+      maxConcurrent: 2,
+      digest: { cron: "0 18 * * *", timezone: "America/Los_Angeles" },
+      teamDir: "Org/Team",
+      proposalsDir: "Org/Proposals",
+      requestsDir: "Org/Requests"
+    })
+  })
+
+  it("refuses a landing, a remote, a GitHub repository, and a schedule it cannot use", async () => {
+    const withRepository = (entry: string) =>
+      flip(
+        Config.parseOrganization(
+          "o.md",
+          organizationPage.replace("limits:\n", `repositories:\n  demo: ${entry}\nlimits:\n`)
+        )
+      )
+    expect(await withRepository("{ landing: push }")).toMatchObject({
+      code: "schema",
+      field: "repositories.demo.landing"
+    })
+    expect(await withRepository("{ remote: '-x' }")).toMatchObject({
+      code: "schema",
+      field: "repositories.demo.remote"
+    })
+    expect(await withRepository("{ github: demo }")).toMatchObject({
+      code: "schema",
+      field: "repositories.demo.github"
+    })
+    const schedule = await flip(Config.parseOrganization(
+      "o.md",
+      organizationPage.replace(
+        "limits:\n",
+        "autonomy: { triage: lead, digest: { cron: daily, timezone: UTC } }\nlimits:\n"
+      )
+    ))
+    expect(schedule).toMatchObject({ code: "schema", field: "autonomy.digest.cron" })
+  })
+})
+
+describe("the routines page", () => {
+  it("parses cron, once, and onboarding routines", async () => {
+    const routines = await run(Config.parseRoutines(
+      "r.md",
+      routinesPage([
+        "  - { id: triage, role: lead, cron: '0 9 * * *', timezone: America/Los_Angeles, task: Triage new issues., repository: example/demo, context: [issues, commits], workspace: false, output: Org/Team/lead, enabled: true }",
+        "  - { id: scorecard, role: checker, once: '2026-10-01T09:00:00-07:00', task: Qualify., run: qualify, enabled: false }",
+        "  - { id: onboarding, onboarding: true, roles: [lead, builder], enabled: true }"
+      ].join("\n"))
+    ))
+    expect(routines.routines.map((routine) => routine.id)).toEqual(["triage", "scorecard", "onboarding"])
+    expect(routines.routines[0]).toMatchObject({ context: ["issues", "commits"], output: "Org/Team/lead" })
+    expect(routines.routines[1]).toMatchObject({ once: "2026-10-01T09:00:00-07:00", run: "qualify" })
+  })
+
+  it("refuses a routine whose kind, role, task, or instant is missing or mixed", async () => {
+    const refused = async (entry: string) =>
+      (await flip(Config.parseRoutines("r.md", routinesPage(`  - ${entry}`)))).message
+    expect(await refused("{ id: a, role: lead, task: t, enabled: true }")).toMatch(
+      /exactly one of cron, once, or onboarding/
+    )
+    expect(
+      await refused("{ id: a, role: lead, task: t, cron: '0 9 * * *', once: '2026-10-01T09:00:00Z', enabled: true }")
+    )
+      .toMatch(/exactly one/)
+    expect(await refused("{ id: a, role: lead, task: t, cron: '0 9 * * *', enabled: true }")).toMatch(
+      /names its timezone/
+    )
+    expect(await refused("{ id: a, onboarding: true, role: lead, enabled: true }")).toMatch(/names roles, not a role/)
+    expect(await refused("{ id: a, onboarding: true, task: t, enabled: true }")).toMatch(/names roles, not a role/)
+    expect(await refused("{ id: a, onboarding: true, run: qualify, enabled: true }")).toMatch(/names roles, not a role/)
+    expect(await refused("{ id: a, role: lead, task: t, once: '2026-10-01T09:00:00Z', roles: [lead], enabled: true }"))
+      .toMatch(/only an onboarding routine names roles/)
+    expect(await refused("{ id: a, role: lead, once: '2026-10-01T09:00:00Z', enabled: true }")).toMatch(
+      /names its role and its task/
+    )
+    expect(await refused("{ id: a, task: t, once: '2026-10-01T09:00:00Z', enabled: true }")).toMatch(
+      /names its role and its task/
+    )
+    expect(await refused("{ id: a, role: lead, task: t, once: '2026-10-01 09:00', enabled: true }")).toMatch(
+      /ISO date and time/
+    )
+    expect(await refused("{ id: a, role: lead, task: t, once: '2026-13-45T09:00:00Z', enabled: true }")).toMatch(
+      /ISO date and time/
+    )
+    expect(await refused("{ id: A, role: lead, task: t, once: '2026-10-01T09:00:00Z', enabled: true }")).toMatch(
+      /routine id/
+    )
+  })
+
+  it("refuses duplicate routine ids", async () => {
+    const entry = "  - { id: a, role: lead, task: t, once: '2026-10-01T09:00:00Z', enabled: true }"
+    expect((await flip(Config.parseRoutines("r.md", routinesPage(`${entry}\n${entry}`)))).message).toMatch(/unique/)
+  })
+})
+
 describe("loading from the wiki", () => {
+  it("loads the routines page the organization page names", async () => {
+    const root = fullWiki()
+    writeFileSync(
+      join(root, "Org/Organization.md"),
+      organizationPage.replace(
+        "meetingsFile: Org/Meetings.md\n",
+        "meetingsFile: Org/Meetings.md\nroutinesFile: Org/Routines.md\n"
+      )
+    )
+    writeFileSync(
+      join(root, "Org/Routines.md"),
+      routinesPage("  - { id: onboarding, onboarding: true, enabled: true }")
+    )
+    const loaded = await run(Config.load(root))
+    expect(loaded.routines?.routines).toEqual([{ id: "onboarding", onboarding: true, enabled: true }])
+    expect((await run(Config.load(fullWiki()))).routines).toBeUndefined()
+  })
+
   it("loads every page the organization page names", async () => {
     const loaded = await run(Config.load(fullWiki()))
     expect(loaded.organization.assistant).toBe("assistant")

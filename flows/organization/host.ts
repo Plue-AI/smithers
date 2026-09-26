@@ -47,6 +47,8 @@ import retire from "./retire/flow.ts"
 import * as Staff from "./staff.ts"
 import * as Meetings from "./meetings.ts"
 import meetingsBook from "./meetings-book/flow.ts"
+import teamReply from "./team-reply/flow.ts"
+import * as TeamChannel from "./team-channel.ts"
 import meetingsFollowUp from "./meetings-follow-up/flow.ts"
 import meetingsOpen from "./meetings-open/flow.ts"
 import meetingsPlan from "./meetings-plan/flow.ts"
@@ -54,6 +56,12 @@ import meetingsPrepare from "./meetings-prepare/flow.ts"
 import meetingsReply from "./meetings-reply/flow.ts"
 import * as Schedule from "./schedule.ts"
 import status from "./status/flow.ts"
+import * as Autonomy from "./autonomy.ts"
+import assignment from "./assignment/flow.ts"
+import digest from "./digest/flow.ts"
+import routine from "./routine/flow.ts"
+import work from "./work/flow.ts"
+import workItem from "./work-item/flow.ts"
 import * as Wiki from "./wiki.ts"
 
 /**
@@ -74,7 +82,11 @@ export const flows = [
   ["meetings-open", meetingsOpen],
   ["meetings-follow-up", meetingsFollowUp],
   ["meetings-reply", meetingsReply],
-  ["meetings-book", meetingsBook]
+  ["meetings-book", meetingsBook],
+  ["work", work],
+  ["routine", routine],
+  ["digest", digest],
+  ["team-reply", teamReply]
 ] as const
 
 /** Every flow the host registers with its engine. */
@@ -91,7 +103,13 @@ const registered = [
   meetingsOpen,
   meetingsFollowUp,
   meetingsReply,
-  meetingsBook
+  meetingsBook,
+  teamReply,
+  work,
+  workItem,
+  assignment,
+  routine,
+  digest
 ] as const
 
 /** Everything the host was started with. */
@@ -283,6 +301,82 @@ const roleTasks = (tasks: number) => Authority.layer(Budgets.layer(Actions.RoleT
   })))
 )
 
+/** A configured repository's GitHub repository: the page's `github`, else its own name when that is `owner/name`. */
+const githubOf = (settings: Settings, name: string): string | undefined => {
+  const entry = settings.organization.repositories?.[name]
+  return entry?.github ?? (/^[^/]+\/[^/]+$/.test(name) ? name : undefined)
+}
+
+/** The configured repositories whose landed branches become pull requests. */
+export const pullsOf = (settings: Settings): Record<string, { readonly remote: string; readonly github: string }> =>
+  Object.fromEntries(Object.keys(settings.repositories).flatMap((name) => {
+    const entry = settings.organization.repositories?.[name]
+    const github = githubOf(settings, name)
+    return entry?.landing === "pr" && github !== undefined ? [[name, { remote: entry.remote ?? "origin", github }]] : []
+  }))
+
+/** The teams' pages, where the organization page does not say otherwise. */
+export const teamDirs = (settings: Settings) => ({
+  teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team",
+  proposalsDir: settings.organization.autonomy?.proposalsDir ?? "Org/Proposals",
+  requestsDir: settings.organization.autonomy?.requestsDir ?? "Org/Requests"
+})
+
+/** What the organization's own work needs from the host's settings. */
+const autonomyOf = (settings: Settings, options: Options): Autonomy.Options => ({
+  root: settings.root,
+  stateDir: settings.stateDir,
+  generatedDir: settings.organization.wiki.generatedDir,
+  statusFile: settings.organization.wiki.statusFile,
+  assistant: settings.organization.assistant,
+  triage: settings.organization.autonomy?.triage,
+  ...teamDirs(settings),
+  repositories: settings.repositories,
+  bases: Object.fromEntries(Object.entries(settings.environments).flatMap(([name, environment]) => environment.base === undefined ? [] : [[name, environment.base]])),
+  autonomy: Object.fromEntries(Object.keys(settings.repositories).flatMap((name) => {
+    const github = githubOf(settings, name)
+    const issues = settings.organization.repositories?.[name]?.issues
+    return github === undefined ? [] : [[name, { github, ...(issues === undefined ? {} : { issues }) }]]
+  })),
+  environment: options.environment,
+  owner: options.slack ? settings.owners[0] : undefined
+})
+
+/**
+ * The schedule of the organization's own work: the intake and the digest
+ * when the organization page has an autonomy section, and every routine. A
+ * once or onboarding routine fires at its instant (an onboarding routine
+ * without one a minute after the host first saw it), or at the next minute
+ * when that passed while the host was down; one that ran is registered
+ * disabled.
+ */
+export const declarations = (settings: Settings, now: number): ReadonlyArray<Schedule.Declaration> => {
+  const autonomy = settings.organization.autonomy
+  const snapshot = settings.snapshot
+  const core = [...snapshot.roster.profiles.values()]
+    .filter((profile) => profile.status === "active" && profile.kind === "core")
+    .map((profile) => profile.id)
+  const triage = autonomy?.triage ?? settings.organization.assistant
+  const next = now + 60_000
+  const routines = settings.routines.map((entry) => {
+    const input = { routine: entry, roles: entry.onboarding === true ? entry.roles ?? core : [], triage }
+    if (entry.cron !== undefined) return { routine: entry, input }
+    const ledger = Autonomy.readLedger(settings.stateDir)
+    if (ledger.routines[entry.id] !== undefined) return { routine: entry, input, at: null }
+    const declared = entry.once === undefined
+      ? Autonomy.updateLedger(settings.stateDir, (current) => current.firstSeen[entry.id] ??= next)
+      : Date.parse(entry.once)
+    return { routine: entry, input, at: Math.max(declared, Math.ceil(next / 60_000) * 60_000) }
+  })
+  return Schedule.autonomyTriggers({
+    ...(autonomy === undefined ? {} : {
+      intake: { ...(autonomy.intake ?? { cron: "*/30 * * * *", timezone: "UTC" }), max: autonomy.maxConcurrent ?? 1 },
+      digest: autonomy.digest ?? { cron: "0 18 * * *", timezone: "America/Los_Angeles" }
+    }),
+    routines
+  })
+}
+
 /** The organization's actions, gates, role tasks, and flows, registered over one implementation table. */
 const registrations = (
   platform: NativeControl.Platform,
@@ -322,8 +416,11 @@ const registrations = (
       owners: settings.owners,
       maxRounds: settings.maxRounds,
       generatedDir: organization.wiki.generatedDir,
-      statusFile: organization.wiki.statusFile
+      statusFile: organization.wiki.statusFile,
+      pulls: pullsOf(settings),
+      environment: options.environment
     }),
+    Autonomy.layer(autonomyOf(settings, options), platform),
     Staff.layer({
       root: settings.root,
       rosterDir: organization.rosterDir,
@@ -342,6 +439,13 @@ const registrations = (
       calendar: Meetings.calendarOf(options.environment)
     }),
     slack,
+    TeamChannel.layer({
+      root: settings.root,
+      stateDir: settings.stateDir,
+      teamDir: organization.autonomy?.teamDir ?? "Org/Team",
+      environment: options.environment,
+      assistant: organization.assistant
+    }),
     ...registered.map((declaration) => Interpreter.layer(declaration as never))
   ).pipe(
     Layer.provideMerge(Layer.mergeAll(
@@ -434,6 +538,6 @@ export const layer = (platform: NativeControl.Platform, options: Options, seats?
       registry
     )
     // The scheduler launches through the served control plane.
-    return Schedule.layer().pipe(Layer.provide(triggers), Layer.provideMerge(served))
+    return Schedule.layer({ declarations: declarations(settings, Date.now()) }).pipe(Layer.provide(triggers), Layer.provideMerge(served))
   })))
 }

@@ -2,11 +2,13 @@
  * The organization host's one Slack app, end to end against the Slack
  * fixture server (`@smthrs/integrations`' test fixture: the Web API over
  * HTTP and Socket Mode over a real WebSocket): the owner's direct message
- * starts a delivery, the assistant acknowledges it in the thread, the lead
- * posts the contract under its own persona, the Approval gate before the
- * landing is asked in the thread with buttons, a stranger's press changes
- * nothing, the owner's press lands the change, and the result is posted in
- * the thread. Slack's redelivery of the same event joins the run it started.
+ * starts a delivery, the assistant acknowledges it in the thread ("On it."),
+ * the Approval gate before the landing is asked in the thread with buttons, a
+ * stranger's press changes nothing, the owner's press lands the change, and
+ * the thread ends with one line: the outcome, the branch, and the receipt.
+ * Nothing else is posted in the owner's thread: the contract and the
+ * checker's verdict are in the receipt. Slack's redelivery of the same event
+ * joins the run it started.
  *
  * The host is the scripted-seat host in its own process with real microVM
  * workspaces; the suite skips, by name, only where no microVM boots.
@@ -116,10 +118,6 @@ describe("the organization host's Slack app", { skip: missing === undefined ? fa
     assert.equal(ack.params.thread_ts, ASKED_TS)
     assert.equal(ack.params.username, "Assistant")
 
-    // The lead states the contract under its own persona.
-    const contract = await call((each) => each.method === "chat.postMessage" && each.params.username === "Lead")
-    assert.equal(contract.params.text, `Append the line '${line}' to README.md.`)
-
     // The gate is asked in the thread with the owner's buttons.
     const prompt = await call((each) => each.method === "chat.postMessage" && each.params.text?.startsWith("Land this change?"))
     assert.equal(prompt.params.thread_ts, ASKED_TS)
@@ -159,14 +157,21 @@ describe("the organization host's Slack app", { skip: missing === undefined ? fa
     assert.equal(update.params.text, "Approved by <@UOWNER>: land.")
     assert.equal((await settled(handle, waiting.runId)).status, "completed", handle.output())
 
-    const result = await call((each) =>
-      each.method === "chat.postMessage" && each.params.text === "The README change meets its criterion."
+    const report = receipt(root, "slack:T1:Ev-dm").report
+    assert.equal(report.status, "landed")
+    // The thread ends with one line: the outcome, the branch, and the receipt.
+    const result = await call((each) => each.method === "chat.postMessage" && each.params.text?.startsWith("Landed on "))
+    assert.equal(
+      result.params.text,
+      `Landed on ${report.applied.branch} ${report.applied.commit.slice(0, 12)} · Org/Runs/slack-T1-Ev-dm/deliver.json`
     )
     assert.equal(result.params.username, "Assistant")
     assert.equal(result.params.thread_ts, ASKED_TS)
-
-    const report = receipt(root, "slack:T1:Ev-dm").report
-    assert.equal(report.status, "landed")
+    // Nothing else reached the owner's thread: no contract, no verdict.
+    assert.deepEqual(
+      posts().filter((each) => each.params.channel === DM).map((each) => each.params.text.split("\n")[0]),
+      ["On it.", "Land this change?", result.params.text]
+    )
     assert.equal(git(repo, "show", `${report.applied.branch}:README.md`), `# Demo\n${line}`)
     assert.deepEqual(branches(repo), [report.applied.branch])
     assert.equal(git(repo, "rev-parse", "main"), main)

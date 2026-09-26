@@ -2,14 +2,16 @@
  * `organization/deliver`: one admitted request carried from the assistant to
  * a landed branch.
  *
- * The assistant routes the request; the role it hands off to (the lead)
- * writes a contract naming a builder and an independent checker; the builder
- * works in a microVM workspace; the change is collected, checked in a fresh
- * machine, and judged by the checker, for at most `maxRounds` rounds; an
- * approved change lands on a branch of the host repository, never the
- * checked-out one and never pushed. Every ending, including a failure, writes
- * a receipt under the organization's generated directory and, for a Slack
- * request, replies in its thread.
+ * The assistant routes the request (the host does, for a request that names
+ * its role); the role it hands off to (the lead) writes a contract naming a
+ * builder and an independent checker; the builder works in a microVM
+ * workspace; the change is collected, checked in a fresh machine, and judged
+ * by the checker, for at most `maxRounds` rounds; an approved change lands on
+ * a branch of the host repository, never the checked-out one, and with the
+ * repository's landing `pr` that branch is pushed and opened as a pull
+ * request. Every handoff and verdict is posted to the team channel. Every
+ * ending, including a failure, writes a receipt under the organization's
+ * generated directory and, for a Slack request, ends its thread with one line.
  *
  * Gates attach at two named boundaries, from the admission's policy:
  *
@@ -50,7 +52,10 @@ import {
   type Stage,
   StepFailure,
   DisposeWorkspaces,
+  Headline,
   hostFields,
+  HostRoute,
+  PublishChange,
   ReadAsk,
   WriteDocument
 } from "../schema.ts"
@@ -58,8 +63,9 @@ import Delegate from "../delegate/flow.ts"
 import Hire from "../hire/flow.ts"
 import MeetingsBook from "../meetings-book/flow.ts"
 import { slackConnection } from "../slack-connection.ts"
+import { TeamPost } from "../team-channel.ts"
 
-const implementationVersion = "organization/deliver/v9"
+const implementationVersion = "organization/deliver/v10"
 
 /** Why a builder whose turn left no change is asked again. */
 const noChangeAgain =
@@ -265,6 +271,13 @@ const round = (
                   const check = checked.check
                   const all: Machines = [...machines, checked.checking]
                   return Decide.call({ build, check, checks, diff }).pipe(
+                    Node.bindPlanned(Node.capture({ implementationVersion, n }, function(verdict) {
+                      return say(payload, assignment.checker, Node.succeed(verdict).pipe(
+                        Node.map(Node.capture({ implementationVersion, n: this.n }, function(seen) {
+                          return seen.approved ? `Round ${this.n}: approved` : `Round ${this.n}: changes requested: ${(seen.findings[0] ?? "").slice(0, 160)}`
+                        }))
+                      )).pipe(Node.andThen(Node.succeed(verdict)))
+                    })),
                     Node.branch({
                       if: Node.capture({ implementationVersion }, (verdict) => verdict.approved),
                       then: (verdict) =>
@@ -292,7 +305,7 @@ const round = (
                         ).pipe(
                           Node.bindPlanned(Node.capture({ implementationVersion }, (applied) =>
                             Node.andThen(Node.succeed(applied), disposeAll(all)).pipe(
-                              Node.andThen(report(payload, {
+                              Node.andThen(published(payload, assignment, applied, verdict.checks, {
                                 status: "landed",
                                 summary: check.result.summary,
                                 principals,
@@ -329,16 +342,65 @@ const round = (
   }
 }
 
+/**
+ * A landed change's report. With the repository's landing `pr` the branch is
+ * pushed and opened as a pull request first, and the report names it; a
+ * push or pull request that fails fails the delivery, and the branch stays.
+ */
+const published = (
+  payload: Payload,
+  assignment: Planned.Planned<Assignment>,
+  applied: Planned.Planned<Workspace.Applied>,
+  checks: Planned.Planned<ReadonlyArray<unknown>>,
+  fields: Readonly<Record<string, unknown>>
+): Node.Node<Report, Failure, any> => {
+  const pull = payload.admission.pull
+  if (pull === undefined) return report(payload, fields)
+  return PublishChange.call({
+    key: payload.request.key,
+    repository: payload.admission.repository,
+    remote: pull.remote,
+    github: pull.github,
+    applied,
+    title: assignment.message,
+    lead: assignment.lead,
+    ...(payload.request.issue === undefined ? {} : { issue: payload.request.issue }),
+    checks: checks as never
+  }).pipe(
+    Node.bindPlanned(Node.capture({ implementationVersion }, (opened) => report(payload, { ...fields, pull: opened })))
+  ) as Node.Node<Report, Failure, any>
+}
+
+/** A post to the team channel in the request's thread, under `role`'s name. */
+const say = (payload: Payload, role: Planned.Planned<string> | string, text: Node.Node<string, any, any>): Node.Node<unknown, Failure, any> =>
+  text.pipe(
+    Node.bindPlanned(Node.capture({ implementationVersion }, (line) =>
+      TeamPost.call({ thread: payload.request.key, role: role as string, text: line })))
+  ) as Node.Node<unknown, Failure, any>
+
+/** The assistant's route, or the host's when the request names its role. */
+const routed = (payload: Payload, revision: Planned.Planned<string>): Node.Node<Answer, Failure, any> =>
+  (payload.request.role === undefined
+    ? RouteTask.call({ revision, assistant: payload.admission.assistant, request: payload.request }).pipe(
+      Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => turn(revision, stage)))
+    )
+    : HostRoute.call({ revision, assistant: payload.admission.assistant, request: payload.request })) as Node.Node<Answer, Failure, any>
+
 /** Routing, the contract, the gated build, and every early ending, as one report. */
 const work = (payload: Payload) => {
   const { admission, request } = payload
   return Actions.PinRoster.call({}).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (pin) =>
-      RouteTask.call({ revision: pin.revision, assistant: admission.assistant, request }).pipe(
-        Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => turn(pin.revision, stage))),
+      routed(payload, pin.revision).pipe(
         Node.bindPlanned(Node.capture({ implementationVersion }, (routed) =>
           withAsk(payload, routed, () =>
-          LeadTask.call({ revision: pin.revision, request, repository: admission.repository, routed }).pipe(
+          say(payload, admission.assistant, Node.succeed(routed).pipe(
+            Node.map(Node.capture({ implementationVersion }, (seen) => {
+              const handoff = seen.result.handoffs[0]
+              return handoff === undefined ? `Answered: ${seen.result.summary.slice(0, 200)}` : `Handoff → ${handoff.to}`
+            }))
+          )).pipe(Node.andThen(
+          LeadTask.call({ revision: pin.revision, request, repository: admission.repository, routed }))).pipe(
             Node.branch({
               if: Node.capture({ implementationVersion }, (stage) => stage.proceed),
               else: (stage) =>
@@ -374,7 +436,10 @@ const work = (payload: Payload) => {
                             then: (planned) =>
                               child(payload, "organization/delegate", contract.principal, Delegate.child(planned.delegate as never)),
                             else: () =>
-                          progress(payload, contract.principal, assignment.objective, "contract").pipe(
+                          say(payload, contract.principal, Node.succeed(assignment).pipe(
+                            Node.map(Node.capture({ implementationVersion }, (planned) =>
+                              `Handoff → ${planned.builder} builds, ${planned.checker} checks: ${planned.objective.slice(0, 160)}`))
+                          )).pipe(
                             Node.andThen(Gates.before(
                               admission.gates,
                               taskGate,
@@ -577,7 +642,13 @@ const finish = (payload: Payload, outcome: Planned.Planned<Report>) =>
     receipt: { request: payload.request, admission: payload.admission, report: outcome }
   }).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (written) =>
-      progress(payload, payload.admission.assistant, outcome.summary, "result").pipe(
+      // The owner's thread and the team channel get one line; the contract
+      // and the checker's verdict are in the receipt.
+      Headline.call({ report: outcome, receipt: written.path }).pipe(
+        Node.bindPlanned(Node.capture({ implementationVersion }, (line) =>
+          TeamPost.call({ thread: payload.request.key, role: payload.admission.assistant, text: line }).pipe(
+            Node.andThen(progress(payload, payload.admission.assistant, line, "result"))
+          ))),
         Node.andThen(Settle.call({ report: outcome, receipt: written.path }))
       )))
   )

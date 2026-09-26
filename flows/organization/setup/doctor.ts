@@ -34,6 +34,8 @@ import * as NodeResolve from "./node.ts"
 import * as Subscriptions from "./subscriptions.ts"
 import { modelSeats, teamChannelScopes } from "./templates.ts"
 import { atLeast } from "./version.ts"
+import * as Wiki from "../wiki.ts"
+import * as GitHub from "../github.ts"
 
 export type Status = "pass" | "fail" | "skip"
 
@@ -358,6 +360,55 @@ export const environmentLines = (
   })
 }
 
+/**
+ * Each repository that opens pull requests or takes in issues: GitHub is
+ * reachable with the host's token and grants push (a pull request's branch
+ * and the claim label need it), and, for pull requests, the git remote takes
+ * a push (a dry run, which changes nothing).
+ */
+export const githubLines = async (
+  entries: ReadonlyArray<string>,
+  cwd: string,
+  organization: Organization | undefined,
+  env: Readonly<Record<string, string | undefined>>
+): Promise<Array<Line>> => {
+  const declared = organization?.loaded.organization.repositories ?? {}
+  const lines: Array<Line> = []
+  for (const entry of entries) {
+    const [name, repo] = parseRepository(cwd, entry)
+    const page = declared[name]
+    if (page === undefined || (page.landing !== "pr" && page.issues === undefined)) continue
+    const github = page.github ?? (/^[^/]+\/[^/]+$/.test(name) ? name : undefined)
+    if (github === undefined) {
+      lines.push(fail("github", `${name} names no GitHub repository`, `set repositories.${name}.github: owner/name in Org/Organization.md`))
+      continue
+    }
+    if (GitHub.tokenOf(env) === undefined) {
+      lines.push(fail("github", `${github}: no GitHub token`, "gh auth login, or set SMITHERS_GITHUB_TOKEN in the .env file"))
+      continue
+    }
+    const info = await Effect.runPromise(Effect.result(GitHub.repository(GitHub.client(env), github)))
+    if (info._tag === "Failure") {
+      lines.push(fail("github", `${github}: ${info.failure.message}`, "gh auth status; the token needs the repo scope"))
+      continue
+    }
+    if (info.success.permissions?.push !== true) {
+      lines.push(fail("github", `${github}: the token may not push or open pull requests`, "gh auth refresh -s repo, as an account with write access"))
+      continue
+    }
+    if (page.landing === "pr") {
+      const remote = page.remote ?? "origin"
+      const probe = GitHub.canPush(repo, remote)
+      if ("error" in probe) {
+        lines.push(fail("github", `${github}: git push to ${remote} refused: ${probe.error}`, `git -C ${repo} push --dry-run ${remote} HEAD:refs/heads/organization/doctor-probe`))
+        continue
+      }
+    }
+    lines.push(pass("github", `${github}: push and pull requests${page.landing === "pr" ? ` via ${page.remote ?? "origin"}` : ""}${page.issues === undefined ? "" : "; issue intake"}`))
+  }
+  return lines
+}
+
 const stateLine = (stateDir: string): Line => {
   const fix = `mkdir -p ${stateDir} && chmod 700 ${stateDir}`
   try {
@@ -399,6 +450,7 @@ export const doctor = async (options: DoctorOptions): Promise<Array<Line>> => {
   lines.push(await seatsLine(organization, options.env, options.claudeCredentials))
   lines.push(...await slackLines(options.env, options.fetch ?? fetch))
   lines.push(...repoLines(options.repos, options.cwd ?? process.cwd(), organization))
+  lines.push(...await githubLines(options.repos, options.cwd ?? process.cwd(), organization, options.env))
   const environments = environmentLines(options.repos, options.cwd ?? process.cwd(), organization)
   lines.push(...environments)
   // Each repository whose environment line passed: the commit its next task
@@ -431,6 +483,11 @@ export const doctor = async (options: DoctorOptions): Promise<Array<Line>> => {
       machines,
       key: `doctor-${process.pid}/${name}`
     }))
+  }
+  // With `wiki.sync: push`, the wiki's upstream exists and takes a push.
+  if (organization?.loaded.organization.wiki.sync === "push") {
+    const synced = Wiki.syncCheck(options.root)
+    lines.push(synced.ok ? pass("wiki sync", synced.detail) : fail("wiki sync", synced.detail, synced.fix!))
   }
   lines.push(stateLine(options.stateDir))
   return lines

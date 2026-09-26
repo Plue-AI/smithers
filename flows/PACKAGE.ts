@@ -256,7 +256,8 @@ const organizationHost = Smithers.NodeTest({
   runner: Smithers.testRunner([fixture("organization-host.test.mjs"), fixture("organization-host-slack.test.mjs"),
     fixture("organization-host-document.test.mjs"), fixture("organization-host-relocate.test.mjs"),
     fixture("organization-hiring.test.mjs"), fixture("organization-meetings.test.mjs"),
-    fixture("organization-host-qualify.test.mjs")]),
+    fixture("organization-host-qualify.test.mjs"), fixture("organization-autonomy.test.mjs"),
+    fixture("organization-team-channel.test.mjs")]),
   srcs: codingSources, deps: [...codingDependencies, ...organizationPackages, organizationFixture], cwd, timeout: "20m"
 })
 // The organization's local commands: setup (`init`, `doctor`, subscriptions,
@@ -271,7 +272,8 @@ const organizationSetup = Smithers.NodeTest({
     Smithers.file("//flows/organization/setup/environment-doctor.test.ts"), Smithers.file("//flows/organization/cli.test.ts"),
     Smithers.file("//flows/organization/wiki-commit.test.ts"), Smithers.file("//flows/organization/setup/node.test.ts"),
     Smithers.file("//flows/organization/notify.test.ts"),
-    Smithers.file("//flows/organization/qualify/cases.test.ts")]),
+    Smithers.file("//flows/organization/qualify/cases.test.ts"), Smithers.file("//flows/organization/setup/github-doctor.test.ts"),
+    Smithers.file("//flows/organization/team-channel.test.ts")]),
   srcs: codingSources, deps: [...codingDependencies, ...organizationPackages], cwd, timeout: "20m"
 })
 

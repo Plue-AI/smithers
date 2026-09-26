@@ -171,6 +171,68 @@ const heldBuilder = (system: string, turn: number, holdFile: string): string | u
 }
 
 /**
+ * The organization's own host tasks, by task id: an issue's triage (`take` by
+ * `lead` with a README contract unless `SMITHERS_ORGANIZATION_SCRIPTED_TRIAGE`,
+ * JSON from issue number or `*` to `{ decision, owner?, contract? }`, says
+ * otherwise), a routine's report, an onboarding page with one proposal, a
+ * review commenting on the first page it may and filing one request, and the
+ * priorities accepting the first proposal and deferring the rest.
+ */
+const autonomyTask = (system: string, principal: string, task: string): string | undefined => {
+  if (task.endsWith("/triage")) {
+    const number = /-(\d+)-[0-9a-f]{8}(?:-r\d+)?\/triage$/.exec(task)?.[1] ?? ""
+    const specs = JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_TRIAGE ?? "{}") as Record<string, Record<string, unknown>>
+    const spec = specs[number] ?? specs["*"] ?? {
+      decision: "take",
+      owner: "lead",
+      contract: `Append the line '${scriptedLine}' to README.md.\nREADME.md ends with that line.`
+    }
+    return answering(done({ reason: `Scripted triage of #${number}.`, ...spec }, `Triage: ${String(spec["decision"])}.`))
+  }
+  if (task.endsWith("/report")) return answering(done({ report: `- ${principal}: nothing new.` }, `${principal} reported.`))
+  if (task.endsWith("/onboard")) {
+    return answering(done({
+      owns: [`${principal}'s area`],
+      learned: ["The organization runs on the wiki (Org/README.md)."],
+      state: ["Nothing started yet."],
+      questions: ["What ships first?"],
+      plan: { "30": ["Learn the area."], "60": ["Ship one improvement."], "90": ["Own the area."] },
+      proposals: [{
+        slug: "first-step",
+        title: `${principal}: first step`,
+        problem: "Nothing is written down.",
+        evidence: "Org/README.md",
+        proposal: "Write the area page.",
+        cost: "One task.",
+        owner: principal,
+        decisionFrom: "owner",
+        work: "document"
+      }]
+    }, `${principal} onboarded.`))
+  }
+  if (task.endsWith("/review")) {
+    const pages = /Pages you may comment on: ([^\n]+)\.$/m.exec(system)?.[1]?.split(", ") ?? []
+    return answering(done({
+      comments: pages.slice(0, 1).map((path) => ({ path, text: `Reviewed by ${principal}: agreed.` })),
+      requests: [{ title: `${principal} needs a decision`, need: "Pick the first release.", why: "Scope depends on it.", decisionFrom: "owner" }]
+    }, `${principal} reviewed.`))
+  }
+  if (task.endsWith("/priorities")) {
+    const proposals = [...system.matchAll(/^## (\S+\.md)$/gm)].map((match) => match[1]!)
+    return answering(done({
+      priorities: proposals.map((proposal, index) => ({
+        proposal,
+        decision: index === 0 ? "accept" : "defer",
+        reason: index === 0 ? "Smallest first." : "Later.",
+        work: "document",
+        owner: principal
+      }))
+    }, `${principal} set the priorities.`))
+  }
+  return undefined
+}
+
+/**
  * Host tasks answer by their task id, whatever the principal's part: a hire
  * decision with the principal's spec from `SMITHERS_ORGANIZATION_SCRIPTED_HIRE`
  * (JSON from request key or principal id to a hire spec; null or absent: no hire), a
@@ -181,6 +243,8 @@ const heldBuilder = (system: string, turn: number, holdFile: string): string | u
  */
 const hostTask = (system: string, principal: string): string | undefined => {
   const task = /^# Task (\S+)$/m.exec(system)?.[1] ?? ""
+  const organizational = autonomyTask(system, principal, task)
+  if (organizational !== undefined) return organizational
   if (task.endsWith("/hire")) {
     const specs = JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_HIRE ?? "{}") as Record<string, unknown>
     const key = task.slice(0, -"/hire".length)

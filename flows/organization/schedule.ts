@@ -11,7 +11,7 @@
  * role's prepare, open, and follow-up triggers (`meetings.ts`).
  */
 import { Control } from "@smthrs/control"
-import { Duration, Effect, Layer } from "effect"
+import { Duration, Effect, Layer, Result } from "effect"
 import { join } from "node:path"
 import * as Scheduler from "../../packages/smithers/agent/triggers/src/Scheduler.ts"
 import * as SqlTriggerStore from "../../packages/smithers/agent/triggers/src/SqlTriggerStore.ts"
@@ -94,11 +94,98 @@ export const planTrigger = {
   enabled: true
 } as const
 
-/** Registers the daily plan trigger, then runs the scheduler until the host stops. */
-export const layer = (options: { readonly pollInterval?: Duration.Input | undefined } = {}) =>
+/** A trigger declaration, before it is checked. */
+export type Declaration = typeof planTrigger | {
+  readonly id: string
+  readonly flowId: string
+  readonly input: unknown
+  readonly cron: string
+  readonly timezone: string
+  readonly overlap: "skip"
+  readonly catchUp: "none" | "one"
+  readonly maxCatchUp?: number
+  readonly enabled: boolean
+}
+
+/** The prefix of every routine's trigger id. */
+export const routinePrefix = "organization-routine:"
+
+/** The UTC cron expression that fires once a year at `at`'s minute: a once routine's, disabled after it ran. */
+export const onceCron = (at: number) => {
+  const date = new Date(at)
+  return `${date.getUTCMinutes()} ${date.getUTCHours()} ${date.getUTCDate()} ${date.getUTCMonth() + 1} *`
+}
+
+/** What the organization's own work schedules: the intake, the digest, and each routine. */
+export interface Autonomy {
+  /** The intake's schedule and how many items it works at once; absent without an autonomy section. */
+  readonly intake?: { readonly cron: string; readonly timezone: string; readonly max: number } | undefined
+  readonly digest?: { readonly cron: string; readonly timezone: string } | undefined
+  readonly routines: ReadonlyArray<{
+    readonly routine: { readonly id: string; readonly cron?: string | undefined; readonly timezone?: string | undefined; readonly enabled: boolean }
+    readonly input: unknown
+    /** When a once or onboarding routine fires; `null` once it ran. */
+    readonly at?: number | null | undefined
+  }>
+}
+
+/** The trigger declarations of the organization's own work. */
+export const autonomyTriggers = (autonomy: Autonomy): ReadonlyArray<Declaration> => [
+  ...(autonomy.intake === undefined ? [] : [{
+    id: "organization-work:intake",
+    flowId: "organization/work",
+    input: { max: autonomy.intake.max },
+    cron: autonomy.intake.cron,
+    timezone: autonomy.intake.timezone,
+    overlap: "skip" as const,
+    catchUp: "none" as const,
+    enabled: true
+  }]),
+  ...(autonomy.digest === undefined ? [] : [{
+    id: "organization-digest:daily",
+    flowId: "organization/digest",
+    input: {},
+    cron: autonomy.digest.cron,
+    timezone: autonomy.digest.timezone,
+    overlap: "skip" as const,
+    catchUp: "one" as const,
+    maxCatchUp: 1,
+    enabled: true
+  }]),
+  ...autonomy.routines.map(({ at, input, routine }) => ({
+    id: `${routinePrefix}${routine.id}`,
+    flowId: "organization/routine",
+    input,
+    cron: routine.cron ?? onceCron(at ?? 0),
+    timezone: routine.cron === undefined ? "UTC" : routine.timezone ?? "UTC",
+    overlap: "skip" as const,
+    catchUp: "one" as const,
+    maxCatchUp: 1,
+    enabled: routine.enabled && (routine.cron !== undefined || (at !== null && at !== undefined))
+  }))
+]
+
+/**
+ * Registers the daily plan trigger and `declarations`, disables the
+ * routine triggers the routines page no longer names, then runs the
+ * scheduler until the host stops.
+ */
+export const layer = (options: {
+  readonly pollInterval?: Duration.Input | undefined
+  readonly declarations?: ReadonlyArray<Declaration> | undefined
+} = {}) =>
   Layer.effectDiscard(Effect.gen(function*() {
     const triggers = yield* TriggerStore.TriggerStore
     yield* triggers.register(yield* Trigger.make(planTrigger))
+    const declared = options.declarations ?? []
+    for (const declaration of declared) yield* triggers.register(yield* Trigger.make(declaration))
+    const ids = new Set(declared.map((declaration) => declaration.id))
+    for (const listed of yield* triggers.list()) {
+      if (Result.isFailure(listed.trigger)) continue
+      const { lastFiredAt: _fired, revision: _revision, ...trigger } = listed.trigger.success
+      if (!trigger.id.startsWith(routinePrefix) || ids.has(trigger.id) || !trigger.enabled) continue
+      yield* triggers.register(yield* Trigger.make({ ...trigger, enabled: false }))
+    }
   })).pipe(
     Layer.provideMerge(Scheduler.layer({ pollInterval: options.pollInterval ?? "15 seconds", host: "organization" })),
     Layer.provide(runner),

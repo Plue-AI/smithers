@@ -33,16 +33,33 @@ export const Conversation = Schema.Struct({
 })
 export type Conversation = typeof Conversation.Type
 
-/** One request from a person, as a channel received it. */
+/** The GitHub issue a request works, and the claim it holds on it. */
+export const IssueRef = Schema.Struct({
+  /** The GitHub repository, `owner/name`. */
+  github: Schema.NonEmptyString,
+  number: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  url: Schema.NonEmptyString
+})
+export type IssueRef = typeof IssueRef.Type
+
+/**
+ * One request, as a channel received it: a person's (the local CLI or
+ * Slack), or the organization's own (an issue it took, a routine, an
+ * accepted proposal).
+ */
 export const Request = Schema.Struct({
   key: RequestKey,
   text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8_000)),
-  source: Schema.Literals(["cli", "slack"]),
+  source: Schema.Literals(["cli", "slack", "github", "routine", "proposal"]),
   /** The Slack user who wrote it; absent for the local CLI, whose caller holds the control credential. */
   user: Schema.optionalKey(Schema.NonEmptyString),
   conversation: Schema.optionalKey(Conversation),
   /** A configured repository name; the host's only repository when absent. */
-  repository: Schema.optionalKey(Profile.Container)
+  repository: Schema.optionalKey(Profile.Container),
+  /** The role the host hands the request to, instead of the assistant routing it. Never from Slack. */
+  role: Schema.optionalKey(Profile.PrincipalId),
+  /** The issue the request works. Never from Slack. */
+  issue: Schema.optionalKey(IssueRef)
 })
 export type Request = typeof Request.Type
 
@@ -58,13 +75,15 @@ export const Admission = Schema.Struct({
   gates: Gates.GatePolicy,
   maxRounds: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 5 })),
   /** When the request was admitted; fixes the landed commit's timestamps. */
-  at: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+  at: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** A landed branch is pushed to `remote` and opened as a pull request on `github`. Absent: the branch stays local. */
+  pull: Schema.optionalKey(Schema.Struct({ remote: Schema.NonEmptyString, github: Schema.NonEmptyString }))
 })
 export type Admission = typeof Admission.Type
 
 /** Why the host refused a request before any role saw it. */
 export class IntakeRefused extends Schema.TaggedError<IntakeRefused>()("organization/IntakeRefused", {
-  reason: Schema.Literals(["not-owner", "unknown-repository", "no-repository"]),
+  reason: Schema.Literals(["not-owner", "unknown-repository", "no-repository", "host-only"]),
   message: Schema.String
 }) {}
 
@@ -292,6 +311,49 @@ export const DisposeWorkspaces = Action.make("organization/dispose-workspaces", 
   error: Workspace.WorkspaceError
 })
 
+/** A pull request the host opened. */
+export const PullRef = Schema.Struct({ number: Schema.Int, url: Schema.NonEmptyString })
+export type PullRef = typeof PullRef.Type
+
+/**
+ * Pushes a landed branch to the repository's remote and opens it as a pull
+ * request, once: a retried landing reuses the remote branch and the pull
+ * request. Never pushes to another branch, never forces, never merges.
+ */
+export const PublishChange = Action.make("organization/publish-change", {
+  implementationVersion: "publish-change/v1",
+  payload: {
+    key: RequestKey,
+    repository: Profile.Container,
+    remote: Schema.NonEmptyString,
+    github: Schema.NonEmptyString,
+    applied: Workspace.Applied,
+    /** The pull request's title: the landed commit's message. */
+    title: Schema.NonEmptyString,
+    /** The role accountable for the change, labelled `org:<role>`. */
+    lead: Profile.PrincipalId,
+    issue: Schema.optionalKey(IssueRef),
+    checks: Schema.Array(CheckSummary)
+  },
+  success: PullRef,
+  error: IntegrationFailure,
+  tier: "irreversible",
+  idempotencyKey: (payload) => `organization/publish-change:${payload.github}:${payload.applied.branch}:${payload.applied.commit}`
+})
+
+/** The request's route when the host names its role: the role's handoff, as the assistant would have written it. */
+export const HostRoute = Action.make("organization/host-route", {
+  implementationVersion: "host-route/v1",
+  payload: { revision: Schema.NonEmptyString, assistant: Profile.PrincipalId, request: Request },
+  success: Schema.Struct({
+    principal: Profile.PrincipalId,
+    result: Profile.RoleResult,
+    valid: Schema.Boolean,
+    violations: Schema.Array(Schema.String)
+  }),
+  error: Authority.DispatchRefused
+})
+
 /** The delivery's report: what happened, who did it, and the receipts it rests on. */
 export const Report = Schema.Struct({
   key: RequestKey,
@@ -300,6 +362,8 @@ export const Report = Schema.Struct({
   principals: Schema.Record(Schema.String, Schema.String),
   rounds: Schema.Int,
   applied: Schema.optionalKey(Workspace.Applied),
+  /** The pull request a landed branch was opened as. */
+  pull: Schema.optionalKey(PullRef),
   /** The wiki document an answered request produced, relative to the organization root. */
   document: Schema.optionalKey(Schema.String),
   /** The last round's findings, for a change the checker never approved. */
@@ -316,6 +380,13 @@ export const Report = Schema.Struct({
   receipt: Schema.optionalKey(Schema.String)
 })
 export type Report = typeof Report.Type
+
+/** The one line a delivery's thread ends with: the outcome, the pull request or branch, and the receipt. */
+export const Headline = Action.make("organization/headline", {
+  implementationVersion: "headline/v1",
+  payload: { report: Report, receipt: Schema.String },
+  success: Schema.NonEmptyString
+})
 
 /** Every failure a delivery step can raise. */
 export const StepFailure = Schema.Union([

@@ -27,6 +27,7 @@ import * as SocketSource from "../../packages/smithers/agent/integrations/src/sl
 import { type Control, operations } from "./client.ts"
 import { meetingThread } from "./meetings.ts"
 import type { Request } from "./schema.ts"
+import * as TeamChannel from "./team-channel.ts"
 
 /** What the host remembers about Slack between restarts. */
 interface State {
@@ -86,6 +87,29 @@ export interface Options {
   readonly allowPlaintextSocket?: boolean | undefined
   /** How often parked gates are looked for. Default two seconds. */
   readonly pollEvery?: Duration.Input | undefined
+  /** The team channel's wiki copy: the owner's messages there are recorded in it. */
+  readonly team?: { readonly root: string; readonly teamDir: string } | undefined
+}
+
+/**
+ * An owner's message in the team channel as the request it makes: the
+ * thread's input, with the thread's recent posts beside it, recorded in the
+ * channel's wiki copy. Any other message is returned as it is.
+ */
+export const teamRequest = (
+  stateDir: string,
+  team: { readonly root: string; readonly teamDir: string } | undefined,
+  request: Request,
+  at: number
+): Request => {
+  const channel = TeamChannel.channelId(stateDir)
+  const conversation = request.conversation
+  if (team === undefined || channel === undefined || conversation === undefined || conversation.channel !== channel) return request
+  const thread = TeamChannel.threadOf(stateDir, channel, conversation.thread)
+  TeamChannel.recordOwner(team, thread ?? `slack:${conversation.thread}`, request.text, at)
+  if (thread === undefined) return request
+  const posts = TeamChannel.recent(team, thread, 20)
+  return { ...request, text: `${request.text}\n\nTeam thread ${thread}:\n${posts.join("\n")}`.slice(0, 8_000) }
 }
 
 /** Runs the Slack intake and the approval prompts until interrupted. */
@@ -125,7 +149,7 @@ export const run = (options: Options) =>
           yield* Effect.logInfo("organization meeting reply", { runId: replied.runId, joined: replied.joined })
           return
         }
-        const started = yield* Effect.tryPromise(() => ops.submit(request))
+        const started = yield* Effect.tryPromise(() => ops.submit(teamRequest(options.stateDir, options.team, request, Date.now())))
         update((current) => ({ ...current, threads: { ...current.threads, [started.runId]: request.conversation! } }))
         yield* Effect.logInfo("organization intake", { runId: started.runId, joined: started.joined })
       })

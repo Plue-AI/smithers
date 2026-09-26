@@ -14,12 +14,26 @@ import { ValidateFields } from "./staff.ts"
 
 const implementationVersion = "organization/field-turn/v1"
 
-const ask = (revision: Planned.Planned<string>, stage: Planned.Planned<Stage>, required: ReadonlyArray<string>) =>
+/** A workspace machine the principal works in: its key, repository, and seeded commit. */
+export type TurnWorkspace = {
+  readonly key: Planned.Planned<string>
+  readonly repository: string
+  readonly commit: Planned.Planned<string>
+}
+
+const ask = (
+  revision: Planned.Planned<string>,
+  stage: Planned.Planned<Stage>,
+  required: ReadonlyArray<string>,
+  workspace?: TurnWorkspace
+) =>
   Actions.ComposeTask.call({
     revision,
     principal: stage.principal,
     task: stage.task,
-    context: stage.context
+    context: stage.context,
+    // The key and commit are planned references the engine resolves inside the struct.
+    ...(workspace === undefined ? {} : { workspace: workspace as unknown as { key: string; repository: string; commit: string } })
   }).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (payload) => Actions.RoleTask.call(payload))),
     Node.bindPlanned(Node.capture({ implementationVersion, required }, function(result) {
@@ -35,15 +49,16 @@ const ask = (revision: Planned.Planned<string>, stage: Planned.Planned<Stage>, r
 export const fieldTurn = (
   revision: Planned.Planned<string>,
   stage: Planned.Planned<Stage>,
-  required: ReadonlyArray<string>
+  required: ReadonlyArray<string>,
+  workspace?: TurnWorkspace
 ) =>
-  ask(revision, stage, required).pipe(
+  ask(revision, stage, required, workspace).pipe(
     Node.branch({
       if: Node.capture({ implementationVersion }, (seen) => !seen.validation.valid && seen.result.status === "done"),
       then: (seen) =>
         CorrectTask.call({ stage, result: seen.result, validation: seen.validation }).pipe(
           Node.bindPlanned(Node.capture({ implementationVersion, required }, function(corrected) {
-            return ask(revision, corrected, this.required)
+            return ask(revision, corrected, this.required, workspace)
           }))
         ),
       else: (seen) => Node.succeed(seen)

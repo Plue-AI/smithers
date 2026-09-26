@@ -10,6 +10,8 @@ import { createHash } from "node:crypto"
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { Clock, Effect, Layer } from "effect"
+import { fromIntegrationError } from "../../packages/smithers/agent/integrations/src/core/ActionFailure.ts"
+import { IntegrationError } from "../../packages/smithers/agent/integrations/src/core/IntegrationError.ts"
 import { ReceiptFailed, runDirectory } from "../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Authority from "../../packages/smithers/agent/organization/src/Authority.ts"
 import type * as Gates from "../../packages/smithers/agent/organization/src/Gates.ts"
@@ -40,8 +42,13 @@ import {
   type HostAsk,
   ReadAsk,
   WriteDocument,
-  WriteStatus
+  WriteStatus,
+  Headline,
+  HostRoute,
+  PublishChange,
+  type Report
 } from "./schema.ts"
+import * as GitHub from "./github.ts"
 
 /** What the host decided at startup that every admission uses. */
 export interface Options {
@@ -61,7 +68,41 @@ export interface Options {
   /** The generated directory receipts go under, and the status page. */
   readonly generatedDir: string
   readonly statusFile: string
+  /** Repositories whose landed branches become pull requests: the remote pushed to and the GitHub repository. */
+  readonly pulls?: Readonly<Record<string, { readonly remote: string; readonly github: string }>> | undefined
+  /** The environment the GitHub client reads its token and API base from. */
+  readonly environment?: Readonly<Record<string, string | undefined>> | undefined
 }
+
+/** A report as the one line its thread ends with: the outcome, the pull request or branch, and the receipt. */
+export const headline = (report: Report, receipt: string): string => {
+  const short = (text: string, max: number) => line(text, max)
+  const outcome = (() => {
+    if (report.status === "landed") {
+      if (report.pull !== undefined) return `Landed: ${report.pull.url}`
+      return report.applied === undefined ? "Landed" : `Landed on ${report.applied.branch} ${report.applied.commit.slice(0, 12)}`
+    }
+    if (report.status === "answered") return `Answered: ${report.document ?? short(report.summary, 160)}`
+    const label = report.status === "changes-requested" ? "Changes requested" : `${report.status[0]!.toUpperCase()}${report.status.slice(1)}`
+    return `${label}: ${short(report.summary, 160)}`
+  })()
+  return `${outcome} · ${receipt}`
+}
+
+/** A pull request's body: the issue it fixes, the checks, and the receipt. */
+export const pullBody = (payload: {
+  readonly key: string
+  readonly issue?: { readonly number: number } | undefined
+  readonly checks: ReadonlyArray<{ readonly name: string; readonly exitCode: number | null; readonly timedOut: boolean }>
+}, generatedDir: string): string =>
+  [
+    ...(payload.issue === undefined ? [] : [`Fixes #${payload.issue.number}`, ""]),
+    ...(payload.checks.length === 0
+      ? ["Checks: none configured"]
+      : payload.checks.map((check) => `- ${check.exitCode === 0 ? "pass" : check.timedOut ? "timed out" : `exit ${check.exitCode ?? "none"}`}: ${check.name}`)),
+    "",
+    `Receipt: ${join(generatedDir, runDirectory(payload.key), "deliver.json")}`
+  ].join("\n")
 
 /** The branch every landed change goes to, under `organization/`. */
 export const branchFor = (key: string): string => {
@@ -69,16 +110,16 @@ export const branchFor = (key: string): string => {
   return `organization/${slug === "" ? "request" : slug}-${createHash("sha256").update(key).digest("hex").slice(0, 8)}`
 }
 
-const line = (text: string, max = 1_900): string => {
+export const line = (text: string, max = 1_900): string => {
   const flat = text.replaceAll(/\s+/g, " ").trim()
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`
 }
-const paragraph = (text: string, max = 7_900): string => {
+export const paragraph = (text: string, max = 7_900): string => {
   const trimmed = text.trim()
   return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`
 }
-const lines = (texts: ReadonlyArray<string>) => texts.map((text) => line(text)).filter((text) => text !== "")
-const taskId = (key: string, step: string) => `${key.slice(0, 100)}/${step}`
+export const lines = (texts: ReadonlyArray<string>) => texts.map((text) => line(text)).filter((text) => text !== "")
+export const taskId = (key: string, step: string) => `${key.slice(0, 100)}/${step}`
 
 const requestContext = (request: Request, at: number): Prompt.ContextEntry => ({
   source: { provider: request.source, id: request.key },
@@ -212,9 +253,9 @@ const negativeVerdict = /^(?:request-changes|changes-requested|reject(?:ed)?|fai
 /** The last `max` characters of `text`, marked when cut. */
 const tail = (text: string, max: number) => text.length <= max ? text : `…${text.slice(text.length - max + 1)}`
 
-const fence = (text: string, max: number) => text.length <= max ? text : `${text.slice(0, max)}\n… (${text.length - max} more characters not shown)`
+export const fence = (text: string, max: number) => text.length <= max ? text : `${text.slice(0, max)}\n… (${text.length - max} more characters not shown)`
 
-const atomicWrite = async (root: string, path: string, content: string) => {
+export const atomicWrite = async (root: string, path: string, content: string) => {
   const target = resolve(root, path)
   if (!target.startsWith(resolve(root) + sep)) throw new Error(`${path} is outside the organization root`)
   await mkdir(dirname(target), { recursive: true })
@@ -273,7 +314,12 @@ export const layer = (options: Options) =>
         if (!Object.hasOwn(options.repositories, repository)) {
           return yield* new IntakeRefused({ reason: "unknown-repository", message: `repository ${repository} is not configured on this host` })
         }
+        if (request.source === "slack" && (request.role !== undefined || request.issue !== undefined)) {
+          return yield* new IntakeRefused({ reason: "host-only", message: "only the host names a request's role or issue" })
+        }
+        const pull = options.pulls?.[repository]
         return {
+          ...(pull === undefined ? {} : { pull }),
           assistant: options.assistant,
           repository,
           commit: "HEAD",
@@ -551,6 +597,48 @@ export const layer = (options: Options) =>
         ]
       }))), { implementationVersion: "again-task/v1" }),
     ReadAsk.toLayer(({ answer, key }) => Effect.sync(() => readAsk(key, answer)), { implementationVersion: "read-ask/v1" }),
+    HostRoute.toLayer(({ assistant, request, revision }) =>
+      Effect.gen(function*() {
+        const registry = yield* Authority.RosterRegistry
+        // An unknown, paused, or retired role is refused, as a route to it would be.
+        const role = (yield* registry.resolve(revision, request.role ?? assistant)).profile
+        return {
+          principal: assistant,
+          result: {
+            status: "done" as const,
+            summary: `Handed to ${role.id} by the host.`,
+            fields: {},
+            evidence: [{ kind: "record" as const, ref: request.key, detail: `${request.source} request` }],
+            handoffs: [{ to: role.id, objective: paragraph(request.text), inputs: [] }],
+            escalations: [],
+            decisions: []
+          },
+          valid: true,
+          violations: []
+        }
+      }), { implementationVersion: "host-route/v1" }),
+    Headline.toLayer(({ receipt, report }) => Effect.sync(() => headline(report, receipt)), { implementationVersion: "headline/v1" }),
+    PublishChange.toLayer((payload) =>
+      Effect.gen(function*() {
+        const path = options.repositories[payload.repository]
+        if (path === undefined) {
+          return yield* Effect.fail(new IntegrationError("invalid-config", `repository ${payload.repository} is not configured on this host`, {}))
+        }
+        const pushed = GitHub.push(path, payload.remote, payload.applied.branch, payload.applied.commit)
+        if ("error" in pushed) {
+          return yield* Effect.fail(new IntegrationError("delivery-failed", pushed.error, { retryable: false }))
+        }
+        const github = GitHub.client(options.environment ?? {})
+        const info = yield* GitHub.repository(github, payload.github)
+        const opened = yield* GitHub.pullOnce(github, payload.github, {
+          head: payload.applied.branch,
+          base: info.default_branch,
+          title: line(payload.title, 250),
+          body: pullBody(payload, options.generatedDir)
+        })
+        yield* GitHub.addLabels(github, payload.github, opened.number, ["organization", GitHub.claimLabel(payload.lead)])
+        return { number: opened.number, url: opened.url }
+      }).pipe(Effect.mapError(fromIntegrationError)), { implementationVersion: "publish-change/v1" }),
     DisposeWorkspaces.toLayer(({ workspaces }) =>
       Effect.flatMap(Workspace.Workspace, (service) =>
         Effect.forEach(

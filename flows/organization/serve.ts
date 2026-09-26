@@ -38,6 +38,7 @@ import * as SetupMicrosandbox from "./setup/microsandbox.ts"
 import * as Subscriptions from "./setup/subscriptions.ts"
 import * as Notify from "./notify.ts"
 import * as SlackIntake from "./slack.ts"
+import * as TeamChannel from "./team-channel.ts"
 import * as Wiki from "./wiki.ts"
 
 /** The host's own control plane as the {@link ControlPort} the Slack intake uses. */
@@ -186,7 +187,12 @@ export const start = async (options: StartOptions) => {
   if (reaped.length > 0) log(`reaped ${reaped.length} machine(s) a stopped host left behind`)
   const slack = (environment.SMITHERS_SLACK_BOT_TOKEN ?? "") !== "" && (environment.SMITHERS_SLACK_APP_TOKEN ?? "") !== ""
   // Refuses a policy that admits nobody before anything opens.
-  const policy = slack ? SlackConfig.policy(environment) : undefined
+  const admitted = slack ? SlackConfig.policy(environment) : undefined
+  // The team channel: found or created, joined, the owners invited; the owners' messages there are admitted.
+  const team = slack ? await Effect.runPromise(TeamChannel.ensure({ stateDir: settings.stateDir, environment }, log)) : undefined
+  const policy = admitted === undefined || team === undefined
+    ? admitted
+    : { ...admitted, allowedChannelIds: [...new Set([...(admitted.allowedChannelIds ?? []), team])] }
   // Every `/rpc`, `/projections`, and `/sync` request must present it; the
   // Slack intake calls the control plane in process and needs none.
   const credential = credentialOf(settings.stateDir)
@@ -201,8 +207,26 @@ export const start = async (options: StartOptions) => {
         policy,
         stateDir: settings.stateDir,
         environment,
-        allowPlaintextSocket: options.allowPlaintextSocket
+        allowPlaintextSocket: options.allowPlaintextSocket,
+        team: { root: settings.root, teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team" }
       }).pipe(Effect.catchCause((cause) => Effect.logError("organization Slack intake stopped", cause))))
+    }
+    {
+      // Replies one role's post asks of another, started as their own runs.
+      const ops = operations(inProcess(yield* Control.Control))
+      yield* Effect.forkScoped(TeamChannel.dispatcher(
+        { stateDir: settings.stateDir, roles: new Set(settings.snapshot.roster.profiles.keys()) },
+        (reply) =>
+          ops.start("organization/team-reply", {
+            key: reply.key,
+            thread: reply.thread,
+            from: reply.from,
+            to: reply.to,
+            text: reply.text,
+            depth: reply.depth
+          }, reply.key),
+        log
+      ))
     }
     if (Notify.enabled(environment, slack)) {
       const ops = operations(inProcess(yield* Control.Control))
@@ -214,7 +238,28 @@ export const start = async (options: StartOptions) => {
       }))
     }
     if (settings.organization.wiki.commit) {
-      yield* Effect.forkScoped(Wiki.committer(settings.root, Wiki.hostPaths(settings.organization), log))
+      // With `wiki.sync: push` the commits go to the wiki's upstream; a
+      // conflict is posted once to the team channel as the assistant.
+      const assistant = settings.organization.assistant
+      const syncing = settings.organization.wiki.sync === "push"
+        ? {
+          stateDir: settings.stateDir,
+          announce: (text: string) =>
+            TeamChannel.post({
+              root: settings.root,
+              stateDir: settings.stateDir,
+              teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team",
+              environment,
+              assistant
+            }, {
+              thread: "wiki-sync",
+              role: assistant,
+              name: settings.snapshot.roster.profiles.get(assistant)?.name ?? assistant,
+              text
+            })
+        }
+        : undefined
+      yield* Effect.forkScoped(Wiki.committer(settings.root, Wiki.hostPaths(settings.organization), log, syncing))
     }
     log(`organization host on http://${settings.host}:${settings.port} (state ${settings.stateDir}; Slack ${slack ? "on" : "off"})`)
     return yield* Serve.host(bind, settings.root)
