@@ -161,7 +161,7 @@ describe("a builder's workspace tools", () => {
     const asked: Array<Asked> = []
     const recorded: Array<Recorded> = []
     const cell =
-      `const edit = await ctx.call("bash", { command: "printf 'hello world\\\\n' > lib.txt && cat lib.txt && pwd" });
+      `const edit = await ctx.call("bash", { command: "printf 'hello world\\\\n' > lib.txt && cat lib.txt && (pwd -W 2>/dev/null || pwd)" });
 const result = ${JSON.stringify(done({ summary: "", commands: "" }))};
 result.fields.summary = edit.stdout;
 result.fields.commands = "exit " + edit.exitCode;
@@ -188,7 +188,12 @@ ctx.done(JSON.stringify(result))`
       }).pipe(Effect.provide(stack))
     )
     expect(outcome.result.fields["commands"]).toBe("exit 0")
-    expect(outcome.result.fields["summary"]).toBe(`hello world\n${outcome.prepared.workdir}\n`)
+    // Git Bash prints its POSIX view of the directory; `pwd -W` gives the
+    // Windows path, with forward slashes, that the workspace prepared.
+    const workdir = process.platform === "win32"
+      ? outcome.prepared.workdir.replaceAll("\\", "/")
+      : outcome.prepared.workdir
+    expect(outcome.result.fields["summary"]).toBe(`hello world\n${workdir}\n`)
     expect(outcome.diff.files).toEqual([{ path: "lib.txt", added: 1, deleted: 1 }])
     expect(recorded[0]!.flows).toEqual([
       "apply_patch",
