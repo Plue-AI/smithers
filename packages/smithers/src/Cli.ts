@@ -4,6 +4,7 @@
  * @since 1.0.0
  */
 import { makeCli as makeBuildCli } from "@smthrs/build-cli/Cli"
+import * as Positionals from "@smthrs/build-cli/Positionals"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -78,14 +79,15 @@ const globalsOf = (connection: Bridge.ConnectionOptions, config: Bridge.Runtime)
  * @since 1.0.0
  */
 export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuildCli> => {
+  const mcpGlobals = z.object({
+    audience: z.enum(["auto", "human", "agent"]).default("auto"),
+    silent: z.boolean().default(false),
+    ui: z.enum(["auto", "tty", "stream", "plain"]).default("auto")
+  })
   const mcp = Cli.create("mcp", {
     version: packageVersion,
     description: "Register the Smithers MCP server with an agent",
-    globals: z.object({
-      audience: z.enum(["auto", "human", "agent"]).default("auto"),
-      silent: z.boolean().default(false),
-      ui: z.enum(["auto", "tty", "stream", "plain"]).default("auto")
-    })
+    globals: mcpGlobals
   }).command("add", {
     description: "Register with Claude Code or Codex; omit --agent to configure both",
     mcp: false,
@@ -110,6 +112,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
         return wired
       })
   })
+  Positionals.guard(mcp, mcpGlobals)
   mcp.use((context, next) => Presentation.scope(context, config, next))
   const cli = makeBuildCli({
     ...config,

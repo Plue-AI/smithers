@@ -631,6 +631,27 @@ describe("Incur projection", () => {
     expect((await cli.fetch(new Request("http://localhost/openapi.json"))).status).toBe(200)
   })
 
+  it("refuses a surplus positional on every route before invoking its flow", async () => {
+    const { cli, seen } = await makeCli([
+      makeRoute("review"),
+      makeRoute("nested/visible"),
+      makeRoute("domains"),
+      makeRoute("domains/list")
+    ])
+    for (
+      const path of [["review"], ["nested/visible"], ["nested", "visible"], ["domains", "self"], ["domains", "list"]]
+    ) {
+      const run = capture()
+      await cli.serve([...path, "surplus", "--number", "1", "--format", "json"], run.options)
+      expect(run.exits, path.join(" ")).toEqual([1])
+      expect(JSON.parse(run.writes.join(""))).toMatchObject({
+        code: "UNEXPECTED_ARGUMENT",
+        message: "Unexpected argument: surplus"
+      })
+    }
+    expect(seen).toEqual([])
+  })
+
   it("keeps CLI discovery and unknown commands metadata-only", async () => {
     const { cli, seen } = await makeCli()
     const writes: Array<string> = []

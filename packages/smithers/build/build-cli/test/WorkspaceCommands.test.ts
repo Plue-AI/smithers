@@ -52,7 +52,8 @@ export const Package = S.Package({ targets: { srcs: S.Filegroup({ srcs: [lib.src
     root,
     "other/PACKAGE.ts",
     `import { Smithers as S } from "@smthrs/targets"
-export const Package = S.Package({ targets: { srcs: S.Filegroup({ srcs: S.glob(["*.txt"]) }) } })`
+const srcs = S.Filegroup({ srcs: S.glob(["*.txt"]) })
+export const Package = S.Package({ targets: { srcs, clean: S.Clean({ paths: ["scratch"] }), test: S.Shell.Test({ shell: "echo done", data: [srcs] }) } })`
   )
   await write(root, "lib/input.txt", "source")
   await write(root, "other/input.txt", "other")
@@ -92,15 +93,15 @@ describe("workspace command surface", () => {
   it("includes added/deleted inputs and reverse dependencies without selecting unrelated packages", async () => {
     const root = await fixture()
     const index = await openPackageIndex({ workspace: root })
-    const selection = Affected.select(index, "//...", ["lib/deleted.txt", "lib/new.txt"])
+    const selection = Affected.select(index, ["//..."], ["lib/deleted.txt", "lib/new.txt"])
     const labels = selection.targets.map((target) => target.label)
     expect(labels).toContain("//lib:srcs")
     expect(labels).toContain("//app:srcs")
     expect(labels).not.toContain("//other:srcs")
     expect(selection.conservative).toBe(false)
-    expect(Affected.select(index, "//...", ["pnpm-lock.yaml"]).targets).toHaveLength(index.targets().length)
-    expect(Affected.select(index, "//...", ["scripts/unknown.ts"]).conservative).toBe(true)
-    expect(Affected.select(index, "//...", []).targets).toHaveLength(0)
+    expect(Affected.select(index, ["//..."], ["pnpm-lock.yaml"]).targets).toHaveLength(index.targets().length)
+    expect(Affected.select(index, ["//..."], ["scripts/unknown.ts"]).conservative).toBe(true)
+    expect(Affected.select(index, ["//..."], []).targets).toHaveLength(0)
     const cli = await serve(root, ["affected", "test", "//...", "--files", "lib/new.txt", "--plan"])
     expect(cli.code).toBe(0)
     expect(cli.output).toContain("//app:test")
@@ -115,6 +116,29 @@ describe("workspace command surface", () => {
     expect(result.output).not.toContain("//lib:srcs")
     const refused = await serve(root, ["clean", "//lib:srcs", "--plan"])
     expect(refused.code).not.toBe(0)
+  })
+
+  it("clean and affected select the union of every pattern", async () => {
+    const root = await fixture()
+    const clean = await serve(root, ["clean", "//:clean", "//other/...", "--plan"])
+    expect(clean.code, clean.output).toBe(0)
+    expect([...clean.data.roots].sort()).toEqual(["//:clean", "//other:clean"])
+    const affected = await serve(root, [
+      "affected",
+      "test",
+      "//app/...",
+      "//other/...",
+      "--files",
+      "lib/new.txt",
+      "--files",
+      "other/input.txt",
+      "--list"
+    ])
+    expect(affected.code, affected.output).toBe(0)
+    expect(affected.data.targets.map((target: { readonly label: string }) => target.label).sort()).toEqual([
+      "//app:test",
+      "//other:test"
+    ])
   })
 })
 

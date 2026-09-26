@@ -80,6 +80,7 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@smthrs/build-cli": "1.0.0-rc.1",
     "@smthrs/canonical": "1.0.0-rc.1",
     "@smthrs/core": "workspace:*",
     "@smthrs/registry": "workspace:*",

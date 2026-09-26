@@ -29,8 +29,8 @@ is the deferred computation a runtime executes.
 
 ### Affected and Watch process lifetime
 
-`@smthrs/build-cli/Affected` exports `changedPaths(root, options)`, `select`,
-and `AffectedGitError`. Discovery options include `base`, optional `head` or
+`@smthrs/build-cli/Affected` exports `changedPaths(root, options)`,
+`select(index, patterns, paths)`, and `AffectedGitError`. Discovery options include `base`, optional `head` or
 `files`, and optional `signal`, `environment`, and `timeoutMs`. The timeout is
 per Git invocation, defaults to 60,000 milliseconds, and must be an integer
 from 1 through 86,400,000. Each output stream is limited to 16 MiB and decoded
@@ -809,30 +809,31 @@ Every one of these is importable as `@smthrs/build-cli/<Module>`. The barrel
 leaves them out because a host reaches them through the modules above rather
 than driving them directly.
 
-| Module                                                                                                                     | What it holds                                                                             |
-| -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `Cli`                                                                                                                      | `makeCli`, `cli`, `normalizeArgv`, `RuntimeConfig`.                                       |
-| `effect-resolution`                                                                                                        | The single-instance Effect resolver the process entry installs.                           |
-| `CacheAdmin`                                                                                                               | Local action-cache inspection and retention: `directory`, `entries`, `inspect`, `remove`. |
-| `OutputStream`                                                                                                             | Bounded, redacted live views of subprocess output.                                        |
-| `Entry`                                                                                                                    | `Host` and `main`.                                                                        |
-| `engine`                                                                                                                   | The install adapter and its layers.                                                       |
-| `Cache`                                                                                                                    | The result cache and the content-addressed store.                                         |
-| `PackageDiscovery`, `PackageLoader`, `PackageIndex`                                                                        | Discovery, declaration loading, and the validated index.                                  |
-| `PackageExec`                                                                                                              | The build executor: plan, execute, run.                                                   |
-| `PackageTree`                                                                                                              | Write-set confinement, the gitignored census, and the ceilings.                           |
-| `Executor`                                                                                                                 | `Summary`, `TargetReport`, `mergePlans`, `describeFailure`.                               |
-| `Owners`                                                                                                                   | Ownership resolution and the generated `CODEOWNERS` and `OWNERS` files.                   |
-| `GraphOutput`                                                                                                              | Text-tree and Mermaid rendering of a graph.                                               |
-| `Diagnostic`                                                                                                               | Bounded rendering of a failure into text.                                                 |
-| `Ansi`                                                                                                                     | Palette selection and the environment it reads.                                           |
-| `RepoResolution`                                                                                                           | Resolving a `Repo.Target` through a child CLI.                                            |
-| `WorkspaceLoader`, `WorkspaceToolchain`                                                                                    | Reading the workspace declaration and its toolchain.                                      |
-| `TargetExecution`                                                                                                          | The per-target execution boundary.                                                        |
-| `Environment`                                                                                                              | The ambient environment a run reads.                                                      |
-| `PackageError`                                                                                                             | The typed discovery and index refusals.                                                   |
-| `MarkdownCodeBlocks`                                                                                                       | The `Markdown.CodeBlocks` rule implementation.                                            |
-| `DockerExec`, `FetchExec`, `FoundryExec`, `GitSubmoduleExec`, `GoExec`, `NixExec`, `OverlayExec`, `StampExec`, `AnvilExec` | One rule family's execution each.                                                         |
+| Module                                                                                                                     | What it holds                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `Cli`                                                                                                                      | `makeCli`, `cli`, `normalizeArgv`, `RuntimeConfig`.                                          |
+| `Positionals`                                                                                                              | `guard`, `surplus`, and `unconsumed`: every command refuses positionals it does not consume. |
+| `effect-resolution`                                                                                                        | The single-instance Effect resolver the process entry installs.                              |
+| `CacheAdmin`                                                                                                               | Local action-cache inspection and retention: `directory`, `entries`, `inspect`, `remove`.    |
+| `OutputStream`                                                                                                             | Bounded, redacted live views of subprocess output.                                           |
+| `Entry`                                                                                                                    | `Host` and `main`.                                                                           |
+| `engine`                                                                                                                   | The install adapter and its layers.                                                          |
+| `Cache`                                                                                                                    | The result cache and the content-addressed store.                                            |
+| `PackageDiscovery`, `PackageLoader`, `PackageIndex`                                                                        | Discovery, declaration loading, and the validated index.                                     |
+| `PackageExec`                                                                                                              | The build executor: plan, execute, run.                                                      |
+| `PackageTree`                                                                                                              | Write-set confinement, the gitignored census, and the ceilings.                              |
+| `Executor`                                                                                                                 | `Summary`, `TargetReport`, `mergePlans`, `describeFailure`.                                  |
+| `Owners`                                                                                                                   | Ownership resolution and the generated `CODEOWNERS` and `OWNERS` files.                      |
+| `GraphOutput`                                                                                                              | Text-tree and Mermaid rendering of a graph.                                                  |
+| `Diagnostic`                                                                                                               | Bounded rendering of a failure into text.                                                    |
+| `Ansi`                                                                                                                     | Palette selection and the environment it reads.                                              |
+| `RepoResolution`                                                                                                           | Resolving a `Repo.Target` through a child CLI.                                               |
+| `WorkspaceLoader`, `WorkspaceToolchain`                                                                                    | Reading the workspace declaration and its toolchain.                                         |
+| `TargetExecution`                                                                                                          | The per-target execution boundary.                                                           |
+| `Environment`                                                                                                              | The ambient environment a run reads.                                                         |
+| `PackageError`                                                                                                             | The typed discovery and index refusals.                                                      |
+| `MarkdownCodeBlocks`                                                                                                       | The `Markdown.CodeBlocks` rule implementation.                                               |
+| `DockerExec`, `FetchExec`, `FoundryExec`, `GitSubmoduleExec`, `GoExec`, `NixExec`, `OverlayExec`, `StampExec`, `AnvilExec` | One rule family's execution each.                                                            |
 
 `OverlayExec.apply` confines replacement sources and destinations to the canonical
 scratch root. It refuses destination directory symlinks, dangling destination

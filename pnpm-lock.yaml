@@ -2718,6 +2718,9 @@ importers:
 
   packages/smithers/agent/fs:
     dependencies:
+      '@smthrs/build-cli':
+        specifier: 1.0.0-rc.1
+        version: link:../../build/build-cli
       '@smthrs/canonical':
         specifier: 1.0.0-rc.1
         version: link:../../flows/canonical

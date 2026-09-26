@@ -21,15 +21,20 @@
               ],
               "description": "Target verb to execute"
             },
-            "pattern": {
-              "default": "//...",
-              "description": "Target label or recursive pattern",
-              "type": "string"
+            "patterns": {
+              "default": [
+                "//..."
+              ],
+              "description": "Target labels or recursive patterns; their union",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
             "verb",
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -572,19 +577,24 @@
     },
     {
       "name": "clean",
-      "description": "Execute only declared Clean targets selected by the pattern",
+      "description": "Execute only declared Clean targets selected by the patterns",
       "schema": {
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "default": "//...",
-              "description": "Target label or recursive pattern",
-              "type": "string"
+            "patterns": {
+              "default": [
+                "//..."
+              ],
+              "description": "Target labels or recursive patterns; their union",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -4834,15 +4844,20 @@
               ],
               "description": "Target verb to execute"
             },
-            "pattern": {
-              "default": "//...",
-              "description": "Target label or recursive pattern",
-              "type": "string"
+            "patterns": {
+              "default": [
+                "//..."
+              ],
+              "description": "Target labels or recursive patterns; their union",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
             "verb",
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },

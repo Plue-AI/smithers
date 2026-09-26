@@ -1,0 +1,156 @@
+/**
+ * Every command either consumes each positional it receives or refuses the
+ * invocation; none silently drops one (#2109).
+ */
+import { Cli as Incur, z } from "incur"
+import * as Fs from "node:fs/promises"
+import { createRequire } from "node:module"
+import * as Os from "node:os"
+import * as NodePath from "node:path"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { makeCli } from "../src/Cli.ts"
+import * as Positionals from "../src/Positionals.ts"
+import { executionPresentation } from "./fixtures/presentation.ts"
+import { serve } from "./helpers/ServeCli.ts"
+
+let root: string
+
+beforeAll(async () => {
+  root = await Fs.realpath(await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-positionals-")))
+})
+
+afterAll(async () => {
+  if (root !== undefined) await Fs.rm(root, { recursive: true, force: true })
+})
+
+type Entry = {
+  readonly _alias?: true
+  readonly _group?: true
+  readonly commands?: ReadonlyMap<string, Entry>
+  readonly args?: z.ZodObject<any>
+  readonly options?: z.ZodObject<any>
+  run?: (context: { readonly args: Record<string, unknown> }) => unknown
+}
+
+/** Every runnable command of an incur registry, by its space-separated path. */
+const leaves = (commands: ReadonlyMap<string, Entry>, prefix: ReadonlyArray<string> = []) =>
+  [...commands].flatMap(([name, entry]): Array<readonly [ReadonlyArray<string>, Entry]> => {
+    if (entry._alias === true) return []
+    if (entry._group === true) return leaves(entry.commands!, [...prefix, name])
+    return [[[...prefix, name], entry]]
+  })
+
+const fields = (entry: Entry): Array<z.ZodType> =>
+  Object.values(entry.args?.shape ?? {}).map((field) => {
+    let inner = field as z.ZodType
+    while ("innerType" in inner.def) inner = inner.def.innerType as z.ZodType
+    return inner
+  })
+
+/** One valid token per declared positional, then one surplus token. */
+const argvFor = (path: ReadonlyArray<string>, entry: Entry): Array<string> => [
+  ...path,
+  ...fields(entry).map((field) => field instanceof z.ZodEnum ? String(field.options[0]) : "value"),
+  "surplus"
+]
+
+const lastIsArray = (entry: Entry): boolean => fields(entry).at(-1) instanceof z.ZodArray
+
+const silent = { write: () => {}, isTTY: false, columns: undefined }
+
+describe("surplus positionals", () => {
+  const cli = makeCli({ presentation: executionPresentation, stdout: silent, stderr: silent })
+  const commands = leaves(Incur.toCommands.get(cli as never) as unknown as ReadonlyMap<string, Entry>)
+
+  it("enumerates the whole command tree", () => {
+    expect(commands.map(([path]) => path.join(" "))).toEqual(
+      expect.arrayContaining(["show target", "cache prune", "targets", "clean", "affected", "graph", "build"])
+    )
+  })
+
+  it.each(commands.map(([path, entry]) => [path.join(" "), path, entry] as const))(
+    "%s refuses or consumes a surplus positional",
+    async (_name, path, entry) => {
+      const received: Array<Record<string, unknown>> = []
+      entry.run = (context) => {
+        received.push(context.args)
+        return undefined
+      }
+      let output = ""
+      let exitCode = 0
+      const workspace = entry.options?.shape["workspace"] === undefined ? [] : ["--workspace", root]
+      await cli.serve([...argvFor(path, entry), ...workspace, "--format", "json"], {
+        stdout: (text) => {
+          output += text
+        },
+        exit: (code) => {
+          exitCode = code
+        }
+      })
+      if (lastIsArray(entry)) {
+        expect(exitCode, output).toBe(0)
+        expect(Object.values(received[0] ?? {}).flat()).toContain("surplus")
+      } else {
+        expect(received).toEqual([])
+        expect(exitCode).toBe(1)
+        expect(JSON.parse(output)).toMatchObject({
+          code: "UNEXPECTED_ARGUMENT",
+          message: "Unexpected argument: surplus"
+        })
+      }
+    }
+  )
+})
+
+describe("Positionals.surplus", () => {
+  // `withoutBuiltins` copies the built-in flags incur's `extractBuiltinFlags`
+  // strips (dist/Cli.js). Re-check that list, and `Parser.parse` assigning
+  // positionals, before moving this pin.
+  it("is pinned to the incur whose built-in flags it copies", async () => {
+    const entry = createRequire(import.meta.url).resolve("incur")
+    const manifest = JSON.parse(await Fs.readFile(NodePath.join(entry, "../../package.json"), "utf8"))
+    expect(manifest).toMatchObject({ name: "incur", version: "0.5.1" })
+  })
+
+  it("leaves a stdio MCP server's argv to incur", () => {
+    const cli = makeCli({ presentation: executionPresentation })
+    expect(Positionals.surplus(cli, ["graph", "//a", "//b"], ["graph"])).toEqual(["//b"])
+    expect(Positionals.surplus(cli, ["--mcp", "graph", "//a", "//b"], ["graph"])).toBeUndefined()
+  })
+})
+
+describe("Positionals.unconsumed", () => {
+  const command = {
+    args: z.object({ label: z.string() }),
+    options: z.object({ verb: z.enum(["build", "test"]), plan: z.boolean().default(false) }),
+    alias: { verb: "v" }
+  }
+
+  it("counts option values and switches as consumed", () => {
+    expect(Positionals.unconsumed(command, ["//a", "--verb", "test", "--plan"])).toEqual([])
+    expect(Positionals.unconsumed(command, ["-v", "build", "//a", "//b"])).toEqual(["//b"])
+  })
+
+  it("finds a surplus positional beside an invalid option", () => {
+    expect(Positionals.unconsumed(command, ["//a", "//b", "--verb", "deploy"])).toEqual(["//b"])
+  })
+
+  it("leaves tokens that do not parse to incur", () => {
+    expect(Positionals.unconsumed(command, ["//a", "//b", "--unknown"])).toBeUndefined()
+  })
+})
+
+describe("the served CLI", () => {
+  it("refuses a surplus pattern before reading the workspace", async () => {
+    const { exitCode, output } = await serve(root, ["graph", "//a/...", "//b/..."])
+    expect(exitCode).toBe(1)
+    expect(output).toContain("UNEXPECTED_ARGUMENT")
+    expect(output).not.toContain("WORKSPACE")
+  })
+
+  it("parses global flags ahead of the command", async () => {
+    const { exitCode, output } = await serve(root, ["--silent", "info", "extra"])
+    expect(exitCode).toBe(1)
+    expect(output).toContain("Unexpected argument: extra")
+  })
+})

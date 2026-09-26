@@ -82,6 +82,7 @@
     "./PackageLoader": "./src/PackageLoader.ts",
     "./PackageTree": "./src/PackageTree.ts",
     "./Planner": "./src/Planner.ts",
+    "./Positionals": "./src/Positionals.ts",
     "./Query": "./src/Query.ts",
     "./RepoResolution": "./src/RepoResolution.ts",
     "./Reporter": "./src/Reporter.ts",
@@ -508,6 +509,16 @@
         "require": {
           "types": "./dist/cjs/Planner.d.ts",
           "default": "./dist/cjs/Planner.js"
+        }
+      },
+      "./Positionals": {
+        "import": {
+          "types": "./dist/esm/Positionals.d.ts",
+          "default": "./dist/esm/Positionals.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Positionals.d.ts",
+          "default": "./dist/cjs/Positionals.js"
         }
       },
       "./Query": {

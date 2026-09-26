@@ -10,7 +10,8 @@ smithers-build <command> [args] [options]
 `smithers-build` is built with [incur](https://github.com/wevm/incur). Every command
 returns a structured result on standard output. Option names are the kebab-case
 form of their schema key, so `cacheDir` is `--cache-dir`. A boolean option that
-defaults to true is turned off with its `--no-` form. This page is the reference
+defaults to true is turned off with its `--no-` form. A positional argument no
+command argument consumes fails with `UNEXPECTED_ARGUMENT`. This page is the reference
 form; for the behavior behind each command, see the
 [`@smthrs/build-cli` documentation](/pkg/build-cli/cli).
 
@@ -139,11 +140,11 @@ the graph.
 
 ```sh
 smithers-build affected test //packages/... --base main
-smithers-build affected ci //... --files package.json --list
+smithers-build affected ci //apps/... //packages/... --files package.json --list
 ```
 
 The first argument is `build`, `test`, `lint`, `docs`, `review`, `run`, or
-`ci`; the pattern defaults to `//...`. `--base` defaults to `HEAD`, while
+`ci`; the patterns select their union and default to `//...`. `--base` defaults to `HEAD`, while
 `--head` selects a committed comparison endpoint. Without `--head`, the
 working tree and untracked files are included. Repeatable `--files` bypasses
 Git discovery. `--list` reports roots and reasons without executing them.
@@ -154,12 +155,12 @@ Failure code: `affected_failed`.
 
 ## clean
 
-Executes only declared `Clean` targets under an optional pattern, which
-defaults to `//...`. It fails instead of doing nothing when the selection has
-no `Clean` target.
+Executes only declared `Clean` targets under the union of optional patterns,
+which default to `//...`. It fails instead of doing nothing when the selection
+has no `Clean` target.
 
 ```sh
-smithers-build clean //packages/api/...
+smithers-build clean //packages/api/... //packages/web/...
 ```
 
 Failure code: `clean_failed`.
@@ -176,7 +177,7 @@ smithers-build watch test //packages/api/... --debounce-ms 200
 smithers-build watch build //packages/api:lib --once
 ```
 
-The first argument and optional pattern match [`affected`](#affected).
+The first argument and optional patterns match [`affected`](#affected).
 `--debounce-ms` defaults to 200 and has a minimum of 20. `--once` runs one
 cycle and exits. Watch is deliberately unavailable over MCP. A failing
 one-shot cycle uses `watch_cycle_failed`; setup and watcher failures use

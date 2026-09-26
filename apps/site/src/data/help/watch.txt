@@ -1,10 +1,10 @@
 smthrs watch — Replan and rerun a target graph when workspace files change
 
-Usage: smthrs watch <build|test|lint|docs|review|run|ci> <pattern> [options]
+Usage: smthrs watch <build|test|lint|docs|review|run|ci> <patterns...> [options]
 
 Arguments:
-  verb     Target verb to execute
-  pattern  Target label or recursive pattern
+  verb      Target verb to execute
+  patterns  Target labels or recursive patterns; their union
 
 Options:
   --workspace <string>    Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

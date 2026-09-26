@@ -49454,7 +49454,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | `build` | Execute the build targets selected by a pattern |
 | `cache` | Inspect and maintain local action-result caches |
 | `ci` | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
-| `clean` | Execute only declared Clean targets selected by the pattern |
+| `clean` | Execute only declared Clean targets selected by the patterns |
 | `create-app` | Scaffold a Smithers app from a @smthrs/create-app template |
 | `credentials` | Manage encrypted local credentials without printing secret values |
 | `docs` | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |

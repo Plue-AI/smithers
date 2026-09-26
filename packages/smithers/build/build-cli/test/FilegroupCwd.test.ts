@@ -79,7 +79,7 @@ it("plans an explicit Filegroup cwd without crossing nested packages or changing
     expect((await TargetIndex.build(index, "//flows:external", process.env)).targets[0]!.inputs).toEqual([
       { kind: "glob", pattern: "lib/src/**/*.ts", exclude: ["lib/**/generated.ts"] }
     ])
-    expect(Affected.select(index, "//flows:consumer", ["lib/src/value.ts"])).toMatchObject({
+    expect(Affected.select(index, ["//flows:consumer"], ["lib/src/value.ts"])).toMatchObject({
       conservative: false,
       targets: [{ label: "//flows:consumer", reasons: ["lib/src/value.ts"] }]
     })

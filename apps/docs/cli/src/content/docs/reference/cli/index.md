@@ -18,8 +18,8 @@ run-kind targets; `flow start` starts durable flows.
 | `targets [pattern]` | List target labels and summaries. |
 | `show target <label>`, `show workspace`, `info` | Inspect inputs, outputs, dependencies, toolchains, and configuration. |
 | `query <expression>`, `graph [pattern]`, `owners <paths...>` | Query dependencies and ownership or render a target graph. |
-| `affected <verb> [pattern]` | Select changed targets and dependents; `--list` previews selection. |
-| `watch <verb> [pattern]` | Replan and rerun after workspace changes; `--once` runs one cycle. |
+| `affected <verb> [patterns...]` | Select changed targets and dependents; `--list` previews selection. |
+| `watch <verb> [patterns...]` | Replan and rerun after workspace changes; `--once` runs one cycle. |
 | `explain <label>` | Show the planned key and local cache state without running the target. |
 | `flow list/show/plan/start/execute` | Discover flows, compile plans, start flows, or execute approved payloads. |
 | `runs list/show/logs/output/cancel/cancel-all/resume/signal/steer` | Inspect and operate durable runs. |
@@ -27,7 +27,7 @@ run-kind targets; `flow start` starts durable flows.
 | `approvals list/approve/deny` | List pending decisions and submit the exact approval payload or `@file`. |
 | `init [name]`, `generate app/flow/package/ci` | Initialize a workspace or scaffold a declared resource. |
 | `install`, `git-hooks [--write]` | Use the declared installation toolchain and Git hooks. |
-| `cache status/prune/clear`, `clean [pattern]`, `gc` | Maintain action results, declared cleanup targets, or terminal run history. |
+| `cache status/prune/clear`, `clean [patterns...]`, `gc` | Maintain action results, declared cleanup targets, or terminal run history. |
 | `memory`, `credentials`, `triggers`, `integrations`, `eval` | Operate the persistent agent features described below. |
 | `open [dir]`, `.` | Open the checkout's `owner/repo` in the Smithers app (`smithers://open/<owner>/<repo>`), the dev build inside the smithers checkout, or print its smithers.sh page. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |

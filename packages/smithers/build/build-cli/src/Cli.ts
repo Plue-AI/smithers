@@ -33,6 +33,7 @@ import * as PackageExec from "./PackageExec.ts"
 import * as PackageIndex from "./PackageIndex.ts"
 import * as PackageLoader from "./PackageLoader.ts"
 import * as Planner from "./Planner.ts"
+import * as Positionals from "./Positionals.ts"
 import * as Query from "./Query.ts"
 import * as RepoResolution from "./RepoResolution.ts"
 import * as Reporter from "./Reporter.ts"
@@ -831,10 +832,13 @@ const executeCommand = async <A extends Outcome>(
 }
 
 const optionalPattern = z.object({ pattern: z.string().default("//...").describe("Target label or recursive pattern") })
+const optionalPatterns = z.object({
+  patterns: z.array(z.string()).default(["//..."]).describe("Target labels or recursive patterns; their union")
+})
 const targetKinds = ["build", "test", "lint", "docs", "review", "run", "ci"] as const
 const selectionArgs = z.object({
   verb: z.enum(targetKinds).describe("Target verb to execute"),
-  pattern: z.string().default("//...").describe("Target label or recursive pattern")
+  ...optionalPatterns.shape
 })
 
 const cacheDirectoryOf = (index: PackageIndex.PackageIndex, flags: WorkspaceFlags): string =>
@@ -867,7 +871,7 @@ const runSelected = async (
   index: PackageIndex.PackageIndex,
   labels: ReadonlyArray<string>,
   verb: (typeof targetKinds)[number] | "auto",
-  pattern: string,
+  patterns: ReadonlyArray<string>,
   flags: ExecutionFlags,
   config: RuntimeConfig,
   reporter: Reporter.Reporter
@@ -886,22 +890,27 @@ const runSelected = async (
   const plans: Array<PackageExec.PackagePlan> = []
   const selectedLabels = new Set(labels)
   const resolver = RepoResolution.resolver(index, environmentOf(config))
-  const rows = await Promise.all(
-    index.resolve(pattern).map(async (row) => ({
-      row,
-      kinds: await RepoResolution.effectiveKinds(resolver, row.target)
-    }))
-  )
+  const selections = await Promise.all(patterns.map(async (pattern) => ({
+    pattern,
+    rows: await Promise.all(
+      index.resolve(pattern).map(async (row) => ({
+        row,
+        kinds: await RepoResolution.effectiveKinds(resolver, row.target)
+      }))
+    )
+  })))
   for (const kind of verb === "ci" ? ciKinds : [verb]) {
-    const eligible = rows.filter((entry) => kind === "auto" || entry.kinds.includes(kind))
-    const patterns = eligible.length > 0 && eligible.every((entry) => selectedLabels.has(entry.row.label))
-      ? [pattern]
-      : eligible.filter((entry) => selectedLabels.has(entry.row.label)).map((entry) => entry.row.label)
-    for (const label of patterns) {
-      try {
-        plans.push(await PackageExec.plan({ ...options, verb: kind, patterns: [label], unattended: verb === "ci" }))
-      } catch (cause) {
-        if (!(cause instanceof Planner.UnsupportedVerbError)) throw cause
+    for (const { pattern, rows } of selections) {
+      const eligible = rows.filter((entry) => kind === "auto" || entry.kinds.includes(kind))
+      const roots = eligible.length > 0 && eligible.every((entry) => selectedLabels.has(entry.row.label))
+        ? [pattern]
+        : eligible.filter((entry) => selectedLabels.has(entry.row.label)).map((entry) => entry.row.label)
+      for (const root of roots) {
+        try {
+          plans.push(await PackageExec.plan({ ...options, verb: kind, patterns: [root], unattended: verb === "ci" }))
+        } catch (cause) {
+          if (!(cause instanceof Planner.UnsupportedVerbError)) throw cause
+        }
       }
     }
   }
@@ -918,7 +927,7 @@ const runSelected = async (
   if (flags.plan) {
     return {
       verb,
-      pattern,
+      pattern: patterns.join(" "),
       roots: combined.roots,
       targets: combined.workList.map((node) => ({
         label: node.label,
@@ -931,7 +940,7 @@ const runSelected = async (
       }))
     }
   }
-  return PackageExec.execute(combined, { ...options, verb, patterns: [pattern] })
+  return PackageExec.execute(combined, { ...options, verb, patterns })
 }
 
 const showTarget = async (
@@ -1050,14 +1059,7 @@ const cacheCli = (config: RuntimeConfig) =>
       }
     })
 
-/**
- * Creates the configured smithers-build CLI.
- *
- * @category constructors
- * @since 0.1.0
- * @slop
- */
-export const makeCli = (config: RuntimeConfig = {}) =>
+const makeCommands = (config: RuntimeConfig) =>
   Cli.create(config.cliName ?? "smithers-build", {
     description: config.cliDescription ?? "Execute declared targets and install the workspace with flows",
     version: config.cliVersion ?? metadata.version,
@@ -1157,7 +1159,7 @@ export const makeCli = (config: RuntimeConfig = {}) =>
             signal: config.signal,
             environment: environmentOf(config)
           })
-          const changed = Affected.select(index, context.args.pattern, files)
+          const changed = Affected.select(index, context.args.patterns, files)
           const kinds = context.args.verb === "ci" ? ciKinds : [context.args.verb]
           const resolver = RepoResolution.resolver(index, environmentOf(config))
           const eligibility = await Promise.all(changed.targets.map(async (target) => ({
@@ -1176,7 +1178,7 @@ export const makeCli = (config: RuntimeConfig = {}) =>
               index,
               selection.targets.map((target) => target.label),
               context.args.verb,
-              context.args.pattern,
+              context.args.patterns,
               context.options,
               config,
               reporter
@@ -1187,18 +1189,23 @@ export const makeCli = (config: RuntimeConfig = {}) =>
       }
     })
     .command("clean", {
-      description: "Execute only declared Clean targets selected by the pattern",
+      description: "Execute only declared Clean targets selected by the patterns",
       mcp: { annotations: { readOnlyHint: false } },
-      args: optionalPattern,
+      args: optionalPatterns,
       options: executionOptions,
       run: (context) =>
         executeCommand(context, config, "clean_failed", async (reporter) => {
           const index = await openPackageIndex(context.options, config)
-          const labels = index.resolve(context.args.pattern).filter((row) =>
-            Target.metadata(row.target).target === "Clean"
-          ).map((row) => row.label)
-          if (labels.length === 0) throw new Error(`no declared Clean targets selected by ${context.args.pattern}`)
-          return runSelected(index, labels, "auto", context.args.pattern, context.options, config, reporter)
+          const { patterns } = context.args
+          const labels = [
+            ...new Set(
+              patterns.flatMap((pattern) => index.resolve(pattern)).filter((row) =>
+                Target.metadata(row.target).target === "Clean"
+              ).map((row) => row.label)
+            )
+          ]
+          if (labels.length === 0) throw new Error(`no declared Clean targets selected by ${patterns.join(" ")}`)
+          return runSelected(index, labels, "auto", patterns, context.options, config, reporter)
         })
     })
     .command("watch", {
@@ -1224,7 +1231,9 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           }
           const args = [
             context.args.verb,
-            context.args.pattern.startsWith(":") ? index.resolve(context.args.pattern)[0]!.label : context.args.pattern,
+            ...context.args.patterns.map((pattern) =>
+              pattern.startsWith(":") ? index.resolve(pattern)[0]!.label : pattern
+            ),
             "--audience",
             policyFor(context, config).audience,
             ...(policyFor(context, config).progress === "silent" ? ["--silent"] : []),
@@ -1583,6 +1592,15 @@ export const makeCli = (config: RuntimeConfig = {}) =>
         }
       }
     })
+
+/**
+ * Creates the configured smithers-build CLI; every command refuses surplus positionals.
+ *
+ * @category constructors
+ * @since 0.1.0
+ * @slop
+ */
+export const makeCli = (config: RuntimeConfig = {}) => Positionals.guard(makeCommands(config), globalOptions)
 
 /**
  * Rewrites a bare-label argv into the `target` command.

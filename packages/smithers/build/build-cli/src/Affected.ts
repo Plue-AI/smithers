@@ -123,11 +123,11 @@ const compileInput = (
   }
 }
 
-/** Selects roots whose declarations, package inputs or dependencies may have changed.
+/** Selects roots, among the union of the patterns, whose declarations, package inputs or dependencies may have changed.
  * @category querying
  * @since 0.1.0
  */
-export const select = (index: PackageIndex, pattern: string, paths: ReadonlyArray<string>) => {
+export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, paths: ReadonlyArray<string>) => {
   const normalized = [
     ...new Set(paths.map((path) => {
       const value = path.replaceAll("\\", "/").replace(/^\.\//, "")
@@ -138,7 +138,9 @@ export const select = (index: PackageIndex, pattern: string, paths: ReadonlyArra
     }))
   ].sort()
   const rows = index.targets()
-  const selected = index.resolve(pattern)
+  const selected = [
+    ...new Map(patterns.flatMap((pattern) => index.resolve(pattern)).map((row) => [row.label, row])).values()
+  ]
   const reasons = new Map<string, Set<string>>()
   const globs = new Map<string, Minimatch>()
   const glob = (pattern: string): Minimatch => {
@@ -246,7 +248,7 @@ export const select = (index: PackageIndex, pattern: string, paths: ReadonlyArra
     }
   }
   return {
-    pattern,
+    pattern: patterns.join(" "),
     files: normalized,
     conservative,
     globalInputs: [...new Set([...global, ...unknown])].sort(),

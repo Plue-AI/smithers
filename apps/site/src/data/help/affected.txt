@@ -1,10 +1,10 @@
 smthrs affected — Execute targets affected by changed files, conservatively including ambient inputs
 
-Usage: smthrs affected <build|test|lint|docs|review|run|ci> <pattern> [options]
+Usage: smthrs affected <build|test|lint|docs|review|run|ci> <patterns...> [options]
 
 Arguments:
-  verb     Target verb to execute
-  pattern  Target label or recursive pattern
+  verb      Target verb to execute
+  patterns  Target labels or recursive patterns; their union
 
 Options:
   --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

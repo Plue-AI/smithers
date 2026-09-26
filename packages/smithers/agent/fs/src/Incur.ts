@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Positionals from "@smthrs/build-cli/Positionals"
 import type * as Flow from "@smthrs/core/Flow"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -360,8 +361,7 @@ const hydrate = (
       onSuccess: (resolved) =>
         Effect.gen(function*() {
           const consumed = tokens.length - resolved.rest.length
-          const viaSelf = resolved.rest.length === 1 && resolved.rest[0] === selfSegment &&
-            grouped.has(resolved.route)
+          const viaSelf = resolved.rest[0] === selfSegment && grouped.has(resolved.route)
           const flow = yield* Route.load(resolved.route)
           const schema = yield* SchemaBridge.toCommandSchema(resolved.route.input, flow.input)
           return Option.some<Selection>({
@@ -411,6 +411,7 @@ export const createCli = (
       return register(handler)
     }
     const guarded = (surface: IncurCli.Cli): IncurCli.Cli => {
+      Positionals.guard(surface)
       for (const handler of middlewares) surface.use(handler)
       return surface
     }

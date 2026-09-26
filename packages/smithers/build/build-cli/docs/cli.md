@@ -12,6 +12,9 @@ smithers-build <command> [arguments] [options]
 whose first token starts with `//` or `:` is rewritten to `target <label>`, so
 `smithers-build //packages/api:lint` runs the bare-label form.
 
+Every command refuses a positional argument it does not consume with the
+`UNEXPECTED_ARGUMENT` error, before it reads the workspace.
+
 Option names are the kebab-case form of their schema key, so `cacheDir` is
 `--cache-dir`. A boolean option that defaults to true is turned off with its
 `--no-` form, so `--cache` becomes `--no-cache`.
@@ -365,19 +368,19 @@ it wrote.
 These commands inspect the workspace or operate on explicitly bounded local
 state.
 
-| Command          | Arguments          | Own options                               |
-| ---------------- | ------------------ | ----------------------------------------- |
-| `cache status`   |                    |                                           |
-| `cache prune`    |                    | `--older-than-days`, `--dry-run`, `--yes` |
-| `cache clear`    |                    | `--dry-run`, `--yes`                      |
-| `show target`    | `<label>`          | `--verb`                                  |
-| `show workspace` |                    |                                           |
-| `targets`        | `[pattern]`        |                                           |
-| `info`           |                    |                                           |
-| `explain`        | `<label>`          | `--verb`                                  |
-| `affected`       | `<verb> [pattern]` | `--base`, `--head`, `--files`, `--list`   |
-| `clean`          | `[pattern]`        |                                           |
-| `watch`          | `<verb> [pattern]` | `--debounce-ms`, `--once`                 |
+| Command          | Arguments              | Own options                               |
+| ---------------- | ---------------------- | ----------------------------------------- |
+| `cache status`   |                        |                                           |
+| `cache prune`    |                        | `--older-than-days`, `--dry-run`, `--yes` |
+| `cache clear`    |                        | `--dry-run`, `--yes`                      |
+| `show target`    | `<label>`              | `--verb`                                  |
+| `show workspace` |                        |                                           |
+| `targets`        | `[pattern]`            |                                           |
+| `info`           |                        |                                           |
+| `explain`        | `<label>`              | `--verb`                                  |
+| `affected`       | `<verb> [patterns...]` | `--base`, `--head`, `--files`, `--list`   |
+| `clean`          | `[patterns...]`        |                                           |
+| `watch`          | `<verb> [patterns...]` | `--debounce-ms`, `--once`                 |
 
 `cache status` reports the local action-result count and size plus the remote
 endpoint without exposing credentials. `cache prune` selects entries older
@@ -404,7 +407,9 @@ timeout, invalid output, or nonzero exit fails `affected`; it never becomes an
 empty changed-file list. Embedded callers can pass `signal` and `timeoutMs`
 to `Affected.changedPaths` and inspect its typed `AffectedGitError`.
 
-`clean` executes only declared `Clean` targets and refuses an empty selection.
+`affected`, `clean`, and `watch` select the union of their patterns, which
+default to `//...`. `clean` executes only declared `Clean` targets and refuses
+an empty selection.
 `watch` runs the selected verb in fresh child processes, cancels stale work,
 and replans after a change. It ignores `.git`, `node_modules`, cache state, and
 declared outputs. `--debounce-ms` defaults to 200 with a minimum of 20;
@@ -472,6 +477,7 @@ A structured failure carries a code alongside its message.
 | `query_failed`, `index_failed`, `graph_failed`, `owners_failed`                                                          | The workspace could not be read, or the expression was rejected.   |
 | `git_hooks_failed`                                                                                                       | Rendering or installing the hooks failed.                          |
 | `git_hooks_drift`                                                                                                        | Checked hooks differ from the declaration.                         |
+| `UNEXPECTED_ARGUMENT`                                                                                                    | A positional argument that no command argument consumes.           |
 
 ## Environment
 

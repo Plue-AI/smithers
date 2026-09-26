@@ -64,7 +64,7 @@ it("preserves owned, declared unowned, and multi-root reasons including excludes
   add("app", "build", target([shared, Input.file("//assets/schema.txt")], [lib]))
   add("tools", "check", target([Input.file("local.txt")], [], { dependencies: [lib] }))
   const paths = ["shared/.hidden.ts", "./lib/new.txt", "assets/schema.txt", "lib\\new.txt"]
-  expect(Affected.select(index, "//...", paths)).toEqual({
+  expect(Affected.select(index, ["//..."], paths)).toEqual({
     pattern: "//...",
     files: ["assets/schema.txt", "lib/new.txt", "shared/.hidden.ts"],
     conservative: false,
@@ -76,7 +76,7 @@ it("preserves owned, declared unowned, and multi-root reasons including excludes
     ]
   })
   for (const path of ["scripts/unknown.ts", "shared/generated/code.ts", "pnpm-lock.yaml"]) {
-    expect(Affected.select(index, "//...", ["lib/new.txt", path])).toEqual({
+    expect(Affected.select(index, ["//..."], ["lib/new.txt", path])).toEqual({
       pattern: "//...",
       files: ["lib/new.txt", path].sort(),
       conservative: true,
@@ -84,14 +84,14 @@ it("preserves owned, declared unowned, and multi-root reasons including excludes
       targets: ["//lib:src", "//app:build", "//tools:check"].map((label) => ({ label, reasons: [path] }))
     })
   }
-  expect(Affected.select(index, "//...", []).targets).toEqual([])
+  expect(Affected.select(index, ["//..."], []).targets).toEqual([])
 })
 
 it("does not select a glob consumer for an excluded path owned by another package", () => {
   const { add, index } = fixture()
   add("app", "build", target([Input.glob("//shared/**", { exclude: ["//shared/generated/**"] })]))
   add("shared", "src", target([Input.glob("**/*")]))
-  expect(Affected.select(index, "//...", ["shared/generated/a.ts"])).toMatchObject({
+  expect(Affected.select(index, ["//..."], ["shared/generated/a.ts"])).toMatchObject({
     conservative: false,
     targets: [{ label: "//shared:src", reasons: ["shared/generated/a.ts"] }]
   })
@@ -101,8 +101,8 @@ it("keeps verb-only inputs unowned and empty base declarations conservative", ()
   const { add, index } = fixture()
   add("app", "build", target([Input.file("local.txt")], [], { inputs: [Input.glob("//shared/**")] }))
   add("empty", "build", target([], [], { inputs: [Input.file("local.txt")] }))
-  expect(Affected.select(index, "//...", ["shared/file.ts"]).conservative).toBe(true)
-  expect(Affected.select(index, "//...", ["app/source.ts"]).targets).toEqual([
+  expect(Affected.select(index, ["//..."], ["shared/file.ts"]).conservative).toBe(true)
+  expect(Affected.select(index, ["//..."], ["app/source.ts"]).targets).toEqual([
     { label: "//app:build", reasons: ["app/source.ts"] },
     { label: "//empty:build", reasons: ["app/source.ts"] }
   ])
@@ -113,7 +113,7 @@ it.each([Input.gitDiff(), Input.pnpmWorkspace("//pnpm-workspace.yaml")])(
   (input) => {
     const { add, index } = fixture()
     add("app", "build", target([input]))
-    expect(Affected.select(index, "//...", ["unknown/file.ts"])).toMatchObject({
+    expect(Affected.select(index, ["//..."], ["unknown/file.ts"])).toMatchObject({
       conservative: false,
       targets: [{ label: "//app:build", reasons: ["unknown/file.ts"] }]
     })
@@ -137,13 +137,13 @@ it("propagates through shared private, verb, selector and cyclic dependencies", 
   add("lib", "src", target([Input.file("data.txt")]))
   edges.push(first)
   const paths = ["lib/data.txt", "lib/new.txt"]
-  expect(Affected.select(index, "//...", paths).targets).toEqual([
+  expect(Affected.select(index, ["//..."], paths).targets).toEqual([
     { label: "//first:build", reasons: paths },
     { label: "//second:build", reasons: paths },
     { label: "//selector:build", reasons: paths },
     { label: "//lib:src", reasons: paths }
   ])
-  expect(Affected.select(index, "//second:build", paths).targets).toEqual([
+  expect(Affected.select(index, ["//second:build"], paths).targets).toEqual([
     { label: "//second:build", reasons: paths }
   ])
   expect(resolve).toHaveBeenCalledWith("//first/...:build")
@@ -155,10 +155,10 @@ it("compiles each resolved include and exclude once across ownership and selecti
   add("app", "build", target([input], [], { inputs: [input] }))
   add("tools", "build", target([input]))
   const compile = vi.spyOn(Minimatch.prototype, "make")
-  expect(Affected.select(index, "//...", ["shared/a.ts", "shared/.b.ts"]).targets).toHaveLength(2)
+  expect(Affected.select(index, ["//..."], ["shared/a.ts", "shared/.b.ts"]).targets).toHaveLength(2)
   expect(compile).toHaveBeenCalledTimes(2)
   compile.mockClear()
-  Affected.select(index, "//...", ["shared/c.ts"])
+  Affected.select(index, ["//..."], ["shared/c.ts"])
   expect(compile).toHaveBeenCalledTimes(2)
 })
 
@@ -184,7 +184,7 @@ it("indexes 1000 targets once and selects 200 owned paths within a one-second CP
   calls.views = 0
   // CPU time excludes scheduling delays on shared review/CI machines.
   const start = process.cpuUsage()
-  const selection = Affected.select(index, "//...", paths)
+  const selection = Affected.select(index, ["//..."], paths)
   const elapsed = process.cpuUsage(start)
   expect(selection.conservative).toBe(false)
   expect(selection.targets).toHaveLength(800)

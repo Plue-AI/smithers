@@ -1,9 +1,9 @@
-smthrs clean — Execute only declared Clean targets selected by the pattern
+smthrs clean — Execute only declared Clean targets selected by the patterns
 
-Usage: smthrs clean <pattern> [options]
+Usage: smthrs clean <patterns...> [options]
 
 Arguments:
-  pattern  Target label or recursive pattern
+  patterns  Target labels or recursive patterns; their union
 
 Options:
   --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
