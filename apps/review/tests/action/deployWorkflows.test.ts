@@ -55,7 +55,7 @@ describe("apps-deploy.yml calls what this workspace still has", () => {
     // apps/server/scripts/canary/workflow-wiring.test.ts.
     const text = readFileSync(`${workflowsDir}apps-deploy.yml`, "utf8");
     const dirs = [...text.matchAll(/smthrs (?:build|test|ci) '\/\/apps\/([^/:']+)/g)].map((match) => match[1]!);
-    expect([...new Set(dirs)].sort()).toEqual(["app", "server", "site"]);
+    expect([...new Set(dirs)].sort()).toEqual(["app", "server", "site", "tui"]);
     const missing = dirs.filter((dir) => !readdirSync(appsDir).includes(dir) || !readdirSync(`${appsDir}${dir}`).includes("PACKAGE.ts"));
     expect(missing).toEqual([]);
   });
