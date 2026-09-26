@@ -17,7 +17,7 @@ export const runSearchPayload = (ref: string): { readonly runId: string; readonl
     try {
       const value: unknown = JSON.parse(ref.slice(4))
       if (Array.isArray(value) && value.length === 2 && value.every((part) => typeof part === "string")) {
-        return { runId: value[0], sourceCard: value[1] }
+        return { runId: value[0]!, sourceCard: value[1]! }
       }
     } catch { /* Older bare references still name the backend ID exactly. */ }
   }

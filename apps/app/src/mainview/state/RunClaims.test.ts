@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { canonicalCommandName } from "../flows/CommandName"
+import { canonicalCommandName } from "@smthrs/ui/command-line"
 import { RUN_LAUNCH_COMMANDS, runLaunchCommandOf, renderedRunTurnText, toolResultLaunchedRun } from "./RunClaims"
 
 const call = (name: string): string => JSON.stringify({ action: "execute", name, args: "x" })

@@ -129,7 +129,8 @@ DOM and OpenTUI clients import renderer-neutral logic through explicit subpaths:
 
 - `@smthrs/ui/flow-form`: schema fields, hints, drafts, required inputs, and typed submission.
 - `@smthrs/ui/flow-arguments`: file-flow JSON and quoted `key=value` arguments.
-- `@smthrs/ui/command-line`: repository command tokens.
+- `@smthrs/ui/command-line`: repository tokens, command normalization, slash parsing, and submit routing.
+- `@smthrs/ui/clock`: stable React clock subscriptions for wall and observed engine time.
 - `@smthrs/ui/run-command`: opaque run references and source-card routing.
 
 These entrypoints do not import the DOM component barrel. Forms retain one

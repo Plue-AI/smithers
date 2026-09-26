@@ -15,7 +15,7 @@ import type { CommandLifecycle, PendingCommandInput, PendingFieldInput, PendingF
  * exists: a parallel projection is exactly the drift the one-door law forbids.
  */
 import { Authorize } from "@smthrs/chain"
-import { canonicalCommandName } from "./CommandName"
+import { canonicalCommandName } from "@smthrs/ui/command-line"
 import { FlowCancellation } from "./FlowCancellation"
 import type { AgentInvocation } from "./AgentInvocation"
 import { formFlows } from "./entries/form"

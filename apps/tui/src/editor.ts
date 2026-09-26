@@ -87,11 +87,7 @@ export const commands: ReadonlyArray<Command> = [
 export const takesArgument = (command: Command): boolean =>
   command.args?.startsWith("<") === true || command.name === "thinking"
 
-/** `/model gpt` → `{ name: "model", argument: "gpt" }`. */
-export const parseCommand = (text: string): { readonly name: string; readonly argument: string } | undefined => {
-  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim())
-  return match === null ? undefined : { name: match[1]!, argument: (match[2] ?? "").trim() }
-}
+export { parseCommand } from "@smthrs/ui/command-line"
 
 export const thinkingLevels = ["none", "minimal", "low", "medium", "high", "xhigh"] as const
 export type Thinking = (typeof thinkingLevels)[number] | undefined

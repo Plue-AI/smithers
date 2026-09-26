@@ -18,7 +18,7 @@
  * failure. Nothing here touches the store or the DOM, so the rule is unit-pinned.
  */
 
-import { canonicalCommandName } from "../flows/CommandName"
+import { canonicalCommandName } from "@smthrs/ui/command-line"
 import { ASK_HONEST_LINES, type ImpossibleAskClass } from "./Instructions"
 
 /** The commands that launch a run on the user's workspace. */

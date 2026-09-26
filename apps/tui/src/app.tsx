@@ -1,4 +1,5 @@
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
+import { useClock } from "@smthrs/ui/clock"
 import { parseArgs } from "@smthrs/ui/flow-arguments"
 import * as Log from "./log.ts"
 import * as TabCommand from "./tab-command.ts"
@@ -130,7 +131,6 @@ export function App(props: AppProps) {
   const [expanded, setExpanded] = useState(false)
   const { toast, setStatus, clearFailure } = Toasts.useToast()
   const [name, setName] = useState(restored.current?.name)
-  const [now, setNow] = useState(Date.now())
   const [approvals, setApprovals] = useState<ReadonlyArray<Approvals.Pending>>([])
   // Answered but maybe still listed: a poll can land before the store drops it.
   const answered = useRef(new Set<string>())
@@ -377,6 +377,14 @@ export function App(props: AppProps) {
     }
   }, [revision, runs, openForm, changeForm, approvals, picker, draft])
   const snapshot = workspace.snapshot()
+  const { search, parsed: parsedPalette } = Pickers.useSearch({ picker, setPicker, cwd: props.host.cwd, setStatus })
+  // One shared clock drives foreground and background progress through settlement.
+  const sampledAt = Date.now()
+  const clockRunning = turn !== undefined || shell !== undefined || undoing !== undefined || workspace.busy ||
+    runs.busy || flowRuns.some((run) => run.endedAt !== undefined && sampledAt - run.endedAt < 3000) ||
+    search?.status === "running" ||
+    snapshot.tabs.some((tab) => tab.endedAt !== undefined && sampledAt - tab.endedAt < 3000)
+  const now = useClock(clockRunning, 100)
   const eta = (id: string, status: string, startedAt: number) => {
     if (
       status === "done" || status === "failed" || status === "cancelled" || status === "parked" || status === "waiting"
@@ -621,7 +629,6 @@ export function App(props: AppProps) {
     if (restored.damaged !== undefined) setStatus(restored.damaged, "danger")
   }, [])
   estimateProblem.current = (text) => setStatus(text, "warning")
-  const { search, parsed: parsedPalette } = Pickers.useSearch({ picker, setPicker, cwd: props.host.cwd, setStatus })
 
   // A dialog's rows follow the dialog and its sources, never the 100 ms clock: the palette ranks every file.
   const tabsKey = snapshot.tabs.map((tab) => `${tab.id}\0${tab.title}\0${tab.status}`).join("\n")
@@ -693,17 +700,6 @@ export function App(props: AppProps) {
       () => setStatus("Copied"),
       () => setStatus("Copy failed: no pbcopy, wl-copy, xclip or xsel", "warning")
     ), [renderer])
-
-  // One clock drives foreground and background progress through real settlement.
-  const clockRunning = turn !== undefined || shell !== undefined || undoing !== undefined || workspace.busy ||
-    runs.busy || flowRuns.some((run) => run.endedAt !== undefined && now - run.endedAt < 3000) ||
-    search?.status === "running" ||
-    snapshot.tabs.some((tab) => tab.endedAt !== undefined && now - tab.endedAt < 3000)
-  useEffect(() => {
-    if (!clockRunning) return
-    const timer = setInterval(() => setNow(Date.now()), 100)
-    return () => clearInterval(timer)
-  }, [clockRunning])
 
   // The store has no subscription; a request exists only while work runs, so
   // it is read on its own slower poll while the work clock runs.

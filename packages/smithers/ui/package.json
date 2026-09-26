@@ -83,6 +83,11 @@
       "types": "./src/run-command.ts",
       "import": "./src/run-command.ts",
       "default": "./src/run-command.ts"
+    },
+    "./clock": {
+      "types": "./src/clock.ts",
+      "import": "./src/clock.ts",
+      "default": "./src/clock.ts"
     }
   },
   "files": [

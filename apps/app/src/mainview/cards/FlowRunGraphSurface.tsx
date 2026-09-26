@@ -20,7 +20,7 @@ import { Background, Handle, Position, ReactFlow, type NodeProps } from "@xyflow
 import { WorkflowCanvas, WorkflowNode, WorkflowNodeContent } from "@smthrs/ui"
 import dagre from "dagre"
 import { memo, useMemo, type CSSProperties } from "react"
-import { useObservedClock } from "./flowGraph/ObservedClock"
+import { useObservedClock } from "@smthrs/ui/clock"
 import { NODE_HEIGHT, NODE_WIDTH } from "./FlowGraph"
 import { displayByNode, progressOf, type DurationDisplay } from "./flowGraph/Durations"
 import { focusedNodeId, graphNodeLabel, nodeButton } from "./flowGraph/NodeAria"

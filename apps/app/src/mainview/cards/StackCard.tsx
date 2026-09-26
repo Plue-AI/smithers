@@ -1,3 +1,4 @@
+import { useClock } from "@smthrs/ui/clock"
 /*
  * The Stack card (epic #1745): one repository's mythical stack, live. Counts,
  * the lanes against maxParallel, and the ordered stack, each row naming its
@@ -8,7 +9,7 @@
  */
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
 import { Button } from "@smthrs/ui"
-import { useContext, useMemo, useSyncExternalStore } from "react"
+import { useContext, useSyncExternalStore } from "react"
 import { ControllerContext } from "../ControllerContext"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
@@ -27,19 +28,6 @@ const NO_SNAPSHOTS = { get: () => undefined, subscribe: () => () => {} }
 export const useStackSnapshot = (repo: string): StackSnapshot | undefined => {
   const snapshots = useContext(ControllerContext)?.stackSnapshots ?? NO_SNAPSHOTS
   return useSyncExternalStore(snapshots.subscribe, () => snapshots.get(repo), () => snapshots.get(repo))
-}
-
-/** A one-second clock while a lane runs; released with its reader. */
-const useNow = (running: boolean): number => {
-  const clock = useMemo(() => ({
-    subscribe: (notify: () => void) => {
-      if (!running) return () => {}
-      const timer = setInterval(notify, 1000)
-      return () => clearInterval(timer)
-    },
-    snapshot: () => Math.floor(Date.now() / 1000) * 1000
-  }), [running])
-  return useSyncExternalStore(clock.subscribe, clock.snapshot, clock.snapshot)
 }
 
 const Title = ({ stack, item }: { readonly stack: MythicalStack; readonly item: MythicalItem }) =>
@@ -125,7 +113,7 @@ export interface StackBodyProps {
 export const StackBody = ({ repo, snapshot, failure, bootstrapping, onRunCommand }: StackBodyProps) => {
   const stack = snapshot?.stack ?? null
   const running = stack !== null && stack.items.some((item) => ACTIVE_ITEM_STATES.has(item.state))
-  const now = useNow(running)
+  const now = useClock(running)
   const failures = (
     <>
       {failure === null ? null : <FailureRow message={failure.message} act={failure.act} args={failure.args} onRunCommand={onRunCommand} />}
