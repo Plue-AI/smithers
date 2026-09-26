@@ -6,6 +6,9 @@ import { ANSWERED_CODES, runCause } from "./RunCause"
 import { librarianFailureMessage } from "./LibrarianLaunch"
 
 const INFRA = "Something on Smithers' side failed. Not your fault, and nothing your request could have changed."
+// Formatting may wrap the call, but the emitted argument must remain exact.
+const invalidCall = (argument: string): RegExp =>
+  new RegExp(`\\binvalid\\(\\s*${argument.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\)`)
 /* One of the sentences flows/repository/triggers.ts refuses a registration with. */
 const REFUSAL = 'Add a model to "nightly-lint" to schedule it.'
 const VERDICT = `failed — invalid_receipt: ${REFUSAL.slice(0, 20)}`
@@ -216,10 +219,10 @@ test("every sentence in the table is one the setup flows still emit, in the file
   const read = (file: string) => readFileSync(fileURLToPath(new URL(`../../../../../flows/repository/${file}`, import.meta.url)), "utf8")
   const source = ["setup.ts", "activation.ts"].map(read).join("\n")
   /* The two the host builds from one template; the rest it writes out. */
-  expect(read("receipts.ts")).toContain('invalid(`Run ${operation === "evaluate" ? "evals" : "the live trial"} for this exact candidate before continuing`)')
+  expect(read("receipts.ts")).toMatch(invalidCall('`Run ${operation === "evaluate" ? "evals" : "the live trial"} for this exact candidate before continuing`'))
   for (const sentence of SETUP_REFUSALS) {
     if (sentence.endsWith("for this exact candidate before continuing")) continue
-    expect(source).toContain(`invalid("${sentence}")`)
+    expect(source).toMatch(invalidCall(JSON.stringify(sentence)))
   }
 })
 
@@ -265,6 +268,6 @@ test("the sentences the app words itself are ones the setup flows still emit", (
   const setup = readFileSync(fileURLToPath(new URL("../../../../../flows/repository/setup.ts", import.meta.url)), "utf8")
   for (const sentence of SETUP_REFUSAL_COPY.keys()) {
     expect(SETUP_REFUSALS.has(sentence)).toBe(true)
-    expect(setup).toContain(`invalid("${sentence}")`)
+    expect(setup).toMatch(invalidCall(JSON.stringify(sentence)))
   }
 })
