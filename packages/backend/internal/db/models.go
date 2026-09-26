@@ -2181,19 +2181,22 @@ type WebhookDelivery struct {
 }
 
 type WikiPage struct {
-	ID           int64       `json:"id"`
-	RepositoryID int64       `json:"repository_id"`
-	Slug         string      `json:"slug"`
-	Title        string      `json:"title"`
-	Body         string      `json:"body"`
-	AuthorID     int64       `json:"author_id"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-	Revision     int64       `json:"revision"`
-	CrdtState    []byte      `json:"crdt_state"`
-	CrdtVector   []byte      `json:"crdt_vector"`
-	LastUpdateID pgtype.UUID `json:"last_update_id"`
-	LastUpdate   []byte      `json:"last_update"`
+	ID            int64       `json:"id"`
+	RepositoryID  int64       `json:"repository_id"`
+	Slug          string      `json:"slug"`
+	Title         string      `json:"title"`
+	Body          string      `json:"body"`
+	AuthorID      int64       `json:"author_id"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	Revision      int64       `json:"revision"`
+	CrdtState     []byte      `json:"crdt_state"`
+	CrdtVector    []byte      `json:"crdt_vector"`
+	LastUpdateID  pgtype.UUID `json:"last_update_id"`
+	LastUpdate    []byte      `json:"last_update"`
+	Visibility    string      `json:"visibility"`
+	Path          string      `json:"path"`
+	ContentDigest string      `json:"content_digest"`
 }
 
 type WikiPageRevision struct {
@@ -2211,6 +2214,9 @@ type WikiPageRevision struct {
 	Deleted         bool        `json:"deleted"`
 	HistoryCommitID string      `json:"history_commit_id"`
 	CreatedAt       time.Time   `json:"created_at"`
+	Visibility      string      `json:"visibility"`
+	Path            string      `json:"path"`
+	ContentDigest   string      `json:"content_digest"`
 }
 
 type WorkflowArtifact struct {

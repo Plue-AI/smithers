@@ -1,11 +1,11 @@
 -- name: GetWikiDocument :one
 SELECT wp.*, u.username AS author_username
 FROM wiki_pages wp JOIN users u ON u.id = wp.author_id
-WHERE wp.repository_id = $1 AND wp.slug = $2;
+WHERE wp.repository_id = $1 AND wp.slug = $2 AND wp.visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public');
 
 -- name: WriteWikiDocument :one
 UPDATE wiki_pages
-SET body = sqlc.arg(body), crdt_state = sqlc.arg(crdt_state), crdt_vector = sqlc.arg(crdt_vector),
+SET path = sqlc.arg(path), body = sqlc.arg(body), crdt_state = sqlc.arg(crdt_state), crdt_vector = sqlc.arg(crdt_vector),
     last_update_id = sqlc.narg(update_id), last_update = sqlc.arg(update_bytes),
     author_id = sqlc.arg(author_id), title = sqlc.arg(title), slug = sqlc.arg(slug), updated_at = NOW()
 WHERE id = sqlc.arg(page_id) AND repository_id = sqlc.arg(repository_id) AND revision = sqlc.arg(expected_revision)
@@ -41,14 +41,14 @@ WHERE id = sqlc.arg(page_id) AND repository_id = sqlc.arg(repository_id)
 
 -- name: GetWikiPageIdentity :one
 SELECT page_id, slug FROM wiki_page_revisions
-WHERE repository_id = $1 AND page_id = $2 AND slug = $3 ORDER BY revision DESC LIMIT 1;
+WHERE repository_id = $1 AND page_id = $2 AND slug = $3 AND visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public') ORDER BY revision DESC LIMIT 1;
 
 -- name: ListWikiHistoryRecovery :many
 SELECT wr.*, ns.lower_slug AS owner_name, r.name AS repo_name
 FROM wiki_page_revisions wr JOIN repositories r ON r.id = wr.repository_id
 JOIN owner_namespaces ns ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
  OR (ns.owner_type = 'org' AND ns.org_id = r.org_id)
-WHERE wr.history_commit_id = '' AND NOT EXISTS (
+WHERE wr.visibility = 'public' AND wr.history_commit_id = '' AND NOT EXISTS (
  SELECT 1 FROM wiki_page_revisions prior
  WHERE prior.page_id = wr.page_id AND prior.revision < wr.revision AND prior.history_commit_id = ''
 )

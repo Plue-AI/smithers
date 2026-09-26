@@ -75,6 +75,7 @@ var migrationRegistry = []migrationSpec{
 	{39, "migrations/0039_issue_chat_sync.sql"},
 	{40, "migrations/0040_issue_comment_facts.sql"},
 	{41, "migrations/0041_billing_subscription_payment_settled.sql"},
+	{42, "migrations/0042_wiki_spaces.sql"},
 }
 
 type migration struct {

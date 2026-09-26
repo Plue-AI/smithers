@@ -47,7 +47,8 @@ func TestWikiPages_CRUDAndLookup(t *testing.T) {
 	assert.Equal(t, "Start Here", updated.Title)
 	assert.Equal(t, "Updated content", updated.Body)
 
-	err = q.DeleteWikiPage(context.Background(), updated.ID)
+	deleted, err := q.DeleteWikiPage(context.Background(), DeleteWikiPageParams{ID: updated.ID})
+	require.EqualValues(t, 1, deleted)
 	require.NoError(t, err)
 
 	_, err = q.GetWikiPageBySlug(context.Background(), GetWikiPageBySlugParams{
@@ -72,7 +73,7 @@ func TestWikiPages_ListAndSearch(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	total, err := q.CountWikiPagesByRepo(context.Background(), repoID)
+	total, err := q.CountWikiPagesByRepo(context.Background(), CountWikiPagesByRepoParams{RepositoryID: repoID})
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), total)
 

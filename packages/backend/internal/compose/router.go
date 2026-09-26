@@ -1737,6 +1737,9 @@ func buildRouter(
 			if wikiService != nil {
 				// Legacy Gitea-style /wiki/pages and /wiki/page/{pageName} aliases are intentionally
 				// not mounted so slugs like "pages" and "new" remain valid page names.
+				if indexed, ok := wikiService.(routes.WikiIndexService); ok {
+					r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/index", routes.WikiIndex(indexed))
+				}
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki", routes.ListWikiPages(wikiService))
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/search", routes.SearchWikiPages(wikiService))
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/{slug}", routes.GetWikiPage(wikiService))

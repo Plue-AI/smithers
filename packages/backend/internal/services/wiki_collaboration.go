@@ -98,7 +98,7 @@ func (s *WikiService) initializedWikiDocument(ctx context.Context, owner, repo s
 		return db.GetWikiDocumentRow{}, err
 	}
 	for attempt := 0; attempt < 8; attempt++ {
-		row, err := s.documents.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Slug: normalized})
+		row, err := s.documents.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Visibility: wikiVisibility(ctx), Slug: normalized})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return row, pkgerrors.NotFound("wiki page not found")
 		}
@@ -230,12 +230,12 @@ func documentWrite(row db.GetWikiDocumentRow, merged repohost.WikiDocumentResult
 	}
 	return db.WriteWikiDocumentParams{PageID: row.ID, RepositoryID: row.RepositoryID, ExpectedRevision: row.Revision,
 		Body: merged.Markdown, CrdtState: state, CrdtVector: vector, UpdateID: id, UpdateBytes: update,
-		AuthorID: authorID, Title: row.Title, Slug: row.Slug}, nil
+		AuthorID: authorID, Title: row.Title, Slug: row.Slug, Path: row.Path}, nil
 }
 
 func documentResponse(row db.GetWikiDocumentRow) WikiDocumentResponse {
 	return WikiDocumentResponse{
-		Page: WikiPageResponse{ID: row.ID, Slug: row.Slug, Title: row.Title, Body: row.Body, Revision: row.Revision,
+		Page: WikiPageResponse{ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Slug: row.Slug, Title: row.Title, Body: row.Body, Revision: row.Revision,
 			Author: WikiAuthorSummary{ID: row.AuthorID, Login: row.AuthorUsername}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt},
 		State: base64.StdEncoding.EncodeToString(row.CrdtState), StateVector: base64.StdEncoding.EncodeToString(row.CrdtVector),
 	}
@@ -243,8 +243,8 @@ func documentResponse(row db.GetWikiDocumentRow) WikiDocumentResponse {
 
 // Whole-document REST replacement needs an explicit revision once collaborative
 // editing has started. Concurrent editors use ApplyWikiUpdate instead.
-func (s *WikiService) replaceCollaborativeWikiPage(ctx context.Context, actor *db.User, owner, repo string, pageID, repoID int64, currentSlug, nextSlug, nextTitle string, input UpdateWikiPageInput) (WikiPageResponse, bool, error) {
-	row, err := s.documents.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Slug: currentSlug})
+func (s *WikiService) replaceCollaborativeWikiPage(ctx context.Context, actor *db.User, owner, repo string, pageID, repoID int64, currentSlug, nextSlug, nextTitle, nextPath string, input UpdateWikiPageInput) (WikiPageResponse, bool, error) {
+	row, err := s.documents.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Visibility: wikiVisibility(ctx), Slug: currentSlug})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return WikiPageResponse{}, true, pkgerrors.NotFound("wiki page not found")
 	}
@@ -274,7 +274,7 @@ func (s *WikiService) replaceCollaborativeWikiPage(ctx context.Context, actor *d
 	if err != nil {
 		return WikiPageResponse{}, true, err
 	}
-	args.Title, args.Slug, args.UpdateBytes = nextTitle, nextSlug, args.CrdtState
+	args.Title, args.Slug, args.Path, args.UpdateBytes = nextTitle, nextSlug, nextPath, args.CrdtState
 	currentRepo, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
 		return WikiPageResponse{}, true, err
@@ -330,7 +330,7 @@ func (s *WikiService) ListWikiUpdates(ctx context.Context, viewer *db.User, owne
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.documents.GetWikiPageIdentity(ctx, db.GetWikiPageIdentityParams{RepositoryID: repository.ID, PageID: pageID, Slug: normalized})
+	_, err = s.documents.GetWikiPageIdentity(ctx, db.GetWikiPageIdentityParams{RepositoryID: repository.ID, Visibility: wikiVisibility(ctx), PageID: pageID, Slug: normalized})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, pkgerrors.NotFound("wiki page not found")
 	}

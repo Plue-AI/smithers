@@ -25,18 +25,24 @@ type WikiAuthorSummary struct {
 }
 
 type WikiPageResponse struct {
-	Revision  int64             `json:"revision"`
-	ID        int64             `json:"id"`
-	Slug      string            `json:"slug"`
-	Title     string            `json:"title"`
-	Body      string            `json:"body,omitempty"`
-	Author    WikiAuthorSummary `json:"author"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	Visibility    string            `json:"visibility"`
+	Path          string            `json:"path"`
+	ContentDigest string            `json:"content_digest"`
+	Revision      int64             `json:"revision"`
+	ID            int64             `json:"id"`
+	Slug          string            `json:"slug"`
+	Title         string            `json:"title"`
+	Body          string            `json:"body,omitempty"`
+	Author        WikiAuthorSummary `json:"author"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
 }
 
 // WikiRevisionResponse represents a single historical revision of a wiki page.
 type WikiRevisionResponse struct {
+	Visibility      string            `json:"visibility"`
+	Path            string            `json:"path"`
+	ContentDigest   string            `json:"content_digest"`
 	Revision        int64             `json:"revision"`
 	Body            string            `json:"body"`
 	Deleted         bool              `json:"deleted"`
@@ -55,12 +61,14 @@ type ListWikiPagesInput struct {
 }
 
 type CreateWikiPageInput struct {
+	Path  string `json:"path,omitempty"`
 	Title string `json:"title"`
 	Slug  string `json:"slug,omitempty"`
 	Body  string `json:"body"`
 }
 
 type UpdateWikiPageInput struct {
+	Path             *string `json:"path,omitempty"`
 	ExpectedRevision *int64  `json:"expected_revision,omitempty"`
 	Title            *string `json:"title,omitempty"`
 	Slug             *string `json:"slug,omitempty"`
@@ -73,7 +81,7 @@ type WikiQuerier interface {
 	GetHighestTeamPermissionForRepoUser(ctx context.Context, arg db.GetHighestTeamPermissionForRepoUserParams) (string, error)
 	GetCollaboratorPermissionForRepoUser(ctx context.Context, arg db.GetCollaboratorPermissionForRepoUserParams) (string, error)
 
-	CountWikiPagesByRepo(ctx context.Context, repositoryID int64) (int64, error)
+	CountWikiPagesByRepo(ctx context.Context, arg db.CountWikiPagesByRepoParams) (int64, error)
 	ListWikiPagesByRepo(ctx context.Context, arg db.ListWikiPagesByRepoParams) ([]db.ListWikiPagesByRepoRow, error)
 	CountSearchWikiPagesByRepo(ctx context.Context, arg db.CountSearchWikiPagesByRepoParams) (int64, error)
 	SearchWikiPagesByRepo(ctx context.Context, arg db.SearchWikiPagesByRepoParams) ([]db.SearchWikiPagesByRepoRow, error)
@@ -117,14 +125,14 @@ func (s *WikiService) ListWikiPages(ctx context.Context, viewer *db.User, owner,
 	pageSize, pageOffset, _, _ := normalizePage(input.Page, input.PerPage)
 	query := strings.TrimSpace(input.Query)
 	if query == "" {
-		total, err := s.queries.CountWikiPagesByRepo(ctx, repository.ID)
+		total, err := s.queries.CountWikiPagesByRepo(ctx, db.CountWikiPagesByRepoParams{RepositoryID: repository.ID, Visibility: wikiVisibility(ctx)})
 		if err != nil {
 			return nil, 0, pkgerrors.Internal("failed to count wiki pages").WithCause(err)
 		}
 		rows, err := s.queries.ListWikiPagesByRepo(ctx, db.ListWikiPagesByRepoParams{
-			RepositoryID: repository.ID,
-			Limit:        pageSize,
-			Offset:       pageOffset,
+			RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+			Limit:  pageSize,
+			Offset: pageOffset,
 		})
 		if err != nil {
 			return nil, 0, pkgerrors.Internal("failed to list wiki pages").WithCause(err)
@@ -133,17 +141,17 @@ func (s *WikiService) ListWikiPages(ctx context.Context, viewer *db.User, owner,
 	}
 
 	total, err := s.queries.CountSearchWikiPagesByRepo(ctx, db.CountSearchWikiPagesByRepoParams{
-		RepositoryID: repository.ID,
-		Query:        query,
+		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+		Query: query,
 	})
 	if err != nil {
 		return nil, 0, pkgerrors.Internal("failed to count wiki pages").WithCause(err)
 	}
 	rows, err := s.queries.SearchWikiPagesByRepo(ctx, db.SearchWikiPagesByRepoParams{
-		RepositoryID: repository.ID,
-		Query:        query,
-		PageSize:     pageSize,
-		PageOffset:   pageOffset,
+		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+		Query:      query,
+		PageSize:   pageSize,
+		PageOffset: pageOffset,
 	})
 	if err != nil {
 		return nil, 0, pkgerrors.Internal("failed to search wiki pages").WithCause(err)
@@ -166,8 +174,8 @@ func (s *WikiService) GetWikiPage(ctx context.Context, viewer *db.User, owner, r
 	}
 
 	page, err := s.queries.GetWikiPageBySlug(ctx, db.GetWikiPageBySlugParams{
-		RepositoryID: repository.ID,
-		Slug:         normalizedSlug,
+		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+		Slug: normalizedSlug,
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -208,12 +216,16 @@ func (s *WikiService) CreateWikiPage(ctx context.Context, actor *db.User, owner,
 		return WikiPageResponse{}, err
 	}
 
+	pagePath, err := normalizeWikiPath(input.Path, slug)
+	if err != nil {
+		return WikiPageResponse{}, err
+	}
 	created, err := s.queries.CreateWikiPage(ctx, db.CreateWikiPageParams{
-		RepositoryID: repository.ID,
-		Slug:         slug,
-		Title:        title,
-		Body:         input.Body,
-		AuthorID:     actor.ID,
+		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+		Slug:     slug,
+		Title:    title,
+		Body:     input.Body,
+		AuthorID: actor.ID, Path: pagePath,
 	})
 	if err != nil {
 		if isWikiPageConflict(err) {
@@ -242,8 +254,8 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 	}
 
 	existing, err := s.queries.GetWikiPageBySlug(ctx, db.GetWikiPageBySlugParams{
-		RepositoryID: repository.ID,
-		Slug:         currentSlug,
+		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+		Slug: currentSlug,
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -255,7 +267,7 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 	if input.ExpectedRevision != nil && *input.ExpectedRevision != existing.Revision {
 		return WikiPageResponse{}, pkgerrors.Conflict("wiki changed; expected_revision does not match")
 	}
-	if input.Title == nil && input.Slug == nil && input.Body == nil {
+	if input.Title == nil && input.Slug == nil && input.Body == nil && input.Path == nil {
 		return WikiPageResponse{}, pkgerrors.BadRequest("at least one field must be provided")
 	}
 
@@ -275,6 +287,13 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 		}
 	}
 
+	nextPath := existing.Path
+	if input.Path != nil {
+		nextPath, err = normalizeWikiPath(*input.Path, nextSlug)
+		if err != nil {
+			return WikiPageResponse{}, err
+		}
+	}
 	nextBody := existing.Body
 	if input.Body != nil {
 		if len(*input.Body) > maxWikiBodyBytes {
@@ -288,7 +307,7 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 	}
 
 	if s.documents != nil {
-		response, handled, err := s.replaceCollaborativeWikiPage(ctx, actor, owner, repo, existing.ID, repository.ID, currentSlug, nextSlug, nextTitle, input)
+		response, handled, err := s.replaceCollaborativeWikiPage(ctx, actor, owner, repo, existing.ID, repository.ID, currentSlug, nextSlug, nextTitle, nextPath, input)
 		if handled || err != nil {
 			if err == nil {
 				s.dispatchWikiEvent(ctx, repository, actor, "updated", response)
@@ -298,11 +317,11 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 	}
 	updated, err := s.queries.UpdateWikiPage(ctx, db.UpdateWikiPageParams{
 		ID:               existing.ID,
-		ExpectedRevision: existing.Revision,
-		Slug:             nextSlug,
-		Title:            nextTitle,
-		Body:             nextBody,
-		AuthorID:         actor.ID,
+		ExpectedRevision: existing.Revision, Path: nextPath,
+		Slug:     nextSlug,
+		Title:    nextTitle,
+		Body:     nextBody,
+		AuthorID: actor.ID,
 	})
 	if err != nil {
 		if isWikiPageConflict(err) {
@@ -345,8 +364,8 @@ func (s *WikiService) deleteWikiPage(ctx context.Context, actor *db.User, owner,
 	}
 
 	existing, err := s.queries.GetWikiPageBySlug(ctx, db.GetWikiPageBySlugParams{
-		RepositoryID: repository.ID,
-		Slug:         normalizedSlug,
+		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+		Slug: normalizedSlug,
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -386,7 +405,7 @@ func mapListedWikiPages(rows []db.ListWikiPagesByRepoRow) []WikiPageResponse {
 	items := make([]WikiPageResponse, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, WikiPageResponse{
-			ID:       row.ID,
+			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest,
 			Revision: row.Revision,
 			Slug:     row.Slug,
 			Title:    row.Title,
@@ -405,7 +424,7 @@ func mapSearchedWikiPages(rows []db.SearchWikiPagesByRepoRow) []WikiPageResponse
 	items := make([]WikiPageResponse, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, WikiPageResponse{
-			ID:       row.ID,
+			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest,
 			Revision: row.Revision,
 			Slug:     row.Slug,
 			Title:    row.Title,
@@ -422,7 +441,7 @@ func mapSearchedWikiPages(rows []db.SearchWikiPagesByRepoRow) []WikiPageResponse
 
 func mapWikiPage(row db.GetWikiPageBySlugRow) WikiPageResponse {
 	return WikiPageResponse{
-		ID:       row.ID,
+		ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest,
 		Revision: row.Revision,
 		Slug:     row.Slug,
 		Title:    row.Title,
@@ -438,7 +457,7 @@ func mapWikiPage(row db.GetWikiPageBySlugRow) WikiPageResponse {
 
 func mapWikiPageRecord(page db.WikiPage, authorUsername string) WikiPageResponse {
 	return WikiPageResponse{
-		ID:       page.ID,
+		ID: page.ID, Visibility: page.Visibility, Path: page.Path, ContentDigest: page.ContentDigest,
 		Revision: page.Revision,
 		Slug:     page.Slug,
 		Title:    page.Title,
@@ -453,7 +472,7 @@ func mapWikiPageRecord(page db.WikiPage, authorUsername string) WikiPageResponse
 }
 
 func (s *WikiService) dispatchWikiEvent(ctx context.Context, repository db.Repository, actor *db.User, action string, page WikiPageResponse) {
-	if s.dispatcher == nil {
+	if s.dispatcher == nil || wikiVisibility(ctx) == "private" {
 		return
 	}
 
@@ -503,12 +522,13 @@ func (s *WikiService) resolveRepoByOwnerAndName(ctx context.Context, owner, repo
 }
 
 func (s *WikiService) requireReadAccess(ctx context.Context, repository db.Repository, viewer *db.User) error {
-	if repository.IsPublic {
+	if repository.IsPublic && wikiVisibility(ctx) == "public" {
 		return nil
 	}
 	if viewer == nil {
 		return pkgerrors.Forbidden("permission denied")
 	}
+	repository.IsPublic = false // Private scope requires explicit membership, never incidental public read.
 	allowed, err := s.canReadRepo(ctx, repository, viewer.ID)
 	if err != nil {
 		return err
@@ -626,8 +646,8 @@ func (s *WikiService) ListWikiRevisions(ctx context.Context, viewer *db.User, ow
 	}
 
 	current, err := s.queries.GetWikiPageBySlug(ctx, db.GetWikiPageBySlugParams{
-		RepositoryID: repository.ID,
-		Slug:         normalizedSlug,
+		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
+		Slug: normalizedSlug,
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
@@ -650,7 +670,7 @@ func (s *WikiService) ListWikiRevisions(ctx context.Context, viewer *db.User, ow
 	}
 	revisions := make([]WikiRevisionResponse, 0, len(rows))
 	for _, row := range rows {
-		revisions = append(revisions, WikiRevisionResponse{ID: row.ID, Revision: row.Revision, Slug: row.Slug, Title: row.Title,
+		revisions = append(revisions, WikiRevisionResponse{ID: row.ID, Revision: row.Revision, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Slug: row.Slug, Title: row.Title,
 			Body: row.Body, Deleted: row.Deleted, HistoryCommitID: row.HistoryCommitID,
 			Author: WikiAuthorSummary{ID: row.AuthorID.Int64, Login: row.AuthorUsername}, UpdatedAt: row.CreatedAt})
 	}

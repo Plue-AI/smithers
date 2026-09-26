@@ -52,14 +52,15 @@ func (q *Queries) DeleteWikiPageAsActor(ctx context.Context, arg DeleteWikiPageA
 }
 
 const getWikiDocument = `-- name: GetWikiDocument :one
-SELECT wp.id, wp.repository_id, wp.slug, wp.title, wp.body, wp.author_id, wp.created_at, wp.updated_at, wp.revision, wp.crdt_state, wp.crdt_vector, wp.last_update_id, wp.last_update, u.username AS author_username
+SELECT wp.id, wp.repository_id, wp.slug, wp.title, wp.body, wp.author_id, wp.created_at, wp.updated_at, wp.revision, wp.crdt_state, wp.crdt_vector, wp.last_update_id, wp.last_update, wp.visibility, wp.path, wp.content_digest, u.username AS author_username
 FROM wiki_pages wp JOIN users u ON u.id = wp.author_id
-WHERE wp.repository_id = $1 AND wp.slug = $2
+WHERE wp.repository_id = $1 AND wp.slug = $2 AND wp.visibility = coalesce(nullif($3::text,''),'public')
 `
 
 type GetWikiDocumentParams struct {
 	RepositoryID int64  `json:"repository_id"`
 	Slug         string `json:"slug"`
+	Visibility   string `json:"visibility"`
 }
 
 type GetWikiDocumentRow struct {
@@ -76,11 +77,14 @@ type GetWikiDocumentRow struct {
 	CrdtVector     []byte      `json:"crdt_vector"`
 	LastUpdateID   pgtype.UUID `json:"last_update_id"`
 	LastUpdate     []byte      `json:"last_update"`
+	Visibility     string      `json:"visibility"`
+	Path           string      `json:"path"`
+	ContentDigest  string      `json:"content_digest"`
 	AuthorUsername string      `json:"author_username"`
 }
 
 func (q *Queries) GetWikiDocument(ctx context.Context, arg GetWikiDocumentParams) (GetWikiDocumentRow, error) {
-	row := q.db.QueryRow(ctx, getWikiDocument, arg.RepositoryID, arg.Slug)
+	row := q.db.QueryRow(ctx, getWikiDocument, arg.RepositoryID, arg.Slug, arg.Visibility)
 	var i GetWikiDocumentRow
 	err := row.Scan(
 		&i.ID,
@@ -96,6 +100,9 @@ func (q *Queries) GetWikiDocument(ctx context.Context, arg GetWikiDocumentParams
 		&i.CrdtVector,
 		&i.LastUpdateID,
 		&i.LastUpdate,
+		&i.Visibility,
+		&i.Path,
+		&i.ContentDigest,
 		&i.AuthorUsername,
 	)
 	return i, err
@@ -103,13 +110,14 @@ func (q *Queries) GetWikiDocument(ctx context.Context, arg GetWikiDocumentParams
 
 const getWikiPageIdentity = `-- name: GetWikiPageIdentity :one
 SELECT page_id, slug FROM wiki_page_revisions
-WHERE repository_id = $1 AND page_id = $2 AND slug = $3 ORDER BY revision DESC LIMIT 1
+WHERE repository_id = $1 AND page_id = $2 AND slug = $3 AND visibility = coalesce(nullif($4::text,''),'public') ORDER BY revision DESC LIMIT 1
 `
 
 type GetWikiPageIdentityParams struct {
 	RepositoryID int64  `json:"repository_id"`
 	PageID       int64  `json:"page_id"`
 	Slug         string `json:"slug"`
+	Visibility   string `json:"visibility"`
 }
 
 type GetWikiPageIdentityRow struct {
@@ -118,14 +126,19 @@ type GetWikiPageIdentityRow struct {
 }
 
 func (q *Queries) GetWikiPageIdentity(ctx context.Context, arg GetWikiPageIdentityParams) (GetWikiPageIdentityRow, error) {
-	row := q.db.QueryRow(ctx, getWikiPageIdentity, arg.RepositoryID, arg.PageID, arg.Slug)
+	row := q.db.QueryRow(ctx, getWikiPageIdentity,
+		arg.RepositoryID,
+		arg.PageID,
+		arg.Slug,
+		arg.Visibility,
+	)
 	var i GetWikiPageIdentityRow
 	err := row.Scan(&i.PageID, &i.Slug)
 	return i, err
 }
 
 const getWikiUpdateReceipt = `-- name: GetWikiUpdateReceipt :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at FROM wiki_page_revisions WHERE page_id = $1 AND update_id = $2
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest FROM wiki_page_revisions WHERE page_id = $1 AND update_id = $2
 `
 
 type GetWikiUpdateReceiptParams struct {
@@ -151,6 +164,9 @@ func (q *Queries) GetWikiUpdateReceipt(ctx context.Context, arg GetWikiUpdateRec
 		&i.Deleted,
 		&i.HistoryCommitID,
 		&i.CreatedAt,
+		&i.Visibility,
+		&i.Path,
+		&i.ContentDigest,
 	)
 	return i, err
 }
@@ -184,7 +200,7 @@ func (q *Queries) InitializeWikiDocument(ctx context.Context, arg InitializeWiki
 }
 
 const listWikiHistoryPending = `-- name: ListWikiHistoryPending :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at FROM wiki_page_revisions WHERE repository_id = $1 AND history_commit_id = ''
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest FROM wiki_page_revisions WHERE repository_id = $1 AND history_commit_id = ''
 ORDER BY id LIMIT $2
 `
 
@@ -217,6 +233,9 @@ func (q *Queries) ListWikiHistoryPending(ctx context.Context, arg ListWikiHistor
 			&i.Deleted,
 			&i.HistoryCommitID,
 			&i.CreatedAt,
+			&i.Visibility,
+			&i.Path,
+			&i.ContentDigest,
 		); err != nil {
 			return nil, err
 		}
@@ -229,11 +248,11 @@ func (q *Queries) ListWikiHistoryPending(ctx context.Context, arg ListWikiHistor
 }
 
 const listWikiHistoryRecovery = `-- name: ListWikiHistoryRecovery :many
-SELECT wr.id, wr.repository_id, wr.page_id, wr.revision, wr.slug, wr.title, wr.body, wr.author_id, wr.author_username, wr.update_id, wr.update_bytes, wr.deleted, wr.history_commit_id, wr.created_at, ns.lower_slug AS owner_name, r.name AS repo_name
+SELECT wr.id, wr.repository_id, wr.page_id, wr.revision, wr.slug, wr.title, wr.body, wr.author_id, wr.author_username, wr.update_id, wr.update_bytes, wr.deleted, wr.history_commit_id, wr.created_at, wr.visibility, wr.path, wr.content_digest, ns.lower_slug AS owner_name, r.name AS repo_name
 FROM wiki_page_revisions wr JOIN repositories r ON r.id = wr.repository_id
 JOIN owner_namespaces ns ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
  OR (ns.owner_type = 'org' AND ns.org_id = r.org_id)
-WHERE wr.history_commit_id = '' AND NOT EXISTS (
+WHERE wr.visibility = 'public' AND wr.history_commit_id = '' AND NOT EXISTS (
  SELECT 1 FROM wiki_page_revisions prior
  WHERE prior.page_id = wr.page_id AND prior.revision < wr.revision AND prior.history_commit_id = ''
 )
@@ -255,6 +274,9 @@ type ListWikiHistoryRecoveryRow struct {
 	Deleted         bool        `json:"deleted"`
 	HistoryCommitID string      `json:"history_commit_id"`
 	CreatedAt       time.Time   `json:"created_at"`
+	Visibility      string      `json:"visibility"`
+	Path            string      `json:"path"`
+	ContentDigest   string      `json:"content_digest"`
 	OwnerName       string      `json:"owner_name"`
 	RepoName        string      `json:"repo_name"`
 }
@@ -283,6 +305,9 @@ func (q *Queries) ListWikiHistoryRecovery(ctx context.Context, limit int32) ([]L
 			&i.Deleted,
 			&i.HistoryCommitID,
 			&i.CreatedAt,
+			&i.Visibility,
+			&i.Path,
+			&i.ContentDigest,
 			&i.OwnerName,
 			&i.RepoName,
 		); err != nil {
@@ -297,7 +322,7 @@ func (q *Queries) ListWikiHistoryRecovery(ctx context.Context, limit int32) ([]L
 }
 
 const listWikiRevisions = `-- name: ListWikiRevisions :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at FROM wiki_page_revisions WHERE repository_id = $1 AND page_id = $2
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest FROM wiki_page_revisions WHERE repository_id = $1 AND page_id = $2
 ORDER BY revision DESC LIMIT $3 OFFSET $4
 `
 
@@ -337,6 +362,9 @@ func (q *Queries) ListWikiRevisions(ctx context.Context, arg ListWikiRevisionsPa
 			&i.Deleted,
 			&i.HistoryCommitID,
 			&i.CreatedAt,
+			&i.Visibility,
+			&i.Path,
+			&i.ContentDigest,
 		); err != nil {
 			return nil, err
 		}
@@ -349,7 +377,7 @@ func (q *Queries) ListWikiRevisions(ctx context.Context, arg ListWikiRevisionsPa
 }
 
 const listWikiUpdatesAfter = `-- name: ListWikiUpdatesAfter :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at FROM wiki_page_revisions
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest FROM wiki_page_revisions
 WHERE repository_id = $1 AND page_id = $2 AND revision > $3
 ORDER BY revision LIMIT $4
 `
@@ -390,6 +418,9 @@ func (q *Queries) ListWikiUpdatesAfter(ctx context.Context, arg ListWikiUpdatesA
 			&i.Deleted,
 			&i.HistoryCommitID,
 			&i.CreatedAt,
+			&i.Visibility,
+			&i.Path,
+			&i.ContentDigest,
 		); err != nil {
 			return nil, err
 		}
@@ -442,14 +473,15 @@ func (q *Queries) MarkWikiHistoryProjected(ctx context.Context, arg MarkWikiHist
 
 const writeWikiDocument = `-- name: WriteWikiDocument :one
 UPDATE wiki_pages
-SET body = $1, crdt_state = $2, crdt_vector = $3,
-    last_update_id = $4, last_update = $5,
-    author_id = $6, title = $7, slug = $8, updated_at = NOW()
-WHERE id = $9 AND repository_id = $10 AND revision = $11
-RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update
+SET path = $1, body = $2, crdt_state = $3, crdt_vector = $4,
+    last_update_id = $5, last_update = $6,
+    author_id = $7, title = $8, slug = $9, updated_at = NOW()
+WHERE id = $10 AND repository_id = $11 AND revision = $12
+RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest
 `
 
 type WriteWikiDocumentParams struct {
+	Path             string      `json:"path"`
 	Body             string      `json:"body"`
 	CrdtState        []byte      `json:"crdt_state"`
 	CrdtVector       []byte      `json:"crdt_vector"`
@@ -465,6 +497,7 @@ type WriteWikiDocumentParams struct {
 
 func (q *Queries) WriteWikiDocument(ctx context.Context, arg WriteWikiDocumentParams) (WikiPage, error) {
 	row := q.db.QueryRow(ctx, writeWikiDocument,
+		arg.Path,
 		arg.Body,
 		arg.CrdtState,
 		arg.CrdtVector,
@@ -492,6 +525,9 @@ func (q *Queries) WriteWikiDocument(ctx context.Context, arg WriteWikiDocumentPa
 		&i.CrdtVector,
 		&i.LastUpdateID,
 		&i.LastUpdate,
+		&i.Visibility,
+		&i.Path,
+		&i.ContentDigest,
 	)
 	return i, err
 }

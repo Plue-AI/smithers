@@ -84,9 +84,9 @@ func (m *mockWikiQuerier) GetCollaboratorPermissionForRepoUser(ctx context.Conte
 	return "", nil
 }
 
-func (m *mockWikiQuerier) CountWikiPagesByRepo(ctx context.Context, repositoryID int64) (int64, error) {
+func (m *mockWikiQuerier) CountWikiPagesByRepo(ctx context.Context, arg db.CountWikiPagesByRepoParams) (int64, error) {
 	if m.countWikiPagesByRepoFn != nil {
-		return m.countWikiPagesByRepoFn(ctx, repositoryID)
+		return m.countWikiPagesByRepoFn(ctx, arg.RepositoryID)
 	}
 	return 0, nil
 }

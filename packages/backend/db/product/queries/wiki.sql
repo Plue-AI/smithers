@@ -1,7 +1,7 @@
 -- name: CountWikiPagesByRepo :one
 SELECT COUNT(*)
 FROM wiki_pages
-WHERE repository_id = $1;
+WHERE repository_id = $1 AND visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public');
 
 -- name: ListWikiPagesByRepo :many
 SELECT
@@ -14,17 +14,18 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
+    wp.visibility, wp.path, wp.content_digest,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
-WHERE wp.repository_id = $1
+WHERE wp.repository_id = $1 AND wp.visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public')
 ORDER BY wp.updated_at DESC, wp.id DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CountSearchWikiPagesByRepo :one
 SELECT COUNT(*)
 FROM wiki_pages
-WHERE repository_id = sqlc.arg(repository_id)
+WHERE repository_id = sqlc.arg(repository_id) AND visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public')
   AND (
     strpos(lower(title), lower(sqlc.arg(query)::text)) > 0
     OR strpos(lower(slug), lower(sqlc.arg(query)::text)) > 0
@@ -42,10 +43,11 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
+    wp.visibility, wp.path, wp.content_digest,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
-WHERE wp.repository_id = sqlc.arg(repository_id)
+WHERE wp.repository_id = sqlc.arg(repository_id) AND wp.visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public')
   AND (
     strpos(lower(wp.title), lower(sqlc.arg(query)::text)) > 0
     OR strpos(lower(wp.slug), lower(sqlc.arg(query)::text)) > 0
@@ -74,19 +76,20 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
+    wp.visibility, wp.path, wp.content_digest,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
-WHERE wp.repository_id = $1 AND wp.slug = $2;
+WHERE wp.repository_id = $1 AND wp.visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public') AND wp.slug = $2;
 
 -- name: CreateWikiPage :one
-INSERT INTO wiki_pages (repository_id, slug, title, body, author_id)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO wiki_pages (repository_id, slug, title, body, author_id, visibility, path)
+VALUES ($1, $2, $3, $4, $5, coalesce(nullif(sqlc.arg(visibility)::text,''),'public'), sqlc.arg(path))
 RETURNING *;
 
 -- name: UpdateWikiPage :one
 UPDATE wiki_pages
-SET slug = $2,
+SET path = sqlc.arg(path), slug = $2,
     title = $3,
     body = $4,
     author_id = $5,
@@ -100,3 +103,9 @@ RETURNING *;
 DELETE FROM wiki_pages
 WHERE id = sqlc.arg(id)
   AND (sqlc.narg(expected_revision)::bigint IS NULL OR revision = sqlc.narg(expected_revision));
+
+-- name: ListWikiIndex :many
+SELECT wp.*, u.username AS author_username
+FROM wiki_pages wp JOIN users u ON u.id = wp.author_id
+WHERE wp.repository_id = $1 AND wp.visibility = sqlc.arg(visibility)
+ORDER BY wp.id;

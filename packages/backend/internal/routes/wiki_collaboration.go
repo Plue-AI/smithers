@@ -40,6 +40,11 @@ func wikiAddress(r *http.Request) (string, string, string, error) {
 }
 
 func (h *WikiCollaborationHandler) Document(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	owner, repo, slug, err := wikiAddress(r)
 	if err != nil {
 		writeRouteError(w, r, err)
@@ -55,6 +60,11 @@ func (h *WikiCollaborationHandler) Document(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *WikiCollaborationHandler) Apply(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	actor, err := requireRouteUser(r)
 	if err != nil {
 		writeRouteError(w, r, err)
@@ -106,6 +116,11 @@ func wikiCursor(r *http.Request) (int64, int64, error) {
 }
 
 func (h *WikiCollaborationHandler) Updates(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	owner, repo, slug, err := wikiAddress(r)
 	if err != nil {
 		writeRouteError(w, r, err)
@@ -142,6 +157,11 @@ func wikiSubscribeError(err error) *pkgerrors.APIError {
 // committed per-page revision stream, so reconnect/replay cannot skip an
 // in-flight transaction or regress its cursor with a buffered duplicate.
 func (h *WikiCollaborationHandler) Stream(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	actor, err := requireRouteUser(r)
 	if err != nil {
 		writeRouteError(w, r, err)

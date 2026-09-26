@@ -25,12 +25,14 @@ type WikiHandler struct {
 }
 
 type createWikiPageRequest struct {
+	Path  string `json:"path,omitempty"`
 	Title string `json:"title"`
 	Slug  string `json:"slug,omitempty"`
 	Body  string `json:"body"`
 }
 
 type patchWikiPageRequest struct {
+	Path             *string `json:"path,omitempty"`
 	ExpectedRevision *int64  `json:"expected_revision,omitempty"`
 	Title            *string `json:"title,omitempty"`
 	Slug             *string `json:"slug,omitempty"`
@@ -66,6 +68,11 @@ func ListWikiRevisions(svc WikiService) http.HandlerFunc {
 }
 
 func (h *WikiHandler) ListWikiPages(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	owner, repo, err := repoOwnerAndName(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
@@ -92,6 +99,11 @@ func (h *WikiHandler) ListWikiPages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WikiHandler) GetWikiPage(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	owner, repo, err := repoOwnerAndName(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
@@ -113,6 +125,11 @@ func (h *WikiHandler) GetWikiPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WikiHandler) CreateWikiPage(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	actor, err := requireRouteUser(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
@@ -130,9 +147,9 @@ func (h *WikiHandler) CreateWikiPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, svcErr := h.Service.CreateWikiPage(r.Context(), actor, owner, repo, services.CreateWikiPageInput{
-		Title: req.Title,
-		Slug:  req.Slug,
-		Body:  req.Body,
+		Title: req.Title, Path: req.Path,
+		Slug: req.Slug,
+		Body: req.Body,
 	})
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)
@@ -143,6 +160,11 @@ func (h *WikiHandler) CreateWikiPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WikiHandler) PatchWikiPage(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	actor, err := requireRouteUser(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
@@ -165,10 +187,10 @@ func (h *WikiHandler) PatchWikiPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated, svcErr := h.Service.UpdateWikiPage(r.Context(), actor, owner, repo, slug, services.UpdateWikiPageInput{
-		ExpectedRevision: req.ExpectedRevision,
-		Title:            req.Title,
-		Slug:             req.Slug,
-		Body:             req.Body,
+		ExpectedRevision: req.ExpectedRevision, Path: req.Path,
+		Title: req.Title,
+		Slug:  req.Slug,
+		Body:  req.Body,
 	})
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)
@@ -179,6 +201,11 @@ func (h *WikiHandler) PatchWikiPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WikiHandler) DeleteWikiPage(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	actor, err := requireRouteUser(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
@@ -207,6 +234,11 @@ func (h *WikiHandler) DeleteWikiPage(w http.ResponseWriter, r *http.Request) {
 // It requires a non-empty query parameter and returns matching pages with
 // pagination headers.
 func (h *WikiHandler) SearchWikiPages(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	owner, repo, err := repoOwnerAndName(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
@@ -239,6 +271,11 @@ func (h *WikiHandler) SearchWikiPages(w http.ResponseWriter, r *http.Request) {
 
 // ListWikiRevisions handles GET /repos/{owner}/{repo}/wiki/{slug}/revisions
 func (h *WikiHandler) ListWikiRevisions(w http.ResponseWriter, r *http.Request) {
+	var scopeOK bool
+	r, scopeOK = wikiScopeRequest(w, r)
+	if !scopeOK {
+		return
+	}
 	owner, repo, err := repoOwnerAndName(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))

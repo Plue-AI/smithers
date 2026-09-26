@@ -1,0 +1,103 @@
+package services
+
+import (
+	"context"
+	"testing"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/stretchr/testify/require"
+)
+
+func TestWikiProduct_PostgresScopesAndGraph(t *testing.T) {
+	ctx := context.Background()
+	pool := getAgentTestPool(t)
+	q := db.New(pool)
+	actorID, repoID := setupTestUserAndRepo(t, pool)
+	actor, err := q.GetUserByID(ctx, actorID)
+	require.NoError(t, err)
+	repo, err := q.GetRepoByID(ctx, repoID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE repositories SET is_public=true WHERE id=$1`, repoID)
+	require.NoError(t, err)
+	outsiderID, _ := setupTestUserAndRepo(t, pool)
+	outsider, err := q.GetUserByID(ctx, outsiderID)
+	require.NoError(t, err)
+	s := NewWikiService(q, nil, WithWikiCollaboration(q, nil))
+	private, err := WithWikiVisibility(ctx, "private")
+	require.NoError(t, err)
+	markdown := "---\naliases: [Start]\ntags: [guide]\ncustom: preserved\n---\n# Welcome\n[[Target#Details|read]] ![[Target]] #hello\n`[[Ignored]]`\n```md\n[[Ignored]]\n```\n"
+	public, err := s.CreateWikiPage(ctx, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Home", Path: "Guides/Home.md", Body: markdown})
+	require.NoError(t, err)
+	secret, err := s.CreateWikiPage(private, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Home", Path: "Guides/Home.md", Body: "secret private text"})
+	require.NoError(t, err)
+	require.NotEqual(t, public.ID, secret.ID)
+	target, err := s.CreateWikiPage(ctx, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Target", Path: "Guides/Target.md", Body: "# Details"})
+	require.NoError(t, err)
+	for _, viewer := range []*db.User{nil, &outsider} {
+		_, err = s.GetWikiPage(private, viewer, actor.Username, repo.Name, "home")
+		require.Equal(t, 403, apiStatus(t, err))
+		_, _, err = s.ListWikiPages(private, viewer, actor.Username, repo.Name, ListWikiPagesInput{Query: "secret"})
+		require.Equal(t, 403, apiStatus(t, err))
+		_, err = s.GetWikiIndex(private, viewer, actor.Username, repo.Name)
+		require.Equal(t, 403, apiStatus(t, err))
+		_, _, err = s.ListWikiRevisions(private, viewer, actor.Username, repo.Name, "home", 1, 100)
+		require.Equal(t, 403, apiStatus(t, err))
+		_, err = s.GetWikiDocument(private, viewer, actor.Username, repo.Name, "home")
+		require.Equal(t, 403, apiStatus(t, err))
+		_, err = s.ListWikiUpdates(private, viewer, actor.Username, repo.Name, "home", secret.ID, 0)
+		require.Equal(t, 403, apiStatus(t, err))
+	}
+	got, err := s.GetWikiPage(ctx, nil, actor.Username, repo.Name, "home")
+	require.NoError(t, err)
+	require.Equal(t, markdown, got.Body)
+	require.Len(t, got.ContentDigest, 64)
+	_, _, err = s.ListWikiPages(ctx, nil, actor.Username, repo.Name, ListWikiPagesInput{Query: "secret"})
+	require.NoError(t, err)
+	pages, total, err := s.ListWikiPages(ctx, nil, actor.Username, repo.Name, ListWikiPagesInput{Query: "secret"})
+	require.NoError(t, err)
+	require.Empty(t, pages)
+	require.Zero(t, total)
+	// A public scope cursor cannot smuggle a private identity, even for the owner.
+	_, err = s.ListWikiUpdates(ctx, &actor, actor.Username, repo.Name, "home", secret.ID, 0)
+	require.Equal(t, 404, apiStatus(t, err))
+	index, err := s.GetWikiIndex(ctx, nil, actor.Username, repo.Name)
+	require.NoError(t, err)
+	require.Len(t, index.Pages, 2)
+	require.Equal(t, []string{"Guides"}, index.Folders)
+	require.Equal(t, []string{"guide", "hello"}, index.Tags)
+	require.Len(t, index.Pages[0].Metadata.Links, 2)
+	require.Equal(t, target.ID, *index.Pages[0].Metadata.Links[0].PageID)
+	require.Equal(t, "Details", index.Pages[0].Metadata.Links[0].Heading)
+	require.Equal(t, "read", index.Pages[0].Metadata.Links[0].Alias)
+	require.Len(t, index.Pages[1].Backlinks, 2)
+	moved := "Reference/Target.md"
+	updated, err := s.UpdateWikiPage(ctx, &actor, actor.Username, repo.Name, target.Slug, UpdateWikiPageInput{Path: &moved, ExpectedRevision: &target.Revision})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), updated.Revision)
+	history, total, err := s.ListWikiRevisions(ctx, nil, actor.Username, repo.Name, target.Slug, 1, 100)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	require.Equal(t, "Guides/Target.md", history[1].Path)
+	require.Equal(t, moved, history[0].Path)
+	require.NoError(t, s.DeleteWikiPage(private, &actor, actor.Username, repo.Name, secret.Slug))
+	events, err := s.ListWikiUpdates(private, &actor, actor.Username, repo.Name, secret.Slug, secret.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	require.True(t, events[1].Deleted)
+	recovery, err := q.ListWikiHistoryRecovery(ctx, 1000)
+	require.NoError(t, err)
+	for _, row := range recovery {
+		require.NotEqual(t, secret.ID, row.PageID)
+	}
+	// Explicit read collaborator gains private read, but cannot edit.
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'read')`, repoID, outsiderID)
+	require.NoError(t, err)
+	_, err = s.GetWikiIndex(private, &outsider, actor.Username, repo.Name)
+	require.NoError(t, err)
+	_, err = s.CreateWikiPage(private, &outsider, actor.Username, repo.Name, CreateWikiPageInput{Title: "No"})
+	require.Equal(t, 403, apiStatus(t, err))
+	_, err = s.CreateWikiPage(ctx, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Collision", Path: "guides/HOME.md"})
+	require.Equal(t, 409, apiStatus(t, err))
+	_, err = s.CreateWikiPage(ctx, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Traversal", Path: "../Home.md"})
+	require.Equal(t, 400, apiStatus(t, err))
+}
