@@ -61,3 +61,9 @@ export * as Source from "./telegram/Source.ts"
  * @since 1.0.0
  */
 export * as TelegramClient from "./telegram/TelegramClient.ts"
+
+/**
+ * @category constructors
+ * @since 1.0.0
+ */
+export * as IssueSync from "./telegram/IssueSync.ts"

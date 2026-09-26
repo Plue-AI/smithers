@@ -2961,6 +2961,9 @@ importers:
       '@smthrs/notifications':
         specifier: 1.0.0-rc.1
         version: link:../../notifications
+      '@smthrs/plan':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/plan
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2

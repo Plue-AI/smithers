@@ -10,8 +10,10 @@
  * @since 1.0.0
  */
 import { Action, type FlowRuntime } from "@smthrs/flow"
-import { Effect, type Layer, Schema } from "effect"
-import { fromIntegrationError, IntegrationFailure } from "../core/ActionFailure.ts"
+import { Effect, type Layer, Layer as Layers, Schema } from "effect"
+import { fromIntegrationError, IntegrationFailure, MessageId } from "../core/ActionFailure.ts"
+import type { IntegrationError } from "../core/IntegrationError.ts"
+import { chunk } from "./Chunk.ts"
 import { TelegramClient, toIntegrationError } from "./TelegramClient.ts"
 
 /**
@@ -42,7 +44,7 @@ export const SendMessagePayload = Schema.Struct({
  */
 export const Sent = Schema.Struct({
   chatId: Schema.String,
-  messageIds: Schema.Array(Schema.Number),
+  messageIds: Schema.Array(MessageId),
   chunkCount: Schema.Number,
   usedPlainTextFallback: Schema.Boolean
 })
@@ -114,3 +116,121 @@ export const layer: Layer.Layer<
   never,
   TelegramClient | FlowRuntime.FlowRuntime
 > = layerSendMessage
+
+/** Connection-scoped payload for issue sync. Credentials resolve at dispatch.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const IssueMessagePayload = Schema.Struct({
+  connectionId: Schema.String,
+  chatId: Schema.String,
+  text: Schema.String,
+  messageThreadId: Schema.optional(MessageId),
+  messageIds: Schema.Array(MessageId)
+})
+/** External identities retained for every chunk.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const IssueMessageResult = Schema.Struct({ messageIds: Schema.Array(MessageId) })
+/** Send a comment using the existing chunked send path.
+ * @category actions
+ * @since 1.0.0
+ */
+export const PostIssueMessage = Action.make("integrations/telegram/issue-post", {
+  payload: IssueMessagePayload,
+  success: IssueMessageResult,
+  error: IntegrationFailure,
+  tier: "irreversible"
+})
+/** Edit all chunks of a mirrored comment.
+ * @category actions
+ * @since 1.0.0
+ */
+export const UpdateIssueMessage = Action.make("integrations/telegram/issue-update", {
+  payload: IssueMessagePayload,
+  success: IssueMessageResult,
+  error: IntegrationFailure,
+  tier: "irreversible"
+})
+/** Delete all chunks Telegram permits this bot to remove.
+ * @category actions
+ * @since 1.0.0
+ */
+export const DeleteIssueMessage = Action.make("integrations/telegram/issue-delete", {
+  payload: IssueMessagePayload,
+  success: IssueMessageResult,
+  error: IntegrationFailure,
+  tier: "irreversible"
+})
+
+/** Host connection resolver, backed by the existing credential broker.
+ * @category models
+ * @since 1.0.0
+ */
+export type IssueClientResolver = (
+  connectionId: string,
+  chatId: string
+) => Effect.Effect<TelegramClient, IntegrationError>
+
+/** Provider implementations. A partially applied mutation must never retry as a fresh write.
+ * @category layers
+ * @since 1.0.0
+ */
+export const layerIssueSync = (resolve: IssueClientResolver) => {
+  const implement = (kind: "post" | "update" | "delete") => (payload: typeof IssueMessagePayload.Type) =>
+    Effect.gen(function*() {
+      const client = yield* resolve(payload.connectionId, payload.chatId)
+      if (kind === "post") {
+        const sent = yield* client.sendMessageSmart(payload.chatId, payload.text, {
+          parseMode: "none",
+          typing: false,
+          ...(payload.messageThreadId === undefined ? {} : { messageThreadId: payload.messageThreadId })
+        })
+        return { messageIds: sent.messageIds }
+      }
+      const chunks = kind === "update" ? chunk(payload.text) : []
+      let applied = false
+      const ids: Array<number> = []
+      const mutation = Effect.gen(function*() {
+        for (let n = 0; n < payload.messageIds.length; n++) {
+          const id = payload.messageIds[n]!
+          if (n < chunks.length) {
+            yield* client.editMessageSmart(payload.chatId, id, chunks[n]!, { parseMode: "none" })
+            ids.push(id)
+          } else yield* client.call("deleteMessage", { chat_id: payload.chatId, message_id: id })
+          applied = true
+        }
+        for (let n = payload.messageIds.length; n < chunks.length; n++) {
+          const sent = yield* client.sendMessageSmart(payload.chatId, chunks[n]!, {
+            parseMode: "none",
+            typing: false,
+            ...(payload.messageThreadId === undefined ? {} : { messageThreadId: payload.messageThreadId })
+          })
+          ids.push(...sent.messageIds)
+          applied = true
+        }
+        return { messageIds: kind === "delete" ? payload.messageIds : ids }
+      })
+      return yield* mutation.pipe(Effect.mapError((error) => {
+        const failure = fromIntegrationError(toIntegrationError(error))
+        const delivered = [...ids, ...(failure.deliveredMessageIds ?? [])]
+        return new IntegrationFailure({
+          reason: failure.reason,
+          message: failure.message,
+          retryable: failure.retryable,
+          outcomeUnknown: applied || failure.outcomeUnknown === true,
+          ...(delivered.length === 0 ? {} : { deliveredMessageIds: delivered })
+        })
+      }))
+    }).pipe(
+      Effect.mapError((error) =>
+        error instanceof IntegrationFailure ? error : fromIntegrationError(toIntegrationError(error))
+      )
+    )
+  return Layers.mergeAll(
+    PostIssueMessage.toLayer(implement("post")),
+    UpdateIssueMessage.toLayer(implement("update")),
+    DeleteIssueMessage.toLayer(implement("delete"))
+  )
+}

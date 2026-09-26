@@ -475,7 +475,7 @@ export const make = (
               {
                 method,
                 errorCode: response.status,
-                ...(response.ok ? { reason: "decode-failed" as const } : {})
+                ...(response.ok ? { reason: "decode-failed" as const, outcomeUnknown: isWrite } : {})
               }
             )
         })
@@ -489,7 +489,7 @@ export const make = (
               {
                 method,
                 errorCode: response.status,
-                ...(response.ok ? { reason: "decode-failed" as const } : {})
+                ...(response.ok ? { reason: "decode-failed" as const, outcomeUnknown: isWrite } : {})
               }
             )
           )
@@ -502,7 +502,7 @@ export const make = (
               {
                 method,
                 errorCode: response.status,
-                ...(response.ok ? { reason: "decode-failed" as const } : {})
+                ...(response.ok ? { reason: "decode-failed" as const, outcomeUnknown: isWrite } : {})
               }
             )
           )
@@ -684,7 +684,12 @@ export const make = (
           return yield* Effect.fail(
             new TelegramApiError(
               `Telegram sendMessage returned no usable message_id for chunk ${index + 1} of ${chunks.length}.`,
-              { method: "sendMessage", deliveredMessageIds: [...messageIds], reason: "decode-failed" }
+              {
+                method: "sendMessage",
+                deliveredMessageIds: [...messageIds],
+                reason: "decode-failed",
+                outcomeUnknown: true
+              }
             )
           )
         }

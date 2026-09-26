@@ -420,6 +420,73 @@ export const layerReconcile: Layer.Layer<
   }).pipe(Effect.mapError(fromIntegrationError))
 )
 
+/** Delete a bot-authored message. Slack refuses deletion of other authors' posts.
+ * @category actions
+ * @since 1.0.0
+ */
+export const DeleteMessage = Action.make("integrations/slack/delete-message", {
+  payload: Schema.Struct({ connectionId: Schema.NonEmptyString, channel: ChannelId, ts: Ts }),
+  success: Updated,
+  error: IntegrationFailure,
+  tier: "irreversible"
+})
+
+/** Add/remove this bot's reaction. Missing scope is an explicit unsupported receipt.
+ * @category actions
+ * @since 1.0.0
+ */
+export const SetReaction = Action.make("integrations/slack/set-reaction", {
+  payload: Schema.Struct({
+    connectionId: Schema.NonEmptyString,
+    channel: ChannelId,
+    ts: Ts,
+    name: Schema.String.check(Schema.isPattern(/^[a-z0-9_+-]{1,64}$/)),
+    active: Schema.Boolean
+  }),
+  success: Schema.Struct({ status: Schema.Literals(["applied", "unsupported"]) }),
+  error: IntegrationFailure,
+  tier: "irreversible"
+})
+
+/** Implements message deletion through the authorized connection.
+ * @category layers
+ * @since 1.0.0
+ */
+export const layerDeleteMessage = DeleteMessage.toLayer((payload) =>
+  Effect.gen(function*() {
+    const client = yield* (yield* SlackConnections).resolve(payload.connectionId, payload.channel)
+    yield* client.call("chat.delete", { channel: payload.channel, ts: payload.ts }).pipe(
+      Effect.catch((error) => error.details?.["slackError"] === "message_not_found" ? Effect.void : Effect.fail(error))
+    )
+    return { connectionId: payload.connectionId, channel: payload.channel, ts: payload.ts }
+  }).pipe(Effect.mapError(fromIntegrationError))
+)
+
+/** Implements reaction changes and explicit missing-scope receipts.
+ * @category layers
+ * @since 1.0.0
+ */
+export const layerSetReaction = SetReaction.toLayer((payload) =>
+  Effect.gen(function*() {
+    const client = yield* (yield* SlackConnections).resolve(payload.connectionId, payload.channel)
+    return yield* client.call(payload.active ? "reactions.add" : "reactions.remove", {
+      channel: payload.channel,
+      timestamp: payload.ts,
+      name: payload.name
+    }).pipe(
+      Effect.as({ status: "applied" as const }),
+      Effect.catch((error): Effect.Effect<{ readonly status: "applied" | "unsupported" }, IntegrationError> => {
+        const code = error.details?.["slackError"]
+        if (code === "missing_scope") return Effect.succeed({ status: "unsupported" as const })
+        if (code === (payload.active ? "already_reacted" : "no_reaction")) {
+          return Effect.succeed({ status: "applied" as const })
+        }
+        return Effect.fail(error)
+      })
+    )
+  }).pipe(Effect.mapError(fromIntegrationError))
+)
+
 /**
  * Every Slack action's implementation, in one layer.
  *
@@ -429,7 +496,9 @@ export const layerReconcile: Layer.Layer<
 export const layer: Layer.Layer<
   | Action.Requirement<"integrations/slack/post-message">
   | Action.Requirement<"integrations/slack/update-message">
-  | Action.Requirement<"integrations/slack/reconcile-post">,
+  | Action.Requirement<"integrations/slack/reconcile-post">
+  | Action.Requirement<"integrations/slack/delete-message">
+  | Action.Requirement<"integrations/slack/set-reaction">,
   never,
   SlackConnections | FlowRuntime.FlowRuntime
-> = Layer.mergeAll(layerPostMessage, layerUpdateMessage, layerReconcile)
+> = Layer.mergeAll(layerPostMessage, layerUpdateMessage, layerReconcile, layerDeleteMessage, layerSetReaction)

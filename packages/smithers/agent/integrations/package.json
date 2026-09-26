@@ -126,7 +126,10 @@
     "./x/Records": "./src/x/Records.ts",
     "./x/Sync": "./src/x/Sync.ts",
     "./x/XClient": "./src/x/XClient.ts",
-    "./core/migrations/0001_integration_cursors": null
+    "./core/migrations/0001_integration_cursors": null,
+    "./slack/IssueSync": "./src/slack/IssueSync.ts",
+    "./core/IssueSync": "./src/core/IssueSync.ts",
+    "./telegram/IssueSync": "./src/telegram/IssueSync.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -916,7 +919,37 @@
           "default": "./dist/cjs/x/XClient.js"
         }
       },
-      "./core/migrations/0001_integration_cursors": null
+      "./core/migrations/0001_integration_cursors": null,
+      "./slack/IssueSync": {
+        "import": {
+          "types": "./dist/esm/slack/IssueSync.d.ts",
+          "default": "./dist/esm/slack/IssueSync.js"
+        },
+        "require": {
+          "types": "./dist/cjs/slack/IssueSync.d.ts",
+          "default": "./dist/cjs/slack/IssueSync.js"
+        }
+      },
+      "./core/IssueSync": {
+        "import": {
+          "types": "./dist/esm/core/IssueSync.d.ts",
+          "default": "./dist/esm/core/IssueSync.js"
+        },
+        "require": {
+          "types": "./dist/cjs/core/IssueSync.d.ts",
+          "default": "./dist/cjs/core/IssueSync.js"
+        }
+      },
+      "./telegram/IssueSync": {
+        "import": {
+          "types": "./dist/esm/telegram/IssueSync.d.ts",
+          "default": "./dist/esm/telegram/IssueSync.js"
+        },
+        "require": {
+          "types": "./dist/cjs/telegram/IssueSync.d.ts",
+          "default": "./dist/cjs/telegram/IssueSync.js"
+        }
+      }
     }
   },
   "files": [
@@ -945,7 +978,8 @@
     "@smthrs/errors": "1.0.0-rc.1",
     "@smthrs/flow": "1.0.0-rc.1",
     "@smthrs/notifications": "1.0.0-rc.1",
-    "@smthrs/canonical": "1.0.0-rc.1"
+    "@smthrs/canonical": "1.0.0-rc.1",
+    "@smthrs/plan": "1.0.0-rc.1"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"

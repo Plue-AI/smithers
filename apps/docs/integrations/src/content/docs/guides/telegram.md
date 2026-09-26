@@ -221,3 +221,79 @@ For writes it carries `outcomeUnknown: true`: Telegram may have applied the
 request before the connection failed. A fully received malformed success
 body is `decode-failed`. Multi-chunk failures preserve this classification
 and name the messages already delivered in `deliveredMessageIds`.
+
+## Mirror issue conversations
+
+`Telegram.IssueSync` and `Slack.IssueSync` are connectors over
+`core/IssueSync`: the same authenticated issue API, PostgreSQL delivery claims,
+receipt states and host-scheduled drain. Neither connector starts a worker or
+stores another copy of messages.
+
+Configure routing in product settings through the owner's issue API:
+
+```json
+{
+  "provider": "telegram",
+  "connection_id": "telegram-main",
+  "scope_id": "123456",
+  "conversation_id": "-1001234567890",
+  "thread_id": "7",
+  "external_user_id": "42"
+}
+```
+
+`scope_id` is the bot's numeric ID; `conversation_id` is the numeric chat ID;
+`thread_id` is an optional forum topic ID. Omit the topic for a whole chat.
+`external_user_id` optionally restricts ingress to one sender. Persist admission
+with `PUT /api/repos/{owner}/{repo}/issues/sync/channels`. A configured topic
+admits only that topic; omission admits the whole chat and its topics. Attach an existing
+private issue with `PUT …/issues/{number}/sync`. Each chat or topic maps to one
+issue, including replies. The mapping is immutable and one connector destination
+is supported per issue. No credentials enter these settings or flow payloads.
+
+Register `Telegram.IssueSync.Post`, `Update`, and `Delete` in the existing host's
+durable engine, using `Telegram.Actions.layerIssueSync(resolveClient)`.
+`resolveClient(connectionId, chatId)` checks the configured connection's provider,
+principal and containers through `Core.Connection`, resolves its token through
+`Core.Connection.resolveSecret`, and returns the existing `TelegramClient`.
+Build that client with explicit credentials and an empty environment, so ambient
+credentials cannot select another bot. The resolver runs at dispatch time.
+
+```ts
+const sync = Telegram.IssueSync.make({
+  owner,
+  repo,
+  connectionId: connection.id,
+  botId,
+  allowedChatIds: [chatId],
+  allowedUserIds: [userId],
+  request,
+  execute,
+  onMessage: ({ issueId, event }) => admitMessage(issueId, event, event.dedupeKey)
+})
+const intake = sync.run(source)
+await sync.drain()
+```
+
+`execute.post/update/delete(payload, executionId)` run the registered flows
+with the supplied identity. `request` is authenticated as the issue owner.
+Use the existing Source with its SQL cursor store. Admission is checked again
+at the connector; bot messages never become comments. Chat and topic variants
+of one update share a canonical key. The backend atomically deduplicates updates
+with the comment change. Same-second edits use the source update ID to break
+ties. The host must also deduplicate `onMessage` admission by `event.dedupeKey`.
+
+Personas appear as a name line in the message text, since ordinary bots cannot
+select a different sender per message. Long comments retain all chunk IDs.
+Edits update, add or remove chunks; deletion removes every known chunk subject
+to Telegram permissions and time limits. Partial changes and unreadable success
+receipts stay `outcome_unknown`, including the known chunk IDs. Restart never
+reposts them. Telegram has no arbitrary-message history lookup or send request
+key: settle an unknown receipt only with actual provider or durable flow evidence.
+
+Ordinary Bot API updates do not report message deletions, so deleting a human
+message in Telegram cannot delete its issue comment. Business-account deletion
+updates are a separate integration capability. Reactions currently settle as
+`unsupported` ([tracked work](https://github.com/smithersai/smithers/issues/2110)).
+The [Bot API reference](https://core.telegram.org/bots/api#update) defines these
+provider limits; fixture tests are not a live Telegram receipt.

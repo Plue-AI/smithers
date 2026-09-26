@@ -21,6 +21,7 @@ import { type Connection, personalPolicy } from "../src/core/Connection.ts"
 import { IntegrationError } from "../src/core/IntegrationError.ts"
 import * as Actions from "../src/slack/Actions.ts"
 import * as Connections from "../src/slack/Connections.ts"
+import * as IssueSync from "../src/slack/IssueSync.ts"
 import { type ApiCall, type ApiHandler, ok, refuse, type SlackFixture, startSlackFixture } from "./SlackFixture.ts"
 
 const BOT = "xoxb-fixture-bot-token"
@@ -65,9 +66,10 @@ const runAction = <Success>(
     readonly call: (payload: never) => unknown
   },
   payload: Record<string, unknown>,
-  resolver: Layer.Layer<Connections.SlackConnections, IntegrationError> = connections()
+  resolver: Layer.Layer<Connections.SlackConnections, IntegrationError> = connections(),
+  registered?: any
 ): Promise<Success> => {
-  const flow = Flow.make(`${declaration.name}/test-flow`, {
+  const flow = registered ?? Flow.make(`${declaration.name}/test-flow`, {
     payload: declaration.payloadSchema as never,
     success: declaration.successSchema as never,
     error: declaration.errorSchema as never,
@@ -460,4 +462,110 @@ describe("Reconcile", () => {
     expect(failure.reason).toBe("decode-failed")
     expect(failure.outcomeUnknown).not.toBe(true)
   })
+})
+
+describe("message parity", () => {
+  it("deletes only once through the irreversible action", async () => {
+    await start((_call, response) => ok(response))
+    const result = await runAction(Actions.DeleteMessage, {
+      connectionId: "workspace",
+      channel: "C0001",
+      ts: "100.000001"
+    })
+    expect(result).toMatchObject({ ts: "100.000001" })
+    expect(calls("chat.delete")).toHaveLength(1)
+  })
+  it("records missing reactions scope as unsupported", async () => {
+    await start((_call, response) => refuse(response, "missing_scope"))
+    const result = await runAction(Actions.SetReaction, {
+      connectionId: "workspace",
+      channel: "C0001",
+      ts: "100.000001",
+      name: "eyes",
+      active: true
+    })
+    expect(result).toEqual({ status: "unsupported" })
+    expect(calls("reactions.add")).toHaveLength(1)
+  })
+})
+
+it.each(
+  [
+    [true, undefined, "applied"],
+    [false, undefined, "applied"],
+    [true, "already_reacted", "applied"],
+    [false, "no_reaction", "applied"],
+    [false, "missing_scope", "unsupported"]
+  ] as const
+)("settles reaction active=%s error=%s", async (active, code, status) => {
+  await start((_call, response) => code === undefined ? ok(response) : refuse(response, code))
+  expect(
+    await runAction(Actions.SetReaction, {
+      connectionId: "workspace",
+      channel: "C0001",
+      ts: "100.000001",
+      name: "eyes",
+      active
+    })
+  ).toEqual({ status })
+  expect(calls(active ? "reactions.add" : "reactions.remove")).toHaveLength(1)
+})
+it.each([true, false])("preserves reaction failures active=%s", async (active) => {
+  await start((_call, response) => refuse(response, "channel_not_found"))
+  expect(
+    await failed(runAction(Actions.SetReaction, {
+      connectionId: "workspace",
+      channel: "C0001",
+      ts: "100.000001",
+      name: "eyes",
+      active
+    }))
+  ).toMatchObject({ reason: "delivery-failed" })
+})
+it("accepts an already deleted message and retains real deletion failures", async () => {
+  let code = "message_not_found"
+  await start((_call, response) => refuse(response, code))
+  const payload = { connectionId: "workspace", channel: "C0001", ts: "100.000001" }
+  expect(await runAction(Actions.DeleteMessage, payload)).toMatchObject({ ts: payload.ts })
+  code = "cant_delete_message"
+  expect((await failed(runAction(Actions.DeleteMessage, payload))).outcomeUnknown).not.toBe(true)
+  expect(calls("chat.delete")).toHaveLength(2)
+})
+
+it("executes all registered issue transport flows through the existing action runtime", async () => {
+  await start((call, response) =>
+    ok(
+      response,
+      call.method === "conversations.replies" ? { messages: [stamped("100.000001", "key")] } : { ts: "100.000001" }
+    )
+  )
+  const common = {
+    connectionId: "workspace",
+    channel: "C0001",
+    ts: "100.000001",
+    text: "hi",
+    key: "key",
+    threadTs: "100.000001",
+    name: "eyes",
+    active: true
+  }
+  for (
+    const [action, flow] of [
+      [Actions.PostMessage, IssueSync.Post],
+      [Actions.UpdateMessage, IssueSync.Update],
+      [Actions.DeleteMessage, IssueSync.Delete],
+      [Actions.SetReaction, IssueSync.React],
+      [Actions.Reconcile, IssueSync.Reconcile]
+    ] as const
+  ) {
+    await runAction(action as any, common, connections(), flow)
+  }
+  expect((fixture as SlackFixture).calls.map((c) => c.method)).toEqual([
+    "chat.postMessage",
+    "chat.getPermalink",
+    "chat.update",
+    "chat.delete",
+    "reactions.add",
+    "conversations.replies"
+  ])
 })

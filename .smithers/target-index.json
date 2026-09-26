@@ -10441,6 +10441,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/integrations/src/core/IssueSync.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/integrations/src/core/JsonPath.ts"
       },
       {
@@ -10637,6 +10641,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/integrations/src/slack/IssueSync.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/integrations/src/slack/Payload.ts"
       },
       {
@@ -10678,6 +10686,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/integrations/src/telegram/InitData.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/integrations/src/telegram/IssueSync.ts"
       },
       {
         "kind": "file",

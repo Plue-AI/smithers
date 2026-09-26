@@ -650,11 +650,9 @@ describe("toIntegrationError", () => {
     }
   })
 
-  // A `sendMessage` the Bot API answered 200 with an unusable `message_id` did
-  // deliver the message: the outcome is known, only the id is unreadable. That
-  // is a decode failure, and reporting it as an ambiguous delivery told an
-  // operator to consider resending a message the reader already has.
-  it("classifies an unreadable success as decode-failed with a known outcome", async () => {
+  // Success without a usable receipt may already have delivered. It must
+  // remain unreconciled rather than becoming a safe-to-retry refusal.
+  it("classifies an unreadable success as decode-failed with an unknown receipt", async () => {
     fixture = await startFixture((request, response) =>
       method(request.url) === "sendMessage"
         ? json(response, 200, ok({ message_id: "not-a-number" }))
@@ -663,7 +661,7 @@ describe("toIntegrationError", () => {
     const failure = await Effect.runPromise(Effect.flip(client().sendMessageSmart(42, "hi")))
     const mapped = toIntegrationError(failure) as IntegrationError
     expect(mapped.reason).toBe("decode-failed")
-    expect(mapped.details).toMatchObject({ outcomeUnknown: false })
+    expect(mapped.details).toMatchObject({ outcomeUnknown: true })
     expect(isRetryable(mapped)).toBe(false)
     expect(fromIntegrationError(mapped).reason).toBe("decode-failed")
   })

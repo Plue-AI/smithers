@@ -63,3 +63,8 @@ export * as Sync from "./slack/Sync.ts"
  * @since 1.0.0
  */
 export * as Webhook from "./slack/Webhook.ts"
+
+/** @category constructors
+ * @since 1.0.0
+ */
+export * as IssueSync from "./slack/IssueSync.ts"

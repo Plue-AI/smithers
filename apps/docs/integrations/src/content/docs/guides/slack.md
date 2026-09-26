@@ -157,3 +157,115 @@ app's interactivity URL.
 source records scoped by conversation type, tracks recent threads, and maps
 `message_changed` and `message_deleted` events to new versions and
 tombstones through `Slack.Sync.eventRecord`.
+
+## Chat threads are backend issues
+
+`Slack.IssueSync` connects the shared backend issue API to this integration.
+It owns no messages or runtime. Apply product migrations 38 and 39 and use the existing
+issue routes under `/api/repos/{owner}/{repo}/issues`:
+
+| Request                                          | Payload or result                                                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `POST /`                                         | `{title, kind:"chat", idempotency_key}` creates an owner-private thread.                                     |
+| `POST /{number}/comments`                        | `{body, idempotency_key, persona?}` posts a message.                                                         |
+| `PATCH /comments/{id}`                           | `{body}` edits a message.                                                                                    |
+| `DELETE /comments/{id}`                          | Deletes a message; its delivery identity survives.                                                           |
+| `GET /{number}/comments`                         | Cursor pagination, including personas and request keys.                                                      |
+| `GET /{number}/events`                           | Paged timeline, including message changes and reactions.                                                     |
+| `PUT /{number}/sync`                             | `{provider:"slack", connection_id, scope_id, conversation_id, thread_id?, external_user_id?}` maps a thread. |
+| `GET /{number}/sync`                             | Mapping plus `state`, `error`, and unsettled `delivery_id`.                                                  |
+| `PUT /sync/channels`                             | `{provider:"slack", connection_id, scope_id, conversation_id, external_user_id?}` admits new Slack roots.    |
+| `GET/PUT /{number}/comments/{comment}/reactions` | Read attribution; write `{name,active}`.                                                                     |
+
+Chat issues retain repository authorization and are visible only to their
+authenticated author. Repository search, jobs, watchers, mentions,
+change links and external issue integrations do not expose them. Comment facts
+in the existing state feed are additionally filtered by their stored private
+owner, including deletion receipts. Persona is
+display attribution, never authorization. RPC and app seams expose these fields
+through existing issue cards and persisted transitions. The host/UI composes
+the main chat views. A writable selected repository is required for app chat.
+
+Each Slack root maps to an issue, each message to a comment. Configure DM
+admission with `conversation_id:"direct"` and `external_user_id` before the channel is
+known. A DM maps to one private issue per connection, workspace, user and
+channel. An explicit DM mapping also requires `external_user_id`. Settings contain
+routing identities; secrets remain in the connection credential broker.
+
+Register `IssueSync.Post`, `Update`, `Delete`, `React`, and `Reconcile` with the
+host's existing Flow runtime and `Slack.Actions.layer`. Supply their bound
+`execute` methods as the adapter's executor; retain the provided execution ID.
+The `request` port calls the backend authenticated as the issue owner:
+
+```ts
+const sync = Slack.IssueSync.make({
+  owner,
+  repo,
+  connectionId: connection.id,
+  policy,
+  request,
+  execute,
+  onMessage: async ({ issueId, event }) => {
+    await dispatchIssueMessage(issueId, event, event.dedupeKey)
+  }
+})
+const intake = sync.run(Slack.SocketSource.make({ client, policy }))
+await sync.drain()
+```
+
+Compose intake and repeated drains with the host's existing lifecycle.
+`onMessage` runs after the issue transaction commits and before Socket Mode
+acknowledges. Its host admission must durably deduplicate `event.dedupeKey`.
+This callback wakes the agent conversation without another agent loop.
+
+Outgoing changes have PostgreSQL claims and random reconcile keys. Lost answers
+remain `outcome_unknown`; restart searches metadata and never blindly reposts.
+An absent lookup cannot prove a crashed request is no longer in flight, so it
+also retains the unknown claim. Delivery reads use ascending batches of100
+with `after_id`; the adapter follows every page so earlier unresolved work
+does not hide independent conversations. A known refusal is `failed`; an explicit
+`PUT /sync/deliveries/{id}` with `{state:"pending"}` retries only that state.
+Deleted comments retain request-key tombstones and external message links.
+
+Enable `message.channels`, `message.groups`, `message.im`, `reaction_added`, and
+`reaction_removed` for the conversation types being mirrored, plus corresponding
+history scopes for reconciliation. `app_mention` is accepted too. Slack limits
+bots to editing/deleting messages their credential may change. Outbound reactions
+belong to the bot. Missing `reactions:write` produces `unsupported` and permits
+subsequent messages. See Slack's [delete permissions](https://docs.slack.dev/reference/methods/chat.delete/)
+and [reaction scopes](https://docs.slack.dev/reference/methods/reactions.add/).
+
+## Issue sync verification
+
+`test/SlackIssueSync.test.ts` covers ingress, echoes, lost responses, restart
+reconciliation and host dispatch identities. Backend `TestIssueSlackDurableRoundTrip`
+uses real isolated PostgreSQL for atomic ingress, edits, deletions and claims.
+
+Opt-in backend `TestIssueSlackLive` invokes `test/SlackIssueLive.ts`. Supply
+`SMITHERS_SLACK_LIVE=1`, `SMITHERS_SLACK_ENV_FILE`, `SMITHERS_SLACK_LIVE_TEAM`,
+`SMITHERS_SLACK_LIVE_CHANNEL`, `SMITHERS_SLACK_LIVE_USER`, and the normal test DB
+URL. It creates only a thread marked “sync test” and never logs tokens. Human
+reply/edit/delete receipts are distinct from outbound bot evidence. Without
+those receipts, the live test fails by default. Set
+`SMITHERS_SLACK_LIVE_HUMAN_REQUIRED=0` only for an explicitly outbound-only check;
+it does not establish a human round trip. `SMITHERS_SLACK_LIVE_THREAD_TS` reuses
+an existing test thread and `SMITHERS_SLACK_LIVE_WAIT_MS` sets the human wait.
+The runner also records an explicit unsupported receipt when reaction scope
+is missing.
+
+Both Slack and Telegram use `core/IssueSync` and the connector-neutral
+`/issues/sync` API. Mapping keys are `provider:"slack"`, `connection_id`,
+`scope_id` (workspace), `conversation_id` (channel), `thread_id` (timestamp), and
+`external_user_id`. Canonical events and receipts use `message_id`; the transport
+uses `/sync/events` and `/sync/deliveries`. Migration 38 creates the generic
+`issue_sync_*` and `issue_external_*` tables directly; migration 39 adds comment
+facts to the existing journal.
+
+`GET …/issues/{number}/comments?idempotency_key=<key>` looks up the authenticated
+comment author's request, returning the current comment, 404 for an unknown key,
+or 409 for a deleted key. `GET …/issues/state-events` and its `/stream` SSE route
+now include `issue_comment` facts (`created`, `updated`, `deleted`). The post-image
+contains persona and request key; deletion has only identity. Persist the page
+cursor when consuming owner-filtered pages: hidden positions are skipped. Comment
+coverage begins with the comment-facts migration, so list existing comments for
+an initial snapshot. The underlying issue journal continues its existing history.
