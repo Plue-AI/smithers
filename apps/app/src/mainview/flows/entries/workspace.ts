@@ -5,6 +5,7 @@
  */
 import { Schema } from "effect"
 import { fileArgs } from "../FileArgs"
+import { flowArgs } from "../FlowArgs"
 import { flag, line, text } from "../FlowForms"
 import { flow, NoPayload, RepoTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
@@ -230,7 +231,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
      */
     confirmArgs: (payload) => {
       const repo = desktopRepo(actions, payload)
-      return repo === undefined ? undefined : line(text(payload, "bookmark"), repo)
+      return repo === undefined ? undefined : flowArgs("workspace.desktop.open", { bookmark: text(payload, "bookmark"), repo })
     },
     args: "[bookmark] [owner/repo]",
     requires: ["signed-in"],
@@ -294,7 +295,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     confirm: (payload) => `open a desktop box on ${desktopRepo(actions, payload) ?? "the selected repository"}`,
     confirmArgs: (payload) => {
       const repo = desktopRepo(actions, payload)
-      return repo === undefined ? undefined : line(text(payload, "bookmark"), repo)
+      return repo === undefined ? undefined : flowArgs("workspace.desktop.open", { bookmark: text(payload, "bookmark"), repo })
     },
     args: "[bookmark] [owner/repo]",
     requires: ["signed-in"],

@@ -302,6 +302,14 @@ interface DeclaredMove {
 }
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
+  ...(["runs.list", "github.mirror.retry-ref", "workspace.open", "workspace.desktop.open", "desktop"] as const).map(flow => ({
+    flow, kind: "sentence" as const, rows: 2,
+    because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
+  })),
+  ...(["issues", "issues.list"] as const).flatMap(flow => (["card", "sentence"] as const).map(kind => ({
+    flow, kind, rows: 1,
+    because: "A repository-only issues listing now accepts an explicit unloaded repository with the default open filter (#2082), so the obsolete filter error and its incorrect draft disappear."
+  }))),
   ...(["agent.session.view", "agent.session.stop"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 1,
     because: "An explicit repository is recognized without loaded inventory (#2075). A repository alone now receives the existing missing-session-id diagnostic instead of being mistaken for the session id; complete id-plus-repository arguments work through every door."
@@ -401,7 +409,7 @@ describe("the card every slash line opens, against main@origin", () => {
    * numbers. Nothing is allowed to go missing, and what is added is the six
    * rows DECLARED above.
    */
-  test("the rule subtracts nothing: every sentence main@origin puts on a card is still on it", async () => {
+  test("baseline diagnostics remain except the declared errors on now-valid repository targets", async () => {
     const rows = await swipe()
     const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline
     const atMain = Object.values(baseline.rows).filter(([index]) => index !== -1).length
@@ -410,9 +418,11 @@ describe("the card every slash line opens, against main@origin", () => {
       const at = baseline.rows[key(row)]
       return at !== undefined && at[0] !== -1 && row.error === null
     })
-    expect(lost.map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])
+    expect(lost.map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
+      "/issues codeplanesmithers/canary", "/issues.list codeplanesmithers/canary"
+    ])
     /* `here` counts only flows that still exist: the three `change.pick` rows left with the flow (#1904). */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1441 })
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1449 })
     /*
      * Two doors throw when the one token they are given is a number: the
      * render dispatches a card whose payload the event schema rejects. It is

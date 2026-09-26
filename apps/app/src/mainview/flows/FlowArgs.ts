@@ -22,6 +22,7 @@ import type { SetupManualRequest } from "@smthrs/rpc/RepositorySetup"
 export interface FlowInput {
   readonly "agent.session.view": { readonly sessionId: string; readonly repo: string }
   readonly "agent.session.stop": { readonly sessionId: string; readonly repo: string }
+  readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
   readonly "commits.read": { readonly ref: string; readonly repo: string }
   readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
@@ -193,9 +194,10 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "wiki.card.select": payload => fileArgs(String(payload.cardId), String(payload.documentId)),
   "wiki.card.view": payload => line(token(payload, "cardId"), token(payload, "view")),
   "prs.land": payload => line(token(payload, "number"), token(payload, "repo")),
-  "prs.review": payload => line(token(payload, "number"), token(payload, "verdict"), token(payload, "repo")),
+  "prs.review": payload => JSON.stringify(payload),
+  "github.mirror.retry-ref": payload => JSON.stringify(payload),
 
-  "workspace.open": payload => line(token(payload, "bookmark"), token(payload, "repo"), "--kind", token(payload, "kind")),
+  "workspace.open": payload => JSON.stringify(payload),
   "workspace.egress": payload => line(token(payload, "workspaceId"), token(payload, "cursor")),
   "workspace.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
   "workspace.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
@@ -235,7 +237,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "setup.run": payload => JSON.stringify(payload),
   "setup.work": payload => JSON.stringify(payload),
   "billing.upgrade": (payload) => line(token(payload, "plan")),
-  "runs.list": (payload) => line(token(payload, "status"), token(payload, "flow"), keyed(payload, "lineage"), keyed(payload, "sourceCard"), token(payload, "repo")),
+  "runs.list": (payload) => JSON.stringify(payload),
   "runs.attention": (payload) => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "runs.open": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "requestId"), token(payload, "runId"), token(payload, "repo")),
   "runs.trace.select": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId"), token(payload, "nodeId"), token(payload, "seq")),
@@ -273,7 +275,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "triggers.run": (payload) => line(token(payload, "slug"), token(payload, "repo")),
   "triggers.pause": (payload) => JSON.stringify(payload),
   "wiki.heading": (payload) => line(token(payload, "line"), token(payload, "cardId")),
-  "workspace.desktop.open": (payload) => line(token(payload, "bookmark"), token(payload, "repo")),
+  "workspace.desktop.open": (payload) => JSON.stringify(payload),
 
 }
 

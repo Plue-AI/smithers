@@ -338,11 +338,11 @@ describe("the three-door law", () => {
     const confirmation = confirmationFor(store, "desktop")
     expect(confirmation?.text).toContain("open a desktop box on will/smithers")
     /* The bare line became an explicit one: the button cannot drift to another repository. */
-    expect(confirmation?.action?.args).toBe("will/smithers")
+    expect(confirmation?.action?.args).toBe(JSON.stringify({ repo: "will/smithers" }))
     /* Switching the selection afterwards changes nothing the confirmation will run. */
     store.dispatch({ type: "repo.selected", actor: "user", id: "will/force" })
     await settle()
-    expect(confirmationFor(store, "desktop")?.action?.args).toBe("will/smithers")
+    expect(confirmationFor(store, "desktop")?.action?.args).toBe(JSON.stringify({ repo: "will/smithers" }))
     controller.dispose()
   })
 

@@ -126,7 +126,7 @@ describe("the run inbox card", () => {
       />
     )
     click(host.querySelector("[data-testid='run-list-chip-parked']")!)
-    expect(dispatched[0]).toEqual({ name: "runs.list", args: `parked sourceCard=run-list-${REPO} ${REPO}` })
+    expect(dispatched[0]).toEqual({ name: "runs.list", args: JSON.stringify({ status: "parked", sourceCard: `run-list-${REPO}`, repo: REPO }) })
   })
 
   test("the footer stops every live run through the confirming flow", () => {

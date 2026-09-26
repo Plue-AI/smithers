@@ -287,13 +287,25 @@ const jsonObject = (name: string) => (args: string | undefined): Parsed => {
   } catch { return no(`${name} takes a JSON object`) }
 }
 
+/** Typed controls keep explicit fields out of ambiguous human argument text. */
+const structuredFields = (name: string, args: string | undefined, fields: readonly string[]): Parsed | undefined => {
+  if (!args?.trimStart().startsWith("{")) return undefined
+  const parsed = jsonObject(name)(args)
+  return "payload" in parsed && Object.keys(parsed.payload).some(key => !fields.includes(key))
+    ? no(`${name} takes ${fields.join(", ")}`) : parsed
+}
+
+/** Two identifier positions are unambiguous; a lone slash-bearing id may be a path/ref. */
+const identifierRepo = (args: string | undefined, known?: KnownRepositories) =>
+  splitTrailingRepo(args, tokensOf(args).length > 1 ? undefined : known)
+
 /**
  * `<name> [owner/repo]`: the schedule `triggers.run` fires now. A schedule's
  * name holds no whitespace (SLUG), so the repository trails it as it does
  * everywhere else, and a line with no name at all opens the form for it.
  */
 const triggerRun = (args: string | undefined, known?: KnownRepositories): Parsed => {
-  const { rest, repo } = splitTrailingRepo(args, known)
+  const { rest, repo } = identifierRepo(args, known)
   const slug = rest.trim()
   if (/\s/.test(slug)) return no("triggers.run takes a schedule name and optionally an owner/repo")
   return ok({ ...(slug === "" ? {} : { slug }), ...(repo === undefined ? {} : { repo }) })
@@ -329,7 +341,9 @@ const issueComment = (args: string | undefined, known?: KnownRepositories): Pars
 
 /** `[bookmark] [owner/repo]`: the one-command desktop open and its bare `desktop` door. */
 const desktopOpen = (args: string | undefined, known?: KnownRepositories): Parsed => {
-  const { rest, repo } = splitTrailingRepo(args, known)
+  const structured = structuredFields("workspace.desktop.open", args, ["bookmark", "repo"])
+  if (structured !== undefined) return structured
+  const { rest, repo } = identifierRepo(args, known)
   const bookmark = rest.trim()
   if (/\s/.test(bookmark)) return no("desktop takes a bookmark and optionally an owner/repo")
   return ok({ ...(bookmark === "" ? {} : { bookmark }), ...(repo === undefined ? {} : { repo }) })
@@ -449,6 +463,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "runs.attention": (args) => repoOnly("runs.attention", args),
   "runs.handoff": (args) => required("runId", args, "Choose a run to prepare its handoff"),
   "runs.list": (args, known) => {
+    const structured = structuredFields("runs.list", args, ["status", "flow", "by", "lineage", "sourceCard", "repo"])
+    if (structured !== undefined) return structured
     const { rest, repo } = splitTrailingRepo(args, known)
     const payload: Record<string, string> = {}
     const positional: Array<string> = []
@@ -469,7 +485,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const requests = tokens.filter(token => token.startsWith("requestId="))
     if (requests.length > 1 || requests[0] === "requestId=") return no("The saved run request is invalid.")
     const requestId = requests[0]?.slice("requestId=".length)
-    const { rest, repo } = splitTrailingRepo(tokens.filter(token => !token.startsWith("requestId=")).join(" "), known)
+    const { rest, repo } = identifierRepo(tokens.filter(token => !token.startsWith("requestId=")).join(" "), known)
     const runId = rest.trim()
     if (runId === "" || /\s/.test(runId)) return no("runs.open needs a run id: /runs.open <runId> [owner/repo]")
     return ok({ runId, ...(repo === undefined ? {} : { repo }), ...(requestId === undefined ? {} : { requestId }) })
@@ -690,8 +706,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   /* Tutorial stage 3's bare doors: the same read as their .list flows. */
   "issues": (args, known) => GRAMMAR["issues.list"]!(args, known),
   "prs": (args, known) => GRAMMAR["prs.list"]!(args, known),
-  "issues.list": (args, known) => {
-    const { rest, repo } = splitTrailingRepo(args, known)
+  "issues.list": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
     const filter = rest === "" ? "open" : rest
     if (filter !== "open" && filter !== "closed" && filter !== "all") {
       return no("issues.list takes open, closed, or all")
@@ -767,6 +783,13 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "prs.land": (args, known) => numbered(args, "prs.land needs a pull request number", known),
   "prs.review": (args, known) => {
+    const structured = structuredFields("prs.review", args, ["number", "verdict", "text", "repo"])
+    if (structured !== undefined) {
+      if ("error" in structured) return structured
+      const payload = structured.payload
+      return ok({ ...payload, verdict: payload.verdict === "request-changes" ? "request_changes" : payload.verdict,
+        text: payload.text === undefined ? "" : payload.text })
+    }
     const { rest, repo } = splitTrailingRepo(args, known)
     const [head, verdict, ...tail] = rest.split(/\s+/)
     const number = Number(head)
@@ -893,6 +916,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    */
   "workspace.list": (args) => repoOnly("workspace.list", args),
   "workspace.open": (args, known) => {
+    const structured = structuredFields("workspace.open", args, ["bookmark", "repo", "kind"])
+    if (structured !== undefined) return structured
     /*
      * ADR 0002: the kind IS the choice, so it rides the line as `--kind
      * <container|vm|desktop>` wherever the caller put it — the card's three
@@ -905,7 +930,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     }
     const kind = flagged?.[1]
     const line = flagged === null ? args : (args ?? "").replace(flagged[0], " ")
-    const { rest, repo } = splitTrailingRepo(line, known)
+    const { rest, repo } = identifierRepo(line, known)
     const bookmark = rest.trim()
     if (/\s/.test(bookmark)) return no("workspace.open takes a bookmark and optionally an owner/repo")
     return ok({
@@ -1142,7 +1167,9 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "github.mirror-sync": (args) => repoOnly("github.mirror-sync", args),
   /* plue#491: the ref name is one token (it carries slashes) with the usual optional trailing repo. */
   "github.mirror.retry-ref": (args, known) => {
-    const { rest, repo } = splitTrailingRepo(args, known)
+    const structured = structuredFields("github.mirror.retry-ref", args, ["ref", "repo"])
+    if (structured !== undefined) return structured
+    const { rest, repo } = identifierRepo(args, known)
     if (rest === "" || /\s/.test(rest)) return no("github.mirror.retry-ref needs one ref name")
     return ok(repo === undefined ? { ref: rest } : { ref: rest, repo })
   },

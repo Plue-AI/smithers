@@ -1,4 +1,5 @@
 import { flowAction } from "../flows/FlowAction"
+import { flowArgs } from "../flows/FlowArgs"
 
 import { Badge, Button, StatusPill } from "@smthrs/ui"
 import { Check, Circle, ExternalLink, Minus, Plug, RefreshCw, X } from "lucide-react"
@@ -174,7 +175,7 @@ export const SyncOpsCardBody = ({ card, onRunCommand }: { readonly card: SyncOps
   
   const retryFlow = "github.mirror.retry-ref"
   const retryArgs = (opId: string): string =>
-    `${opId} ${card.payload.repo ?? ""}`.trim()
+    flowArgs(retryFlow, { ref: opId, repo: card.payload.repo })
   return (
     <div className="world-card-list">
       <div className="world-card-row">

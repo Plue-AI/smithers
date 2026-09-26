@@ -2540,7 +2540,7 @@ describe("the one-command desktop open", () => {
       expect(requests.filter((key) => key.endsWith("/desktop/session"))).toEqual([])
       /* The card carries plue's reason, and the wait's stage line is gone. */
       expect(payloadOf(store)?.failureMessage).toBe(`bookmark "main" not found on will/smithers`)
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: `provisioning_failed — bookmark "main" not found on will/smithers`, action: { flow: "workspace.desktop.open", args: "main will/smithers" } })
+      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: `provisioning_failed — bookmark "main" not found on will/smithers`, action: { flow: "workspace.desktop.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers" }) } })
       expect(payloadOf(store)?.desktopStage).toBeUndefined()
       expect(readDesktopStream("ws-1")).toBeNull()
     } finally {
@@ -2689,7 +2689,7 @@ describe("the one-command desktop open", () => {
     try {
       const result = await seam.openDesktopBox("main", "will/smithers")
       expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: result,
-        action: { flow: "workspace.desktop.open", args: "main will/smithers", label: "Try again" } })
+        action: { flow: "workspace.desktop.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers" }), label: "Try again" } })
       expect(payloadOf(store)?.desktopStage).toBeUndefined()
     } finally { seam.dispose() }
   })

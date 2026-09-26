@@ -555,7 +555,7 @@ describe("SyncOpsCardBody", () => {
     expect(host.textContent).toContain("remote rejected: non-fast-forward")
     
     click(host, "Retry")
-    expect(commands).toEqual([{ name: "github.mirror.retry-ref", args: "refs/heads/wip will/smithers" }])
+    expect(commands).toEqual([{ name: "github.mirror.retry-ref", args: '{"ref":"refs/heads/wip","repo":"will/smithers"}' }])
   })
 
   test("a mirror card whose repository stated no counts shows the word alone", () => {

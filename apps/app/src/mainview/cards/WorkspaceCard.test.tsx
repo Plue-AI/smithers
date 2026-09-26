@@ -583,9 +583,9 @@ describe("the workspace card", () => {
     click(host, "Open a vm workspace")
     click(host, "Open a desktop workspace")
     expect(commands).toEqual([
-      { name: "workspace.open", args: "main will/smithers --kind container" },
-      { name: "workspace.open", args: "main will/smithers --kind vm" },
-      { name: "workspace.open", args: "main will/smithers --kind desktop" }
+      { name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "container" }) },
+      { name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "vm" }) },
+      { name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) }
     ])
     host.remove()
   })
@@ -593,7 +593,7 @@ describe("the workspace card", () => {
   test("a workspace with no target bookmark re-opens on its repository alone", () => {
     const { host, commands } = render(workspaceCard({ status: "failed", provisioningStage: null, targetBookmark: null }))
     click(host, "Open a vm workspace")
-    expect(commands[0]).toEqual({ name: "workspace.open", args: "will/smithers --kind vm" })
+    expect(commands[0]).toEqual({ name: "workspace.open", args: JSON.stringify({ repo: "will/smithers", kind: "vm" }) })
     host.remove()
   })
 })
@@ -796,7 +796,7 @@ describe("the workspace card's desktop facet", () => {
     expect(labels).not.toContain("Try the desktop session again")
     expect(labels).not.toContain("Resume the workspace and open its desktop")
     click(host, "Open a new desktop box with the current image")
-    expect(commands[0]).toEqual({ name: "workspace.open", args: "main will/smithers --kind desktop" })
+    expect(commands[0]).toEqual({ name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) })
     host.remove()
   })
 
