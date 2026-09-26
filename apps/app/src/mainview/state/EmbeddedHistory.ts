@@ -16,7 +16,7 @@ type RepoPaneLocation = Extract<Card, { kind: "issue-list" | "issue" | "pr-list"
 export const repoPaneCard = (ctx: SeamContext, repo: string) => {
   const conversation = conversationTabIdOf(ctx.store.session())
   return [...ctx.store.collections.cards.values()]
-    .filter(row => (row.kind === "repo-update" || row.kind === "issue-list" || row.kind === "issue" || row.kind === "pr-list" || row.kind === "pr") &&
+    .filter(row => !(row.kind === "issue" && row.payload.conversation) && (row.kind === "repo-update" || row.kind === "issue-list" || row.kind === "issue" || row.kind === "pr-list" || row.kind === "pr") &&
       row.payload.repo === repo && inConversation(row, conversation))
     .sort((a, b) => b.ordinal - a.ordinal)
     .find(row => row.kind === "repo-update" ||
@@ -29,7 +29,7 @@ export const paneTarget = (ctx: SeamContext, repo: string) => {
   if (pane) return pane
   const conversation = conversationTabIdOf(ctx.store.session())
   return [...ctx.store.collections.cards.values()]
-    .filter(row => (row.viewRepo === repo || ((row.kind === "issue-list" || row.kind === "issue" || row.kind === "pr-list" || row.kind === "pr") &&
+    .filter(row => !(row.kind === "issue" && row.payload.conversation) && (row.viewRepo === repo || ((row.kind === "issue-list" || row.kind === "issue" || row.kind === "pr-list" || row.kind === "pr") &&
       row.payload.repo === repo)) && inConversation(row, conversation))
     .sort((a, b) => b.ordinal - a.ordinal)[0]
 }

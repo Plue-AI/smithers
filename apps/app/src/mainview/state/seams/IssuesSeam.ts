@@ -6,21 +6,33 @@ import type { Card } from "../AppState"
 import { repositoryCiConfigured } from "../RepositoryJobs"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
-import { errorMessage,errorText,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
+import { captureCloudOwner,errorMessage,errorText,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 
 export interface IssuesSeam {
+  readonly submitConversation: (text: string, turnId: string, repo: string, owner: string) => Promise<boolean>
+
+  readonly draftIssueComment: (cardId: string, text: string) => Promise<string | void>
+  readonly retryIssueComment: (cardId: string, requestId: string) => Promise<string | void>
+  readonly reactToIssueComment: (number: number, commentId: number, name: string, active: boolean, repo?: string) => Promise<string | void>
+
+  readonly subscribe: (onDispose: (release: () => void) => void) => void
+  readonly mapIssueSync: (number: number, mapping: Omit<NonNullable<IssuePayload["sync"]>, "state" | "error">, repo?: string) => Promise<string | void>
   /** Renders the list card and answers the rows as text (the model reads the value, never the card). */
   readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string]>
   readonly viewIssue: ViewAction<[number: number, repo?: string, source?: "smithers-cloud" | "github"]>
-  readonly createIssue: (title: string, repo?: string) => Promise<string | void>
+  readonly createIssue: (title: string, repo?: string, kind?: "issue" | "chat") => Promise<string | void>
   readonly setIssueState: (
     number: number,
     state: "open" | "closed",
     repo?: string
   ) => Promise<string | void>
-  readonly commentOnIssue: (number: number, text: string, repo?: string) => Promise<string | void | { readonly value: string }>
+  readonly editIssueComment: (number: number, commentId: number, text: string, repo?: string) => Promise<string | void>
+  readonly deleteIssueComment: (number: number, commentId: number, repo?: string) => Promise<string | void>
+  readonly commentOnIssue: (number: number, text: string, repo?: string, persona?: { username: string; iconEmoji?: string; iconUrl?: string }) => Promise<string | void | { readonly value: string }>
 }
+
+const issueMessageWrites = new WeakMap<SeamContext["store"], Set<string>>()
 
 type IssueListPayload = Extract<Card, { kind: "issue-list" }>["payload"]
 type IssueListRow = IssueListPayload["issues"][number]
@@ -58,6 +70,7 @@ const parseListRow = (value: unknown): IssueListRow | null => {
   const comments = asInt(value.comment_count)
   return {
     number,
+    ...(value.kind === "chat" ? { kind: "chat" as const } : {}),
     title: typeof value.title === "string" ? value.title : "",
     state: asIssueState(value.state),
     author: authorLogin(value.author),
@@ -104,7 +117,15 @@ const parseLabels = (value: unknown): string[] =>
 /** One comment off Plue's IssueCommentResponse shape; null when not a record. */
 const parseComment = (value: unknown): IssueCommentRow | null => {
   if (!isRecord(value)) return null
+  const persona = isRecord(value.persona) && typeof value.persona.username === "string" && value.persona.username.trim() !== "" ? {
+    username: value.persona.username,
+    ...(typeof value.persona.iconEmoji === "string" ? { iconEmoji: value.persona.iconEmoji } : {}),
+    ...(typeof value.persona.iconUrl === "string" ? { iconUrl: value.persona.iconUrl } : {})
+  } : undefined
   return {
+    ...(asInt(value.id) !== null ? { id: value.id as number } : {}),
+    ...(typeof value.idempotency_key === "string" ? { idempotencyKey: value.idempotency_key } : {}),
+    ...(persona ? { persona, ...(persona.iconUrl ? { authorAvatar: persona.iconUrl } : {}) } : {}),
     author: typeof value.commenter === "string" && value.commenter !== "" ? value.commenter : null,
     commentBody: typeof value.body === "string" ? value.body : "",
     createdAt: typeof value.created_at === "string" ? value.created_at : null
@@ -122,10 +143,12 @@ const parseDetail = (
   return {
     repo,
     number: asInt(value.number) ?? number,
+    ...(value.kind === "chat" ? { kind: "chat" as const } : {}),
     title: typeof value.title === "string" ? value.title : "",
     state: asIssueState(value.state),
     author: authorLogin(value.author),
     ...forgeFacts(value, value.author),
+    ...(value.visibility === "private" || value.visibility === "public" ? { visibility: value.visibility } : {}),
     issueBody: typeof value.body === "string" ? value.body : "",
     labels: parseLabels(value.labels),
     comments: [...comments],
@@ -138,7 +161,12 @@ const issueRowValue = (issue: IssueListRow, source = issue.source): string =>
 
 
 
-export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm): IssuesSeam => {
+export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm, launchConversationTurn?: (text: string, turnId: string, owner: string) => Promise<boolean> | void): IssuesSeam => {
+  const signedInOwner = () => {
+    const identity = ctx.store.collections.identitySessions.get("identity")
+    const cloud = ctx.store.collections.cloudSessions.get("cloud")
+    return identity?.state === "signed-in" ? identity.login : cloud?.state === "signed-in" ? cloud.username : undefined
+  }
   const issuesPath = (repo: string): string => {
     const [owner = "", name = ""] = repo.split("/")
     return `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`
@@ -324,7 +352,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       `${repo} · GitHub #${number} ${payload.title} · ${payload.state}`,
       `Author: ${payload.author ?? "unknown"}`,
       `Labels: ${payload.labels.join(", ") || "none"}`, payload.issueBody,
-      ...comments.map(comment => `Comment by ${comment.author ?? "unknown"}:\n${comment.commentBody}`)
+      ...comments.map(comment => `Comment by ${comment.persona?.username ?? comment.author ?? "unknown"}:\n${comment.commentBody}`)
     ].join("\n")) }
   }
 
@@ -347,34 +375,57 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     }
     const issueJson: unknown = await issueResponse.json().catch(() => null)
 
-    let commentsResponse: Response
-    try {
-      commentsResponse = await ctx.http(`${issuesPath(repo)}/${number}/comments`)
-    } catch (error) {
-      return unreachable(`load comments for issue #${number} in ${repo}`, error)
+    const comments: IssueCommentRow[] = []
+    let cursor = ""
+    const seen = new Set<string>()
+    for (let page = 1; page <= 50; page++) {
+      let response: Response
+      try {
+        response = await ctx.http(`${issuesPath(repo)}/${number}/comments${cursor === "" ? "" : `?cursor=${encodeURIComponent(cursor)}`}`)
+      } catch (error) { return unreachable(`load comments for issue #${number} in ${repo}`, error) }
+      if (!response.ok) return readErrorMessage(response, `Loading comments for issue #${number} in ${repo} failed (${response.status})`)
+      const rows: unknown = await response.json().catch(() => null)
+      if (!Array.isArray(rows)) return `The backend answered comments for #${number} with an unreadable payload`
+      comments.push(...rows.flatMap(row => { const parsed = parseComment(row); return parsed ? [parsed] : [] }))
+      const next = /<([^>]+)>;\s*rel="?next"?/.exec(response.headers.get("link") ?? "")?.[1]
+      if (!next) break
+      // Read only the opaque cursor; never follow a returned origin or path.
+      cursor = new URL(next, "https://pagination.invalid").searchParams.get("cursor") ?? ""
+      if (!cursor || seen.has(cursor)) return `Comments for #${number} did not finish loading.`
+      seen.add(cursor)
+      if (page === 50) return `Issue #${number} has more comments than could be loaded.`
     }
-    if (!commentsResponse.ok) {
-      return readErrorMessage(
-        commentsResponse,
-        `Loading comments for issue #${number} in ${repo} failed (${commentsResponse.status})`
-      )
-    }
-    const commentsJson: unknown = await commentsResponse.json().catch(() => null)
-    const comments = Array.isArray(commentsJson)
-      ? commentsJson.flatMap((entry) => {
-        const parsed = parseComment(entry)
-        return parsed === null ? [] : [parsed]
-      })
-      : []
 
     const payload = parseDetail(issueJson, repo, number, comments)
     if (payload === null) {
       return `The backend answered issue #${number} in ${repo} with an unreadable payload`
     }
+    if (payload.kind === "chat") {
+      const mapping = await ctx.http(`${issuesPath(repo)}/${number}/sync`)
+      if (mapping.ok) {
+        const wire: unknown = await mapping.json().catch(() => null)
+        if (isRecord(wire) && (wire.provider === "slack" || wire.provider === "telegram") && typeof wire.connection_id === "string" && typeof wire.scope_id === "string" && typeof wire.conversation_id === "string") {
+          payload.sync = { provider: wire.provider, connectionId: wire.connection_id, scopeId: wire.scope_id, conversationId: wire.conversation_id, ...(typeof wire.thread_id === "string" && wire.thread_id ? { threadId: wire.thread_id } : {}), ...(typeof wire.external_user_id === "string" && wire.external_user_id ? { externalUserId: wire.external_user_id } : {}) }
+          if (wire.state === "synced" || wire.state === "pending" || wire.state === "dispatching" || wire.state === "outcome_unknown" || wire.state === "failed" || wire.state === "unsupported") payload.sync.state = wire.state
+          if (typeof wire.error === "string" || wire.error === null) payload.sync.error = wire.error
+        }
+      } else if (mapping.status !== 404) return readErrorMessage(mapping, `Loading sync settings failed (${mapping.status})`)
+      for (const comment of payload.comments) {
+        if (comment.id === undefined) continue
+        const response = await ctx.http(`${issuesPath(repo)}/${number}/comments/${comment.id}/reactions`)
+        if (!response.ok) {
+          if (response.status === 404) continue
+          return readErrorMessage(response, `Loading reactions failed (${response.status})`)
+        }
+        const rows: unknown = await response.json().catch(() => null)
+        if (!Array.isArray(rows)) return "Reactions returned an unreadable response."
+        comment.reactions = rows.flatMap(row => isRecord(row) && typeof row.name === "string" && typeof row.actor === "string" && typeof row.active === "boolean" ? [{ name: row.name, actor: row.actor, active: row.active }] : [])
+      }
+    }
     const card: Card = {
       id: `issue-${repo}-${number}`,
       kind: "issue",
-      title: `Issue #${number} · ${repo}`,
+      title: payload.kind === "chat" ? payload.title : `Issue #${number} · ${repo}`,
       status: "active",
       createdAt: Date.now(),
       ordinal: ctx.nextOrdinal(),
@@ -387,7 +438,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
 
       payload.issueBody,
       ...payload.comments.map((comment) =>
-        `Comment by ${comment.author ?? "unknown"}${comment.createdAt ? ` · ${comment.createdAt}` : ""}:\n${comment.commentBody}`)
+        `Comment by ${comment.persona?.username ?? comment.author ?? "unknown"}${comment.createdAt ? ` · ${comment.createdAt}` : ""}:\n${comment.commentBody}`)
     ].join("\n")) }
   }
 
@@ -446,7 +497,13 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     const target = resolveTargetRepo(ctx.store, repoArg)
     if ("error" in target) return target.error
     const repo = target.repo
-    return { id: `issue-${source === "github" ? "github-" : ""}${repo}-${number}`, title: `Issue #${number} · ${repo}`, pane: repo,
+    const bound = [...ctx.store.collections.cards.values()].find(card => card.kind === "issue" && card.payload.conversation && card.payload.repo === repo && card.payload.number === number && source !== "github")
+    return { id: `issue-${source === "github" ? "github-" : ""}${repo}-${number}`, title: `Issue #${number} · ${repo}`, pane: repo, ...(bound ? { target: bound } : {}),
+      project: card => {
+        if (card.kind !== "issue") return card
+        const previous = [...ctx.store.collections.cards.values()].find(row => row.kind === "issue" && row.payload.source !== "github" && row.payload.repo === repo && row.payload.number === number)
+        return previous?.kind === "issue" && source !== "github" ? { ...card, payload: { ...card.payload, conversation: previous.payload.conversation, commentDraft: previous.payload.commentDraft, pendingComments: previous.payload.pendingComments } } : card
+      },
       read: () => source === "github" ? readGithubIssue(repo, number) : readIssue(repo, number) }
   })
   const showIssue = (repo: string, number: number) => issueView(number, repo)
@@ -490,7 +547,270 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     return { value: `Comment posted. ${detail}` }
   }
 
+  const mutateComment = async (number: number, commentId: number, explicitRepo: string | undefined, method: "PATCH" | "DELETE", body?: { body: string }): Promise<string | void> => {
+    const target = resolveTargetRepo(ctx.store, explicitRepo)
+    if ("error" in target) return target.error
+    const { repo } = target
+    // The global comment route does not carry the issue number. Only mutate a
+    // comment from the issue card's authoritative read, never an unrelated ID.
+    const comment = [...ctx.store.collections.cards.values()].some(card => card.kind === "issue" && card.payload.source !== "github" && card.payload.repo === repo && card.payload.number === number && card.payload.comments.some(row => row.id === commentId))
+    if (!comment) return "Open the message before changing it."
+    let response: Response
+    try {
+      response = await ctx.http(`${issuesPath(repo)}/comments/${commentId}`, { method, ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) })
+    } catch (error) { return `Message status unknown: ${errorText(error)}` }
+    if (!response.ok) return readErrorMessage(response, `Changing the message failed (${response.status})`)
+    await response.body?.cancel().catch(() => {})
+    return refreshDetail(method === "DELETE" ? "Message deleted" : "Message saved", repo, number)
+  }
+
+  const updateLocalIssue = async (cardId: string, update: (payload: IssuePayload) => IssuePayload, actor: "user" | "smithers" | "system" = ctx.actor(), authoritative = false) => {
+    const card = ctx.store.collections.cards.get(cardId)
+    if (card?.kind !== "issue") return
+    await ctx.dispatch({ type: authoritative ? "card.view.loaded" : "card.upsert", actor, card: { ...card, payload: update(card.payload) } }).isPersisted.promise
+  }
+  const drainComments = (cardId: string): void => {
+    if (ctx.isDisposed?.() || !(ctx.store.collections.identitySessions.get("identity")?.state === "signed-in" || ctx.store.collections.cloudSessions.get("cloud")?.state === "signed-in")) return
+    let active = issueMessageWrites.get(ctx.store)
+    if (!active) issueMessageWrites.set(ctx.store, active = new Set())
+    if (active.has(cardId)) return
+    const card = ctx.store.collections.cards.get(cardId)
+    if (card?.kind !== "issue" || !card.payload.pendingComments?.some(request => request.status === "requested")) return
+    const first = card.payload.pendingComments?.find(row => row.status === "requested" && !row.turnId) ?? card.payload.pendingComments?.find(row => row.status === "requested")
+    if (first?.turnId && ctx.store.session().phase !== "idle") return
+    const ownerValid = captureCloudOwner(ctx, false)
+    const requestOwner = first?.owner ?? card.payload.conversation?.owner ?? card.payload.author
+    const currentOwner = () => ownerValid() && requestOwner !== undefined && requestOwner !== null && requestOwner === signedInOwner() && (!card.payload.conversation || card.payload.conversation.owner === requestOwner && card.payload.conversation.branchId === ctx.store.session().activeBranchId)
+    if (!currentOwner()) return
+    active.add(cardId)
+    const send = async () => {
+      while (currentOwner()) {
+        const current = ctx.store.collections.cards.get(cardId)
+        if (current?.kind !== "issue") break
+        const request = current.payload.pendingComments?.find(row => row.status === "requested" && !row.turnId) ?? current.payload.pendingComments?.find(row => row.status === "requested")
+        if (!request || (request.owner ?? current.payload.conversation?.owner ?? current.payload.author) !== signedInOwner() || request.turnId && ctx.store.session().phase !== "idle") break
+        const sameThread = () => {
+          const live = ctx.store.collections.cards.get(cardId)
+          return currentOwner() && live?.kind === "issue" && live.payload.repo === current.payload.repo && (live.payload.number === current.payload.number || current.payload.number === 0 && live.payload.conversation?.creationKey === current.payload.conversation?.creationKey)
+        }
+        const fail = async (status: "unknown" | "failed", error: string) => {
+          if (!sameThread()) return
+          await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: payload.pendingComments?.map(row => row.id === request.id ? { ...row, status, error } : row) }), "system")
+          return error
+        }
+        const work = async () => {
+          let number = current.payload.number
+          if (number === 0 && current.payload.conversation) {
+            let created: Response
+            try {
+              created = await ctx.http(issuesPath(current.payload.repo), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: current.payload.title, kind: "chat", visibility: "private", idempotency_key: current.payload.conversation.creationKey }) })
+            } catch (error) { return fail("unknown", `Chat status unknown: ${errorText(error)}`) }
+            if (!currentOwner()) return
+            if (!created.ok) return fail("failed", await readErrorMessage(created, `Creating chat failed (${created.status})`))
+            const body: unknown = await created.json().catch(() => null)
+            if (!sameThread()) return
+            if (!isRecord(body) || asInt(body.number) === null) return fail("unknown", "Chat returned an unreadable receipt.")
+            number = body.number as number
+            await updateLocalIssue(cardId, payload => ({ ...payload, number }), "system")
+          }
+          if (!sameThread()) return
+          let response: Response
+          const editing = current.payload.comments.find(comment => comment.idempotencyKey === request.id && comment.commentBody !== request.text)
+          try {
+            response = await ctx.http(editing ? `${issuesPath(current.payload.repo)}/comments/${editing.id}` : `${issuesPath(current.payload.repo)}/${number}/comments`, {
+              method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify(editing ? { body: request.text } : { body: request.text, idempotency_key: request.id, ...(request.persona ? { persona: request.persona } : {}) })
+            })
+          } catch (error) { return fail("unknown", `Message status unknown: ${errorText(error)}`) }
+          if (!sameThread()) return
+          if (!response.ok) return fail("failed", await readErrorMessage(response, `Posting the message failed (${response.status})`))
+          const receipt: unknown = await response.json().catch(() => null)
+          if (!sameThread()) return
+          const commentId = isRecord(receipt) ? asInt(receipt.id) : null
+          if (commentId === null) return fail("unknown", "Message posted without a readable receipt. Retry to reconcile.")
+          const result = await readIssue(current.payload.repo, number)
+          if (!sameThread()) return
+          if (typeof result === "string") return fail("unknown", `Message posted. ${result}`)
+          if (result.card.kind !== "issue") return
+          const loaded = result.card.payload
+          const posted = loaded.comments.find(comment => comment.id === commentId)
+          if (!posted) return fail("unknown", "Message posted. Refresh is incomplete; retry to reconcile.")
+          posted.idempotencyKey ??= request.id
+          await updateLocalIssue(cardId, payload => ({ ...loaded, conversation: payload.conversation, commentDraft: payload.commentDraft, pendingComments: payload.pendingComments }), "system", true)
+          if (!sameThread()) return
+          if (request.turnId && current.payload.conversation && launchConversationTurn) {
+            const accepted = await launchConversationTurn(request.text, request.turnId, current.payload.conversation.owner)
+            if (accepted === false) return fail("failed", "Message saved. Retry to start the response.")
+          }
+          if (sameThread()) await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: payload.pendingComments?.filter(row => row.id !== request.id) }), "system")
+        }
+        if (ctx.withToast) await ctx.withToast(`issue.message:${request.id}`, "Saving message", "Message saved", work, false, currentOwner, cardId)
+        else await work()
+      }
+    }
+    void send().catch(async error => {
+      if (!currentOwner()) return
+      const current = ctx.store.collections.cards.get(cardId)
+      const request = current?.kind === "issue" ? current.payload.pendingComments?.find(row => row.status === "requested") : undefined
+      if (request) await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: payload.pendingComments?.map(row => row.id === request.id ? { ...row, status: "unknown", error: errorText(error) } : row) }), "system")
+    }).finally(() => { active!.delete(cardId); if (currentOwner()) drainComments(cardId) })
+  }
+
+  // Remote issue comments are authoritative. Restored cards reconnect through
+  // the same read path; a poll is only a projection refresh, never a chat store.
+  const subscribe: IssuesSeam["subscribe"] = onDispose => {
+    const watches = new Map<string, { stop: () => void; address: string }>()
+    const deliveryStatuses = new Map<string, string>()
+    const deliveryWork = new Map<string, (failure?: string) => void>()
+    let disposed = false
+    const reconcile = () => {
+      if (disposed) return
+      const signedIn = ctx.store.collections.identitySessions.get("identity")?.state === "signed-in"
+        || ctx.store.collections.cloudSessions.get("cloud")?.state === "signed-in"
+      const cards = [...ctx.store.collections.cards.values()].flatMap(card => signedIn && card.kind === "issue" && card.payload.kind === "chat" && card.payload.source !== "github" && !card.loading && (!card.payload.conversation || card.payload.conversation.owner === signedInOwner() && card.payload.conversation.branchId === ctx.store.session().activeBranchId) ? [card] : [])
+      const wanted = new Map(cards.map(card => [card.id, `${card.payload.repo}:${card.payload.number}`]))
+      for (const [id, watch] of watches) if (wanted.get(id) !== watch.address) { watch.stop(); watches.delete(id) }
+      for (const [id, settle] of deliveryWork) if (!wanted.has(id)) { deliveryWork.delete(id); deliveryStatuses.delete(id); settle() }
+      for (const card of cards) {
+        const delivery = card.payload.sync
+        const deliveryKey = JSON.stringify([delivery?.state, delivery?.error])
+        if (ctx.withToast && delivery?.state && deliveryStatuses.get(card.id) !== deliveryKey) {
+          deliveryStatuses.set(card.id, deliveryKey)
+          const pending = delivery?.state === "pending" || delivery?.state === "dispatching"
+          const failure = delivery?.state === "outcome_unknown" ? "Message delivery is unconfirmed. Reconciliation is required."
+            : delivery?.state === "failed" || delivery?.state === "unsupported" ? delivery.error || "Message delivery failed." : undefined
+          if (!pending) {
+            const settle = deliveryWork.get(card.id)
+            if (settle) { deliveryWork.delete(card.id); settle(failure) }
+            else void ctx.withToast(`issue.delivery:${card.id}`, "Message sync", "Messages synced", async () => failure, true, captureCloudOwner(ctx, false), card.id)
+          } else if (!deliveryWork.has(card.id)) {
+            const settled = new Promise<string | undefined>(resolve => { deliveryWork.set(card.id, resolve) })
+            const ownerValid = captureCloudOwner(ctx, false)
+            const current = () => {
+              const live = ctx.store.collections.cards.get(card.id)
+              return ownerValid() && live?.kind === "issue" && !live.loading && live.payload.repo === card.payload.repo && live.payload.number === card.payload.number && (!card.payload.conversation || card.payload.conversation.owner === signedInOwner() && card.payload.conversation.branchId === ctx.store.session().activeBranchId)
+            }
+            void ctx.withToast(`issue.delivery:${card.id}`, "Syncing messages", "Messages synced", () => settled, false, current, card.id)
+          }
+        }
+        if (card.payload.conversation && card.payload.comments.some(comment => comment.idempotencyKey === `message-${ctx.store.session().turnId}-user`)) {
+          const owner = ctx.store.collections.identitySessions.get("identity")?.login ?? ctx.store.collections.cloudSessions.get("cloud")?.username
+          if (card.payload.conversation.owner === owner && card.payload.conversation.branchId === ctx.store.session().activeBranchId) {
+            const reply = ctx.store.session().phase === "idle" ? [...ctx.store.collections.messages.values()].find(message => message.role === "smithers" && message.id === `message-${ctx.store.session().turnId}-smithers` && !message.issueCardId && message.createdAt >= card.createdAt && message.text && !card.payload.pendingComments?.some(row => row.id === message.id) && !card.payload.comments.some(row => row.idempotencyKey === message.id && row.commentBody === message.text)) : undefined
+            const steering = [...ctx.store.collections.messages.values()].find(message => message.id.startsWith("message-steer-") && message.ordinal > (ctx.store.collections.messages.get(`message-${ctx.store.session().turnId}-user`)?.ordinal ?? Number.MAX_SAFE_INTEGER) && !message.issueCardId && !card.payload.pendingComments?.some(row => row.id === message.id) && !card.payload.comments.some(row => row.idempotencyKey === message.id))
+            if (steering) void updateLocalIssue(card.id, payload => ({ ...payload, pendingComments: [...(payload.pendingComments ?? []), { id: steering.id, text: steering.text, owner, actor: "user", status: "requested" }] }), "user")
+            if (reply) {
+              void updateLocalIssue(card.id, payload => ({ ...payload, pendingComments: [...(payload.pendingComments ?? []), { id: reply.id, text: reply.text, owner, actor: "smithers", persona: { username: "Smithers" }, status: "requested" }] }), "smithers")
+            }
+          }
+        }
+        drainComments(card.id)
+        if (card.payload.number === 0) continue
+        if (watches.has(card.id)) continue
+        let stopped = false
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const currentOwner = captureCloudOwner(ctx, false)
+        const valid = () => !disposed && !stopped && currentOwner() && ctx.store.collections.cards.get(card.id)?.kind === "issue"
+        const stop = () => { stopped = true; clearTimeout(timer) }
+        watches.set(card.id, { stop, address: `${card.payload.repo}:${card.payload.number}` })
+        const poll = async () => {
+          if (!valid()) { stop(); watches.delete(card.id); return }
+          const work = async () => {
+            const started = ctx.store.collections.cards.get(card.id)
+            if (started?.kind !== "issue") return
+            const startedPayload = JSON.stringify(started.payload)
+            const result = await readIssue(card.payload.repo, card.payload.number)
+            if (!valid()) return
+            if (typeof result === "string") return result
+            const previous = ctx.store.collections.cards.get(card.id)
+            if (previous?.kind !== "issue" || result.card.kind !== "issue" || previous.payload.number !== card.payload.number || previous.payload.repo !== card.payload.repo || JSON.stringify(previous.payload) !== startedPayload) return
+            const payload = { ...result.card.payload, conversation: previous.payload.conversation, commentDraft: previous.payload.commentDraft, pendingComments: previous.payload.pendingComments }
+            if (JSON.stringify(previous.payload) === JSON.stringify(payload)) return
+            await ctx.dispatch({ type: "card.view.loaded", actor: "system", card: { ...previous, title: result.card.title, payload } }).isPersisted.promise
+          }
+          try {
+            if (ctx.withToast) await ctx.withToast(`issue.sync:${card.id}`, "Syncing messages", "Messages synced", work, true, valid, card.id)
+            else await work()
+          } catch { /* The next authoritative read recovers transient transport errors. */ }
+          if (valid()) timer = setTimeout(() => { void poll() }, 2_000)
+        }
+        timer = setTimeout(() => { void poll() }, 2_000)
+      }
+    }
+    const schedule = () => queueMicrotask(reconcile)
+    const changes = ctx.store.collections.cards.subscribeChanges(schedule)
+    const session = ctx.store.collections.sessions.subscribeChanges(schedule)
+    let ownerValid = captureCloudOwner(ctx, false)
+    const retire = () => {
+      if (!ownerValid()) {
+        for (const watch of watches.values()) watch.stop()
+        watches.clear()
+        for (const settle of deliveryWork.values()) settle()
+        deliveryWork.clear(); deliveryStatuses.clear()
+        ownerValid = captureCloudOwner(ctx, false)
+      }
+      schedule()
+    }
+    const identity = ctx.store.collections.identitySessions.subscribeChanges(retire)
+    const cloud = ctx.store.collections.cloudSessions.subscribeChanges(retire)
+    reconcile()
+    onDispose(() => { disposed = true; changes.unsubscribe(); session.unsubscribe(); identity.unsubscribe(); cloud.unsubscribe(); for (const watch of watches.values()) watch.stop(); watches.clear(); for (const settle of deliveryWork.values()) settle(); deliveryWork.clear() })
+  }
+
   return {
+    submitConversation: async (text, turnId, repo, owner) => {
+      if (!text.trim() || !owner || signedInOwner() !== owner || ctx.isDisposed?.()) return false
+      const branchId = ctx.store.session().activeBranchId ?? "branch-main"
+      const existing = [...ctx.store.collections.cards.values()].find(card => card.kind === "issue" && card.payload.conversation?.branchId === branchId && card.payload.conversation.owner === owner && card.payload.repo === repo)
+      const cardId = existing?.id ?? `conversation-issue:${crypto.randomUUID()}`
+      const request = { id: `message-${turnId}-user`, text, turnId, owner, actor: ctx.actor(), status: "requested" as const }
+      if (existing?.kind === "issue") {
+        if (existing.payload.pendingComments?.some(row => row.id === request.id || row.text === text && row.status === "requested")) return true
+        await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: [...(payload.pendingComments ?? []), request] }))
+      } else {
+        await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: {
+          id: cardId, kind: "issue", title: "Chat", status: "active", createdAt: Date.now(), ordinal: ctx.nextOrdinal(),
+          payload: { repo, number: 0, kind: "chat", visibility: "private", title: "Chat", state: "open", author: owner, issueBody: "", labels: [], comments: [],
+            conversation: { branchId, owner, creationKey: cardId }, pendingComments: [request] }
+        } }).isPersisted.promise
+      }
+      await ctx.dispatch({ type: "composer.changed", actor: ctx.actor(), draft: "" }).isPersisted.promise
+      drainComments(cardId)
+      return true
+    },
+    subscribe,
+    draftIssueComment: async (cardId, text) => { await updateLocalIssue(cardId, payload => ({ ...payload, commentDraft: text })) },
+    retryIssueComment: async (cardId, requestId) => {
+      await updateLocalIssue(cardId, payload => ({ ...payload, pendingComments: payload.pendingComments?.map(row => row.id === requestId ? { ...row, status: "requested", error: undefined } : row) }))
+      drainComments(cardId)
+    },
+    reactToIssueComment: async (number, commentId, name, active, explicitRepo) => {
+      const target = resolveTargetRepo(ctx.store, explicitRepo)
+      if ("error" in target) return target.error
+      let response: Response
+      try {
+        response = await ctx.http(`${issuesPath(target.repo)}/${number}/comments/${commentId}/reactions`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, active }) })
+      } catch (error) { return `Reaction status unknown: ${errorText(error)}` }
+      if (!response.ok) return readErrorMessage(response, `Saving the reaction failed (${response.status})`)
+      await response.body?.cancel().catch(() => {})
+      return refreshDetail("Reaction saved", target.repo, number)
+    },
+    mapIssueSync: async (number, mapping, explicitRepo) => {
+      const { provider, connectionId, scopeId, conversationId, threadId, externalUserId } = mapping
+      const target = resolveTargetRepo(ctx.store, explicitRepo)
+      if ("error" in target) return target.error
+      const { repo } = target
+      let response: Response
+      try {
+        response = await ctx.http(`${issuesPath(repo)}/${number}/sync`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ provider, connection_id: connectionId, scope_id: scopeId, conversation_id: conversationId, ...(threadId ? { thread_id: threadId } : {}), ...(externalUserId ? { external_user_id: externalUserId } : {}) })
+        })
+      } catch (error) { return `Sync mapping status unknown: ${errorText(error)}` }
+      if (!response.ok) return readErrorMessage(response, `Mapping sync failed (${response.status})`)
+      await response.body?.cancel().catch(() => {})
+      return refreshDetail("Sync mapped", repo, number)
+    },
     listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo)), { preload: listView.preload }),
 
     viewIssue: Object.assign(async (number: number, explicitRepo?: string, source?: "smithers-cloud" | "github") => {
@@ -502,7 +822,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       return shown
     }, { preload: issueView.preload }),
 
-    createIssue: async (title, explicitRepo) => {
+    createIssue: async (title, explicitRepo, kind) => {
       const target = resolveTargetRepo(ctx.store, explicitRepo)
       if ("error" in target) return target.error
       const { repo } = target
@@ -512,7 +832,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         response = await ctx.http(issuesPath(repo), {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title })
+          body: JSON.stringify({ title, ...(kind === "chat" ? { kind, visibility: "private" } : {}) })
         })
       } catch (error) {
         return unreachable(`create an issue in ${repo}`, error)
@@ -528,7 +848,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         return `The issue was created in ${repo}, but the backend answered with an unreadable payload`
       }
       const key = `setup-ci:${owner}:${repo}`
-      if (owner === (ctx.store.collections.identitySessions.get("identity")?.login ?? null)
+      if (kind !== "chat" && owner === (ctx.store.collections.identitySessions.get("identity")?.login ?? null)
         && !repositoryCiConfigured(ctx.store.collections.cards.values(), repo, owner)
         && ![...ctx.store.collections.toasts.values()].some(toast => toast.key === key)) {
         const action = { label: "Set up CI", flow: "ci.setup" as const, args: repo }
@@ -567,17 +887,33 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       return refreshDetail(`Issue #${number} in ${repo} is now ${state}`, repo, number)
     },
 
-    commentOnIssue: async (number, text, explicitRepo) => {
+    editIssueComment: async (number, commentId, text, explicitRepo) => {
+      if (!text.trim()) return "Write a message before saving it."
+      return mutateComment(number, commentId, explicitRepo, "PATCH", { body: text })
+    },
+    deleteIssueComment: async (number, commentId, explicitRepo) => mutateComment(number, commentId, explicitRepo, "DELETE"),
+
+    commentOnIssue: async (number, text, explicitRepo, persona) => {
       if (text.trim() === "") return "Write a comment before posting it."
       const target = resolveTargetRepo(ctx.store, explicitRepo)
       if ("error" in target) return target.error
       const { repo } = target
+      const chat = [...ctx.store.collections.cards.values()].find(card => card.kind === "issue" && card.payload.kind === "chat" && card.payload.source !== "github" && card.payload.repo === repo && card.payload.number === number)
+      if (chat?.kind === "issue") {
+        if (chat.payload.pendingComments?.some(row => row.text === text && row.status === "requested" && JSON.stringify(row.persona) === JSON.stringify(persona))) return { value: "Requested" }
+        const owner = signedInOwner()
+        if (!owner) return "Sign in before sending a message."
+        const request = { id: crypto.randomUUID(), text, owner, actor: ctx.actor(), status: "requested" as const, ...(persona ? { persona } : {}) }
+        await updateLocalIssue(chat.id, payload => ({ ...payload, commentDraft: "", pendingComments: [...(payload.pendingComments ?? []), request] }))
+        drainComments(chat.id)
+        return { value: "Requested" }
+      }
       let response: Response
       try {
         response = await ctx.http(`${issuesPath(repo)}/${number}/comments`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ body: text })
+          body: JSON.stringify({ body: text, ...(persona ? { persona } : {}) })
         })
       } catch (error) {
         const detail = `No response from issue #${number} in ${repo}: ${errorText(error)}`

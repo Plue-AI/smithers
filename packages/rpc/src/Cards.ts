@@ -1503,6 +1503,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       issues: z.array(
         z.object({
           number: z.number().int(),
+          kind: z.enum(["issue", "chat"]).optional(),
           title: z.string(),
           state: z.enum(["open", "closed"]),
           author: z.string().nullable(),
@@ -1547,12 +1548,22 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({
       repo: z.string(),
       number: z.number().int(),
+      kind: z.enum(["issue", "chat"]).optional(),
+      visibility: z.enum(["public", "private"]).optional(),
       title: z.string(),
       state: z.enum(["open", "closed"]),
       author: z.string().nullable(),
       issueBody: z.string(),
       source: z.enum(["smithers-cloud", "github"]).optional(),
       htmlUrl: z.string().optional(),
+      conversation: z.object({ branchId: z.string(), owner: z.string(), creationKey: z.string() }).optional(),
+      commentDraft: z.string().optional(),
+      pendingComments: z.array(z.object({
+        id: z.string(), text: z.string(), actor: z.enum(["user", "smithers"]), owner: z.string().optional(), turnId: z.string().optional(),
+        persona: z.object({ username: z.string(), iconEmoji: z.string().optional(), iconUrl: z.string().optional() }).optional(),
+        status: z.enum(["requested", "failed", "unknown"]), error: z.string().optional()
+      })).optional(),
+      sync: z.object({ provider: z.enum(["slack", "telegram"]), connectionId: z.string(), scopeId: z.string(), conversationId: z.string(), threadId: z.string().optional(), externalUserId: z.string().optional(), state: z.enum(["synced", "pending", "dispatching", "outcome_unknown", "failed", "unsupported"]).optional(), error: z.string().nullable().optional() }).optional(),
       labels: z.array(z.string()),
       /*
        * Lane sync (ADR 0005 "Link an issue to Linear"): the Linear mapping
@@ -1563,6 +1574,10 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       comments: z.array(
         z.object({
           author: z.string().nullable(),
+          id: z.number().int().optional(),
+          idempotencyKey: z.string().optional(),
+          reactions: z.array(z.object({ name: z.string(), actor: z.string(), active: z.boolean() })).optional(),
+          persona: z.object({ username: z.string(), iconEmoji: z.string().optional(), iconUrl: z.string().optional() }).optional(),
           commentBody: z.string(),
           createdAt: z.string().nullable(),
           authorAvatar: z.string().optional()

@@ -26184,9 +26184,7 @@
       }
     ],
     "outputs": [],
-    "dependencies": [
-      "//packages/smithers/build:cacheServicePostgresDatabase"
-    ],
+    "dependencies": [],
     "source": {
       "file": "packages/smithers/build/PACKAGE.ts"
     }

@@ -511,6 +511,12 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly viewIssue: IssuesSeam["viewIssue"]
   readonly createIssue: IssuesSeam["createIssue"]
   readonly setIssueState: IssuesSeam["setIssueState"]
+  readonly draftIssueComment: IssuesSeam["draftIssueComment"]
+  readonly retryIssueComment: IssuesSeam["retryIssueComment"]
+  readonly reactToIssueComment: IssuesSeam["reactToIssueComment"]
+  readonly mapIssueSync: IssuesSeam["mapIssueSync"]
+  readonly editIssueComment: IssuesSeam["editIssueComment"]
+  readonly deleteIssueComment: IssuesSeam["deleteIssueComment"]
   readonly commentOnIssue: IssuesSeam["commentOnIssue"]
   readonly listLandings: LandingsSeam["listLandings"]
   readonly viewLanding: LandingsSeam["viewLanding"]
@@ -1819,6 +1825,12 @@ export const createAppController = (
     createIssue: issuesSeam.createIssue,
     setIssueState: issuesSeam.setIssueState,
     commentOnIssue: issuesSeam.commentOnIssue,
+    draftIssueComment: issuesSeam.draftIssueComment,
+    retryIssueComment: issuesSeam.retryIssueComment,
+    reactToIssueComment: issuesSeam.reactToIssueComment,
+    mapIssueSync: issuesSeam.mapIssueSync,
+    editIssueComment: issuesSeam.editIssueComment,
+    deleteIssueComment: issuesSeam.deleteIssueComment,
     listLandings: landingsSeam.listLandings,
     viewLanding: landingsSeam.viewLanding,
     setLandingTab: landingsSeam.setTab,
@@ -2074,6 +2086,7 @@ export const createAppController = (
   // Material transitions regenerate the next-step pills through the `recommend` flow.
   recommender.subscribe()
   // The active repository's flow catalog, read now and on every change of target, so its leaves are in the registry.
+  issuesSeam.subscribe(ctx.onDispose)
   repositoryFlowsSeam.subscribe(ctx.onDispose)
   watchIdentityAcrossTabs()
   // Cmd+T / Cmd+W / Cmd+1..9 on the document, released with the controller.

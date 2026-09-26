@@ -66,12 +66,12 @@ const backend = (routes: Record<string, RouteAnswer>, calls: string[] = []): App
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-const signedIn = async (store: AppStore): Promise<void> => {
+const signedIn = async (store: AppStore, login = "will"): Promise<void> => {
   store.dispatch({
     type: "identity.session.loaded",
     actor: "system",
     state: "signed-in",
-    login: "will",
+    login,
     allowlisted: true,
     admin: false,
     scopesPlain: null
@@ -972,3 +972,282 @@ test.each(["smithers-cloud", "github"] as const)("%s issue reads retain forge as
     expect(detail.authorAvatar).toBe("https://avatars.githubusercontent.com/u/3")
   } finally { await controller.dispose(); await store.dispose?.() }
 })
+
+test("private chat creation, persona comments, edits and deletes use the existing issue paths", async () => {
+  const writes: unknown[] = []
+  let comments = [{ ...wireComment(31, "hello"), persona: { username: "Reviewer", iconEmoji: ":robot_face:" } }]
+  const { store, controller } = await issuesController(backend({
+    "POST /api/repos/will/flows/issues": async request => { writes.push(await request.json()); return json(201, wireIssue(8, { kind: "chat", visibility: "private" })) },
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, comments),
+    "PATCH /api/repos/will/flows/issues/comments/31": async request => { const body = await request.json() as { body: string }; comments[0]!.body = body.body; writes.push(body); return json(200, comments[0]) },
+    "DELETE /api/repos/will/flows/issues/comments/31": () => { comments = []; return new Response(null, { status: 204 }) }
+  }))
+  try {
+    expect(await controller.createIssue("sync test", "will/flows", "chat")).toBeUndefined()
+    expect(writes[0]).toEqual({ title: "sync test", kind: "chat", visibility: "private" })
+    expect([...store.collections.toasts.values()].some(toast => toast.action?.flow === "ci.setup")).toBe(false)
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    expect(card.payload).toMatchObject({ kind: "chat", visibility: "private", comments: [{ id: 31, persona: { username: "Reviewer" } }] })
+    expect(await controller.editIssueComment(8, 31, "edited", "will/flows")).toBeUndefined()
+    expect(writes[1]).toEqual({ body: "edited" })
+    expect(await controller.deleteIssueComment(8, 31, "will/flows")).toBeUndefined()
+    expect((store.collections.cards.get(card.id) as typeof card).payload.comments).toEqual([])
+  } finally { await controller.dispose(); await store.dispose?.() }
+})
+
+test("comment pagination uses scoped opaque cursors and projects each message once", async () => {
+  const calls: string[] = []
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": request => {
+      const cursor = new URL(request.url).searchParams.get("cursor")
+      if (cursor) return json(200, [wireComment(32, "second")])
+      return new Response(JSON.stringify([wireComment(31, "first")]), { headers: { "content-type": "application/json", link: '<https://untrusted.invalid/wrong?cursor=MzE>; rel="next"' } })
+    }
+  }, calls))
+  try {
+    expect((await controller.commands.run("issues.view", "8 will/flows")).status).toBe("executed")
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    expect(card.payload.comments.map(row => row.id)).toEqual([31, 32])
+    expect(calls).toContain("GET /api/repos/will/flows/issues/8/comments?cursor=MzE")
+  } finally { await controller.dispose(); await store.dispose?.() }
+})
+
+test("a restored chat card refreshes remote edits and deletes without a second transcript store", async () => {
+  let messages: Record<string, unknown>[] = [{ ...wireComment(31, "from Slack"), commenter: "U0HUMAN", persona: { username: "" } }]
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, messages)
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    await store.dispatch({ type: "card.view.loaded", actor: "system", card: { ...card, payload: { ...card.payload,
+      conversation: { branchId: store.session().activeBranchId!, owner: "will", creationKey: "test-binding" }
+    } } }).isPersisted.promise
+    expect(store.collections.messages.get(`issue-comment:${card.id}:31`)).toMatchObject({ text: "from Slack", role: "user" })
+    expect(card.payload.comments[0]).toMatchObject({ author: "U0HUMAN" })
+    expect(card.payload.comments[0]?.persona).toBeUndefined()
+    messages = [wireComment(31, "edited in Slack"), { ...wireComment(32, "reply"), persona: { username: "Reviewer" } }]
+    await new Promise(resolve => setTimeout(resolve, 2_100))
+    expect((store.collections.cards.get(card.id) as typeof card).payload.comments.map(row => row.commentBody)).toEqual(["edited in Slack", "reply"])
+    expect(store.collections.messages.get(`issue-comment:${card.id}:31`)?.text).toBe("edited in Slack")
+    expect(store.collections.messages.get(`issue-comment:${card.id}:32`)).toMatchObject({ text: "reply", role: "smithers" })
+    messages = []
+    await new Promise(resolve => setTimeout(resolve, 2_100))
+    expect((store.collections.cards.get(card.id) as typeof card).payload.comments).toEqual([])
+    expect([...store.collections.cards.values()].filter(row => row.kind === "issue")).toHaveLength(1)
+    expect([...store.collections.messages.values()].filter(row => row.issueCardId === card.id)).toEqual([])
+  } finally { await controller.dispose(); await store.dispose?.() }
+}, 10_000)
+
+test.each(["slack", "telegram"] as const)("%s mapping uses generic settings and projects delivery state", async provider => {
+  const requests: unknown[] = []
+  const { store, controller } = await issuesController(backend({
+    "PUT /api/repos/will/flows/issues/8/sync": async request => { requests.push(await request.json()); return json(200, {}) },
+    "GET /api/repos/will/flows/issues/8": json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": json(200, []),
+    "GET /api/repos/will/flows/issues/8/sync": json(200, { provider, connection_id: "connection", scope_id: "scope", conversation_id: "conversation", thread_id: "thread", state: "pending", error: null })
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    const mapping = { provider, connectionId: "connection", scopeId: "scope", conversationId: "conversation", threadId: "thread", externalUserId: "user" }
+    expect(await controller.mapIssueSync(8, mapping, "will/flows")).toBeUndefined()
+    expect(requests).toEqual([{ provider, connection_id: "connection", scope_id: "scope", conversation_id: "conversation", thread_id: "thread", external_user_id: "user" }])
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    expect(card.kind === "issue" && card.payload.sync).toEqual({ provider, connectionId: "connection", scopeId: "scope", conversationId: "conversation", threadId: "thread", state: "pending", error: null })
+  } finally { await controller.dispose(); await store.dispose?.() }
+})
+
+test("chat sends persist and acknowledge before an unresolved POST, dedupe repeated input, and settle the shared toast from completion", async () => {
+  let finish!: () => void
+  let posted = false
+  const requests: Array<{ body: string; idempotency_key: string }> = []
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, posted ? [wireComment(31, "hello")] : []),
+    "POST /api/repos/will/flows/issues/8/comments": async request => {
+      requests.push(await request.json() as { body: string; idempotency_key: string })
+      await new Promise<void>(resolve => { finish = resolve })
+      posted = true
+      return json(201, wireComment(31, "hello"))
+    }
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    await controller.draftIssueComment(card.id, "hello")
+    expect(await controller.commentOnIssue(8, "hello", "will/flows")).toEqual({ value: "Requested" })
+    expect(await controller.commentOnIssue(8, "hello", "will/flows")).toEqual({ value: "Requested" })
+    await new Promise(resolve => setTimeout(resolve, 350))
+    expect(posted).toBe(false)
+    expect(requests).toHaveLength(1)
+    const pending = (store.collections.cards.get(card.id) as typeof card).payload
+    expect(pending.pendingComments).toMatchObject([{ id: requests[0]!.idempotency_key, text: "hello", owner: "will", status: "requested" }])
+    expect(pending.commentDraft).toBe("")
+    expect(store.session().phase).toBe("idle")
+    const toast = [...store.collections.toasts.values()].find(row => row.key === `issue.message:${requests[0]!.idempotency_key}`)!
+    expect(toast.status).toBe("running")
+    finish()
+    for (let i = 0; i < 50 && (store.collections.cards.get(card.id) as typeof card).payload.pendingComments?.length; i++) await new Promise(resolve => setTimeout(resolve, 10))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const saved = (store.collections.cards.get(card.id) as typeof card).payload
+    expect(saved.pendingComments).toEqual([])
+    expect(saved.comments.map(row => row.commentBody)).toEqual(["hello"])
+    expect(store.collections.toasts.get(toast.id)?.status).toBe("ok")
+  } finally { finish?.(); await controller.dispose(); await store.dispose?.() }
+})
+
+test("failed chat messages remain retryable with the same durable idempotency key", async () => {
+  const requests: string[] = []
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, requests.length > 1 ? [wireComment(31, "retry me")] : []),
+    "POST /api/repos/will/flows/issues/8/comments": async request => {
+      requests.push((await request.json() as { idempotency_key: string }).idempotency_key)
+      return requests.length === 1 ? json(503, { message: "Try again" }) : json(201, wireComment(31, "retry me"))
+    }
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    await controller.commentOnIssue(8, "retry me", "will/flows")
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const pending = (store.collections.cards.get(card.id) as typeof card).payload.pendingComments![0]!
+    expect(pending).toMatchObject({ status: "failed", error: "Try again" })
+    await controller.retryIssueComment(card.id, pending.id)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(requests).toEqual([pending.id, pending.id])
+    expect((store.collections.cards.get(card.id) as typeof card).payload.pendingComments).toEqual([])
+  } finally { await controller.dispose(); await store.dispose?.() }
+})
+
+test("restored requested messages replay once through their persisted backend idempotency key", async () => {
+  const storage = memoryStorage()
+  let store = await createAppStore({ kind: "localStorage", storage })
+  await signedIn(store)
+  await reposChosen(store)
+  const card: Extract<Card, { kind: "issue" }> = { id: "restored-chat", kind: "issue", title: "sync test", status: "active", createdAt: 0, ordinal: 1, payload: {
+    repo: "will/flows", number: 8, kind: "chat", visibility: "private", title: "sync test", state: "open", author: "will", issueBody: "", labels: [], comments: [],
+    commentDraft: "next draft", pendingComments: [{ id: "stable-request", text: "after restart", actor: "user", status: "requested" }]
+  } }
+  await store.dispatch({ type: "card.upsert", actor: "user", card }).isPersisted.promise
+  await store.dispose?.()
+  store = await createAppStore({ kind: "localStorage", storage })
+  const requests: unknown[] = []
+  const controller = createAppController(store, unavailableAgent, backend({
+    "POST /api/repos/will/flows/issues/8/comments": async request => { requests.push(await request.json()); return json(201, wireComment(31, "after restart")) },
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, [wireComment(31, "after restart")])
+  }))
+  try {
+    await signedIn(store)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(requests).toEqual([{ body: "after restart", idempotency_key: "stable-request" }])
+    const restored = store.collections.cards.get(card.id)
+    expect(restored?.kind === "issue" && restored.payload).toMatchObject({ commentDraft: "next draft", pendingComments: [], comments: [{ commentBody: "after restart" }] })
+  } finally { await controller.dispose(); await store.dispose?.() }
+})
+
+test.each(["slack", "telegram"] as const)("%s delivery remains running through dispatch and exposes an unknown outcome without reposting", async provider => {
+  let state = "pending"
+  let posts = 0
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, []),
+    "GET /api/repos/will/flows/issues/8/sync": () => json(200, { issue_id: 800, provider, connection_id: "connection", scope_id: "T1", conversation_id: "C1", thread_id: "1.1", state, error: null }),
+    "POST /api/repos/will/flows/issues/8/comments": () => { posts++; return json(201, {}) }
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    await new Promise(resolve => setTimeout(resolve, 350))
+    const toast = [...store.collections.toasts.values()].find(row => row.key.startsWith("issue.delivery:"))!
+    expect(toast.status).toBe("running")
+    await signedIn(store)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(store.collections.toasts.get(toast.id)?.status).toBe("running")
+    state = "outcome_unknown"
+    await new Promise(resolve => setTimeout(resolve, 2_000))
+    expect(store.collections.toasts.get(toast.id)).toMatchObject({ status: "failed", detail: "Message delivery is unconfirmed. Reconciliation is required." })
+    expect(posts).toBe(0)
+  } finally { await controller.dispose(); await store.dispose?.() }
+}, 5_000)
+
+test("an account switch retires a delayed chat creation receipt and never sends the previous owner's pending text", async () => {
+  let release!: () => void
+  let reading!: () => void
+  const started = new Promise<void>(resolve => { reading = resolve })
+  const body = new Promise<void>(resolve => { release = resolve })
+  let creates = 0, posts = 0
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, []),
+    "POST /api/repos/will/flows/issues": () => {
+      creates++
+      return new Response(new ReadableStream({ async start(stream) {
+        reading(); await body; stream.enqueue(new TextEncoder().encode(JSON.stringify({ number: 9 }))); stream.close()
+      } }), { status: 201, headers: { "content-type": "application/json" } })
+    },
+    "POST /api/repos/will/flows/issues/9/comments": () => { posts++; return json(201, wireComment(31, "private text")) }
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    await store.dispatch({ type: "card.upsert", actor: "user", card: { ...card, payload: { ...card.payload, number: 0,
+      conversation: { branchId: store.session().activeBranchId!, owner: "will", creationKey: "private-create" },
+      pendingComments: [{ id: "owner-bound-request", text: "private text", owner: "will", actor: "user", status: "requested" }]
+    } } }).isPersisted.promise
+    await started
+    await signedIn(store, "another-owner")
+    release()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(creates).toBe(1)
+    expect(posts).toBe(0)
+    expect(store.collections.cards.get(card.id)).toBeUndefined()
+    await store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload,
+      pendingComments: [{ id: "restored-other-owner", owner: "will", text: "private text", actor: "user", status: "requested" }]
+    } } }).isPersisted.promise
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(posts).toBe(0)
+    expect((store.collections.cards.get(card.id) as typeof card).payload.pendingComments?.[0]?.status).toBe("requested")
+  } finally { release?.(); await controller.dispose(); await store.dispose?.() }
+})
+
+test("a delayed poll cannot replace a newer mutation receipt and does not overlap itself", async () => {
+  let release!: () => void
+  let reading!: () => void
+  const started = new Promise<void>(resolve => { reading = resolve })
+  const body = new Promise<void>(resolve => { release = resolve })
+  let reads = 0, text = "original"
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => {
+      reads++
+      if (reads === 2) return new Response(new ReadableStream({ async start(stream) {
+        reading(); await body; stream.enqueue(new TextEncoder().encode(JSON.stringify([wireComment(31, "stale poll")]))); stream.close()
+      } }), { status: 200, headers: { "content-type": "application/json" } })
+      return json(200, [wireComment(31, text)])
+    },
+    "PATCH /api/repos/will/flows/issues/comments/31": () => { text = "edited"; return json(200, wireComment(31, text)) }
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    await started
+    await new Promise(resolve => setTimeout(resolve, 2_100))
+    expect(reads).toBe(2)
+    await controller.editIssueComment(8, 31, "edited", "will/flows")
+    expect((store.collections.cards.get(card.id) as typeof card).payload.comments[0]?.commentBody).toBe("edited")
+    release()
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect((store.collections.cards.get(card.id) as typeof card).payload.comments[0]?.commentBody).toBe("edited")
+  } finally { release?.(); await controller.dispose(); await store.dispose?.() }
+}, 10_000)

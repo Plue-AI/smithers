@@ -488,6 +488,8 @@ const AnsweredActionSchema = MessageActionSchema.extend({ answer: z.string(), an
 
 export const MessageSchema = z.object({
   id: z.string(),
+  issueCardId: z.string().optional(),
+  issueCommentId: z.number().int().optional(),
   /** Owning turn for tool-act cleanup on retry. */
   turnId: z.string().optional(),
   role: z.enum(["user", "smithers"]),

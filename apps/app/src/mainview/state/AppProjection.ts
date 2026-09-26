@@ -1443,7 +1443,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         case "message.submitted": {
           const text = transition.text.trim()
           if (text === "" || current.phase !== "idle") return
-          insertMessage({
+          if (!collections.messages.has(`message-${transition.turnId}-user`)) insertMessage({
             id: `message-${transition.turnId}-user`,
             role: "user",
             text,
@@ -2397,6 +2397,28 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             insertCard(card)
           } else {
             collections.cards.update(card.id, (draft) => { Object.assign(draft, { loading: undefined, viewKey: undefined, viewRepo: undefined }, card) })
+          }
+          if (transition.type === "card.view.loaded" && card.kind === "issue" && card.payload.conversation && card.payload.number > 0) {
+            const seen = new Set<string>()
+            for (const comment of card.payload.comments) {
+              if (comment.id === undefined) continue
+              const id = comment.idempotencyKey?.startsWith("message-") ? comment.idempotencyKey : `issue-comment:${card.id}:${comment.id}`
+              seen.add(id)
+              if (current.phase === "responding" && id === `message-${current.turnId}-smithers`) continue
+              if (card.payload.pendingComments?.some(request => request.id === id && request.text !== comment.commentBody)) continue
+              const previous = collections.messages.get(id)
+              const parsedAt = comment.createdAt ? Date.parse(comment.createdAt) : NaN
+              const row: Message = {
+                ...previous, id, role: comment.persona?.username.trim() ? "smithers" : "user", text: comment.commentBody,
+                issueCardId: card.id, issueCommentId: comment.id,
+                status: "complete", createdAt: previous?.createdAt ?? (Number.isFinite(parsedAt) ? parsedAt : createdAt),
+                ordinal: previous?.ordinal ?? nextOrdinal(collections)
+              }
+              if (previous) collections.messages.update(id, draft => { Object.assign(draft, row) })
+              else insertMessage(row)
+            }
+            const removed = [...collections.messages.values()].filter(row => row.issueCardId === card.id && !seen.has(row.id)).map(row => row.id)
+            if (removed.length) collections.messages.delete(removed)
           }
           const history = collections.cardHistories.get(card.id)
           if (history) collections.cardHistories.update(card.id, draft => {
