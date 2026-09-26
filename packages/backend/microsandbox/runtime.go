@@ -50,6 +50,10 @@ const (
 	guestUID      = 1500
 )
 
+// DefaultImage is the L0 image: node:26-bookworm (Debian 12, linux/arm64)
+// pinned by the digest qualified on the reference Mac.
+const DefaultImage = "node@sha256:838c3eef085968cb818717aeb58f0880be18afa10792df051d049501565f724e"
+
 // Config selects the msb binary, the data root holding adapter metadata, the
 // VM shape, and the backend ports a guest may reach through its bridge.
 type Config struct {
@@ -58,7 +62,7 @@ type Config struct {
 	// Root holds adapter metadata. It is host state, never a guest mount.
 	Root string
 	// Image is the OCI image a workspace boots when no environment layer
-	// applies. Default node:26-bookworm.
+	// applies. Default DefaultImage.
 	Image string
 	// CPUs, MemoryMiB and DiskMiB shape each workspace VM.
 	CPUs      int
@@ -80,20 +84,14 @@ type Config struct {
 	FileReadLimit int64
 	// CommandTimeout is the runaway guard for one command (default 60 min).
 	CommandTimeout time.Duration
-	// Layers resolves environment layers for a workspace source. Nil boots Image.
-	Layers LayerResolver
+	// Environments enables graph-keyed environment layers. Nil boots Image.
+	Environments *EnvironmentConfig
 	// Artifacts maps host directories to guest paths. A managed host command
 	// whose argv[0] lies under one is copied into the guest, digest-checked,
 	// and rewritten to the guest path.
 	Artifacts map[string]string
 	// SkipQualification is for unit tests with a fake msb only.
 	SkipQualification bool
-}
-
-// LayerResolver chooses the snapshot a workspace boots from. It returns the
-// snapshot name, or "" to boot the base image.
-type LayerResolver interface {
-	ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (Layer, error)
 }
 
 // Layer is the environment a workspace VM boots from.
@@ -135,6 +133,8 @@ type Runtime struct {
 	holder    string
 	semaphore chan struct{}
 
+	environments *environments
+
 	mu         sync.Mutex
 	closed     bool
 	workspaces map[string]*workspace
@@ -164,7 +164,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		return nil, err
 	}
 	applyDefaults(&config)
-	for _, dir := range []string{root, filepath.Join(root, "workspaces"), filepath.Join(root, "snapshots")} {
+	for _, dir := range []string{root, filepath.Join(root, "workspaces"), filepath.Join(root, "snapshots"), filepath.Join(root, "layers")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, fmt.Errorf("create microsandbox state: %w", err)
 		}
@@ -183,6 +183,14 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		semaphore:  make(chan struct{}, config.MaxConcurrent),
 		workspaces: make(map[string]*workspace),
 	}
+	if config.Environments != nil {
+		environmentConfig := *config.Environments
+		environmentConfig.defaults()
+		runtime.environments = &environments{runtime: runtime, config: environmentConfig, verified: map[string]bool{}}
+		if runtime.config.Image == "" || config.Environments.Image != "" {
+			runtime.config.Image = environmentConfig.Image
+		}
+	}
 	if err := runtime.load(); err != nil {
 		return nil, err
 	}
@@ -196,7 +204,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 
 func applyDefaults(config *Config) {
 	if config.Image == "" {
-		config.Image = "node:26-bookworm"
+		config.Image = DefaultImage
 	}
 	if config.CPUs <= 0 {
 		config.CPUs = 4
@@ -421,13 +429,15 @@ func validWorkspaceID(id string) (string, error) {
 // base image), prepares the guest, and records durable metadata first so a
 // crash mid-create is reconciled rather than leaked.
 func (r *Runtime) CreateWorkspace(ctx context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
-	if r.config.Layers == nil {
-		return r.createFrom(ctx, spec, Layer{})
-	}
 	if existing, err := r.InspectWorkspace(ctx, spec.ID); err == nil {
 		return existing, nil
 	}
-	layer, err := r.config.Layers.ResolveWorkspaceLayer(ctx, spec)
+	if r.environments != nil {
+		if err := r.environments.admit(ctx); err != nil {
+			return workspaceapi.Workspace{}, err
+		}
+	}
+	layer, err := r.ResolveWorkspaceLayer(ctx, spec)
 	if err != nil {
 		return workspaceapi.Workspace{}, fmt.Errorf("resolve workspace environment: %w", err)
 	}

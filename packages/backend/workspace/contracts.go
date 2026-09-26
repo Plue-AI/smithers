@@ -82,6 +82,39 @@ type WorkspaceCapabilities struct {
 // admission, repository ownership, and receipts remain common product policy.
 type WorkspaceSpec struct {
 	ID string
+	// Source names the repository revision the product will check out, when
+	// it knows it. An isolated adapter uses it only to choose a prepared
+	// environment; it confers no repository authority.
+	Source *WorkspaceSource
+}
+
+// WorkspaceSource is an owner/name repository slug and the revision the
+// product checks out: a commit id or a bookmark the runtime resolves once.
+type WorkspaceSource struct {
+	Repository string
+	Revision   string
+}
+
+// SourceFiles reads repository files at an immutable revision for a runtime
+// that keys prepared environments by their declared inputs. It is backend
+// data access, never execution of repository code. A missing file returns an
+// error wrapping fs.ErrNotExist.
+type SourceFiles interface {
+	ResolveSourceRevision(ctx context.Context, repository, revision string) (string, error)
+	ReadSourceFile(ctx context.Context, source WorkspaceSource, path string) ([]byte, error)
+}
+
+// SourceFilesBinder is implemented by a runtime composed before the product
+// repository client exists; the composition binds it once at startup.
+type SourceFilesBinder interface {
+	BindSourceFiles(SourceFiles)
+}
+
+// WorkspaceEnvironmentLinker is an optional facet. After the product
+// checkout, it finishes the workspace's prepared environment offline, for
+// example by linking dependencies from a prepared store.
+type WorkspaceEnvironmentLinker interface {
+	LinkWorkspaceEnvironment(ctx context.Context, workspaceID string) error
 }
 
 // Workspace describes paths in the execution environment's namespace. Root is

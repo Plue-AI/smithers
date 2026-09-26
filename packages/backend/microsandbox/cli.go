@@ -54,6 +54,12 @@ func (c *cli) environment() []string {
 // command prepares an msb invocation. Stdin is always explicit: an inherited
 // open stdin can hold an exec open indefinitely.
 func (c *cli) command(args ...string) *exec.Cmd {
+	// `msb exec` without --stream relays stdin so slowly that a few MiB never
+	// arrive; --stream keeps stdout, stderr and the exit code separate and
+	// moves ~200 MB/s. Every non-PTY exec streams.
+	if len(args) > 0 && args[0] == "exec" && !containsArg(args, "--stream") && !containsArg(args, "-t") {
+		args = append([]string{"exec", "--stream"}, args[1:]...)
+	}
 	cmd := exec.Command(c.binary, args...)
 	cmd.Env = c.environment()
 	cmd.Stdin = bytes.NewReader(nil)
@@ -250,4 +256,16 @@ func (c *cli) qualify(ctx context.Context) error {
 		return fmt.Errorf("%w: msb selected the %q backend; only local microVMs are allowed", ErrUnavailable, context.Kind)
 	}
 	return nil
+}
+
+func containsArg(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == flag {
+			return true
+		}
+	}
+	return false
 }
