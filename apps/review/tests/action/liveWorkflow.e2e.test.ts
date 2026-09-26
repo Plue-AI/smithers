@@ -66,11 +66,8 @@ describe("pr-review.yml", () => {
     expect(workflow.on.issue_comment.types).toEqual(["created"]);
   });
 
-  test("carries no 0.x subscription secret", () => {
-    const env = workflow.jobs.review.env ?? {};
-    expect(env.CODEX_AUTH_JSON).toBeUndefined();
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-    expect(env.ANTHROPIC_API_KEY).toBe("${{ secrets.ANTHROPIC_API_KEY }}");
+  test("carries no provider key or 0.x subscription secret", () => {
+    expect(workflow.jobs.review.env).toBeUndefined();
   });
 });
 

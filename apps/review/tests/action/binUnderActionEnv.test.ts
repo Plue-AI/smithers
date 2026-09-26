@@ -59,21 +59,13 @@ function actionEnv(inference: Record<string, string>, summaryPath: string): Reco
   };
 }
 
-const modes = [
-  { anthropicBaseUrl: "http://127.0.0.1:1", sessionToken: "srs_fixture" },
-  { anthropicBaseUrl: "http://127.0.0.1:1", sessionToken: "srs_fixture", anthropicApiKey: "sk-ant-fixture" },
-  { anthropicBaseUrl: "http://127.0.0.1:1", sessionToken: "srs_fixture", openaiApiKey: "sk-fixture" },
-];
-
-test.each(modes.map((input) => [resolveInferenceEnv(input).mode, input] as const))(
-  "the %s environment composes every agent action with no judge credential",
-  (_mode, input) => {
-    const env = actionEnv(resolveInferenceEnv(input).env, "/unused/summary.json");
-    expect(Object.keys(env).filter((key) => key.includes("GATEWAY"))).toEqual([]);
-    expect(() => layerNode({ filename: "/unused/review.db", seats: SeatResolver.layerNoop(), environment: env }))
-      .not.toThrow();
-  },
-);
+test("the proxy environment composes every agent action with no judge credential", () => {
+  const inference = resolveInferenceEnv({ anthropicBaseUrl: "http://127.0.0.1:1", sessionToken: "srs_fixture" });
+  const env = actionEnv(inference.env, "/unused/summary.json");
+  expect(Object.keys(env).filter((key) => key.includes("GATEWAY"))).toEqual([]);
+  expect(() => layerNode({ filename: "/unused/review.db", seats: SeatResolver.layerNoop(), environment: env }))
+    .not.toThrow();
+});
 
 test("the bin reviews a change under the proxy environment the action passes", async () => {
   const repo = tempRepo();
@@ -99,7 +91,6 @@ test("the bin reviews a change under the proxy environment the action passes", a
   }));
   try {
     const inference = resolveInferenceEnv({ anthropicBaseUrl: provider.url, sessionToken: "srs_fixture" });
-    expect(inference.mode).toBe("proxy");
     const env = actionEnv(inference.env, summaryPath);
     expect("AI_GATEWAY_API_KEY" in env).toBe(false);
     const child = spawn("node", [

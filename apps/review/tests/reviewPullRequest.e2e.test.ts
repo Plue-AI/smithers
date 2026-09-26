@@ -4,7 +4,6 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { resolveInferenceEnv } from "../action/src/resolveInferenceEnv.ts";
 import { buildPullRequestReview } from "../src/github/buildPullRequestReview.ts";
 import { listPullRequestFiles } from "../src/github/listPullRequestFiles.ts";
 import { resolvePullRequest } from "../src/github/resolvePullRequest.ts";
@@ -24,7 +23,9 @@ import { scriptedSeats } from "./workflow/scriptedSeats.ts";
  * `GITHUB_TOKEN`/`GH_TOKEN` or from a `gh auth login` session. The model half
  * is credentialed separately: a live seat runs when `ANTHROPIC_API_KEY` or
  * `OPENAI_API_KEY` is present, and a scripted seat otherwise, so the GitHub
- * contract is exercised even when no inference budget is available.
+ * contract is exercised even when no inference budget is available. With only
+ * `OPENAI_API_KEY`, point `SMITHERS_REVIEW_SEAT` and
+ * `SMITHERS_REVIEW_CHEAP_SEAT` at `openai:` seats, as for the CLI.
  *
  * `SMITHERS_REVIEW_E2E_PR` names the pull request (an `owner/repo#number` or a
  * URL); it defaults to a small, long-lived public PR.
@@ -57,34 +58,11 @@ afterAll(() => {
 const liveSeat = process.env.SMITHERS_REVIEW_E2E_LIVE_MODEL === "1" &&
   Boolean(process.env.ANTHROPIC_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim());
 
-/**
- * The environment the live seats resolve against.
- *
- * `resolveReviewSeats` defaults to Anthropic models, so a machine carrying only
- * `OPENAI_API_KEY` would resolve every seat to a credential it does not have
- * and fail each file review with `SeatUnresolved`. The GitHub action already
- * solves this: `resolveInferenceEnv` moves both seats onto the `openai:`
- * provider when that is the key on offer. Reusing it here means the opt-in
- * honours what this file's header promises for either key, and it exercises the
- * action's own mapping rather than a second copy of it.
- *
- * An explicit `SMITHERS_REVIEW_SEAT` still wins: `process.env` is merged last.
- */
-function liveEnvironment(): Readonly<Record<string, string | undefined>> {
-  const resolved = resolveInferenceEnv({
-    anthropicBaseUrl: "",
-    sessionToken: "",
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    openaiApiKey: process.env.OPENAI_API_KEY,
-  });
-  return resolved.mode === "byo-openai" ? { ...resolved.env, ...process.env } : process.env;
-}
-
-const liveSeats = liveSeat ? resolveReviewSeats(liveEnvironment()) : undefined;
+const liveSeats = liveSeat ? resolveReviewSeats(process.env) : undefined;
 
 /** A seat layer: live when opted into and credentialed, scripted otherwise. */
 function seats(anchors: ReadonlyMap<string, number>) {
-  if (liveSeats) return reviewSeatResolver(liveSeats, liveEnvironment());
+  if (liveSeats) return reviewSeatResolver(liveSeats, process.env);
   return scriptedSeats((ask) => {
     const path = [...anchors.keys()].find((candidate) => ask.includes(candidate));
     const line = path === undefined ? 0 : anchors.get(path) ?? 0;

@@ -57,9 +57,10 @@ loading the review snapshot.
 ## CI
 
 `.github/workflows/pr-review.yml` dogfoods the action in `action/` on this
-repo. It is the README's workflow with a checkout step, the action referenced
-as `./apps/review/action` so every PR runs its own action code, and one job
-variable, the repository's `ANTHROPIC_API_KEY` secret. It stays on
+repo. It is the README's workflow with a checkout step and the action referenced
+as `./apps/review/action` so every PR runs its own action code. The
+repository is registered with the review service, so its reviews run on
+metered inference and it passes no provider key. It stays on
 `pull_request` and `issue_comment` (never `pull_request_target`) with
 `id-token: write`, `contents: read`, and `pull-requests: write`.
 
@@ -71,10 +72,10 @@ variable, the repository's `ANTHROPIC_API_KEY` secret. It stays on
    `/api/sessions` (`action/src/createSession.ts`). An unregistered repo, a
    spent monthly quota, or a `pull_request` event on a `comment`-mode
    registration ends the run with a notice, and the job passes.
-3. `action/src/resolveInferenceEnv.ts` picks inference: the caller's
-   `ANTHROPIC_API_KEY`, then `OPENAI_API_KEY`, then the service's metered
-   proxy under the session token. Without the secret the review runs on the
-   proxy; it does not skip.
+3. `action/src/resolveInferenceEnv.ts` points inference at the service's
+   metered proxy under the session token. The action forwards no provider
+   key, and `action/src/materializeInferenceCredentials.ts` scrubs every
+   provider key and seat override the job env carries before the review runs.
 4. `action/src/runReview.ts` runs the CLI with `--pr <number> --publish` and
    publishes to the session's `publishUrl` under the session token, so no
    publish secret exists.
@@ -206,11 +207,9 @@ with no colon is a bare model id on the Anthropic route. `ANTHROPIC_BASE_URL`
 moves the Anthropic route to another origin, which is how the action reaches
 the metered proxy.
 
-The action chooses among three modes in `action/src/resolveInferenceEnv.ts`: a
-caller's `ANTHROPIC_API_KEY` (seats stay on their defaults), a caller's
-`OPENAI_API_KEY` (both seats move to `openai:` models), or the metered proxy,
+The action always runs on the metered proxy (`action/src/resolveInferenceEnv.ts`),
 which mints a session-scoped key and points `ANTHROPIC_BASE_URL` at its own
-origin. Anthropic wins when both keys are set.
+origin. Provider keys apply only when you run the CLI yourself.
 
 rc.0 runs no CLI subprocess, so there is no engine to select and no Codex or
 Claude Code agent pool: a seat resolves to a provider route, and the table

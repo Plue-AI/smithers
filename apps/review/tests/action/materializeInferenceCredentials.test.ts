@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { SEAT_CREDENTIAL } from "../../src/workflow/reviewSeatResolver.ts";
 import { materializeInferenceCredentials } from "../../action/src/materializeInferenceCredentials.ts";
 
 describe("materializeInferenceCredentials", () => {
@@ -8,20 +9,30 @@ describe("materializeInferenceCredentials", () => {
       CLAUDE_CODE_OAUTH_TOKEN: "oauth",
       ANTHROPIC_API_KEY: "sk-ant",
       OPENAI_API_KEY: "sk-oai",
+      OPENROUTER_API_KEY: "sk-or",
+      SMITHERS_REVIEW_SEAT: "openrouter:any",
+      SMITHERS_REVIEW_CHEAP_SEAT: "openrouter:any",
+      SMITHERS_REVIEW_VERIFY_SEAT: "openrouter:any",
+      SMITHERS_REVIEW_NARRATE_SEAT: "openrouter:any",
+      SMITHERS_REVIEW_QUIZ_SEAT: "openrouter:any",
       PATH: "/usr/bin",
     };
 
+    const given = { ...env };
     const removed = materializeInferenceCredentials({ env });
 
-    expect(new Set(removed)).toEqual(
-      new Set(["CODEX_AUTH_JSON", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]),
-    );
-    expect("CODEX_AUTH_JSON" in env).toBe(false);
-    expect("CLAUDE_CODE_OAUTH_TOKEN" in env).toBe(false);
-    expect("ANTHROPIC_API_KEY" in env).toBe(false);
-    expect("OPENAI_API_KEY" in env).toBe(false);
+    expect(removed.length).toBe(Object.keys(given).length - 1);
     // Everything else is left exactly as it was.
-    expect(env.PATH).toBe("/usr/bin");
+    expect(env).toEqual({ PATH: "/usr/bin" });
+  });
+
+  test("scrubs the credential of every provider a seat can route to", () => {
+    // A provider the scrub misses is a hosted run billed to the caller's key.
+    const env: Record<string, string | undefined> = Object.fromEntries(
+      Object.values(SEAT_CREDENTIAL).map((variable) => [variable, "sk-caller"]),
+    );
+    materializeInferenceCredentials({ env });
+    expect(env).toEqual({});
   });
 
   test("reports nothing when the environment carries no raw credential", () => {

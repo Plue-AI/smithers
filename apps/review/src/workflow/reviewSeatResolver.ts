@@ -32,7 +32,8 @@ import * as Result from "effect/Result";
 import { SEAT, type ReviewSeats } from "./reviewSeats.ts";
 
 /**
- * The credential variable each provider reads.
+ * The credential variable each provider reads. The action scrubs every one
+ * before a hosted review.
  *
  * @since 1.0.0
  * @category constants

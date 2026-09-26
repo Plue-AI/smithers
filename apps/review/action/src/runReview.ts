@@ -16,7 +16,7 @@ export interface RunReviewInput {
   smithersRoot: string;
   workspace: string;
   prNumber: number;
-  /** Credential and seat overrides chosen by `resolveInferenceEnv`. */
+  /** Credential overrides chosen by `resolveInferenceEnv`. */
   inferenceEnv: Record<string, string>;
   publishUrl: string;
   publishToken: string;

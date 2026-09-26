@@ -184,18 +184,11 @@ async function main(): Promise<void> {
   const inference = resolveInferenceEnv({
     anthropicBaseUrl: session.anthropicBaseUrl,
     sessionToken: session.token,
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-    openaiApiKey: process.env.OPENAI_API_KEY,
   });
   // Scrub every raw caller-supplied credential before spawning the review CLI:
   // the run reads an untrusted diff, and `inference.env` re-supplies exactly
   // what it needs. See materializeInferenceCredentials.
   materializeInferenceCredentials({ env: process.env });
-  if (inference.mode === "byo-anthropic") {
-    console.log("::notice::smithers review: inference runs on this repo's own ANTHROPIC_API_KEY.");
-  } else if (inference.mode === "byo-openai") {
-    console.log("::notice::smithers review: inference runs on this repo's own OPENAI_API_KEY.");
-  }
 
   const summaryPath = join(process.env.RUNNER_TEMP?.trim() || tmpdir(), `smithers-review-summary-${process.pid}.json`);
   const exitCode = await runReview({
@@ -207,7 +200,7 @@ async function main(): Promise<void> {
     publishToken: session.token,
     ghToken: process.env.GH_TOKEN,
     quiz: resolveQuizMode(process.env.SMITHERS_REVIEW_QUIZ, session.quiz),
-    ...(inference.concurrency !== undefined ? { concurrency: inference.concurrency } : {}),
+    concurrency: inference.concurrency,
     summaryPath,
   });
 

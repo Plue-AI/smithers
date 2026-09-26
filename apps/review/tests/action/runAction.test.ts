@@ -344,6 +344,81 @@ describe("runAction (subprocess)", () => {
     }
   }, 20_000);
 
+  test("reviews on the session's metered proxy even when the job env carries provider keys", async () => {
+    const service = await startReviewService("auto");
+    try {
+      const payload = {
+        action: "opened",
+        pull_request: {
+          number: 42,
+          draft: false,
+          head: { sha: "deadbeef", repo: { full_name: "octo/widgets" } },
+          base: { repo: { full_name: "octo/widgets" } },
+        },
+      };
+      const eventPath = join(tmp, "event.json");
+      await writeFile(eventPath, JSON.stringify(payload));
+      const envLog = join(tmp, "review-env.log");
+      const child = Bun.spawn(["bun", RUN_ACTION], {
+        cwd: PKG_ROOT,
+        env: {
+          ...(process.env as Record<string, string>),
+          ANTHROPIC_API_KEY: "sk-ant-caller",
+          OPENAI_API_KEY: "sk-oai-caller",
+          OPENROUTER_API_KEY: "sk-or-caller",
+          SMITHERS_REVIEW_SEAT: "openrouter:caller-model",
+          SMITHERS_REVIEW_CHEAP_SEAT: "openrouter:caller-model",
+          SMITHERS_REVIEW_VERIFY_SEAT: "openrouter:caller-model",
+          SMITHERS_REVIEW_NARRATE_SEAT: "openrouter:caller-model",
+          SMITHERS_REVIEW_QUIZ_SEAT: "openrouter:caller-model",
+          PATH: `${REVIEW_BIN}${delimiter}${process.env.PATH ?? ""}`,
+          RUNNER_TEMP: tmp,
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_EVENT_PATH: eventPath,
+          GITHUB_REPOSITORY: "octo/widgets",
+          GITHUB_WORKSPACE: PKG_ROOT,
+          GITHUB_RUN_ID: "",
+          ACTIONS_ID_TOKEN_REQUEST_URL: `http://127.0.0.1:${service.port}/oidc`,
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: "runner-token",
+          SMITHERS_REVIEW_SERVICE_URL: `http://127.0.0.1:${service.port}`,
+          SMITHERS_GH_BIN: FAKE_GH,
+          SMITHERS_FAKE_GH_LOG: join(tmp, "gh.log"),
+          SMITHERS_FAKE_GH_STDOUT: "",
+          SMITHERS_FAKE_GH_EXIT: "0",
+          SMITHERS_FAKE_REVIEW_ENV_LOG: envLog,
+          SMITHERS_FAKE_REVIEW_SUMMARY: JSON.stringify({ status: "success", reviewStatus: "success", files: 1, findings: 0 }),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(stdout).not.toContain("own ANTHROPIC_API_KEY");
+      expect(stdout).not.toContain("own OPENAI_API_KEY");
+      const seen = Object.fromEntries(
+        (await readFile(envLog, "utf8")).trim().split("\n").map((line) => line.split(/=(.*)/s).slice(0, 2)),
+      );
+      const { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, ...rest } = seen;
+      expect(ANTHROPIC_API_KEY).toStartWith("srs_");
+      expect(ANTHROPIC_BASE_URL).not.toBe("");
+      expect(rest).toEqual({
+        OPENAI_API_KEY: "",
+        OPENROUTER_API_KEY: "",
+        SMITHERS_REVIEW_SEAT: "",
+        SMITHERS_REVIEW_CHEAP_SEAT: "",
+        SMITHERS_REVIEW_VERIFY_SEAT: "",
+        SMITHERS_REVIEW_NARRATE_SEAT: "",
+        SMITHERS_REVIEW_QUIZ_SEAT: "",
+      });
+    } finally {
+      service.stop();
+    }
+  }, 20_000);
+
   test("throws and exits non-zero when OIDC vars are missing for a valid PR event", async () => {
     // When a valid PR event passes the gate, runAction calls fetchOidcToken
     // which throws if the OIDC env vars are not set.

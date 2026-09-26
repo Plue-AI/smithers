@@ -74,11 +74,4 @@ runs:
         GITHUB_WORKSPACE: ${{ github.workspace }}
         GH_TOKEN: ${{ github.token }}
         SMITHERS_REVIEW_QUIZ: ${{ inputs.quiz }}
-        # Optional bring-your-own inference keys, passed straight through from
-        # the caller's job env. `resolveInferenceEnv` picks the provider from
-        # whichever is set; absent, inference goes through the metered proxy.
-        # The review itself never sees these: `materializeInferenceCredentials`
-        # scrubs them and re-supplies only what the chosen mode needs.
-        ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
-        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
       run: bun "$SMITHERS_ACTION_PATH/src/runAction.ts"

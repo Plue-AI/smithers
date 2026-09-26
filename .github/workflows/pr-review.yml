@@ -18,13 +18,6 @@ jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # This repo pays for its own review inference. rc.0 seats are provider
-    # routes, so the credential is an API key: the 0.x CODEX_AUTH_JSON and
-    # CLAUDE_CODE_OAUTH_TOKEN secrets existed only because the review spawned a
-    # CLI agent, and the action ignores both. Without this secret the action
-    # falls back to the service's metered proxy.
-    env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     # The action runs from this checkout, so a pull request is reviewed by its
     # own action code: a break in the action turns this repository's PR red
     # before `@main` users get it.

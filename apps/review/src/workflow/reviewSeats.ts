@@ -34,6 +34,20 @@ export const DEFAULT_REVIEW_SEAT = "anthropic:claude-sonnet-4-5";
 /** The narrating and quizzing seat when the environment names none. */
 export const DEFAULT_CHEAP_SEAT = "anthropic:claude-haiku-4-5";
 
+/**
+ * The variables that override a seat, read by {@link resolveReviewSeats}.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const SEAT_VARIABLE = {
+  review: "SMITHERS_REVIEW_SEAT",
+  cheap: "SMITHERS_REVIEW_CHEAP_SEAT",
+  verify: "SMITHERS_REVIEW_VERIFY_SEAT",
+  narrate: "SMITHERS_REVIEW_NARRATE_SEAT",
+  quiz: "SMITHERS_REVIEW_QUIZ_SEAT",
+} as const;
+
 const trimmed = (value: string | undefined): string | undefined => {
   const text = value?.trim();
   return text === undefined || text === "" ? undefined : text;
@@ -56,13 +70,13 @@ const trimmed = (value: string | undefined): string | undefined => {
 export const resolveReviewSeats = (
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ReviewSeats => {
-  const review = trimmed(environment.SMITHERS_REVIEW_SEAT) ?? DEFAULT_REVIEW_SEAT;
-  const cheap = trimmed(environment.SMITHERS_REVIEW_CHEAP_SEAT) ?? DEFAULT_CHEAP_SEAT;
+  const review = trimmed(environment[SEAT_VARIABLE.review]) ?? DEFAULT_REVIEW_SEAT;
+  const cheap = trimmed(environment[SEAT_VARIABLE.cheap]) ?? DEFAULT_CHEAP_SEAT;
   return {
     review,
-    verify: trimmed(environment.SMITHERS_REVIEW_VERIFY_SEAT) ?? review,
-    narrate: trimmed(environment.SMITHERS_REVIEW_NARRATE_SEAT) ?? cheap,
-    quiz: trimmed(environment.SMITHERS_REVIEW_QUIZ_SEAT) ?? cheap,
+    verify: trimmed(environment[SEAT_VARIABLE.verify]) ?? review,
+    narrate: trimmed(environment[SEAT_VARIABLE.narrate]) ?? cheap,
+    quiz: trimmed(environment[SEAT_VARIABLE.quiz]) ?? cheap,
   };
 };
 

@@ -58,11 +58,11 @@ describe("review action manifest", () => {
     expect(runs).not.toContain("@anthropic-ai/claude-code");
   });
 
-  test("forwards the bring-your-own inference keys and no raw subscription secret", () => {
+  test("forwards no provider key and no raw subscription secret", () => {
     const review = readSteps().find((step) => step.name === "Authenticate and review");
     const env = (review as { env?: Record<string, string> }).env ?? {};
-    expect(env.ANTHROPIC_API_KEY).toBe("${{ env.ANTHROPIC_API_KEY }}");
-    expect(env.OPENAI_API_KEY).toBe("${{ env.OPENAI_API_KEY }}");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.CODEX_AUTH_JSON).toBeUndefined();
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
