@@ -34,6 +34,7 @@ another product composition root.
 - `packages/backend/ironproxy`
 - `packages/backend/jobs`
 - `packages/backend/localbootstrap`
+- `packages/backend/microsandbox`
 - `packages/backend/modelhost`
 - `packages/backend/modelprice`
 - `packages/backend/modelproxy`
