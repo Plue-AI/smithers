@@ -156,7 +156,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     disposed: false,
     subscriptions: undefined as Array<{ unsubscribe(): void }> | undefined,
     pending: new Map<string, { readonly value: string }>(),
-    hovers: new Map<string, symbol>()
+    hovers: new Map<string, symbol>(),
+    documents: new Map<string, { readonly connection: string }>()
   }))
   /** Publications are observations; only explicit commands record identical answers again. */
   const observe = (id: string, fields: Partial<FilePayload>): void => {
@@ -176,7 +177,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   const dialing = actorSharedState(ctx, "code-cloud-dialing", () => new Map<string, Set<string>>())
   const connectionKey = (workspaceId: string, language: string): string => `${workspaceId} ${language}`
   const cloudCards = (event: Extract<CloudLspEvent, { readonly paths: ReadonlyArray<string> }>): ReadonlySet<string> =>
-    new Set([...event.paths.map((path) => cardIdOf(event.repo, path)), ...(dialing.get(connectionKey(event.workspaceId, event.language)) ?? [])])
+    new Set([...event.paths.map((path) => cardIdOf(event.repo, path)), ...(dialing.get(connectionKey(event.workspaceId, event.language)) ?? [])]
+      .filter(id => cloudWatch.documents.get(id)?.connection === connectionKey(event.workspaceId, event.language)))
   const retire = (): void => {
     const client = cloudWatch.client
     cloudWatch.unwatch?.()
@@ -185,6 +187,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     cloudWatch.current = undefined
     cloudWatch.pending.clear()
     cloudWatch.hovers.clear()
+    cloudWatch.documents.clear()
     dialing.clear()
     client?.dispose()
   }
@@ -208,7 +211,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       switch (event.type) {
         case "diagnostics": {
           const id = cardIdOf(event.repo, event.path)
-          if (fileCard(id)?.payload.content === event.content) observe(id, diagnosticsFields(event.items, event.total))
+          if (cloudWatch.documents.get(id)?.connection === connectionKey(event.workspaceId, event.language)
+            && fileCard(id)?.payload.content === event.content) observe(id, diagnosticsFields(event.items, event.total))
           return
         }
         case "closed": {
@@ -292,6 +296,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     if (ctx.store.collections.cloudSessions.get("cloud")?.state !== "signed-in") return refuseCloudSignIn(ctx)
     const found = workspaceFor(repo)
     if ("refusal" in found) {
+      cloudWatch.documents.delete(id)
       if (canPublish()) patch(id, { intel: { state: "unavailable", note: found.refusal } })
       return found.refusal
     }
@@ -299,6 +304,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     const language = lspLanguageFor(path)
     const served = workspace.lspLanguages ?? null
     if (language === null || (served !== null && !served.includes(language))) {
+      cloudWatch.documents.delete(id)
       const extension = /\.[^./]+$/.exec(path)?.[0]
       const noun = extension === undefined ? "this file" : `${extension} files`
       const refusal = served === null
@@ -307,6 +313,11 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       if (canPublish()) patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }
+    const connection = connectionKey(workspace.id, language)
+    const previous = cloudWatch.documents.get(id)
+    const documentOwner = previous?.connection === connection ? previous : { connection }
+    cloudWatch.documents.set(id, documentOwner)
+    const canPresent = () => canPublish() && cloudWatch.documents.get(id) === documentOwner
     const owner = captureCloudOwner(ctx)
     const current = () => !cloudWatch.disposed && owner()
     const unread = await ensureCard(repo, path, anchor)
@@ -317,14 +328,14 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     if (card.payload.binary === true) return `${path} in ${repo} is a binary file; a language server has nothing to read there.`
     if (card.payload.truncated) {
       const refusal = `${path} in ${repo} is larger than the card cap; hover, definitions and diagnostics need the whole file.`
-      if (canPublish()) patch(id, { intel: { state: "unavailable", note: refusal } })
+      if (canPresent()) patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }
     const client = watchCloud()
     return {
       client,
       current,
-      canPublish,
+      canPublish: canPresent,
       repo,
       path,
       id,
@@ -375,7 +386,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
         if (!prepared.current()) return SIGN_OUT_REFUSAL
         if ("refusal" in answer) return refuse(prepared, answer.refusal)
         const { hover } = answer.ok
-        if (canPublish()) {
+        if (prepared.canPublish()) {
           if (current(prepared)) {
             patch(id, {
               intel: { state: "ready" },
@@ -415,10 +426,10 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
          * "no definition found" would be false. The card states it too.
          */
         const outside = omitted === 0 ? undefined : `outside the repository (${plural(omitted, "location")} not openable here)`
-        patch(id, { intel: outside === undefined ? { state: "ready" } : { state: "ready", note: `Definition of ${path}:${line}:${column}: ${outside}` } })
+        if (prepared.canPublish()) patch(id, { intel: outside === undefined ? { state: "ready" } : { state: "ready", note: `Definition of ${path}:${line}:${column}: ${outside}` } })
         return { value: outside === undefined ? `No definition found for ${at}.` : `${at} is defined ${outside}.` }
       }
-      patch(id, { intel: { state: "ready" } })
+      if (prepared.canPublish()) patch(id, { intel: { state: "ready" } })
       /*
        * The card effect (§4): the first target opens at its line through
        * files.read's anchor — the same card id, the same dedupe, the same
@@ -426,7 +437,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
        * asked where, not what; it reads the target with files.read. A
        * refusal still belongs in the answer because the target did not open.
        */
-      const opened = await options.readFile(first.path, repo, { line: first.line, column: first.character })
+      const opened = prepared.canPublish() ? await options.readFile(first.path, repo, { line: first.line, column: first.character }) : undefined
       if (!prepared.current()) return SIGN_OUT_REFUSAL
       const more = total - omitted - locations.length
       const trailer = [
@@ -448,11 +459,13 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       const { items, total } = answer.ok
       if (items === null || total === null) {
         // The server published nothing within the wait: the card keeps no count rather than a false zero.
-        patch(id, { intel: { state: "ready" } })
+        if (prepared.canPublish()) patch(id, { intel: { state: "ready" } })
         return { value: `The language server published no diagnostics for ${path} in ${repo} within ${LSP_REQUEST_TIMEOUT_MS / 1000} s.` }
       }
-      if (current(prepared)) patch(id, { intel: { state: "ready" }, ...diagnosticsFields(items, total) })
-      else patch(id, { intel: { state: "ready" } })
+      if (prepared.canPublish()) {
+        if (current(prepared)) patch(id, { intel: { state: "ready" }, ...diagnosticsFields(items, total) })
+        else patch(id, { intel: { state: "ready" } })
+      }
       const shown = total > items.length ? ` (first ${items.length} shown)` : ""
       return {
         value: items.length === 0

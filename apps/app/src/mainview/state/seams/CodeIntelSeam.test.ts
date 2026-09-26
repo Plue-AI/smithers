@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 import { createActorBindings } from "../ActorBindings"
 import { createAppStore, type AppStore } from "../AppStore"
 import type { Card } from "../AppState"
-import type { CloudLspClient, CloudLspEvent } from "../CloudLspClient"
+import type { CloudLspClient, CloudLspEvent, CloudLspDocument } from "../CloudLspClient"
 import { createCodeIntelSeam, type CodeIntelSeam, type CodeIntelSeamOptions } from "./CodeIntelSeam"
 import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 
@@ -34,6 +34,7 @@ const setup = async (options: { readFile?: CodeIntelSeamOptions["readFile"]; mis
   await reopenFile(store)
   if (options.missingFile) await store.dispatch({ type: "card.removed", actor: "user", id: card.id }).isPersisted.promise
   const clients: Array<{ client: CloudLspClient; publish(event: CloudLspEvent): void; disposals: number; unsubscribes: number }> = []
+  const documents: CloudLspDocument[] = []
   const calls = { hover: 0, definition: 0, diagnostics: 0, readFile: 0 }
   const answers = {
     hover: async (): ReturnType<CloudLspClient["hover"]> => ({ ok: { hover: null } }),
@@ -49,8 +50,8 @@ const setup = async (options: { readFile?: CodeIntelSeamOptions["readFile"]; mis
     createCloudLsp: () => {
       let publish: ((event: CloudLspEvent) => void) | undefined
       const entry = { disposals: 0, unsubscribes: 0, publish: (value: CloudLspEvent) => publish!(value), client: {
-        hover: async () => { calls.hover++; return answers.hover() }, definition: async () => { calls.definition++; return answers.definition() },
-        diagnostics: async () => { calls.diagnostics++; return answers.diagnostics() },
+        hover: async (document: CloudLspDocument) => { documents.push(document); calls.hover++; return answers.hover() }, definition: async (document: CloudLspDocument) => { documents.push(document); calls.definition++; return answers.definition() },
+        diagnostics: async (document: CloudLspDocument) => { documents.push(document); calls.diagnostics++; return answers.diagnostics() },
         // Retain the callback deliberately: an already queued publication must also be fenced.
         subscribe: (listener: (event: CloudLspEvent) => void) => { publish = listener; return () => { entry.unsubscribes++ } },
         dispose: () => { entry.disposals++ }
@@ -66,7 +67,7 @@ const setup = async (options: { readFile?: CodeIntelSeamOptions["readFile"]; mis
     for (let i = 0; i < 100 && calls[method] < count; i++) await new Promise(resolve => setTimeout(resolve, 1))
     expect(calls[method]).toBe(count)
   }
-  return { store, seam, agent: () => bindings.select(seam), answers, calls, clients, untilCalled, disposeContext: () => { disposed = true; seam.dispose() } }
+  return { store, seam, agent: () => bindings.select(seam), answers, calls, clients, documents, untilCalled, disposeContext: () => { disposed = true; seam.dispose() } }
 }
 const changes = ["account", "identity-sign-out", "identity-ABA", "provider", "cloud-account", "cloud-ABA", "dispose"] as const
 type Fixture = Awaited<ReturnType<typeof setup>>
@@ -293,4 +294,120 @@ test("hovers in different files retain independent cards", async () => {
     if (shown?.kind !== "file") throw new Error("Expected the file card")
     expect(shown.payload.hover?.contents).toBe(text)
   }
+})
+
+for (const type of ["diagnostics", "waiting", "closed"] as const) {
+  test(`an old workspace's ${type} cannot annotate a file now using another workspace`, async () => {
+    const { store, seam, clients, documents } = await setup()
+    await seam.hover("index.ts", 1, 1, "owner/repo")
+    const old = store.collections.cloudWorkspaces.get("ws-lsp")!
+    await store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...old, status: "stopped" } }).isPersisted.promise
+    await store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...old, id: "ws-new", name: "New workspace" } }).isPersisted.promise
+    await seam.hover("index.ts", 1, 1, "owner/repo")
+    expect(documents.map(doc => doc.workspaceId)).toEqual(["ws-lsp", "ws-new"])
+    const before = await store.eventHistory()
+    clients[0]!.publish(event(type))
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    clients[0]!.publish({ ...event(type), workspaceId: "ws-new" })
+    expect((await store.eventHistory()).head).not.toEqual(before.head)
+  })
+}
+
+const useWorkspace = async (store: AppStore, id: string) => {
+  for (const row of [...store.collections.cloudWorkspaces.values()]) {
+    await store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...row, status: "stopped" } }).isPersisted.promise
+  }
+  const template = store.collections.cloudWorkspaces.get("ws-lsp")!
+  await store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...template, id, name: id, status: "running" } }).isPersisted.promise
+}
+
+for (const method of ["hover", "definition", "diagnostics"] as const) {
+  for (const outcome of ["answer", "empty", "refusal"] as const) {
+    for (const actor of ["user", "smithers"] as const) {
+      test(`retired workspace ${actor} ${method} ${outcome} keeps data but cannot change the current card`, async () => {
+        const { store, seam, agent, answers, untilCalled, calls, documents } = await setup({ startingAfterMs: 20 })
+        const reply = Promise.withResolvers<Awaited<ReturnType<CloudLspClient[typeof method]>>>()
+        Object.assign(answers, { [method]: () => reply.promise })
+        const oldDoor = actor === "user" ? seam : agent(), newDoor = actor === "user" ? agent() : seam
+        const old = method === "diagnostics" ? oldDoor.diagnostics("index.ts", "owner/repo") : oldDoor[method]("index.ts", 1, 1, "owner/repo")
+        await untilCalled(method)
+        await useWorkspace(store, "ws-new")
+        // Use a different action so hover ordering alone cannot hide the workspace bug.
+        if (method === "hover") {
+          answers.diagnostics = async () => ({ refusal: { code: "closed", message: "Current workspace refusal" } })
+          await newDoor.diagnostics("index.ts", "owner/repo")
+        } else {
+          answers.hover = async () => ({ refusal: { code: "closed", message: "Current workspace refusal" } })
+          await newDoor.hover("index.ts", 1, 2, "owner/repo")
+        }
+        expect(documents.map(doc => doc.workspaceId)).toEqual(["ws-lsp", "ws-new"])
+        const before = await store.eventHistory()
+        await new Promise(resolve => setTimeout(resolve, 25))
+        expect((await store.eventHistory()).head).toEqual(before.head)
+        if (outcome === "refusal") reply.resolve({ refusal: { code: "closed", message: "Old workspace refusal" } })
+        else if (method === "hover") reply.resolve({ ok: { hover: outcome === "empty" ? null : { contents: "Old workspace hover", truncated: false } } })
+        else if (method === "definition") reply.resolve({ ok: { locations: outcome === "empty" ? [] : [{ path: "old.ts", line: 1, character: 1, endLine: 1, endCharacter: 2 }], total: outcome === "empty" ? 0 : 1, omitted: 0 } })
+        else reply.resolve({ ok: { items: outcome === "empty" ? null : [diagnostic], total: outcome === "empty" ? null : 1 } })
+        const result = await old
+        expect(result).not.toBe(SIGN_OUT_REFUSAL)
+        expect(result).toBeDefined()
+        expect((await store.eventHistory()).head).toEqual(before.head)
+        expect(calls.readFile).toBe(0)
+      })
+    }
+  }
+}
+
+test("returning to a workspace cannot revive an earlier pending response", async () => {
+  const { store, seam, answers, untilCalled } = await setup()
+  const reply = Promise.withResolvers<Awaited<ReturnType<CloudLspClient["diagnostics"]>>>()
+  answers.diagnostics = () => reply.promise
+  const old = seam.diagnostics("index.ts", "owner/repo")
+  await untilCalled("diagnostics")
+  await useWorkspace(store, "ws-new"); await seam.hover("index.ts", 1, 1, "owner/repo")
+  await useWorkspace(store, "ws-lsp"); await seam.hover("index.ts", 1, 2, "owner/repo")
+  const before = await store.eventHistory()
+  reply.resolve({ ok: { items: [diagnostic], total: 1 } }); await old
+  expect((await store.eventHistory()).head).toEqual(before.head)
+})
+
+test("workspace ownership is claimed before a delayed file read", async () => {
+  const entered = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>()
+  const { store, seam, answers, clients } = await setup({ missingFile: true, readFile: async () => { entered.resolve(); await gate.promise } })
+  const old = seam.diagnostics("index.ts", "owner/repo")
+  await entered.promise
+  await reopenFile(store); await useWorkspace(store, "ws-new")
+  await seam.hover("index.ts", 1, 1, "owner/repo")
+  const before = await store.eventHistory()
+  answers.diagnostics = async () => ({ ok: { items: [diagnostic], total: 1 } })
+  gate.resolve(); await old
+  clients[0]!.publish(event("diagnostics"))
+  expect((await store.eventHistory()).head).toEqual(before.head)
+})
+
+for (const refusal of ["no-workspace", "no-language"] as const) {
+  test(`a ${refusal} preparation retires the file's prior publications`, async () => {
+    const { store, seam, clients } = await setup()
+    await seam.hover("index.ts", 1, 1, "owner/repo")
+    const old = store.collections.cloudWorkspaces.get("ws-lsp")!
+    await store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...old, ...(refusal === "no-workspace" ? { status: "stopped" as const } : { lspLanguages: [] }) } }).isPersisted.promise
+    expect(typeof await seam.hover("index.ts", 1, 1, "owner/repo")).toBe("string")
+    const before = await store.eventHistory()
+    for (const type of ["diagnostics", "waiting", "closed"] as const) clients[0]!.publish(event(type))
+    expect((await store.eventHistory()).head).toEqual(before.head)
+  })
+}
+
+test("a workspace handoff for one file leaves the other file's subscription live", async () => {
+  const { store, seam, clients } = await setup()
+  const other = { ...card, id: "file-owner/repo-other.ts", payload: { ...card.payload, path: "other.ts" } }
+  await store.dispatch({ type: "card.upsert", actor: "user", card: other }).isPersisted.promise
+  await seam.hover("index.ts", 1, 1, "owner/repo")
+  await seam.hover("other.ts", 1, 1, "owner/repo")
+  await useWorkspace(store, "ws-new"); await seam.hover("index.ts", 1, 1, "owner/repo")
+  clients[0]!.publish({ ...event("closed"), type: "closed", paths: ["index.ts", "other.ts"], code: 1000, reason: "Old workspace closed" })
+  const current = store.collections.cards.get(card.id), previous = store.collections.cards.get(other.id)
+  if (current?.kind !== "file" || previous?.kind !== "file") throw new Error("Expected both files")
+  expect(current.payload.intel?.state).toBe("ready")
+  expect(previous.payload.intel?.state).toBe("unavailable")
 })
