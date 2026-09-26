@@ -32,7 +32,7 @@ import {
 } from "./settings.ts"
 import * as NodeResolve from "./node.ts"
 import * as Subscriptions from "./subscriptions.ts"
-import { modelSeats } from "./templates.ts"
+import { modelSeats, teamChannelScopes } from "./templates.ts"
 import { atLeast } from "./version.ts"
 
 export type Status = "pass" | "fail" | "skip"
@@ -232,6 +232,8 @@ interface SlackAnswer {
   readonly ok: boolean
   readonly error?: string
   readonly team_id?: string
+  /** The bot token's scopes, from the `x-oauth-scopes` response header. */
+  readonly scopes?: ReadonlyArray<string>
 }
 
 const slackCall = async (
@@ -246,7 +248,9 @@ const slackCall = async (
     signal: AbortSignal.timeout(15_000)
   })
   if (!response.ok) return { ok: false, error: `HTTP ${response.status}` }
-  return await response.json() as SlackAnswer
+  const header = response.headers.get("x-oauth-scopes")
+  const answer = await response.json() as SlackAnswer
+  return header === null ? answer : { ...answer, scopes: header.split(",").map((scope) => scope.trim()).filter((scope) => scope !== "") }
 }
 
 const slackLines = async (env: DoctorOptions["env"], fetcher: Fetch): Promise<Array<Line>> => {
@@ -275,7 +279,14 @@ const slackLines = async (env: DoctorOptions["env"], fetcher: Fetch): Promise<Ar
       const team = auth.team_id ?? "?"
       const detail = teams.length === 0 ? `SMITHERS_SLACK_TEAM_IDS is empty; auth.test team is ${team}` : `auth.test team ${team} is not in SMITHERS_SLACK_TEAM_IDS`
       lines.push(fail("slack", detail, `set SMITHERS_SLACK_TEAM_IDS=${team}`))
-    } else lines.push(pass("slack", `auth.test ok (team ${auth.team_id})`))
+    } else {
+      lines.push(pass("slack", `auth.test ok (team ${auth.team_id})`))
+      // The team channel needs scopes an app installed from an older manifest lacks.
+      const missing = auth.scopes === undefined ? [] : teamChannelScopes.filter((scope) => !auth.scopes!.includes(scope))
+      lines.push(missing.length === 0
+        ? pass("slack team", `#${nonEmpty(env.SMITHERS_SLACK_TEAM_CHANNEL) ?? "smithers-team"}`)
+        : fail("slack team", `missing scopes ${missing.join(", ")}; the team channel is the wiki log until then`, "reinstall the app from the updated manifest"))
+    }
   } catch (error) {
     lines.push(fail("slack", `auth.test: ${error instanceof Error ? error.message : String(error)}`, "check the network and rerun doctor"))
   }

@@ -8,6 +8,7 @@ import { after, before, test } from "node:test"
 import { atLeast, command, doctor, type DoctorOptions, hypervisorLine, type Line, render } from "./doctor.ts"
 import { init } from "./init.ts"
 import type { Install } from "./microsandbox.ts"
+import { teamChannelScopes } from "./templates.ts"
 import type { System as NodeSystem } from "./node.ts"
 import type { Io } from "./settings.ts"
 
@@ -64,7 +65,9 @@ before(async () => {
       ? { ok: true, url: "wss://fixture" }
       : { ok: false, error: "invalid_auth" }
     response.setHeader("content-type", "application/json")
-    response.end(JSON.stringify(body))
+    // An app installed from the current manifest holds every team-channel scope; `xoxb-old` predates them.
+    if (request.url === "/api/auth.test") response.setHeader("x-oauth-scopes", token === `Bearer ${botToken}` ? teamChannelScopes.join(",") : "chat:write")
+    response.end(JSON.stringify(token === "Bearer xoxb-old" && request.url === "/api/auth.test" ? { ok: true, team_id: "T1", user_id: "UBOT" } : body))
   })
   await new Promise<void>((resolve) => slack.listen(0, "127.0.0.1", resolve))
   const address = slack.address()
@@ -158,9 +161,10 @@ test("counts roles and hires apart, and leaves retired hires out", async () => {
 test("every check passes on a complete setup, in a stable order, without printing a secret", async () => {
   const lines = await doctor(healthy())
   assert.deepEqual(lines.map((line) => line.name), [
-    "node", "microsandbox", "hypervisor", "org", "image", "boot", "jj", "jj-export", "seats", "slack", "slack socket", "repo", "state"
+    "node", "microsandbox", "hypervisor", "org", "image", "boot", "jj", "jj-export", "seats", "slack", "slack team", "slack socket", "repo", "state"
   ])
   assert.deepEqual(lines.filter((line) => line.status !== "pass"), [])
+  assert.equal(one(lines, "slack team").detail, "#smithers-team")
   assert.match(one(lines, "org").detail, /^4 roles, 1 skills, 0 gates/)
   assert.equal(one(lines, "slack").detail, "auth.test ok (team T1)")
   const printed = render(lines).join("\n")
@@ -193,6 +197,10 @@ test("Slack is skipped without tokens and each Slack misconfiguration fails with
   const socket = one(await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_APP_TOKEN: "xapp-revoked" } })), "slack socket")
   assert.equal(socket.status, "fail")
   assert.match(socket.detail, /apps\.connections\.open: invalid_auth/)
+  const old = one(await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_BOT_TOKEN: "xoxb-old" } })), "slack team")
+  assert.equal(old.status, "fail")
+  assert.match(old.detail, /missing scopes channels:history, channels:join, channels:manage, channels:read, chat:write\.customize, chat:write\.public/)
+  assert.equal(old.fix, "reinstall the app from the updated manifest")
   const offline = await doctor(healthy({ fetch: async () => { throw new Error("offline") } }))
   assert.match(one(offline, "slack").detail, /offline/)
   assert.match(one(offline, "slack socket").detail, /offline/)

@@ -26,8 +26,9 @@ import Delegate, { finish } from "../delegate/flow.ts"
 import { fieldTurn } from "../field-turn.ts"
 import { CorrectTask, Describe, RequestKey, StepFailure } from "../schema.ts"
 import { HireTask, StaffFailed, StaffReport, StoreHire } from "../staff.ts"
+import { TeamPost } from "../team-channel.ts"
 
-const implementationVersion = "organization/hire/v1"
+const implementationVersion = "organization/hire/v2"
 
 type Payload = {
   readonly key: string
@@ -110,6 +111,12 @@ export default Flow.make("organization/hire", {
               violations: outcome.violations
             } as unknown as StaffReport),
           then: () => {
+            // The team hears of the hire in the hire's thread.
+            const announced = Node.succeed(outcome).pipe(
+              Node.map(Node.capture({ implementationVersion }, (seen) => `Hired ${seen.principal}`)),
+              Node.bindPlanned(Node.capture({ implementationVersion }, (text) =>
+                TeamPost.call({ thread: payload.key, role: payload.parent, text, link: outcome.path })))
+            )
             const hired = Node.succeed({
               key: payload.key,
               status: "hired",
@@ -117,10 +124,10 @@ export default Flow.make("organization/hire", {
               principal: outcome.principal,
               paths: [outcome.path]
             } as unknown as StaffReport)
-            if (task === undefined) return hired
+            if (task === undefined) return announced.pipe(Node.andThen(hired))
             const child = `${payload.key}.task`
             // The first task's own ending is its receipt; the hire stands either way.
-            return Delegate.child({
+            return announced.pipe(Node.andThen(Delegate.child({
               key: child,
               parent: payload.parent,
               specialist: outcome.principal as unknown as string,
@@ -136,7 +143,7 @@ export default Flow.make("organization/hire", {
                 paths: [outcome.path],
                 delegated: child
               } as unknown as StaffReport))
-            )
+            )))
           }
         }))),
       Node.catch({ onFailure: Node.capture({ implementationVersion }, (failure) => failed(payload, failure)) }),

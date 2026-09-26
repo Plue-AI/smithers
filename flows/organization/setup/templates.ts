@@ -9,8 +9,12 @@ export const modelSeats = (organization: { readonly seats: Readonly<Record<strin
 export const slackBotScopes = [
   "app_mentions:read",
   "channels:history",
+  "channels:join",
+  "channels:manage",
+  "channels:read",
   "chat:write",
   "chat:write.customize",
+  "chat:write.public",
   "im:history",
   "im:read",
   "im:write",
@@ -18,7 +22,10 @@ export const slackBotScopes = [
 ] as const
 
 /** Slack bot events the app subscribes to. */
-export const slackBotEvents = ["app_mention", "message.im"] as const
+export const slackBotEvents = ["app_mention", "message.channels", "message.im"] as const
+
+/** The scopes the team channel needs: find, create, join, and post in it under each role's name. */
+export const teamChannelScopes = ["channels:history", "channels:join", "channels:manage", "channels:read", "chat:write", "chat:write.customize", "chat:write.public"] as const
 
 /** Slack's app-manifest YAML for one Socket Mode app with the App Home messages tab open. */
 export const slackManifest = (name: string): string => {
@@ -79,6 +86,7 @@ export const environmentExample = (input: EnvironmentInput): string => {
     "SMITHERS_SLACK_TEAM_IDS=",
     "SMITHERS_SLACK_USER_IDS=",
     "# SMITHERS_SLACK_CHANNEL_IDS=",
+    "# SMITHERS_SLACK_TEAM_CHANNEL=smithers-team",
     "",
     "# Host",
     `SMITHERS_ORG_ROOT=${input.root}`,

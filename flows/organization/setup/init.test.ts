@@ -23,7 +23,7 @@ test("init copies the example, writes the templates, and seeds a private .env", 
   assert.ok(existsSync(join(dir, "Org", "Roles", "assistant.md")))
   const example = readFileSync(join(dir, "Org", "Setup", ".env.example"), "utf8")
   for (const name of ["SMITHERS_ORG_AUTH=subscription", "# ChatGPT: sign in once with `codex login`", "SMITHERS_SLACK_BOT_TOKEN=", "SMITHERS_SLACK_APP_TOKEN=", "SMITHERS_SLACK_TEAM_IDS=",
-    "SMITHERS_SLACK_USER_IDS=", "# SMITHERS_SLACK_CHANNEL_IDS=", "# name=path; the roster grants example/demo", "SMITHERS_ORG_REPOS=", `SMITHERS_ORG_ROOT=${dir}`,
+    "SMITHERS_SLACK_USER_IDS=", "# SMITHERS_SLACK_CHANNEL_IDS=", "# SMITHERS_SLACK_TEAM_CHANNEL=smithers-team", "# name=path; the roster grants example/demo", "SMITHERS_ORG_REPOS=", `SMITHERS_ORG_ROOT=${dir}`,
     `SMITHERS_ORG_STATE_DIR=${stateDir}`, "# SMITHERS_ORG_MAX_CONCURRENT_VMS=2"]) {
     assert.ok(example.split("\n").includes(name), name)
   }
@@ -44,7 +44,8 @@ test("the manifest is one Socket Mode app with the Slack guide's scopes, events,
   const manifest = parse(readFileSync(join(dir, "Org", "Setup", "slack-app-manifest.yaml"), "utf8"))
   assert.equal(manifest.display_information.name, "Acme Org")
   assert.deepEqual([...manifest.oauth_config.scopes.bot].sort(), [
-    "app_mentions:read", "channels:history", "chat:write", "chat:write.customize", "im:history", "im:read", "im:write", "users:read"
+    "app_mentions:read", "channels:history", "channels:join", "channels:manage", "channels:read", "chat:write", "chat:write.customize",
+    "chat:write.public", "im:history", "im:read", "im:write", "users:read"
   ])
   assert.deepEqual(manifest.oauth_config.scopes.bot, [...slackBotScopes])
   assert.deepEqual(manifest.settings.event_subscriptions.bot_events, [...slackBotEvents])
