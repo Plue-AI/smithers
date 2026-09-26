@@ -45,6 +45,7 @@ export const names: ReadonlyArray<Name> = [
   entry("TEST_CWD", "The repository's path inside that container"),
   entry("TEST_TIMEOUT_MS", "Wall-clock budget for one `test` invocation"),
   entry("BASH_CONTAINER", "The one container `bash` may reach; host commands and host file flows are refused"),
+  entry("ASKS", "`park` (the default) or `refuse`: whether an in-run `ask` waits for an operator or fails at once"),
   entry("BACKEND", "Database backend; only `sqlite` is supported"),
   entry("MEMORY_DB", "Path of a separate SQLite file for the memory store, shared across runs that name it"),
   entry("SUPERVISOR_STANCE", "`careful` (the default) or `paranoid`, the static stance a judged run is taught"),
