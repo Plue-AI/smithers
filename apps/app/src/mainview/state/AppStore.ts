@@ -748,6 +748,7 @@ export interface AppStore {
   readonly approvalRequest: (id: string) => ApprovalRequest | undefined
   /** Committed immutable evidence, excluding optimistic rows; used for observation cursors and deduplication. */
   readonly committedCard: (id: string) => Card | undefined
+  readonly committedWorldDocument: (id: string) => WorldDocument | undefined
   readonly committedRuntimeRun: (id: string) => RuntimeRun | undefined
   readonly committedRuntimeApproval: (id: string) => RuntimeApproval | undefined
   readonly committedHttpTurn: (turnId: string, owner: string | null) => HttpTurn | undefined
@@ -1924,6 +1925,7 @@ const initializeAppStore = async (
     dispatch,
     approvalRequest,
     committedCard: id => { assertReadable(); return committed.snapshot.cards.find(row => row.id === id) },
+    committedWorldDocument: id => { assertReadable(); return committed.snapshot.worldDocuments.find(row => row.id === id) },
     committedRuntimeRun: id => { assertReadable(); return committed.snapshot.runtimeRuns.find(row => row.id === id) },
     committedRuntimeApproval: id => { assertReadable(); return committed.snapshot.runtimeApprovals.find(row => row.id === id) },
     committedHttpTurn: (turnId, owner) => { assertReadable(); return committed.snapshot.httpTurns.find(row => row.turnId === turnId && row.owner === owner) },

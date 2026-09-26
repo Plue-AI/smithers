@@ -69,6 +69,11 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
             }).pipe(Effect.tap(() => Effect.sync(() => watches.get(id)?.stop())))
           )
         }
+        const saved = ctx.store.committedWorldDocument(id)?.cloud
+        // An optimistic failure alone is not evidence that it survived storage.
+        if (document.cloud.phase === "offline" && document.cloud.error === error.message &&
+          saved?.phase === "offline" && saved.error === error.message &&
+          saved.accountLogin === document.cloud.accountLogin && saved.branchId === document.cloud.branchId) return Effect.void
         return persist({ ...document, cloud: { ...document.cloud, phase: "offline", error: error.message } })
       })
 
@@ -246,9 +251,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
               })
             )
           )
-          yield* consume.pipe(Effect.catch((error) => handle.valid() ? setFailure(id, error) : Effect.void))
+          const ended = yield* consume.pipe(
+            Effect.as(true),
+            Effect.catch((error) => (handle.valid() ? setFailure(id, error) : Effect.void).pipe(Effect.as(false)))
+          )
           if (!handle.valid()) return
-          yield* setFailure(id, new CloudWikiError({ message: "Reconnecting to Wiki revisions…" }))
+          if (ended) yield* setFailure(id, new CloudWikiError({ message: "Reconnecting to Wiki revisions…" }))
           yield* Effect.sleep("2 seconds")
         }
       }).pipe(Effect.catch(() => Effect.void))

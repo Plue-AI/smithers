@@ -15,6 +15,9 @@ import { createControllerContext, type ControllerContext } from "./controller/co
 import { createWorkflowPumpController } from "./controller/workflow-pump"
 import { reconcileRunApprovals } from "./controller/approval-reconciliation"
 import { unavailableAgent } from "./TestFixtures"
+import * as Y from "yjs"
+import { encodeWikiState, wikiDocumentId } from "../wiki/CloudWiki"
+import { createCloudWikiController } from "./controller/cloud-wiki"
 
 // Accepted commands remain immutable facts. Idle transport reads must never
 // manufacture those facts; diagnostic truncation cannot bound the event stream.
@@ -407,3 +410,62 @@ for (const action of ["message", "status", "repair"] as const) test(`replayed ag
     expect((await reopened.store.verifyState()).valid).toBe(true)
   } finally { seam.dispose() }
 })
+
+test.each(["eof", "unavailable"] as const)("Wiki reconnects after %s retain their failure without growing SQLite", async (failure) => {
+  const fixture = await open(), { store } = fixture
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
+  const doc = new Y.Doc(), id = wikiDocumentId("owner/repo", 42)
+  doc.getText("markdown").insert(0, "# Page")
+  let revision = 1
+  const streams: ReturnType<typeof Promise.withResolvers<Response>>[] = []
+  const ctx = createControllerContext(store, unavailableAgent, { fetchImpl: async (input) => {
+    if (String(input).includes("/stream?")) {
+      const stream = Promise.withResolvers<Response>(); streams.push(stream); return stream.promise
+    }
+    return Response.json({ page: { id: 42, slug: "home", title: "Page", body: doc.getText("markdown").toString(), revision,
+      author: { id: 1, login: "will" }, created_at: "2026-09-08T00:00:00Z", updated_at: "2026-09-08T00:00:00Z" },
+      state: encodeWikiState(Y.encodeStateAsUpdate(doc)), state_vector: encodeWikiState(Y.encodeStateVector(doc)) })
+  } })
+  contexts.push(ctx)
+  const until = async (condition: () => boolean) => {
+    const deadline = Date.now() + 4_000
+    while (!condition()) {
+      if (Date.now() > deadline) throw new Error("Wiki reconnect did not settle")
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+  }
+  const failed = () => failure === "eof"
+    ? new Response("", { headers: { "content-type": "text/event-stream" } })
+    : Response.json({ message: "Wiki maintenance" }, { status: 503 })
+  try {
+    const wiki = createCloudWikiController(ctx, () => 1)
+    await wiki.openCloudWiki("owner/repo", "home")
+    await until(() => streams.length === 1)
+    streams[0]!.resolve(failed())
+    await until(() => streams.length === 2)
+    const before = await store.eventHistory(), physical = fixture.footprint()
+    for (let index = 1; index <= 2; index++) {
+      streams[index]!.resolve(failed())
+      await until(() => streams.length === index + 2)
+    }
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    expect(fixture.footprint()).toEqual(physical)
+    expect(store.collections.worldDocuments.get(id)?.cloud).toMatchObject({ phase: "offline",
+      error: failure === "eof" ? "Reconnecting to Wiki revisions…" : "Wiki maintenance" })
+    let channel!: ReadableStreamDefaultController<Uint8Array>
+    streams[3]!.resolve(new Response(new ReadableStream({ start(value) { channel = value } }), { headers: { "content-type": "text/event-stream" } }))
+    doc.getText("markdown").insert(6, "\n\nRecovered")
+    revision = 2
+    channel.enqueue(new TextEncoder().encode(`event: wiki.update\nid: 2\ndata: ${JSON.stringify({ id: 2, page_id: 42, revision: 2, deleted: false, slug: "home" })}\n\n`))
+    await until(() => store.collections.worldDocuments.get(id)?.cloud?.remoteRevision === 2)
+    await store.settled?.()
+    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
+    const reopened = await open(fixture.path)
+    expect(reopened.store.collections.worldDocuments.get(id)).toMatchObject({ body: "# Page\n\nRecovered", cloud: { remoteRevision: 2, phase: "live", error: null } })
+    expect((await reopened.store.verifyState()).valid).toBe(true)
+  } finally {
+    await ctx.dispose()
+    for (const stream of streams) stream.resolve(failed())
+    doc.destroy()
+  }
+}, 15_000)
