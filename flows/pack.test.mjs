@@ -807,12 +807,16 @@ describe("the fixture under the real CLI", () => {
       env: { ...process.env, NODE_NO_WARNINGS: "1" },
     });
 
+  // The CLI reports a failure such as a missing smithers-jj-export helper on
+  // stdout, so a status check that shows only stderr fails as `1 !== 0`.
+  const succeeded = (result) => assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+
   it("prints the 0.x-project notice until the project holds rc.0 state", () => {
     const project = detached();
 
     const first = smithers(project, "ls");
 
-    assert.equal(first.status, 0, first.stderr);
+    succeeded(first);
     assert.match(first.stderr, /^Found Smithers 0\.x state at .*\.smithers\./);
     assert.match(first.stderr, /1\.0\.0-rc\.0 does not load, resume, or migrate 0\.x run databases/);
     assert.match(first.stderr, /https:\/\/smithers\.sh\/migration\/1\.0#run-data/);
@@ -822,7 +826,7 @@ describe("the fixture under the real CLI", () => {
 
     const second = smithers(project, "ls");
 
-    assert.equal(second.status, 0, second.stderr);
+    succeeded(second);
     assert.match(second.stderr, /^Found Smithers 0\.x state at /);
 
     // Once `.flows/` exists the project is mid-migration, and the 0.x-project
@@ -830,7 +834,7 @@ describe("the fixture under the real CLI", () => {
     mkdirSync(join(project, ".flows"));
     const migrating = smithers(project, "ls");
 
-    assert.equal(migrating.status, 0, migrating.stderr);
+    succeeded(migrating);
     assert.equal(migrating.stderr, "");
   });
 
@@ -844,7 +848,7 @@ describe("the fixture under the real CLI", () => {
     // ships inside `@smthrs/migrate` rather than in a `flows/` directory the
     // project being migrated does not have. A refusal here would mean the gate
     // fired on a project with nothing to refuse.
-    assert.equal(result.status, 0, result.stderr);
+    succeeded(result);
     const report = JSON.parse(result.stdout);
     assert.equal(report.runState.verdict, "clean");
     assert.ok(
@@ -858,7 +862,7 @@ describe("the fixture under the real CLI", () => {
 
     const result = smithers(project, "migrate", "--format", "json");
 
-    assert.equal(result.status, 0, result.stderr);
+    succeeded(result);
     // The fixture exists to give the migration tool something real to plan
     // against. A fixture that planned zero units would pass every gate above
     // and prove nothing, so the counts are the assertion.

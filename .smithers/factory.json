@@ -942,7 +942,7 @@
     },
     {
       "id": "organization/intake",
-      "description": "Admit one owner request from Slack or the local CLI under the host's configuration, acknowledge it in its thread, and deliver it.",
+      "description": "Admit one owner request from Slack or the local CLI under the host's configuration, acknowledge it with a reaction or in its thread, and deliver it.",
       "summary": null,
       "featured": false,
       "kind": "ts",
