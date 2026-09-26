@@ -876,6 +876,19 @@
       "modelInvocable": false
     },
     {
+      "id": "organization/assignment",
+      "description": "Have one role do a host task (a routine's report, its onboarding page and proposals, a review, the priorities) with the context the host gathered, and write its answer to the organization wiki.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/organization/assignment/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false
+    },
+    {
       "id": "organization/delegate",
       "description": "Hand one task to a specialist the parent hired, run it under the specialist's own grants and budget, have the parent review the output before it counts, and write the accepted output to the wiki with a receipt.",
       "summary": null,
@@ -895,6 +908,19 @@
       "featured": false,
       "kind": "ts",
       "path": "flows/organization/deliver/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false
+    },
+    {
+      "id": "organization/digest",
+      "description": "Write the owner's daily digest to the wiki and send it as one direct message from the assistant.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/organization/digest/flow.ts",
       "capabilities": [
         "*"
       ],
@@ -1032,12 +1058,64 @@
       "modelInvocable": false
     },
     {
+      "id": "organization/routine",
+      "description": "Run one occurrence of a routine from the routines page: a role's standing task, the qualification and its report, or the one-time onboarding of the listed roles.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/organization/routine/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false
+    },
+    {
       "id": "organization/status",
       "description": "Rewrite the organization's status page from the delivery receipts under its generated directory.",
       "summary": null,
       "featured": false,
       "kind": "ts",
       "path": "flows/organization/status/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false
+    },
+    {
+      "id": "organization/team-reply",
+      "description": "Have a role answer another role's post in a team channel thread, in that thread under its own name.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/organization/team-reply/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false
+    },
+    {
+      "id": "organization/work",
+      "description": "Synchronize the configured repositories' issues and work at most `max` items: triage and deliver issues, and deliver accepted proposals.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/organization/work/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false
+    },
+    {
+      "id": "organization/work-item",
+      "description": "Work one item the organization's intake picked: triage an issue and deliver, skip, or escalate it, or deliver an accepted proposal.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/organization/work-item/flow.ts",
       "capabilities": [
         "*"
       ],

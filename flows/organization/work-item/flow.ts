@@ -203,6 +203,9 @@ const proposal = (item: Item): Node.Node<ItemReport, any, any> => {
 }
 
 /** Work one item. */
+/** Named so the declaration has no top-level comma discovery's static reader would split on. */
+type Body = Node.Node<ItemReport, Actions.ReceiptFailed, any>
+
 export default Flow.make("organization/work-item", {
   description:
     "Work one item the organization's intake picked: triage an issue and deliver, skip, or escalate it, or deliver an accepted proposal.",
@@ -213,11 +216,11 @@ export default Flow.make("organization/work-item", {
   payload: { item: WorkItem },
   success: ItemReport,
   error: Actions.ReceiptFailed,
-  body: ({ item }): Node.Node<ItemReport, Actions.ReceiptFailed, any> =>
+  body: ({ item }): Body =>
     record(item, item.kind === "issue" ? issue(item) : proposal(item)).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
         Actions.WriteReceipt.call({ runId: item.key, name: "work-item", receipt: { item, report: outcome } as never }).pipe(
           Node.andThen(Node.succeed(outcome))
         )))
-    ) as Node.Node<ItemReport, Actions.ReceiptFailed, any>
+    ) as Body
 })
