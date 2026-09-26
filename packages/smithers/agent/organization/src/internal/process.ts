@@ -106,6 +106,10 @@ export interface HostResult {
  * every variable that could redirect it to another repository, index, or
  * object store, plus `env`.
  *
+ * `core.autocrlf` is off whatever the host configures: a workspace holds the
+ * commit's bytes, and a Windows host's default would rewrite line endings on
+ * every checkout and restore.
+ *
  * @private
  * @since 1.0.0
  */
@@ -116,7 +120,7 @@ export const git = (
 ): Effect.Effect<HostResult, PlatformError.PlatformError, ChildProcessSpawner> =>
   Effect.scoped(Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
-    const handle = yield* spawner.spawn(ChildProcess.make("git", ["-C", repo, ...args], {
+    const handle = yield* spawner.spawn(ChildProcess.make("git", ["-c", "core.autocrlf=false", "-C", repo, ...args], {
       extendEnv: true,
       env: {
         GIT_DIR: undefined,
