@@ -1,47 +1,38 @@
 ---
 title: "Tasks"
-description: "A task is an issue that someone intends to finish: a thread with state, owners, and a definition of done."
+description: "A task is an issue someone intends to finish: a thread with a state, a fixer, and a separate verifier."
 sidebar:
   order: 3
 ---
 
-A **task** is an issue someone intends to finish. It is still a [thread](/docs/how-it-works/threads/), so discussion happens in its comments. On top of that it carries the facts that say who owns it and how far along it is.
+A **task** is an issue someone intends to finish. It is still a [thread](/docs/how-it-works/threads/), so discussion happens in its comments.
 
-## What a task adds to a thread
+## States
 
-**Available now.** Smithers issues carry this task state:
+```text
+open → fixed → verified → closed
+```
 
 | Field | Meaning |
 | --- | --- |
 | State | `open`, `fixed`, `verified`, or `closed`. |
-| Assignees | The people responsible. |
-| Labels and milestone | How the task is grouped. |
-| Fixed by, verified by | Who made the fix and who confirmed it. |
+| Fixed by | Who marked it fixed. |
+| Verified by | Who confirmed the fix. Never the fixer. |
+| Assignees, labels, milestone | Who owns it and how it is grouped. |
 
-A task moves from open, to fixed, to verified. Verification must come from someone other than the fixer, so "done" means a second party checked it. The app opens and closes issues today; the fixed and verified steps are set through the Smithers Cloud API.
+**Partly available.** The API sets every state. The app opens, closes, and reopens issues; its **Fixed** and **Verify** buttons are planned ([#2112](https://github.com/smithersai/smithers/issues/2112)).
 
-## Put agents on a task
+**Planned.** Owner, due date, priority, and parent task ([#2112](https://github.com/smithersai/smithers/issues/2112)).
 
-**Available now.** Flows can pick up an issue and work on it. In the app:
+## Hand a task to the factory
 
-```text
-/issue.repro 42
-/issue.implement 42
-```
+**Available now.** The coding factory implements issues. Run `/issue.implement 42` in the app; on a repository whose factory stack is on, an issue labeled `smithers` is picked up too. The factory plans the change, runs the checks, and opens a pull request. `/stack.show` shows where each issue is.
 
-`/issue.repro` researches and reproduces the problem. `/issue.implement` plans and implements it with the repository's coding flow and checks. Each launch runs in the background; follow its run card to the result.
+## Sync with Linear
 
-The local [organization host](/docs/how-it-works/agents/#run-agents-with-the-organization-host) can also take GitHub issues on its own: a triage agent decides which to take, claims each with a label, and delivers a fix, as a pull request when the repository is set up for one.
-
-## Sync with task trackers
-
-A task can mirror into the tracker your team uses, such as Linear. Sync is two-way: a new issue, a comment, or closing and reopening on either side appears on the other.
-
-**Partly available.** Smithers Cloud can link a repository to a Linear team and mirror issues and comments both ways. It is off unless the host enables integrations, and the app has no setup screen yet.
-
-**Planned.** tracker sync set up from the app.
+**Partly available.** A repository can mirror issues and comments to a Linear team, both ways. The host must enable integrations; the app has no setup screen yet ([#2116](https://github.com/smithersai/smithers/issues/2116)).
 
 ## Next
 
-- [Agents](/docs/how-it-works/agents/): the workers that take tasks on.
-- [Triggers and flows](/docs/how-it-works/triggers-and-flows/): start work when a task changes.
+- [Create a task](/docs/learn/create-a-task/): step by step.
+- [Agents](/docs/how-it-works/agents/): who works on tasks.

@@ -1,0 +1,93 @@
+---
+title: "Answer an approval"
+description: "When an agent asks before acting, read the request and approve or deny it from the app, the terminal, a script, or the API."
+sidebar:
+  order: 6
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+Some steps wait for you: a file edit, a command, a launch. The run parks until you decide. Read what it asks, then approve or deny.
+
+Approving a launch is not reviewing its result. Review the change separately.
+
+## Find what's waiting
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** An approval card appears in the conversation. To list every pending request on the repository, enter `/approvals.list`.
+
+**Planned.** An **Inbox** door listing approvals, questions, and runs a budget or time guard parked, with **Continue** and **Stop** ([#2114](https://github.com/smithersai/smithers/issues/2114)).
+
+<AppScreenshot src="/images/learn/preview-inbox.png" alt="Design preview of the Inbox: a parked run with Continue and Stop, an approval, and a question." caption="Design preview with example data. Not released." width={868} height={509} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** The request appears above the composer. Start the TUI with `--approve ask` to be asked; the default allows every call.
+
+```sh
+smthrs tui --approve ask
+```
+
+**Planned.** A list of pending approvals across runs ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs approvals list
+```
+
+Each entry carries the exact payload to approve. With nothing waiting, it prints `[]`.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now**, over the gateway's projection RPC: `Projection.Snapshot` with selector `{ _tag: "approvals" }`. Each row has `runId`, `requestId`, `title`, `payload`, and `status`. See [HTTP and RPC endpoints](/docs/reference/http-api/).
+
+</TabItem>
+</Tabs>
+
+## Decide
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Select **Approve** or **Deny** on the card. Wait for the accepted or denied state; **Sending your decision** means it has not landed yet.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Press `y` to allow once or `n` to deny. Where offered, `a` allows that kind of call for the rest of the session. A flow asks once per capability it declares.
+
+<AppScreenshot src="/images/learn/tui-flow-approval.gif" alt="A flow asks for its write, process, and network permissions in turn; pressing y allows each, and the run completes." caption="The TUI with a fixture flow." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.** Pass the payload from `approvals list`, or `@file`:
+
+```sh
+smthrs approvals approve @approval.json
+smthrs approvals deny @approval.json
+```
+
+`--scope once|run|remembered` sets how far an approval reaches. The default is `run`.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `Approval.Submit { target, scope, idempotencyKey, decision: "approve" | "deny" }` over the control RPC.
+
+</TabItem>
+</Tabs>
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): see why a run parked.
+- [Review an approval](/docs/app/approvals/): more on approval cards.

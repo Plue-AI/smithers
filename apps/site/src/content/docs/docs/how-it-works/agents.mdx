@@ -1,93 +1,64 @@
 ---
 title: "Agents"
-description: "An agent is a profile you write once: its job, its model, what it may touch, and what it remembers. Create one, configure it, and make it useful."
+description: "An agent is a profile, and a profile is a flow file: its charter, its model, what it may touch, and how much it may spend."
 sidebar:
   order: 5
 ---
 
-An **agent** in Smithers is a **profile**: a short file that describes one worker. A flow reads the profile when it needs that kind of work done, and runs a model with exactly what the profile allows. You write the profile once; many flows and tasks can use it.
+An **agent** in Smithers is a **profile**, and a profile is a flow: a `flows/<id>/flow.mdx` file in your repository. The front matter says which model runs it, what it may touch, and how much it may spend. The body is its charter.
 
-## What a profile holds
+## A profile
+
+**Available now.**
+
+```markdown title="flows/reviewer/flow.mdx"
+---
+description: Reviews a change and returns a verdict with reasons.
+model: openai:gpt-6-sol
+capabilities: ["fs:read:**", "proc:spawn:*"]
+budget:
+  tokens: 200000
+  milliseconds: 600000
+---
+
+# Review the change
+
+Read the diff. Run the tests. Return approve or request changes,
+with the evidence for each finding.
+```
 
 | Part | What it decides |
 | --- | --- |
-| Charter | The job: objective, responsibilities, expected output, evidence, and when to escalate. |
-| Seat | Which model does the thinking, such as `openai:gpt-6-sol`. |
-| Grants | What the agent may use: tools, repositories, connected services, and wiki pages. Anything not listed is refused. |
-| Skills | Reusable instructions the agent follows, such as how to report evidence. |
-| Memory | Where the agent keeps what it learns between tasks. |
-| Budget | How many tokens and tasks it may spend. |
-| Reports to | Who it answers to: you or another agent. |
+| `description` | One line shown wherever the profile is listed. |
+| `model` | The model seat, such as `openai:gpt-6-sol`. |
+| `capabilities` | What it may touch. Anything not granted is refused. |
+| `budget` | The most tokens and time one run may spend. |
+| `flows` | Other flows it may call, such as a specialist. |
+| Body | The charter: the job, the output, and when to stop and ask. |
 
-## Create a profile
+Skills are `SKILL.md` files beside your flows. A skill adds instructions, never permissions. [flow.mdx frontmatter](/docs/reference/flow-mdx/) lists every key.
 
-**Available now.** A profile is a Markdown file, read by [`@smthrs/organization`](/docs/reference/api/organization/). Settings go in the frontmatter; the charter is the body. This is a shortened copy of the `builder` profile from the package's example:
+## Agents call agents
 
-```markdown title="Org/Roles/builder.md"
----
-id: builder
-name: Builder
-kind: core
-status: active
-version: 1.0.0
-reportsTo: lead
-seat: openai:gpt-6-sol
-effort: high
-grants:
-  tools: [workspace, memory, retrieval]
-  connections: []
-  knowledge: ["Org/Roles/builder.md"]
-  repositories: [example/demo]
-  personalAccounts: false
-  contact: via-assistant
-budget: { tokensPerTask: 400000, tasksPerDay: 20, concurrency: 1 }
-skills: [evidence-receipts]
-cases: [builder-small-change]
-identities: {}
-meeting: { weekly: true }
----
+**Available now.** A profile lists the flows it may call under `flows`. A called flow runs as a child run, with its own model, grants, and timeline. A child can only narrow what its parent may touch.
 
-## Objective
+## See what an agent did
 
-Deliver the scoped change in the task workspace.
+**Available now.** A profile's runs are the runs of its flow. Filter the run list by flow to see one agent's history, then open a run's timeline. See [Watch an agent work](/docs/learn/watch-an-agent/).
 
-## Boundaries
+**Planned.** An Agents list in the app showing every configured profile, who it reports to, and a **Runs** button ([#2113](https://github.com/smithersai/smithers/issues/2113)).
 
-- Never lands changes and never contacts the owner directly.
-```
+## Guards
 
-Profiles live together in one directory, the **roster**. People write core profiles in `Org/Roles/`. Skills live in `Org/Skills/<name>/SKILL.md`.
+**Available now.** `budget` bounds a run's tokens and time.
 
-**Planned.** creating and editing profiles in the app.
+**Planned.** When a run hits its budget or time limit, it parks and asks you to continue or stop, in the thread and the inbox ([#2114](https://github.com/smithersai/smithers/issues/2114)).
 
-## Configure it
+## Memory
 
-- **Seat.** Pick the model per profile. A quick reviewer can use a light model; a builder can use a strong one. [Model seats](/docs/guides/model-seats/) lists the providers.
-- **Grants.** Give the least the job needs. A profile without the `workspace` tool cannot run commands or edit files at all.
-- **Skills.** Name the skills the agent should follow. A skill adds instructions, never permissions: authority comes only from grants.
-- **Memory.** Each profile gets its own memory bank, named `agent-<id>` unless you set one. An agent cannot read another agent's bank. See [Memory](/docs/concepts/memory/).
-
-## Make it useful
-
-- **Write the output you want to read.** List the fields the agent must return, and the evidence that proves them.
-- **Say when to stop.** An escalation rule, such as "unclear acceptance: return to the lead", beats a guess.
-- **Give it the right pages.** Grant the wiki pages the job depends on, and keep them current.
-- **Test it.** A profile names evaluation cases (`cases`): small, known tasks that show whether it still does its job after a change.
-
-## Run agents with the organization host
-
-**Available now.** It runs from a Smithers checkout on macOS (Apple silicon) or Linux with KVM. The organization host runs a roster of profiles on your machine. Each agent works in its own virtual machine, and requests can come from the command line or Slack direct messages.
-
-```sh
-node flows/organization/cli.ts init ~/org
-node flows/organization/cli.ts doctor
-node flows/organization/cli.ts serve
-node flows/organization/cli.ts submit "Add a line to README.md" --wait
-```
-
-`init` copies a four-profile example organization to start from. The [organization quickstart](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/organization/docs/quickstart.md) covers setup, and the [host guide](https://github.com/smithersai/smithers/blob/main/flows/organization/host.md) covers every command.
+**Planned.** Each run starts with the memories relevant to its thread, from banks its capabilities grant. See [Memory](/docs/concepts/memory/) for the store underneath.
 
 ## Next
 
-- [Triggers and flows](/docs/how-it-works/triggers-and-flows/): how a flow picks a profile at run time.
-- [Wiki](/docs/how-it-works/wiki/): the knowledge agents read.
+- [Configure an agent and a trigger](/docs/learn/agent-and-trigger/): step by step.
+- [Triggers and flows](/docs/how-it-works/triggers-and-flows/): what starts an agent.

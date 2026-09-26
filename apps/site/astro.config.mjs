@@ -156,6 +156,7 @@ export default defineConfig({
           ]
         },
         { label: "How Smithers works", items: [{ autogenerate: { directory: "docs/how-it-works" } }] },
+        { label: "Tutorials", items: [{ autogenerate: { directory: "docs/learn" } }] },
         { label: "Use the app", items: [{ autogenerate: { directory: "docs/app" } }] },
         { label: "CLI and libraries", collapsed: true, items: [{ slug: "docs/developers" }, { slug: "docs/installation" }, { slug: "docs/cli-quickstart" }] },
         { label: "Developer tutorials", items: [{ autogenerate: { directory: "docs/tutorials" } }], collapsed: true },

@@ -1,0 +1,99 @@
+---
+title: "Watch an agent work"
+description: "Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you."
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+An agent profile is a flow, so an agent's history is the runs of its flow. Each run has a timeline.
+
+## Flags to look for
+
+| Flag | Means |
+| --- | --- |
+| Thrashing | The agent repeats work without progress. |
+| Blocked | The run parked and needs a resume. |
+| Approval needed | The run waits for your decision. |
+| Runaway | A budget or time guard parked it. Planned. |
+
+## Find an agent's runs
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Enter `/runs.list` and set **Flow** to the profile's id, such as `reviewer`. Select a run to open it.
+
+**Planned.** An **Agents** list with a **Runs** button per profile ([#2113](https://github.com/smithersai/smithers/issues/2113)).
+
+<AppScreenshot src="/images/learn/preview-agents.png" alt="Design preview of the Agents list: profiles grouped by who they report to, each with a Runs button." caption="Design preview with example data. Not released." width={868} height={380} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** `/smithers` lists flow runs, newest first. Select one to open its tab.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs runs list --flow reviewer
+smthrs runs list --status waiting-approval
+```
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** Control RPC `List { _tag: "runs", filters: { flowId: "reviewer" } }`. Over HTTP, `GET /api/repos/{owner}/{repo}/workflows/{id}/runs` lists one flow's runs.
+
+</TabItem>
+</Tabs>
+
+## Read the timeline
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** The run card shows the trace as a tree and a timeline, with the flags above. Select a row for its inputs, output, and token use. **Steer** and **Stop** sit under it.
+
+<AppScreenshot src="/images/app/run-example.png" alt="Example run card with status, trace filters, a call tree, and controls to stop or steer the run." caption="Example data in the local app." width={712} height={592} />
+
+**Planned.** A **Steps** view: the trigger first, then time, type, description, duration, and tokens for each step ([#2115](https://github.com/smithersai/smithers/issues/2115)).
+
+<AppScreenshot src="/images/learn/preview-run-steps.png" alt="Design preview of the Steps view: a run flagged Runaway, with a Resume button and five steps with durations and tokens." caption="Design preview with example data. Not released." width={868} height={562} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** The timeline sits above the composer, with phases (Researching, Implementing, Testing, Stuck, Blocked) and milestones. Press Ctrl+T to inspect it; arrows move, `[` and `]` jump between milestones, Esc returns to live.
+
+<AppScreenshot src="/images/learn/tui-timeline.gif" alt="Scrubbing the TUI timeline across phases and milestones." caption="The TUI with a scripted test model." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs runs show <run>
+smthrs runs logs <run> --follow
+```
+
+`show` gives the status and a diagnosis. `logs` streams events as they commit.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** Control RPC `Watch { runId, follow: true }` streams events. `Projection.Snapshot` with selector `run-events` or `run-tree` returns the recorded trace.
+
+</TabItem>
+</Tabs>
+
+## Next
+
+- [Answer an approval](/docs/learn/approvals/): unblock a waiting run.
+- [Inspect and steer a run](/docs/app/runs/): more on run cards.

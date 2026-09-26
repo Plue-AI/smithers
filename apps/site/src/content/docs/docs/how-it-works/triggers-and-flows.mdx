@@ -1,72 +1,58 @@
 ---
 title: "Triggers and flows"
-description: "A trigger is something that happens; a flow is the steps Smithers runs in response. Flows pick the right agent profile for each step at run time."
+description: "A trigger is something that happens; a flow is the steps Smithers runs in response. Rules in .smithers/FACTORY.ts connect them."
 sidebar:
   order: 6
 ---
 
-A **trigger** is something that happens. A **flow** is the steps Smithers runs when it does. You connect the two, and Smithers does the rest in the background while you keep working.
+A **trigger** is something that happens. A **flow** is the steps Smithers runs when it does. A **rule** connects them.
 
 ## Kinds of trigger
 
 | Trigger | Example | Status |
 | --- | --- | --- |
-| Schedule | Every weekday at 9:00, run the linter. | Available now |
-| Message | A message in a thread asks for work. | Available now for Slack direct messages to the organization host; planned for every thread |
-| Webhook | Another service reports an event. | Available now as a building block for developers |
-| Issue and task events | An issue opens, a label is added, a task is fixed. | Available now in the organization host for new and changed GitHub issues, checked on a schedule; planned everywhere else |
+| Schedule | Every weekday at 9:00, run the review. | Available now |
+| Issue event | An issue is labeled `smithers`. | Partly available |
+| Code event | A change opens, lands, or main moves. | Partly available |
+| Message | A message arrives in a chat thread. | Planned |
+| Manual | You run a registered rule now. | Available now |
 
-## What a flow is
+## Flows
 
-A flow is a recipe: research, plan, change, check, report. It lives in the repository at `flows/<name>/`, either as a TypeScript file or as a Markdown file whose body is the prompt. Every step is recorded as it finishes, so a run that stops can resume without redoing finished work.
+A flow lives at `flows/<name>/`: a `flow.mdx` whose body is the prompt, or a `flow.ts`. Every step is recorded as it finishes, so a stopped run resumes without redoing work. An [agent profile](/docs/how-it-works/agents/) is a flow.
 
-**Available now.** This is a shortened copy of a real Markdown flow in the Smithers repository, `flows/issue-triage/flow.mdx`:
+**Available now.** Run flows from the app's `/` menu, the TUI's `/flow`, `smthrs flow start`, or the API. See [Flows, actions, and plans](/docs/concepts/flows-actions-plans/).
 
-```markdown
----
-description: Reproduces and triages one GitHub issue, producing a structured maintainer response without holding a GitHub write token.
-capabilities: ["fs:read:**", "fs:write:.triage/report.json", "proc:spawn:rg *"]
-model: luna
-budget:
-  tokens: 120000
-  milliseconds: 600000
----
+## Rules
 
-# Triage a GitHub issue
+A repository declares its rules in `.smithers/FACTORY.ts`, under `on`. The key is the trigger; the value names the flow.
+
+```ts title=".smithers/FACTORY.ts"
+import { Smithers as S } from "@smthrs/targets"
+
+export const factory = S.Factory({
+  summary: "How this repository develops itself.",
+  on: {
+    "issue.labeled:smithers": { flow: "implement", description: "Implement an issue labeled smithers" },
+    "change.opened": { flow: "review", description: "Review every change" },
+    "schedule:0 9 * * 1-5": { flow: "review", description: "Weekday morning review of main" }
+  }
+})
 ```
 
-The frontmatter says what the flow may touch, which model it uses, and how much it may spend. Run flows from the app's `/` menu ([Run a flow](/docs/app/flows/)) or write your own ([Flows, actions, and plans](/docs/concepts/flows-actions-plans/)).
+The app's **Dispatcher** lists each rule as declared.
 
-## Connect a trigger to a flow
+**Partly available.** The coding factory runs its own rules: implementing labeled issues, and refreshing history and the wiki when code lands. Other declared rules do not run yet.
 
-**Available now.** Schedules connect today. From the command line, name the flow and the schedule:
+**Available now.** Schedules register directly: in the app with **Dispatcher**, **Register a rule**, or for a local project with `smthrs triggers register`. See [Configure an agent and a trigger](/docs/learn/agent-and-trigger/).
 
-```bash
-smthrs triggers register nightly-lint --flow lint --cron "0 9 * * 1-5" --timezone America/New_York
-```
+**Planned.** Declared rules become live registrations when main moves. Message rules let a chat message start the assistant.
 
-In the app, **Dispatcher** does the same with **Register a rule**, after you approve the plan. See [Define triggers](/docs/guides/triggers/) and [Inspect the Dispatcher](/docs/app/dispatcher/).
+## One loop
 
-**Planned.** rules for messages, issue events, and task events. A repository can already declare them in `.smithers/FACTORY.ts`, and Dispatcher lists them, but a declared rule does not run yet.
-
-## Flows pick agents at run time
-
-A flow does not hard-code one model or one prompt. For each step it chooses the [agent profile](/docs/how-it-works/agents/) that fits the thread or task in front of it, then runs that profile's model with that profile's charter, skills, grants, and memory. The same flow can hand a small fix to one builder and a risky change to another.
-
-**Available now.** The organization host does this today. When a request arrives, its delivery flow works like this:
-
-1. The **assistant** profile reads the request and routes it.
-2. The **lead** profile writes a contract that names a builder and a separate checker.
-3. The chosen **builder** makes the change in its own machine.
-4. The chosen **checker** runs the checks and accepts or rejects the result.
-
-Each step loads the chosen profile from the roster when it runs, and gets only that profile's permissions, whatever the request says.
-
-The host also picks profiles for work nobody asked for. It checks a repository's GitHub issues on a schedule, and a triage profile decides whether to take each new one and which profile should own it. A **routine** gives one profile a recurring task, such as a weekly summary, on a schedule. See [Autonomous work](https://github.com/smithersai/smithers/blob/main/flows/organization/host.md#autonomous-work).
-
-**Planned.** any flow picking a profile from the roster, not only the organization host's flows.
+Every trigger goes through the same loop. It is recorded once, queued, dispatched to its flow, and run as a durable run. A repeated delivery is ignored. A crash does not start the work twice.
 
 ## Next
 
 - [How Smithers works](/docs/how-it-works/): the whole picture.
-- [Inspect and steer a run](/docs/app/runs/): follow a flow while it works.
+- [Watch an agent work](/docs/learn/watch-an-agent/): follow a run.

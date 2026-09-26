@@ -15,12 +15,22 @@
 
 ## How Smithers works
 
-- [How Smithers works](https://smithers.sh/docs/how-it-works/): The six ideas behind Smithers: threads, tasks, wiki, agents, triggers, and flows, and how they fit together.
-- [Threads](https://smithers.sh/docs/how-it-works/threads/): A thread is a conversation that lasts. Issues are threads, chats are threads, and threads can mirror into chat apps.
-- [Tasks](https://smithers.sh/docs/how-it-works/tasks/): A task is an issue that someone intends to finish: a thread with state, owners, and a definition of done.
-- [Wiki](https://smithers.sh/docs/how-it-works/wiki/): The wiki is what your team knows: versioned, tied to its sources, and kept current as the code changes.
-- [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a profile you write once: its job, its model, what it may touch, and what it remembers. Create one, configure it, and make it useful.
-- [Triggers and flows](https://smithers.sh/docs/how-it-works/triggers-and-flows/): A trigger is something that happens; a flow is the steps Smithers runs in response. Flows pick the right agent profile for each step at run time.
+- [How Smithers works](https://smithers.sh/docs/how-it-works/): The six ideas behind Smithers: threads, tasks, wiki, agents, triggers, and flows, and how the coding factory ties them together.
+- [Threads](https://smithers.sh/docs/how-it-works/threads/): A thread is a conversation that lasts. Issues are threads, chats are private issues, and threads can mirror into Slack or Telegram.
+- [Tasks](https://smithers.sh/docs/how-it-works/tasks/): A task is an issue someone intends to finish: a thread with a state, a fixer, and a separate verifier.
+- [Wiki](https://smithers.sh/docs/how-it-works/wiki/): The wiki is what the project knows: versioned, tied to its sources, and refreshed when code lands.
+- [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a profile, and a profile is a flow file: its charter, its model, what it may touch, and how much it may spend.
+- [Triggers and flows](https://smithers.sh/docs/how-it-works/triggers-and-flows/): A trigger is something that happens; a flow is the steps Smithers runs in response. Rules in .smithers/FACTORY.ts connect them.
+
+## Tutorials: GUI, TUI, CLI, API
+
+- [Chat with an agent](https://smithers.sh/docs/learn/chat/): Ask Smithers a question, steer it while it works, and queue a follow-up, from the app, the terminal, a script, or the API.
+- [Mirror a thread to Slack or Telegram](https://smithers.sh/docs/learn/mirror-a-thread/): Connect a thread to a Slack thread or a Telegram chat, and see each message once on both sides.
+- [Create a task](https://smithers.sh/docs/learn/create-a-task/): Open an issue, hand it to the coding factory, and move it from open to fixed to verified.
+- [Configure an agent and a trigger](https://smithers.sh/docs/learn/agent-and-trigger/): Write an agent profile as a flow.mdx file, run it once, then put it on a schedule.
+- [Watch an agent work](https://smithers.sh/docs/learn/watch-an-agent/): Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you.
+- [Answer an approval](https://smithers.sh/docs/learn/approvals/): When an agent asks before acting, read the request and approve or deny it from the app, the terminal, a script, or the API.
+- [Use the wiki](https://smithers.sh/docs/learn/wiki/): Read and edit notes, generate pages from the code, and keep them current.
 
 ## Use the app
 

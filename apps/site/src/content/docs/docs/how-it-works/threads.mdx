@@ -1,52 +1,44 @@
 ---
 title: "Threads"
-description: "A thread is a conversation that lasts. Issues are threads, chats are threads, and threads can mirror into chat apps."
+description: "A thread is a conversation that lasts. Issues are threads, chats are private issues, and threads can mirror into Slack or Telegram."
 sidebar:
   order: 2
 ---
 
-A **thread** is a conversation that lasts. It has a subject, an ordered list of messages, and the people and agents taking part. Every piece of work in Smithers happens in, or reports back to, a thread.
-
-There are two kinds:
+A **thread** is a conversation that lasts: a subject, an ordered list of messages, and the people and agents taking part. Work starts in a thread and reports back to it.
 
 | Kind | What it is for |
 | --- | --- |
 | Issue | Something to track until it is done, visible to the repository's team. |
-| Chat | A conversation with Smithers and your agents. |
+| Chat | A private conversation with Smithers and your agents. |
 
-A [task](/docs/how-it-works/tasks/) is an issue with extra state. Because both kinds are threads, the same agents, triggers, and syncs work on either.
+A chat is an issue too: a private one, visible only to you. A message is a comment. So chats get what issues get: history, search in your own threads, and sync.
 
-## Issues are threads
+## Issues
 
-**Available now.** An issue has a title, a state, labels, assignees, and a list of comments. Every change to it is recorded as an event, so its history is never lost.
+**Available now.** An issue has a title, a state, labels, assignees, and comments. Every change is recorded as an event.
 
-In the app, type `/` and use the Issues commands:
+The list shows the repository's Smithers issues with its GitHub issues. GitHub issues are read into Smithers.
 
-```text
-/issues.list open
-/issues.view 42
-/issues.close 42
-```
+## Chats
 
-`/issues.create` opens a new issue and `/issues.comment` replies to one.
+**Available now.** [Chat](/docs/learn/chat/) with Smithers in the app or the TUI. The app keeps your conversation for your account; the TUI keeps sessions in the project.
 
-The list shows the repository's Smithers issues together with its GitHub issues. GitHub issues are read into Smithers; Smithers does not write them back, except for comments an agent posts.
+**Planned.** Chats stored as private issues, with agents replying under their own names ([#2111](https://github.com/smithersai/smithers/issues/2111)).
 
-## Chats are threads
+## Messages start work
 
-**Available now.** [Chat](/docs/app/chat/) is where you talk to Smithers, give it tasks, and steer running work. Your conversation history is kept for your account.
+A message in a thread can trigger a flow. The assistant answers, or hands the request to the right [agent](/docs/how-it-works/agents/) and posts its reply in the same thread.
 
-**Planned.** chats stored as threads in the same store as issues. A chat will then have everything an issue has: history, participants, and sync. Chats are private to you by default.
+**Planned.** Message triggers for chat threads. See [Triggers and flows](/docs/how-it-works/triggers-and-flows/).
 
-## Sync with chat apps
+## Sync with Slack and Telegram
 
-A thread can mirror into a chat app. Sync is two-way: a message in either place appears in the other, so there is one conversation, not two copies. You can take part entirely from Slack, and agents post there under their own names.
+A thread can mirror into one Slack thread or Telegram chat. Sync is two-way: a message, edit, or delete on either side appears once on the other. Agents post under their own names.
 
-**Available now.** building blocks for Slack and Telegram in [`@smthrs/integrations`](/docs/reference/api/integrations/): receive messages, post and update replies, and ask for approval with buttons. The local [organization host](/docs/how-it-works/agents/#run-agents-with-the-organization-host) uses them to take requests from Slack direct messages and reply in the same Slack thread.
-
-**Planned.** general two-way sync between any Smithers thread and a chat app channel or thread, such as Slack or Telegram, set up from the app.
+**Planned.** Thread sync set up from the app ([#2105](https://github.com/smithersai/smithers/issues/2105)). Telegram reactions are not mirrored ([#2110](https://github.com/smithersai/smithers/issues/2110)). See [Mirror a thread](/docs/learn/mirror-a-thread/).
 
 ## Next
 
-- [Tasks](/docs/how-it-works/tasks/): issues with intent.
-- [Talk to Smithers](/docs/app/chat/): use Chat in the app.
+- [Tasks](/docs/how-it-works/tasks/): issues with state.
+- [Chat with an agent](/docs/learn/chat/): the first tutorial.

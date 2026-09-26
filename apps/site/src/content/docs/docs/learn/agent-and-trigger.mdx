@@ -1,0 +1,131 @@
+---
+title: "Configure an agent and a trigger"
+description: "Write an agent profile as a flow.mdx file, run it once, then put it on a schedule."
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+An agent profile is a flow file in your repository. A trigger starts it.
+
+## Write the profile
+
+**Available now.** Every surface reads the same file. Create `flows/reviewer/flow.mdx`:
+
+```markdown title="flows/reviewer/flow.mdx"
+---
+description: Reviews the working-copy change and returns a verdict with reasons.
+model: openai:gpt-6-sol
+capabilities: ["fs:read:**", "proc:spawn:*"]
+budget:
+  tokens: 200000
+  milliseconds: 600000
+---
+
+# Review the change
+
+Read the diff and run the tests. Return approve or request changes,
+with the evidence for each finding.
+```
+
+Grant only what the job needs. [flow.mdx frontmatter](/docs/reference/flow-mdx/) lists every key. On Smithers Cloud, commit it to the default branch.
+
+## Run it once
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Type `/` and choose the flow, or enter `/flow.run reviewer`. Fill in the form and follow the run card. See [Run a flow](/docs/app/flows/).
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** `/agent reviewer` starts it as a worker. `/flow reviewer` runs it as a flow.
+
+<AppScreenshot src="/images/learn/tui-custom-agent.gif" alt="Starting a custom review agent from the TUI." caption="The TUI with a fixture agent and a scripted test model." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs flow list
+smthrs flow start reviewer --data '{"args":"Review the working copy"}'
+```
+
+`flow list` shows the flows Smithers found, with their input schema. Add `--detached` to return once the run is admitted.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.**
+
+```sh
+curl -X POST "$SMITHERS_API/api/repos/acme/app/invoke" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"flow":"reviewer","input":{"args":"Review main"}}'
+```
+
+The response carries the `run_id`. Over the control RPC, `Plan` then `Run` does the same.
+
+</TabItem>
+</Tabs>
+
+## Put it on a schedule
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Open **Dispatcher**, select **Register a rule**, and enter the flow, a name, and a cron schedule such as `0 9 * * 1-5`. Approve the plan. The rule then shows as live, with **Run now** and **Pause**. See [Inspect the Dispatcher](/docs/app/dispatcher/).
+
+<AppScreenshot src="/images/app/dispatcher.png" alt="The Dispatcher lists declared rules and live registrations for a repository." caption="The public app, signed out." width={1440} height={1000} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now** for a local project:
+
+```sh
+smthrs triggers register weekday-review --flow reviewer --cron "0 9 * * 1-5" --timezone America/New_York
+smthrs triggers list
+smthrs triggers fire weekday-review
+```
+
+`smthrs serve` runs the scheduler. A fired occurrence still asks for approval.
+
+</TabItem>
+<TabItem label="API">
+
+**Partly available.** `GET /api/repos/{owner}/{repo}/repository-jobs` lists registrations, and `POST /api/repos/{owner}/{repo}/repository-jobs/{job}/pause` pauses one. Registering goes through the repository's workspace host, not a public route.
+
+</TabItem>
+</Tabs>
+
+## Declare it in the repository
+
+**Partly available.** To keep rules with the code, add them to `.smithers/FACTORY.ts`. The Dispatcher lists them as declared. They do not run yet unless the coding factory serves them. See [Triggers and flows](/docs/how-it-works/triggers-and-flows/#rules).
+
+```ts title=".smithers/FACTORY.ts"
+import { Smithers as S } from "@smthrs/targets"
+
+export const factory = S.Factory({
+  summary: "How this repository develops itself.",
+  on: {
+    "schedule:0 9 * * 1-5": { flow: "reviewer", description: "Weekday morning review" }
+  }
+})
+```
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): read the runs it produces.
+- [Agents](/docs/how-it-works/agents/): the idea behind profiles.

@@ -1,0 +1,118 @@
+---
+title: "Create a task"
+description: "Open an issue, hand it to the coding factory, and move it from open to fixed to verified."
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+A task is an issue someone intends to finish. It moves `open → fixed → verified → closed`. The person who verifies it cannot be the one who fixed it.
+
+## Open the issue
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Enter `/issues.create` and give it a title. `/issues.list` shows open issues; `/issues.view 42` opens one; `/issues.comment` replies.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned.** Issue commands in the TUI ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned.** Issue commands in `smthrs` ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.**
+
+```sh
+curl -X POST "$SMITHERS_API/api/repos/acme/app/issues" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Footer link is hard to find","body":"Make the label clearer."}'
+```
+
+Set `SMITHERS_API` to your Smithers API origin and `SMITHERS_TOKEN` to a personal access token with the `write:repository` scope. The response is the issue, with its `number`.
+
+</TabItem>
+</Tabs>
+
+## Hand it to the factory
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Enter `/issue.implement 42`. The factory plans, changes, checks, and opens a pull request. `/stack.show` shows its progress.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Partly available.** On a repository whose factory stack is on, label the issue `smithers`:
+
+```sh
+curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"labels":["smithers"]}'
+```
+
+</TabItem>
+</Tabs>
+
+## Mark it fixed, then verified
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now:** `/issues.close 42` and `/issues.reopen 42`. **Planned:** **Fixed** and **Verify** buttons, and owner, due date, and priority ([#2112](https://github.com/smithersai/smithers/issues/2112)).
+
+<AppScreenshot src="/images/learn/preview-threads.png" alt="Design preview of the Threads list with All, Chats, and Tasks filters and task rows showing state and priority." caption="Design preview with example data. Not released." width={868} height={560} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** Set `state` to `fixed`, then, as a different person, `verified`:
+
+```sh
+curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"state":"verified"}'
+```
+
+Verifying your own fix fails with `self_verification`. Verifying an issue that is not `fixed` fails with `invalid_transition`.
+
+</TabItem>
+</Tabs>
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): follow the factory's run.
+- [Tasks](/docs/how-it-works/tasks/): the idea behind this page.
