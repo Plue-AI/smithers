@@ -458,3 +458,68 @@ test("an account change while reading a mark-read refusal hides that account's m
     expect(store.collections.cards.has("notifications")).toBe(false)
   } finally { body.resolve("Private account refusal"); await controller.dispose(); await store.dispose?.() }
 })
+
+describe("malformed notification lists", () => {
+  const malformed = [
+    ["object", () => json(200, { items: [] })],
+    ["null", () => json(200, null)],
+    ["string", () => json(200, "[]")],
+    ["number", () => json(200, 0)],
+    ["boolean", () => json(200, false)],
+    ["invalid JSON", () => new Response("{", { status: 200, headers: { "content-type": "application/json" } })],
+    ["no body", () => new Response(null, { status: 204 })]
+  ] as const
+  for (const actor of ["user", "smithers"] as const) {
+    for (const [label, answer] of malformed) {
+      test(`${actor} receives a failure for ${label}, never an empty inbox`, async () => {
+        const { store, controller } = await freshController(backend({ "/api/notifications/list": answer }))
+        try {
+          await signedIn(store)
+          const outcome = await (actor === "user" ? controller.commands.run("notifications.list") : controller.commands.runForAgent("notifications.list"))
+          expect(outcome.status).toBe("failed")
+          if (outcome.status === "failed") expect(outcome.error).toBe("Your notifications couldn't be loaded right now.")
+          const card = store.collections.cards.get("notifications")
+          expect(card?.status).toBe("error")
+          expect(card?.loading).toBe(false)
+          expect(card?.body).toBe("Your notifications couldn't be loaded right now.")
+          expect(notificationsCard(store)).toBeUndefined()
+        } finally { await controller.dispose(); await store.dispose?.() }
+      })
+    }
+  }
+
+  for (const rows of [[], wireInbox]) {
+    test(`a valid retry after malformed JSON restores ${rows.length === 0 ? "an empty" : "a populated"} inbox`, async () => {
+      let valid = false
+      const { store, controller } = await freshController(backend({ "/api/notifications/list": () => valid ? json(200, rows) : json(200, {}) }))
+      try {
+        await signedIn(store)
+        expect((await controller.commands.run("notifications.list")).status).toBe("failed")
+        valid = true
+        expect((await controller.commands.run("notifications.list")).status).toBe("executed")
+        const card = notificationsCard(store)
+        expect(card?.status).toBe("active")
+        expect(card?.body == null).toBe(true)
+        expect(card?.payload.items).toHaveLength(rows.length === 0 ? 0 : 3)
+        expect(card?.payload.unread).toBe(rows.length === 0 ? 0 : 2)
+      } finally { await controller.dispose(); await store.dispose?.() }
+    })
+  }
+
+  test("a malformed refresh after mark-read cannot claim the inbox is empty", async () => {
+    let marked = false
+    const { store, controller } = await freshController(backend({
+      "/api/notifications/list": () => json(200, marked ? {} : wireInbox),
+      "/api/notifications/mark-read": () => { marked = true; return new Response(null, { status: 205 }) }
+    }))
+    try {
+      await signedIn(store)
+      await controller.commands.run("notifications.list")
+      expect((await controller.commands.run("notifications.read")).status).toBe("failed")
+      const card = notificationsCard(store)
+      expect(card?.status).toBe("error")
+      expect(card?.payload.items).toHaveLength(3)
+      expect(card?.payload.unread).toBe(2)
+    } finally { await controller.dispose(); await store.dispose?.() }
+  })
+})

@@ -63,14 +63,14 @@ interface ParsedList {
 }
 
 /** The list body is a bare array (reference parseNotificationListBody). */
-const parseNotificationList = (body: unknown): ParsedList => {
-  const rows = Array.isArray(body) ? body : []
+const parseNotificationList = (body: unknown): ParsedList | undefined => {
+  if (!Array.isArray(body)) return undefined
   const items: NotificationItem[] = []
-  for (const value of rows) {
+  for (const value of body) {
     const item = parseNotification(value)
     if (item !== null) items.push(item)
   }
-  return { items, sent: rows.length }
+  return { items, sent: body.length }
 }
 
 export const createNotificationsSeam = (ctx: SeamContext): NotificationsSeam => {
@@ -90,7 +90,9 @@ export const createNotificationsSeam = (ctx: SeamContext): NotificationsSeam => 
       return readErrorMessage(response, "Your notifications couldn't be loaded right now.")
     }
     const body = (await response.json().catch(() => undefined)) as unknown
-    const { items, sent } = parseNotificationList(body)
+    const parsed = parseNotificationList(body)
+    if (parsed === undefined) return "Your notifications couldn't be loaded right now."
+    const { items, sent } = parsed
     /*
      * Rows that arrive and cannot be read are not "nothing new". Claiming an
      * empty inbox over an answer we failed to parse is the silent-failure
