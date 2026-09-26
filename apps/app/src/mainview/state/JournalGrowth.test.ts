@@ -469,3 +469,109 @@ test.each(["eof", "unavailable"] as const)("Wiki reconnects after %s retain thei
     doc.destroy()
   }
 }, 15_000)
+
+test("unchanged workspace provisioning polls do not grow SQLite and await changed receipts", async () => {
+  const { createWorkspaceSeam } = await import("./seams/WorkspaceSeam")
+  const fixture = await open(), { store } = fixture
+  await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null }).isPersisted.promise
+  const reads: Array<ReturnType<typeof Promise.withResolvers<Response>>> = []
+  const waitFor = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 2_000
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error("Workspace observation did not settle")
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+  }
+  const answer = (stage = "boot", status = "starting") => Response.json({
+    id: "ws-growth", repo_full_name: "owner/repo", name: "Provisioning", target_bookmark: null,
+    kind: "container", status, provisioning_stage: stage, suspended_at: null, created_at: "2026-09-26T00:00:00Z"
+  })
+  const seam = createWorkspaceSeam({ store, dispatch: store.dispatch, baseUrl: "", actor: () => "user", nextOrdinal: () => 1,
+    http: async (input, init) => {
+      if (init?.method === "POST") return answer()
+      if (input.endsWith("/workspaces/ws-growth")) {
+        const read = Promise.withResolvers<Response>(); reads.push(read); return read.promise
+      }
+      return Response.json([])
+    }
+  }, { pollMs: 1 })
+  try {
+    await seam.openWorkspace(undefined, "owner/repo", "container")
+    await waitFor(() => reads.length === 1)
+    await store.settled?.()
+    reads[0]!.resolve(answer())
+    await waitFor(() => reads.length === 2)
+    const before = await store.eventHistory(), physical = fixture.footprint()
+    for (let index = 1; index <= 10; index++) {
+      reads[index]!.resolve(answer())
+      await waitFor(() => reads.length === index + 2)
+    }
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    expect(fixture.footprint()).toEqual(physical)
+    const held = fixture.pauseNextWrite()
+    reads[11]!.resolve(answer("starting_services"))
+    await held.entered
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(reads).toHaveLength(12)
+    held.release()
+    await waitFor(() => reads.length === 13)
+    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
+    reads[12]!.resolve(answer("ready", "running"))
+    await waitFor(() => store.collections.cloudWorkspaces.get("ws-growth")?.status === "running")
+    await store.settled?.()
+    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 2)
+    const reopened = await open(fixture.path)
+    expect(reopened.store.collections.cloudWorkspaces.get("ws-growth")).toMatchObject({ status: "running", provisioningStage: "ready" })
+    expect((await reopened.store.verifyState()).valid).toBe(true)
+  } finally {
+    seam.dispose()
+    for (const read of reads) read.resolve(answer("ready", "running"))
+  }
+})
+
+test("desktop readiness retains progress without repeating unchanged workspace observations", async () => {
+  const { createWorkspaceSeam } = await import("./seams/WorkspaceSeam")
+  const { store } = await open()
+  await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null }).isPersisted.promise
+  const reads: Array<ReturnType<typeof Promise.withResolvers<Response>>> = []
+  const waitFor = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 2_000
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error("Desktop observation did not settle")
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+  }
+  const answer = (status = "starting") => Response.json({ id: "desktop-growth", repo_full_name: "owner/repo", name: "Desktop",
+    target_bookmark: null, kind: "desktop", status, provisioning_stage: "boot", created_at: "2026-09-26T00:00:00Z" })
+  const seam = createWorkspaceSeam({ store, dispatch: store.dispatch, baseUrl: "", actor: () => "user", nextOrdinal: () => 1,
+    http: async (input, init) => {
+      if (init?.method === "POST") return answer()
+      if (input.endsWith("/workspaces/desktop-growth")) {
+        const read = Promise.withResolvers<Response>(); reads.push(read); return read.promise
+      }
+      return Response.json([])
+    }
+  }, { desktopWaitMs: 1 })
+  const pending = seam.openDesktopBox(undefined, "owner/repo")
+  const observations = async () => (await store.eventHistory()).events.filter(event =>
+    (decodeEventValue(event.input) as { type?: string }).type === "workspace.updated")
+  try {
+    await waitFor(() => reads.length === 1)
+    const before = await observations()
+    for (let index = 0; index < 5; index++) {
+      reads[index]!.resolve(answer())
+      await waitFor(() => reads.length === index + 2)
+    }
+    expect(await observations()).toEqual(before)
+    expect(store.collections.cards.get("workspace-desktop-growth")).toMatchObject({ payload: { desktopStage: "starting" } })
+    reads[5]!.resolve(answer("failed"))
+    await pending
+    expect(await observations()).toHaveLength(before.length + 1)
+    expect(store.committedWorkspace("desktop-growth")?.status).toBe("failed")
+    expect(store.collections.toasts.get("toast-workspace.desktop.open:desktop-growth")?.status).toBe("failed")
+  } finally {
+    seam.dispose()
+    for (const read of reads) read.resolve(answer("failed"))
+    await pending
+  }
+})

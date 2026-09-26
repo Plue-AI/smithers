@@ -57,6 +57,7 @@ type AppProjectionSnapshot
 import type {
 AppTransition,
 Card,
+CloudWorkspaceRow,
 LocalRepositoryConnector,
 Message,
 Palette,
@@ -748,6 +749,7 @@ export interface AppStore {
   readonly approvalRequest: (id: string) => ApprovalRequest | undefined
   /** Committed immutable evidence, excluding optimistic rows; used for observation cursors and deduplication. */
   readonly committedCard: (id: string) => Card | undefined
+  readonly committedWorkspace: (id: string) => CloudWorkspaceRow | undefined
   readonly committedWorldDocument: (id: string) => WorldDocument | undefined
   readonly committedRuntimeRun: (id: string) => RuntimeRun | undefined
   readonly committedRuntimeApproval: (id: string) => RuntimeApproval | undefined
@@ -1925,6 +1927,7 @@ const initializeAppStore = async (
     dispatch,
     approvalRequest,
     committedCard: id => { assertReadable(); return committed.snapshot.cards.find(row => row.id === id) },
+    committedWorkspace: id => { assertReadable(); return committed.snapshot.cloudWorkspaces.find(row => row.id === id) },
     committedWorldDocument: id => { assertReadable(); return committed.snapshot.worldDocuments.find(row => row.id === id) },
     committedRuntimeRun: id => { assertReadable(); return committed.snapshot.runtimeRuns.find(row => row.id === id) },
     committedRuntimeApproval: id => { assertReadable(); return committed.snapshot.runtimeApprovals.find(row => row.id === id) },

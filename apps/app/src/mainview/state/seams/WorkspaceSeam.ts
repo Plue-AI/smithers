@@ -43,6 +43,7 @@ import { actorSharedState } from "../ActorBindings"
  * the repository's list.
  */
 import {
+  CloudWorkspaceRowSchema,
   parseRepoSelection,
   WORKSPACE_STATUSES
 } from "../AppState"
@@ -58,6 +59,7 @@ import type {
   WorkspaceHead,
   WorkspaceService
 } from "../AppState"
+import { canonicalStoredJsonValue } from "../EventValue"
 import { CARD_CONTENT_CAP, fileValue, listingValue } from "./FilesSeam"
 import { resolveTargetRepo } from "../RepoContext"
 import { dropDesktopStream, holdDesktopStream } from "./DesktopStream"
@@ -622,6 +624,8 @@ const splitRepo = (repoId: string): { readonly owner: string; readonly name: str
   return { owner, name }
 }
 
+const WorkspaceObservationSchema = CloudWorkspaceRowSchema.omit({ updatedAt: true, revision: true })
+
 export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = {}): WorkspaceSeam => {
   const pollMs = deps.pollMs ?? 5_000
   const desktopWaitMs = deps.desktopWaitMs ?? desktopBoxWait.pollMs
@@ -1010,6 +1014,17 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     throw cause
   })
 
+  /** Polls compare durable facts, excluding local observation timestamps and revisions. */
+  const persistWorkspaceObservation = async (workspace: CloudWorkspaceInput): Promise<void> => {
+    const committed = ctx.store.committedWorkspace(workspace.id)
+    const current = ctx.store.collections.cloudWorkspaces.get(workspace.id)
+    const value = canonicalStoredJsonValue(WorkspaceObservationSchema.parse(workspace))
+    if (committed !== undefined && current !== undefined &&
+      canonicalStoredJsonValue(WorkspaceObservationSchema.parse(committed)) === value &&
+      canonicalStoredJsonValue(WorkspaceObservationSchema.parse(current)) === value) return
+    await ctx.dispatch({ type: "workspace.updated", actor: "system", workspace }).isPersisted.promise
+  }
+
   /* ---- the settle watch ---- */
 
   /*
@@ -1029,7 +1044,8 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if (!("error" in answer)) {
       const parsed = parseWorkspaceWire(answer.body, row.repoId)
       if (parsed !== null) {
-        ctx.dispatch({ type: "workspace.updated", actor: "system", workspace: parsed })
+        yield* Effect.promise(() => persistWorkspaceObservation(parsed))
+        if (!current()) return false
         if (!UNSETTLED.has(parsed.status)) return false
       }
     }
@@ -1863,7 +1879,8 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
         const fresh = parseWorkspaceWire(answer.body, box.repoId)
         if (fresh === null) continue
         box = fresh
-        ctx.dispatch({ type: "workspace.updated", actor: "system", workspace: box })
+        await persistWorkspaceObservation(box)
+        if (!current()) return
       }
       progress("streaming")
       // Share the wait epoch with the mint: Stop and a later open invalidate both.
