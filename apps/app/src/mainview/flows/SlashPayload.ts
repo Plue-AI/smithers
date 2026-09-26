@@ -644,8 +644,9 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (page !== undefined && !/^\d+$/.test(page)) return no("A Wiki page is a whole number.")
     return ok({ repo, ...(page === undefined ? {} : { page: Number(page) }) })
   },
-  "wiki.cloud.open": (args, known) => {
-    const { rest, repo } = splitTrailingRepo(args, known)
+  "wiki.cloud.open": (args) => {
+    // Both positions are explicit identifiers; inventory cannot disambiguate them.
+    const { rest, repo } = splitTrailingRepo(args)
     return rest === "" || repo === undefined ? no("Choose a Wiki page slug and repository.") : ok({ slug: rest, repo })
   },
   "wiki.sync": (args) => required("documentId", args, "wiki.sync needs the document id"),

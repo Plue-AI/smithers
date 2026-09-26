@@ -303,6 +303,16 @@ test("structured commit, trace, wiki and landing actions match their grammars", 
   roundTrip("prs.review", { number: 42, verdict: "request-changes", repo: "team/project" }, "42 request-changes team/project", { number: 42, verdict: "request_changes", text: "", repo: "team/project" })
 })
 
+test("Wiki Open carries an explicit repository before its inventory loads", () => {
+  const payload = { slug: "my-page", repo: "team/project" }
+  for (const known of [new Set<string>(), new Set(["team/other"])]) {
+    expect(payloadFor("wiki.cloud.open", flowArgs("wiki.cloud.open", payload), undefined, known)).toEqual({ payload })
+    for (const args of ["", "my-page", "team/project"]) {
+      expect(payloadFor("wiki.cloud.open", args, undefined, known)).toHaveProperty("error")
+    }
+  }
+})
+
 
 test("preparation retry carries the original schedule, JSON input and both limits", () => {
   const draft = { repo: "will/flows", flow: "nightly-lint", slug: "nightly", schedule: "0 9 * * 1-5", input: JSON.stringify({ label: 'a "quoted" label', args: "line one --flow keep-this-as-input\nline two" }), tokens: 150000, minutes: 20 }
