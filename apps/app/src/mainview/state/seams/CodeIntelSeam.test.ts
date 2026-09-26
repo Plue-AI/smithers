@@ -166,3 +166,131 @@ test("an old starting timer and refusal cannot patch the next owner's file", asy
   expect(await pending).toBe(SIGN_OUT_REFUSAL)
   expect((await store.eventHistory()).head).toEqual(before.head)
 })
+
+test("a late hover cannot replace the answer for a newer cursor position", async () => {
+  const { store, seam, answers, untilCalled } = await setup()
+  const reply = Promise.withResolvers<Awaited<ReturnType<CloudLspClient["hover"]>>>()
+  answers.hover = () => reply.promise
+  const old = seam.hover("index.ts", 1, 1, "owner/repo")
+  await untilCalled("hover")
+  answers.hover = async () => ({ ok: { hover: { contents: "Newer hover", truncated: false } } })
+  await seam.hover("index.ts", 1, 2, "owner/repo")
+  const before = await store.eventHistory()
+  reply.resolve({ ok: { hover: { contents: "Older hover", truncated: false } } })
+  expect(JSON.stringify(await old)).toContain("Older hover")
+  const shown = store.collections.cards.get(card.id)
+  expect(shown?.kind).toBe("file")
+  if (shown?.kind === "file") expect(shown.payload.hover).toEqual({ line: 1, character: 2, contents: "Newer hover" })
+  expect((await store.eventHistory()).head).toEqual(before.head)
+})
+
+for (const first of ["user", "smithers"] as const) {
+  for (const second of ["user", "smithers"] as const) {
+    for (const outcome of ["hover", "empty", "refusal"] as const) {
+      test(`${first} late ${outcome} cannot overwrite ${second}'s newer hover`, async () => {
+        const { store, seam, agent, answers, untilCalled } = await setup()
+        const reply = Promise.withResolvers<Awaited<ReturnType<CloudLspClient["hover"]>>>()
+        answers.hover = () => reply.promise
+        const old = (first === "user" ? seam : agent()).hover("index.ts", 1, 1, "owner/repo")
+        await untilCalled("hover")
+        answers.hover = async () => ({ ok: { hover: { contents: "Newer hover", truncated: false } } })
+        await (second === "user" ? seam : agent()).hover("index.ts", 1, 2, "owner/repo")
+        const before = await store.eventHistory()
+        reply.resolve(outcome === "refusal" ? { refusal: { code: "closed", message: "Older refusal" } }
+          : { ok: { hover: outcome === "empty" ? null : { contents: "Older hover", truncated: false } } })
+        const result = await old
+        expect(JSON.stringify(result)).toContain(outcome === "refusal" ? "Older refusal" : outcome === "empty" ? "nothing at" : "Older hover")
+        const shown = store.collections.cards.get(card.id)
+        if (shown?.kind !== "file") throw new Error("Expected the file card")
+        expect(shown.payload.hover?.contents).toBe("Newer hover")
+        expect(shown.payload.hover?.character).toBe(2)
+        expect(shown.payload.intel?.state).toBe("ready")
+        expect((await store.eventHistory()).head).toEqual(before.head)
+      })
+    }
+  }
+}
+
+for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
+  test(`three hovers settling ${order.join(",")} publish only the last cursor position`, async () => {
+    const { store, seam, answers, untilCalled } = await setup()
+    const replies = Array.from({ length: 3 }, () => Promise.withResolvers<Awaited<ReturnType<CloudLspClient["hover"]>>>())
+    const pending = []
+    for (let i = 0; i < 3; i++) {
+      answers.hover = () => replies[i]!.promise
+      pending.push(seam.hover("index.ts", 1, i + 1, "owner/repo"))
+      await untilCalled("hover", i + 1)
+    }
+    const before = await store.eventHistory()
+    for (const index of order) {
+      replies[index]!.resolve({ ok: { hover: { contents: `Hover ${index}`, truncated: false } } })
+      expect(JSON.stringify(await pending[index])).toContain(`Hover ${index}`)
+      const shown = store.collections.cards.get(card.id)
+      if (shown?.kind !== "file") throw new Error("Expected the file card")
+      if (order.indexOf(index) < order.indexOf(2)) expect(shown.payload.hover).toBeUndefined()
+      else expect(shown.payload.hover?.contents).toBe("Hover 2")
+    }
+    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
+  })
+}
+
+for (const outcome of ["empty", "refusal"] as const) {
+  test(`an old hover and its starting timer cannot overwrite a newer ${outcome}`, async () => {
+    const { store, seam, answers, untilCalled } = await setup({ startingAfterMs: 25 })
+    const reply = Promise.withResolvers<Awaited<ReturnType<CloudLspClient["hover"]>>>()
+    answers.hover = () => reply.promise
+    const old = seam.hover("index.ts", 1, 1, "owner/repo")
+    await untilCalled("hover")
+    answers.hover = async () => outcome === "empty" ? { ok: { hover: null } } : { refusal: { code: "closed", message: "Latest refusal" } }
+    await seam.hover("index.ts", 1, 2, "owner/repo")
+    const before = await store.eventHistory()
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    reply.resolve({ ok: { hover: { contents: "Older hover", truncated: false } } })
+    await old
+    expect((await store.eventHistory()).head).toEqual(before.head)
+    // A later request still owns its card after both earlier requests settle.
+    answers.hover = async () => ({ ok: { hover: { contents: "Fresh hover", truncated: false } } })
+    await seam.hover("index.ts", 1, 3, "owner/repo")
+    const shown = store.collections.cards.get(card.id)
+    if (shown?.kind !== "file") throw new Error("Expected the file card")
+    expect(shown.payload.hover?.contents).toBe("Fresh hover")
+  })
+}
+
+test("hover ordering is claimed before a delayed file preparation", async () => {
+  const gate = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
+  const fixture = await setup({ missingFile: true, readFile: async () => { entered.resolve(); await gate.promise } })
+  const { store, seam, answers, calls } = fixture
+  const old = seam.hover("index.ts", 1, 1, "owner/repo")
+  await entered.promise
+  await reopenFile(store)
+  answers.hover = async () => ({ ok: { hover: { contents: calls.hover === 1 ? "Newer hover" : "Older hover", truncated: false } } })
+  await seam.hover("index.ts", 1, 2, "owner/repo")
+  const before = await store.eventHistory()
+  gate.resolve()
+  expect(JSON.stringify(await old)).toContain("Older hover")
+  const shown = store.collections.cards.get(card.id)
+  if (shown?.kind !== "file") throw new Error("Expected the file card")
+  expect(shown.payload.hover?.contents).toBe("Newer hover")
+  expect((await store.eventHistory()).head).toEqual(before.head)
+})
+
+test("hovers in different files retain independent cards", async () => {
+  const { store, seam, answers, untilCalled } = await setup()
+  const other = { ...card, id: "file-owner/repo-other.ts", payload: { ...card.payload, path: "other.ts" } }
+  await store.dispatch({ type: "card.upsert", actor: "user", card: other }).isPersisted.promise
+  const reply = Promise.withResolvers<Awaited<ReturnType<CloudLspClient["hover"]>>>()
+  answers.hover = () => reply.promise
+  const old = seam.hover("index.ts", 1, 1, "owner/repo")
+  await untilCalled("hover")
+  answers.hover = async () => ({ ok: { hover: { contents: "Other file hover", truncated: false } } })
+  await seam.hover("other.ts", 1, 2, "owner/repo")
+  reply.resolve({ ok: { hover: { contents: "First file hover", truncated: false } } })
+  await old
+  for (const [id, text] of [[card.id, "First file hover"], [other.id, "Other file hover"]]) {
+    const shown = store.collections.cards.get(id!)
+    if (shown?.kind !== "file") throw new Error("Expected the file card")
+    expect(shown.payload.hover?.contents).toBe(text)
+  }
+})

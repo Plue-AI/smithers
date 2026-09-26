@@ -111,6 +111,7 @@ const refusedCloud = (refusal: LspRefusal, document: CloudLspDocument, workspace
 interface Prepared {
   readonly client: CloudLspClient
   readonly current: () => boolean
+  readonly canPublish: () => boolean
   readonly repo: string
   readonly path: string
   readonly id: string
@@ -154,7 +155,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     current: undefined as (() => boolean) | undefined,
     disposed: false,
     subscriptions: undefined as Array<{ unsubscribe(): void }> | undefined,
-    pending: new Map<string, { readonly value: string }>()
+    pending: new Map<string, { readonly value: string }>(),
+    hovers: new Map<string, symbol>()
   }))
   /** Publications are observations; only explicit commands record identical answers again. */
   const observe = (id: string, fields: Partial<FilePayload>): void => {
@@ -182,6 +184,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     cloudWatch.client = undefined
     cloudWatch.current = undefined
     cloudWatch.pending.clear()
+    cloudWatch.hovers.clear()
     dialing.clear()
     client?.dispose()
   }
@@ -233,7 +236,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   const request = async <T>(prepared: Prepared, work: () => Promise<LspAnswer<T>>): Promise<LspAnswer<T>> => {
     const { id } = prepared
     const timer = setTimeout(() => {
-      if (prepared.current() && fileCard(id)?.payload.intel?.state !== "ready") patch(id, { intel: { state: "starting" } })
+      if (prepared.current() && prepared.canPublish() && fileCard(id)?.payload.intel?.state !== "ready") patch(id, { intel: { state: "starting" } })
     }, startingAfterMs)
     ;(timer as { unref?: () => void }).unref?.()
     const key = connectionKey(prepared.document.workspaceId, prepared.document.language)
@@ -279,17 +282,17 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   }
 
   /** The cloud half of `prepare`: the tunnel, the sign-in, the workspace, the language it relays, and the card's whole text. */
-  const prepareCloud = async (repo: string, path: string, anchor: FileAnchor | undefined): Promise<Prepared | string> => {
+  const prepareCloud = async (repo: string, path: string, anchor: FileAnchor | undefined, canPublish = () => true): Promise<Prepared | string> => {
     const id = cardIdOf(repo, path)
     if (cloudWatch.disposed || ctx.isDisposed?.()) return SIGN_OUT_REFUSAL
     if (options.createCloudLsp === undefined) {
-      patch(id, { intel: { state: "unavailable", note: CLOUD_TUNNEL_ABSENT } })
+      if (canPublish()) patch(id, { intel: { state: "unavailable", note: CLOUD_TUNNEL_ABSENT } })
       return CLOUD_TUNNEL_ABSENT
     }
     if (ctx.store.collections.cloudSessions.get("cloud")?.state !== "signed-in") return refuseCloudSignIn(ctx)
     const found = workspaceFor(repo)
     if ("refusal" in found) {
-      patch(id, { intel: { state: "unavailable", note: found.refusal } })
+      if (canPublish()) patch(id, { intel: { state: "unavailable", note: found.refusal } })
       return found.refusal
     }
     const { workspace } = found
@@ -301,7 +304,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       const refusal = served === null
         ? `No workspace language server handles ${noun}.`
         : `No workspace language server handles ${noun} — "${workspace.name}" (${workspace.id}) serves ${served.length === 0 ? "no language" : served.join(", ")}.`
-      patch(id, { intel: { state: "unavailable", note: refusal } })
+      if (canPublish()) patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }
     const owner = captureCloudOwner(ctx)
@@ -314,13 +317,14 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     if (card.payload.binary === true) return `${path} in ${repo} is a binary file; a language server has nothing to read there.`
     if (card.payload.truncated) {
       const refusal = `${path} in ${repo} is larger than the card cap; hover, definitions and diagnostics need the whole file.`
-      patch(id, { intel: { state: "unavailable", note: refusal } })
+      if (canPublish()) patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }
     const client = watchCloud()
     return {
       client,
       current,
+      canPublish,
       repo,
       path,
       id,
@@ -330,18 +334,22 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   }
 
   /** The target, its card, and the subscription, or the honest refusal — shared by the three acts. */
-  const prepare = async (pathArg: string, repoArg: string | undefined, anchor?: FileAnchor): Promise<Prepared | string> => {
+  const targetFor = (pathArg: string, repoArg: string | undefined) => {
     const target = resolveFileTarget(ctx.store, pathArg, repoArg)
     if ("error" in target) return target.error
     if (target.path === "") return "code intelligence needs a file path"
     if (target.kind !== "cloud") return `${target.path} is not in a cloud repository; code intelligence runs inside a workspace.`
-    return prepareCloud(target.repo, target.path, anchor)
+    return target
+  }
+  const prepare = async (pathArg: string, repoArg: string | undefined, anchor?: FileAnchor): Promise<Prepared | string> => {
+    const target = targetFor(pathArg, repoArg)
+    return typeof target === "string" ? target : prepareCloud(target.repo, target.path, anchor)
   }
 
   /** The refusal, stated on the card and to the model, in the workspace's terms. */
   const refuse = (prepared: Prepared, refusal: LspRefusal): string => {
     const { intel, text } = refusedCloud(refusal, prepared.document, prepared.workspace)
-    patch(prepared.id, { intel })
+    if (prepared.canPublish()) patch(prepared.id, { intel })
     return text
   }
 
@@ -351,27 +359,39 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
 
   return {
     hover: async (pathArg, line, column, repoArg) => {
-      const prepared = await prepare(pathArg, repoArg, { line, column })
-      if (typeof prepared === "string") return prepared
-      if (!prepared.current()) return SIGN_OUT_REFUSAL
-      const { path, id } = prepared
-      const repo = prepared.repo
-      const answer = await request(prepared, () => prepared.client.hover(prepared.document, { line, character: column }))
-      if (!prepared.current()) return SIGN_OUT_REFUSAL
-      if ("refusal" in answer) return refuse(prepared, answer.refusal)
-      const { hover } = answer.ok
-      if (current(prepared)) {
-        patch(id, {
-          intel: { state: "ready" },
-          hover: hover === null ? null : { line, character: column, contents: hover.contents, ...(hover.truncated ? { truncated: true } : {}) }
-        })
-      } else {
-        patch(id, { intel: { state: "ready" } })
-      }
-      return {
-        value: hover === null
-          ? `The language server has nothing at ${path}:${line}:${column} in ${repo}.`
-          : `${path}:${line}:${column} in ${repo}\n${hover.contents}${hover.truncated ? `\n${HOVER_CUT}` : ""}`
+      const target = targetFor(pathArg, repoArg)
+      if (typeof target === "string") return target
+      // Claim the card before file preparation; user and agent calls share it.
+      const id = cardIdOf(target.repo, target.path)
+      const token = Symbol()
+      cloudWatch.hovers.set(id, token)
+      const canPublish = () => cloudWatch.hovers.get(id) === token
+      try {
+        const prepared = await prepareCloud(target.repo, target.path, { line, column }, canPublish)
+        if (typeof prepared === "string") return prepared
+        if (!prepared.current()) return SIGN_OUT_REFUSAL
+        const { path, repo } = prepared
+        const answer = await request(prepared, () => prepared.client.hover(prepared.document, { line, character: column }))
+        if (!prepared.current()) return SIGN_OUT_REFUSAL
+        if ("refusal" in answer) return refuse(prepared, answer.refusal)
+        const { hover } = answer.ok
+        if (canPublish()) {
+          if (current(prepared)) {
+            patch(id, {
+              intel: { state: "ready" },
+              hover: hover === null ? null : { line, character: column, contents: hover.contents, ...(hover.truncated ? { truncated: true } : {}) }
+            })
+          } else {
+            patch(id, { intel: { state: "ready" } })
+          }
+        }
+        return {
+          value: hover === null
+            ? `The language server has nothing at ${path}:${line}:${column} in ${repo}.`
+            : `${path}:${line}:${column} in ${repo}\n${hover.contents}${hover.truncated ? `\n${HOVER_CUT}` : ""}`
+        }
+      } finally {
+        if (canPublish()) cloudWatch.hovers.delete(id)
       }
     },
 
