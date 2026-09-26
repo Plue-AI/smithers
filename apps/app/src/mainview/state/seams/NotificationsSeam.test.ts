@@ -357,3 +357,104 @@ describe("notifications.read", () => {
     }
   })
 })
+
+test("a retired mark-read command cannot open the new account's inbox", async () => {
+  const entered = Promise.withResolvers<void>(), reply = Promise.withResolvers<Response>()
+  const recorded: RecordedRequest[] = []
+  const { store, controller } = await freshController(backend({
+    "/api/notifications/mark-read": () => { entered.resolve(); return reply.promise },
+    "/api/notifications/list": json(200, wireInbox)
+  }, recorded))
+  try {
+    await signedIn(store)
+    const pending = controller.markNotificationsRead()
+    await entered.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    const before = await store.eventHistory()
+    reply.resolve(new Response(null, { status: 205 }))
+    await pending
+    expect(recorded.filter(row => row.path.startsWith("/api/notifications/list"))).toHaveLength(0)
+    expect(store.collections.cards.has("notifications")).toBe(false)
+    expect((await store.eventHistory()).head).toEqual(before.head)
+  } finally { reply.resolve(new Response(null, { status: 205 })); await controller.dispose(); await store.dispose?.() }
+})
+
+for (const actor of ["user", "smithers"] as const) {
+  for (const outcome of ["success", "failure", "throw"] as const) {
+    test.each(["account", "provider", "sign-out-return", "cloud", "dispose", "refresh"] as const)(`${actor} mark-read ${outcome} retains its owner through %s`, async change => {
+      const { createNotificationsSeam } = await import("./NotificationsSeam")
+      const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
+      const { store, controller } = await freshController(backend({}))
+      const entered = Promise.withResolvers<void>(), reply = Promise.withResolvers<Response>()
+      let writes = 0, reads = 0, disposed = false
+      const loaded = (login: string | null, provider: "github" | "local" = "github") => store.dispatch({ type: "identity.session.loaded", actor: "system",
+        state: login === null ? "signed-out" : "signed-in", login, provider, allowlisted: login !== null, admin: false, scopesPlain: null }).isPersisted.promise
+      try {
+        await loaded("will")
+        await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+        const seam = createNotificationsSeam({ store, baseUrl: "", actor: () => actor, dispatch: store.dispatch, nextOrdinal: store.nextOrdinal,
+          isDisposed: () => disposed, http: async (_input, init) => {
+            if (init?.method === "PUT") { writes++; entered.resolve(); return reply.promise }
+            reads++; return json(200, wireInbox)
+          }
+        })
+        const pending = seam.markNotificationsRead()
+        await entered.promise
+        if (change === "account") await loaded("second")
+        if (change === "provider") await loaded("will", "local")
+        if (change === "sign-out-return") { await loaded(null); await loaded("will") }
+        if (change === "cloud") await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "second", expiresAt: null, scopes: null }).isPersisted.promise
+        if (change === "dispose") disposed = true
+        if (change === "refresh") {
+          await loaded("will")
+          await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: "2099-01-01T00:00:00Z", scopes: null }).isPersisted.promise
+        }
+        const before = await store.eventHistory()
+        if (outcome === "throw") reply.reject(new TypeError("fetch failed"))
+        else reply.resolve(outcome === "success" ? new Response(null, { status: 205 }) : json(403, { error: "Private account refusal" }))
+        const result = await pending
+        expect(writes).toBe(1)
+        if (change === "refresh") {
+          if (outcome === "success") {
+            expect(reads).toBe(1)
+            expect(notificationsCard(store)?.payload.items).toHaveLength(3)
+          } else {
+            expect(reads).toBe(0)
+            expect(result).toBe(outcome === "failure" ? "Private account refusal" : "Your notifications couldn't be marked read — the platform didn't answer.")
+          }
+        } else {
+          expect(result).toBe(SIGN_OUT_REFUSAL)
+          expect(reads).toBe(0)
+          expect((await store.eventHistory()).head).toEqual(before.head)
+          if (change === "dispose") {
+            expect(await seam.markNotificationsRead()).toBe(SIGN_OUT_REFUSAL)
+            expect(writes).toBe(1)
+          } else {
+            await seam.listNotifications()
+            expect(reads).toBe(1)
+            expect(notificationsCard(store)?.payload.items).toHaveLength(3)
+          }
+        }
+      } finally { reply.resolve(new Response(null, { status: 205 })); await controller.dispose(); await store.dispose?.() }
+    })
+  }
+}
+
+test("an account change while reading a mark-read refusal hides that account's message", async () => {
+  const { createNotificationsSeam } = await import("./NotificationsSeam")
+  const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
+  const { store, controller } = await freshController(backend({}))
+  const entered = Promise.withResolvers<void>(), body = Promise.withResolvers<string>()
+  const response = new Response(null, { status: 403 })
+  response.json = async () => { entered.resolve(); return { error: await body.promise } }
+  const seam = createNotificationsSeam({ store, baseUrl: "", actor: () => "user", dispatch: store.dispatch, nextOrdinal: store.nextOrdinal, http: async () => response })
+  try {
+    await signedIn(store)
+    const pending = seam.markNotificationsRead()
+    await entered.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    body.resolve("Private account refusal")
+    expect(await pending).toBe(SIGN_OUT_REFUSAL)
+    expect(store.collections.cards.has("notifications")).toBe(false)
+  } finally { body.resolve("Private account refusal"); await controller.dispose(); await store.dispose?.() }
+})

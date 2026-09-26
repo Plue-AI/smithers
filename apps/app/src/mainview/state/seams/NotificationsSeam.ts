@@ -6,7 +6,8 @@ import { preparedView, type ViewAction } from "../PreparedView"
  */
 import type { Card } from "../AppState"
 import type { SeamContext } from "./SeamContext"
-import { readErrorMessage } from "./SeamContext"
+import { captureCloudOwner, readErrorMessage } from "./SeamContext"
+import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 
 export interface NotificationsSeam {
   readonly listNotifications: ViewAction<[]>
@@ -114,15 +115,19 @@ export const createNotificationsSeam = (ctx: SeamContext): NotificationsSeam => 
   } }))
 
   const markNotificationsRead = async (): ReturnType<ViewAction<[]>> => {
+    const current = captureCloudOwner(ctx, false)
+    if (!current()) return SIGN_OUT_REFUSAL
     let response: Response
     try {
       response = await ctx.http(`${ctx.baseUrl}/api/notifications/mark-read`, { method: "PUT" })
     } catch {
-      return "Your notifications couldn't be marked read — the platform didn't answer."
+      return current() ? "Your notifications couldn't be marked read — the platform didn't answer." : SIGN_OUT_REFUSAL
     }
+    if (!current()) return SIGN_OUT_REFUSAL
     // The platform answers 205 on success (reference markAllNotificationsRead).
     if (response.status !== 205 && !response.ok) {
-      return readErrorMessage(response, "Your notifications couldn't be marked read right now.")
+      const message = await readErrorMessage(response, "Your notifications couldn't be marked read right now.")
+      return current() ? message : SIGN_OUT_REFUSAL
     }
     // Re-fetch so the card states the platform's answer, not our assumption.
     return listNotifications()
