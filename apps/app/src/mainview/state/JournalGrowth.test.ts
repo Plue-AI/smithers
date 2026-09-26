@@ -758,11 +758,11 @@ for (const kind of ["diagnostics", "waiting", "closed"] as const) {
     let accepted = 0
     const seam = createCodeIntelSeam({ store, baseUrl: "", actor: () => "user", nextOrdinal: () => 1,
       http: async () => { throw new Error("Unexpected HTTP") }, dispatch: input => { accepted++; return store.dispatch(input) }
-    }, { readFile: async () => { throw new Error("The file already exists") }, cloudLsp: {
+    }, { readFile: async () => { throw new Error("The file already exists") }, createCloudLsp: () => ({
       hover: async () => ({ ok: { hover: null } }), definition: async () => ({ ok: { locations: [], total: 0, omitted: 0 } }),
       diagnostics: async () => ({ ok: { items: null, total: null } }), dispose: () => {},
       subscribe: listener => { publish = listener; return () => { publish = undefined } }
-    } })
+    }) })
     const failures: Error[] = []
     store.onStorageFailure(error => { failures.push(error); seam.dispose() })
     const event = (message: string): Event => {

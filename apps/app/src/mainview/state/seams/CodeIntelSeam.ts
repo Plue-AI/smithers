@@ -1,4 +1,4 @@
-import { refuseCloudSignIn } from "./CloudSignIn"
+import { refuseCloudSignIn, SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import { actorSharedState } from "../ActorBindings"
 /*
  * The code-intel seam (docs/code-intel/PLAN.md §4): `code.hover`,
@@ -37,23 +37,24 @@ import type { Actor, Card, CloudWorkspaceRow } from "../AppState"
 import type { CloudLspClient, CloudLspDocument, CloudLspEvent, LspAnswer, LspRefusal } from "../CloudLspClient"
 import { resolveFileTarget } from "./FilesSeam"
 import type { FileAnchor, FilesSeam } from "./FilesSeam"
-import type { SeamContext } from "./SeamContext"
+import { captureCloudOwner, type SeamContext } from "./SeamContext"
 
 export interface CodeIntelSeam {
   readonly hover: (path: string, line: number, column: number, repo?: string) => Promise<string | void | { readonly value: string }>
   readonly definition: (path: string, line: number, column: number, repo?: string) => Promise<string | void | { readonly value: string }>
   readonly diagnostics: (path: string, repo?: string) => Promise<string | void | { readonly value: string }>
-  /** Detach every diagnostics subscription (the controller's disposal scope). */
+  /** Close the owned client and detach its subscriptions. */
   readonly dispose: () => void
 }
 
 export interface CodeIntelSeamOptions {
   /**
-   * Lane L6: the workspace language-server transport. Absent where this host
+   * Creates one workspace language-server client per account owner. The seam
+   * closes it when that owner retires. Absent where this host
    * has no cloud tunnel (the web host until the W4 relay), and a cloud file
    * is then told so instead of dialing nothing.
    */
-  readonly cloudLsp?: CloudLspClient
+  readonly createCloudLsp?: () => CloudLspClient
   /**
    * files.read: the definition target opens through it at its line, and a
    * file with no card yet renders one (at the asked position) before the
@@ -108,6 +109,8 @@ const refusedCloud = (refusal: LspRefusal, document: CloudLspDocument, workspace
     : { intel: { state: "unavailable", note: refusal.message }, text: refusal.message }
 
 interface Prepared {
+  readonly client: CloudLspClient
+  readonly current: () => boolean
   readonly repo: string
   readonly path: string
   readonly id: string
@@ -147,6 +150,10 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
    */
   const cloudWatch = actorSharedState(ctx, "code-cloud-watch", () => ({
     unwatch: undefined as (() => void) | undefined,
+    client: undefined as CloudLspClient | undefined,
+    current: undefined as (() => boolean) | undefined,
+    disposed: false,
+    subscriptions: undefined as Array<{ unsubscribe(): void }> | undefined,
     pending: new Map<string, { readonly value: string }>()
   }))
   /** Publications are observations; only explicit commands record identical answers again. */
@@ -168,9 +175,33 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   const connectionKey = (workspaceId: string, language: string): string => `${workspaceId} ${language}`
   const cloudCards = (event: Extract<CloudLspEvent, { readonly paths: ReadonlyArray<string> }>): ReadonlySet<string> =>
     new Set([...event.paths.map((path) => cardIdOf(event.repo, path)), ...(dialing.get(connectionKey(event.workspaceId, event.language)) ?? [])])
-  const watchCloud = (): void => {
-    if (cloudWatch.unwatch !== undefined || options.cloudLsp === undefined) return
-    cloudWatch.unwatch = options.cloudLsp.subscribe((event) => {
+  const retire = (): void => {
+    const client = cloudWatch.client
+    cloudWatch.unwatch?.()
+    cloudWatch.unwatch = undefined
+    cloudWatch.client = undefined
+    cloudWatch.current = undefined
+    cloudWatch.pending.clear()
+    dialing.clear()
+    client?.dispose()
+  }
+  if (cloudWatch.subscriptions === undefined) {
+    const checkOwner = () => { if (cloudWatch.current?.() === false) retire() }
+    cloudWatch.subscriptions = [
+      ctx.store.collections.identitySessions.subscribeChanges(checkOwner),
+      ctx.store.collections.cloudSessions.subscribeChanges(checkOwner)
+    ]
+  }
+  const watchCloud = (): CloudLspClient => {
+    if (cloudWatch.current?.() === false) retire()
+    if (cloudWatch.client !== undefined) return cloudWatch.client
+    const owner = captureCloudOwner(ctx)
+    const client = options.createCloudLsp!()
+    const current = () => !cloudWatch.disposed && cloudWatch.client === client && owner()
+    cloudWatch.client = client
+    cloudWatch.current = current
+    cloudWatch.unwatch = client.subscribe((event) => {
+      if (!current()) return
       switch (event.type) {
         case "diagnostics": {
           const id = cardIdOf(event.repo, event.path)
@@ -188,6 +219,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
         }
       }
     })
+    return client
   }
 
   /** The file card the answer lands on, rendered through files.read when absent; the read's refusal is the answer then. */
@@ -201,18 +233,18 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   const request = async <T>(prepared: Prepared, work: () => Promise<LspAnswer<T>>): Promise<LspAnswer<T>> => {
     const { id } = prepared
     const timer = setTimeout(() => {
-      if (fileCard(id)?.payload.intel?.state !== "ready") patch(id, { intel: { state: "starting" } })
+      if (prepared.current() && fileCard(id)?.payload.intel?.state !== "ready") patch(id, { intel: { state: "starting" } })
     }, startingAfterMs)
     ;(timer as { unref?: () => void }).unref?.()
     const key = connectionKey(prepared.document.workspaceId, prepared.document.language)
-    dialing.set(key, (dialing.get(key) ?? new Set()).add(id))
+    const set = dialing.get(key) ?? new Set<string>()
+    dialing.set(key, set.add(id))
     try {
       return await work()
     } finally {
       clearTimeout(timer)
-      const set = dialing.get(key)
-      set?.delete(id)
-      if (set?.size === 0) dialing.delete(key)
+      set.delete(id)
+      if (set.size === 0 && dialing.get(key) === set) dialing.delete(key)
     }
   }
 
@@ -249,7 +281,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
   /** The cloud half of `prepare`: the tunnel, the sign-in, the workspace, the language it relays, and the card's whole text. */
   const prepareCloud = async (repo: string, path: string, anchor: FileAnchor | undefined): Promise<Prepared | string> => {
     const id = cardIdOf(repo, path)
-    if (options.cloudLsp === undefined) {
+    if (cloudWatch.disposed || ctx.isDisposed?.()) return SIGN_OUT_REFUSAL
+    if (options.createCloudLsp === undefined) {
       patch(id, { intel: { state: "unavailable", note: CLOUD_TUNNEL_ABSENT } })
       return CLOUD_TUNNEL_ABSENT
     }
@@ -271,7 +304,10 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }
+    const owner = captureCloudOwner(ctx)
+    const current = () => !cloudWatch.disposed && owner()
     const unread = await ensureCard(repo, path, anchor)
+    if (!current()) return SIGN_OUT_REFUSAL
     if (unread !== undefined) return unread
     const card = fileCard(id)
     if (card === undefined) return `${path} in ${repo} could not be rendered.`
@@ -281,8 +317,10 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }
-    watchCloud()
+    const client = watchCloud()
     return {
+      client,
+      current,
       repo,
       path,
       id,
@@ -315,9 +353,11 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     hover: async (pathArg, line, column, repoArg) => {
       const prepared = await prepare(pathArg, repoArg, { line, column })
       if (typeof prepared === "string") return prepared
+      if (!prepared.current()) return SIGN_OUT_REFUSAL
       const { path, id } = prepared
       const repo = prepared.repo
-      const answer = await request(prepared, () => options.cloudLsp!.hover(prepared.document, { line, character: column }))
+      const answer = await request(prepared, () => prepared.client.hover(prepared.document, { line, character: column }))
+      if (!prepared.current()) return SIGN_OUT_REFUSAL
       if ("refusal" in answer) return refuse(prepared, answer.refusal)
       const { hover } = answer.ok
       if (current(prepared)) {
@@ -338,9 +378,11 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     definition: async (pathArg, line, column, repoArg) => {
       const prepared = await prepare(pathArg, repoArg, { line, column })
       if (typeof prepared === "string") return prepared
+      if (!prepared.current()) return SIGN_OUT_REFUSAL
       const { path, id } = prepared
       const repo = prepared.repo
-      const answer = await request(prepared, () => options.cloudLsp!.definition(prepared.document, { line, character: column }))
+      const answer = await request(prepared, () => prepared.client.definition(prepared.document, { line, character: column }))
+      if (!prepared.current()) return SIGN_OUT_REFUSAL
       if ("refusal" in answer) return refuse(prepared, answer.refusal)
       const { locations, total, omitted } = answer.ok
       const at = `${path}:${line}:${column} in ${repo}`
@@ -365,6 +407,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
        * refusal still belongs in the answer because the target did not open.
        */
       const opened = await options.readFile(first.path, repo, { line: first.line, column: first.character })
+      if (!prepared.current()) return SIGN_OUT_REFUSAL
       const more = total - omitted - locations.length
       const trailer = [
         ...(more > 0 ? [`… and ${more} more`] : []),
@@ -376,9 +419,11 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     diagnostics: async (pathArg, repoArg) => {
       const prepared = await prepare(pathArg, repoArg)
       if (typeof prepared === "string") return prepared
+      if (!prepared.current()) return SIGN_OUT_REFUSAL
       const { path, id } = prepared
       const repo = prepared.repo
-      const answer = await request(prepared, () => options.cloudLsp!.diagnostics(prepared.document))
+      const answer = await request(prepared, () => prepared.client.diagnostics(prepared.document))
+      if (!prepared.current()) return SIGN_OUT_REFUSAL
       if ("refusal" in answer) return refuse(prepared, answer.refusal)
       const { items, total } = answer.ok
       if (items === null || total === null) {
@@ -397,10 +442,10 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     },
 
     dispose: () => {
-      cloudWatch.unwatch?.()
-      cloudWatch.unwatch = undefined
-      cloudWatch.pending.clear()
-      dialing.clear()
+      cloudWatch.disposed = true
+      retire()
+      for (const subscription of cloudWatch.subscriptions ?? []) subscription.unsubscribe()
+      cloudWatch.subscriptions = []
     }
   }
 }

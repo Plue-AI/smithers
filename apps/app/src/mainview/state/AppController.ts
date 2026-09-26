@@ -1143,8 +1143,8 @@ export const createAppController = (
    * rides — so it exists exactly where that tunnel does (`cloud.terminal`);
    * elsewhere the seam tells a cloud file so instead of dialing nothing.
    */
-  const cloudLsp = services.bootstrap === undefined || services.bootstrap.capabilities.includes("cloud.terminal")
-    ? createCloudLspClient({
+  const createCloudLsp = services.bootstrap === undefined || services.bootstrap.capabilities.includes("cloud.terminal")
+    ? () => createCloudLspClient({
       http: seamCtx.http,
       baseUrl,
       socketUrl: services.cloudLspSocketUrl ?? ((repo, sessionId, language) => pageCloudLspSocketUrl(repo, sessionId, language, baseUrl)),
@@ -1153,8 +1153,7 @@ export const createAppController = (
         : { authorizeSocket: services.authorizeSocket })
     })
     : undefined
-  if (cloudLsp !== undefined) ctx.onDispose(cloudLsp.dispose)
-  const codeIntelSeam = actors.pair(seamCtx, (context, select) => createCodeIntelSeam(context, { readFile: select(filesSeam.readFile), ...(cloudLsp === undefined ? {} : { cloudLsp }) }))
+  const codeIntelSeam = actors.pair(seamCtx, (context, select) => createCodeIntelSeam(context, { readFile: select(filesSeam.readFile), ...(createCloudLsp === undefined ? {} : { createCloudLsp }) }))
   ctx.onDispose(codeIntelSeam.dispose)
   const { codeHover, codeDefinition, codeDiagnostics } = actors.pair(seamCtx, (_context, select) => {
     const seam = select(codeIntelSeam)
