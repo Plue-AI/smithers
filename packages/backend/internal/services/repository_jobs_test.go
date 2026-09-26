@@ -770,3 +770,16 @@ func TestRepositoryJobsIntegrationGitHubWorkerAdmitsWithoutLegacyDefinition(t *t
 	require.Equal(t, "github", rows[0].Source)
 	require.Equal(t, "submitted", rows[0].Status)
 }
+
+func TestRepositoryJobSixHourGuard(t *testing.T) {
+	for _, milliseconds := range []int64{1, 21600000, 21600001, 0, -1} {
+		input := repositoryJobTestInput()
+		input.Envelope = json.RawMessage(fmt.Sprintf(`{"capabilities":[],"flows":[],"budget":{"tokens":2400000,"milliseconds":%d}}`, milliseconds))
+		_, err := validateRepositoryJob("issues", input, time.Now())
+		if milliseconds > 0 && milliseconds <= 21600000 {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
+	}
+}

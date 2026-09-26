@@ -512,7 +512,7 @@ const sameSelector = (
   if (left._tag !== right._tag) return false
   switch (left._tag) {
     case "workspace-runs":
-      return true
+      return left.flowId === (right as GatewaySchema.WorkspaceRunsSelector).flowId
     case "approvals":
       return left.runId === (right as GatewaySchema.ApprovalsSelector).runId
     case "node-output": {
@@ -922,7 +922,14 @@ const makeService = (control: ControlService, heartbeatMillis: number, now: () =
       // for one flow's runs rather than for the workspace's.
       selector._tag === "flow-durations"
         ? durationRunsOf(selector.flowId)
-        : runsMatching(selector._tag === "approvals" ? { status: "waiting-approval" } : {}, maxWorkspaceRuns),
+        : runsMatching(
+          selector._tag === "approvals" ?
+            { status: "waiting-approval" }
+            : selector._tag === "workspace-runs" && selector.flowId !== undefined
+            ? { flowId: selector.flowId }
+            : {},
+          maxWorkspaceRuns
+        ),
       (runs) =>
         Effect.map(
           Effect.forEach(runs, (run) => consistentRunSource(run), { concurrency: 8 }),

@@ -35,7 +35,9 @@ export type GatewayHealth = typeof GatewayHealth.Type
  * @since 0.1.0
  * @category models
  */
-export const WorkspaceRunsSelector = Schema.TaggedStruct("workspace-runs", {})
+export const WorkspaceRunsSelector = Schema.TaggedStruct("workspace-runs", {
+  flowId: Schema.optionalKey(Schema.NonEmptyString)
+})
 
 /**
  * A selector for a workspace-wide run list.

@@ -93,6 +93,29 @@ const issuedCursor = (
 })
 
 describe("Projections run-list pagination", () => {
+  it.effect("filters role runs before applying the workspace limit on every page", () =>
+    Effect.gen(function*() {
+      let pages = 0
+      const projections = make(control({
+        list: (request) => {
+          if (request._tag === "runs" && request.filters?.runId) {
+            return Effect.succeed({ _tag: "runs", items: [{ ...run, runId: request.filters.runId }] })
+          }
+          expect(request._tag).toBe("runs")
+          if (request._tag === "runs") expect(request.filters?.flowId).toBe("deploy")
+          pages++
+          return Effect.succeed(
+            pages === 1
+              ? { _tag: "runs", items: [run], nextCursor: "second" }
+              : { _tag: "runs", items: [{ ...run, runId: "run-2" }] }
+          )
+        }
+      }))
+      const snapshot = yield* projections.snapshot({ _tag: "workspace-runs", flowId: "deploy" })
+      expect(snapshot.rows).toHaveLength(2)
+      expect(pages).toBe(2)
+    }))
+
   it.effect("folds workspace rows from every control-list page", () =>
     Effect.gen(function*() {
       const first = Array.from({ length: 100 }, (_, index) => numberedRun(index + 1))

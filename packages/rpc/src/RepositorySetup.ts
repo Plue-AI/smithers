@@ -156,7 +156,7 @@ export const SetupDraftSchema = z.object({
   label: z.string().max(100),
   schedule: z.string().max(200),
   choreEvent: SetupChoreEventSchema.default("none"),
-  budgetMinutes: z.number().int().min(1).max(120),
+  budgetMinutes: z.number().int().min(1).max(360),
   connectIssues: z.boolean(),
   trialTitle: z.string().min(1).max(240),
   trialBody: z.string().max(16000)

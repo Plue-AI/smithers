@@ -18,7 +18,7 @@ import { ensureSource, heldSourceCommits } from "./retention.ts"
 import { Event, RepositoryEvidence } from "./schema.ts"
 import { withCapturedCommit } from "./source.ts"
 
-export const deploymentMinutes = 120
+export const deploymentMinutes = 360
 export const deploymentTokens = 200_000
 export const CaptureRepository = Action.make("repository/capture", {
   payload: {

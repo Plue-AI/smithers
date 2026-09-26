@@ -167,7 +167,7 @@ func validateRepositoryJobEnvelope(raw json.RawMessage) error {
 		} `json:"budget"`
 	}
 	if json.Unmarshal(raw, &envelope) != nil || envelope.Capabilities == nil || envelope.Flows == nil ||
-		envelope.Budget.Tokens <= 0 || envelope.Budget.Milliseconds <= 0 || envelope.Budget.Milliseconds > float64((2*time.Hour)/time.Millisecond) {
+		envelope.Budget.Tokens <= 0 || envelope.Budget.Milliseconds <= 0 || envelope.Budget.Milliseconds > float64((6*time.Hour)/time.Millisecond) {
 		return pkgerrors.BadRequest("automatic work needs the reviewed envelope and finite token/time limits")
 	}
 	return nil
