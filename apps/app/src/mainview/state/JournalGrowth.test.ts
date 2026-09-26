@@ -743,3 +743,87 @@ test.each(["adopt", "notice", "open"] as const)("GitHub installation %s stops ac
   expect(reopened.store.session().activeRepoKey).not.toBe("owner/private")
   expect((await reopened.store.verifyState()).valid).toBe(true)
 })
+
+
+for (const kind of ["diagnostics", "waiting", "closed"] as const) {
+  test.each(["commit", "reject"] as const)(`unchanged language-server ${kind} observations keep SQLite flat: %s`, async outcome => {
+    const { createCodeIntelSeam } = await import("./seams/CodeIntelSeam")
+    const fixture = await open(), { store } = fixture
+    const id = "file-owner/repo-index.ts", content = "const value = 1"
+    await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null }).isPersisted.promise
+    await store.dispatch({ type: "workspace.updated", actor: "system", workspace: { id: "ws-lsp", repoId: "owner/repo", name: "LSP", status: "running", targetBookmark: null, provisioningStage: null, suspendedAt: null, createdAt: null } }).isPersisted.promise
+    await store.dispatch({ type: "card.upsert", actor: "system", card: { id, kind: "file", title: "File", status: "active", ordinal: 1, createdAt: 1, payload: { repo: "owner/repo", path: "index.ts", content, truncated: false } } }).isPersisted.promise
+    type Event = import("./CloudLspClient").CloudLspEvent
+    let publish: ((event: Event) => void) | undefined
+    let accepted = 0
+    const seam = createCodeIntelSeam({ store, baseUrl: "", actor: () => "user", nextOrdinal: () => 1,
+      http: async () => { throw new Error("Unexpected HTTP") }, dispatch: input => { accepted++; return store.dispatch(input) }
+    }, { readFile: async () => { throw new Error("The file already exists") }, cloudLsp: {
+      hover: async () => ({ ok: { hover: null } }), definition: async () => ({ ok: { locations: [], total: 0, omitted: 0 } }),
+      diagnostics: async () => ({ ok: { items: null, total: null } }), dispose: () => {},
+      subscribe: listener => { publish = listener; return () => { publish = undefined } }
+    } })
+    const failures: Error[] = []
+    store.onStorageFailure(error => { failures.push(error); seam.dispose() })
+    const event = (message: string): Event => {
+      const scope = { repo: "owner/repo", workspaceId: "ws-lsp", language: "typescript" as const }
+      if (kind === "waiting") return { ...scope, type: kind, paths: ["index.ts"], note: message }
+      if (kind === "closed") return { ...scope, type: kind, paths: ["index.ts"], code: 1008, reason: message }
+      return { ...scope, type: kind, path: "index.ts", content, total: message === "" ? 0 : 5,
+        items: message === "" ? [] : [{ line: 1, character: 1, endLine: 1, endCharacter: 2, severity: "error", message }] }
+    }
+    try {
+      await seam.hover("index.ts", 1, 1, "owner/repo")
+      publish!(event("original")); await store.settled?.()
+      const before = await store.eventHistory(), physical = fixture.footprint(), initial = accepted
+      for (let index = 0; index < 20; index++) publish!(event("original"))
+      await store.settled?.()
+      expect((await store.eventHistory()).head).toEqual(before.head)
+      expect(accepted).toBe(initial)
+      expect(fixture.footprint()).toEqual(physical)
+      const held = fixture.pauseNextWrite()
+      publish!(event("changed"))
+      await held.entered
+      for (let index = 0; index < 20; index++) publish!(event("changed"))
+      expect(accepted).toBe(initial + 1)
+      if (outcome === "reject") {
+        held.fail(new Error("LSP observation refused"))
+        await new Promise(resolve => setTimeout(resolve, 20))
+        expect(failures).toMatchObject([{ message: "Changes could not be saved." }])
+        expect(publish).toBeUndefined()
+        await expect(Promise.resolve(store.dispose?.())).rejects.toThrow("LSP observation refused")
+        stores.splice(stores.indexOf(store), 1)
+        const reopened = await open(fixture.path)
+        const card = reopened.store.committedCard(id)
+        expect(card?.kind).toBe("file")
+        if (card?.kind === "file") expect(JSON.stringify(card.payload)).toContain("original")
+        expect((await reopened.store.verifyState()).valid).toBe(true)
+        return
+      }
+      // A queued edit must not be hidden by our matching pending observation.
+      const current = store.collections.cards.get(id)!
+      if (current.kind !== "file") throw new Error("Missing file")
+      const fields = kind === "diagnostics" ? { diagnostics: [], diagnosticsTotal: undefined } : { intel: { state: "ready" as const } }
+      store.dispatch({ type: "card.updated", actor: "user", id, patch: { payload: { ...current.payload, ...fields } } })
+      publish!(event("changed"))
+      expect(accepted).toBe(initial + 2)
+      held.release(); await store.settled?.()
+      expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 3)
+      publish!(event("")); await store.settled?.()
+      const settled = await store.eventHistory()
+      publish!(event("")); await store.settled?.()
+      expect((await store.eventHistory()).head).toEqual(settled.head)
+      const reopened = await open(fixture.path)
+      const card = reopened.store.committedCard(id)
+      if (card?.kind !== "file") throw new Error("Missing persisted file")
+      if (kind === "diagnostics") { expect(card.payload.diagnostics).toEqual([]); expect(card.payload.diagnosticsTotal).toBeUndefined() }
+      else expect(card.payload.intel?.state).toBe("unavailable")
+      expect((await reopened.store.verifyState()).valid).toBe(true)
+      // Explicit repeated commands remain accepted acts, even when their answer is identical.
+      const commands = (await store.eventHistory()).head.sequence
+      await seam.hover("index.ts", 1, 1, "owner/repo")
+      await seam.hover("index.ts", 1, 1, "owner/repo")
+      expect((await store.eventHistory()).head.sequence).toBe(commands + 2)
+    } finally { seam.dispose() }
+  })
+}

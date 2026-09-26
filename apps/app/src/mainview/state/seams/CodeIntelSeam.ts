@@ -31,7 +31,8 @@ import { actorSharedState } from "../ActorBindings"
  */
 import { LSP_HOVER_CAP_CHARS, LSP_LANGUAGE_SERVER_MISSING, LSP_REQUEST_TIMEOUT_MS, lspLanguageFor } from "@smthrs/rpc/LocalLsp"
 import type { LspDiagnostic, LspLocation } from "@smthrs/rpc/LocalLsp"
-import { parseRepoSelection } from "../AppState"
+import { canonicalStoredJsonValue } from "../EventValue"
+import { CardSchema, parseRepoSelection } from "../AppState"
 import type { Actor, Card, CloudWorkspaceRow } from "../AppState"
 import type { CloudLspClient, CloudLspDocument, CloudLspEvent, LspAnswer, LspRefusal } from "../CloudLspClient"
 import { resolveFileTarget } from "./FilesSeam"
@@ -144,7 +145,25 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
    * right now (the first act opens no document until the server is ready).
    * Never a silent close.
    */
-  const cloudWatch = actorSharedState(ctx, "code-cloud-watch", () => ({ unwatch: undefined as (() => void) | undefined }))
+  const cloudWatch = actorSharedState(ctx, "code-cloud-watch", () => ({
+    unwatch: undefined as (() => void) | undefined,
+    pending: new Map<string, { readonly value: string }>()
+  }))
+  /** Publications are observations; only explicit commands record identical answers again. */
+  const observe = (id: string, fields: Partial<FilePayload>): void => {
+    const card = fileCard(id)
+    if (card === undefined) return
+    const payload = { ...card.payload, ...fields }
+    const value = (row: Card | undefined) => row === undefined ? undefined : canonicalStoredJsonValue(CardSchema.parse(row))
+    const next = value({ ...card, payload })!
+    if (value(card) === next && (value(ctx.store.committedCard(id)) === next || cloudWatch.pending.get(id)?.value === next)) return
+    const receipt = ctx.dispatch({ type: "card.updated", actor: "system", id, patch: { payload } })
+    const pending = { value: next }
+    cloudWatch.pending.set(id, pending)
+    // An older receipt must not clear a newer accepted observation with the same value.
+    const clear = () => { if (cloudWatch.pending.get(id) === pending) cloudWatch.pending.delete(id) }
+    void receipt.isPersisted.promise.then(clear, clear)
+  }
   const dialing = actorSharedState(ctx, "code-cloud-dialing", () => new Map<string, Set<string>>())
   const connectionKey = (workspaceId: string, language: string): string => `${workspaceId} ${language}`
   const cloudCards = (event: Extract<CloudLspEvent, { readonly paths: ReadonlyArray<string> }>): ReadonlySet<string> =>
@@ -155,16 +174,16 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       switch (event.type) {
         case "diagnostics": {
           const id = cardIdOf(event.repo, event.path)
-          if (fileCard(id)?.payload.content === event.content) patch(id, diagnosticsFields(event.items, event.total), "system")
+          if (fileCard(id)?.payload.content === event.content) observe(id, diagnosticsFields(event.items, event.total))
           return
         }
         case "closed": {
           const note = `the workspace language server closed: ${event.reason === "" ? "no reason given" : event.reason} (${event.code})`
-          for (const id of cloudCards(event)) patch(id, { intel: { state: "unavailable", note } }, "system")
+          for (const id of cloudCards(event)) observe(id, { intel: { state: "unavailable", note } })
           return
         }
         case "waiting": {
-          for (const id of cloudCards(event)) patch(id, { intel: { state: "unavailable", note: event.note } }, "system")
+          for (const id of cloudCards(event)) observe(id, { intel: { state: "unavailable", note: event.note } })
           return
         }
       }
@@ -380,6 +399,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     dispose: () => {
       cloudWatch.unwatch?.()
       cloudWatch.unwatch = undefined
+      cloudWatch.pending.clear()
       dialing.clear()
     }
   }
