@@ -2,7 +2,10 @@
  * `wiki.commit`: the host commits what it wrote to the wiki's git
  * repository — receipts, documents, meeting notes and bookings under the
  * generated directory, hired profiles under `<rosterDir>/Specialists/`, and
- * the status page — and nothing else. It never pushes.
+ * the status page, and with `autonomy` the team, proposals and requests
+ * directories — and nothing else. With `wiki.sync: push` it then rebases
+ * onto the wiki's upstream and pushes ({@link sync}); otherwise it never
+ * pushes.
  *
  * The commit is limited to those paths (`git commit -- <paths>`), so the
  * owner's own edits elsewhere, staged or not, stay exactly as they were.
@@ -18,7 +21,7 @@
  * is refused, so the owner's own work is never overwritten.
  */
 import { spawnSync } from "node:child_process"
-import { appendFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 import { Effect } from "effect"
 import * as Config from "../../packages/smithers/agent/organization/src/Config.ts"
@@ -26,18 +29,23 @@ import type * as RoleHost from "../../packages/smithers/agent/organization/src/R
 
 /**
  * The wiki paths the host writes, relative to the root: the generated
- * directory, hired profiles, the status page, then `extra` (directories or
- * files the host writes besides them).
+ * directory, hired profiles, the status page, with `autonomy` the team,
+ * proposals and requests directories, then `extra`.
  */
 export const hostPaths = (
-  organization: Pick<Config.Organization, "rosterDir" | "wiki">,
+  organization: Pick<Config.Organization, "rosterDir" | "wiki" | "autonomy">,
   extra: ReadonlyArray<string> = []
 ): ReadonlyArray<string> => [
   organization.wiki.generatedDir.replace(/\/+$/, ""),
   `${organization.rosterDir.replace(/\/+$/, "")}/Specialists`,
   organization.wiki.statusFile,
-  ...extra.map((path) => path.replace(/\/+$/, ""))
-]
+  ...(organization.autonomy === undefined ? [] : [
+    organization.autonomy.teamDir ?? "Org/Team",
+    organization.autonomy.proposalsDir ?? "Org/Proposals",
+    organization.autonomy.requestsDir ?? "Org/Requests"
+  ]),
+  ...extra
+].map((path) => path.replace(/\/+$/, ""))
 
 /** One journaled write: the page, and the role that wrote it (absent for the host itself). */
 export interface Written {
@@ -227,21 +235,181 @@ export const committedPaths = (root: string): ReadonlyArray<string> | undefined 
 /** How often a serving host commits what it wrote. */
 export const interval = "30 seconds"
 
+/** How often a syncing host pulls and pushes when it committed nothing. */
+export const syncEvery = 5 * 60_000
+
+/** What `<state>/wiki-sync.json` holds: the last sync, and the conflict holding it up. */
+export interface SyncState {
+  readonly syncedAt?: number | undefined
+  readonly conflict?: { readonly at: number; readonly message: string } | undefined
+}
+
+/** How one sync ended. */
+export interface Synced {
+  readonly status: "synced" | "conflict" | "skipped" | "failed"
+  readonly message: string
+  /** Set when this sync recorded a conflict other than the one already recorded. */
+  readonly announce?: string | undefined
+}
+
+const syncFile = (stateDir: string) => join(stateDir, "wiki-sync.json")
+
+/** The recorded sync state; empty before the first sync. */
+export const syncState = (stateDir: string): SyncState => {
+  try {
+    return JSON.parse(readFileSync(syncFile(stateDir), "utf8")) as SyncState
+  } catch {
+    return {}
+  }
+}
+
+const saveSync = (stateDir: string, state: SyncState) => {
+  writeFileSync(`${syncFile(stateDir)}.tmp`, `${JSON.stringify(state)}\n`, { mode: 0o600 })
+  renameSync(`${syncFile(stateDir)}.tmp`, syncFile(stateDir))
+}
+
+const first = (result: ReturnType<typeof git>) => (result.stderr || result.stdout).trim().split("\n")[0] ?? ""
+
+const rebasing = (root: string) => {
+  const directory = git(root, ["rev-parse", "--absolute-git-dir"]).stdout.trim()
+  return existsSync(join(directory, "rebase-merge")) || existsSync(join(directory, "rebase-apply"))
+}
+
+/**
+ * Brings the wiki checkout at `root` level with its upstream (its branch's
+ * tracking branch) and pushes the host's commits there: fetch, rebase the
+ * local commits onto the upstream with the owner's uncommitted edits
+ * stashed around it (index included) and put back, push. Nothing is ever forced or discarded:
+ *
+ * - uncommitted edits to a page the upstream also changed hold the sync
+ *   until the owner commits or discards them;
+ * - a rebase that conflicts is aborted, which restores the checkout and its
+ *   stashed edits exactly, and the local commits wait;
+ * - stashed edits that do not apply again stay in the stash, named in the
+ *   conflict;
+ * - a push the upstream refused (it moved meanwhile) is retried next time.
+ *
+ * A conflict is recorded in `<stateDir>/wiki-sync.json` until a sync
+ * succeeds; `announce` is set the first time it is seen.
+ */
+export const sync = (root: string, stateDir: string, now: number = Date.now()): Synced => {
+  if (git(root, ["rev-parse", "--is-inside-work-tree"]).stdout.trim() !== "true") {
+    return { status: "skipped", message: "the wiki is not a git work tree" }
+  }
+  const upstream = git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+  const tracking = upstream.stdout.trim()
+  const slash = tracking.indexOf("/")
+  if (upstream.status !== 0 || slash <= 0) return { status: "skipped", message: "the wiki branch has no upstream" }
+  const remote = tracking.slice(0, slash)
+  const branch = tracking.slice(slash + 1)
+  const recorded = syncState(stateDir)
+  const conflict = (message: string): Synced => {
+    const fresh = recorded.conflict?.message !== message
+    saveSync(stateDir, { ...recorded, conflict: { at: fresh ? now : recorded.conflict!.at, message } })
+    return { status: "conflict", message, ...(fresh ? { announce: message } : {}) }
+  }
+  const fetched = git(root, ["fetch", "--quiet", remote, branch])
+  if (fetched.status !== 0) return { status: "failed", message: `git fetch: ${first(fetched)}` }
+  const behind = Number(git(root, ["rev-list", "--count", "HEAD..@{u}"]).stdout.trim())
+  if (behind > 0) {
+    const dirty = new Set(changed(root, ["."]))
+    const incoming = git(root, ["diff", "--name-only", "HEAD...@{u}"]).stdout.split("\n").filter((file) => file !== "")
+    const overlap = incoming.filter((file) => dirty.has(file))
+    if (overlap.length > 0) {
+      return conflict(`uncommitted edits to ${brief(overlap, 3)} overlap upstream changes; commit or discard them`)
+    }
+    // The owner's uncommitted edits are stashed with their index around the
+    // rebase and put back exactly, staged or not; untracked pages stay put.
+    const count = () => git(root, ["stash", "list"]).stdout.split("\n").filter((entry) => entry !== "").length
+    const stashes = count()
+    git(root, ["stash", "push", "--quiet", "-m", "smithers organization wiki sync"])
+    const stashed = count() > stashes
+    const restore = () => !stashed || git(root, ["stash", "pop", "--index", "--quiet"]).status === 0
+    const rebased = git(root, ["-c", "commit.gpgsign=false", "rebase", "--quiet", "@{u}"])
+    if (rebased.status !== 0 || rebasing(root)) {
+      if (rebasing(root)) git(root, ["rebase", "--abort"])
+      const restored = restore()
+      return conflict(
+        `rebase onto ${tracking} stopped: ${first(rebased)}; local commits kept${restored ? "" : "; uncommitted edits kept in stash@{0}"}`
+      )
+    }
+    if (!restore()) return conflict("uncommitted edits did not apply after the rebase; they are kept in stash@{0}")
+  }
+  const ahead = Number(git(root, ["rev-list", "--count", "@{u}..HEAD"]).stdout.trim())
+  if (ahead > 0) {
+    const pushed = git(root, ["push", "--quiet", remote, `HEAD:refs/heads/${branch}`])
+    if (pushed.status !== 0) return { status: "failed", message: `git push: ${first(pushed)}` }
+  }
+  saveSync(stateDir, { syncedAt: now })
+  return { status: "synced", message: ahead > 0 ? `pushed ${ahead} commit(s) to ${tracking}` : `level with ${tracking}` }
+}
+
+/** What a syncing committer needs besides the root and its paths. */
+export interface SyncOptions {
+  readonly stateDir: string
+  /** Told once of each new conflict, as one line for the team channel. */
+  readonly announce?: ((text: string) => Effect.Effect<unknown, unknown>) | undefined
+}
+
 /**
  * The serving host's committer: commits every {@link interval} and once
- * more when the host stops. A failed commit is logged and retried on the
- * next tick; it never stops the host.
+ * more when the host stops. With `syncing`, it then syncs with the wiki's
+ * upstream after each commit and at least every {@link syncEvery}. A failed
+ * commit or sync is logged and retried on the next tick; it never stops the
+ * host.
  */
-export const committer = (root: string, paths: ReadonlyArray<string>, log: (line: string) => void) => {
-  const once = Effect.sync(() => {
+export const committer = (
+  root: string,
+  paths: ReadonlyArray<string>,
+  log: (line: string) => void,
+  syncing?: SyncOptions | undefined
+) => {
+  let lastSync = 0
+  const once = Effect.suspend(() => {
+    let made: Committed | undefined
     try {
-      const made = commit(root, paths)
+      made = commit(root, paths)
       if (made !== undefined) log(`wiki ${made.revision.slice(0, 12)}: ${made.message}`)
     } catch (error) {
       log(`wiki commit failed: ${(error as Error).message}`)
     }
+    const now = Date.now()
+    if (syncing === undefined || (made === undefined && now - lastSync < syncEvery)) return Effect.void
+    lastSync = now
+    const synced = sync(root, syncing.stateDir, now)
+    if (synced.status !== "synced" && synced.status !== "skipped") log(`wiki sync ${synced.status}: ${synced.message}`)
+    else if (made !== undefined || synced.message.startsWith("pushed")) log(`wiki sync: ${synced.message}`)
+    return synced.announce === undefined || syncing.announce === undefined
+      ? Effect.void
+      : syncing.announce(`Wiki sync conflict: ${synced.announce}`).pipe(
+        Effect.catchCause(() => Effect.sync(() => log("wiki sync conflict could not be posted")))
+      )
   })
   return Effect.addFinalizer(() => once).pipe(
     Effect.andThen(once.pipe(Effect.delay(interval), Effect.forever))
   )
+}
+
+/**
+ * Whether the wiki at `root` can sync: its branch tracks an upstream, and
+ * the upstream accepts a push (a dry run of its own commit, so nothing
+ * moves).
+ */
+export const syncCheck = (root: string): { readonly ok: boolean; readonly detail: string; readonly fix?: string } => {
+  const upstream = git(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+  const tracking = upstream.stdout.trim()
+  const slash = tracking.indexOf("/")
+  if (upstream.status !== 0 || slash <= 0) {
+    return {
+      ok: false,
+      detail: `${root} has no upstream to sync with`,
+      fix: `git -C ${root} branch --set-upstream-to=origin/main`
+    }
+  }
+  const remote = tracking.slice(0, slash)
+  const branch = tracking.slice(slash + 1)
+  const probe = git(root, ["push", "--dry-run", "--quiet", remote, `${tracking}:refs/heads/${branch}`])
+  return probe.status === 0
+    ? { ok: true, detail: `pushes to ${tracking} (${git(root, ["remote", "get-url", "--push", remote]).stdout.trim()})` }
+    : { ok: false, detail: `${tracking} refuses a push: ${first(probe)}`, fix: `check push access to ${remote}` }
 }

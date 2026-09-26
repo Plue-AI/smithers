@@ -242,3 +242,152 @@ test("commits the pages roles edited, names the roles, and never writes over the
     "Org/Team"
   ])
 })
+
+/** A second clone of a wiki's remote, as another writer: `change` is committed and pushed there. */
+const otherWriter = (name: string, remote: string, change: (clone: string) => void) => {
+  const clone = join(scratch, `${name}-other`)
+  rmSync(clone, { recursive: true, force: true })
+  git(scratch, "clone", "-q", "-b", "main", remote, clone)
+  git(clone, "config", "user.name", "Other")
+  git(clone, "config", "user.email", "other@example.invalid")
+  change(clone)
+  git(clone, "add", "-A")
+  git(clone, "commit", "-qm", "other writer")
+  git(clone, "push", "-q", "origin", "HEAD:main")
+  return git(clone, "rev-parse", "HEAD")
+}
+
+const ownerEdits = (root: string) => ({
+  lead: readFileSync(join(root, "Org/Roles/lead.md"), "utf8"),
+  docs: readFileSync(join(root, "Org/Roles/docs.md"), "utf8"),
+  notes: readFileSync(join(root, "Org/Notes.md"), "utf8")
+})
+
+test("sync pushes the host's commits, rebasing over another writer's, and keeps the owner's uncommitted edits", () => {
+  const { root, remote } = wiki("sync-push")
+  const state = join(scratch, "sync-push-state")
+  mkdirSync(state, { recursive: true })
+  assert.deepEqual(Wiki.sync(root, state), { status: "skipped", message: "the wiki branch has no upstream" })
+  assert.deepEqual(Wiki.sync(join(scratch, "missing"), state), { status: "skipped", message: "the wiki is not a git work tree" })
+  git(root, "branch", "--set-upstream-to=origin/main")
+  assert.deepEqual(Wiki.sync(root, state, 1), { status: "synced", message: "level with origin/main" })
+  write(root, "Org/Runs/r1/deliver.json", "{}\n")
+  Wiki.commit(root, paths)
+  const theirs = otherWriter("sync-push", remote, (clone) => write(clone, "Areas/Theirs.md", "theirs\n"))
+  const before = ownerEdits(root)
+  assert.deepEqual(Wiki.sync(root, state, 2), { status: "synced", message: "pushed 1 commit(s) to origin/main" })
+  assert.equal(git(remote, "rev-parse", "main"), git(root, "rev-parse", "HEAD"))
+  assert.equal(git(root, "rev-parse", "HEAD~1"), theirs)
+  assert.equal(readFileSync(join(root, "Areas/Theirs.md"), "utf8"), "theirs\n")
+  assert.deepEqual(ownerEdits(root), before)
+  assert.deepEqual(execFileSync("git", ["-C", root, "status", "--porcelain"], { encoding: "utf8" }).split("\n").filter(Boolean).sort(), [
+    " M Org/Roles/lead.md",
+    "?? Org/Notes.md",
+    "M  Org/Roles/docs.md"
+  ])
+  assert.deepEqual(Wiki.syncState(state), { syncedAt: 2 })
+})
+
+test("sync never forces or discards: a conflicting writer or overlapping owner edits hold it, recorded once", () => {
+  const { root, remote } = wiki("sync-conflict")
+  const state = join(scratch, "sync-conflict-state")
+  mkdirSync(state, { recursive: true })
+  git(root, "branch", "--set-upstream-to=origin/main")
+  write(root, "Org/Runs/r1/deliver.json", "{\"host\":1}\n")
+  Wiki.commit(root, paths)
+  const local = git(root, "rev-parse", "HEAD")
+  const theirs = otherWriter("sync-conflict", remote, (clone) => write(clone, "Org/Runs/r1/deliver.json", "{\"other\":1}\n"))
+  const before = ownerEdits(root)
+  const first = Wiki.sync(root, state, 10)
+  assert.equal(first.status, "conflict")
+  assert.match(first.message, /^rebase onto origin\/main stopped: .*; local commits kept$/)
+  assert.equal(first.announce, first.message)
+  assert.equal(git(root, "rev-parse", "HEAD"), local)
+  assert.equal(git(remote, "rev-parse", "main"), theirs)
+  assert.deepEqual(ownerEdits(root), before)
+  assert.deepEqual(Wiki.syncState(state), { conflict: { at: 10, message: first.message } })
+  // The same conflict again is not announced again.
+  const again = Wiki.sync(root, state, 20)
+  assert.equal(again.announce, undefined)
+  assert.deepEqual(Wiki.syncState(state).conflict, { at: 10, message: first.message })
+  // Resolved by hand: the host's next sync succeeds and clears it.
+  git(root, "reset", "-q", "--keep", "origin/main")
+  assert.equal(Wiki.sync(root, state, 30).status, "synced")
+  assert.deepEqual(Wiki.syncState(state), { syncedAt: 30 })
+
+  // The owner's uncommitted edit to a page another writer changed holds the sync.
+  otherWriter("sync-conflict", remote, (clone) => write(clone, "Org/Roles/lead.md", "lead, theirs\n"))
+  const held = Wiki.sync(root, state, 40)
+  assert.deepEqual(held, {
+    status: "conflict",
+    message: "uncommitted edits to Org/Roles/lead.md overlap upstream changes; commit or discard them",
+    announce: "uncommitted edits to Org/Roles/lead.md overlap upstream changes; commit or discard them"
+  })
+  assert.equal(readFileSync(join(root, "Org/Roles/lead.md"), "utf8"), "lead, edited\n")
+
+  // A refused push and an unreachable remote are failures, retried later.
+  git(root, "checkout", "-q", "Org/Roles/lead.md")
+  write(root, "Org/Status.md", "status\n")
+  Wiki.commit(root, paths)
+  write(remote, "hooks/pre-receive", "#!/bin/sh\nexit 1\n")
+  execFileSync("chmod", ["+x", join(remote, "hooks/pre-receive")])
+  const refused = Wiki.sync(root, state, 50)
+  assert.equal(refused.status, "failed")
+  assert.match(refused.message, /^git push: /)
+  rmSync(remote, { recursive: true, force: true })
+  assert.match(Wiki.sync(root, state, 60).message, /^git fetch: /)
+})
+
+test("a syncing committer pushes after it commits, and posts a new conflict once", async () => {
+  const { root, remote } = wiki("sync-serving")
+  const state = join(scratch, "sync-serving-state")
+  mkdirSync(state, { recursive: true })
+  git(root, "branch", "--set-upstream-to=origin/main")
+  const lines: Array<string> = []
+  const posted: Array<string> = []
+  const serveSyncing = () =>
+    Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      yield* Effect.forkScoped(Wiki.committer(root, paths, (line) => lines.push(line), {
+        stateDir: state,
+        announce: (text) => Effect.sync(() => posted.push(text))
+      }))
+      yield* Effect.sleep("20 millis")
+    })))
+  write(root, "Org/Runs/r1/deliver.json", "{\"host\":1}\n")
+  await serveSyncing()
+  assert.equal(git(remote, "rev-parse", "main"), git(root, "rev-parse", "HEAD"))
+  assert.match(lines.join("\n"), /wiki sync: pushed 1 commit\(s\) to origin\/main/)
+  otherWriter("sync-serving", remote, (clone) => write(clone, "Org/Runs/r1/deliver.json", "{\"other\":1}\n"))
+  write(root, "Org/Runs/r1/deliver.json", "{\"host\":2}\n")
+  await serveSyncing()
+  write(root, "Org/Runs/r1/deliver.json", "{\"host\":3}\n")
+  await serveSyncing()
+  assert.equal(posted.length, 1)
+  assert.match(posted[0]!, /^Wiki sync conflict: rebase onto origin\/main stopped: /)
+  assert.match(lines.join("\n"), /wiki sync conflict: rebase onto origin\/main stopped/)
+  // An announcement that fails is logged, never fatal.
+  rmSync(join(state, "wiki-sync.json"))
+  write(root, "Org/Runs/r1/deliver.json", "{\"host\":4}\n")
+  await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+    yield* Effect.forkScoped(Wiki.committer(root, paths, (line) => lines.push(line), {
+      stateDir: state,
+      announce: () => Effect.fail("slack down")
+    }))
+    yield* Effect.sleep("20 millis")
+  })))
+  assert.match(lines.at(-1)!, /wiki sync conflict could not be posted/)
+})
+
+test("doctor's sync check: an upstream that takes a push, or the fix", () => {
+  const { root, remote } = wiki("sync-check")
+  const none = Wiki.syncCheck(root)
+  assert.equal(none.ok, false)
+  assert.equal(none.fix, `git -C ${root} branch --set-upstream-to=origin/main`)
+  git(root, "branch", "--set-upstream-to=origin/main")
+  assert.deepEqual(Wiki.syncCheck(root), { ok: true, detail: `pushes to origin/main (${remote})` })
+  assert.equal(git(remote, "rev-parse", "main"), git(root, "rev-parse", "origin/main"))
+  rmSync(remote, { recursive: true, force: true })
+  const gone = Wiki.syncCheck(root)
+  assert.equal(gone.ok, false)
+  assert.match(gone.detail, /^origin\/main refuses a push: /)
+})
