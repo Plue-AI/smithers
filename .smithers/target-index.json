@@ -16980,6 +16980,11 @@
         "exclude": []
       },
       {
+        "kind": "glob",
+        "pattern": "evals/harbor/*.py",
+        "exclude": []
+      },
+      {
         "kind": "file",
         "path": "packages/smithers/agent/harness/test/fixtures/wave10Journals.json"
       },
@@ -17043,6 +17048,11 @@
       {
         "kind": "glob",
         "pattern": "evals/swebench/baseline/**",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/harbor/*.py",
         "exclude": []
       },
       {
