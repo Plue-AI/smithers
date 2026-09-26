@@ -72,6 +72,8 @@ var migrationRegistry = []migrationSpec{
 	{36, "migrations/0036_mythical_wikis.sql"},
 	{37, "migrations/0037_retire_source_index_wiki_pages.sql"},
 	{38, "migrations/0038_provider_usage_guard.sql"},
+	{39, "migrations/0039_issue_chat_sync.sql"},
+	{40, "migrations/0040_issue_comment_facts.sql"},
 }
 
 type migration struct {

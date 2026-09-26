@@ -106,6 +106,9 @@ func (s *RepositoryJobService) CreateComment(ctx context.Context, gatewayID, bea
 		if err != nil {
 			return empty, err
 		}
+		if issue.Kind == "chat" {
+			return empty, pkgerrors.NotFound("issue not found")
+		}
 		actor, err := q.GetUserByIDNotDeleted(ctx, target.UserID)
 		if err != nil {
 			return empty, err

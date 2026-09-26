@@ -1,6 +1,6 @@
 -- name: CreateIssue :one
-INSERT INTO issues (repository_id, number, title, body, state, author_id, milestone_id)
-VALUES ($1, get_next_issue_number($1), $2, $3, 'open', $4, $5)
+INSERT INTO issues (repository_id, number, title, body, state, author_id, milestone_id, kind, idempotency_key)
+VALUES ($1, get_next_issue_number($1), $2, $3, 'open', $4, $5, COALESCE(NULLIF(sqlc.arg(kind)::text,''),'issue'), sqlc.arg(idempotency_key)::text)
 RETURNING *;
 
 -- name: GetIssueByNumber :one
@@ -18,6 +18,7 @@ WHERE id = $1;
 SELECT *
 FROM issues
 WHERE repository_id = sqlc.arg(repository_id)
+  AND (kind <> 'chat' OR author_id = sqlc.arg(viewer_id)::bigint)
   AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state)::text)
 ORDER BY number DESC
 LIMIT sqlc.arg(page_size)
@@ -27,6 +28,7 @@ OFFSET sqlc.arg(page_offset);
 SELECT COUNT(*)
 FROM issues
 WHERE repository_id = sqlc.arg(repository_id)
+  AND (kind <> 'chat' OR author_id = sqlc.arg(viewer_id)::bigint)
   AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state)::text);
 
 -- name: UpdateIssue :one
@@ -217,8 +219,13 @@ WITH repository_lock AS MATERIALIZED (
     SELECT r.id FROM repositories r JOIN issues i ON i.repository_id = r.id
     WHERE i.id = $1 FOR UPDATE OF r
 )
-INSERT INTO issue_comments (issue_id, user_id, body, commenter, type)
-SELECT $1, $2, $3, $4, 'comment' FROM repository_lock
+INSERT INTO issue_comments (issue_id, user_id, body, commenter, type, persona, idempotency_key)
+SELECT $1, $2, $3, $4, 'comment', COALESCE(sqlc.narg(persona)::jsonb,'{}'::jsonb), sqlc.arg(idempotency_key)::text FROM repository_lock
+WHERE NOT EXISTS (SELECT 1 FROM issue_comment_keys k WHERE k.issue_id=$1 AND k.user_id=$2 AND k.key=sqlc.arg(idempotency_key)::text AND (k.request_hash <> digest(jsonb_build_array($3::text,COALESCE(sqlc.narg(persona)::jsonb,'{}'::jsonb))::text,'sha256') OR NOT EXISTS (SELECT 1 FROM issue_comments c WHERE c.id=k.comment_id)))
+ON CONFLICT (issue_id,user_id,idempotency_key) WHERE idempotency_key<>''
+DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
+WHERE (issue_comments.body=EXCLUDED.body AND issue_comments.persona=EXCLUDED.persona)
+ OR EXISTS (SELECT 1 FROM issue_comment_keys k WHERE k.issue_id=EXCLUDED.issue_id AND k.user_id=EXCLUDED.user_id AND k.key=EXCLUDED.idempotency_key AND k.request_hash=digest(jsonb_build_array(EXCLUDED.body,EXCLUDED.persona)::text,'sha256'))
 RETURNING *;
 
 -- name: CreateIssueEvent :one
@@ -289,6 +296,7 @@ WHERE ic.id = $1;
 SELECT *
 FROM issues
 WHERE repository_id = sqlc.arg(repository_id)
+  AND (kind <> 'chat' OR author_id = sqlc.arg(viewer_id)::bigint)
   AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state)::text)
   AND (sqlc.arg(after_number)::bigint = 0 OR number < sqlc.arg(after_number)::bigint)
 ORDER BY number DESC

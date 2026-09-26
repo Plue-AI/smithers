@@ -161,7 +161,7 @@ JOIN repositories r ON r.id = i.repository_id
 JOIN visible_repositories vr ON vr.id = r.id
 LEFT JOIN users u ON u.id = r.user_id
 LEFT JOIN organizations o ON o.id = r.org_id
-WHERE i.search_vector @@ websearch_to_tsquery('simple', sqlc.arg(query)::text)
+WHERE i.kind <> 'chat' AND i.search_vector @@ websearch_to_tsquery('simple', sqlc.arg(query)::text)
   AND (
     sqlc.arg(state_filter)::text = ''
     OR i.state = sqlc.arg(state_filter)::text
@@ -242,7 +242,7 @@ SELECT COUNT(*)
 FROM issues i
 JOIN repositories r ON r.id = i.repository_id
 JOIN visible_repositories vr ON vr.id = r.id
-WHERE i.search_vector @@ websearch_to_tsquery('simple', sqlc.arg(query)::text)
+WHERE i.kind <> 'chat' AND i.search_vector @@ websearch_to_tsquery('simple', sqlc.arg(query)::text)
   AND (
     sqlc.arg(state_filter)::text = ''
     OR i.state = sqlc.arg(state_filter)::text

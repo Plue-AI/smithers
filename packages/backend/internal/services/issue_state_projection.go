@@ -14,7 +14,7 @@ import (
 )
 
 // IssueStateFact records accepted owned rows; it is not the actor timeline.
-// User/label display data, comments and linked domain rows are external inputs.
+// User/label display data and linked domain rows are external inputs.
 type IssueStateFact struct {
 	ID            string          `json:"id"`
 	StreamID      string          `json:"stream_id"`
@@ -29,6 +29,7 @@ type IssueStateFact struct {
 }
 
 type IssueStateProjection struct {
+	Comments  map[int64]db.IssueComment  `json:"comments"`
 	StreamID  string                     `json:"stream_id"`
 	Cursor    int64                      `json:"cursor"`
 	Issues    map[int64]db.Issue         `json:"issues"`
@@ -100,6 +101,20 @@ func validateIssueStateFact(f IssueStateFact) error {
 				return fmt.Errorf("issue label identity mismatch")
 			}
 		}
+	case "issue_comment":
+		id, err := strconv.ParseInt(f.EntityKey, 10, 64)
+		if err != nil || id <= 0 {
+			return fmt.Errorf("invalid comment identity")
+		}
+		if f.Operation != "deleted" {
+			var row db.IssueComment
+			if err := json.Unmarshal(f.PostImage, &row); err != nil {
+				return err
+			}
+			if row.ID != id || row.IssueID != f.IssueID {
+				return fmt.Errorf("comment parent mismatch")
+			}
+		}
 	case "issue_assignee":
 		assignmentID, err := strconv.ParseInt(f.EntityKey, 10, 64)
 		if err != nil || assignmentID <= 0 {
@@ -120,13 +135,18 @@ func validateIssueStateFact(f IssueStateFact) error {
 	return nil
 }
 func newIssueStateProjection() IssueStateProjection {
-	return IssueStateProjection{Issues: map[int64]db.Issue{}, Labels: map[string]db.IssueLabel{}, Assignees: map[int64]db.IssueAssignee{}}
+	return IssueStateProjection{Comments: map[int64]db.IssueComment{}, Issues: map[int64]db.Issue{}, Labels: map[string]db.IssueLabel{}, Assignees: map[int64]db.IssueAssignee{}}
 }
 func applyIssueStateFact(s *IssueStateProjection, f IssueStateFact) error {
 	if f.Operation == "deleted" {
 		switch f.EntityType {
 		case "issue":
 			delete(s.Issues, f.IssueID)
+			for k, v := range s.Comments {
+				if v.IssueID == f.IssueID {
+					delete(s.Comments, k)
+				}
+			}
 			for k, v := range s.Labels {
 				if v.IssueID == f.IssueID {
 					delete(s.Labels, k)
@@ -137,6 +157,9 @@ func applyIssueStateFact(s *IssueStateProjection, f IssueStateFact) error {
 					delete(s.Assignees, k)
 				}
 			}
+		case "issue_comment":
+			id, _ := strconv.ParseInt(f.EntityKey, 10, 64)
+			delete(s.Comments, id)
 		case "issue_label":
 			delete(s.Labels, f.EntityKey)
 		case "issue_assignee":
@@ -162,6 +185,12 @@ func applyIssueStateFact(s *IssueStateProjection, f IssueStateFact) error {
 			row.FixedAt.Time = row.FixedAt.Time.UTC()
 			row.VerifiedAt.Time = row.VerifiedAt.Time.UTC()
 			s.Issues[row.ID] = row
+		case "issue_comment":
+			var row db.IssueComment
+			if err := json.Unmarshal(f.PostImage, &row); err != nil {
+				return err
+			}
+			s.Comments[row.ID] = row
 		case "issue_label":
 			var row db.IssueLabel
 			if err := json.Unmarshal(f.PostImage, &row); err != nil {
@@ -206,6 +235,7 @@ func ApplyIssueStateFact(state IssueStateProjection, fact IssueStateFact) (Issue
 	next := newIssueStateProjection()
 	next.StreamID = state.StreamID
 	next.Cursor = state.Cursor
+	maps.Copy(next.Comments, state.Comments)
 	maps.Copy(next.Issues, state.Issues)
 	maps.Copy(next.Labels, state.Labels)
 	maps.Copy(next.Assignees, state.Assignees)

@@ -63,6 +63,9 @@ func (s *IssueEventService) ListIssueEvents(ctx context.Context, viewer *db.User
 		return nil, err
 	}
 
+	if err := requireIssueVisibility(issue, viewer); err != nil {
+		return nil, err
+	}
 	if page < 1 {
 		page = 1
 	}

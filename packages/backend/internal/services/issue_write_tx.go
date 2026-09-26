@@ -150,3 +150,14 @@ func replaceIssueAssociations(ctx context.Context, tx issueWriteTx, issueID int6
 	}
 	return nil
 }
+
+func (t *pgxIssueWriteTx) FindIssueRequest(ctx context.Context, repo, author int64, key string) (db.Issue, error) {
+	if _, err := t.tx.Exec(ctx, `SELECT id FROM repositories WHERE id=$1 FOR UPDATE`, repo); err != nil {
+		return db.Issue{}, err
+	}
+	var number int64
+	if err := t.tx.QueryRow(ctx, `SELECT number FROM issues WHERE repository_id=$1 AND author_id=$2 AND idempotency_key=$3`, repo, author, key).Scan(&number); err != nil {
+		return db.Issue{}, err
+	}
+	return t.q.GetIssueByNumber(ctx, db.GetIssueByNumberParams{RepositoryID: repo, Number: number})
+}

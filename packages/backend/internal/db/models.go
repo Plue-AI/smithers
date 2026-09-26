@@ -813,6 +813,8 @@ type Issue struct {
 	VerifiedAt               pgtype.Timestamptz `json:"verified_at"`
 	CreatedAt                time.Time          `json:"created_at"`
 	UpdatedAt                time.Time          `json:"updated_at"`
+	Kind                     string             `json:"kind"`
+	IdempotencyKey           string             `json:"idempotency_key"`
 }
 
 type IssueArtifact struct {
@@ -848,14 +850,16 @@ type IssueChangeLink struct {
 }
 
 type IssueComment struct {
-	ID        int64       `json:"id"`
-	IssueID   int64       `json:"issue_id"`
-	UserID    pgtype.Int8 `json:"user_id"`
-	Commenter string      `json:"commenter"`
-	Body      string      `json:"body"`
-	Type      string      `json:"type"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID             int64           `json:"id"`
+	IssueID        int64           `json:"issue_id"`
+	UserID         pgtype.Int8     `json:"user_id"`
+	Commenter      string          `json:"commenter"`
+	Body           string          `json:"body"`
+	Type           string          `json:"type"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	Persona        json.RawMessage `json:"persona"`
+	IdempotencyKey string          `json:"idempotency_key"`
 }
 
 type IssueDependency struct {
@@ -880,16 +884,17 @@ type IssueLabel struct {
 }
 
 type IssueStateFact struct {
-	RepositoryID  int64     `json:"repository_id"`
-	Sequence      int64     `json:"sequence"`
-	EventID       string    `json:"event_id"`
-	SchemaVersion int16     `json:"schema_version"`
-	EntityType    string    `json:"entity_type"`
-	Operation     string    `json:"operation"`
-	IssueID       int64     `json:"issue_id"`
-	EntityKey     string    `json:"entity_key"`
-	PostImage     []byte    `json:"post_image"`
-	RecordedAt    time.Time `json:"recorded_at"`
+	RepositoryID   int64       `json:"repository_id"`
+	Sequence       int64       `json:"sequence"`
+	EventID        string      `json:"event_id"`
+	SchemaVersion  int16       `json:"schema_version"`
+	EntityType     string      `json:"entity_type"`
+	Operation      string      `json:"operation"`
+	IssueID        int64       `json:"issue_id"`
+	EntityKey      string      `json:"entity_key"`
+	PostImage      []byte      `json:"post_image"`
+	RecordedAt     time.Time   `json:"recorded_at"`
+	AudienceUserID pgtype.Int8 `json:"-"`
 }
 
 type IssueStateJournal struct {

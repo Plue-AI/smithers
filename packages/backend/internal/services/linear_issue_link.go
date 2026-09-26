@@ -200,6 +200,9 @@ func (s *LinearIssueLinkService) resolveWritableIssue(ctx context.Context, actor
 		}
 		return db.Repository{}, db.Issue{}, pkgerrors.Internal("failed to load issue").WithCause(err)
 	}
+	if issue.Kind == "chat" {
+		return db.Repository{}, db.Issue{}, pkgerrors.NotFound("issue not found")
+	}
 	return repository, issue, nil
 }
 

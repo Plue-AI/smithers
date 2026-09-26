@@ -34,3 +34,5 @@ sql:
           - column: "issues.search_vector"
             go_type: "string"
             go_struct_tag: 'json:"-"'
+          - column: "issue_state_facts.audience_user_id"
+            go_struct_tag: 'json:"-"'

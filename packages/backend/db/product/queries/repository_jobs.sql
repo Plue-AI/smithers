@@ -227,7 +227,7 @@ FOR SHARE;
 
 -- name: GetRepositoryJobNativeIssueSubject :one
 SELECT repository_job_native_issue_payload(i)::jsonb AS payload
-FROM issues i WHERE i.repository_id=$1 AND i.number=$2;
+FROM issues i WHERE i.kind <> 'chat' AND i.repository_id=$1 AND i.number=$2;
 
 -- name: GetRepositoryJobGitHubSubject :one
 SELECT i.payload FROM github_synced_repos g JOIN github_synced_issues i ON i.synced_repo_id=g.id

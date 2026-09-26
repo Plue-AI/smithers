@@ -30,11 +30,13 @@ type IssueHandler struct {
 }
 
 type createIssueRequest struct {
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Assignees []string `json:"assignees,omitempty"`
-	Labels    []string `json:"labels,omitempty"`
-	Milestone *int64   `json:"milestone,omitempty"`
+	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+	Kind           string   `json:"kind,omitempty"`
+	Title          string   `json:"title"`
+	Body           string   `json:"body"`
+	Assignees      []string `json:"assignees,omitempty"`
+	Labels         []string `json:"labels,omitempty"`
+	Milestone      *int64   `json:"milestone,omitempty"`
 }
 
 type patchIssueRequest struct {
@@ -47,7 +49,9 @@ type patchIssueRequest struct {
 }
 
 type createIssueCommentRequest struct {
-	Body string `json:"body"`
+	Persona        *services.IssuePersona `json:"persona,omitempty"`
+	IdempotencyKey string                 `json:"idempotency_key,omitempty"`
+	Body           string                 `json:"body"`
 }
 
 type patchIssueCommentRequest struct {
@@ -118,7 +122,7 @@ func (h *IssueHandler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.Service.CreateIssue(r.Context(), actor, owner, repo, services.CreateIssueInput{
+	created, err := h.Service.CreateIssue(r.Context(), actor, owner, repo, services.CreateIssueInput{Kind: req.Kind, IdempotencyKey: req.IdempotencyKey,
 		Title:     req.Title,
 		Body:      req.Body,
 		Assignees: req.Assignees,
@@ -224,7 +228,7 @@ func (h *IssueHandler) PostIssueComment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	created, err := h.Service.CreateIssueComment(r.Context(), actor, owner, repo, number, services.CreateIssueCommentInput{Body: req.Body})
+	created, err := h.Service.CreateIssueComment(r.Context(), actor, owner, repo, number, services.CreateIssueCommentInput{Body: req.Body, Persona: req.Persona, IdempotencyKey: req.IdempotencyKey})
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -241,6 +245,20 @@ func (h *IssueHandler) ListIssueComments(w http.ResponseWriter, r *http.Request)
 	number, err := parseInt64RouteParam(r, "number", "issue number is required", "invalid issue number")
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
+		return
+	}
+	if key := r.URL.Query().Get("idempotency_key"); key != "" {
+		svc, ok := h.Service.(*services.IssueService)
+		if !ok {
+			errors.WriteError(w, errors.Internal("comment lookup unavailable"))
+			return
+		}
+		comment, e := svc.FindIssueComment(r.Context(), middleware.UserFromContext(r.Context()), owner, repo, number, key)
+		if e != nil {
+			writeRouteError(w, r, e)
+			return
+		}
+		errors.WriteJSON(w, http.StatusOK, comment)
 		return
 	}
 	cursor, limit, err := parsePagination(r)

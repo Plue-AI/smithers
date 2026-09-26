@@ -80,6 +80,10 @@ func (s *IssueEventService) ListIssueStateFacts(ctx context.Context, viewer *db.
 		if row.RepositoryID != repo.ID || row.Sequence != page.Cursor+1 {
 			return IssueStateFactPage{}, pkgerrors.Internal("issue journal scope or position mismatch")
 		}
+		page.Cursor = row.Sequence
+		if row.AudienceUserID.Valid && (viewer == nil || viewer.ID != row.AudienceUserID.Int64) {
+			continue
+		}
 		fact, err := DecodeIssueStateFact(row)
 		if err != nil {
 			return IssueStateFactPage{}, pkgerrors.Internal("decode issue state fact: " + err.Error())

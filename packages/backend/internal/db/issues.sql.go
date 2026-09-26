@@ -60,33 +60,37 @@ const countIssuesByRepoFiltered = `-- name: CountIssuesByRepoFiltered :one
 SELECT COUNT(*)
 FROM issues
 WHERE repository_id = $1
-  AND ($2::text = '' OR state = $2::text)
+  AND (kind <> 'chat' OR author_id = $2::bigint)
+  AND ($3::text = '' OR state = $3::text)
 `
 
 type CountIssuesByRepoFilteredParams struct {
 	RepositoryID int64  `json:"repository_id"`
+	ViewerID     int64  `json:"viewer_id"`
 	State        string `json:"state"`
 }
 
 func (q *Queries) CountIssuesByRepoFiltered(ctx context.Context, arg CountIssuesByRepoFilteredParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countIssuesByRepoFiltered, arg.RepositoryID, arg.State)
+	row := q.db.QueryRow(ctx, countIssuesByRepoFiltered, arg.RepositoryID, arg.ViewerID, arg.State)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createIssue = `-- name: CreateIssue :one
-INSERT INTO issues (repository_id, number, title, body, state, author_id, milestone_id)
-VALUES ($1, get_next_issue_number($1), $2, $3, 'open', $4, $5)
-RETURNING id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at
+INSERT INTO issues (repository_id, number, title, body, state, author_id, milestone_id, kind, idempotency_key)
+VALUES ($1, get_next_issue_number($1), $2, $3, 'open', $4, $5, COALESCE(NULLIF($6::text,''),'issue'), $7::text)
+RETURNING id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
 `
 
 type CreateIssueParams struct {
-	RepositoryID int64       `json:"repository_id"`
-	Title        string      `json:"title"`
-	Body         string      `json:"body"`
-	AuthorID     int64       `json:"author_id"`
-	MilestoneID  pgtype.Int8 `json:"milestone_id"`
+	RepositoryID   int64       `json:"repository_id"`
+	Title          string      `json:"title"`
+	Body           string      `json:"body"`
+	AuthorID       int64       `json:"author_id"`
+	MilestoneID    pgtype.Int8 `json:"milestone_id"`
+	Kind           string      `json:"kind"`
+	IdempotencyKey string      `json:"idempotency_key"`
 }
 
 func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue, error) {
@@ -96,6 +100,8 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		arg.Body,
 		arg.AuthorID,
 		arg.MilestoneID,
+		arg.Kind,
+		arg.IdempotencyKey,
 	)
 	var i Issue
 	err := row.Scan(
@@ -118,6 +124,8 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Kind,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -127,16 +135,23 @@ WITH repository_lock AS MATERIALIZED (
     SELECT r.id FROM repositories r JOIN issues i ON i.repository_id = r.id
     WHERE i.id = $1 FOR UPDATE OF r
 )
-INSERT INTO issue_comments (issue_id, user_id, body, commenter, type)
-SELECT $1, $2, $3, $4, 'comment' FROM repository_lock
-RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at
+INSERT INTO issue_comments (issue_id, user_id, body, commenter, type, persona, idempotency_key)
+SELECT $1, $2, $3, $4, 'comment', COALESCE($5::jsonb,'{}'::jsonb), $6::text FROM repository_lock
+WHERE NOT EXISTS (SELECT 1 FROM issue_comment_keys k WHERE k.issue_id=$1 AND k.user_id=$2 AND k.key=$6::text AND (k.request_hash <> digest(jsonb_build_array($3::text,COALESCE($5::jsonb,'{}'::jsonb))::text,'sha256') OR NOT EXISTS (SELECT 1 FROM issue_comments c WHERE c.id=k.comment_id)))
+ON CONFLICT (issue_id,user_id,idempotency_key) WHERE idempotency_key<>''
+DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
+WHERE (issue_comments.body=EXCLUDED.body AND issue_comments.persona=EXCLUDED.persona)
+ OR EXISTS (SELECT 1 FROM issue_comment_keys k WHERE k.issue_id=EXCLUDED.issue_id AND k.user_id=EXCLUDED.user_id AND k.key=EXCLUDED.idempotency_key AND k.request_hash=digest(jsonb_build_array(EXCLUDED.body,EXCLUDED.persona)::text,'sha256'))
+RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
 `
 
 type CreateIssueCommentParams struct {
-	IssueID   int64       `json:"issue_id"`
-	UserID    pgtype.Int8 `json:"user_id"`
-	Body      string      `json:"body"`
-	Commenter string      `json:"commenter"`
+	IssueID        int64       `json:"issue_id"`
+	UserID         pgtype.Int8 `json:"user_id"`
+	Body           string      `json:"body"`
+	Commenter      string      `json:"commenter"`
+	Persona        []byte      `json:"persona"`
+	IdempotencyKey string      `json:"idempotency_key"`
 }
 
 func (q *Queries) CreateIssueComment(ctx context.Context, arg CreateIssueCommentParams) (IssueComment, error) {
@@ -145,6 +160,8 @@ func (q *Queries) CreateIssueComment(ctx context.Context, arg CreateIssueComment
 		arg.UserID,
 		arg.Body,
 		arg.Commenter,
+		arg.Persona,
+		arg.IdempotencyKey,
 	)
 	var i IssueComment
 	err := row.Scan(
@@ -156,6 +173,8 @@ func (q *Queries) CreateIssueComment(ctx context.Context, arg CreateIssueComment
 		&i.Type,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Persona,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -326,7 +345,7 @@ func (q *Queries) FixIssuesForLanding(ctx context.Context, arg FixIssuesForLandi
 }
 
 const getIssueByCommentID = `-- name: GetIssueByCommentID :one
-SELECT i.id, i.repository_id, i.number, i.title, i.body, i.search_vector, i.state, i.author_id, i.milestone_id, i.comment_count, i.closed_at, i.fixed_by_id, i.fixed_by_agent_session_id, i.fixed_at, i.verified_by_id, i.verified_by_agent_session_id, i.verified_at, i.created_at, i.updated_at
+SELECT i.id, i.repository_id, i.number, i.title, i.body, i.search_vector, i.state, i.author_id, i.milestone_id, i.comment_count, i.closed_at, i.fixed_by_id, i.fixed_by_agent_session_id, i.fixed_at, i.verified_by_id, i.verified_by_agent_session_id, i.verified_at, i.created_at, i.updated_at, i.kind, i.idempotency_key
 FROM issues i
 JOIN issue_comments ic ON ic.issue_id = i.id
 WHERE ic.id = $1
@@ -355,12 +374,14 @@ func (q *Queries) GetIssueByCommentID(ctx context.Context, id int64) (Issue, err
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Kind,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
 FROM issues
 WHERE id = $1
 `
@@ -388,12 +409,14 @@ func (q *Queries) GetIssueByID(ctx context.Context, id int64) (Issue, error) {
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Kind,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
 
 const getIssueByNumber = `-- name: GetIssueByNumber :one
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
 FROM issues
 WHERE repository_id = $1
   AND number = $2
@@ -427,12 +450,14 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Kind,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
 
 const getIssueCommentByID = `-- name: GetIssueCommentByID :one
-SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at
+SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
 FROM issue_comments
 WHERE id = $1
 `
@@ -449,6 +474,8 @@ func (q *Queries) GetIssueCommentByID(ctx context.Context, id int64) (IssueComme
 		&i.Type,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Persona,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -497,7 +524,7 @@ func (q *Queries) ListIssueAssignees(ctx context.Context, issueID int64) ([]List
 }
 
 const listIssueComments = `-- name: ListIssueComments :many
-SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at
+SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
 FROM issue_comments
 WHERE issue_id = $1
 ORDER BY created_at ASC, id ASC
@@ -529,6 +556,8 @@ func (q *Queries) ListIssueComments(ctx context.Context, arg ListIssueCommentsPa
 			&i.Type,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Persona,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -541,7 +570,7 @@ func (q *Queries) ListIssueComments(ctx context.Context, arg ListIssueCommentsPa
 }
 
 const listIssueCommentsByIssueKeyset = `-- name: ListIssueCommentsByIssueKeyset :many
-SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at
+SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
 FROM issue_comments
 WHERE issue_id = $1
   AND ($2::bigint = 0 OR id > $2::bigint)
@@ -575,6 +604,8 @@ func (q *Queries) ListIssueCommentsByIssueKeyset(ctx context.Context, arg ListIs
 			&i.Type,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Persona,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -629,17 +660,19 @@ func (q *Queries) ListIssueEventsByIssue(ctx context.Context, arg ListIssueEvent
 }
 
 const listIssuesByRepoFiltered = `-- name: ListIssuesByRepoFiltered :many
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
 FROM issues
 WHERE repository_id = $1
-  AND ($2::text = '' OR state = $2::text)
+  AND (kind <> 'chat' OR author_id = $2::bigint)
+  AND ($3::text = '' OR state = $3::text)
 ORDER BY number DESC
-LIMIT $4
-OFFSET $3
+LIMIT $5
+OFFSET $4
 `
 
 type ListIssuesByRepoFilteredParams struct {
 	RepositoryID int64  `json:"repository_id"`
+	ViewerID     int64  `json:"viewer_id"`
 	State        string `json:"state"`
 	PageOffset   int32  `json:"page_offset"`
 	PageSize     int32  `json:"page_size"`
@@ -648,6 +681,7 @@ type ListIssuesByRepoFilteredParams struct {
 func (q *Queries) ListIssuesByRepoFiltered(ctx context.Context, arg ListIssuesByRepoFilteredParams) ([]Issue, error) {
 	rows, err := q.db.Query(ctx, listIssuesByRepoFiltered,
 		arg.RepositoryID,
+		arg.ViewerID,
 		arg.State,
 		arg.PageOffset,
 		arg.PageSize,
@@ -679,6 +713,8 @@ func (q *Queries) ListIssuesByRepoFiltered(ctx context.Context, arg ListIssuesBy
 			&i.VerifiedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Kind,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -692,17 +728,19 @@ func (q *Queries) ListIssuesByRepoFiltered(ctx context.Context, arg ListIssuesBy
 
 const listIssuesByRepoFilteredKeyset = `-- name: ListIssuesByRepoFilteredKeyset :many
 
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
 FROM issues
 WHERE repository_id = $1
-  AND ($2::text = '' OR state = $2::text)
-  AND ($3::bigint = 0 OR number < $3::bigint)
+  AND (kind <> 'chat' OR author_id = $2::bigint)
+  AND ($3::text = '' OR state = $3::text)
+  AND ($4::bigint = 0 OR number < $4::bigint)
 ORDER BY number DESC
-LIMIT $4
+LIMIT $5
 `
 
 type ListIssuesByRepoFilteredKeysetParams struct {
 	RepositoryID int64  `json:"repository_id"`
+	ViewerID     int64  `json:"viewer_id"`
 	State        string `json:"state"`
 	AfterNumber  int64  `json:"after_number"`
 	PageSize     int32  `json:"page_size"`
@@ -717,6 +755,7 @@ type ListIssuesByRepoFilteredKeysetParams struct {
 func (q *Queries) ListIssuesByRepoFilteredKeyset(ctx context.Context, arg ListIssuesByRepoFilteredKeysetParams) ([]Issue, error) {
 	rows, err := q.db.Query(ctx, listIssuesByRepoFilteredKeyset,
 		arg.RepositoryID,
+		arg.ViewerID,
 		arg.State,
 		arg.AfterNumber,
 		arg.PageSize,
@@ -748,6 +787,8 @@ func (q *Queries) ListIssuesByRepoFilteredKeyset(ctx context.Context, arg ListIs
 			&i.VerifiedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Kind,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -900,7 +941,7 @@ SET title = $1,
     updated_at = NOW()
 FROM repository_lock
 WHERE issues.id = $12 AND issues.repository_id = repository_lock.id
-RETURNING issues.id, issues.repository_id, issues.number, issues.title, issues.body, issues.search_vector, issues.state, issues.author_id, issues.milestone_id, issues.comment_count, issues.closed_at, issues.fixed_by_id, issues.fixed_by_agent_session_id, issues.fixed_at, issues.verified_by_id, issues.verified_by_agent_session_id, issues.verified_at, issues.created_at, issues.updated_at
+RETURNING issues.id, issues.repository_id, issues.number, issues.title, issues.body, issues.search_vector, issues.state, issues.author_id, issues.milestone_id, issues.comment_count, issues.closed_at, issues.fixed_by_id, issues.fixed_by_agent_session_id, issues.fixed_at, issues.verified_by_id, issues.verified_by_agent_session_id, issues.verified_at, issues.created_at, issues.updated_at, issues.kind, issues.idempotency_key
 `
 
 type UpdateIssueParams struct {
@@ -954,6 +995,8 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.VerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Kind,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -963,7 +1006,7 @@ UPDATE issue_comments
 SET body = $1,
     updated_at = NOW()
 WHERE id = $2
-RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at
+RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
 `
 
 type UpdateIssueCommentParams struct {
@@ -983,6 +1026,8 @@ func (q *Queries) UpdateIssueComment(ctx context.Context, arg UpdateIssueComment
 		&i.Type,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Persona,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }

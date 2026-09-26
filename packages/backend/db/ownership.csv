@@ -256,3 +256,10 @@ workspace_provider_uses,product,product migration 0029
 model_usage,product,product migration 0030
 workflow_task_guest_tokens,product,product migration 0032
 credit_signup_identities,product,product migration 0033
+issue_sync_channels,product,issue chat routing and durable receipts
+issue_sync_threads,product,issue chat routing and durable receipts
+issue_external_messages,product,issue chat routing and durable receipts
+issue_sync_receipts,product,issue chat routing and durable receipts
+issue_sync_deliveries,product,issue chat routing and durable receipts
+issue_external_reactions,product,issue chat routing and durable receipts
+issue_comment_keys,product,durable issue comment request identities

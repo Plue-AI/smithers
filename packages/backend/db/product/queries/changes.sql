@@ -113,7 +113,7 @@ SELECT
     sqlc.arg(change_id),
     sqlc.arg(link_type)
 FROM issues AS i
-WHERE i.repository_id = sqlc.arg(repository_id)
+WHERE i.kind <> 'chat' AND i.repository_id = sqlc.arg(repository_id)
   AND i.number = sqlc.arg(issue_number)
 ON CONFLICT (repository_id, issue_id, change_id)
 DO UPDATE SET link_type = EXCLUDED.link_type;
@@ -130,7 +130,7 @@ FROM issue_change_links AS icl
 JOIN issues AS i
   ON i.repository_id = icl.repository_id
  AND i.id = icl.issue_id
-WHERE icl.repository_id = sqlc.arg(repository_id)
+WHERE i.kind <> 'chat' AND icl.repository_id = sqlc.arg(repository_id)
   AND icl.change_id = sqlc.arg(change_id)
 ORDER BY i.number ASC;
 

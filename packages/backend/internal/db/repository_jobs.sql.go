@@ -693,7 +693,7 @@ func (q *Queries) GetRepositoryJobManualDispatch(ctx context.Context, arg GetRep
 
 const getRepositoryJobNativeIssueSubject = `-- name: GetRepositoryJobNativeIssueSubject :one
 SELECT repository_job_native_issue_payload(i)::jsonb AS payload
-FROM issues i WHERE i.repository_id=$1 AND i.number=$2
+FROM issues i WHERE i.kind <> 'chat' AND i.repository_id=$1 AND i.number=$2
 `
 
 type GetRepositoryJobNativeIssueSubjectParams struct {

@@ -26,7 +26,7 @@ func (q *Queries) GetIssueStateJournal(ctx context.Context, repositoryID int64) 
 }
 
 const listIssueStateFacts = `-- name: ListIssueStateFacts :many
-SELECT repository_id, sequence, event_id, schema_version, entity_type, operation, issue_id, entity_key, post_image, recorded_at FROM issue_state_facts
+SELECT repository_id, sequence, event_id, schema_version, entity_type, operation, issue_id, entity_key, post_image, recorded_at, audience_user_id FROM issue_state_facts
 WHERE repository_id = $1
   AND sequence > $2
   AND sequence <= $3
@@ -66,6 +66,7 @@ func (q *Queries) ListIssueStateFacts(ctx context.Context, arg ListIssueStateFac
 			&i.EntityKey,
 			&i.PostImage,
 			&i.RecordedAt,
+			&i.AudienceUserID,
 		); err != nil {
 			return nil, err
 		}

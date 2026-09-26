@@ -281,6 +281,9 @@ func (s *LabelService) AddLabelsToIssue(ctx context.Context, actor *db.User, own
 		return nil, pkgerrors.Internal("failed to load issue").WithCause(err)
 	}
 
+	if err := requireIssueVisibility(issue, actor); err != nil {
+		return nil, err
+	}
 	labelsByName, err := s.queries.ListLabelsByNames(ctx, db.ListLabelsByNamesParams{
 		RepositoryID: repository.ID,
 		Names:        labelNames,
@@ -335,6 +338,9 @@ func (s *LabelService) ListIssueLabels(ctx context.Context, viewer *db.User, own
 		return nil, 0, pkgerrors.Internal("failed to load issue").WithCause(err)
 	}
 
+	if err := requireIssueVisibility(issue, viewer); err != nil {
+		return nil, 0, err
+	}
 	pageSize, pageOffset, _, _ := normalizePage(page, perPage)
 	total, err := s.queries.CountLabelsForIssue(ctx, issue.ID)
 	if err != nil {
@@ -380,6 +386,9 @@ func (s *LabelService) RemoveIssueLabelByName(ctx context.Context, actor *db.Use
 		return pkgerrors.Internal("failed to load issue").WithCause(err)
 	}
 
+	if err := requireIssueVisibility(issue, actor); err != nil {
+		return err
+	}
 	removed, err := s.queries.RemoveIssueLabelByName(ctx, db.RemoveIssueLabelByNameParams{
 		RepositoryID: repository.ID,
 		IssueNumber:  number,
@@ -400,6 +409,9 @@ func (s *LabelService) RemoveIssueLabelByName(ctx context.Context, actor *db.Use
 }
 
 func (s *LabelService) dispatchIssueWorkflowEvent(ctx context.Context, owner string, repository db.Repository, actor *db.User, action string, issue db.Issue, labels []db.Label) {
+	if issue.Kind == "chat" {
+		return
+	}
 	if s.workflowRunSvc == nil {
 		return
 	}

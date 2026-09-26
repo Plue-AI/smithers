@@ -7,6 +7,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,11 +27,13 @@ import (
 const maxIssueTitleLen = 255
 
 type CreateIssueInput struct {
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Assignees []string `json:"assignees,omitempty"`
-	Labels    []string `json:"labels,omitempty"`
-	Milestone *int64   `json:"milestone,omitempty"`
+	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+	Kind           string   `json:"kind,omitempty"`
+	Title          string   `json:"title"`
+	Body           string   `json:"body"`
+	Assignees      []string `json:"assignees,omitempty"`
+	Labels         []string `json:"labels,omitempty"`
+	Milestone      *int64   `json:"milestone,omitempty"`
 }
 
 type IssueMilestonePatch struct {
@@ -46,8 +49,17 @@ type UpdateIssueInput struct {
 	Milestone *IssueMilestonePatch `json:"milestone,omitempty"`
 }
 
+type IssuePersona struct {
+	Username  string `json:"username"`
+	IconEmoji string `json:"iconEmoji,omitempty"`
+	IconURL   string `json:"iconUrl,omitempty"`
+}
+
 type CreateIssueCommentInput struct {
-	Body string `json:"body"`
+	externalCommenter string
+	Persona           *IssuePersona `json:"persona,omitempty"`
+	IdempotencyKey    string        `json:"idempotency_key,omitempty"`
+	Body              string        `json:"body"`
 }
 
 type UpdateIssueCommentInput struct {
@@ -76,25 +88,28 @@ type LabelSummary struct {
 }
 
 type IssueResponse struct {
-	ID            int64                 `json:"id"`
-	Number        int64                 `json:"number"`
-	Title         string                `json:"title"`
-	Body          string                `json:"body"`
-	State         string                `json:"state"`
-	Author        IssueUserSummary      `json:"author"`
-	Assignees     []IssueUserSummary    `json:"assignees"`
-	Labels        []LabelSummary        `json:"labels"`
-	Linear        *LinearIssueReference `json:"linear"`
-	MilestoneID   any                   `json:"milestone_id"`
-	CommentCount  int64                 `json:"comment_count"`
-	ClosedAt      pgtype.Timestamptz    `json:"closed_at"`
-	FixedBy       *IssueUserSummary     `json:"fixed_by"`
-	FixedAt       pgtype.Timestamptz    `json:"fixed_at"`
-	VerifiedBy    *IssueUserSummary     `json:"verified_by"`
-	VerifiedAt    pgtype.Timestamptz    `json:"verified_at"`
-	LinkedChanges []IssueLinkedChange   `json:"linked_changes"`
-	CreatedAt     time.Time             `json:"created_at"`
-	UpdatedAt     time.Time             `json:"updated_at"`
+	IdempotencyKey string                `json:"idempotency_key,omitempty"`
+	Kind           string                `json:"kind"`
+	Visibility     string                `json:"visibility"`
+	ID             int64                 `json:"id"`
+	Number         int64                 `json:"number"`
+	Title          string                `json:"title"`
+	Body           string                `json:"body"`
+	State          string                `json:"state"`
+	Author         IssueUserSummary      `json:"author"`
+	Assignees      []IssueUserSummary    `json:"assignees"`
+	Labels         []LabelSummary        `json:"labels"`
+	Linear         *LinearIssueReference `json:"linear"`
+	MilestoneID    any                   `json:"milestone_id"`
+	CommentCount   int64                 `json:"comment_count"`
+	ClosedAt       pgtype.Timestamptz    `json:"closed_at"`
+	FixedBy        *IssueUserSummary     `json:"fixed_by"`
+	FixedAt        pgtype.Timestamptz    `json:"fixed_at"`
+	VerifiedBy     *IssueUserSummary     `json:"verified_by"`
+	VerifiedAt     pgtype.Timestamptz    `json:"verified_at"`
+	LinkedChanges  []IssueLinkedChange   `json:"linked_changes"`
+	CreatedAt      time.Time             `json:"created_at"`
+	UpdatedAt      time.Time             `json:"updated_at"`
 }
 
 type issueLinearMapQuerier interface {
@@ -106,14 +121,16 @@ type issueLinkedChangesQuerier interface {
 }
 
 type IssueCommentResponse struct {
-	ID        int64     `json:"id"`
-	IssueID   int64     `json:"issue_id"`
-	UserID    int64     `json:"user_id"`
-	Commenter string    `json:"commenter"`
-	Body      string    `json:"body"`
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	Persona        json.RawMessage `json:"persona,omitempty"`
+	ID             int64           `json:"id"`
+	IssueID        int64           `json:"issue_id"`
+	UserID         int64           `json:"user_id"`
+	Commenter      string          `json:"commenter"`
+	Body           string          `json:"body"`
+	Type           string          `json:"type"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type IssueQuerier interface {
@@ -244,7 +261,11 @@ func (s *IssueService) ListIssues(ctx context.Context, viewer *db.User, owner, r
 		limit = maxPerPage
 	}
 
-	total, err := s.queries.CountIssuesByRepoFiltered(ctx, db.CountIssuesByRepoFilteredParams{
+	viewerID := int64(0)
+	if viewer != nil {
+		viewerID = viewer.ID
+	}
+	total, err := s.queries.CountIssuesByRepoFiltered(ctx, db.CountIssuesByRepoFilteredParams{ViewerID: viewerID,
 		RepositoryID: repository.ID,
 		State:        normalizedState,
 	})
@@ -252,7 +273,7 @@ func (s *IssueService) ListIssues(ctx context.Context, viewer *db.User, owner, r
 		return nil, "", 0, pkgerrors.Internal("failed to count issues").WithCause(err)
 	}
 
-	rows, err := s.queries.ListIssuesByRepoFilteredKeyset(ctx, db.ListIssuesByRepoFilteredKeysetParams{
+	rows, err := s.queries.ListIssuesByRepoFilteredKeyset(ctx, db.ListIssuesByRepoFilteredKeysetParams{ViewerID: viewerID,
 		RepositoryID: repository.ID,
 		State:        normalizedState,
 		AfterNumber:  afterNumber,
@@ -322,6 +343,13 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 		return IssueResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
 
+	kind := req.Kind
+	if kind == "" {
+		kind = "issue"
+	}
+	if kind != "issue" && kind != "chat" {
+		return IssueResponse{}, pkgerrors.BadRequest("invalid issue kind")
+	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		return IssueResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Issue", Field: "title", Code: "missing_field"})
@@ -371,11 +399,33 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 	if len(labelIDs) > 0 {
 		labelSet = &labelIDs
 	}
+	if len(req.IdempotencyKey) > 128 {
+		return IssueResponse{}, pkgerrors.BadRequest("thread identity is too long")
+	}
+	replayed := false
 	var created db.Issue
 	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
 		return s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
+			if req.IdempotencyKey != "" {
+				if finder, ok := tx.(interface {
+					FindIssueRequest(context.Context, int64, int64, string) (db.Issue, error)
+				}); ok {
+					existing, e := finder.FindIssueRequest(ctx, repository.ID, actor.ID, req.IdempotencyKey)
+					if e == nil {
+						if existing.Kind != kind {
+							return pkgerrors.Conflict("thread identity already has a different kind")
+						}
+						created = existing
+						replayed = true
+						return nil
+					}
+					if !stdErrors.Is(e, pgx.ErrNoRows) {
+						return e
+					}
+				}
+			}
 			var werr error
-			created, werr = tx.CreateIssue(ctx, db.CreateIssueParams{
+			created, werr = tx.CreateIssue(ctx, db.CreateIssueParams{Kind: kind, IdempotencyKey: req.IdempotencyKey,
 				RepositoryID: repository.ID,
 				Title:        title,
 				Body:         req.Body,
@@ -395,6 +445,9 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 	if err != nil {
 		return IssueResponse{}, err
 	}
+	if replayed {
+		return mapped, nil
+	}
 	s.recordIssueEvent(ctx, created.ID, actor, "opened", nil, map[string]any{"title": mapped.Title})
 	if err := s.dispatchIssueEvent(ctx, owner, repository, actor, "opened", mapped); err != nil {
 		return IssueResponse{}, err
@@ -402,7 +455,7 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 
 	// Process @mentions in the issue body. Errors are non-fatal: a mention
 	// delivery failure must not block the issue creation response.
-	if s.mentionSvc != nil && req.Body != "" {
+	if s.mentionSvc != nil && req.Body != "" && kind != "chat" {
 		authorID := pgtype.Int8{Int64: actor.ID, Valid: true}
 		issueID := pgtype.Int8{Int64: created.ID, Valid: true}
 		subject := fmt.Sprintf("mentioned you in issue #%d", created.Number)
@@ -415,7 +468,7 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 	}
 
 	// Notify repository watchers about the new issue. Errors are non-fatal.
-	if s.notifSvc != nil {
+	if s.notifSvc != nil && kind != "chat" {
 		subject := fmt.Sprintf("New issue: %s (#%d)", created.Title, created.Number)
 		s.notifSvc.NotifyWatchers(ctx, repository.ID, "issue", created.ID, subject, created.Body)
 	}
@@ -434,6 +487,9 @@ func (s *IssueService) GetIssue(ctx context.Context, viewer *db.User, owner, rep
 
 	issue, err := s.getIssueByNumber(ctx, repository.ID, number)
 	if err != nil {
+		return IssueResponse{}, err
+	}
+	if err := requireIssueVisibility(issue, viewer); err != nil {
 		return IssueResponse{}, err
 	}
 	return s.mapIssue(ctx, issue)
@@ -457,6 +513,9 @@ func (s *IssueService) UpdateIssue(ctx context.Context, actor *db.User, owner, r
 		return IssueResponse{}, err
 	}
 
+	if err := requireIssueVisibility(current, actor); err != nil {
+		return IssueResponse{}, err
+	}
 	title := current.Title
 	if req.Title != nil {
 		title = strings.TrimSpace(*req.Title)
@@ -705,7 +764,7 @@ func (s *IssueService) GetIssueComment(ctx context.Context, viewer *db.User, own
 		}
 		return IssueCommentResponse{}, pkgerrors.Internal("failed to get comment").WithCause(err)
 	}
-	if issue.RepositoryID != repository.ID {
+	if issue.RepositoryID != repository.ID || requireIssueVisibility(issue, viewer) != nil {
 		return IssueCommentResponse{}, pkgerrors.NotFound("comment not found")
 	}
 
@@ -736,13 +795,33 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, actor *db.User, o
 		return IssueCommentResponse{}, err
 	}
 
-	comment, err := s.queries.CreateIssueComment(ctx, db.CreateIssueCommentParams{
+	if len(req.IdempotencyKey) > 128 {
+		return IssueCommentResponse{}, pkgerrors.BadRequest("message identity is too long")
+	}
+	persona := []byte("{}")
+	if req.Persona != nil {
+		if issue.Kind != "chat" {
+			return IssueCommentResponse{}, pkgerrors.BadRequest("personas require a chat issue")
+		}
+		if err := validateIssuePersona(*req.Persona); err != nil {
+			return IssueCommentResponse{}, err
+		}
+		persona, _ = json.Marshal(req.Persona)
+	}
+	commenter := actor.Username
+	if req.externalCommenter != "" {
+		commenter = req.externalCommenter
+	}
+	comment, err := s.queries.CreateIssueComment(ctx, db.CreateIssueCommentParams{Persona: persona, IdempotencyKey: req.IdempotencyKey,
 		IssueID:   issue.ID,
 		UserID:    pgtype.Int8{Int64: actor.ID, Valid: true},
 		Body:      body,
-		Commenter: actor.Username,
+		Commenter: commenter,
 	})
 	if err != nil {
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return IssueCommentResponse{}, pkgerrors.Conflict("message identity was deleted or has different content")
+		}
 		return IssueCommentResponse{}, pkgerrors.Internal("failed to create issue comment").WithCause(err)
 	}
 
@@ -752,7 +831,7 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, actor *db.User, o
 	_ = s.dispatchIssueCommentEvent(ctx, owner, repository, actor, issue, "created", mapped)
 
 	// Process @mentions in the comment body. Errors are non-fatal.
-	if s.mentionSvc != nil {
+	if s.mentionSvc != nil && issue.Kind != "chat" {
 		authorID := pgtype.Int8{Int64: actor.ID, Valid: true}
 		issueID := pgtype.Int8{Int64: issue.ID, Valid: true}
 		commentID := pgtype.Int8{Int64: comment.ID, Valid: true}
@@ -847,7 +926,7 @@ func (s *IssueService) UpdateIssueComment(ctx context.Context, actor *db.User, o
 		}
 		return IssueCommentResponse{}, pkgerrors.Internal("failed to load issue comment").WithCause(err)
 	}
-	if issue.RepositoryID != repository.ID {
+	if issue.RepositoryID != repository.ID || requireIssueVisibility(issue, actor) != nil {
 		return IssueCommentResponse{}, pkgerrors.NotFound("issue comment not found")
 	}
 
@@ -887,7 +966,7 @@ func (s *IssueService) DeleteIssueComment(ctx context.Context, actor *db.User, o
 		}
 		return pkgerrors.Internal("failed to load issue comment").WithCause(err)
 	}
-	if issue.RepositoryID != repository.ID {
+	if issue.RepositoryID != repository.ID || requireIssueVisibility(issue, actor) != nil {
 		return pkgerrors.NotFound("issue comment not found")
 	}
 
@@ -924,6 +1003,9 @@ func (s *IssueService) resolveReadableIssue(ctx context.Context, viewer *db.User
 	if err != nil {
 		return db.Repository{}, db.Issue{}, err
 	}
+	if err := requireIssueVisibility(issue, viewer); err != nil {
+		return db.Repository{}, db.Issue{}, err
+	}
 	return repository, issue, nil
 }
 
@@ -937,6 +1019,9 @@ func (s *IssueService) resolveWritableIssue(ctx context.Context, actor *db.User,
 	}
 	issue, err := s.getIssueByNumber(ctx, repository.ID, number)
 	if err != nil {
+		return db.Repository{}, db.Issue{}, err
+	}
+	if err := requireIssueVisibility(issue, actor); err != nil {
 		return db.Repository{}, db.Issue{}, err
 	}
 	return repository, issue, nil
@@ -1026,42 +1111,50 @@ func (s *IssueService) mapIssue(ctx context.Context, issue db.Issue) (IssueRespo
 	}
 
 	return IssueResponse{
-		ID:            issue.ID,
-		Number:        issue.Number,
-		Title:         issue.Title,
-		Body:          issue.Body,
-		State:         issue.State,
-		Author:        IssueUserSummary{ID: author.ID, Login: author.Username},
-		Assignees:     assignees,
-		Labels:        labels,
-		Linear:        linear,
-		MilestoneID:   milestoneID,
-		CommentCount:  issue.CommentCount,
-		ClosedAt:      issue.ClosedAt,
-		FixedBy:       fixedBy,
-		FixedAt:       issue.FixedAt,
-		VerifiedBy:    verifiedBy,
-		VerifiedAt:    issue.VerifiedAt,
-		LinkedChanges: linkedChanges,
-		CreatedAt:     issue.CreatedAt,
-		UpdatedAt:     issue.UpdatedAt,
+		IdempotencyKey: issue.IdempotencyKey,
+		Kind:           issue.Kind,
+		Visibility:     issueVisibility(issue),
+		ID:             issue.ID,
+		Number:         issue.Number,
+		Title:          issue.Title,
+		Body:           issue.Body,
+		State:          issue.State,
+		Author:         IssueUserSummary{ID: author.ID, Login: author.Username},
+		Assignees:      assignees,
+		Labels:         labels,
+		Linear:         linear,
+		MilestoneID:    milestoneID,
+		CommentCount:   issue.CommentCount,
+		ClosedAt:       issue.ClosedAt,
+		FixedBy:        fixedBy,
+		FixedAt:        issue.FixedAt,
+		VerifiedBy:     verifiedBy,
+		VerifiedAt:     issue.VerifiedAt,
+		LinkedChanges:  linkedChanges,
+		CreatedAt:      issue.CreatedAt,
+		UpdatedAt:      issue.UpdatedAt,
 	}, nil
 }
 
 func mapIssueComment(comment db.IssueComment) IssueCommentResponse {
 	return IssueCommentResponse{
-		ID:        comment.ID,
-		IssueID:   comment.IssueID,
-		UserID:    comment.UserID.Int64,
-		Commenter: comment.Commenter,
-		Body:      comment.Body,
-		Type:      comment.Type,
-		CreatedAt: comment.CreatedAt,
-		UpdatedAt: comment.UpdatedAt,
+		IdempotencyKey: comment.IdempotencyKey,
+		Persona:        comment.Persona,
+		ID:             comment.ID,
+		IssueID:        comment.IssueID,
+		UserID:         comment.UserID.Int64,
+		Commenter:      comment.Commenter,
+		Body:           comment.Body,
+		Type:           comment.Type,
+		CreatedAt:      comment.CreatedAt,
+		UpdatedAt:      comment.UpdatedAt,
 	}
 }
 
 func (s *IssueService) dispatchIssueEvent(ctx context.Context, owner string, repository db.Repository, actor *db.User, action string, issue IssueResponse) error {
+	if issue.Kind == "chat" {
+		return nil
+	}
 	sender := issueSenderPayload(actor)
 	repositoryPayload := issueRepositoryPayload(owner, repository)
 
@@ -1138,6 +1231,9 @@ func issueLabelsToWorkflowInputsFromPayload(labels []webhooks.IssueLabelPayload)
 }
 
 func (s *IssueService) dispatchIssueCommentEvent(ctx context.Context, owner string, repository db.Repository, actor *db.User, issue db.Issue, action string, comment IssueCommentResponse) error {
+	if issue.Kind == "chat" {
+		return nil
+	}
 	sender := issueSenderPayload(actor)
 	repositoryPayload := issueRepositoryPayload(owner, repository)
 	issuePayload := s.issuePayloadForDispatch(ctx, issue)
@@ -1594,4 +1690,28 @@ func (s *IssueService) canReadRepo(ctx context.Context, repository db.Repository
 
 func (s *IssueService) canWriteRepo(ctx context.Context, repository db.Repository, userID int64) (bool, error) {
 	return canWriteRepo(ctx, s.queries, repository, userID)
+}
+
+// Chat privacy is independent of repository visibility and collaborator grants.
+func requireIssueVisibility(issue db.Issue, viewer *db.User) error {
+	if issue.Kind == "chat" && (viewer == nil || viewer.ID != issue.AuthorID) {
+		return pkgerrors.NotFound("issue not found")
+	}
+	return nil
+}
+func issueVisibility(issue db.Issue) string {
+	if issue.Kind == "chat" {
+		return "private"
+	}
+	return "repository"
+}
+
+var issuePersonaEmoji = regexp.MustCompile(`^:[a-z0-9_+'\-]{1,100}:$`)
+var issuePersonaURL = regexp.MustCompile(`^https://\S+$`)
+
+func validateIssuePersona(p IssuePersona) error {
+	if strings.TrimSpace(p.Username) == "" || utf8.RuneCountInString(p.Username) > 80 || (p.IconEmoji != "" && p.IconURL != "") || (p.IconURL != "" && (len(p.IconURL) > 2008 || !issuePersonaURL.MatchString(p.IconURL))) || (p.IconEmoji != "" && !issuePersonaEmoji.MatchString(p.IconEmoji)) {
+		return pkgerrors.BadRequest("invalid persona")
+	}
+	return nil
 }

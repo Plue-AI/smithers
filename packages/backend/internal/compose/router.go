@@ -1254,6 +1254,16 @@ func buildRouter(
 
 				// Ticket 12: Issue routes — gated by feature_flags.issues.
 				r.With(append(writeRepo, gateIssues)...).Post("/issues", issueHandler.CreateIssue)
+				r.With(append(writeRepo, gateIssues)...).Put("/issues/{number}/comments/{comment}/reactions", issueHandler.IssueReaction)
+				r.With(append(readRepo, gateIssues)...).Get("/issues/{number}/comments/{comment}/reactions", issueHandler.IssueReaction)
+				r.With(append(writeRepo, gateIssues)...).Put("/issues/{number}/sync", issueHandler.IssueSync)
+				r.With(append(readRepo, gateIssues)...).Get("/issues/{number}/sync", issueHandler.IssueSync)
+				r.With(append(writeRepo, gateIssues)...).Put("/issues/sync/channels", issueHandler.IssueSyncChannel)
+				r.With(append(writeRepo, gateIssues)...).Post("/issues/sync/events", issueHandler.IssueSyncEvent)
+				r.With(append(writeRepo, gateIssues)...).Get("/issues/sync/deliveries", issueHandler.IssueSyncDeliveries)
+				r.With(append(writeRepo, gateIssues)...).Post("/issues/sync/deliveries/{id}", issueHandler.IssueSyncReceipt)
+				r.With(append(writeRepo, gateIssues)...).Put("/issues/sync/deliveries/{id}", issueHandler.IssueSyncReceipt)
+
 				r.With(append(writeRepo, gateIssues)...).Patch("/issues/{number}", issueHandler.PatchIssue)
 				r.With(append(writeRepo, gateIssues)...).Post("/issues/{number}/linear-link", issueHandler.PostLinearIssueLink)
 				r.With(append(writeRepo, gateIssues)...).Delete("/issues/{number}/linear-link", issueHandler.DeleteLinearIssueLink)
