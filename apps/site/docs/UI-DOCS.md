@@ -71,6 +71,27 @@ Review every image before publishing it. Keep real account details, private
 source, credentials, and nonpublic project activity out of screenshots. Do not
 replace product screenshots with generated mockups.
 
+## Tutorial captures
+
+The tutorials under `src/content/docs/docs/learn/` show GUI and TUI captures
+from `public/images/learn/`. Re-capture them all with one command:
+
+```sh
+pnpm --filter smithers-app run build:web
+pnpm --filter @smithers/site run capture:learn
+```
+
+`app-*` images come from the real app server and built SPA, offline, with a
+scripted model reply (`scripts/journeys/app-host.mjs`). `tui-*` images come
+from the TUI docs recorder, which drives the production TUI with deterministic
+replies. `preview-*` images are design previews of unreleased screens rendered
+from fixture data; use them only beside a Planned or Partly available marker,
+captioned as a preview, and replace them once the screen ships
+(`capture:learn previews <dir>`). `captures.json` records each image's source
+and revision. The journeys live in `scripts/journeys/journeys.mjs`. Where no
+real capture exists yet, a page carries a `:::note[Capture needed]` naming the
+capture and what it waits on.
+
 ## Verify a docs change
 
 From the repository root:

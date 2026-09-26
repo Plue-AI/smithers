@@ -1,0 +1,122 @@
+{
+  "app-chat.gif": {
+    "source": "app",
+    "detail": "The app on a local offline host. The reply comes from a scripted test model, not a live model.",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "app-chat.png": {
+    "source": "app",
+    "detail": "The app on a local offline host. The reply comes from a scripted test model, not a live model.",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "preview-agents.png": {
+    "source": "preview",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2113).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "preview-chat-thread.png": {
+    "source": "preview",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2105).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "preview-inbox.png": {
+    "source": "preview",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "preview-integrations.png": {
+    "source": "preview",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2116).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "preview-run-steps.png": {
+    "source": "preview",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114, #2115).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "preview-threads.png": {
+    "source": "preview",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2112).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-composer.gif": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture basic).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-composer.png": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture basic).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-custom-agent.gif": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; fixture review agent (apps/tui-docs fixture agents).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-custom-agent.png": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; fixture review agent (apps/tui-docs fixture agents).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-flow-approval.gif": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; fixture flow asking for each capability (apps/tui-docs fixture flow-approval).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-flow-approval.png": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; fixture flow asking for each capability (apps/tui-docs fixture flow-approval).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-queue.gif": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture slow).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-queue.png": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture slow).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-run-flow.gif": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; fixture flows (apps/tui-docs fixture flows).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-run-flow.png": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; fixture flows (apps/tui-docs fixture flows).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-timeline.gif": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture fix-add).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  },
+  "tui-timeline.png": {
+    "source": "tui",
+    "detail": "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture fix-add).",
+    "revision": "1c831a6974",
+    "captured": "2026-09-26"
+  }
+}

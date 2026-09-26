@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build && node scripts/check-built-site.mjs",
+    "capture:learn": "node scripts/journeys/capture.mjs",
     "check": "astro check",
     "preview": "astro preview",
     "sync:docs": "node scripts/sync-support-docs.mjs && node scripts/gen-cli-data.mjs && node scripts/sync-api-docs.mjs && node scripts/ingest-reference.mjs && node scripts/gen-examples.mjs && node scripts/generate-llms.mjs",
