@@ -117,6 +117,8 @@ interface LiveIndexes {
 
 export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): SearchSeam => {
   const now = deps.now ?? (() => Date.now())
+  // Each human search replaces one card. Agent answers do not claim that card.
+  const latest = new Map<string, symbol>()
   const cards = (): ReadonlyArray<Card> => [...ctx.store.collections.cards.values()].sort((left, right) => left.ordinal - right.ordinal)
 
   /* ---- the indexes, each from a seam's own rows ---- */
@@ -482,6 +484,9 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
   const search: SearchSeam["search"] = async (flow, mode, args) => {
     const current = captureCloudOwner(ctx, false)
     if (!current()) return SIGN_OUT_REFUSAL
+    const actor = ctx.actor()
+    const request = Symbol()
+    if (actor !== "smithers") latest.set(flow, request)
     const live = await liveIndexes(mode, args)
     if (!current()) return SIGN_OUT_REFUSAL
     if (typeof live === "string") return live
@@ -501,7 +506,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     const registered = entries()
     const items = rank(pool, query).flatMap((group) => group.items.map((row) => row.item)).slice(0, limit).map((fact) => withActions(registered, fact))
     const value = itemsValue(flow, args.query, items)
-    if (ctx.actor() === "smithers") return { value }
+    if (actor === "smithers" || latest.get(flow) !== request) return { value }
     const id = `search-${flow}`
     const existing = ctx.store.collections.cards.get(id)
     const card: Card = {
@@ -513,7 +518,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       ordinal: ctx.nextOrdinal(),
       payload: { query: args.query, flow, ...(args.query === "" ? {} : { args: args.query }), items: [...items] }
     }
-    ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card })
+    ctx.dispatch({ type: "card.upsert", actor, card })
     return { value }
   }
 

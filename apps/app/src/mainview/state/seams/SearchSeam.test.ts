@@ -670,3 +670,128 @@ test("retirement between search stages starts no factory read, and disposal star
     expect(reads).toBe(0)
   } finally { await controller.dispose(); await store.dispose?.() }
 })
+
+for (const mode of ["secrets", "targets"] as const) {
+  test(`a slow ${mode} query cannot replace a newer search card`, async () => {
+    const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
+    let reads = 0
+    const payload = mode === "secrets"
+      ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
+      : { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
+    const { store, controller } = await ready({ fetchImpl: async input => {
+      if (!String(input).includes("/api/repos/search/private/")) return json(404, {})
+      if (++reads === 1) { entered.resolve(); return reply.promise }
+      return json(200, payload)
+    } }, "signed-in")
+    try {
+      const old = controller.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
+      await entered.promise
+      const query = mode === "secrets" ? "token" : "flow"
+      await controller.search(`search.${mode}`, mode, { query, repo: "search/private" })
+      const before = await store.eventHistory()
+      reply.resolve(json(200, payload))
+      expect(typeof await old).toBe("object")
+      const result = store.collections.cards.get(`search-search.${mode}`)
+      expect(result?.kind).toBe("search-results")
+      if (result?.kind === "search-results") expect(result.payload.query).toBe(query)
+      expect((await store.eventHistory()).head).toEqual(before.head)
+    } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+  })
+}
+
+for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
+  test(`three search reads settling ${order.join(",")} publish only the latest request`, async () => {
+    const gates = Array.from({ length: 3 }, () => Promise.withResolvers<Response>())
+    const entered = Array.from({ length: 3 }, () => Promise.withResolvers<void>())
+    let reads = 0
+    const { store, controller } = await ready({ fetchImpl: async input => {
+      if (!String(input).endsWith("/api/repos/search/private/agent-environment")) return json(404, {})
+      const index = reads++; entered[index]!.resolve(); return gates[index]!.promise
+    } }, "signed-in")
+    try {
+      const pending = []
+      for (let i = 0; i < 3; i++) {
+        pending.push(controller.search("search.secrets", "secrets", { query: String(i), repo: "search/private" }))
+        await entered[i]!.promise
+      }
+      const before = await store.eventHistory()
+      for (const index of order) {
+        gates[index]!.resolve(json(200, { setup_script: "", env: [], secrets: [] }))
+        expect(typeof await pending[index]).toBe("object")
+        const card = store.collections.cards.get("search-search.secrets")
+        if (card?.kind === "search-results") expect(card.payload.query).toBe("2")
+        else expect(order.indexOf(index)).toBeLessThan(order.indexOf(2))
+      }
+      expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
+    } finally { for (const gate of gates) gate.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+  })
+}
+
+test("a failed newer query does not let an older read publish, and another mode stays independent", async () => {
+  const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
+  let reads = 0
+  const { store, controller } = await ready({ fetchImpl: async input => {
+    if (!String(input).endsWith("/api/repos/search/private/agent-environment")) return json(404, {})
+    if (++reads === 1) { entered.resolve(); return reply.promise }
+    return json(503, { message: "Unavailable" })
+  } }, "signed-in")
+  try {
+    const pending = controller.search("search.secrets", "secrets", { query: "old", repo: "search/private" })
+    await entered.promise
+    expect(typeof await controller.search("search.secrets", "secrets", { query: "new", repo: "search/private" })).toBe("string")
+    await controller.search("search.flows", "flows", { query: "workspace" })
+    const before = await store.eventHistory()
+    reply.resolve(json(200, { setup_script: "", env: [], secrets: [] }))
+    await pending
+    expect(store.collections.cards.has("search-search.secrets")).toBe(false)
+    expect(store.collections.cards.has("search-search.flows")).toBe(true)
+    expect((await store.eventHistory()).head).toEqual(before.head)
+  } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+})
+
+for (const actors of [["user", "smithers"], ["smithers", "user"], ["smithers", "smithers"]] as const) {
+  test(`${actors.join(" then ")} searches retain independent answers and the human card`, async () => {
+    const { createSearchSeam } = await import("./SearchSeam")
+    const { createActorBindings } = await import("../ActorBindings")
+    const { store, controller } = await ready(backend({}), "signed-in")
+    const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
+    const payload = { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: [], match_headers: [], updated_at: null }] }
+    let reads = 0
+    const bindings = createActorBindings(() => {})
+    const seam = bindings.pair({ store, baseUrl: "", actor: () => "user" as const, dispatch: store.dispatch, nextOrdinal: store.nextOrdinal,
+      http: async () => { if (++reads === 1) { entered.resolve(); return reply.promise }; return json(200, payload) }
+    }, ctx => createSearchSeam(ctx, { registry: () => controller.commands }))
+    const search = (actor: "user" | "smithers", query: string) => (actor === "user" ? seam.search : bindings.select(seam.search))("search.secrets", "secrets", { query, repo: "search/private" })
+    try {
+      const old = search(actors[0], "private")
+      await entered.promise
+      const newer = await search(actors[1], "token")
+      reply.resolve(json(200, payload))
+      const older = await old
+      for (const result of [older, newer]) expect(JSON.stringify(result)).toContain("PRIVATE_TOKEN")
+      const card = store.collections.cards.get("search-search.secrets")
+      if (actors[0] === "smithers" && actors[1] === "smithers") expect(card).toBeUndefined()
+      else {
+        expect(card?.kind).toBe("search-results")
+        if (card?.kind === "search-results") expect(card.payload.query).toBe(actors[0] === "user" ? "private" : "token")
+      }
+    } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+  })
+}
+
+test("searching another mode does not retire a pending results card", async () => {
+  const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
+  const { store, controller } = await ready({ fetchImpl: async input => {
+    if (!String(input).endsWith("/api/repos/search/private/agent-environment")) return json(404, {})
+    entered.resolve(); return reply.promise
+  } }, "signed-in")
+  try {
+    const pending = controller.search("search.secrets", "secrets", { query: "token", repo: "search/private" })
+    await entered.promise
+    await controller.search("search.flows", "flows", { query: "workspace" })
+    reply.resolve(json(200, { setup_script: "", env: [], secrets: [] }))
+    await pending
+    expect(store.collections.cards.has("search-search.secrets")).toBe(true)
+    expect(store.collections.cards.has("search-search.flows")).toBe(true)
+  } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+})
