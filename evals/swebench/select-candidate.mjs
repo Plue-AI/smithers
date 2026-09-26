@@ -65,9 +65,9 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import * as Sufficiency from "../../packages/smithers/agent/harness/src/Sufficiency.ts"
 import * as UnmovedTree from "../../packages/smithers/agent/harness/src/UnmovedTree.ts"
 import * as UnresolvedFailure from "../../packages/smithers/agent/harness/src/UnresolvedFailure.ts"
-import * as Sufficiency from "../../packages/smithers/agent/harness/src/Sufficiency.ts"
 import { read } from "./lib/journal-facts.mjs"
 import { usd } from "./prices.ts"
 

@@ -13,9 +13,12 @@ import { parseArgs } from "node:util"
 import * as RequestExecutor from "../../../packages/smithers/agent/model/src/RequestExecutor.ts"
 import * as Config from "../../../packages/smithers/agent/organization/src/Config.ts"
 import type * as Workspace from "../../../packages/smithers/agent/organization/src/Workspace.ts"
+import * as GitHub from "../github.ts"
 import { installationOf, parseRepository } from "../settings.ts"
+import * as Wiki from "../wiki.ts"
 import { type BaseCheck, baseLines, installationMachines } from "./base.ts"
 import { bootProbe, type Install, locate, msb, type Probe, sdkOf } from "./microsandbox.ts"
+import * as NodeResolve from "./node.ts"
 import {
   absolute,
   checkoutRoot,
@@ -30,12 +33,9 @@ import {
   withEnvFile,
   workspaceGrants
 } from "./settings.ts"
-import * as NodeResolve from "./node.ts"
 import * as Subscriptions from "./subscriptions.ts"
 import { modelSeats, reactionScopes, teamChannelScopes } from "./templates.ts"
 import { atLeast } from "./version.ts"
-import * as Wiki from "../wiki.ts"
-import * as GitHub from "../github.ts"
 
 export type Status = "pass" | "fail" | "skip"
 
@@ -108,7 +108,11 @@ const microsandboxLine = (install: Install | undefined): Line => {
   const version = msb(install, ["--version"])
   return version.status === 0
     ? pass("microsandbox", `SDK ${install.version}, CLI ${version.stdout.trim()}`)
-    : fail("microsandbox", `the bundled msb CLI did not run: ${version.stderr.trim().split("\n")[0] ?? ""}`, `pnpm -C ${checkoutRoot} install`)
+    : fail(
+      "microsandbox",
+      `the bundled msb CLI did not run: ${version.stderr.trim().split("\n")[0] ?? ""}`,
+      `pnpm -C ${checkoutRoot} install`
+    )
 }
 
 /** The host's hardware virtualization, read the way the microVM tests gate on it. */
@@ -131,7 +135,11 @@ export const hypervisorLine = (platform: NodeJS.Platform): Line => {
       return fail("hypervisor", "/dev/kvm is not readable and writable", "sudo usermod -aG kvm $USER && newgrp kvm")
     }
   }
-  return fail("hypervisor", `microsandbox has no hypervisor on ${platform}`, "run on macOS (Apple silicon) or Linux with KVM")
+  return fail(
+    "hypervisor",
+    `microsandbox has no hypervisor on ${platform}`,
+    "run on macOS (Apple silicon) or Linux with KVM"
+  )
 }
 
 const organizationLine = async (root: string): Promise<[Line, Organization | undefined]> => {
@@ -143,7 +151,10 @@ const organizationLine = async (root: string): Promise<[Line, Organization | und
     const { snapshot, loaded } = organization
     const current = [...snapshot.roster.profiles.values()].filter((profile) => profile.status !== "retired")
     const hires = current.filter((profile) => profile.kind !== "core").length
-    const detail = `${current.length - hires} roles, ${hires === 0 ? "" : `${hires} hired, `}${snapshot.skills.skills.size} skills, ` +
+    const detail =
+      `${current.length - hires} roles, ${
+        hires === 0 ? "" : `${hires} hired, `
+      }${snapshot.skills.skills.size} skills, ` +
       `${loaded.policy.gates.length} gates (${snapshot.revision.slice(0, 12)})`
     return [pass("org", detail), organization]
   } catch (error) {
@@ -160,8 +171,12 @@ const imageLine = (
   if (organization === undefined) return [fail("image", "no organization loaded", "fix the org line first"), undefined]
   const image = organization.loaded.organization.vm.image
   const page = "Org/Organization.md"
-  if (image === null) return [fail("image", `vm.image is unset in ${page}`, `set vm.image: node:26-bookworm in ${page}`), undefined]
-  if (install === undefined) return [fail("image", `${image}: no microsandbox`, "fix the microsandbox line first"), image]
+  if (image === null) {
+    return [fail("image", `vm.image is unset in ${page}`, `set vm.image: node:26-bookworm in ${page}`), undefined]
+  }
+  if (install === undefined) {
+    return [fail("image", `${image}: no microsandbox`, "fix the microsandbox line first"), image]
+  }
   if (msb(install, ["image", "inspect", image]).status === 0) return [pass("image", `${image} is cached`), image]
   progress(`pulling ${image}…`)
   const pulled = msb(install, ["pull", image], 900_000)
@@ -175,7 +190,11 @@ const jjLine = (binary: string): Line => {
   const probed = spawnSync(binary, ["--version"], { encoding: "utf8", timeout: 10_000 })
   return probed.status === 0
     ? pass("jj", probed.stdout.trim())
-    : fail("jj", `${binary} --version did not run`, "install jj (https://jj-vcs.github.io/jj/latest/install-and-setup/) onto PATH")
+    : fail(
+      "jj",
+      `${binary} --version did not run`,
+      "install jj (https://jj-vcs.github.io/jj/latest/install-and-setup/) onto PATH"
+    )
 }
 
 const helperLine = (checkout: string, env: DoctorOptions["env"]): Line => {
@@ -227,7 +246,10 @@ const seatsLine = async (
     ...(providers.has("openai") ? [`ChatGPT login ${Subscriptions.chatgptLogin(env)}`] : []),
     ...(providers.has("anthropic") ? ["Claude subscription"] : [])
   ]
-  return pass("seats", `${seats.join(", ")} resolve on subscriptions${logins.length === 0 ? "" : ` (${logins.join(", ")})`}`)
+  return pass(
+    "seats",
+    `${seats.join(", ")} resolve on subscriptions${logins.length === 0 ? "" : ` (${logins.join(", ")})`}`
+  )
 }
 
 interface SlackAnswer {
@@ -252,7 +274,9 @@ const slackCall = async (
   if (!response.ok) return { ok: false, error: `HTTP ${response.status}` }
   const header = response.headers.get("x-oauth-scopes")
   const answer = await response.json() as SlackAnswer
-  return header === null ? answer : { ...answer, scopes: header.split(",").map((scope) => scope.trim()).filter((scope) => scope !== "") }
+  return header === null
+    ? answer
+    : { ...answer, scopes: header.split(",").map((scope) => scope.trim()).filter((scope) => scope !== "") }
 }
 
 const slackLines = async (env: DoctorOptions["env"], fetcher: Fetch): Promise<Array<Line>> => {
@@ -262,61 +286,123 @@ const slackLines = async (env: DoctorOptions["env"], fetcher: Fetch): Promise<Ar
   }
   const fix = "copy the token from the Slack app settings into the .env file doctor read"
   if (bot === undefined || !bot.startsWith("xoxb-")) {
-    return [fail("slack", "SMITHERS_SLACK_BOT_TOKEN is missing or not a bot token (xoxb-)", fix), skip("slack socket", "no bot token")]
+    return [
+      fail("slack", "SMITHERS_SLACK_BOT_TOKEN is missing or not a bot token (xoxb-)", fix),
+      skip("slack socket", "no bot token")
+    ]
   }
   if (app === undefined || !app.startsWith("xapp-")) {
-    return [fail("slack", "SMITHERS_SLACK_APP_TOKEN is missing or not an app-level token (xapp-)", fix), skip("slack socket", "no app token")]
+    return [
+      fail("slack", "SMITHERS_SLACK_APP_TOKEN is missing or not an app-level token (xapp-)", fix),
+      skip("slack socket", "no app token")
+    ]
   }
   if (list(env.SMITHERS_SLACK_USER_IDS).length === 0 && list(env.SMITHERS_SLACK_CHANNEL_IDS).length === 0) {
-    return [fail("slack", "SMITHERS_SLACK_USER_IDS is empty", "set it to your Slack member id (profile > ... > Copy member ID)"), skip("slack socket", "no owner")]
+    return [
+      fail(
+        "slack",
+        "SMITHERS_SLACK_USER_IDS is empty",
+        "set it to your Slack member id (profile > ... > Copy member ID)"
+      ),
+      skip("slack socket", "no owner")
+    ]
   }
   const teams = list(env.SMITHERS_SLACK_TEAM_IDS)
   const base = (nonEmpty(env.SMITHERS_SLACK_API_BASE_URL) ?? "https://slack.com/api").replace(/\/+$/, "")
   const lines: Array<Line> = []
   try {
     const auth = await slackCall(fetcher, base, "auth.test", bot)
-    if (!auth.ok) lines.push(fail("slack", `auth.test: ${auth.error ?? "refused"}`, "reinstall the app and copy the new bot token"))
-    else if (auth.team_id === undefined || !teams.includes(auth.team_id)) {
+    if (!auth.ok) {
+      lines.push(fail("slack", `auth.test: ${auth.error ?? "refused"}`, "reinstall the app and copy the new bot token"))
+    } else if (auth.team_id === undefined || !teams.includes(auth.team_id)) {
       // The workspace id comes from Slack itself, so the fix is exact.
       const team = auth.team_id ?? "?"
-      const detail = teams.length === 0 ? `SMITHERS_SLACK_TEAM_IDS is empty; auth.test team is ${team}` : `auth.test team ${team} is not in SMITHERS_SLACK_TEAM_IDS`
+      const detail = teams.length === 0
+        ? `SMITHERS_SLACK_TEAM_IDS is empty; auth.test team is ${team}`
+        : `auth.test team ${team} is not in SMITHERS_SLACK_TEAM_IDS`
       lines.push(fail("slack", detail, `set SMITHERS_SLACK_TEAM_IDS=${team}`))
     } else {
       lines.push(pass("slack", `auth.test ok (team ${auth.team_id})`))
       // The team channel needs scopes an app installed from an older manifest lacks.
-      const missing = auth.scopes === undefined ? [] : teamChannelScopes.filter((scope) => !auth.scopes!.includes(scope))
-      lines.push(missing.length === 0
-        ? pass("slack team", `#${nonEmpty(env.SMITHERS_SLACK_TEAM_CHANNEL) ?? "smithers-team"}`)
-        : fail("slack team", `missing scopes ${missing.join(", ")}; the team channel is the wiki log until then`, "reinstall the app from the updated manifest"))
-      const unreacting = auth.scopes === undefined ? [] : reactionScopes.filter((scope) => !auth.scopes!.includes(scope))
-      lines.push(unreacting.length === 0
-        ? pass("slack reactions", "acknowledges with reactions")
-        : fail("slack reactions", `missing scope ${unreacting.join(", ")}; acknowledgements are posted as text until then`, "reinstall the app from the updated manifest"))
+      const missing = auth.scopes === undefined
+        ? []
+        : teamChannelScopes.filter((scope) => !auth.scopes!.includes(scope))
+      lines.push(
+        missing.length === 0
+          ? pass("slack team", `#${nonEmpty(env.SMITHERS_SLACK_TEAM_CHANNEL) ?? "smithers-team"}`)
+          : fail(
+            "slack team",
+            `missing scopes ${missing.join(", ")}; the team channel is the wiki log until then`,
+            "reinstall the app from the updated manifest"
+          )
+      )
+      const unreacting = auth.scopes === undefined
+        ? []
+        : reactionScopes.filter((scope) => !auth.scopes!.includes(scope))
+      lines.push(
+        unreacting.length === 0
+          ? pass("slack reactions", "acknowledges with reactions")
+          : fail(
+            "slack reactions",
+            `missing scope ${unreacting.join(", ")}; acknowledgements are posted as text until then`,
+            "reinstall the app from the updated manifest"
+          )
+      )
     }
   } catch (error) {
-    lines.push(fail("slack", `auth.test: ${error instanceof Error ? error.message : String(error)}`, "check the network and rerun doctor"))
+    lines.push(
+      fail(
+        "slack",
+        `auth.test: ${error instanceof Error ? error.message : String(error)}`,
+        "check the network and rerun doctor"
+      )
+    )
   }
   try {
     const socket = await slackCall(fetcher, base, "apps.connections.open", app)
-    lines.push(socket.ok
-      ? pass("slack socket", "apps.connections.open ok")
-      : fail("slack socket", `apps.connections.open: ${socket.error ?? "refused"}`, "enable Socket Mode and create an app-level token with connections:write"))
+    lines.push(
+      socket.ok
+        ? pass("slack socket", "apps.connections.open ok")
+        : fail(
+          "slack socket",
+          `apps.connections.open: ${socket.error ?? "refused"}`,
+          "enable Socket Mode and create an app-level token with connections:write"
+        )
+    )
   } catch (error) {
-    lines.push(fail("slack socket", `apps.connections.open: ${error instanceof Error ? error.message : String(error)}`, "check the network and rerun doctor"))
+    lines.push(
+      fail(
+        "slack socket",
+        `apps.connections.open: ${error instanceof Error ? error.message : String(error)}`,
+        "check the network and rerun doctor"
+      )
+    )
   }
   return lines
 }
 
-const repoLines = (entries: ReadonlyArray<string>, cwd: string, organization: Organization | undefined): Array<Line> => {
+const repoLines = (
+  entries: ReadonlyArray<string>,
+  cwd: string,
+  organization: Organization | undefined
+): Array<Line> => {
   const granted = organization === undefined ? new Map<string, Array<string>>() : workspaceGrants(organization)
   const suggested = granted.size === 1 ? [...granted.keys()][0]! : "<name>"
   if (entries.length === 0) {
-    return [fail("repo", "no repository configured", `set SMITHERS_ORG_REPOS=${suggested}=<path> in the .env file, or pass --repo`)]
+    return [
+      fail(
+        "repo",
+        "no repository configured",
+        `set SMITHERS_ORG_REPOS=${suggested}=<path> in the .env file, or pass --repo`
+      )
+    ]
   }
   return entries.map((entry) => {
     const [name, repo] = parseRepository(cwd, entry)
     const top = spawnSync("git", ["-C", repo, "rev-parse", "--show-toplevel"], { encoding: "utf8" })
-    if (top.status !== 0) return fail("repo", `${repo} is not a git repository`, `git -C ${repo} init, or fix SMITHERS_ORG_REPOS`)
+    if (top.status !== 0) {
+      return fail("repo", `${repo} is not a git repository`, `git -C ${repo} init, or fix SMITHERS_ORG_REPOS`)
+    }
     const head = spawnSync("git", ["-C", repo, "rev-parse", "--verify", "--quiet", "HEAD"], { encoding: "utf8" })
     if (head.status !== 0) return fail("repo", `${repo} has no commit`, `git -C ${repo} commit --allow-empty -m init`)
     // A name no workspace role is granted blocks every delivery at assignment.
@@ -327,10 +413,15 @@ const repoLines = (entries: ReadonlyArray<string>, cwd: string, organization: Or
         `${name} (${repo}) is granted to no active role holding workspace`,
         granted.size === 0
           ? `grant ${name} to a role with workspace in Org/Roles`
-          : `set SMITHERS_ORG_REPOS=${suggested}=${repo}${granted.size > 1 ? ` (granted: ${[...granted.keys()].join(", ")})` : ""}`
+          : `set SMITHERS_ORG_REPOS=${suggested}=${repo}${
+            granted.size > 1 ? ` (granted: ${[...granted.keys()].join(", ")})` : ""
+          }`
       )
     }
-    return pass("repo", `${name} = ${repo} @ ${head.stdout.trim().slice(0, 12)}${roles === undefined ? "" : ` (${roles.join(", ")})`}`)
+    return pass(
+      "repo",
+      `${name} = ${repo} @ ${head.stdout.trim().slice(0, 12)}${roles === undefined ? "" : ` (${roles.join(", ")})`}`
+    )
   })
 }
 
@@ -356,11 +447,26 @@ export const environmentLines = (
       spawnSync("git", ["-C", repo, "cat-file", "-e", `HEAD:${path}`], { stdio: "ignore" }).status !== 0
     )
     if (missing.length > 0) {
-      return [fail("env", `${name}: ${missing.join(", ")} not at HEAD`, `fix repositories.${name}.prepare.key in Org/Organization.md`)]
+      return [
+        fail(
+          "env",
+          `${name}: ${missing.join(", ")} not at HEAD`,
+          `fix repositories.${name}.prepare.key in Org/Organization.md`
+        )
+      ]
     }
-    const prepare = environment.prepare === undefined ? "no prepare" : `prepare ${networkText(environment.prepare.network)}`
+    const prepare = environment.prepare === undefined
+      ? "no prepare"
+      : `prepare ${networkText(environment.prepare.network)}`
     const checks = environment.checks?.length ?? 0
-    return [pass("env", `${name}: ${prepare}; builders ${networkText(environment.network ?? "none")}; ${checks} check${checks === 1 ? "" : "s"}`)]
+    return [
+      pass(
+        "env",
+        `${name}: ${prepare}; builders ${networkText(environment.network ?? "none")}; ${checks} check${
+          checks === 1 ? "" : "s"
+        }`
+      )
+    ]
   })
 }
 
@@ -384,11 +490,19 @@ export const githubLines = async (
     if (page === undefined || (page.landing !== "pr" && page.issues === undefined)) continue
     const github = page.github ?? (/^[^/]+\/[^/]+$/.test(name) ? name : undefined)
     if (github === undefined) {
-      lines.push(fail("github", `${name} names no GitHub repository`, `set repositories.${name}.github: owner/name in Org/Organization.md`))
+      lines.push(
+        fail(
+          "github",
+          `${name} names no GitHub repository`,
+          `set repositories.${name}.github: owner/name in Org/Organization.md`
+        )
+      )
       continue
     }
     if (GitHub.tokenOf(env) === undefined) {
-      lines.push(fail("github", `${github}: no GitHub token`, "gh auth login, or set SMITHERS_GITHUB_TOKEN in the .env file"))
+      lines.push(
+        fail("github", `${github}: no GitHub token`, "gh auth login, or set SMITHERS_GITHUB_TOKEN in the .env file")
+      )
       continue
     }
     const info = await Effect.runPromise(Effect.result(GitHub.repository(GitHub.client(env), github)))
@@ -397,18 +511,37 @@ export const githubLines = async (
       continue
     }
     if (info.success.permissions?.push !== true) {
-      lines.push(fail("github", `${github}: the token may not push or open pull requests`, "gh auth refresh -s repo, as an account with write access"))
+      lines.push(
+        fail(
+          "github",
+          `${github}: the token may not push or open pull requests`,
+          "gh auth refresh -s repo, as an account with write access"
+        )
+      )
       continue
     }
     if (page.landing === "pr") {
       const remote = page.remote ?? "origin"
       const probe = GitHub.canPush(repo, remote)
       if ("error" in probe) {
-        lines.push(fail("github", `${github}: git push to ${remote} refused: ${probe.error}`, `git -C ${repo} push --dry-run ${remote} HEAD:refs/heads/organization/doctor-probe`))
+        lines.push(
+          fail(
+            "github",
+            `${github}: git push to ${remote} refused: ${probe.error}`,
+            `git -C ${repo} push --dry-run ${remote} HEAD:refs/heads/organization/doctor-probe`
+          )
+        )
         continue
       }
     }
-    lines.push(pass("github", `${github}: push and pull requests${page.landing === "pr" ? ` via ${page.remote ?? "origin"}` : ""}${page.issues === undefined ? "" : "; issue intake"}`))
+    lines.push(
+      pass(
+        "github",
+        `${github}: push and pull requests${page.landing === "pr" ? ` via ${page.remote ?? "origin"}` : ""}${
+          page.issues === undefined ? "" : "; issue intake"
+        }`
+      )
+    )
   }
   return lines
 }
@@ -440,14 +573,28 @@ export const doctor = async (options: DoctorOptions): Promise<Array<Line>> => {
   lines.push(hypervisor)
   const [org, organization] = await organizationLine(options.root)
   lines.push(org)
-  const [image, reference] = imageLine(sandbox.status === "pass" ? install : undefined, organization, options.progress ?? (() => {}))
+  const [image, reference] = imageLine(
+    sandbox.status === "pass" ? install : undefined,
+    organization,
+    options.progress ?? (() => {})
+  )
   lines.push(image)
   const blocked = [sandbox, hypervisor, image].find((line) => line.status !== "pass")
   if (blocked !== undefined || reference === undefined) {
-    lines.push(fail("boot", `not attempted: ${blocked?.name ?? "image"} failed`, `fix the ${blocked?.name ?? "image"} line first`))
+    lines.push(
+      fail(
+        "boot",
+        `not attempted: ${blocked?.name ?? "image"} failed`,
+        `fix the ${blocked?.name ?? "image"} line first`
+      )
+    )
   } else {
-    const probed = await (options.probe ?? (async (image: string) => bootProbe(await sdkOf(install!), image)))(reference)
-    lines.push(probed.ok ? pass("boot", probed.detail) : fail("boot", probed.detail, `${install!.cli.join(" ")} doctor`))
+    const probed = await (options.probe ?? (async (image: string) => bootProbe(await sdkOf(install!), image)))(
+      reference
+    )
+    lines.push(
+      probed.ok ? pass("boot", probed.detail) : fail("boot", probed.detail, `${install!.cli.join(" ")} doctor`)
+    )
   }
   lines.push(jjLine(options.jj ?? "jj"))
   lines.push(helperLine(checkout, options.env))
@@ -480,13 +627,15 @@ export const doctor = async (options: DoctorOptions): Promise<Array<Line>> => {
       })
       : undefined
     options.progress?.(`checking ${name}'s base…`)
-    lines.push(...await (options.bases ?? baseLines)({
-      name,
-      repo,
-      environment,
-      machines,
-      key: `doctor-${process.pid}/${name}`
-    }))
+    lines.push(
+      ...await (options.bases ?? baseLines)({
+        name,
+        repo,
+        environment,
+        machines,
+        key: `doctor-${process.pid}/${name}`
+      })
+    )
   }
   // With `wiki.sync: push`, the wiki's upstream exists and takes a push.
   if (organization?.loaded.organization.wiki.sync === "push") {

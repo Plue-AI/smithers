@@ -96,7 +96,9 @@ const argumentItems = (name: string, typed: string, sources: Sources): Array<Sug
 const unsafe = /[\p{Cc}\p{Zl}\p{Zp}]|[^\S ]/gu
 
 const escape = (char: string): string =>
-  JSON.stringify(char).length === 4 ? JSON.stringify(char).slice(1, -1) : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`
+  JSON.stringify(char).length === 4
+    ? JSON.stringify(char).slice(1, -1)
+    : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`
 
 /** `path` for a menu row: control and non-space whitespace characters escaped, Unicode kept readable. */
 export const display = (path: string): string => path.replace(unsafe, escape)
@@ -107,7 +109,9 @@ export const display = (path: string): string => path.replace(unsafe, escape)
  * string, so the mention names exactly one file and Unicode stays readable.
  */
 export const mention = (path: string, line?: number): string =>
-  `@${/[\s"\\\p{Cc}]|:\d+$/u.test(path) ? `"${JSON.stringify(path).slice(1, -1).replace(unsafe, escape)}"` : path}${line === undefined ? "" : `:${line}`} `
+  `@${/[\s"\\\p{Cc}]|:\d+$/u.test(path) ? `"${JSON.stringify(path).slice(1, -1).replace(unsafe, escape)}"` : path}${
+    line === undefined ? "" : `:${line}`
+  } `
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1)
 
@@ -137,7 +141,13 @@ export const complete = (text: string, cursor: number, sources: Sources): Comple
     const typed = before.slice(space + 1)
     const items = argumentItems(name, typed.trimStart(), sources)
     if (items === undefined) return undefined
-    return { kind: "argument", query: `${name} ${typed}`, start: 0, end: cursor + /^\S*/.exec(text.slice(cursor))![0].length, items }
+    return {
+      kind: "argument",
+      query: `${name} ${typed}`,
+      start: 0,
+      end: cursor + /^\S*/.exec(text.slice(cursor))![0].length,
+      items
+    }
   }
   const found = /(^|\s)@(\S*)$/.exec(before)
   if (found === null) return undefined
@@ -160,7 +170,9 @@ export const apply = (
 ): { readonly text: string; readonly cursor: number } => {
   const rest = text.slice(completion.end)
   // The inserted trailing space merges with a space already there.
-  const insert = rest.startsWith(" ") && suggestion.insert.endsWith(" ") ? suggestion.insert.slice(0, -1) : suggestion.insert
+  const insert = rest.startsWith(" ") && suggestion.insert.endsWith(" ")
+    ? suggestion.insert.slice(0, -1)
+    : suggestion.insert
   const cursor = completion.start + insert.length + (insert === suggestion.insert ? 0 : 1)
   return { text: text.slice(0, completion.start) + insert + rest, cursor }
 }

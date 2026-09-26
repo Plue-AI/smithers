@@ -20,10 +20,10 @@
  * hosts' side of it: a page with uncommitted changes the host did not make
  * is refused, so the owner's own work is never overwritten.
  */
+import { Cause, Effect } from "effect"
 import { spawnSync } from "node:child_process"
 import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
-import { Cause, Effect } from "effect"
 import * as Config from "../../packages/smithers/agent/organization/src/Config.ts"
 import type * as RoleHost from "../../packages/smithers/agent/organization/src/RoleHost.ts"
 
@@ -35,17 +35,18 @@ import type * as RoleHost from "../../packages/smithers/agent/organization/src/R
 export const hostPaths = (
   organization: Pick<Config.Organization, "rosterDir" | "wiki" | "autonomy">,
   extra: ReadonlyArray<string> = []
-): ReadonlyArray<string> => [
-  organization.wiki.generatedDir.replace(/\/+$/, ""),
-  `${organization.rosterDir.replace(/\/+$/, "")}/Specialists`,
-  organization.wiki.statusFile,
-  ...(organization.autonomy === undefined ? [] : [
-    organization.autonomy.teamDir ?? "Org/Team",
-    organization.autonomy.proposalsDir ?? "Org/Proposals",
-    organization.autonomy.requestsDir ?? "Org/Requests"
-  ]),
-  ...extra
-].map((path) => path.replace(/\/+$/, ""))
+): ReadonlyArray<string> =>
+  [
+    organization.wiki.generatedDir.replace(/\/+$/, ""),
+    `${organization.rosterDir.replace(/\/+$/, "")}/Specialists`,
+    organization.wiki.statusFile,
+    ...(organization.autonomy === undefined ? [] : [
+      organization.autonomy.teamDir ?? "Org/Team",
+      organization.autonomy.proposalsDir ?? "Org/Proposals",
+      organization.autonomy.requestsDir ?? "Org/Requests"
+    ]),
+    ...extra
+  ].map((path) => path.replace(/\/+$/, ""))
 
 /** One journaled write: the page, and the role that wrote it (absent for the host itself). */
 export interface Written {
@@ -127,7 +128,11 @@ export interface Committed {
 }
 
 const git = (root: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv, timeout?: number) =>
-  spawnSync("git", ["-C", root, ...args], { encoding: "utf8", env: env ?? process.env, ...(timeout === undefined ? {} : { timeout }) })
+  spawnSync("git", ["-C", root, ...args], {
+    encoding: "utf8",
+    env: env ?? process.env,
+    ...(timeout === undefined ? {} : { timeout })
+  })
 
 /** The files under `paths` git reports as changed, untracked ones included. */
 export const changed = (root: string, paths: ReadonlyArray<string>): ReadonlyArray<string> => {
@@ -158,7 +163,13 @@ export const message = (
   const under = (prefix: string | undefined) =>
     prefix === undefined
       ? []
-      : [...new Set(files.filter((file) => file.startsWith(`${prefix}/`)).map((file) => file.slice(prefix.length + 1).split("/")[0]!))]
+      : [
+        ...new Set(
+          files.filter((file) => file.startsWith(`${prefix}/`)).map((file) =>
+            file.slice(prefix.length + 1).split("/")[0]!
+          )
+        )
+      ]
   const runs = under(generated)
   const hires = under(specialists).map((file) => file.replace(/\.md$/, ""))
   const parts = [
@@ -191,7 +202,12 @@ export const commit = (root: string, paths: ReadonlyArray<string>): Committed | 
   if (existsSync(file)) {
     const kept = readJournal(`${file}.committing`)
     renameSync(file, `${file}.committing`)
-    if (kept.length > 0) appendFileSync(`${file}.committing`, kept.map((entry) => `${JSON.stringify(entry)}\n`).join(""))
+    if (kept.length > 0) {
+      appendFileSync(
+        `${file}.committing`,
+        kept.map((entry) => `${JSON.stringify(entry)}\n`).join("")
+      )
+    }
   }
   const journaled = readJournal(`${file}.committing`)
   const all = [...new Set([...paths, ...journaled.map((entry) => entry.path)])]
@@ -201,12 +217,18 @@ export const commit = (root: string, paths: ReadonlyArray<string>): Committed | 
     done()
     return undefined
   }
-  const present = all.filter((path) => existsSync(join(root, path)) || git(root, ["ls-files", "--", path]).stdout !== "")
+  const present = all.filter((path) =>
+    existsSync(join(root, path)) || git(root, ["ls-files", "--", path]).stdout !== ""
+  )
   const env = git(root, ["config", "user.email"]).stdout.trim() === ""
     ? { ...process.env, ...fallbackIdentity }
     : process.env
   const editors = [
-    ...new Set(journaled.flatMap((entry) => entry.principal === undefined || !files.includes(entry.path) ? [] : [entry.principal]))
+    ...new Set(
+      journaled.flatMap((entry) =>
+        entry.principal === undefined || !files.includes(entry.path) ? [] : [entry.principal]
+      )
+    )
   ].sort()
   const text = message(paths, files, editors)
   const add = git(root, ["add", "-A", "--", ...present], env)
@@ -228,7 +250,9 @@ export const commit = (root: string, paths: ReadonlyArray<string>): Committed | 
 export const committedPaths = (root: string): ReadonlyArray<string> | undefined => {
   const file = join(root, Config.defaultOrganizationFile)
   if (!existsSync(file)) return undefined
-  const parsed = Effect.runSync(Effect.result(Config.parseOrganization(Config.defaultOrganizationFile, readFileSync(file, "utf8"))))
+  const parsed = Effect.runSync(
+    Effect.result(Config.parseOrganization(Config.defaultOrganizationFile, readFileSync(file, "utf8")))
+  )
   return parsed._tag === "Success" && parsed.success.wiki.commit ? hostPaths(parsed.success) : undefined
 }
 
@@ -332,7 +356,9 @@ export const sync = (root: string, stateDir: string, now: number = Date.now(), t
       if (rebasing(root)) git(root, ["rebase", "--abort"])
       const restored = restore()
       return conflict(
-        `rebase onto ${tracking} stopped: ${first(rebased)}; local commits kept${restored ? "" : "; uncommitted edits kept in stash@{0}"}`
+        `rebase onto ${tracking} stopped: ${first(rebased)}; local commits kept${
+          restored ? "" : "; uncommitted edits kept in stash@{0}"
+        }`
       )
     }
     if (!restore()) return conflict("uncommitted edits did not apply after the rebase; they are kept in stash@{0}")
@@ -343,7 +369,10 @@ export const sync = (root: string, stateDir: string, now: number = Date.now(), t
     if (pushed.status !== 0) return { status: "failed", message: `git push: ${first(pushed)}` }
   }
   saveSync(stateDir, { syncedAt: now })
-  return { status: "synced", message: ahead > 0 ? `pushed ${ahead} commit(s) to ${tracking}` : `level with ${tracking}` }
+  return {
+    status: "synced",
+    message: ahead > 0 ? `pushed ${ahead} commit(s) to ${tracking}` : `level with ${tracking}`
+  }
 }
 
 /** What a syncing committer needs besides the root and its paths. */
@@ -384,7 +413,9 @@ export const committer = (
     return synced.announce === undefined || syncing.announce === undefined
       ? Effect.void
       : syncing.announce(`Wiki sync conflict: ${synced.announce}`).pipe(
-        Effect.catchCause((cause) => Effect.sync(() => log(`wiki sync conflict could not be posted: ${Cause.pretty(cause)}`)))
+        Effect.catchCause((cause) =>
+          Effect.sync(() => log(`wiki sync conflict could not be posted: ${Cause.pretty(cause)}`))
+        )
       )
   })
   return Effect.addFinalizer(() => once).pipe(
@@ -412,6 +443,9 @@ export const syncCheck = (root: string): { readonly ok: boolean; readonly detail
   const branch = tracking.slice(slash + 1)
   const probe = git(root, ["push", "--dry-run", "--quiet", remote, `${tracking}:refs/heads/${branch}`])
   return probe.status === 0
-    ? { ok: true, detail: `pushes to ${tracking} (${git(root, ["remote", "get-url", "--push", remote]).stdout.trim()})` }
+    ? {
+      ok: true,
+      detail: `pushes to ${tracking} (${git(root, ["remote", "get-url", "--push", remote]).stdout.trim()})`
+    }
     : { ok: false, detail: `${tracking} refuses a push: ${first(probe)}`, fix: `check push access to ${remote}` }
 }

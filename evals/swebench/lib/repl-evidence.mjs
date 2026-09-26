@@ -106,9 +106,9 @@
  *
  * @since 0.1.0
  */
-import { DatabaseSync } from "node:sqlite"
 import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 
 /**
  * Names a cell may use that no earlier cell bound.
@@ -426,8 +426,7 @@ export const completions = (text) => {
 const rePrintFloor = 20
 
 /** The lines of one print buffer a re-print may be counted on. */
-const printedLines = (text) =>
-  text.split("\n").map((line) => line.trim()).filter((line) => line.length >= rePrintFloor)
+const printedLines = (text) => text.split("\n").map((line) => line.trim()).filter((line) => line.length >= rePrintFloor)
 
 /**
  * What a repeated call of each flow means, by what the flow does to the tree.
@@ -698,10 +697,11 @@ export const readRun = (databasePath) => {
   // cut from the middle, and a frame with more statements than the budget can
   // floor drops whole statements. Every one of them is matched here so a
   // reading of an old lane and a reading of a new one are the same reading.
-  const elidedFrames = prints.filter((print) =>
-    /further print statements were not kept|print less next time|print statements elided from the middle of this frame|bytes elided from the middle|print a narrower slice of this value/
-      .test(print.text)
-  ).length
+  const elidedFrames =
+    prints.filter((print) =>
+      /further print statements were not kept|print less next time|print statements elided from the middle of this frame|bytes elided from the middle|print a narrower slice of this value/
+        .test(print.text)
+    ).length
   const printBytes = prints.reduce((total, print) => total + print.text.length, 0)
   const printLines = prints.reduce(
     (total, print) => total + (print.text.length === 0 ? 0 : print.text.split("\n").length),

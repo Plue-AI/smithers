@@ -18,14 +18,14 @@ import type * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { Control } from "@smthrs/control"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
 import { Effect, Logger, References } from "effect"
-import { randomBytes, randomUUID } from "node:crypto"
 import { spawnSync } from "node:child_process"
+import { randomBytes, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs"
 import { hostname } from "node:os"
 import { join } from "node:path"
+import * as SlackConfig from "../../packages/smithers/agent/integrations/src/slack/Config.ts"
 import * as Actions from "../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Workspace from "../../packages/smithers/agent/organization/src/Workspace.ts"
-import * as SlackConfig from "../../packages/smithers/agent/integrations/src/slack/Config.ts"
 import * as MicrosandboxSandbox from "../../packages/smithers/flows/sandbox/src/MicrosandboxSandbox/index.ts"
 import { executionDatabasePath } from "../../packages/smithers/src/internal/ExecutionDatabasePath.ts"
 import type * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
@@ -33,10 +33,10 @@ import * as Serve from "../../packages/smithers/src/Serve.ts"
 import type { Control as ControlPort } from "./client.ts"
 import { ControlRefused, credentialFile, operations, readCredential } from "./client.ts"
 import { executionRoot, layer, linksOf } from "./host.ts"
+import * as Notify from "./notify.ts"
 import type { Settings } from "./settings.ts"
 import * as SetupMicrosandbox from "./setup/microsandbox.ts"
 import * as Subscriptions from "./setup/subscriptions.ts"
-import * as Notify from "./notify.ts"
 import * as SlackIntake from "./slack.ts"
 import * as TeamChannel from "./team-channel.ts"
 import * as Wiki from "./wiki.ts"
@@ -94,19 +94,21 @@ export const holderAlive = (holder: string): boolean => {
 export const unfinished = (platform: NativeControl.Platform, stateDir: string): Promise<ReadonlySet<string>> => {
   const file = executionDatabasePath(stateDir)
   if (!existsSync(file)) return Promise.resolve(new Set())
-  return Effect.runPromise(Effect.gen(function*() {
-    const catalog = yield* RunCatalogRead.make()
-    const ids = new Set<string>()
-    for (const status of ["pending", "running", "suspended"] as const) {
-      let cursor: string | undefined
-      do {
-        const page = yield* catalog.listRuns({ filters: { status }, ...(cursor === undefined ? {} : { cursor }) })
-        for (const run of page.runs) ids.add(run.runId)
-        cursor = page.cursor ?? undefined
-      } while (cursor !== undefined)
-    }
-    return ids
-  }).pipe(Effect.scoped, Effect.provide(platform.database(file))))
+  return Effect.runPromise(
+    Effect.gen(function*() {
+      const catalog = yield* RunCatalogRead.make()
+      const ids = new Set<string>()
+      for (const status of ["pending", "running", "suspended"] as const) {
+        let cursor: string | undefined
+        do {
+          const page = yield* catalog.listRuns({ filters: { status }, ...(cursor === undefined ? {} : { cursor }) })
+          for (const run of page.runs) ids.add(run.runId)
+          cursor = page.cursor ?? undefined
+        } while (cursor !== undefined)
+      }
+      return ids
+    }).pipe(Effect.scoped, Effect.provide(platform.database(file)))
+  )
 }
 
 /**
@@ -161,9 +163,11 @@ export const start = async (options: StartOptions) => {
     mkdirSync(execution, { recursive: true, mode: 0o700 })
     const created = spawnSync("jj", ["git", "init", "--quiet", execution], { encoding: "utf8" })
     if (created.status !== 0) {
-      throw new Error(`the execution root ${execution} could not be created with \`jj git init\`: ${
-        created.error?.message ?? created.stderr.trim()
-      }`)
+      throw new Error(
+        `the execution root ${execution} could not be created with \`jj git init\`: ${
+          created.error?.message ?? created.stderr.trim()
+        }`
+      )
     }
   }
   const install = SetupMicrosandbox.locate()
@@ -185,11 +189,14 @@ export const start = async (options: StartOptions) => {
     }
   }))
   if (reaped.length > 0) log(`reaped ${reaped.length} machine(s) a stopped host left behind`)
-  const slack = (environment.SMITHERS_SLACK_BOT_TOKEN ?? "") !== "" && (environment.SMITHERS_SLACK_APP_TOKEN ?? "") !== ""
+  const slack = (environment.SMITHERS_SLACK_BOT_TOKEN ?? "") !== "" &&
+    (environment.SMITHERS_SLACK_APP_TOKEN ?? "") !== ""
   // Refuses a policy that admits nobody before anything opens.
   const admitted = slack ? SlackConfig.policy(environment) : undefined
   // The team channel: found or created, joined, the owners invited; the owners' messages there are admitted.
-  const team = slack ? await Effect.runPromise(TeamChannel.ensure({ stateDir: settings.stateDir, environment }, log)) : undefined
+  const team = slack
+    ? await Effect.runPromise(TeamChannel.ensure({ stateDir: settings.stateDir, environment }, log))
+    : undefined
   const policy = admitted === undefined || team === undefined
     ? admitted
     : { ...admitted, allowedChannelIds: [...new Set([...(admitted.allowedChannelIds ?? []), team])] }
@@ -204,15 +211,17 @@ export const start = async (options: StartOptions) => {
   const program = Effect.gen(function*() {
     if (policy !== undefined) {
       const control = yield* Control.Control
-      yield* Effect.forkScoped(SlackIntake.run({
-        control: inProcess(control),
-        policy,
-        stateDir: settings.stateDir,
-        environment,
-        allowPlaintextSocket: options.allowPlaintextSocket,
-        team: { root: settings.root, teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team" },
-        links
-      }).pipe(Effect.catchCause((cause) => Effect.logError("organization Slack intake stopped", cause))))
+      yield* Effect.forkScoped(
+        SlackIntake.run({
+          control: inProcess(control),
+          policy,
+          stateDir: settings.stateDir,
+          environment,
+          allowPlaintextSocket: options.allowPlaintextSocket,
+          team: { root: settings.root, teamDir: settings.organization.autonomy?.teamDir ?? "Org/Team" },
+          links
+        }).pipe(Effect.catchCause((cause) => Effect.logError("organization Slack intake stopped", cause)))
+      )
     }
     {
       // Replies one role's post asks of another, started as their own runs.
@@ -265,11 +274,17 @@ export const start = async (options: StartOptions) => {
         : undefined
       yield* Effect.forkScoped(Wiki.committer(settings.root, Wiki.hostPaths(settings.organization), log, syncing))
     }
-    log(`organization host on http://${settings.host}:${settings.port} (state ${settings.stateDir}; Slack ${slack ? "on" : "off"})`)
+    log(
+      `organization host on http://${settings.host}:${settings.port} (state ${settings.stateDir}; Slack ${
+        slack ? "on" : "off"
+      })`
+    )
     return yield* Serve.host(bind, settings.root)
   }).pipe(
     Effect.scoped,
-    Effect.provide(layer(options.platform, { settings, sdk, holder, slack, environment, credential, links }, options.seats)),
+    Effect.provide(
+      layer(options.platform, { settings, sdk, holder, slack, environment, credential, links }, options.seats)
+    ),
     Effect.provide(Logger.layer([hostLogger(log), Logger.tracerLogger]))
   )
   return program

@@ -6,10 +6,10 @@ import * as ApplyPatch from "@smthrs/std/ApplyPatch"
 import * as Bash from "@smthrs/std/Bash"
 import { createTwoFilesPatch } from "diff"
 import { Effect, Schema } from "effect"
+import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { constants } from "node:fs"
 import { open, stat } from "node:fs/promises"
-import { execFile } from "node:child_process"
 import { resolve } from "node:path"
 import * as Subprocess from "./subprocess.ts"
 
@@ -97,7 +97,12 @@ const maxEditLength = 1_000
  * `null` is an absent file: its side of the patch is `/dev/null`, so creation and deletion reverse.
  * A deletion carries the file's `mode` as git's `deleted file mode` header, so undo restores it.
  */
-export const patch = (path: string, before: string | null, after: string | null, deletedMode?: number): Patch | undefined => {
+export const patch = (
+  path: string,
+  before: string | null,
+  after: string | null,
+  deletedMode?: number
+): Patch | undefined => {
   if (before === after) return undefined
   const body = createTwoFilesPatch(
     before === null ? "/dev/null" : `a/${path}`,
@@ -113,7 +118,9 @@ export const patch = (path: string, before: string | null, after: string | null,
     ? { path, patch: body }
     : {
       path,
-      patch: `diff --git a/${path} b/${path}\ndeleted file mode ${(0o100000 | deletedMode).toString(8)}\n${body.replace(/^=+\n/, "")}`
+      patch: `diff --git a/${path} b/${path}\ndeleted file mode ${(0o100000 | deletedMode).toString(8)}\n${
+        body.replace(/^=+\n/, "")
+      }`
     }
 }
 /**
@@ -177,12 +184,19 @@ export const splitPatch = (diff: string): Array<Patch> =>
   })
 
 const changedPatch = (path: string, old: FileState, next: FileState): Patch | undefined => {
-  if (old.digest === undefined || next.digest === undefined ||
-      (old.digest === next.digest && old.mode === next.mode)) return undefined
+  if (
+    old.digest === undefined || next.digest === undefined ||
+    (old.digest === next.digest && old.mode === next.mode)
+  ) return undefined
   if (old.text === undefined || next.text === undefined) return { path, patch: `Binary or large file: ${path}` }
   const diff = patch(path, old.text, next.text, next.text !== null ? undefined : old.mode)
   if (diff !== undefined) return diff
-  return { path, patch: `diff --git a/${path} b/${path}\nold mode ${(0o100000 | (old.mode ?? 0)).toString(8)}\nnew mode ${(0o100000 | (next.mode ?? 0)).toString(8)}\n` }
+  return {
+    path,
+    patch: `diff --git a/${path} b/${path}\nold mode ${(0o100000 | (old.mode ?? 0)).toString(8)}\nnew mode ${
+      (0o100000 | (next.mode ?? 0)).toString(8)
+    }\n`
+  }
 }
 
 /**
@@ -196,7 +210,9 @@ const gitPaths = async (cwd: string): Promise<Array<string> | undefined> => {
 const states = async (cwd: string, paths: ReadonlyArray<string>): Promise<Map<string, FileState>> => {
   const found = new Map<string, FileState>()
   for (let at = 0; at < paths.length; at += 64) {
-    const batch = await Promise.all(paths.slice(at, at + 64).map(async (path) => [path, await fileState(resolve(cwd, path))] as const))
+    const batch = await Promise.all(
+      paths.slice(at, at + 64).map(async (path) => [path, await fileState(resolve(cwd, path))] as const)
+    )
     for (const [path, state] of batch) found.set(path, state)
   }
   return found
@@ -221,14 +237,16 @@ const fileStat = async (path: string): Promise<FileStat | null | undefined> => {
 const stats = async (cwd: string, paths: ReadonlyArray<string>): Promise<Map<string, FileStat | null | undefined>> => {
   const found = new Map<string, FileStat | null | undefined>()
   for (let at = 0; at < paths.length; at += 64) {
-    const batch = await Promise.all(paths.slice(at, at + 64).map(async (path) => [path, await fileStat(resolve(cwd, path))] as const))
+    const batch = await Promise.all(
+      paths.slice(at, at + 64).map(async (path) => [path, await fileStat(resolve(cwd, path))] as const)
+    )
     for (const [path, info] of batch) found.set(path, info)
   }
   return found
 }
 const sameStat = (a: FileStat | null | undefined, b: FileStat | null | undefined): boolean =>
   a === null && b === null || a !== null && b !== null && a !== undefined && b !== undefined &&
-  a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs && a.ino === b.ino && a.mode === b.mode
+    a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs && a.ino === b.ino && a.mode === b.mode
 
 /** Paths with pre-call bytes that differ from the index, including untracked files. */
 const dirtyPaths = async (cwd: string): Promise<Array<string> | undefined> => {
@@ -257,16 +275,24 @@ const indexBlobs = async (cwd: string): Promise<Map<string, string> | undefined>
 
 /** Recover a clean tracked file's pre-call bytes from the index only when its stat changed. */
 const indexState = async (cwd: string, blob: string, before: FileStat): Promise<FileState> => {
-  if (before.size > BigInt(maxBytes)) return { digest: `index:${blob}`, text: undefined, mode: Number(before.mode & 0o777n) }
+  if (before.size > BigInt(maxBytes)) {
+    return { digest: `index:${blob}`, text: undefined, mode: Number(before.mode & 0o777n) }
+  }
   const bytes = await new Promise<Buffer | undefined>((done) =>
-    execFile("git", ["cat-file", "blob", blob], { cwd, encoding: "buffer", maxBuffer: maxBytes + 1 },
-      (error, output) => done(error ? undefined : Buffer.isBuffer(output) ? output : Buffer.from(output)))
+    execFile(
+      "git",
+      ["cat-file", "blob", blob],
+      { cwd, encoding: "buffer", maxBuffer: maxBytes + 1 },
+      (error, output) => done(error ? undefined : Buffer.isBuffer(output) ? output : Buffer.from(output))
+    )
   )
   if (bytes === undefined) return { digest: undefined, text: undefined, mode: Number(before.mode & 0o777n) }
   let text: string | undefined
   try {
     text = bytes.includes(0) ? undefined : new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-  } catch { text = undefined }
+  } catch {
+    text = undefined
+  }
   return { digest: createHash("sha256").update(bytes).digest("hex"), text, mode: Number(before.mode & 0o777n) }
 }
 
@@ -279,7 +305,9 @@ const shell = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPat
     if (jj) {
       const result = yield* binding.run(call)
       const diff = yield* Effect.promise(() => command("jj", cwd, ["diff", "--from", jj, "--git", "--color=never"]))
-      if (diff !== undefined) yield* Effect.sync(() => onPatch({ call: identity(call.identity), patches: splitPatch(diff) }))
+      if (diff !== undefined) {
+        yield* Effect.sync(() => onPatch({ call: identity(call.identity), patches: splitPatch(diff) }))
+      }
       return result
     }
     const candidates = yield* Effect.promise(() => gitPaths(cwd))

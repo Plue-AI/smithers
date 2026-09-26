@@ -1,6 +1,6 @@
-import { afterEach, expect, it } from "bun:test"
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
+import { afterEach, expect, it } from "bun:test"
 import { act, createRef, useState } from "react"
 import * as DragScroll from "../src/drag-scroll.ts"
 
@@ -17,7 +17,11 @@ const Transcript = (props: { readonly drag: DragScroll.DragScroll }) => {
     <box style={{ width: "100%", height: "100%", flexDirection: "column", paddingTop: 1 }} {...props.drag}>
       <text style={{ marginBottom: 1, flexShrink: 0 }}>Chat</text>
       <scrollbox ref={scroll} stickyScroll stickyStart="bottom" style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }}>
-        {Array.from({ length: rows }, (_, index) => <box key={index}><text>row {index}</text></box>)}
+        {Array.from({ length: rows }, (_, index) => (
+          <box key={index}>
+            <text>row {index}</text>
+          </box>
+        ))}
       </scrollbox>
       <text style={{ height: 3, flexShrink: 0 }}>composer</text>
     </box>
@@ -26,11 +30,16 @@ const Transcript = (props: { readonly drag: DragScroll.DragScroll }) => {
 
 const mount = async () => {
   let drag: DragScroll.DragScroll | undefined
-  setup = await testRender(<Transcript drag={{
-    onMouseDown: (event) => drag!.onMouseDown(event),
-    onMouseDrag: (event) => drag!.onMouseDrag(event),
-    onMouseUp: (event) => drag!.onMouseUp(event)
-  }} />, { width: 30, height: 20 })
+  setup = await testRender(
+    <Transcript
+      drag={{
+        onMouseDown: (event) => drag!.onMouseDown(event),
+        onMouseDrag: (event) => drag!.onMouseDrag(event),
+        onMouseUp: (event) => drag!.onMouseUp(event)
+      }}
+    />,
+    { width: 30, height: 20 }
+  )
   drag = DragScroll.make(() => setup!.renderer.getSelection()?.isDragging === true)
   await setup.renderOnce()
   return { setup, box: scroll.current! }

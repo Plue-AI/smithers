@@ -12,9 +12,11 @@ import { join } from "node:path"
 export const mix = (a: string, percent: number, b: string): string => {
   const channel = (hex: string, at: number) => Number.parseInt(hex.slice(1 + at * 2, 3 + at * 2), 16)
   const weight = percent / 100
-  return `#${[0, 1, 2]
-    .map((at) => Math.round(channel(a, at) * weight + channel(b, at) * (1 - weight)).toString(16).padStart(2, "0"))
-    .join("")}`
+  return `#${
+    [0, 1, 2]
+      .map((at) => Math.round(channel(a, at) * weight + channel(b, at) * (1 - weight)).toString(16).padStart(2, "0"))
+      .join("")
+  }`
 }
 
 const page = "#011627"
@@ -89,37 +91,38 @@ const fg = (hex: string, extra: { bold?: boolean; italic?: boolean; underline?: 
   ...extra
 })
 
-const makeSyntax = () => SyntaxStyle.fromStyles({
-  default: fg(color.text),
-  keyword: fg(color.brand, { italic: true }),
-  "keyword.return": fg(color.brand, { italic: true }),
-  operator: fg("#7fdbca"),
-  string: fg(color.warning),
-  "string.special": fg(color.warning),
-  number: fg("#f78c6c"),
-  boolean: fg("#ff5874"),
-  constant: fg("#82aaff"),
-  "constant.builtin": fg("#ff5874"),
-  comment: fg("#637777", { italic: true }),
-  function: fg(color.info),
-  "function.call": fg(color.info),
-  "function.method": fg(color.info),
-  "function.method.call": fg(color.info),
-  variable: fg(color.text),
-  "variable.member": fg("#addb67"),
-  property: fg("#addb67"),
-  type: fg("#ffcb8b"),
-  punctuation: fg("#7fdbca"),
-  "punctuation.bracket": fg(color.text),
-  "markup.heading": fg(color.brand, { bold: true }),
-  "markup.strong": fg(color.text, { bold: true }),
-  "markup.italic": fg(color.text, { italic: true }),
-  "markup.raw": fg(color.warning),
-  "markup.link": fg(color.info, { underline: true }),
-  "markup.link.url": fg(color.info, { underline: true }),
-  "markup.list": fg(color.brand),
-  "markup.quote": fg(color.muted, { italic: true })
-})
+const makeSyntax = () =>
+  SyntaxStyle.fromStyles({
+    default: fg(color.text),
+    keyword: fg(color.brand, { italic: true }),
+    "keyword.return": fg(color.brand, { italic: true }),
+    operator: fg("#7fdbca"),
+    string: fg(color.warning),
+    "string.special": fg(color.warning),
+    number: fg("#f78c6c"),
+    boolean: fg("#ff5874"),
+    constant: fg("#82aaff"),
+    "constant.builtin": fg("#ff5874"),
+    comment: fg("#637777", { italic: true }),
+    function: fg(color.info),
+    "function.call": fg(color.info),
+    "function.method": fg(color.info),
+    "function.method.call": fg(color.info),
+    variable: fg(color.text),
+    "variable.member": fg("#addb67"),
+    property: fg("#addb67"),
+    type: fg("#ffcb8b"),
+    punctuation: fg("#7fdbca"),
+    "punctuation.bracket": fg(color.text),
+    "markup.heading": fg(color.brand, { bold: true }),
+    "markup.strong": fg(color.text, { bold: true }),
+    "markup.italic": fg(color.text, { italic: true }),
+    "markup.raw": fg(color.warning),
+    "markup.link": fg(color.info, { underline: true }),
+    "markup.link.url": fg(color.info, { underline: true }),
+    "markup.list": fg(color.brand),
+    "markup.quote": fg(color.muted, { italic: true })
+  })
 export let syntax = makeSyntax()
 
 /** Braille spinner frames, advanced by the app's clock. */

@@ -24,8 +24,8 @@
  * @since 0.1.0
  */
 import { readFileSync } from "node:fs"
-import { drawOrder } from "./fullbench-queue.mjs"
 import { isDone, read } from "./fullbench-manifest.mjs"
+import { drawOrder } from "./fullbench-queue.mjs"
 
 /**
  * The ids a baseline ledger graded, in the dataset's seeded draw order.

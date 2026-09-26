@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-const { nativeHelper } = await import(resolve(import.meta.dir, "../../../packages/smithers/scripts/tui-native-helper.mjs"))
+const { nativeHelper } = await import(
+  resolve(import.meta.dir, "../../../packages/smithers/scripts/tui-native-helper.mjs")
+)
 
 it("refuses missing and wrong-platform helper payloads instead of publishing a broken cross-build", () => {
   const root = mkdtempSync(join(tmpdir(), "tui-native-helper-"))

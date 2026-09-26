@@ -138,7 +138,12 @@ try {
   assert.equal(absent.status, 3, "an unpinned subject is refused")
 
   // The HEAD comparison agrees with git, whichever way the tree happens to be.
-  for (const [name, directory] of [["@smthrs/harness", "packages/smithers/agent/harness/src"], ["@smthrs/cli", "packages/smithers/src"]]) {
+  for (
+    const [name, directory] of [["@smthrs/harness", "packages/smithers/agent/harness/src"], [
+      "@smthrs/cli",
+      "packages/smithers/src"
+    ]]
+  ) {
     const diff = spawnSync("git", ["diff", "--name-only", "HEAD", "--", directory], { cwd: root, encoding: "utf8" })
     const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard", "--", directory], {
       cwd: root,

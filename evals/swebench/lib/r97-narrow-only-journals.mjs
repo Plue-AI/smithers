@@ -47,7 +47,8 @@ const swebench = join(here, "..")
 const journalsDir = resolve(process.argv[2] ?? join(swebench, "fullbench", "rerun-r97", "journals"))
 const dataset = join(swebench, "swb-verified.json")
 const out = resolve(
-  process.argv[3] ?? join(swebench, "..", "..", "packages", "smithers", "agent", "harness", "test", "fixtures", "r97Journals.json")
+  process.argv[3] ??
+    join(swebench, "..", "..", "packages", "smithers", "agent", "harness", "test", "fixtures", "r97Journals.json")
 )
 
 /** Flows whose calls change the workspace, so they are never checks. */

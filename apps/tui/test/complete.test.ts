@@ -31,7 +31,12 @@ describe("slash completion", () => {
     expect(labels(Complete.complete("/", 1, sources))?.[0]).toBe("/model")
     expect(labels(Complete.complete("/rsm", 4, sources))).toEqual(["/resume"])
     const fork = Complete.complete("/fo", 3, sources)!.items[0]!
-    expect(fork).toMatchObject({ label: "/fork", insert: "/fork", submit: true, detail: "Fork from an earlier message" })
+    expect(fork).toMatchObject({
+      label: "/fork",
+      insert: "/fork",
+      submit: true,
+      detail: "Fork from an earlier message"
+    })
     expect(Complete.complete("say /model", 10, sources)).toBeUndefined()
   })
 
@@ -87,27 +92,39 @@ describe("file completion", () => {
   it("inserts the path with a trailing space, quoting one that has spaces", () => {
     const text = "see @app and more"
     const completion = Complete.complete(text, 8, sources)!
-    expect(Complete.apply(text, completion, completion.items[0]!)).toEqual({ text: "see @src/app.tsx and more", cursor: 17 })
+    expect(Complete.apply(text, completion, completion.items[0]!)).toEqual({
+      text: "see @src/app.tsx and more",
+      cursor: 17
+    })
     const quoted = Complete.complete("@notes", 6, sources)!.items[0]!
-    expect(quoted.insert).toBe('@"docs/my notes.md" ')
+    expect(quoted.insert).toBe("@\"docs/my notes.md\" ")
   })
   it("encodes a path a bare or naively quoted mention would misname, keeping Unicode readable", () => {
-    expect(Complete.mention("docs/café 日本.md")).toBe('@"docs/café 日本.md" ')
+    expect(Complete.mention("docs/café 日本.md")).toBe("@\"docs/café 日本.md\" ")
     expect(Complete.mention("café.txt")).toBe("@café.txt ")
-    expect(Complete.mention('say "hi".txt')).toBe('@"say \\"hi\\".txt" ')
-    expect(Complete.mention("back\\slash")).toBe('@"back\\\\slash" ')
-    expect(Complete.mention("new\nline\tbell\u0007")).toBe('@"new\\nline\\tbell\\u0007" ')
-    expect(Complete.mention("para\u2028sep\u00a0nb")).toBe('@"para\\u2028sep\\u00a0nb" ')
-    expect(Complete.mention("line.ts:12")).toBe('@"line.ts:12" ')
-    expect(Complete.mention("line.ts:12", 4)).toBe('@"line.ts:12":4 ')
+    expect(Complete.mention("say \"hi\".txt")).toBe("@\"say \\\"hi\\\".txt\" ")
+    expect(Complete.mention("back\\slash")).toBe("@\"back\\\\slash\" ")
+    expect(Complete.mention("new\nline\tbell\u0007")).toBe("@\"new\\nline\\tbell\\u0007\" ")
+    expect(Complete.mention("para\u2028sep\u00a0nb")).toBe("@\"para\\u2028sep\\u00a0nb\" ")
+    expect(Complete.mention("line.ts:12")).toBe("@\"line.ts:12\" ")
+    expect(Complete.mention("line.ts:12", 4)).toBe("@\"line.ts:12\":4 ")
     expect(Complete.display("new\nline\u0007 café")).toBe("new\\nline\\u0007 café")
   })
 })
 
 describe("edit diffs", () => {
   it("reads the change an edit or write call makes", () => {
-    expect(Transcript.change("edit", { path: "a.js", oldString: "x", newString: "y" })).toEqual({ path: "a.js", removed: "x", added: "y" })
-    expect(Transcript.change("write", { path: "b.js", content: "z\n" })).toEqual({ path: "b.js", removed: "", added: "z\n", line: 1 })
+    expect(Transcript.change("edit", { path: "a.js", oldString: "x", newString: "y" })).toEqual({
+      path: "a.js",
+      removed: "x",
+      added: "y"
+    })
+    expect(Transcript.change("write", { path: "b.js", content: "z\n" })).toEqual({
+      path: "b.js",
+      removed: "",
+      added: "z\n",
+      line: 1
+    })
     expect(Transcript.change("read", { path: "a.js" })).toBeUndefined()
   })
 
@@ -115,16 +132,26 @@ describe("edit diffs", () => {
     expect(Transcript.unified({ path: "a.js", removed: "a\nb", added: "c", line: 7 })).toBe(
       "--- a/a.js\n+++ b/a.js\n@@ -7,2 +7,1 @@\n-a\n-b\n+c"
     )
-    expect(Transcript.unified({ path: "n.js", removed: "", added: "x\n", line: 1 })).toBe("--- a/n.js\n+++ b/n.js\n@@ -0,0 +1,1 @@\n+x")
+    expect(Transcript.unified({ path: "n.js", removed: "", added: "x\n", line: 1 })).toBe(
+      "--- a/n.js\n+++ b/n.js\n@@ -0,0 +1,1 @@\n+x"
+    )
   })
 
   it("takes the start line an edit reports when it settles", () => {
     const at = 0
     let transcript = Transcript.apply(Transcript.empty, { _tag: "model-requested" } as never, at)
-    transcript = Transcript.apply(transcript, { _tag: "model-delta", delta: { type: "text-delta", text: "```js\nx\n```" } } as never, at)
+    transcript = Transcript.apply(
+      transcript,
+      { _tag: "model-delta", delta: { type: "text-delta", text: "```js\nx\n```" } } as never,
+      at
+    )
     transcript = Transcript.apply(transcript, {
       _tag: "cell-call-started",
-      call: { flowName: "edit", input: { path: "a.js", oldString: "x", newString: "y" }, presentation: { verb: { pending: "editing", success: "edited", failure: "failed to edit" } } }
+      call: {
+        flowName: "edit",
+        input: { path: "a.js", oldString: "x", newString: "y" },
+        presentation: { verb: { pending: "editing", success: "edited", failure: "failed to edit" } }
+      }
     } as never, at)
     transcript = Transcript.apply(transcript, {
       _tag: "cell-call-settled",

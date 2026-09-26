@@ -15,7 +15,9 @@ const workers: Record<string, { title: string; prompt: string; model?: "sol" | "
 const event = (value: unknown) => value as Parameters<Host.TurnInput["onEvent"]>[0]
 const stream = (input: Host.TurnInput, prose: string, code: string, flow: string, subject: string, settle: boolean) => {
   input.onEvent(event({ _tag: "model-requested" }))
-  input.onEvent(event({ _tag: "model-delta", delta: { type: "text-delta", text: `${prose}\n\`\`\`js\n${code}\n\`\`\`` } }))
+  input.onEvent(
+    event({ _tag: "model-delta", delta: { type: "text-delta", text: `${prose}\n\`\`\`js\n${code}\n\`\`\`` } })
+  )
   input.onEvent(event({
     _tag: "model-settled",
     usage: { inputTokens: 18_400, outputTokens: 2_150 },
@@ -23,9 +25,13 @@ const stream = (input: Host.TurnInput, prose: string, code: string, flow: string
   }))
   input.onEvent(event({ _tag: "cell-produced", cell: { text: code } }))
   const identity = { session: "fixture", frame: 1, cell: 1, ordinal: 0 }
-  input.onEvent(event({ _tag: "cell-call-started", call: { flowName: flow, input: { path: subject, command: subject }, identity } }))
+  input.onEvent(
+    event({ _tag: "cell-call-started", call: { flowName: flow, input: { path: subject, command: subject }, identity } })
+  )
   if (!settle) return
-  input.onEvent(event({ _tag: "cell-call-settled", flowName: flow, identity, result: { outcome: "success", value: {} } }))
+  input.onEvent(
+    event({ _tag: "cell-call-settled", flowName: flow, identity, result: { outcome: "success", value: {} } })
+  )
   input.onEvent(event({ _tag: "cell-settled", outcome: { _tag: "settled" } }))
 }
 const pending = new Map<string, (outcome: Host.Outcome) => void>()
@@ -38,13 +44,33 @@ const host: Host.Host = {
     if (input.role === "worker") {
       const id = input.source ?? ""
       if (id === "flaky") {
-        stream(input, "Rerun the seat queue test 50 times.", "await ctx.call(\"bash\", { command: \"bun test seat\" })", "bash", "bun test test/seat.test.ts", true)
-        return { done: Promise.resolve({ _tag: "done", answer: "Fixed: the queue drained before the seat freed." }), cancel: () => {} }
+        stream(
+          input,
+          "Rerun the seat queue test 50 times.",
+          "await ctx.call(\"bash\", { command: \"bun test seat\" })",
+          "bash",
+          "bun test test/seat.test.ts",
+          true
+        )
+        return {
+          done: Promise.resolve({ _tag: "done", answer: "Fixed: the queue drained before the seat freed." }),
+          cancel: () => {}
+        }
       }
       if (id === "strip") {
-        return { done: Promise.resolve({ _tag: "failed", message: "Seat quota exhausted", detail: "" }), cancel: () => {} }
+        return {
+          done: Promise.resolve({ _tag: "failed", message: "Seat quota exhausted", detail: "" }),
+          cancel: () => {}
+        }
       }
-      stream(input, "Read the middleware and its tests.", "const src = await ctx.call(\"read\", { path: \"src/auth.ts\" })", "read", "src/auth.ts", false)
+      stream(
+        input,
+        "Read the middleware and its tests.",
+        "const src = await ctx.call(\"read\", { path: \"src/auth.ts\" })",
+        "read",
+        "src/auth.ts",
+        false
+      )
       return {
         done: new Promise((resolve) => pending.set(id, resolve)),
         cancel: () => pending.get(id)?.({ _tag: "cancelled" })

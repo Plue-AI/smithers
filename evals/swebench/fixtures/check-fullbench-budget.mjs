@@ -5,39 +5,50 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { readCost } from "../lib/run-cost.mjs"
-import { read } from "../lib/fullbench-manifest.mjs"
 import { renderReport, spendByInstance, summarise } from "../fullbench-report.mjs"
+import { read } from "../lib/fullbench-manifest.mjs"
+import { readCost } from "../lib/run-cost.mjs"
 
 const root = resolve(import.meta.dirname, "..")
 const temporary = mkdtempSync(join(tmpdir(), "swebench-budget-"))
 const manifest = join(temporary, "manifest.jsonl")
 const writeLedger = (rows) => writeFileSync(manifest, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`)
 const instance = (state, extra = {}) => ({ kind: "instance", id: "a__a-1", state, ...extra })
-const spend = () => spawnSync(process.execPath, [join(root, "fullbench-report.mjs"), "--spend-cents", "--manifest", manifest], {
-  encoding: "utf8", timeout: 10_000
-})
+const spend = () =>
+  spawnSync(process.execPath, [join(root, "fullbench-report.mjs"), "--spend-cents", "--manifest", manifest], {
+    encoding: "utf8",
+    timeout: 10_000
+  })
 
 // Execute the driver's own reader and loop through its budget decision. Stop
 // before subject checks or scheduling, so this can never launch a worker.
 const driver = readFileSync(join(root, "fullbench.sh"), "utf8")
-const reader = driver.slice(driver.indexOf("spend_cents() {"), driver.indexOf("BUDGET_CENTS=", driver.indexOf("spend_cents() {")))
+const reader = driver.slice(
+  driver.indexOf("spend_cents() {"),
+  driver.indexOf("BUDGET_CENTS=", driver.indexOf("spend_cents() {"))
+)
 const loopStart = driver.indexOf("for ID in $QUEUE; do")
 const gate = driver.slice(loopStart, driver.indexOf("  # The subject was pinned once", loopStart))
-const gateDecision = () => spawnSync("bash", ["-c", [
-  reader,
-  'pause_now() { printf "paused\\n"; }',
-  'sleep() { :; }',
-  'STOPPING=0; SESSION_LIMIT=""; SCHEDULED=0; QUEUE=a__a-1; BUDGET_CENTS=6000',
-  gate,
-  'printf "launched\\n"',
-  "done"
-].join("\n")], { encoding: "utf8", timeout: 10_000, env: { ...process.env, S: root, MANIFEST: manifest } })
+const gateDecision = () =>
+  spawnSync("bash", [
+    "-c",
+    [
+      reader,
+      "pause_now() { printf \"paused\\n\"; }",
+      "sleep() { :; }",
+      "STOPPING=0; SESSION_LIMIT=\"\"; SCHEDULED=0; QUEUE=a__a-1; BUDGET_CENTS=6000",
+      gate,
+      "printf \"launched\\n\"",
+      "done"
+    ].join("\n")
+  ], { encoding: "utf8", timeout: 10_000, env: { ...process.env, S: root, MANIFEST: manifest } })
 
 try {
   const path = join(temporary, "engine.db")
   const database = new DatabaseSync(path)
-  database.exec("CREATE TABLE flows_journal_events (seq INTEGER, emitted_at_ms INTEGER, event_type TEXT, payload_json TEXT)")
+  database.exec(
+    "CREATE TABLE flows_journal_events (seq INTEGER, emitted_at_ms INTEGER, event_type TEXT, payload_json TEXT)"
+  )
   const append = database.prepare("INSERT INTO flows_journal_events VALUES (?, ?, ?, ?)")
   append.run(0, 0, "control.agent.turn-opened", JSON.stringify({ seat: "openai:unpriced-fixture" }))
   for (let i = 1; i <= 5; i++) {
@@ -48,7 +59,10 @@ try {
   assert.equal(cost.modelCalls, 5)
   writeLedger([instance("ran", { cost }), instance("graded", { verdict: "resolved" })])
   const unknown = spend()
-  assert.ok(unknown.status !== 0 || !/^\d+$/.test(unknown.stdout.trim()), "five unpriced calls must not report numeric zero spend")
+  assert.ok(
+    unknown.status !== 0 || !/^\d+$/.test(unknown.stdout.trim()),
+    "five unpriced calls must not report numeric zero spend"
+  )
   const decision = gateDecision()
   assert.equal(decision.status, 0, decision.stderr)
   assert.equal(decision.stdout.trim(), "paused", "unknown cost must take the driver's fail-closed path")
@@ -61,7 +75,9 @@ try {
   assert.match(renderReport(summary), /attempts with unknown cost \| 1/)
 
   // Unknown is not zero, even when a failed cost reader left the legacy {}.
-  for (const unknownCost of [undefined, null, {}, { usd: null }, { usd: "5" }, { usd: -1 }, { usd: 0, unknown: true }]) {
+  for (
+    const unknownCost of [undefined, null, {}, { usd: null }, { usd: "5" }, { usd: -1 }, { usd: 0, unknown: true }]
+  ) {
     writeLedger([instance("ran", { cost: unknownCost }), instance("graded")])
     assert.equal(spend().stdout.trim(), "unknown")
     assert.deepEqual(spendByInstance(read(manifest)), { cents: 0, unknownAttempts: 1 })
@@ -75,8 +91,10 @@ try {
 
   // Grade rows enrich one attempt; a replacement never erases an earlier bill.
   writeLedger([
-    instance("ran", { cost: { usd: 40 } }), instance("pulled"),
-    instance("ran", { cost: { usd: 25 } }), instance("graded", { cost: { usd: 25 } })
+    instance("ran", { cost: { usd: 40 } }),
+    instance("pulled"),
+    instance("ran", { cost: { usd: 25 } }),
+    instance("graded", { cost: { usd: 25 } })
   ])
   assert.deepEqual(spendByInstance(read(manifest)), { cents: 6500, unknownAttempts: 0 })
   assert.equal(spend().stdout.trim(), "6500")
@@ -98,7 +116,13 @@ try {
   writeLedger([header, { ...header, seat: "openai:gpt-5.6-sol" }])
   assert.equal(spend().stdout.trim(), "0", "the current session determines the seat to be launched")
 
-  for (const damaged of ['{"kind":"instance",', '{broken}\n', '{"kind":"instance","state":"ran","cost":{"usd":1e400}}\n']) {
+  for (
+    const damaged of [
+      "{\"kind\":\"instance\",",
+      "{broken}\n",
+      "{\"kind\":\"instance\",\"state\":\"ran\",\"cost\":{\"usd\":1e400}}\n"
+    ]
+  ) {
     writeFileSync(manifest, damaged)
     assert.equal(spend().stdout.trim(), "unknown", "damaged accounting cannot produce numeric spend")
   }
@@ -127,18 +151,54 @@ try {
   priced.exec("DELETE FROM flows_journal_events WHERE seq > 0")
   insert.run(1, 1, "control.agent.model-settled", JSON.stringify({ usage: { inputTokens: 1000, outputTokens: 100 } }))
   insert.run(2, 2, "control.agent.claim-demanded", JSON.stringify({ usage: { inputTokens: 4000, outputTokens: 0 } }))
-  insert.run(3, 3, "control.agent.supervisor-settled", JSON.stringify({ usage: { inputTokens: 3000, outputTokens: 0 } }))
-  insert.run(4, 4, "control.agent.cell-call-settled", JSON.stringify({
-    flowName: "jev", outcome: "success", value: { answers: {}, usage: { inputTokens: 3000, outputTokens: 0 }, latencyMs: 290 }
-  }))
-  insert.run(5, 5, "control.agent.cell-call-settled", JSON.stringify({ flowName: "jev", outcome: "failure", message: "refused" }))
-  insert.run(6, 6, "control.agent.cell-call-settled", JSON.stringify({ flowName: "bash", outcome: "success", value: { exitCode: 0 } }))
-  insert.run(7, 7, "control.agent.decision-settled", JSON.stringify({
-    classifier: "supervisor/turn", answers: {}, usage: { inputTokens: 3000, outputTokens: 0 }
-  }))
-  insert.run(11, 11, "control.agent.decision-settled", JSON.stringify({
-    classifier: "relevance/unnecessary", answers: {}, usage: { inputTokens: 2000, outputTokens: 0 }
-  }))
+  insert.run(
+    3,
+    3,
+    "control.agent.supervisor-settled",
+    JSON.stringify({ usage: { inputTokens: 3000, outputTokens: 0 } })
+  )
+  insert.run(
+    4,
+    4,
+    "control.agent.cell-call-settled",
+    JSON.stringify({
+      flowName: "jev",
+      outcome: "success",
+      value: { answers: {}, usage: { inputTokens: 3000, outputTokens: 0 }, latencyMs: 290 }
+    })
+  )
+  insert.run(
+    5,
+    5,
+    "control.agent.cell-call-settled",
+    JSON.stringify({ flowName: "jev", outcome: "failure", message: "refused" })
+  )
+  insert.run(
+    6,
+    6,
+    "control.agent.cell-call-settled",
+    JSON.stringify({ flowName: "bash", outcome: "success", value: { exitCode: 0 } })
+  )
+  insert.run(
+    7,
+    7,
+    "control.agent.decision-settled",
+    JSON.stringify({
+      classifier: "supervisor/turn",
+      answers: {},
+      usage: { inputTokens: 3000, outputTokens: 0 }
+    })
+  )
+  insert.run(
+    11,
+    11,
+    "control.agent.decision-settled",
+    JSON.stringify({
+      classifier: "relevance/unnecessary",
+      answers: {},
+      usage: { inputTokens: 2000, outputTokens: 0 }
+    })
+  )
   // A supervisor reading the run's end interrupted: asked, never metered.
   // Counted on its own, never priced and never an unknown.
   insert.run(9, 9, "control.agent.supervisor-unjudged", JSON.stringify({ reason: "interrupted", frame: 2 }))
@@ -165,7 +225,10 @@ try {
   const broken = join(temporary, "broken.db")
   writeFileSync(broken, "not sqlite")
   for (const target of [broken, join(temporary, "missing.db")]) {
-    const result = spawnSync(process.execPath, [join(root, "lib/run-cost.mjs"), target], { encoding: "utf8", timeout: 10_000 })
+    const result = spawnSync(process.execPath, [join(root, "lib/run-cost.mjs"), target], {
+      encoding: "utf8",
+      timeout: 10_000
+    })
     assert.equal(result.status, 0, result.stderr)
     const unknownJournal = JSON.parse(result.stdout)
     assert.equal(unknownJournal.unknown, true)
@@ -174,7 +237,9 @@ try {
     assert.equal(gateDecision().stdout.trim(), "paused")
   }
 
-  console.log("check-fullbench-budget: unknown costs, retry totals, seat admission and journal failures pass the driver budget gate checks.")
+  console.log(
+    "check-fullbench-budget: unknown costs, retry totals, seat admission and journal failures pass the driver budget gate checks."
+  )
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }

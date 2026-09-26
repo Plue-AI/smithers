@@ -11,5 +11,8 @@ export const wikiRefreshRegistration = (options: {
   readonly pages: ReadonlyArray<PageSpec>
   readonly reviewer: string
   readonly hostPolicy?: string | undefined
-}, fs?: FileSystem.FileSystem) => Layer.mergeAll(Interpreter.layer(CodingWiki),
-  ReadPublishedWiki.toLayer(({ base, refreshed }) => readPublishedWiki({ ...options, fs }, base, refreshed)))
+}, fs?: FileSystem.FileSystem) =>
+  Layer.mergeAll(
+    Interpreter.layer(CodingWiki),
+    ReadPublishedWiki.toLayer(({ base, refreshed }) => readPublishedWiki({ ...options, fs }, base, refreshed))
+  )

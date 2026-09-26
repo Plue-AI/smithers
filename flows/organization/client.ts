@@ -68,11 +68,14 @@ export const rpc = (base: string, credential?: string): Control => {
       const exit = lines.find((line) => line._tag === "Exit")?.exit
       if (exit === undefined) {
         const defect = lines.find((line) => line._tag === "Defect")
-        throw new Error(`${tag}: the host answered no result${defect === undefined ? "" : `: ${JSON.stringify(defect.defect)}`}`)
+        throw new Error(
+          `${tag}: the host answered no result${defect === undefined ? "" : `: ${JSON.stringify(defect.defect)}`}`
+        )
       }
       if (exit._tag === "Success") return exit.value
-      const failure = (exit.cause as ReadonlyArray<{ _tag: string; error?: { _tag?: string; message?: string }; defect?: unknown }>)
-        .find((reason) => reason._tag === "Fail")?.error
+      const failure =
+        (exit.cause as ReadonlyArray<{ _tag: string; error?: { _tag?: string; message?: string }; defect?: unknown }>)
+          .find((reason) => reason._tag === "Fail")?.error
       throw new ControlRefused(failure?._tag ?? "Defect", tag, failure?.message ?? JSON.stringify(exit.cause))
     }
   }
@@ -95,7 +98,9 @@ export interface GateView {
   readonly wait: string
 }
 
-const gatesOf = (run: { readonly runId: string; readonly pendingWaits?: ReadonlyArray<any> }): ReadonlyArray<GateView> =>
+const gatesOf = (
+  run: { readonly runId: string; readonly pendingWaits?: ReadonlyArray<any> }
+): ReadonlyArray<GateView> =>
   (run.pendingWaits ?? []).flatMap((wait) => {
     const pending = Gates.pending(wait.request)
     return pending === undefined || typeof wait.name !== "string" ? [] : [{
@@ -171,10 +176,16 @@ export const operations = (control: Control) => {
       readonly reason?: string | undefined
     }): Promise<GateView> => {
       const open = (await runs({ status: "waiting-approval" })).flatMap((run) => run.gates)
-        .filter((gate) => gate.gateId === options.gateId && (options.runId === undefined || gate.runId === options.runId))
+        .filter((gate) =>
+          gate.gateId === options.gateId && (options.runId === undefined || gate.runId === options.runId)
+        )
       if (open.length === 0) throw new Error(`no run is waiting on gate ${options.gateId}`)
       if (open.length > 1) {
-        throw new Error(`${open.length} runs wait on gate ${options.gateId}; pass --run with one of ${open.map((gate) => gate.runId).join(", ")}`)
+        throw new Error(
+          `${open.length} runs wait on gate ${options.gateId}; pass --run with one of ${
+            open.map((gate) => gate.runId).join(", ")
+          }`
+        )
       }
       const gate = open[0]!
       await control.call("Signal", {

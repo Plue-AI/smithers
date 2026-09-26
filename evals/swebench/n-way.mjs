@@ -61,7 +61,10 @@ export const nWay = (waves) => {
   // `rerun` side is that wave's own fold and the repeated `baseline` side is
   // the same numbers every time — which is the check that the columns are one
   // rule rather than several.
-  const comparisons = rest.map((wave) => ({ wave, summary: compare({ baselinePath: baseline.path, rerunPath: wave.path }) }))
+  const comparisons = rest.map((wave) => ({
+    wave,
+    summary: compare({ baselinePath: baseline.path, rerunPath: wave.path })
+  }))
   const last = comparisons[comparisons.length - 1]
 
   const facts = new Map()

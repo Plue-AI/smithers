@@ -21,7 +21,17 @@ export type Status =
   | "failed"
   | "cancelled"
 
-export const statuses: ReadonlyArray<Status> = ["queued", "requested", "input", "running", "waiting", "parked", "done", "failed", "cancelled"]
+export const statuses: ReadonlyArray<Status> = [
+  "queued",
+  "requested",
+  "input",
+  "running",
+  "waiting",
+  "parked",
+  "done",
+  "failed",
+  "cancelled"
+]
 
 export type Event =
   /** A queued request got a seat. */
@@ -50,7 +60,22 @@ export type Event =
   | "fail"
   | "cancel"
 
-export const events: ReadonlyArray<Event> = ["admit", "launch", "input", "fill", "block", "unblock", "park", "wake", "sleep", "retry", "reattach", "done", "fail", "cancel"]
+export const events: ReadonlyArray<Event> = [
+  "admit",
+  "launch",
+  "input",
+  "fill",
+  "block",
+  "unblock",
+  "park",
+  "wake",
+  "sleep",
+  "retry",
+  "reattach",
+  "done",
+  "fail",
+  "cancel"
+]
 
 /** The event a reported outcome is. */
 export const ending = { done: "done", failed: "fail", cancelled: "cancel" } as const satisfies Record<string, Event>
@@ -77,7 +102,10 @@ export const step = (status: Status, event: Event, full: boolean): Status | unde
     case "unblock":
       return status === "running" || status === "waiting" ? "running" : undefined
     case "park":
-      return status === "queued" || status === "requested" || status === "running" || status === "waiting" || status === "parked" ? "parked" : undefined
+      return status === "queued" || status === "requested" || status === "running" || status === "waiting" ||
+          status === "parked"
+        ? "parked"
+        : undefined
     case "wake":
       return status === "parked" ? (full ? "queued" : "running") : status === "queued" ? "running" : undefined
     case "sleep":
@@ -134,7 +162,7 @@ export class Pool<T extends Item, E = undefined> {
   /** Every seat is taken. */
   full = (): boolean => this.values().filter(this.options.holdsSeat).length >= this.options.seats
 
-  subscribe = (listener: () => void): (() => void) => {
+  subscribe = (listener: () => void): () => void => {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
@@ -163,7 +191,10 @@ export class Pool<T extends Item, E = undefined> {
   move = (record: T, event: Event): T | undefined => {
     const status = step(record.status, event, this.full())
     if (status === undefined) {
-      Log.write(`${this.options.name}.transition`, new Error(`${event} does not apply to ${record.id} in ${record.status}`))
+      Log.write(
+        `${this.options.name}.transition`,
+        new Error(`${event} does not apply to ${record.id} in ${record.status}`)
+      )
       return undefined
     }
     const next = { ...record, status } as T

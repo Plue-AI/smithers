@@ -46,7 +46,10 @@ it("settles a turn with no outcome as interrupted and returns its receipt", () =
 
   const recovered = Session.recover(records, 20)
   expect(recovered.receipt).toEqual({
-    type: "outcome", at: 20, prompt: "first slow turn", outcome: { _tag: "interrupted", headline: "Interrupted" }
+    type: "outcome",
+    at: 20,
+    prompt: "first slow turn",
+    outcome: { _tag: "interrupted", headline: "Interrupted" }
   })
   const after = Session.restore(recovered.records)
   expect(after.transcript.requestedAt).toBeUndefined()
@@ -79,7 +82,12 @@ it("leaves a settled session and a shell-only session alone", () => {
   const writer = Session.create(scratch())
   writer.append({ type: "user", at: 1, text: "q" })
   writer.append({ type: "outcome", at: 2, prompt: "q", outcome: { _tag: "cancelled" } })
-  writer.append({ type: "shell", at: 3, result: { command: "true", output: "", exitCode: 0, cancelled: false }, excluded: false })
+  writer.append({
+    type: "shell",
+    at: 3,
+    result: { command: "true", output: "", exitCode: 0, cancelled: false },
+    excluded: false
+  })
   const records = Session.load(writer.file)
   expect(Session.recover(records)).toEqual({ records })
 })

@@ -49,12 +49,25 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "next-tab", keys: ["ctrl+]", "ctrl+right"], label: "Next tab", context: "global", group: "Tabs" },
   { id: "previous-tab", keys: ["ctrl+\\", "ctrl+left"], label: "Previous tab", context: "global", group: "Tabs" },
   { id: "scroll", keys: ["pageup", "pagedown"], label: "Scroll", context: "global", group: "Global" },
-  { id: "scroll-line", keys: ["shift+up", "shift+down"], display: "shift+↑/↓", label: "Scroll a line", context: "global", group: "Global" },
+  {
+    id: "scroll-line",
+    keys: ["shift+up", "shift+down"],
+    display: "shift+↑/↓",
+    label: "Scroll a line",
+    context: "global",
+    group: "Global"
+  },
 
   { id: "send", keys: ["enter"], label: "Send", context: "composer", group: "Composer" },
   { id: "queue", keys: ["alt+enter"], label: "Queue", context: "composer", group: "Composer" },
   { id: "restore", keys: ["alt+up"], label: "Restore queue", context: "composer", group: "Composer" },
-  { id: "newline", keys: ["shift+enter", "ctrl+j", "linefeed"], label: "New line", context: "composer", group: "Composer" },
+  {
+    id: "newline",
+    keys: ["shift+enter", "ctrl+j", "linefeed"],
+    label: "New line",
+    context: "composer",
+    group: "Composer"
+  },
   { id: "history", keys: ["up", "down"], label: "History", context: "composer", group: "Composer" },
   { id: "model", keys: ["ctrl+l"], label: "Pick model", context: "composer", group: "Composer" },
   { id: "next-model", keys: ["ctrl+p"], label: "Next model", context: "composer", group: "Composer" },
@@ -75,7 +88,14 @@ export const registry: ReadonlyArray<Binding> = [
 
   { id: "close-panel", keys: ["esc"], label: "Chat", context: "panel", group: "Panel" },
   { id: "focus-composer", keys: ["i"], label: "Composer", context: "panel", group: "Panel" },
-  { id: "navigate", keys: ["j", "k", "h", "l", "up", "down", "left", "right"], display: "hjkl/arrows", label: "Navigate", context: "panel", group: "Panel" },
+  {
+    id: "navigate",
+    keys: ["j", "k", "h", "l", "up", "down", "left", "right"],
+    display: "hjkl/arrows",
+    label: "Navigate",
+    context: "panel",
+    group: "Panel"
+  },
   { id: "expand-row", keys: ["enter", "space"], label: "Expand row", context: "panel", group: "Panel" },
   { id: "diff", keys: ["d"], label: "Toggle diff", context: "panel", group: "Panel" },
   { id: "split", keys: ["v"], label: "Split diff", context: "panel", group: "Panel" },
@@ -90,7 +110,14 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "next-panel-tab", keys: ["tab"], label: "Next tab", context: "panel", group: "Tabs" },
 
   { id: "close-picker", keys: ["esc"], label: "Close", context: "picker", group: "Picker" },
-  { id: "pick-move", keys: ["up", "down", "ctrl+p", "ctrl+n"], display: "up/down", label: "Move", context: "picker", group: "Picker" },
+  {
+    id: "pick-move",
+    keys: ["up", "down", "ctrl+p", "ctrl+n"],
+    display: "up/down",
+    label: "Move",
+    context: "picker",
+    group: "Picker"
+  },
   { id: "pick-page", keys: ["pageup", "pagedown"], label: "Page", context: "picker", group: "Picker" },
   { id: "pick", keys: ["enter"], label: "Choose", context: "picker", group: "Picker" },
 
@@ -105,17 +132,45 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "deny", keys: ["n"], label: "Deny", context: "approval", group: "Approval" },
   { id: "allow-all", keys: ["a"], label: "Allow all", context: "approval", group: "Approval" },
 
-  { id: "selection-move", keys: ["up", "down", "left", "right", "home", "end"], display: "arrows/home/end", label: "Move", context: "selection", group: "Inspection" },
-  { id: "selection-milestone", keys: ["[", "]", "shift+left", "shift+right"], display: "[/]", label: "Milestone", context: "selection", group: "Inspection" },
+  {
+    id: "selection-move",
+    keys: ["up", "down", "left", "right", "home", "end"],
+    display: "arrows/home/end",
+    label: "Move",
+    context: "selection",
+    group: "Inspection"
+  },
+  {
+    id: "selection-milestone",
+    keys: ["[", "]", "shift+left", "shift+right"],
+    display: "[/]",
+    label: "Milestone",
+    context: "selection",
+    group: "Inspection"
+  },
   { id: "selection-close", keys: ["esc", "enter"], label: "Live", context: "selection", group: "Inspection" },
 
-  { id: "complete-move", keys: ["up", "down", "ctrl+p", "ctrl+n"], display: "up/down", label: "Move", context: "completion", group: "Completion" },
+  {
+    id: "complete-move",
+    keys: ["up", "down", "ctrl+p", "ctrl+n"],
+    display: "up/down",
+    label: "Move",
+    context: "completion",
+    group: "Completion"
+  },
   { id: "complete", keys: ["tab"], label: "Complete", context: "completion", group: "Completion" },
   { id: "complete-run", keys: ["enter"], label: "Choose", context: "completion", group: "Completion" },
   { id: "complete-close", keys: ["esc"], label: "Close", context: "completion", group: "Completion" },
 
   { id: "open-card", keys: ["enter"], label: "Open", context: "card", group: "Cards" },
-  { id: "card-move", keys: ["up", "down", "tab", "shift+tab"], display: "up/down", label: "Next card", context: "card", group: "Cards" },
+  {
+    id: "card-move",
+    keys: ["up", "down", "tab", "shift+tab"],
+    display: "up/down",
+    label: "Next card",
+    context: "card",
+    group: "Cards"
+  },
   { id: "close-card", keys: ["esc"], label: "Composer", context: "card", group: "Cards" }
 ]
 
@@ -158,8 +213,10 @@ export const bindingFor = (
   context?: KeyContext,
   list: ReadonlyArray<Binding> = registry
 ): Binding | undefined =>
-  list.find((binding) => (context === undefined || binding.context === context || binding.context === "global") &&
-    binding.keys.some((key) => matches(event, key)))
+  list.find((binding) =>
+    (context === undefined || binding.context === context || binding.context === "global") &&
+    binding.keys.some((key) => matches(event, key))
+  )
 
 /** The context's own keys first, then the global ones. */
 export const bindingsFor = (context: KeyContext, list: ReadonlyArray<Binding> = registry): ReadonlyArray<Binding> => [
@@ -194,10 +251,33 @@ export const taken = (key: string, context: "global" | "panel"): Binding | undef
 const editing: Binding = {
   id: "edit-text",
   keys: [
-    "ctrl+a", "ctrl+e", "ctrl+shift+a", "ctrl+shift+e", "alt+a", "alt+e", "alt+shift+a", "alt+shift+e",
-    "ctrl+f", "ctrl+b", "ctrl+w", "ctrl+u", "ctrl+backspace", "ctrl+delete", "ctrl+shift+d", "ctrl+-", "ctrl+.",
-    "alt+d", "alt+delete", "alt+f", "alt+b", "alt+left", "alt+right",
-    "alt+shift+f", "alt+shift+b", "alt+shift+left", "alt+shift+right"
+    "ctrl+a",
+    "ctrl+e",
+    "ctrl+shift+a",
+    "ctrl+shift+e",
+    "alt+a",
+    "alt+e",
+    "alt+shift+a",
+    "alt+shift+e",
+    "ctrl+f",
+    "ctrl+b",
+    "ctrl+w",
+    "ctrl+u",
+    "ctrl+backspace",
+    "ctrl+delete",
+    "ctrl+shift+d",
+    "ctrl+-",
+    "ctrl+.",
+    "alt+d",
+    "alt+delete",
+    "alt+f",
+    "alt+b",
+    "alt+left",
+    "alt+right",
+    "alt+shift+f",
+    "alt+shift+b",
+    "alt+shift+left",
+    "alt+shift+right"
   ],
   label: "Edit text",
   context: "composer",
@@ -319,10 +399,12 @@ export const sheet = (): string => {
 export const duplicateKeys = (): ReadonlyArray<string> => {
   const seen = new Set<string>()
   const duplicates = new Set<string>()
-  for (const binding of registry) for (const key of binding.keys) {
-    const scoped = `${binding.context}:${key}`
-    if (seen.has(scoped)) duplicates.add(scoped)
-    seen.add(scoped)
+  for (const binding of registry) {
+    for (const key of binding.keys) {
+      const scoped = `${binding.context}:${key}`
+      if (seen.has(scoped)) duplicates.add(scoped)
+      seen.add(scoped)
+    }
   }
   return [...duplicates]
 }

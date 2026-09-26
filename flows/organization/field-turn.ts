@@ -33,7 +33,9 @@ const ask = (
     task: stage.task,
     context: stage.context,
     // The key and commit are planned references the engine resolves inside the struct.
-    ...(workspace === undefined ? {} : { workspace: workspace as unknown as { key: string; repository: string; commit: string } })
+    ...(workspace === undefined
+      ? {}
+      : { workspace: workspace as unknown as { key: string; repository: string; commit: string } })
   }).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (payload) => Actions.RoleTask.call(payload))),
     Node.bindPlanned(Node.capture({ implementationVersion, required }, function(result) {

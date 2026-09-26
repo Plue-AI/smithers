@@ -46,10 +46,18 @@ export const ContentInput = Schema.Struct({
   channels: Channels,
   title: Schema.String,
   notes: Schema.String,
-  minScore: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 }, { message: "minScore must be between 0 and 1" })),
-  maxRevisions: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 3 }, { message: "maxRevisions must be an integer from 0 to 3" })),
-  maxTweets: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 12 }, { message: "maxTweets must be an integer from 1 to 12" })),
-  maxTweetChars: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 280 }, { message: "maxTweetChars must be an integer from 1 to 280" }))
+  minScore: Schema.Finite.check(
+    Schema.isBetween({ minimum: 0, maximum: 1 }, { message: "minScore must be between 0 and 1" })
+  ),
+  maxRevisions: Schema.Int.check(
+    Schema.isBetween({ minimum: 0, maximum: 3 }, { message: "maxRevisions must be an integer from 0 to 3" })
+  ),
+  maxTweets: Schema.Int.check(
+    Schema.isBetween({ minimum: 1, maximum: 12 }, { message: "maxTweets must be an integer from 1 to 12" })
+  ),
+  maxTweetChars: Schema.Int.check(
+    Schema.isBetween({ minimum: 1, maximum: 280 }, { message: "maxTweetChars must be an integer from 1 to 280" })
+  )
 })
 export type ContentInput = typeof ContentInput.Type
 
@@ -64,14 +72,17 @@ export const ReleaseInput = Schema.Struct({
 })
 export type ReleaseInput = typeof ReleaseInput.Type
 
-const storedRun = <const Kind extends string, Input extends Schema.Top>(kind: Kind, input: Input) => Schema.Struct({
-  schemaVersion: Schema.optionalKey(Schema.Literal(1)).pipe(Schema.withDecodingDefaultKey(Effect.succeed(1 as const))),
-  kind: Schema.Literal(kind),
-  id: Schema.String,
-  input,
-  model: Schema.String,
-  maxTokens: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
-})
+const storedRun = <const Kind extends string, Input extends Schema.Top>(kind: Kind, input: Input) =>
+  Schema.Struct({
+    schemaVersion: Schema.optionalKey(Schema.Literal(1)).pipe(
+      Schema.withDecodingDefaultKey(Effect.succeed(1 as const))
+    ),
+    kind: Schema.Literal(kind),
+    id: Schema.String,
+    input,
+    model: Schema.String,
+    maxTokens: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
+  })
 /**
  * The run record persisted at .flows/releases/runs/<id>/run.json. Records written
  * before schemaVersion existed decode as version 1.

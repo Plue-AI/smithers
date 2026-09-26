@@ -25,8 +25,8 @@ import {
   AssignmentTask,
   DescribeWork,
   requiredFields,
-  type WorkFailure,
   SettleAssignment,
+  type WorkFailure,
   WriteAssignment
 } from "../autonomy.ts"
 import { fieldTurn } from "../field-turn.ts"
@@ -35,8 +35,13 @@ import { TeamPost } from "../team-channel.ts"
 
 const implementationVersion = "organization/assignment/v2"
 
-const blocked = (payload: typeof Assignment.Type, summary: Planned.Planned<string> | string): Node.Node<AssignmentReport> =>
-  Node.succeed({ key: payload.key, status: "blocked", summary, principal: payload.role, paths: [] } as unknown as AssignmentReport)
+const blocked = (
+  payload: typeof Assignment.Type,
+  summary: Planned.Planned<string> | string
+): Node.Node<AssignmentReport> =>
+  Node.succeed(
+    { key: payload.key, status: "blocked", summary, principal: payload.role, paths: [] } as unknown as AssignmentReport
+  )
 
 /** The role's turn, in a machine of its own when the assignment asks for one. */
 const answered = (
@@ -45,18 +50,31 @@ const answered = (
   stage: Planned.Planned<Stage>
 ): Node.Node<Answer, any, any> => {
   const required = requiredFields[payload.kind]
-  if (!payload.workspace || payload.repository === undefined) return fieldTurn(revision, stage, required) as Node.Node<Answer, any, any>
+  if (!payload.workspace || payload.repository === undefined) {
+    return fieldTurn(revision, stage, required) as Node.Node<Answer, any, any>
+  }
   const repository = payload.repository
   return Actions.ResolveBase.call({ repository, commit: "HEAD" }).pipe(
-    Node.bindPlanned(Node.capture({ implementationVersion }, (base) =>
-      Actions.PrepareWorkspace.call({ repository, commit: base.commit, slug: "assignment" }))),
+    Node.bindPlanned(
+      Node.capture(
+        { implementationVersion },
+        (base) => Actions.PrepareWorkspace.call({ repository, commit: base.commit, slug: "assignment" })
+      )
+    ),
     Node.bindPlanned(Node.capture({ implementationVersion, required }, function(prepared) {
       return fieldTurn(revision, stage, this.required, { key: prepared.key, repository, commit: prepared.commit }).pipe(
-        Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
-          Actions.DisposeWorkspace.call({ workspace: prepared }).pipe(Node.andThen(Node.succeed(answer))))),
+        Node.bindPlanned(
+          Node.capture(
+            { implementationVersion },
+            (answer) => Actions.DisposeWorkspace.call({ workspace: prepared }).pipe(Node.andThen(Node.succeed(answer)))
+          )
+        ),
         Node.catch({
-          onFailure: Node.capture({ implementationVersion }, (failure) =>
-            Actions.DisposeWorkspace.call({ workspace: prepared }).pipe(Node.andThen(Node.fail(failure as never))))
+          onFailure: Node.capture(
+            { implementationVersion },
+            (failure) =>
+              Actions.DisposeWorkspace.call({ workspace: prepared }).pipe(Node.andThen(Node.fail(failure as never)))
+          )
         })
       )
     }))
@@ -79,24 +97,34 @@ export default Flow.make("organization/assignment", {
       Node.andThen(Actions.PinRoster.call({})),
       Node.bindPlanned(Node.capture({ implementationVersion }, (pin) =>
         AssignmentTask.call({ revision: pin.revision, assignment: payload }).pipe(
-          Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => answered(payload, pin.revision, stage))),
-          Node.bindPlanned(Node.capture({ implementationVersion }, (answer) => WriteAssignment.call({ assignment: payload, answer })))
+          Node.bindPlanned(Node.capture({ implementationVersion }, (stage) =>
+            answered(payload, pin.revision, stage))),
+          Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
+            WriteAssignment.call({ assignment: payload, answer })))
         ))),
       Node.catch({
         onFailure: Node.capture({ implementationVersion }, (failure) =>
           DescribeWork.call({ failure: failure as Planned.Planned<typeof WorkFailure.Type> }).pipe(
-            Node.bindPlanned(Node.capture({ implementationVersion }, (described) => blocked(payload, described)))
+            Node.bindPlanned(Node.capture({ implementationVersion }, (described) =>
+              blocked(payload, described)))
           ))
       }),
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-        Actions.WriteReceipt.call({ runId: payload.key, name: "assignment", receipt: { assignment: payload, report: outcome } as never }).pipe(
+        Actions.WriteReceipt.call({
+          runId: payload.key,
+          name: "assignment",
+          receipt: { assignment: payload, report: outcome } as never
+        }).pipe(
           Node.bindPlanned(Node.capture({ implementationVersion }, (written) =>
             Node.all({ ended: Node.succeed(outcome), receipt: Node.succeed(written.path) }).pipe(
               // The pages it wrote, then its receipt, as links.
               Node.map(Node.capture({ implementationVersion, title: payload.title }, function({ ended, receipt }) {
                 return {
                   text: ended.status === "done" ? `Done: ${this.title}` : `Blocked: ${this.title}: ${ended.summary}`,
-                  refs: [...(ended.status === "done" ? ended.paths : []), receipt].map((path) => ({ kind: "page" as const, path }))
+                  refs: [...(ended.status === "done" ? ended.paths : []), receipt].map((path) => ({
+                    kind: "page" as const,
+                    path
+                  }))
                 }
               })),
               Node.bindPlanned(Node.capture({ implementationVersion }, (post) =>

@@ -36,9 +36,9 @@
  *
  * @since 0.1.0
  */
-import { DatabaseSync } from "node:sqlite"
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 
 /** The flows that change the workspace, so a failure is a failed mutation. */
 const mutating = new Set(["edit", "write", "apply_patch"])
@@ -225,9 +225,13 @@ const main = () => {
   console.log(`dead frames      ${total.deadFrames}`)
   console.log(`recall           ${total.recallOrdinals} ordinals over ${total.recallTransitions} transitions`)
   console.log(`render           ${total.renderKeys} keys over ${total.renderTransitions} transitions`)
-  console.log(`failed calls     ${total.failedCalls} in ${total.framesWithFailedCall} frames, ${total.recoveredFrames} recovered`)
+  console.log(
+    `failed calls     ${total.failedCalls} in ${total.framesWithFailedCall} frames, ${total.recoveredFrames} recovered`
+  )
   console.log(`test flow        ${total.testCalls} calls, ${total.baselinedTestCalls} against base`)
-  console.log(`bash             ${total.bashCalls} calls, ${total.scriptCalls} as data, ${total.quotedCalls} as a command string`)
+  console.log(
+    `bash             ${total.bashCalls} calls, ${total.scriptCalls} as data, ${total.quotedCalls} as a command string`
+  )
   console.log(`edits            ${total.editCalls} calls, ${total.failedEdits} failed`)
   console.log(`cache rate       ${(summary.cacheRate * 100).toFixed(1)}%`)
   if (unreadable.length > 0) console.log(`unreadable       ${unreadable.map((one) => one.instance).join(", ")}`)

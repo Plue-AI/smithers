@@ -6,10 +6,10 @@
  * snapshot here, so a role can hand work only to an active principal that
  * holds the grants the work needs.
  */
+import { Clock, Effect, Layer } from "effect"
 import { createHash } from "node:crypto"
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
-import { Clock, Effect, Layer } from "effect"
 import { fromIntegrationError } from "../../packages/smithers/agent/integrations/src/core/ActionFailure.ts"
 import { IntegrationError } from "../../packages/smithers/agent/integrations/src/core/IntegrationError.ts"
 import * as SlackClient from "../../packages/smithers/agent/integrations/src/slack/SlackClient.ts"
@@ -19,41 +19,41 @@ import type * as Gates from "../../packages/smithers/agent/organization/src/Gate
 import type * as Profile from "../../packages/smithers/agent/organization/src/Profile.ts"
 import type * as Prompt from "../../packages/smithers/agent/organization/src/Prompt.ts"
 import * as Workspace from "../../packages/smithers/agent/organization/src/Workspace.ts"
+import * as GitHub from "./github.ts"
+import * as Links from "./links.ts"
 import {
   Admit,
   AgainTask,
   type Answer,
   AnswerTask,
-  Closing,
   Assign,
   type Assignment,
   BuildTask,
   CheckTask,
+  Closing,
   CorrectTask,
   Decide,
   DeliveryFailed,
   Describe,
+  DisposeWorkspaces,
+  Headline,
+  type HostAsk,
+  HostRoute,
   IntakeRefused,
   LeadTask,
+  PublishChange,
+  React,
+  ReadAsk,
   RenderReply,
+  type Report,
   type Request,
   RouteTask,
   Settle,
   type Stage,
   StatusFailed,
-  DisposeWorkspaces,
-  type HostAsk,
-  ReadAsk,
   WriteDocument,
-  WriteStatus,
-  Headline,
-  HostRoute,
-  PublishChange,
-  React,
-  type Report
+  WriteStatus
 } from "./schema.ts"
-import * as GitHub from "./github.ts"
-import * as Links from "./links.ts"
 
 /** What the host decided at startup that every admission uses. */
 export interface Options {
@@ -87,10 +87,14 @@ export const headline = (report: Report, receipt: string): string => {
   const outcome = (() => {
     if (report.status === "landed") {
       if (report.pull !== undefined) return `Landed: ${report.pull.url}`
-      return report.applied === undefined ? "Landed" : `Landed on ${report.applied.branch} ${report.applied.commit.slice(0, 12)}`
+      return report.applied === undefined
+        ? "Landed"
+        : `Landed on ${report.applied.branch} ${report.applied.commit.slice(0, 12)}`
     }
     if (report.status === "answered") return `Answered: ${report.document ?? short(report.summary, 160)}`
-    const label = report.status === "changes-requested" ? "Changes requested" : `${report.status[0]!.toUpperCase()}${report.status.slice(1)}`
+    const label = report.status === "changes-requested"
+      ? "Changes requested"
+      : `${report.status[0]!.toUpperCase()}${report.status.slice(1)}`
     return `${label}: ${short(report.summary, 160)}`
   })()
   return `${outcome} · ${receipt}`
@@ -113,11 +117,20 @@ export const closing = (
     return { speaker: report.answer.principal, text: report.answer.text.trim(), refs: [], reaction }
   }
   const receiptRef: Array<Links.Ref> = receipt === "" ? [] : [{ kind: "page", path: receipt }]
-  const ended = (text: string, refs: Array<Links.Ref> = []) => ({ speaker: assistant, text, refs: [...refs, ...receiptRef], reaction })
+  const ended = (text: string, refs: Array<Links.Ref> = []) => ({
+    speaker: assistant,
+    text,
+    refs: [...refs, ...receiptRef],
+    reaction
+  })
   if (report.status === "landed") {
     if (report.pull !== undefined) {
       const github = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\//.exec(report.pull.url)?.[1]
-      return ended("Landed", [github === undefined ? { kind: "url", url: report.pull.url } : { kind: "pull", github, number: report.pull.number, url: report.pull.url }])
+      return ended("Landed", [
+        github === undefined
+          ? { kind: "url", url: report.pull.url }
+          : { kind: "pull", github, number: report.pull.number, url: report.pull.url }
+      ])
     }
     if (report.applied === undefined) return ended("Landed")
     return ended(`Landed on ${report.applied.branch} ${report.applied.commit.slice(0, 12)}`, [
@@ -126,9 +139,13 @@ export const closing = (
     ])
   }
   if (report.status === "answered") {
-    return report.document === undefined ? ended(`Answered: ${line(report.summary, 160)}`) : ended("Answered", [{ kind: "page", path: report.document }])
+    return report.document === undefined
+      ? ended(`Answered: ${line(report.summary, 160)}`)
+      : ended("Answered", [{ kind: "page", path: report.document }])
   }
-  const label = report.status === "changes-requested" ? "Changes requested" : `${report.status[0]!.toUpperCase()}${report.status.slice(1)}`
+  const label = report.status === "changes-requested"
+    ? "Changes requested"
+    : `${report.status[0]!.toUpperCase()}${report.status.slice(1)}`
   return ended(`${label}: ${line(report.summary, 160)}`)
 }
 
@@ -136,13 +153,19 @@ export const closing = (
 export const pullBody = (payload: {
   readonly key: string
   readonly issue?: { readonly number: number } | undefined
-  readonly checks: ReadonlyArray<{ readonly name: string; readonly exitCode: number | null; readonly timedOut: boolean }>
+  readonly checks: ReadonlyArray<
+    { readonly name: string; readonly exitCode: number | null; readonly timedOut: boolean }
+  >
 }, generatedDir: string): string =>
   [
     ...(payload.issue === undefined ? [] : [`Fixes #${payload.issue.number}`, ""]),
     ...(payload.checks.length === 0
       ? ["Checks: none configured"]
-      : payload.checks.map((check) => `- ${check.exitCode === 0 ? "pass" : check.timedOut ? "timed out" : `exit ${check.exitCode ?? "none"}`}: ${check.name}`)),
+      : payload.checks.map((check) =>
+        `- ${
+          check.exitCode === 0 ? "pass" : check.timedOut ? "timed out" : `exit ${check.exitCode ?? "none"}`
+        }: ${check.name}`
+      )),
     "",
     `Receipt: ${join(generatedDir, runDirectory(payload.key), "deliver.json")}`
   ].join("\n")
@@ -231,7 +254,9 @@ export const readAsk = (key: string, answer: Answer): HostAsk => {
       return invalid("fields.hire needs a need, the work the hire is for")
     }
     const task = typeof hire.task === "string" && hire.task.trim() !== "" ? paragraph(hire.task) : undefined
-    const acceptance = Array.isArray(hire.acceptance) ? lines(hire.acceptance.filter((item) => typeof item === "string")) : []
+    const acceptance = Array.isArray(hire.acceptance)
+      ? lines(hire.acceptance.filter((item) => typeof item === "string"))
+      : []
     return {
       ...none,
       kind: "hire",
@@ -263,7 +288,9 @@ export const readAsk = (key: string, answer: Answer): HostAsk => {
 /** The host fields a principal may use, as task acceptance lines. */
 const askLines = (profile: Profile.Profile): ReadonlyArray<string> => [
   ...(profile.grants.tools.includes("delegate") && (profile.grants.hiring?.maxChildren ?? 0) > 0
-    ? ["To hire a specialist for this instead, return done with no handoffs and `fields.hire`: `{ need, task, acceptance }` (the work the hire is for, its first task, and that task's criteria)."]
+    ? [
+      "To hire a specialist for this instead, return done with no handoffs and `fields.hire`: `{ need, task, acceptance }` (the work the hire is for, its first task, and that task's criteria)."
+    ]
     : []),
   "To ask for time with the owner instead, return done with no handoffs and `fields.meeting`: `{ purpose, minutes }`."
 ]
@@ -284,9 +311,20 @@ export const renderDocument = (answer: Answer): string => {
     ...Object.entries(result.fields).flatMap(([name, field]) => ["", `## ${name}`, "", value(field)]),
     ...(result.evidence.length === 0
       ? []
-      : ["", "## Evidence", "", ...result.evidence.map((item) => `- ${item.kind} \`${item.ref}\`${item.detail === "" ? "" : `: ${line(item.detail, 400)}`}`)]),
-    ...(result.handoffs.length === 0 ? [] : ["", "## Handoffs", "", ...result.handoffs.map((item) => `- ${item.to}: ${line(item.objective, 400)}`)]),
-    ...(result.escalations.length === 0 ? [] : ["", "## Escalations", "", ...result.escalations.map((item) => `- ${item.to}: ${line(item.reason, 400)}`)]),
+      : [
+        "",
+        "## Evidence",
+        "",
+        ...result.evidence.map((item) =>
+          `- ${item.kind} \`${item.ref}\`${item.detail === "" ? "" : `: ${line(item.detail, 400)}`}`
+        )
+      ]),
+    ...(result.handoffs.length === 0
+      ? []
+      : ["", "## Handoffs", "", ...result.handoffs.map((item) => `- ${item.to}: ${line(item.objective, 400)}`)]),
+    ...(result.escalations.length === 0
+      ? []
+      : ["", "## Escalations", "", ...result.escalations.map((item) => `- ${item.to}: ${line(item.reason, 400)}`)]),
     ""
   ].join("\n")
 }
@@ -296,7 +334,8 @@ const negativeVerdict = /^(?:request-changes|changes-requested|reject(?:ed)?|fai
 /** The last `max` characters of `text`, marked when cut. */
 const tail = (text: string, max: number) => text.length <= max ? text : `…${text.slice(text.length - max + 1)}`
 
-export const fence = (text: string, max: number) => text.length <= max ? text : `${text.slice(0, max)}\n… (${text.length - max} more characters not shown)`
+export const fence = (text: string, max: number) =>
+  text.length <= max ? text : `${text.slice(0, max)}\n… (${text.length - max} more characters not shown)`
 
 export const atomicWrite = async (root: string, path: string, content: string) => {
   const target = resolve(root, path)
@@ -315,7 +354,16 @@ export const readReceipts = async (root: string, generatedDir: string) => {
     if (error.code === "ENOENT") return []
     throw error
   })
-  const receipts: Array<{ readonly key: string; readonly status: string; readonly summary: string; readonly at: number; readonly branch?: string; readonly commit?: string }> = []
+  const receipts: Array<
+    {
+      readonly key: string
+      readonly status: string
+      readonly summary: string
+      readonly at: number
+      readonly branch?: string
+      readonly commit?: string
+    }
+  > = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const text = await readFile(join(directory, entry.name, "deliver.json"), "utf8").catch(() => undefined)
@@ -323,7 +371,12 @@ export const readReceipts = async (root: string, generatedDir: string) => {
     try {
       const parsed = JSON.parse(text) as {
         readonly admission?: { readonly at?: number }
-        readonly report?: { readonly key?: string; readonly status?: string; readonly summary?: string; readonly applied?: { readonly branch?: string; readonly commit?: string } }
+        readonly report?: {
+          readonly key?: string
+          readonly status?: string
+          readonly summary?: string
+          readonly applied?: { readonly branch?: string; readonly commit?: string }
+        }
       }
       const report = parsed.report ?? {}
       receipts.push({
@@ -347,7 +400,12 @@ const settledReaction = /already_reacted|no_reaction/
 /** Removes then adds reactions on one message; see `React`. */
 export const react = (
   environment: Readonly<Record<string, string | undefined>>,
-  payload: { readonly channel: string; readonly ts: string; readonly add: ReadonlyArray<string>; readonly remove: ReadonlyArray<string> }
+  payload: {
+    readonly channel: string
+    readonly ts: string
+    readonly add: ReadonlyArray<string>
+    readonly remove: ReadonlyArray<string>
+  }
 ) =>
   Effect.gen(function*() {
     if ((environment.SMITHERS_SLACK_BOT_TOKEN ?? "") === "") return { reacted: false, reason: "Slack is not connected" }
@@ -369,18 +427,30 @@ export const layer = (options: Options) =>
     Admit.toLayer(({ request }) =>
       Effect.gen(function*() {
         if (request.source === "slack" && (request.user === undefined || !options.owners.includes(request.user))) {
-          return yield* new IntakeRefused({ reason: "not-owner", message: "only the organization's owner may make requests" })
+          return yield* new IntakeRefused({
+            reason: "not-owner",
+            message: "only the organization's owner may make requests"
+          })
         }
         const names = Object.keys(options.repositories)
         const repository = request.repository ?? (names.length === 1 ? names[0] : undefined)
         if (repository === undefined) {
-          return yield* new IntakeRefused({ reason: "no-repository", message: `name one of the configured repositories: ${names.join(", ")}` })
+          return yield* new IntakeRefused({
+            reason: "no-repository",
+            message: `name one of the configured repositories: ${names.join(", ")}`
+          })
         }
         if (!Object.hasOwn(options.repositories, repository)) {
-          return yield* new IntakeRefused({ reason: "unknown-repository", message: `repository ${repository} is not configured on this host` })
+          return yield* new IntakeRefused({
+            reason: "unknown-repository",
+            message: `repository ${repository} is not configured on this host`
+          })
         }
         if (request.source === "slack" && (request.role !== undefined || request.issue !== undefined)) {
-          return yield* new IntakeRefused({ reason: "host-only", message: "only the host names a request's role or issue" })
+          return yield* new IntakeRefused({
+            reason: "host-only",
+            message: "only the host names a request's role or issue"
+          })
         }
         const pull = options.pulls?.[repository]
         return {
@@ -470,7 +540,9 @@ export const layer = (options: Options) =>
           requestedBy: routed.principal
         }
         if (!routed.valid) return stop(routed.principal, "blocked", describeResult(routed), placeholder)
-        if (routed.result.status !== "done") return stop(routed.principal, "blocked", routed.result.summary, placeholder)
+        if (routed.result.status !== "done") {
+          return stop(routed.principal, "blocked", routed.result.summary, placeholder)
+        }
         const handoff = routed.result.handoffs[0]
         if (handoff === undefined) return stop(routed.principal, "answered", routed.result.summary, placeholder)
         if (handoff.to === routed.principal) {
@@ -592,7 +664,9 @@ export const layer = (options: Options) =>
           objective: paragraph(assignment.objective),
           inputs: lines([
             `The repository checkout is ${workdir} in your workspace machine.`,
-            ...(findings.length === 0 ? [] : [`Round ${round}: the checker asked for changes; its findings are in the context below.`])
+            ...(findings.length === 0
+              ? []
+              : [`Round ${round}: the checker asked for changes; its findings are in the context below.`])
           ]),
           acceptance: lines([
             ...assignment.acceptance,
@@ -624,13 +698,19 @@ export const layer = (options: Options) =>
           objective: paragraph(`Decide whether this change meets its acceptance criteria: ${assignment.objective}`),
           inputs: lines([
             "The diff, the check receipts from a fresh machine, and the builder's summary, in the context below.",
-            `${diff.files.length} file(s) changed, +${diff.added} -${diff.deleted} against commit ${diff.commit}; configured checks ${checks.passed ? "passed" : "did not pass"}.`,
+            `${diff.files.length} file(s) changed, +${diff.added} -${diff.deleted} against commit ${diff.commit}; configured checks ${
+              checks.passed ? "passed" : "did not pass"
+            }.`,
             ...(assignment.checkerWorkspace
-              ? [`The change is applied in the repository checkout at ${workdir} in a workspace machine of your own, removed after your turn: reproduce the criteria there.`]
+              ? [
+                `The change is applied in the repository checkout at ${workdir} in a workspace machine of your own, removed after your turn: reproduce the criteria there.`
+              ]
               : [])
           ]),
           acceptance: lines([
-            ...assignment.acceptance.map((criterion) => `Criterion: ${criterion}`),
+            ...assignment.acceptance.map((criterion) =>
+              `Criterion: ${criterion}`
+            ),
             "Read the output of every command you run before you answer: answer in a later reply than the commands, never in the same one.",
             "Return done only when every criterion is met and every configured check passed; otherwise return blocked with the unmet criteria as the summary.",
             `Name a commit only as ${diff.commit.slice(0, 12)}; the machine's own commits exist nowhere else.`,
@@ -652,7 +732,9 @@ export const layer = (options: Options) =>
             provenance: { retrievedAtMs: at },
             text: fence(
               checks.receipts.map((receipt) =>
-                `${receipt.name}: ${receipt.argv.join(" ")} → exit ${receipt.exitCode ?? "none"}${receipt.timedOut ? " (timed out)" : ""}\n${receipt.stdout.text}${receipt.stderr.text}`
+                `${receipt.name}: ${receipt.argv.join(" ")} → exit ${receipt.exitCode ?? "none"}${
+                  receipt.timedOut ? " (timed out)" : ""
+                }\n${receipt.stdout.text}${receipt.stderr.text}`
               ).join("\n\n") || "No checks are configured.",
               12_000
             )
@@ -674,7 +756,9 @@ export const layer = (options: Options) =>
             provenance: { retrievedAtMs: at },
             text: [
               "Your previous answer to this task broke your charter:",
-              ...validation.violations.map((violation) => `- ${violation.message}`),
+              ...validation.violations.map((violation) =>
+                `- ${violation.message}`
+              ),
               "Answer the task again with a result that keeps your charter. Your previous result:",
               fence(JSON.stringify(result, null, 2), 8_000)
             ].join("\n")
@@ -687,10 +771,17 @@ export const layer = (options: Options) =>
         task: { ...stage.task, id: `${stage.task.id}/again` },
         context: [
           ...stage.context,
-          { source: { provider: "organization", id: `again/${stage.task.id}` }, provenance: { retrievedAtMs: at }, text: reason }
+          {
+            source: { provider: "organization", id: `again/${stage.task.id}` },
+            provenance: { retrievedAtMs: at },
+            text: reason
+          }
         ]
       }))), { implementationVersion: "again-task/v1" }),
-    ReadAsk.toLayer(({ answer, key }) => Effect.sync(() => readAsk(key, answer)), { implementationVersion: "read-ask/v1" }),
+    ReadAsk.toLayer(({ answer, key }) =>
+      Effect.sync(() => readAsk(key, answer)), {
+      implementationVersion: "read-ask/v1"
+    }),
     HostRoute.toLayer(({ assistant, request, revision }) =>
       Effect.gen(function*() {
         const registry = yield* Authority.RosterRegistry
@@ -711,16 +802,28 @@ export const layer = (options: Options) =>
           violations: []
         }
       }), { implementationVersion: "host-route/v1" }),
-    Headline.toLayer(({ receipt, report }) => Effect.sync(() => headline(report, receipt)), { implementationVersion: "headline/v1" }),
-    Closing.toLayer(({ assistant, receipt, report, repository }) => Effect.sync(() => closing(report, receipt, assistant, repository)), {
-      implementationVersion: "closing/v1"
+    Headline.toLayer(({ receipt, report }) => Effect.sync(() => headline(report, receipt)), {
+      implementationVersion: "headline/v1"
     }),
+    Closing.toLayer(
+      ({ assistant, receipt, report, repository }) =>
+        Effect.sync(() => closing(report, receipt, assistant, repository)),
+      {
+        implementationVersion: "closing/v1"
+      }
+    ),
     React.toLayer((payload) => react(options.environment ?? {}, payload), { implementationVersion: "react/v1" }),
     PublishChange.toLayer((payload) =>
       Effect.gen(function*() {
         const path = options.repositories[payload.repository]
         if (path === undefined) {
-          return yield* Effect.fail(new IntegrationError("invalid-config", `repository ${payload.repository} is not configured on this host`, {}))
+          return yield* Effect.fail(
+            new IntegrationError(
+              "invalid-config",
+              `repository ${payload.repository} is not configured on this host`,
+              {}
+            )
+          )
         }
         const pushed = GitHub.push(path, payload.remote, payload.applied.branch, payload.applied.commit)
         if ("error" in pushed) {
@@ -734,7 +837,10 @@ export const layer = (options: Options) =>
           title: line(payload.title, 250),
           body: pullBody(payload, options.generatedDir)
         })
-        yield* GitHub.addLabels(github, payload.github, opened.number, ["organization", GitHub.claimLabel(payload.lead)])
+        yield* GitHub.addLabels(github, payload.github, opened.number, [
+          "organization",
+          GitHub.claimLabel(payload.lead)
+        ])
         return { number: opened.number, url: opened.url }
       }).pipe(Effect.mapError(fromIntegrationError)), { implementationVersion: "publish-change/v1" }),
     DisposeWorkspaces.toLayer(({ workspaces }) =>
@@ -766,16 +872,26 @@ export const layer = (options: Options) =>
     Decide.toLayer(({ build, check, checks, diff }) =>
       Effect.sync(() => {
         const findings: Array<string> = []
-        if (!build.valid || build.result.status !== "done") findings.push(`The builder did not finish: ${describeResult(build)}`)
+        if (!build.valid || build.result.status !== "done") {
+          findings.push(`The builder did not finish: ${describeResult(build)}`)
+        }
         if (diff.files.length === 0) findings.push("The workspace holds no change.")
         for (const receipt of checks.receipts) {
           if (receipt.exitCode !== 0) {
-            findings.push(`Check ${receipt.name} ${receipt.timedOut ? "timed out" : `exited ${receipt.exitCode}`}: ${line(receipt.stderr.text || receipt.stdout.text, 400)}`)
+            findings.push(
+              `Check ${receipt.name} ${receipt.timedOut ? "timed out" : `exited ${receipt.exitCode}`}: ${
+                line(receipt.stderr.text || receipt.stdout.text, 400)
+              }`
+            )
           }
         }
-        const verdicts = Object.values(check.result.fields).filter((value): value is string => typeof value === "string")
+        const verdicts = Object.values(check.result.fields).filter((value): value is string =>
+          typeof value === "string"
+        )
         const refused = verdicts.some((value) => negativeVerdict.test(value.trim()))
-        if (!check.valid || check.result.status !== "done" || refused) findings.push(`${check.principal}: ${describeResult(check)}`)
+        if (!check.valid || check.result.status !== "done" || refused) {
+          findings.push(`${check.principal}: ${describeResult(check)}`)
+        }
         return {
           approved: findings.length === 0 && checks.passed,
           findings: lines(findings),

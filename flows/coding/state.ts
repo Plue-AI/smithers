@@ -28,7 +28,8 @@ export const inside = (parent: string, child: string): boolean => {
   return to === from || to.startsWith(from.endsWith(sep) ? from : from + sep)
 }
 
-const truthy = (value: string | undefined): boolean => ["1", "true", "yes", "on"].includes((value ?? "").trim().toLowerCase())
+const truthy = (value: string | undefined): boolean =>
+  ["1", "true", "yes", "on"].includes((value ?? "").trim().toLowerCase())
 
 /**
  * The sibling directory this host keeps its databases in when nothing names

@@ -33,11 +33,27 @@ const slot = (scanned: Planned.Planned<Scanned>, index: number): Node.Node<Ended
       return seen.items.length > this.index
     }),
     then: (seen) =>
-      WorkItemFlow.child({ item: (seen.items as unknown as Record<string, Planned.Planned<WorkItem>>)[String(index)] as never }).pipe(
-        Node.map(Node.capture({ implementationVersion }, (report: ItemReport): Ended => ({ key: report.key, status: report.status, summary: report.summary }))),
+      WorkItemFlow.child({
+        item: (seen.items as unknown as Record<string, Planned.Planned<WorkItem>>)[String(index)] as never
+      }).pipe(
+        Node.map(
+          Node.capture(
+            { implementationVersion },
+            (report: ItemReport): Ended => ({ key: report.key, status: report.status, summary: report.summary })
+          )
+        ),
         Node.catch({
-          onFailure: Node.capture({ implementationVersion }, (failure) =>
-            Node.succeed({ key: "", status: "failed", summary: (failure as Planned.Planned<{ readonly message: string }>).message } as unknown as Ended))
+          onFailure: Node.capture(
+            { implementationVersion },
+            (failure) =>
+              Node.succeed(
+                {
+                  key: "",
+                  status: "failed",
+                  summary: (failure as Planned.Planned<{ readonly message: string }>).message
+                } as unknown as Ended
+              )
+          )
         })
       ),
     else: () => Node.succeed(null)
@@ -55,11 +71,14 @@ export default Flow.make("organization/work", {
   body: ({ max }) =>
     Scan.call({ max }).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (scanned) =>
-        Node.all(Object.fromEntries(Array.from({ length: max }, (_, index) => [`item${index}`, slot(scanned, index)]))).pipe(
-          Node.map(Node.capture({ implementationVersion }, (slots: Readonly<Record<string, Ended>>) =>
-            Object.values(slots).filter((entry): entry is NonNullable<Ended> => entry !== null))),
-          Node.bindPlanned(Node.capture({ implementationVersion }, (items) =>
-            Node.succeed({ items, synced: scanned.synced, problems: scanned.problems } as unknown as WorkReport)))
-        )))
+        Node.all(Object.fromEntries(Array.from({ length: max }, (_, index) => [`item${index}`, slot(scanned, index)])))
+          .pipe(
+            Node.map(Node.capture({ implementationVersion }, (slots: Readonly<Record<string, Ended>>) =>
+              Object.values(slots).filter((entry): entry is NonNullable<Ended> =>
+                entry !== null
+              ))),
+            Node.bindPlanned(Node.capture({ implementationVersion }, (items) =>
+              Node.succeed({ items, synced: scanned.synced, problems: scanned.problems } as unknown as WorkReport)))
+          )))
     )
 })

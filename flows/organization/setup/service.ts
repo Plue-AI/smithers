@@ -21,15 +21,7 @@ import { homedir } from "node:os"
 import { delimiter, dirname, join } from "node:path"
 import { parseArgs } from "node:util"
 import * as NodeResolve from "./node.ts"
-import {
-  absolute,
-  checkoutRoot,
-  type Command,
-  type Io,
-  nonEmpty,
-  stateDirOf,
-  withEnvFile
-} from "./settings.ts"
+import { absolute, checkoutRoot, type Command, type Io, nonEmpty, stateDirOf, withEnvFile } from "./settings.ts"
 
 /** The host agent's launchd label. */
 export const label = "sh.smithers.org"
@@ -53,7 +45,9 @@ const render = (value: PlistValue, indent: string): string => {
   if (typeof value === "number") return `${indent}<integer>${value}</integer>`
   if (typeof value === "boolean") return `${indent}<${value}/>`
   if (Array.isArray(value)) {
-    return [`${indent}<array>`, ...value.map((item: string) => render(item, `${indent}  `)), `${indent}</array>`].join("\n")
+    return [`${indent}<array>`, ...value.map((item: string) => render(item, `${indent}  `)), `${indent}</array>`].join(
+      "\n"
+    )
   }
   const entries = Object.entries(value as { readonly [key: string]: PlistValue })
   return [
@@ -146,7 +140,9 @@ export const servicePath = (node: string, path: string): string => {
   const directories = [dirname(node)]
   for (const tool of ["jj", "git"]) {
     const found = which(tool, path)
-    if (found === undefined) throw new Error(`${tool} is not on PATH; install it or add it to PATH, then install-service again`)
+    if (found === undefined) {
+      throw new Error(`${tool} is not on PATH; install it or add it to PATH, then install-service again`)
+    }
     directories.push(dirname(found))
   }
   directories.push("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
@@ -196,7 +192,9 @@ const installOne = (system: Launchd, name: string, content: string): Outcome => 
   if (isLoaded) system.launchctl(["bootout", `${system.domain}/${name}`])
   const loadedNow = system.launchctl(["bootstrap", system.domain, file])
   if (loadedNow.status !== 0) {
-    throw new Error(`launchctl bootstrap ${system.domain} ${file} failed: ${loadedNow.stderr.trim() || loadedNow.stdout.trim()}`)
+    throw new Error(
+      `launchctl bootstrap ${system.domain} ${file} failed: ${loadedNow.stderr.trim() || loadedNow.stdout.trim()}`
+    )
   }
   return isLoaded ? "reloaded" : "installed"
 }

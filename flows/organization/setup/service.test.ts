@@ -15,8 +15,8 @@ import {
   type Launchd,
   optionsOf,
   plist,
-  servicePath,
   type ServiceOptions,
+  servicePath,
   uninstall
 } from "./service.ts"
 import type { Io } from "./settings.ts"
@@ -53,15 +53,27 @@ test("plist escapes XML and renders every value type", () => {
   assert.match(text, /<key>F<\/key>\n\s+<dict>/)
 })
 
-test("the host agent runs serve at login, restarts throttled, and logs under the state directory", { skip: !hasPlutil && "no plutil" }, () => {
+test("the host agent runs serve at login, restarts throttled, and logs under the state directory", {
+  skip: !hasPlutil && "no plutil"
+}, () => {
   const host = parsed(hostPlist(options))
-  assert.deepEqual(host.ProgramArguments, [options.node, "/src/smithers/flows/organization/cli.ts", "serve", "--state-dir", options.stateDir])
+  assert.deepEqual(host.ProgramArguments, [
+    options.node,
+    "/src/smithers/flows/organization/cli.ts",
+    "serve",
+    "--state-dir",
+    options.stateDir
+  ])
   assert.equal(host.Label, label)
   assert.equal(host.RunAtLoad, true)
   assert.equal(host.KeepAlive, true)
   assert.equal(host.ThrottleInterval, 30)
   assert.equal(host.WorkingDirectory, options.workingDirectory)
-  assert.deepEqual(host.EnvironmentVariables, { PATH: options.path, HOME: options.home, SMITHERS_ORG_STATE_DIR: options.stateDir })
+  assert.deepEqual(host.EnvironmentVariables, {
+    PATH: options.path,
+    HOME: options.home,
+    SMITHERS_ORG_STATE_DIR: options.stateDir
+  })
   assert.equal(host.StandardOutPath, join(options.stateDir, "logs", "host.log"))
   assert.equal(host.StandardErrorPath, host.StandardOutPath)
   const clean = parsed(cleanPlist(options))
@@ -136,7 +148,11 @@ test("a failed bootstrap is reported with launchctl's message", () => {
 
 const capture = (env: Io["env"]) => {
   const out: Array<string> = [], err: Array<string> = []
-  return { io: { out: (line: string) => out.push(line), err: (line: string) => err.push(line), env, cwd: scratch }, out, err }
+  return {
+    io: { out: (line: string) => out.push(line), err: (line: string) => err.push(line), env, cwd: scratch },
+    out,
+    err
+  }
 }
 
 test("the commands read the state directory's .env and refuse off macOS", async () => {
@@ -159,7 +175,10 @@ test("the commands read the state directory's .env and refuse off macOS", async 
     real: (path: string) => path,
     homebrew: ["/opt/node/bin/node"]
   }
-  assert.throws(() => optionsOf({}, capture(env).io, { ...installed, homebrew: [] }), /^Error: no Node >= \d+\.\d+\.\d+; /)
+  assert.throws(
+    () => optionsOf({}, capture(env).io, { ...installed, homebrew: [] }),
+    /^Error: no Node >= \d+\.\d+\.\d+; /
+  )
   const resolved = optionsOf({}, capture(env).io, installed)
   assert.equal(resolved.workingDirectory, join(scratch, "wiki"))
   assert.equal(resolved.node, "/opt/node/bin/node")

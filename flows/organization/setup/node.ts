@@ -88,9 +88,13 @@ export const candidates = (
   }
   const { fnm, nvm, volta } = managers(env, home)
   for (const dir of fnm) {
-    for (const name of newestFirst(on.list(join(dir, "node-versions")))) add(join(dir, "node-versions", name, "installation/bin/node"))
+    for (const name of newestFirst(on.list(join(dir, "node-versions")))) {
+      add(join(dir, "node-versions", name, "installation/bin/node"))
+    }
   }
-  for (const name of newestFirst(on.list(join(volta, "tools/image/node")))) add(join(volta, "tools/image/node", name, "bin/node"))
+  for (const name of newestFirst(on.list(join(volta, "tools/image/node")))) {
+    add(join(volta, "tools/image/node", name, "bin/node"))
+  }
   for (const name of newestFirst(on.list(join(nvm, "versions/node")))) add(join(nvm, "versions/node", name, "bin/node"))
   for (const path of on.homebrew) add(path)
   return found

@@ -12,13 +12,13 @@
  * dials the gateway directly is dropped by the firewall and every completion
  * comes back unjudged, so the evidence has to be that the proxy was asked to
  * open the tunnel, not merely that the call failed: a direct dial fails too. */
+import * as Evaluator from "@smthrs/model/Evaluator"
+import { Effect } from "effect"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import type { Duplex } from "node:stream"
 import { test } from "node:test"
-import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect } from "effect"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
 import { evaluatorLayer } from "../repository/jev-checks.ts"
 
@@ -64,8 +64,11 @@ const listen = async (): Promise<Proxy> => {
 }
 
 test("the host's judge reaches the gateway through the proxy the environment names", async () => {
-  assert.equal(platform.evaluator, undefined,
-    "the Node platform names no judge, so coding/host.ts builds this one from the environment")
+  assert.equal(
+    platform.evaluator,
+    undefined,
+    "the Node platform names no judge, so coding/host.ts builds this one from the environment"
+  )
   const proxy = await listen()
   try {
     // What a microsandbox guest actually holds: the placeholder key the proxy
@@ -85,8 +88,11 @@ test("the host's judge reaches the gateway through the proxy the environment nam
     ))
     assert.equal(answered._tag, "Failure", "the refusing proxy cannot produce a model answer")
     if (answered._tag === "Failure") assert.equal(answered.failure.code, "unreachable")
-    assert.deepEqual([...proxy.seen], Array.from({ length: Evaluator.defaultAttempts }, () => "CONNECT ai-gateway.vercel.sh:443"),
-      `every bounded retry asked the proxy for the gateway and nothing else; it answered ${JSON.stringify(answered)}`)
+    assert.deepEqual(
+      [...proxy.seen],
+      Array.from({ length: Evaluator.defaultAttempts }, () => "CONNECT ai-gateway.vercel.sh:443"),
+      `every bounded retry asked the proxy for the gateway and nothing else; it answered ${JSON.stringify(answered)}`
+    )
   } finally {
     await proxy.close()
   }

@@ -47,20 +47,20 @@ inside the host and does not use the credential.
 Flags override variables, variables override the state directory's `.env`
 (the setup commands read the same names):
 
-| Setting | Flag | Variable | Default |
-| --- | --- | --- | --- |
-| Directory holding `Org/` | `--root` | `SMITHERS_ORG_ROOT` | current directory |
-| State (databases, `.env`) | `--state-dir` | `SMITHERS_ORG_STATE_DIR` | `~/.smithers/org` |
-| Repositories | `--repo name=path` (repeat) | `SMITHERS_ORG_REPOS` (comma-separated) | required |
-| Checks run on every change | `--check name=command` (repeat) | `SMITHERS_ORG_CHECKS` (one per line) | none; per repository: [environments](#repository-environments) |
-| Builder/checker rounds | `--max-rounds` | `SMITHERS_ORG_MAX_ROUNDS` | 2 |
-| Concurrent microVMs | | `SMITHERS_ORG_MAX_CONCURRENT_VMS` | `vm.maxConcurrentVMs` |
-| Concurrent role tasks | | `SMITHERS_ORG_MAX_CONCURRENT_TASKS` | 4 |
-| Calendar (one-on-ones, bookings) | | `SMITHERS_ORG_CALENDAR_ID` with `SMITHERS_GOOGLE_ACCESS_TOKEN`, or `SMITHERS_GOOGLE_REFRESH_TOKEN` + `SMITHERS_GOOGLE_CLIENT_ID`/`_SECRET` | not connected |
-| Seat credentials | | `SMITHERS_ORG_AUTH` (`subscription` or `api-key`) | `subscription` |
-| Slack | | `SMITHERS_SLACK_BOT_TOKEN`, `SMITHERS_SLACK_APP_TOKEN`, `SMITHERS_SLACK_TEAM_IDS`, `SMITHERS_SLACK_USER_IDS` | off |
-| Mac notifications without Slack | | `SMITHERS_ORG_NOTIFY` (`off` turns them off) | on |
-| Node for `install-service` | | `SMITHERS_ORG_NODE` | found on `PATH`, fnm, Volta, nvm, Homebrew |
+| Setting                          | Flag                            | Variable                                                                                                                                   | Default                                                        |
+| -------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| Directory holding `Org/`         | `--root`                        | `SMITHERS_ORG_ROOT`                                                                                                                        | current directory                                              |
+| State (databases, `.env`)        | `--state-dir`                   | `SMITHERS_ORG_STATE_DIR`                                                                                                                   | `~/.smithers/org`                                              |
+| Repositories                     | `--repo name=path` (repeat)     | `SMITHERS_ORG_REPOS` (comma-separated)                                                                                                     | required                                                       |
+| Checks run on every change       | `--check name=command` (repeat) | `SMITHERS_ORG_CHECKS` (one per line)                                                                                                       | none; per repository: [environments](#repository-environments) |
+| Builder/checker rounds           | `--max-rounds`                  | `SMITHERS_ORG_MAX_ROUNDS`                                                                                                                  | 2                                                              |
+| Concurrent microVMs              |                                 | `SMITHERS_ORG_MAX_CONCURRENT_VMS`                                                                                                          | `vm.maxConcurrentVMs`                                          |
+| Concurrent role tasks            |                                 | `SMITHERS_ORG_MAX_CONCURRENT_TASKS`                                                                                                        | 4                                                              |
+| Calendar (one-on-ones, bookings) |                                 | `SMITHERS_ORG_CALENDAR_ID` with `SMITHERS_GOOGLE_ACCESS_TOKEN`, or `SMITHERS_GOOGLE_REFRESH_TOKEN` + `SMITHERS_GOOGLE_CLIENT_ID`/`_SECRET` | not connected                                                  |
+| Seat credentials                 |                                 | `SMITHERS_ORG_AUTH` (`subscription` or `api-key`)                                                                                          | `subscription`                                                 |
+| Slack                            |                                 | `SMITHERS_SLACK_BOT_TOKEN`, `SMITHERS_SLACK_APP_TOKEN`, `SMITHERS_SLACK_TEAM_IDS`, `SMITHERS_SLACK_USER_IDS`                               | off                                                            |
+| Mac notifications without Slack  |                                 | `SMITHERS_ORG_NOTIFY` (`off` turns them off)                                                                                               | on                                                             |
+| Node for `install-service`       |                                 | `SMITHERS_ORG_NODE`                                                                                                                        | found on `PATH`, fnm, Volta, nvm, Homebrew                     |
 
 A repository is named as the roster's `grants.repositories` name it. A bare
 path is named by its `origin` remote's `owner/name`, else its directory name;
@@ -310,9 +310,9 @@ occurrence; it runs `organization/meetings-plan` daily at 06:00 UTC.
 Gates from `Org/Policy/Gates.md` attach at two boundaries; an empty policy adds
 no node:
 
-| Boundary | Target | Subject |
-| --- | --- | --- |
-| `task` | `organization/deliver` | request text and assignment |
+| Boundary         | Target                      | Subject                             |
+| ---------------- | --------------------------- | ----------------------------------- |
+| `task`           | `organization/deliver`      | request text and assignment         |
 | `external-write` | `organization/apply-change` | patch digest, files, branch, checks |
 
 An Approval gate parks the run until `answer <gate> approve|decline`, or an
@@ -421,9 +421,9 @@ longer has is refused, never run against the new one.
 Seats run on the owner's subscriptions (`setup/subscriptions.ts`); nothing in
 `Org/` changes but the seat strings:
 
-| Seats | Subscription | Sign in |
-| --- | --- | --- |
-| `openai:*` | ChatGPT, on the codex CLI's login (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) | `codex login` |
+| Seats                            | Subscription                                                                                                                                                                          | Sign in                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `openai:*`                       | ChatGPT, on the codex CLI's login (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`)                                                                                             | `codex login`                                 |
 | `anthropic:*` or a bare model id | Claude, on `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_AUTH_TOKEN`) when set, else the Claude Code login (macOS keychain or `~/.claude/.credentials.json`), read at each seat resolution | `claude`, or `claude setup-token` for a token |
 
 In subscription mode the host removes `ANTHROPIC_API_KEY` and

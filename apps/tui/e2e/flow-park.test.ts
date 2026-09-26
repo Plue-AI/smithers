@@ -11,7 +11,10 @@ it("shows a real durable park and question without claiming the run is still exe
   const root = mkdtempSync(join(tmpdir(), "tui-park-"))
   const project = join(root, "project")
   mkdirSync(join(project, "flows/ask"), { recursive: true })
-  writeFileSync(join(project, "flows/ask/flow.mdx"), "---\ndescription: Ask a question\nmodel: openai:gpt-6-sol\n---\nAsk which branch to use.\n")
+  writeFileSync(
+    join(project, "flows/ask/flow.mdx"),
+    "---\ndescription: Ask a question\nmodel: openai:gpt-6-sol\n---\nAsk which branch to use.\n"
+  )
   let tui: Tui | undefined
   try {
     tui = await Tui.start({
@@ -21,7 +24,7 @@ it("shows a real durable park and question without claiming the run is still exe
         PATH: process.env.PATH ?? "",
         HOME: process.env.HOME ?? "",
         SMITHERS_TUI_SESSION_DIR: join(root, "sessions"),
-        TUI_FLOW_CELL: 'ctx.park("waiting-input", "Which branch?")'
+        TUI_FLOW_CELL: "ctx.park(\"waiting-input\", \"Which branch?\")"
       }
     })
     await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
@@ -31,12 +34,25 @@ it("shows a real durable park and question without claiming the run is still exe
     expect(tui.screen()).not.toContain("ask · running")
     const db = new Database(join(project, ".flows/control.db"), { readonly: true })
     try {
-      const events = () => db.query("select event_type, payload_json from flows_journal_events where event_type in ('control.agent.discipline-armed', 'control.run.parked')").all() as Array<{ event_type: string; payload_json: string }>
+      const events = () =>
+        db.query(
+          "select event_type, payload_json from flows_journal_events where event_type in ('control.agent.discipline-armed', 'control.run.parked')"
+        ).all() as Array<{ event_type: string; payload_json: string }>
       // The control watch merges the execution journal before its mirror has
       // necessarily reached control.db; require the durable mirror as well.
-      await tui.until(() => events().some((event) => event.event_type === "control.agent.discipline-armed" && JSON.parse(event.payload_json).approvalChannel === true), 5_000, "mirrored approval channel receipt")
+      await tui.until(
+        () =>
+          events().some((event) =>
+            event.event_type === "control.agent.discipline-armed" &&
+            JSON.parse(event.payload_json).approvalChannel === true
+          ),
+        5_000,
+        "mirrored approval channel receipt"
+      )
       expect(events().some((event) => event.event_type === "control.run.parked")).toBe(true)
-    } finally { db.close() }
+    } finally {
+      db.close()
+    }
     await tui.type("still usable")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Still here."), 10_000, "chat while parked")

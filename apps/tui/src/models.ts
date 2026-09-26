@@ -80,8 +80,10 @@ export const detect = (environment: NodeJS.ProcessEnv): Available => {
   }
   return {
     models,
-    defaultSeat: environment.SMITHERS_TUI_SEAT ?? models.find((model) => model.seat.startsWith("cerebras:"))?.seat ?? models[0]?.seat,
-    workerSeat: environment.SMITHERS_TUI_WORKER_SEAT ?? models.find((model) => !model.seat.startsWith("cerebras:"))?.seat ?? models[0]?.seat,
+    defaultSeat: environment.SMITHERS_TUI_SEAT ?? models.find((model) => model.seat.startsWith("cerebras:"))?.seat ??
+      models[0]?.seat,
+    workerSeat: environment.SMITHERS_TUI_WORKER_SEAT ??
+      models.find((model) => !model.seat.startsWith("cerebras:"))?.seat ?? models[0]?.seat,
     environment: {
       ...environment,
       ...(subscribed && environment.SMITHERS_OPENAI_AUTH === undefined ? { SMITHERS_OPENAI_AUTH: "chatgpt" } : {})
@@ -90,9 +92,15 @@ export const detect = (environment: NodeJS.ProcessEnv): Available => {
 }
 
 /** Worker fallback order, excluding Cerebras and the requested seat. */
-export const workerFallbackSeats = (requested: string, available: Available, environment: Readonly<Record<string, string | undefined>>): ReadonlyArray<string> => {
+export const workerFallbackSeats = (
+  requested: string,
+  available: Available,
+  environment: Readonly<Record<string, string | undefined>>
+): ReadonlyArray<string> => {
   const override = environment.SMITHERS_TUI_WORKER_SEATS
-  const seats = override === undefined ? available.models.map((model) => model.seat) : override.split(",").map((seat) => seat.trim())
+  const seats = override === undefined
+    ? available.models.map((model) => model.seat)
+    : override.split(",").map((seat) => seat.trim())
   return [...new Set(seats.filter((seat) => seat !== "" && seat !== requested && !seat.startsWith("cerebras:")))]
 }
 
@@ -144,7 +152,9 @@ export const seatOf = (declared: string, available: ReadonlyArray<Model>): strin
   const colon = value.indexOf(":")
   if (colon <= 0 || colon === value.length - 1) return undefined
   const provider = value.slice(0, colon)
-  return knownProviders.has(provider) || available.some((model) => providerOf(model.seat) === provider) ? value : undefined
+  return knownProviders.has(provider) || available.some((model) => providerOf(model.seat) === provider)
+    ? value
+    : undefined
 }
 
 /** A seat's display name: an available model's label, a known model's, or the seat itself. */

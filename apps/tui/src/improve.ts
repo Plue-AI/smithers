@@ -107,10 +107,12 @@ export const quantile = (values: ReadonlyArray<number>, q: number): number => {
   return sorted[below]! + (sorted[above]! - sorted[below]!) * (position - below)
 }
 const map = (metrics: Metrics, f: (value: number, metric: string) => number | undefined): Metrics =>
-  Object.fromEntries(Object.entries(metrics).flatMap(([metric, value]) => {
-    const next = f(value, metric)
-    return next === undefined || !Number.isFinite(next) ? [] : [[metric, next]]
-  }))
+  Object.fromEntries(
+    Object.entries(metrics).flatMap(([metric, value]) => {
+      const next = f(value, metric)
+      return next === undefined || !Number.isFinite(next) ? [] : [[metric, next]]
+    })
+  )
 
 export class Ledger {
   private predictions = new Map<string, Prediction>()
@@ -177,7 +179,10 @@ export class Ledger {
       })
   stats = (filter: (prediction: Prediction) => boolean, metrics: ReadonlyArray<string>): Stats => {
     const recent = this.scored(filter).slice(-window)
-    const of = (reduce: (values: ReadonlyArray<number>) => number, pick: (scored: Scored, metric: string) => number | undefined) =>
+    const of = (
+      reduce: (values: ReadonlyArray<number>) => number,
+      pick: (scored: Scored, metric: string) => number | undefined
+    ) =>
       Object.fromEntries(metrics.flatMap((metric) => {
         const values = recent.flatMap((scored) => {
           const value = pick(scored, metric)
@@ -243,17 +248,21 @@ const abs = (value: number | undefined) => value === undefined ? undefined : Mat
 /** Only finished work is scored: a failure's duration says nothing about how long success takes. */
 export const score = (prediction: Prediction, observation: Observation): Scored | undefined => {
   if (observation.outcome !== "done") return undefined
-  const measured = map(observation.actual, (actual, metric) =>
-    prediction.value[metric] === undefined || !(actual > 0) ? undefined : actual)
+  const measured = map(
+    observation.actual,
+    (actual, metric) => prediction.value[metric] === undefined || !(actual > 0) ? undefined : actual
+  )
   if (Object.keys(measured).length === 0) return undefined
   return {
     prediction,
     observation,
     ratio: map(measured, (actual, metric) => actual / prediction.value[metric]!),
     rawRatio: map(measured, (actual, metric) => actual / prediction.raw[metric]!),
-    inside: Object.fromEntries(Object.entries(measured).map(([metric, actual]) => [
-      metric,
-      actual >= (prediction.low[metric] ?? 0) && actual <= (prediction.high[metric] ?? Number.POSITIVE_INFINITY)
-    ]))
+    inside: Object.fromEntries(
+      Object.entries(measured).map(([metric, actual]) => [
+        metric,
+        actual >= (prediction.low[metric] ?? 0) && actual <= (prediction.high[metric] ?? Number.POSITIVE_INFINITY)
+      ])
+    )
   }
 }

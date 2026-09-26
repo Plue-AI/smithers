@@ -83,8 +83,12 @@ export const target = (transcript: Transcript.Transcript, rowId: string): Target
   // from other workers. An empty receipt made no edits and can coexist with a
   // named-file call in the same turn.
   const uncaptured = [
-    ...new Set(all.filter((call) => writers.includes(call.flow) && call.denied !== true &&
-      (call.patches === undefined || (call.flow === "bash" && call.patches.length > 0))).map((call) => call.flow))
+    ...new Set(
+      all.filter((call) =>
+        writers.includes(call.flow) && call.denied !== true &&
+        (call.patches === undefined || (call.flow === "bash" && call.patches.length > 0))
+      ).map((call) => call.flow)
+    )
   ]
   if (uncaptured.length > 0) return { _tag: "Uncaptured", flows: uncaptured }
   const patched = all.filter((call) => (call.patches?.length ?? 0) > 0)
@@ -92,7 +96,9 @@ export const target = (transcript: Transcript.Transcript, rowId: string): Target
   const calls = patched.filter((call) => call.undone !== true)
   if (calls.length === 0) return { _tag: "AlreadyUndone" }
   const unrendered = [
-    ...new Set(calls.flatMap((call) => call.patches!.filter((patch) => parsed(patch) === undefined).map((patch) => patch.path)))
+    ...new Set(
+      calls.flatMap((call) => call.patches!.filter((patch) => parsed(patch) === undefined).map((patch) => patch.path))
+    )
   ]
   if (unrendered.length > 0) return { _tag: "Unrendered", paths: unrendered }
   const paths = new Set<string>()
@@ -143,7 +149,9 @@ export const plan = async (
         poisoned.add(path)
         continue
       }
-      if (after === undefined && structured.oldMode !== undefined) modes.set(path, parseInt(structured.oldMode, 8) & 0o777)
+      if (after === undefined && structured.oldMode !== undefined) {
+        modes.set(path, parseInt(structured.oldMode, 8) & 0o777)
+      }
       if (before === undefined) state.set(path, null)
       else if (before !== path) {
         if ((await now(before)) !== null) {
@@ -199,7 +207,12 @@ export const commit = async (
     try {
       modes.set(file.path, await modeOf(resolve(cwd, file.path)))
     } catch (error) {
-      return { _tag: "WriteFailed", path: file.path, message: (error as NodeJS.ErrnoException).code ?? String(error), restored: true }
+      return {
+        _tag: "WriteFailed",
+        path: file.path,
+        message: (error as NodeJS.ErrnoException).code ?? String(error),
+        restored: true
+      }
     }
   }
   if (moved.length > 0) return { _tag: "Conflict", paths: moved.sort() }
@@ -215,7 +228,9 @@ export const commit = async (
         const path = resolve(cwd, done.path)
         const mode = modes.get(done.path)
         try {
-          if ((await read(path)) !== done.current || (await modeOf(path)) !== mode) await write(path, done.current, mode)
+          if ((await read(path)) !== done.current || (await modeOf(path)) !== mode) {
+            await write(path, done.current, mode)
+          }
           if ((await read(path)) !== done.current || (await modeOf(path)) !== mode) restored = false
         } catch {
           restored = false

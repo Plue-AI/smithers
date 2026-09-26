@@ -25,7 +25,9 @@ export const glance = (runs: ReadonlyArray<RunView>): Array<string> => {
   for (const bucket of order) {
     for (const run of runs.filter((candidate) => bucketOf(candidate.status) === bucket)) {
       lines.push(`${run.status === "cancelled" ? "cancelled" : bucket.padEnd(7)} ${run.runId}  ${run.flowId}`)
-      for (const gate of run.gates) lines.push(`        answer ${gate.gateId} approve|decline  ${gate.prompt.split("\n")[0]}`)
+      for (const gate of run.gates) {
+        lines.push(`        answer ${gate.gateId} approve|decline  ${gate.prompt.split("\n")[0]}`)
+      }
     }
   }
   return lines

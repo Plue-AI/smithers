@@ -1,8 +1,8 @@
+import * as Evaluator from "@smthrs/model/Evaluator"
+import { Effect, Layer } from "effect"
 import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import { test } from "node:test"
-import * as Evaluator from "@smthrs/model/Evaluator"
-import { Effect, Layer } from "effect"
 import { keep, rank } from "./fixtures/decide-with-jev.ts"
 
 const state = { task: "Fix the login redirect", items: ["auth.ts", "README.md", "session.ts"] }
@@ -17,10 +17,12 @@ test("the decide-with-jev guide shows the type-checked fixture verbatim", async 
 
 test("keep asks one question per item in one request and keeps only confident yeses", async () => {
   const requests: Array<Evaluator.Request> = []
-  const kept = await Effect.runPromise(keep(state).pipe(Effect.provide(Evaluator.layerScripted(request => {
-    requests.push(request)
-    return { item0: { probability: 0.95 }, item1: { probability: 0.02 }, item2: { probability: 0.7 } }
-  }))))
+  const kept = await Effect.runPromise(
+    keep(state).pipe(Effect.provide(Evaluator.layerScripted((request) => {
+      requests.push(request)
+      return { item0: { probability: 0.95 }, item1: { probability: 0.02 }, item2: { probability: 0.7 } }
+    })))
+  )
   assert.equal(requests.length, 1)
   assert.deepEqual(Object.keys(requests[0]!.questions), ["item0", "item1", "item2"])
   assert.deepEqual(kept, ["auth.ts"])
@@ -34,13 +36,16 @@ test("keep fails typed when Jev cannot answer", async () => {
 
 test("rank orders items by score among answers the provider is confident in", async () => {
   const evaluator = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
-    evaluate: () => Effect.succeed({
-      answers: {
-        item0: { type: "score", score: 2 }, item1: { type: "score", score: 0 }, item2: { type: "score", score: 1 }
-      },
-      confidence: { item0: 0.9, item1: 0.75, item2: 0.4 },
-      latencyMs: 0
-    })
+    evaluate: () =>
+      Effect.succeed({
+        answers: {
+          item0: { type: "score", score: 2 },
+          item1: { type: "score", score: 0 },
+          item2: { type: "score", score: 1 }
+        },
+        confidence: { item0: 0.9, item1: 0.75, item2: 0.4 },
+        latencyMs: 0
+      })
   }))
   assert.deepEqual(await Effect.runPromise(rank(state).pipe(Effect.provide(evaluator))), ["auth.ts", "README.md"])
 })

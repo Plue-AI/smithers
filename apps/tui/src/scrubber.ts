@@ -7,10 +7,10 @@
  * sequences and transcript steps.
  */
 import {
-  phaseBandGeometry,
-  phaseExtent,
   type FrameLine,
   type Milestone,
+  phaseBandGeometry,
+  phaseExtent,
   type PhaseId,
   type TraceNote
 } from "@smthrs/gateway/RunTrace"
@@ -108,7 +108,8 @@ export const layout = (activity: Activity.Activity, width: number, cursor?: numb
   // Every band keeps at least one column while there are columns to give.
   const count = model.bands.length
   const starts = model.bands.map((band, index) =>
-    Math.round((phaseBandGeometry(band, extent, index, count).left / 100) * track))
+    Math.round((phaseBandGeometry(band, extent, index, count).left / 100) * track)
+  )
   for (let index = 0; index < count; index++) {
     const floor = index === 0 ? 0 : starts[index - 1]! + 1
     starts[index] = clamp(Math.max(starts[index]!, floor), 0, Math.max(0, track - (count - index)))
@@ -142,7 +143,9 @@ export const layout = (activity: Activity.Activity, width: number, cursor?: numb
       if (!labelled) return { ...base, left: column, row: 0, label: "" }
       const word = milestone.label.length > LABEL_MAX ? `${milestone.label.slice(0, LABEL_MAX - 1)}…` : milestone.label
       const left = clamp(column - Math.floor(word.length / 2), 0, Math.max(0, track - word.length))
-      const row = occupied.findIndex((spans) => spans.every(([start, end]) => left > end + 1 || left + word.length + 1 < start))
+      const row = occupied.findIndex((spans) =>
+        spans.every(([start, end]) => left > end + 1 || left + word.length + 1 < start)
+      )
       if (row < 0) return { ...base, left: column, row: 0, label: "" }
       occupied[row]!.push([left, left + word.length])
       rows = Math.max(rows, row + 1)
@@ -156,7 +159,9 @@ export const layout = (activity: Activity.Activity, width: number, cursor?: numb
     : records.findLast((record) => record.sequence! <= cursor)?.occurredAt ?? extent.start
   const phase = cursor === undefined && activity.status !== "running"
     ? activity.status === "completed" ? "Done" : activity.status === "cancelled" ? "Stopped" : "Failed"
-    : here === undefined || here.phase === "unrecorded" ? cursor === undefined ? "Running" : "Working" : phases[here.phase]
+    : here === undefined || here.phase === "unrecorded"
+    ? cursor === undefined ? "Running" : "Working"
+    : phases[here.phase]
   return {
     lead,
     track,
@@ -200,7 +205,9 @@ export const key = (activity: Activity.Activity, cursor: number | undefined, nam
     // By frame, not by sequence: from anywhere inside a frame the arrows reach its neighbours.
     case "left":
     case "up":
-      return cursor === undefined ? frames.at(-1) ?? first : frames[Math.max(0, Activity.frameAt(activity, cursor) - 2)] ?? first
+      return cursor === undefined
+        ? frames.at(-1) ?? first
+        : frames[Math.max(0, Activity.frameAt(activity, cursor) - 2)] ?? first
     case "right":
     case "down":
       return cursor === undefined ? last : frames[Activity.frameAt(activity, cursor)] ?? last
@@ -247,7 +254,9 @@ export const step = (transcript: Transcript.Transcript, cell: Cell): Step => {
   if (ownerOf(transcript, cell.turn ?? 0, cell.frame) !== cell.id) return { notes: [] }
   const model = Activity.model(activity)
   const line = model.lines.find((each) => each.frame === cell.frame)
-  const notes = model.notes.filter((note) => !quiet.has(note.title) && Activity.frameAt(activity, note.seq) === cell.frame)
+  const notes = model.notes.filter((note) =>
+    !quiet.has(note.title) && Activity.frameAt(activity, note.seq) === cell.frame
+  )
   return line === undefined ? { notes } : { line, notes }
 }
 

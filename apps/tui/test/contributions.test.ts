@@ -17,7 +17,13 @@ const agent = (name: string, tui: unknown): Extension.Descriptor => ({
 const status = (id: string, text = id): Extension.Contribution => ({ kind: "status", status: { id, text } })
 const key = (id: string, value: string, context?: "global" | "panel"): Extension.Contribution => ({
   kind: "key",
-  key: { id, key: value, label: id, action: { kind: "prompt", prompt: id }, ...(context === undefined ? {} : { context }) }
+  key: {
+    id,
+    key: value,
+    label: id,
+    action: { kind: "prompt", prompt: id },
+    ...(context === undefined ? {} : { context })
+  }
 })
 
 describe("contributions store", () => {
@@ -94,7 +100,10 @@ describe("contributions store", () => {
     expect(keys.map((each) => each.owner)).toEqual(["repo:first"])
     expect(problems).toHaveLength(3)
     expect(problems[0]).toStartWith("broken: ")
-    expect(problems.slice(1)).toEqual(["clear: ctrl+c is the built-in Clear key", "second: alt+g is taken by repo:first"])
+    expect(problems.slice(1)).toEqual([
+      "clear: ctrl+c is the built-in Clear key",
+      "second: alt+g is taken by repo:first"
+    ])
     expect(problems.every((problem) => !problem.includes("\n"))).toBe(true)
   })
 

@@ -1,25 +1,33 @@
-import { makeHostJudge } from "./fixtures/scripted-judge.ts"
+import { NodeServices } from "@effect/platform-node"
+import * as Seat from "@smthrs/agent/Seat"
+import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import * as SeatRouter from "@smthrs/agent/SeatRouter"
+import * as ApprovalAuthority from "@smthrs/control/ApprovalAuthority"
+import * as Model from "@smthrs/model/Model"
+import { Effect, Layer } from "effect"
 import assert from "node:assert/strict"
 import { realpath } from "node:fs/promises"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
-import { Effect, Layer } from "effect"
-import { NodeServices } from "@effect/platform-node"
-import * as ApprovalAuthority from "@smthrs/control/ApprovalAuthority"
-import * as Model from "@smthrs/model/Model"
-import * as Seat from "@smthrs/agent/Seat"
-import * as SeatResolver from "@smthrs/agent/SeatResolver"
-import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
-import { Landing } from "../coding/landing.ts"
 import { configuredCodingRoutes, layer, roleCatalog, roleResolver, roleSeats } from "../coding/host.ts"
+import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
+import { makeHostJudge } from "./fixtures/scripted-judge.ts"
 
 /** Configuration never calls the adapter; every method refuses if a layer is built. */
 const refused = Effect.die("host configuration must not reach the landing adapter")
-const landing = Layer.succeed(Landing, { binding: { repositoryId: 1, workspaceId: "22222222-2222-4222-8222-222222222222" },
-  readMain: refused, pinMain: refused, prepare: () => refused, create: () => refused, queue: () => refused, observe: () => refused,
-  readDelivery: refused, openPull: () => refused })
+const landing = Layer.succeed(Landing, {
+  binding: { repositoryId: 1, workspaceId: "22222222-2222-4222-8222-222222222222" },
+  readMain: refused,
+  pinMain: refused,
+  prepare: () => refused,
+  create: () => refused,
+  queue: () => refused,
+  observe: () => refused,
+  readDelivery: refused,
+  openPull: () => refused
+})
 
 test("the repository default and a landing binding select the coding routes", async () => {
   const root = await realpath(fileURLToPath(new URL("../../", import.meta.url)))
@@ -37,37 +45,105 @@ test("the repository default and a landing binding select the coding routes", as
     { name: "coding/wiki", capability: "coding-wiki/v1" }
   ])
   // A project without a wiki registers no wiki route.
-  assert.deepEqual(configuredCodingRoutes({ planning: { ...planning, wiki: false } }).map(route => route.name),
-    ["coding/request", "coding/verify"])
+  assert.deepEqual(configuredCodingRoutes({ planning: { ...planning, wiki: false } }).map((route) => route.name), [
+    "coding/request",
+    "coding/verify"
+  ])
   assert.deepEqual(configuredCodingRoutes({ landing }), [])
 })
 
 test("coding deployment requires an explicit model and owning gateway before opening services", () => {
-  const options = { repositoryPath: "/unused", gatewayId: "11111111-1111-4111-8111-111111111111", implementationModel: "" }
-  assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, options), /explicit provider:model/)
-  assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "implicit-model" }), /explicit provider:model/)
-  assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "test:model", gatewayId: "" }), /owning SMITHERS_GATEWAY_ID/)
-  assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "test:model", gatewayId: "00000000-0000-0000-0000-000000000000" }), /owning SMITHERS_GATEWAY_ID/)
-  for (const credential of [undefined, "", "  "]) {
-    assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "test:model", credential }), /SMITHERS_API_KEY or an explicit approval authority/)
+  const options = {
+    repositoryPath: "/unused",
+    gatewayId: "11111111-1111-4111-8111-111111111111",
+    implementationModel: ""
   }
-  assert.doesNotThrow(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "test:model", credential: "operator-key" }))
-  assert.doesNotThrow(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "test:model", approvalAuthority: ApprovalAuthority.local }))
+  assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, options), /explicit provider:model/)
+  assert.throws(
+    () =>
+      layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "implicit-model" }),
+    /explicit provider:model/
+  )
+  assert.throws(
+    () =>
+      layer({ ...platform, evaluator: makeHostJudge().layer }, {
+        ...options,
+        implementationModel: "test:model",
+        gatewayId: ""
+      }),
+    /owning SMITHERS_GATEWAY_ID/
+  )
+  assert.throws(
+    () =>
+      layer({ ...platform, evaluator: makeHostJudge().layer }, {
+        ...options,
+        implementationModel: "test:model",
+        gatewayId: "00000000-0000-0000-0000-000000000000"
+      }),
+    /owning SMITHERS_GATEWAY_ID/
+  )
+  for (const credential of [undefined, "", "  "]) {
+    assert.throws(
+      () =>
+        layer({ ...platform, evaluator: makeHostJudge().layer }, {
+          ...options,
+          implementationModel: "test:model",
+          credential
+        }),
+      /SMITHERS_API_KEY or an explicit approval authority/
+    )
+  }
+  assert.doesNotThrow(() =>
+    layer({ ...platform, evaluator: makeHostJudge().layer }, {
+      ...options,
+      implementationModel: "test:model",
+      credential: "operator-key"
+    })
+  )
+  assert.doesNotThrow(() =>
+    layer({ ...platform, evaluator: makeHostJudge().layer }, {
+      ...options,
+      implementationModel: "test:model",
+      approvalAuthority: ApprovalAuthority.local
+    })
+  )
   // A landing binding alone is a supported deployment: repository automation
   // consumes Landing without the prompt route. `coding/vibe` stays out of the
   // catalog until the project configuration is present too, so this configures
   // rather than refuses (b1aebc1a19a6; flows/coding/finalization.md).
-  assert.doesNotThrow(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, implementationModel: "test:model", credential: "operator-key", landing }))
+  assert.doesNotThrow(() =>
+    layer({ ...platform, evaluator: makeHostJudge().layer }, {
+      ...options,
+      implementationModel: "test:model",
+      credential: "operator-key",
+      landing
+    })
+  )
 })
 
 test("the coding role reuses the existing seat resolver and keeps the approved role identity", async () => {
   const resolved: string[] = []
-  const model = Model.make({ stream: () => { throw new Error("seat resolution must not invoke a provider") } })
-  const base: SeatResolver.Service = { resolve: id => {
-    resolved.push(id)
-    return Effect.succeed({ id, model, modelId: "chosen-model", contextWindowTokens: 16_000,
-      route: { prepare: () => { throw new Error("seat resolution must not prepare provider requests") } } })
-  } }
+  const model = Model.make({
+    stream: () => {
+      throw new Error("seat resolution must not invoke a provider")
+    }
+  })
+  const base: SeatResolver.Service = {
+    resolve: (id) => {
+      resolved.push(id)
+      return Effect.succeed({
+        id,
+        model,
+        modelId: "chosen-model",
+        contextWindowTokens: 16_000,
+        route: {
+          prepare: () => {
+            throw new Error("seat resolution must not prepare provider requests")
+          }
+        }
+      })
+    }
+  }
   const seats = roleResolver(base, "test:chosen-model")
   const coding = await Effect.runPromise(seats.resolve("coding/implement"))
   assert.equal(coding.id, "coding/implement")
@@ -77,26 +153,51 @@ test("the coding role reuses the existing seat resolver and keeps the approved r
   assert.equal(other.id, "test:other-model")
   assert.deepEqual(resolved, ["test:chosen-model", "test:other-model"])
   const roles = roleResolver(base, "test:implementation", {
-    planningModel: "test:planning", pocModel: "test:cheap-prototype", wikiModel: "test:wiki-review"
+    planningModel: "test:planning",
+    pocModel: "test:cheap-prototype",
+    wikiModel: "test:wiki-review"
   })
   for (const id of ["coding/implement", "coding/plan", "coding/poc", "wiki/reviewer", "constructor"]) {
     assert.equal((await Effect.runPromise(roles.resolve(id))).id, id)
   }
-  assert.deepEqual(resolved.slice(2), ["test:implementation", "test:planning", "test:cheap-prototype", "test:wiki-review", "constructor"])
+  assert.deepEqual(resolved.slice(2), [
+    "test:implementation",
+    "test:planning",
+    "test:cheap-prototype",
+    "test:wiki-review",
+    "constructor"
+  ])
   for (const id of ["coding/plan", "coding/poc", "wiki/reviewer"]) await Effect.runPromise(seats.resolve(id))
   assert.deepEqual(resolved.slice(-3), ["test:chosen-model", "test:chosen-model", "test:chosen-model"])
 })
 
 test("repository seats win for the roles they name and add roles its flows declare", async () => {
   const resolved: string[] = []
-  const model = Model.make({ stream: () => { throw new Error("seat resolution must not invoke a provider") } })
-  const base: SeatResolver.Service = { resolve: id => {
-    resolved.push(id)
-    return Effect.succeed({ id, model, modelId: id, contextWindowTokens: 16_000,
-      route: { prepare: () => { throw new Error("seat resolution must not prepare provider requests") } } })
-  } }
-  const roles = roleResolver(base, "test:implementation", { planningModel: "test:planning",
-    seats: { "coding/implement": "luna", "coding/plan": "sol", triage: "luna", review: "astra" } })
+  const model = Model.make({
+    stream: () => {
+      throw new Error("seat resolution must not invoke a provider")
+    }
+  })
+  const base: SeatResolver.Service = {
+    resolve: (id) => {
+      resolved.push(id)
+      return Effect.succeed({
+        id,
+        model,
+        modelId: id,
+        contextWindowTokens: 16_000,
+        route: {
+          prepare: () => {
+            throw new Error("seat resolution must not prepare provider requests")
+          }
+        }
+      })
+    }
+  }
+  const roles = roleResolver(base, "test:implementation", {
+    planningModel: "test:planning",
+    seats: { "coding/implement": "luna", "coding/plan": "sol", triage: "luna", review: "astra" }
+  })
   for (const id of ["coding/implement", "coding/plan", "coding/poc", "triage", "review", "repository/author"]) {
     assert.equal((await Effect.runPromise(roles.resolve(id))).id, id)
   }
@@ -104,8 +205,11 @@ test("repository seats win for the roles they name and add roles its flows decla
 })
 
 test("the role catalog offers one role per configured model, never Jev", async () => {
-  const catalog = roleCatalog("sol", { planningModel: "openai:gpt-6-sol", wikiModel: "opus",
-    seats: { triage: "test:triage", jev: "jev" } })
+  const catalog = roleCatalog("sol", {
+    planningModel: "openai:gpt-6-sol",
+    wikiModel: "opus",
+    seats: { triage: "test:triage", jev: "jev" }
+  })
   assert.deepEqual(await Effect.runPromise(catalog.candidates), [
     { id: "coding/implement", description: "coding/implement: GPT-6 Sol, OpenAI, 400K context" },
     { id: "wiki/reviewer", description: "wiki/reviewer: Claude Opus 5.5, Anthropic, 1M context" },
@@ -115,26 +219,54 @@ test("the role catalog offers one role per configured model, never Jev", async (
 })
 
 test("a host with one model still routes an auto flow to a variant", async () => {
-  const decision = await Effect.runPromise(SeatRouter.route({
-    declared: Seat.auto,
-    state: { task: "Fix the parser", flow: "chore", description: "", capabilities: [] }
-  }).pipe(Effect.provide(Layer.merge(SeatRouter.layer(roleCatalog("sol")), makeHostJudge().layer))))
+  const decision = await Effect.runPromise(
+    SeatRouter.route({
+      declared: Seat.auto,
+      state: { task: "Fix the parser", flow: "chore", description: "", capabilities: [] }
+    }).pipe(Effect.provide(Layer.merge(SeatRouter.layer(roleCatalog("sol")), makeHostJudge().layer)))
+  )
   assert.deepEqual([decision.seat, decision.variant, decision.decidedBy], ["coding/implement", "change", "only"])
 })
 
 test("an undeclared or auto flow routes to a role seat, and a declared role is kept", async () => {
-  const model = Model.make({ stream: () => { throw new Error("seat resolution must not invoke a provider") } })
-  const base: SeatResolver.Service = { resolve: id => Effect.succeed({ id, model, modelId: id, contextWindowTokens: 16_000,
-    route: { prepare: () => { throw new Error("seat resolution must not prepare provider requests") } } }) }
-  const options = { repositoryPath: "/unused", gatewayId: "11111111-1111-4111-8111-111111111111", implementationModel: "sol",
-    planningModel: "luna", seats: { "wiki/reviewer": "opus" } }
+  const model = Model.make({
+    stream: () => {
+      throw new Error("seat resolution must not invoke a provider")
+    }
+  })
+  const base: SeatResolver.Service = {
+    resolve: (id) =>
+      Effect.succeed({
+        id,
+        model,
+        modelId: id,
+        contextWindowTokens: 16_000,
+        route: {
+          prepare: () => {
+            throw new Error("seat resolution must not prepare provider requests")
+          }
+        }
+      })
+  }
+  const options = {
+    repositoryPath: "/unused",
+    gatewayId: "11111111-1111-4111-8111-111111111111",
+    implementationModel: "sol",
+    planningModel: "luna",
+    seats: { "wiki/reviewer": "opus" }
+  }
   const judge = makeHostJudge().layer
   const state = (task: string) => ({ task, flow: "chore", description: "", capabilities: [] })
-  const routed = (declared: string, task: string) => Effect.runPromise(Effect.gen(function*() {
-    const decision = yield* SeatRouter.route({ declared, state: state(task) })
-    const seats = yield* SeatResolver.SeatResolver
-    return { decision, seat: yield* seats.resolve(decision.seat) }
-  }).pipe(Effect.provide(Layer.merge(roleSeats(options, base)({}).pipe(Layer.provide(platform.requestExecutor)), judge))))
+  const routed = (declared: string, task: string) =>
+    Effect.runPromise(
+      Effect.gen(function*() {
+        const decision = yield* SeatRouter.route({ declared, state: state(task) })
+        const seats = yield* SeatResolver.SeatResolver
+        return { decision, seat: yield* seats.resolve(decision.seat) }
+      }).pipe(
+        Effect.provide(Layer.merge(roleSeats(options, base)({}).pipe(Layer.provide(platform.requestExecutor)), judge))
+      )
+    )
   // AgentSession routes a flow with no `model:` exactly as `model: auto`.
   const undeclared = await routed(Seat.auto, "Rename one variable")
   assert.equal(undeclared.decision.decidedBy, "jev")

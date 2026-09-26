@@ -19,16 +19,20 @@
  * pump, so a module entry would put a run card on screen with no agent frames
  * in it.
  */
+import { NodeServices } from "@effect/platform-node"
+import * as Discovery from "@smthrs/registry/Discovery"
+import * as Registry from "@smthrs/registry/Registry"
+import { Effect } from "effect"
 import assert from "node:assert/strict"
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
-import { NodeServices } from "@effect/platform-node"
-import * as Registry from "@smthrs/registry/Registry"
-import * as Discovery from "@smthrs/registry/Discovery"
-import { Effect } from "effect"
-import { FLOW_AUTHORING_ENTRY, FLOW_AUTHORING_PACK, FLOW_AUTHORING_STAGES } from "../../packages/rpc/src/FlowAuthoring.ts"
+import {
+  FLOW_AUTHORING_ENTRY,
+  FLOW_AUTHORING_PACK,
+  FLOW_AUTHORING_STAGES
+} from "../../packages/rpc/src/FlowAuthoring.ts"
 import { authoringBodies, bindRepositoryRegistry, provisionBuiltins } from "../repository/registry.ts"
 
 const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
@@ -37,7 +41,9 @@ const platform = process.versions.bun ? (await import("@effect/platform-bun/BunS
 const composedRegistry = (repositoryPath: string, stateRoot: string) =>
   Effect.gen(function*() {
     const builtins = yield* provisionBuiltins(stateRoot, "a".repeat(64))
-    const project = yield* Registry.make({ sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }] })
+    const project = yield* Registry.make({
+      sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }]
+    })
       .pipe(Effect.provide(Discovery.layer))
     return bindRepositoryRegistry(project, builtins.registry, "a".repeat(64))
   })
@@ -76,14 +82,23 @@ test("a freshly imported repository can run the flow the app's create door launc
   // The app half depends on this: only a Prompt body reaches the trace and pump.
   assert.equal(resolved.body._tag, "Prompt")
   assert.ok(resolved.body.text.trim().length > 0, "the entry body must carry a prompt")
-  for (const heading of [
-    "# Clarify the flow request", "# Provision what the new flow needs", "# Design the flow graph",
-    "# Scaffold the flow", "# Fix the flow until it verifies", "# Document the new flow"
-  ]) {
+  for (
+    const heading of [
+      "# Clarify the flow request",
+      "# Provision what the new flow needs",
+      "# Design the flow graph",
+      "# Scaffold the flow",
+      "# Fix the flow until it verifies",
+      "# Document the new flow"
+    ]
+  ) {
     assert.ok(resolved.body.text.includes(heading), `the entry is missing ${heading}`)
   }
   assert.ok(resolved.body.text.includes("call `ask`"), "the design must reach the control approval gate")
-  assert.ok(!resolved.body.text.includes("Call one, do what it says"), "the entry must not require nested markdown calls")
+  assert.ok(
+    !resolved.body.text.includes("Call one, do what it says"),
+    "the entry must not require nested markdown calls"
+  )
   // The entry owns the stage instructions. Stages remain independently
   // runnable, but the parent must not see a nested call this host refuses.
   assert.deepEqual(
@@ -101,9 +116,12 @@ test("a freshly imported repository carries the issue flows offered by the Cloud
   const { repositoryPath, stateRoot } = await workspace(t)
   const installed = await run(
     composedRegistry(repositoryPath, stateRoot).pipe(
-      Effect.flatMap((registry) => Effect.forEach(["issue/repro", "issue/poc"], (name) =>
-        Effect.all({ descriptor: registry.get(name), body: registry.loadBody(name) })
-      )),
+      Effect.flatMap((registry) =>
+        Effect.forEach(
+          ["issue/repro", "issue/poc"],
+          (name) => Effect.all({ descriptor: registry.get(name), body: registry.loadBody(name) })
+        )
+      ),
       Effect.provide(platform)
     )
   )
@@ -138,7 +156,8 @@ test("every pack body declares a seat the host can resolve, or the run fails at 
 })
 
 test("a repository that writes its own create-flow keeps it", async (t) => {
-  const own = "---\ndescription: This repository's own authoring flow.\nmodel: flow/author\n---\n\nUse our house rules.\n"
+  const own =
+    "---\ndescription: This repository's own authoring flow.\nmodel: flow/author\n---\n\nUse our house rules.\n"
   const { repositoryPath, stateRoot } = await workspace(t, { ownFlows: { "create-flow": own } })
   const body = await run(
     composedRegistry(repositoryPath, stateRoot).pipe(

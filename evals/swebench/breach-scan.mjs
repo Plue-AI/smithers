@@ -62,16 +62,10 @@
  *
  * @since 0.1.0
  */
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import {
-  countedBreaches,
-  egress,
-  inContainerEgress,
-  provedUnnetworked,
-  TESTBED_MODES
-} from "./compare-codex-lanes.mjs"
+import { countedBreaches, egress, inContainerEgress, provedUnnetworked, TESTBED_MODES } from "./compare-codex-lanes.mjs"
 
 /**
  * Every ledger row for one instance, folded into the fields a seal is read off.

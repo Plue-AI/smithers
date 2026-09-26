@@ -5,7 +5,7 @@
 import * as Classifier from "@smthrs/model/Classifier"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Schema } from "effect"
-import { ReleaseError, type Analysis, type ContentInput, type Evidence } from "../release-support/schema.ts"
+import { type Analysis, type ContentInput, type Evidence, ReleaseError } from "../release-support/schema.ts"
 
 /**
  * At or above this confidence Jev's narrative is the release's narrative.
@@ -40,12 +40,14 @@ export const templateCriteria = {
 /** The narratives, in the order the criteria declare them. */
 export const templates = Object.keys(templateCriteria) as ReadonlyArray<keyof typeof templateCriteria>
 /** The answer set as a schema, so a pick that is not one of the four cannot be persisted. */
-export const ReleaseTemplate = Schema.Literals(templates as unknown as readonly [
-  "feature deep dive",
-  "migration guide",
-  "reliability report",
-  "release roundup"
-])
+export const ReleaseTemplate = Schema.Literals(
+  templates as unknown as readonly [
+    "feature deep dive",
+    "migration guide",
+    "reliability report",
+    "release roundup"
+  ]
+)
 export type ReleaseTemplate = typeof ReleaseTemplate.Type
 
 /** One release as the classifier sees it: the claim ledger the analyst built,
@@ -58,10 +60,12 @@ export const TemplateState = Schema.Struct({
     description: "What the release operator asked for, in their own words; empty when they asked for nothing"
   }),
   ledger: Schema.String.annotate({
-    description: "The claim ledger: the analyst's title, summary, highlights, risks, migration steps and every claim with its sources"
+    description:
+      "The claim ledger: the analyst's title, summary, highlights, risks, migration steps and every claim with its sources"
   }),
   evidence: Schema.String.annotate({
-    description: "The release's own evidence: commit subjects, changed paths and documentation excerpts, clipped so the whole state stays under 32 KiB"
+    description:
+      "The release's own evidence: commit subjects, changed paths and documentation excerpts, clipped so the whole state stays under 32 KiB"
   })
 })
 export type TemplateState = typeof TemplateState.Type

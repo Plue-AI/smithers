@@ -12,11 +12,15 @@ import { Layer } from "effect"
 // literal `export default Flow.make(` without importing the file, so the flow
 // cannot also be a named const; the registration beside it reads the value
 // back through this self-import, which resolves after this module evaluates.
-import Dispatch from "./flow.ts"
 import {
-  DispatchError, DispatchInput, dispatchLayers, DispatchResult,
-  DispatchTurn, ObserveDispatch
+  DispatchError,
+  DispatchInput,
+  dispatchLayers,
+  DispatchResult,
+  DispatchTurn,
+  ObserveDispatch
 } from "../dispatch.ts"
+import Dispatch from "./flow.ts"
 
 export default Flow.make("coding/Dispatch", {
   description: "Run one dispatched agent turn in this workspace and answer with the assistant messages it produced.",
@@ -32,5 +36,4 @@ export default Flow.make("coding/Dispatch", {
 })
 
 /** The non-model half of the door, plus the flow it drives. */
-export const dispatchRegistration = () =>
-  Layer.mergeAll(Interpreter.layer(Dispatch), dispatchLayers())
+export const dispatchRegistration = () => Layer.mergeAll(Interpreter.layer(Dispatch), dispatchLayers())

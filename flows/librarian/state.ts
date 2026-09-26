@@ -20,7 +20,12 @@ export const defaultStateRoot = (
   const parent = dirname(repository)
   if (parent !== repository) return join(parent, ".smithers-librarian-state", basename(repository))
   const base = environment.XDG_STATE_HOME?.trim() || join(environment.HOME?.trim() || tmpdir(), ".local", "state")
-  return join(resolve(base), "smithers", "librarian", createHash("sha256").update(repository).digest("hex").slice(0, 16))
+  return join(
+    resolve(base),
+    "smithers",
+    "librarian",
+    createHash("sha256").update(repository).digest("hex").slice(0, 16)
+  )
 }
 
 export const resolveStateRoot = (options: {
@@ -34,8 +39,9 @@ export const resolveStateRoot = (options: {
   const optedIn = truthy(environment[inRootVariable])
   const stateRoot = named === "" ? (optedIn ? root : defaultStateRoot(root, environment)) : resolve(root, named)
   if (dirname(root) !== root && inside(root, stateRoot) && !optedIn) {
-    throw new Error(`Refusing to keep librarian runtime state inside the served repository; pass --state-dir outside it or set ${inRootVariable}=1`)
+    throw new Error(
+      `Refusing to keep librarian runtime state inside the served repository; pass --state-dir outside it or set ${inRootVariable}=1`
+    )
   }
   return stateRoot
 }
-

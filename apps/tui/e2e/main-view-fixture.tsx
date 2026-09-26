@@ -4,7 +4,10 @@ import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
 
 const host: Host.Host = {
-  cwd: process.cwd(), judged: false, compaction: async () => undefined, dispose: async () => {},
+  cwd: process.cwd(),
+  judged: false,
+  compaction: async () => undefined,
+  dispose: async () => {},
   run: (input) => {
     if (input.role === "coordinator") {
       input.runtime!.delegate!({ id: "review", title: "Recursive review", prompt: "Review" })
@@ -12,8 +15,12 @@ const host: Host.Host = {
         kind: "panel",
         placement: "tab",
         panel: {
-          id: "review", title: "Recursive review", summary: "Review in progress.",
-          placement: "main", bind: { tree: "review" }, rows: []
+          id: "review",
+          title: "Recursive review",
+          summary: "Review in progress.",
+          placement: "main",
+          bind: { tree: "review" },
+          rows: []
         }
       })
       return { done: Promise.resolve({ _tag: "done", answer: "Requested the review." }), cancel: () => {} }
@@ -26,4 +33,6 @@ const host: Host.Host = {
   }
 }
 const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
-createRoot(renderer).render(<App host={host} seat="test:chat" workerSeat="test:worker" models={[]} contextWindow={() => 128_000} />)
+createRoot(renderer).render(
+  <App host={host} seat="test:chat" workerSeat="test:worker" models={[]} contextWindow={() => 128_000} />
+)

@@ -57,7 +57,11 @@ const journal = (name, engine, control) => {
 
 const usage = { inputTokens: 1000, cachedInputTokens: 0, outputTokens: 100 }
 const opening = [1001, "flows.time-travel.effect-boundary", {
-  effect: { kind: "harness/boundary/workspace-open", status: "succeeded", output: { _tag: "Some", value: { digest: "t0", complete: true } } }
+  effect: {
+    kind: "harness/boundary/workspace-open",
+    status: "succeeded",
+    output: { _tag: "Some", value: { digest: "t0", complete: true } }
+  }
 }]
 const attempt = [1000, "flows.engine.attempt-started", { attempt: 1 }]
 const control = [
@@ -65,12 +69,24 @@ const control = [
   [1003, "control.agent.turn-opened", { seat: "openai:gpt-6-sol" }],
   [1004, "control.agent.model-settled", { text: "reading", usage }],
   [1005, "control.agent.cell-produced", { language: "js", digest: "d", text: "await ctx.call('grep', {})" }],
-  [1006, "control.agent.mutation-observed", { basis: "observed", digest: "t0", mutated: false, paths: 1, declaredWrites: 0 }],
+  [1006, "control.agent.mutation-observed", {
+    basis: "observed",
+    digest: "t0",
+    mutated: false,
+    paths: 1,
+    declaredWrites: 0
+  }],
   [1007, "control.agent.transition-applied", { transition: { _tag: "continue" } }],
   [1008, "control.agent.turn-opened", { seat: "openai:gpt-6-sol" }],
   [1009, "control.agent.model-settled", { text: "editing", usage }],
   [1010, "control.agent.cell-produced", { language: "js", digest: "e", text: "await ctx.call('edit', {})" }],
-  [1011, "control.agent.mutation-observed", { basis: "observed", digest: "t1", mutated: true, paths: 1, declaredWrites: 1 }],
+  [1011, "control.agent.mutation-observed", {
+    basis: "observed",
+    digest: "t1",
+    mutated: true,
+    paths: 1,
+    declaredWrites: 1
+  }],
   [1012, "control.agent.transition-applied", { transition: { _tag: "complete" } }]
 ]
 

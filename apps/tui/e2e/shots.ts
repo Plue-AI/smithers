@@ -13,7 +13,8 @@ claim()
 const app = resolve(import.meta.dir, "..")
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 /** Each capture is taken now and rendered once the TUIs stop, so Chrome never stalls a live session. */
-const captures: Array<{ readonly name: string; readonly html: string; readonly cols: number; readonly rows: number }> = []
+const captures: Array<{ readonly name: string; readonly html: string; readonly cols: number; readonly rows: number }> =
+  []
 const shoot = (tui: Tui, name: string) => captures.push({ name, html: tui.html(), cols: tui.cols, rows: tui.rows })
 const render = () => {
   for (const capture of captures) {
@@ -35,7 +36,11 @@ for (const cols of [120, 84]) {
     command: `bun ${join(app, "e2e", "tabs-fixture.tsx")}`,
     cols,
     rows: 34,
-    env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SMITHERS_TUI_SESSION_DIR: mkdtempSync(join(tmpdir(), "tui-shots-")) }
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      SMITHERS_TUI_SESSION_DIR: mkdtempSync(join(tmpdir(), "tui-shots-"))
+    }
   })
   try {
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")

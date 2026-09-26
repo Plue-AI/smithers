@@ -27,7 +27,9 @@ export interface Chip {
 }
 
 const text = (chip: Chip): string =>
-  ` ${chip.glyph === undefined ? "" : `${chip.glyph} `}${chip.label}${chip.detail === undefined ? "" : ` ${chip.detail}`} `
+  ` ${chip.glyph === undefined ? "" : `${chip.glyph} `}${chip.label}${
+    chip.detail === undefined ? "" : ` ${chip.detail}`
+  } `
 
 /** One row of whole tabs around the active one; `‹ 3` and `2 ›` count and open the hidden ones. */
 export function TabStrip(props: {
@@ -42,11 +44,18 @@ export function TabStrip(props: {
   const { first, last } = Tabs.fit(chips.map((chip) => text(chip).length + 1), active, props.width)
   return (
     <box style={{ flexDirection: "row", height: 1, flexShrink: 0 }}>
-      {first === 0 ? null : (
-        <text fg={color.muted} wrapMode="none" style={{ flexShrink: 0 }} onMouseDown={() => props.onSelect(chips[first - 1]!.id)}>
-          {`‹ ${first}`.padEnd(Tabs.arrow)}
-        </text>
-      )}
+      {first === 0 ?
+        null :
+        (
+          <text
+            fg={color.muted}
+            wrapMode="none"
+            style={{ flexShrink: 0 }}
+            onMouseDown={() => props.onSelect(chips[first - 1]!.id)}
+          >
+            {`‹ ${first}`.padEnd(Tabs.arrow)}
+          </text>
+        )}
       {chips.slice(first, last).map((chip) => {
         const selected = chip.id === props.active
         return (
@@ -66,11 +75,18 @@ export function TabStrip(props: {
           </box>
         )
       })}
-      {last >= chips.length ? null : (
-        <text fg={color.muted} wrapMode="none" style={{ flexShrink: 0 }} onMouseDown={() => props.onSelect(chips[last]!.id)}>
-          {`${chips.length - last} ›`.padStart(Tabs.arrow)}
-        </text>
-      )}
+      {last >= chips.length ?
+        null :
+        (
+          <text
+            fg={color.muted}
+            wrapMode="none"
+            style={{ flexShrink: 0 }}
+            onMouseDown={() => props.onSelect(chips[last]!.id)}
+          >
+            {`${chips.length - last} ›`.padStart(Tabs.arrow)}
+          </text>
+        )}
     </box>
   )
 }
@@ -132,8 +148,11 @@ export function WorkerList(props: {
 
 function Button(props: { readonly keys: string; readonly label: string; readonly onPress: () => void }) {
   return (
-    <box style={{ paddingLeft: 1, paddingRight: 1, marginRight: 1, flexShrink: 0 }} backgroundColor={color.element}
-      onMouseDown={props.onPress}>
+    <box
+      style={{ paddingLeft: 1, paddingRight: 1, marginRight: 1, flexShrink: 0 }}
+      backgroundColor={color.element}
+      onMouseDown={props.onPress}
+    >
       <text wrapMode="none">
         <span fg={color.text}>{props.keys}</span>
         <span fg={color.muted}>{" "}{props.label}</span>
@@ -179,17 +198,26 @@ export function WorkerView(props: {
   ].join(" · ")
   return (
     <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }}>
-      <box style={{ border: ["left"], paddingLeft: 1, marginBottom: 1, flexShrink: 0 }} borderColor={props.tone}
-        customBorderChars={View.bar}>
+      <box
+        style={{ border: ["left"], paddingLeft: 1, marginBottom: 1, flexShrink: 0 }}
+        borderColor={props.tone}
+        customBorderChars={View.bar}
+      >
         <text wrapMode="word">
-          <span fg={tone}>{glyph}</span>{" "}
-          <strong fg={color.text}>{tab.title}</strong>
+          <span fg={tone}>{glyph}</span> <strong fg={color.text}>{tab.title}</strong>
         </text>
         <text fg={color.faint} wrapMode="none">{facts}</text>
-        {tab.status === "failed" ? <FailureCard tab={tab} transcript={transcript} details={props.expanded} hints={false} /> : null}
+        {tab.status === "failed"
+          ? <FailureCard tab={tab} transcript={transcript} details={props.expanded} hints={false} />
+          : null}
         <box style={{ flexDirection: "row", marginTop: 1 }}>
           {Tabs.actions(tab).map((action) => (
-            <Button key={action.id} keys={action.keys[0]!} label={action.label} onPress={() => props.onAction(action.id)} />
+            <Button
+              key={action.id}
+              keys={action.keys[0]!}
+              label={action.label}
+              onPress={() => props.onAction(action.id)}
+            />
           ))}
         </box>
       </box>
@@ -205,8 +233,15 @@ export function WorkerView(props: {
             <box key={item.id} id={item.id} style={{ flexDirection: "row" }}>
               <text fg={color.brand} style={{ width: 2, flexShrink: 0 }}>{item.id === props.selected ? "›" : " "}</text>
               <box style={{ flexGrow: 1, flexShrink: 1 }}>
-              <View.Entry item={item} now={props.now} tick={props.tick} expanded={props.expanded} tone={props.tone}
-                selected={item.id === props.selected} {...(step === undefined ? {} : { step })} />
+                <View.Entry
+                  item={item}
+                  now={props.now}
+                  tick={props.tick}
+                  expanded={props.expanded}
+                  tone={props.tone}
+                  selected={item.id === props.selected}
+                  {...(step === undefined ? {} : { step })}
+                />
               </box>
             </box>
           )

@@ -16,13 +16,20 @@ it("completes after Japanese/emoji and inserts palette mentions before an intact
   let tui: Tui | undefined
   const prompts = () => {
     const file = readdirSync(sessions, { recursive: true }).find((path) => String(path).endsWith(".jsonl"))
-    return file === undefined ? [] : Session.load(join(sessions, String(file))).flatMap((record) => record.type === "user" ? [record.text] : [])
+    return file === undefined
+      ? []
+      : Session.load(join(sessions, String(file))).flatMap((record) => record.type === "user" ? [record.text] : [])
   }
   try {
     tui = await Tui.start({
       cwd: project,
       command: `bun ${join(app, "src/main.tsx")} ${project}`,
-      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SMITHERS_TUI_REPLAY: join(app, "test/fixtures/pong.jsonl"), SMITHERS_TUI_SESSION_DIR: sessions }
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        SMITHERS_TUI_REPLAY: join(app, "test/fixtures/pong.jsonl"),
+        SMITHERS_TUI_SESSION_DIR: sessions
+      }
     })
     await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
     await tui.type("先頭 😀 @日本")

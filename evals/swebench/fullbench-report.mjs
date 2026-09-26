@@ -234,7 +234,10 @@ export const summarise = (options) => {
     verdict: manifest.states.get(id)?.verdict ?? "not run",
     usd: manifest.states.get(id)?.cost?.usd ?? null
   }))
-  const pinnedGraded = pinnedRows.filter((state) => state.verdict === "resolved" || state.verdict === "unresolved" || state.verdict === "empty patch" || state.verdict === "eval error")
+  const pinnedGraded = pinnedRows.filter((state) =>
+    state.verdict === "resolved" || state.verdict === "unresolved" || state.verdict === "empty patch" ||
+    state.verdict === "eval error"
+  )
   const pinnedResolved = pinnedRows.filter((state) => state.verdict === "resolved")
 
   const waits = readRows(join(dirname(options.manifest), "waits.jsonl"))
@@ -384,7 +387,11 @@ export const renderReport = (summary) => {
   lines.push("| | |", "| --- | ---: |")
   lines.push(`| spent so far | ${money(summary.spentUsd)} |`)
   if (summary.unknownAttempts > 0) lines.push(`| attempts with unknown cost | ${summary.unknownAttempts} |`)
-  lines.push(`| paid attempts | ${summary.attempts}${summary.retried > 0 ? ` (${summary.retried} re-run after a crash, and still on the bill)` : ""} |`)
+  lines.push(
+    `| paid attempts | ${summary.attempts}${
+      summary.retried > 0 ? ` (${summary.retried} re-run after a crash, and still on the bill)` : ""
+    } |`
+  )
   lines.push(`| mean per attempt | ${money(summary.meanUsd)} |`)
   lines.push(`| projected for all ${summary.total} | ${money(summary.projectedUsd)} |`)
   lines.push(`| budget | ${money(summary.header.budgetUsd)} |`)
@@ -432,7 +439,9 @@ export const renderReport = (summary) => {
     lines.push(
       `| sample | n | resolved | rate |`,
       `| --- | ---: | ---: | ---: |`,
-      `| pinned five, one attempt | ${summary.pinnedGraded} | ${summary.pinnedResolved} | ${percent(pinnedRate.point)} |`,
+      `| pinned five, one attempt | ${summary.pinnedGraded} | ${summary.pinnedResolved} | ${
+        percent(pinnedRate.point)
+      } |`,
       `| all graded, one attempt | ${summary.graded} | ${summary.resolved} | ${percent(summary.rate.point)} |`,
       ...(summary.excluded.length === 0
         ? []
@@ -537,8 +546,10 @@ const main = () => {
     // Drivers append the current session header before their first budget
     // check. Refuse an unpriced seat here, before any worker can spend money.
     const header = ledger.headers.at(-1)
-    if (header?.budgetUsd !== undefined && header?.seat !== undefined
-      && usd(header.seat, { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }).usd === undefined) {
+    if (
+      header?.budgetUsd !== undefined && header?.seat !== undefined
+      && usd(header.seat, { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 }).usd === undefined
+    ) {
       console.error(`unpriced seat: ${header.seat}; the dollar budget cannot be enforced`)
       process.stdout.write("unknown-seat\n")
       return
@@ -579,7 +590,9 @@ const main = () => {
   }
   process.stdout.write(
     `fullbench-report.mjs: ${summary.graded}/${summary.total} graded, `
-      + `${summary.scoredResolved} resolved of ${denominatorLabel({ scored: summary.scoredGraded, raw: summary.graded })}, `
+      + `${summary.scoredResolved} resolved of ${
+        denominatorLabel({ scored: summary.scoredGraded, raw: summary.graded })
+      }, `
       + `${money(summary.spentUsd)} spent\n`
   )
 }

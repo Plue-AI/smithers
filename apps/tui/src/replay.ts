@@ -13,8 +13,8 @@
 import type * as FlowEngineLike from "@smthrs/agent/FlowEngineLike"
 import * as Seat from "@smthrs/agent/Seat"
 import * as Model from "@smthrs/model/Model"
-import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import { ModelError, type ModelErrorCode } from "@smthrs/model/ModelError"
+import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import type * as Route from "@smthrs/model/Route"
 import { Duration, Effect, Stream } from "effect"
 import { readFileSync } from "node:fs"
@@ -44,17 +44,24 @@ export const replies = (recorded: string): ReadonlyArray<ReadonlyArray<Timed>> =
       last = at
     }
     if (event._tag === "replay-failure" && out.length > 0) {
-      out.at(-1)!.push({ after: Math.max(0, at - last), delta: { type: "settle", stopReason: "error" }, failure: new ModelError({
-        code: (event.code ?? "unknown") as ModelErrorCode,
-        message: typeof event.message === "string" ? event.message : "Recorded model failure"
-      }) })
+      out.at(-1)!.push({
+        after: Math.max(0, at - last),
+        delta: { type: "settle", stopReason: "error" },
+        failure: new ModelError({
+          code: (event.code ?? "unknown") as ModelErrorCode,
+          message: typeof event.message === "string" ? event.message : "Recorded model failure"
+        })
+      })
       last = at
     }
     // The harness journals the reply's end as `model-settled`, not as a delta.
     if (event._tag === "model-settled" && out.length > 0) {
       out.at(-1)!.push({
         after: Math.max(0, at - last),
-        delta: { type: "settle", stopReason: typeof event.message === "object" ? event.message?.stopReason ?? "stop" : "stop" } as ModelEvent.ModelEvent
+        delta: {
+          type: "settle",
+          stopReason: typeof event.message === "object" ? event.message?.stopReason ?? "stop" : "stop"
+        } as ModelEvent.ModelEvent
       })
       last = at
     }
@@ -74,7 +81,9 @@ const prepared: Route.PreparedRequest = {
 
 const route: FlowEngineLike.RouteResolver = { prepare: () => Effect.succeed(prepared) }
 
-export const seat = (options: { readonly file: string; readonly holdMs?: number; readonly speed?: number }): Seat.Seat => {
+export const seat = (
+  options: { readonly file: string; readonly holdMs?: number; readonly speed?: number }
+): Seat.Seat => {
   const speed = options.speed !== undefined && options.speed > 0 ? options.speed : 1
   const recorded = replies(readFileSync(options.file, "utf8"))
   let call = 0
@@ -84,8 +93,11 @@ export const seat = (options: { readonly file: string; readonly holdMs?: number;
         const reply = recorded[Math.min(call++, recorded.length - 1)] ?? []
         const hold = Stream.fromEffect(Effect.sleep(Duration.millis(options.holdMs ?? 0))).pipe(Stream.drain)
         const paced = Stream.fromIterable(reply).pipe(
-          Stream.mapEffect(({ after, delta, failure }) => Effect.sleep(Duration.millis(after / speed)).pipe(
-            Effect.flatMap(() => failure === undefined ? Effect.succeed(delta) : Effect.fail(failure))))
+          Stream.mapEffect(({ after, delta, failure }) =>
+            Effect.sleep(Duration.millis(after / speed)).pipe(
+              Effect.flatMap(() => failure === undefined ? Effect.succeed(delta) : Effect.fail(failure))
+            )
+          )
         )
         return Stream.concat(hold, paced)
       })

@@ -4,21 +4,30 @@ import { Schema } from "effect"
 export const ChangeId = Schema.String.check(Schema.isPattern(/^[k-z]{32}$/))
 const CommitId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/))
 const OperationId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{128}$/))
-const RequestId = Schema.String.check(Schema.isPattern(/^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/))
+const RequestId = Schema.String.check(
+  Schema.isPattern(
+    /^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  )
+)
 const revisionFields = {
-  changeId: ChangeId, commitId: CommitId, operationId: OperationId,
+  changeId: ChangeId,
+  commitId: CommitId,
+  operationId: OperationId,
   parentCommitIds: Schema.Array(CommitId),
-  description: Schema.optionalKey(Schema.String), empty: Schema.optionalKey(Schema.Boolean)
+  description: Schema.optionalKey(Schema.String),
+  empty: Schema.optionalKey(Schema.Boolean)
 }
 export const Resolved = Schema.Struct({ ...revisionFields, kind: Schema.Literal("resolved"), treeId: CommitId })
 export const Conflicted = Schema.Struct({
-  ...revisionFields, kind: Schema.Literal("conflicted"),
+  ...revisionFields,
+  kind: Schema.Literal("conflicted"),
   treeTerms: Schema.Array(Schema.Struct({ treeId: CommitId, positive: Schema.Boolean }))
 })
 export const NativeRevision = Schema.Union([Resolved, Conflicted])
 export type NativeRevision = typeof NativeRevision.Type
 const expected = {
-  requestId: RequestId, expectedOperationId: OperationId,
+  requestId: RequestId,
+  expectedOperationId: OperationId,
   target: Schema.Struct({ ...revisionFields, kind: Schema.optionalKey(Schema.Literal("resolved")), treeId: CommitId })
 }
 const Expected = Schema.Struct(expected.target.fields)
@@ -27,57 +36,120 @@ export const Operation = Schema.Union([
   Schema.Struct({ ...expected, operation: Schema.Literal("describe"), description: Schema.String }),
   Schema.Struct({ ...expected, operation: Schema.Literal("snapshot") }),
   Schema.Struct({ ...expected, operation: Schema.Literal("edit") }),
-  Schema.Struct({ ...expected, operation: Schema.Literal("apply_files"), files: Schema.Array(Schema.Struct({
-    path: Schema.NonEmptyString.check(Schema.isMaxLength(1000)),
-    beforeDigest: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
-    content: Schema.NullOr(Schema.String.check(Schema.isMaxLength(65536)))
-  })).check(Schema.isMinLength(1), Schema.isMaxLength(30)) }),
+  Schema.Struct({
+    ...expected,
+    operation: Schema.Literal("apply_files"),
+    files: Schema.Array(Schema.Struct({
+      path: Schema.NonEmptyString.check(Schema.isMaxLength(1000)),
+      beforeDigest: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
+      content: Schema.NullOr(Schema.String.check(Schema.isMaxLength(65536)))
+    })).check(Schema.isMinLength(1), Schema.isMaxLength(30))
+  }),
   Schema.Struct({ ...expected, operation: Schema.Literal("amend"), source: Expected }),
   Schema.Struct({ ...expected, operation: Schema.Literal("reorder"), after: Expected })
 ])
 export type Operation = typeof Operation.Type
 export const ReadResult = Schema.Struct({
-  status: Schema.Literal("read"), operationId: OperationId, head: NativeRevision,
+  status: Schema.Literal("read"),
+  operationId: OperationId,
+  head: NativeRevision,
   revisions: Schema.Array(NativeRevision),
   capabilities: Schema.optionalKey(Schema.Array(Schema.String)),
   history: Schema.optionalKey(Schema.Array(NativeRevision)),
   historyComplete: Schema.optionalKey(Schema.Boolean)
 })
-const sourceIdentity = Schema.Struct({ changeId: ChangeId, commitId: CommitId, treeId: CommitId, parentCommitIds: Schema.Array(CommitId) })
+const sourceIdentity = Schema.Struct({
+  changeId: ChangeId,
+  commitId: CommitId,
+  treeId: CommitId,
+  parentCommitIds: Schema.Array(CommitId)
+})
 export const SourcePublication = Schema.Struct({
-  status: Schema.Literal("retained"), requestId: RequestId, workspaceId: RequestId,
+  status: Schema.Literal("retained"),
+  requestId: RequestId,
+  workspaceId: RequestId,
   repositoryId: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
-  ref: Schema.String, source: sourceIdentity
+  ref: Schema.String,
+  source: sourceIdentity
 })
 export type SourcePublication = typeof SourcePublication.Type
-export const CreationProof = Schema.Struct({ requestId: RequestId, requestDigest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)) })
-export const PublishSource = Schema.Struct({ requestId: RequestId, source: Resolved, creation: Schema.optionalKey(CreationProof) })
+export const CreationProof = Schema.Struct({
+  requestId: RequestId,
+  requestDigest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+})
+export const PublishSource = Schema.Struct({
+  requestId: RequestId,
+  source: Resolved,
+  creation: Schema.optionalKey(CreationProof)
+})
 /** Creates an immutable child without moving or writing any editing workspace. */
-export const CreateSource = Schema.Struct({ requestId: RequestId, expectedOperationId: OperationId, base: Resolved,
+export const CreateSource = Schema.Struct({
+  requestId: RequestId,
+  expectedOperationId: OperationId,
+  base: Resolved,
   description: Schema.NonEmptyString.check(Schema.isMaxLength(16384)),
-  files: Schema.Array(Schema.Struct({ path: Schema.NonEmptyString.check(Schema.isMaxLength(1000)),
-    beforeDigest: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
-    content: Schema.NullOr(Schema.String.check(Schema.isMaxLength(65536))) })).check(Schema.isMinLength(1), Schema.isMaxLength(30)) })
-export const SourceCreation = Schema.Struct({ status: Schema.Literal("created"), replayed: Schema.Boolean,
-  ...CreationProof.fields, workspaceId: RequestId, repositoryId: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
-  operationId: OperationId, parentOperationId: OperationId, base: sourceIdentity, head: Resolved, source: Resolved, publicationReady: Schema.Boolean })
+  files: Schema.Array(
+    Schema.Struct({
+      path: Schema.NonEmptyString.check(Schema.isMaxLength(1000)),
+      beforeDigest: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
+      content: Schema.NullOr(Schema.String.check(Schema.isMaxLength(65536)))
+    })
+  ).check(Schema.isMinLength(1), Schema.isMaxLength(30))
+})
+export const SourceCreation = Schema.Struct({
+  status: Schema.Literal("created"),
+  replayed: Schema.Boolean,
+  ...CreationProof.fields,
+  workspaceId: RequestId,
+  repositoryId: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+  operationId: OperationId,
+  parentOperationId: OperationId,
+  base: sourceIdentity,
+  head: Resolved,
+  source: Resolved,
+  publicationReady: Schema.Boolean
+})
 /** Object import is a native store operation, never an edit or source URL. */
-export const ImportSource = Schema.Struct({ requestId: RequestId,
-  commits: Schema.Array(Schema.Struct({ commitId: CommitId,
-    ref: Schema.NonEmptyString.check(Schema.isMaxLength(200)) })).check(Schema.isMinLength(1), Schema.isMaxLength(2)) })
-export const SourceImport = Schema.Struct({ status: Schema.Literal("imported"), requestId: RequestId, workspaceId: RequestId,
-  repositoryId: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)), operationId: OperationId,
-  head: NativeRevision, revisions: Schema.Array(NativeRevision).check(Schema.isMinLength(1), Schema.isMaxLength(2)) })
-export const FileRecovery = Schema.Struct({ requestId: RequestId, path: Schema.String,
-  files: Schema.Array(Schema.Struct({ path: Schema.String, preimage: Schema.NullOr(Schema.String), proposed: Schema.NullOr(Schema.String) })) })
+export const ImportSource = Schema.Struct({
+  requestId: RequestId,
+  commits: Schema.Array(
+    Schema.Struct({ commitId: CommitId, ref: Schema.NonEmptyString.check(Schema.isMaxLength(200)) })
+  ).check(Schema.isMinLength(1), Schema.isMaxLength(2))
+})
+export const SourceImport = Schema.Struct({
+  status: Schema.Literal("imported"),
+  requestId: RequestId,
+  workspaceId: RequestId,
+  repositoryId: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+  operationId: OperationId,
+  head: NativeRevision,
+  revisions: Schema.Array(NativeRevision).check(Schema.isMinLength(1), Schema.isMaxLength(2))
+})
+export const FileRecovery = Schema.Struct({
+  requestId: RequestId,
+  path: Schema.String,
+  files: Schema.Array(
+    Schema.Struct({
+      path: Schema.String,
+      preimage: Schema.NullOr(Schema.String),
+      proposed: Schema.NullOr(Schema.String)
+    })
+  )
+})
 export const OperationResult = Schema.Union([
   Schema.Struct({
-    status: Schema.Literal("accepted"), replayed: Schema.optionalKey(Schema.Boolean),
-    operationId: OperationId, parentOperationId: OperationId, timestamp: Schema.String,
-    head: NativeRevision, revision: NativeRevision, revisions: Schema.Array(NativeRevision),
+    status: Schema.Literal("accepted"),
+    replayed: Schema.optionalKey(Schema.Boolean),
+    operationId: OperationId,
+    parentOperationId: OperationId,
+    timestamp: Schema.String,
+    head: NativeRevision,
+    revision: NativeRevision,
+    revisions: Schema.Array(NativeRevision),
     // The local native receipt is durable. Its asynchronous cloud projection
     // is acknowledged only by the head reporter, not by this guest process.
-    provenance: Schema.Literal("pending"), recovery: Schema.optionalKey(FileRecovery)
+    provenance: Schema.Literal("pending"),
+    recovery: Schema.optionalKey(FileRecovery)
   }),
   Schema.Struct({ status: Schema.Literal("unchanged"), operationId: OperationId, revision: NativeRevision })
 ])
@@ -144,5 +216,7 @@ export type NativeCode = typeof NativeCode.Type
 /** Whether a string the guest adapter answered is one this repo declares. */
 export const isNativeCode = Schema.is(NativeCode)
 export class NativeCodingError extends Schema.TaggedError<NativeCodingError>()("coding/NativeCodingError", {
-  code: NativeCode, message: Schema.String, recovery: Schema.optionalKey(FileRecovery)
+  code: NativeCode,
+  message: Schema.String,
+  recovery: Schema.optionalKey(FileRecovery)
 }) {}

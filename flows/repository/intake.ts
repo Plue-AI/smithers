@@ -1,12 +1,12 @@
 /** Jev screens every inbound event before a frontier model reads a word of it. */
+import { FlowRuntime } from "@smthrs/flow"
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { FlowRuntime } from "@smthrs/flow"
 import { Effect, Option, Result, Schema } from "effect"
 import * as Journal from "../../packages/smithers/flows/journal/src/Journal.ts"
 import * as JournalEvent from "../../packages/smithers/flows/journal/src/JournalEvent.ts"
 import { CodingError } from "../coding/schema.ts"
-import type { IntakeScreening, Event } from "./schema.ts"
+import type { Event, IntakeScreening } from "./schema.ts"
 
 /** The step whose decision the journal event records. It runs inside the
  * recorded, nondeterministic `repository/capture-job` action, so its answers
@@ -94,7 +94,10 @@ export const intakeClassifier = Classifier.make("intake/event", {
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const string = (value: unknown): string => typeof value === "string" ? value : ""
-const login = (value: unknown): string => { const user = object(value); return string(user.login) || string(user.name) }
+const login = (value: unknown): string => {
+  const user = object(value)
+  return string(user.login) || string(user.name)
+}
 const bytes = (value: string): number => new TextEncoder().encode(value).length
 /** Clips to a byte budget without splitting a surrogate pair. */
 const clipToBytes = (value: string, limit: number): string => {
@@ -120,14 +123,22 @@ export const intakeTexts = (payload: unknown): ReadonlyArray<typeof IntakeState.
   add("comment", "comment", object(fields.comment))
   const replies = Array.isArray(fields.authorReplies) ? fields.authorReplies : []
   replies.forEach((reply, index) => add(`authorReplies.${index}`, "comment", object(reply)))
-  return texts.filter(text => text.title.trim() !== "" || text.body.trim() !== "").slice(0, maximumStates)
+  return texts.filter((text) => text.title.trim() !== "" || text.body.trim() !== "").slice(0, maximumStates)
 }
 
 /** The state one text is judged as, clipped so the encoded state fits. */
 export const intakeState = (repo: string, text: typeof IntakeState.Type): typeof IntakeState.Type => {
-  const framed = { repo, source: text.source, title: clipToBytes(text.title, 1000), body: text.body, author: clipToBytes(text.author, 200) }
+  const framed = {
+    repo,
+    source: text.source,
+    title: clipToBytes(text.title, 1000),
+    body: text.body,
+    author: clipToBytes(text.author, 200)
+  }
   const overflow = bytes(JSON.stringify(framed)) - maximumStateBytes
-  return overflow <= 0 ? framed : { ...framed, body: clipToBytes(framed.body, Math.max(0, bytes(framed.body) - overflow)) }
+  return overflow <= 0
+    ? framed
+    : { ...framed, body: clipToBytes(framed.body, Math.max(0, bytes(framed.body) - overflow)) }
 }
 
 /** Replaces the named texts with {@link withheldPlaceholder}, leaving every
@@ -145,19 +156,28 @@ export const redactPayload = (payload: unknown, withheld: ReadonlySet<string>): 
   if (withheld.has("pull_request")) fields.pull_request = hide(fields.pull_request)
   if (withheld.has("comment")) fields.comment = hide(fields.comment)
   if (Array.isArray(fields.authorReplies)) {
-    fields.authorReplies = fields.authorReplies.map((reply, index) => withheld.has(`authorReplies.${index}`) ? hide(reply) : reply)
+    fields.authorReplies = fields.authorReplies.map((reply, index) =>
+      withheld.has(`authorReplies.${index}`) ? hide(reply) : reply
+    )
   }
   return JSON.parse(JSON.stringify(fields)) as Schema.Json
 }
 
 /** The one record a screened event writes, on the journal's lossy channel and
  * only when the composition has a journal at all. */
-const record = (runId: string, payload: Record<string, unknown>): Effect.Effect<void> => Effect.gen(function*() {
-  const journal = yield* Effect.serviceOption(Journal.Journal)
-  if (Option.isNone(journal)) return
-  yield* journal.value.emitLossy(new JournalEvent.Input({ runId: JournalEvent.RunId.make(runId),
-    sourceId: JournalEvent.SourceId.make("/repository/intake"), eventType: intakeScreenedEvent, payload })).pipe(Effect.ignore)
-})
+const record = (runId: string, payload: Record<string, unknown>): Effect.Effect<void> =>
+  Effect.gen(function*() {
+    const journal = yield* Effect.serviceOption(Journal.Journal)
+    if (Option.isNone(journal)) return
+    yield* journal.value.emitLossy(
+      new JournalEvent.Input({
+        runId: JournalEvent.RunId.make(runId),
+        sourceId: JournalEvent.SourceId.make("/repository/intake"),
+        eventType: intakeScreenedEvent,
+        payload
+      })
+    ).pipe(Effect.ignore)
+  })
 
 /** One result per screened text, in the order the texts were given. */
 type Judgments = ReturnType<typeof intakeClassifier.evaluateAll> extends Effect.Effect<infer A, any, any> ? A : never
@@ -186,17 +206,24 @@ export interface ScreenedEvent {
  * One unanswered text of several is the same refusal: a partly screened event
  * would carry unscreened text into every later prompt.
  */
-export const screenEvent = (input: { readonly repo: string; readonly event: typeof Event.Type; readonly payload: unknown }): Effect.Effect<ScreenedEvent, CodingError> =>
+export const screenEvent = (
+  input: { readonly repo: string; readonly event: typeof Event.Type; readonly payload: unknown }
+): Effect.Effect<ScreenedEvent, CodingError> =>
   Effect.gen(function*() {
     const texts = intakeTexts(input.payload)
     // Nothing to screen: a push, a schedule, or a manual dispatch carries no
     // author text, so there is no decision to make and none to journal.
-    if (texts.length === 0) return { payload: input.payload as Schema.Json, screening: { action: "proceed", answers: [] } }
+    if (texts.length === 0) {
+      return { payload: input.payload as Schema.Json, screening: { action: "proceed", answers: [] } }
+    }
     const evaluator = yield* Effect.serviceOption(Evaluator.Evaluator)
-    const unconfigured = new Classifier.ClassifierError({ code: "unreachable", message: "No evaluator is installed on this host" })
+    const unconfigured = new Classifier.ClassifierError({
+      code: "unreachable",
+      message: "No evaluator is installed on this host"
+    })
     const results: Judgments = Option.isNone(evaluator)
       ? texts.map(() => Result.fail(unconfigured))
-      : yield* intakeClassifier.evaluateAll(texts.map(text => intakeState(input.repo, text)))
+      : yield* intakeClassifier.evaluateAll(texts.map((text) => intakeState(input.repo, text)))
         .pipe(Effect.provideService(Evaluator.Evaluator, evaluator.value))
     const answers: Array<typeof IntakeScreening.Type["answers"][number]> = []
     const failures: Array<string> = []
@@ -204,11 +231,18 @@ export const screenEvent = (input: { readonly repo: string; readonly event: type
     let primary: typeof answers[number] | undefined
     for (const [index, text] of texts.entries()) {
       const result = results[index]!
-      if (Result.isFailure(result)) { failures.push(`${text.id}: ${result.failure.code} — ${result.failure.message}`); continue }
+      if (Result.isFailure(result)) {
+        failures.push(`${text.id}: ${result.failure.code} — ${result.failure.message}`)
+        continue
+      }
       const answer = {
-        id: text.id, kind: result.success.kind.value, kindConfidence: result.success.kind.confidence,
-        urgency: result.success.urgency.label, urgencyConfidence: result.success.urgency.confidence,
-        injection: result.success.injection.probability, withheld: result.success.injection.probability >= injectionProbability
+        id: text.id,
+        kind: result.success.kind.value,
+        kindConfidence: result.success.kind.confidence,
+        urgency: result.success.urgency.label,
+        urgencyConfidence: result.success.urgency.confidence,
+        injection: result.success.injection.probability,
+        withheld: result.success.injection.probability >= injectionProbability
       }
       if (answer.withheld) withheld.add(text.id)
       if (index === 0) primary = answer
@@ -218,20 +252,46 @@ export const screenEvent = (input: { readonly repo: string; readonly event: type
     // bug cannot drop the bug, and an unanswered subject never drops anything.
     const ignored = primary !== undefined && (primary.kind === "spam" || primary.kind === "irrelevant") &&
       primary.kindConfidence >= ignoreConfidence
-    const reason = failures.length === 0 ? undefined
-      : `${results.length === failures.length ? "unanswered" : "partly unanswered"}; ${failures.join(", ")}`.slice(0, 400)
-    const action = reason !== undefined ? "failed" : ignored ? "ignored" : withheld.size > 0 ? `withheld:${withheld.size}` : "proceed"
-    const screening = { action, answers, ...(primary === undefined ? {} : { kind: primary.kind, urgency: primary.urgency }),
-      ...(reason === undefined ? {} : { reason }) }
+    const reason = failures.length === 0 ?
+      undefined
+      : `${results.length === failures.length ? "unanswered" : "partly unanswered"}; ${failures.join(", ")}`.slice(
+        0,
+        400
+      )
+    const action = reason !== undefined
+      ? "failed"
+      : ignored
+      ? "ignored"
+      : withheld.size > 0
+      ? `withheld:${withheld.size}`
+      : "proceed"
+    const screening = {
+      action,
+      answers,
+      ...(primary === undefined ? {} : { kind: primary.kind, urgency: primary.urgency }),
+      ...(reason === undefined ? {} : { reason })
+    }
     const instance = yield* Effect.serviceOption(FlowRuntime.FlowInstance)
     yield* record(Option.isSome(instance) ? instance.value.executionId : input.event.deliveryKey, {
-      step: intakeScreenStep, repo: input.repo, classifier: intakeClassifier.id, questions: intakeClassifier.digest,
-      event: { source: input.event.source, type: input.event.type, action: input.event.action, deliveryKey: input.event.deliveryKey },
-      thresholds: { ignoreConfidence, injectionProbability }, action, answers,
+      step: intakeScreenStep,
+      repo: input.repo,
+      classifier: intakeClassifier.id,
+      questions: intakeClassifier.digest,
+      event: {
+        source: input.event.source,
+        type: input.event.type,
+        action: input.event.action,
+        deliveryKey: input.event.deliveryKey
+      },
+      thresholds: { ignoreConfidence, injectionProbability },
+      action,
+      answers,
       ...(reason === undefined ? {} : { reason })
     })
     if (reason !== undefined) {
-      return yield* Effect.fail(new CodingError({ code: "unavailable", message: `Jev could not screen this event: ${reason}` }))
+      return yield* Effect.fail(
+        new CodingError({ code: "unavailable", message: `Jev could not screen this event: ${reason}` })
+      )
     }
     return { payload: ignored ? input.payload as Schema.Json : redactPayload(input.payload, withheld), screening }
   })

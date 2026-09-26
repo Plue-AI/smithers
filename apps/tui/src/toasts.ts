@@ -44,13 +44,14 @@ export const rows = (input: {
 }): ReadonlyArray<{ readonly id: string } & Toast> => {
   const { now, tick, search, undoing, toast } = input
   return [
-    ...input.tabs.filter((tab) =>
-      now - tab.startedAt >= 300 && (tab.endedAt === undefined || now - tab.endedAt < 3000)
-    ).map((tab) => ({
-      id: tab.id,
-      text: `${Tabs.style(tab.status, tick).glyph} ${input.approvals.some((request) => request.source === tab.id) ? `${tabTitle(tab)} · approval` : tabToast(tab)}`,
-      tone: tab.status === "failed" ? "danger" as const : "info" as const
-    })),
+    ...input.tabs.filter((tab) => now - tab.startedAt >= 300 && (tab.endedAt === undefined || now - tab.endedAt < 3000))
+      .map((tab) => ({
+        id: tab.id,
+        text: `${Tabs.style(tab.status, tick).glyph} ${
+          input.approvals.some((request) => request.source === tab.id) ? `${tabTitle(tab)} · approval` : tabToast(tab)
+        }`,
+        tone: tab.status === "failed" ? "danger" as const : "info" as const
+      })),
     ...input.runs.filter((run) =>
       run.status === "input" || now - run.startedAt >= 300 && (run.endedAt === undefined || now - run.endedAt < 3000)
     ).map((run) => ({

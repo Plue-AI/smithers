@@ -213,9 +213,12 @@ try {
   const run = () =>
     spawnSync(process.execPath, [
       join(root, "compare-arms.mjs"),
-      "--manifest", flows,
-      "--codex-manifest", codex,
-      "--out", out
+      "--manifest",
+      flows,
+      "--codex-manifest",
+      codex,
+      "--out",
+      out
     ], { encoding: "utf8" })
   const first = run()
   assert.equal(first.status, 0, first.stderr)
@@ -225,7 +228,9 @@ try {
   assert.equal(once, (run(), readFileSync(join(out, "arms.md"), "utf8")))
 
   const missing = spawnSync(process.execPath, [
-    join(root, "compare-arms.mjs"), "--manifest", join(temporary, "nope.jsonl")
+    join(root, "compare-arms.mjs"),
+    "--manifest",
+    join(temporary, "nope.jsonl")
   ], { encoding: "utf8" })
   assert.equal(missing.status, 1)
   assert.match(missing.stderr, /no flows ledger/)

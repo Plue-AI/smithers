@@ -34,7 +34,10 @@ import * as TeamChannel from "./team-channel.ts"
 /** What the host remembers about Slack between restarts. */
 interface State {
   /** The intake run a Slack thread started. */
-  readonly threads: Record<string, { readonly channel: string; readonly thread: string; readonly message?: string | undefined }>
+  readonly threads: Record<
+    string,
+    { readonly channel: string; readonly thread: string; readonly message?: string | undefined }
+  >
   /** Approval prompts by button token. */
   readonly prompts: Record<string, {
     readonly runId: string
@@ -55,8 +58,7 @@ const save = (file: string, state: State) => {
 }
 
 /** A Slack event key as a request key: `slack:<team>:<event id>`, with any other character replaced. */
-export const requestKey = (dedupeKey: string): string =>
-  dedupeKey.replaceAll(/[^A-Za-z0-9._:-]/g, "-").slice(0, 128)
+export const requestKey = (dedupeKey: string): string => dedupeKey.replaceAll(/[^A-Za-z0-9._:-]/g, "-").slice(0, 128)
 
 /** The request an admitted message or mention makes, or `undefined` for an event that asks nothing. */
 export const requestOf = (event: ExternalEvent): Request | undefined => {
@@ -108,7 +110,9 @@ export const teamRequest = (
 ): Request => {
   const channel = TeamChannel.channelId(stateDir)
   const conversation = request.conversation
-  if (team === undefined || channel === undefined || conversation === undefined || conversation.channel !== channel) return request
+  if (team === undefined || channel === undefined || conversation === undefined || conversation.channel !== channel) {
+    return request
+  }
   const thread = TeamChannel.threadOf(stateDir, channel, conversation.thread)
   TeamChannel.recordOwner(team, thread ?? `slack:${conversation.thread}`, request.text, at)
   if (thread === undefined) return request
@@ -134,9 +138,15 @@ export const run = (options: Options) =>
     const mark = (method: "reactions.add" | "reactions.remove", thread: State["threads"][string] | undefined) =>
       thread === undefined
         ? Effect.void
-        : call(method, { channel: thread.channel, timestamp: thread.message ?? thread.thread, name: "double_vertical_bar" }).pipe(
+        : call(method, {
+          channel: thread.channel,
+          timestamp: thread.message ?? thread.thread,
+          name: "double_vertical_bar"
+        }).pipe(
           Effect.catch((error) =>
-            /already_reacted|no_reaction/.test(error.message) ? Effect.void : Effect.logWarning(`organization gate ${method}`, error.message)
+            /already_reacted|no_reaction/.test(error.message)
+              ? Effect.void
+              : Effect.logWarning(`organization gate ${method}`, error.message)
           ),
           Effect.asVoid
         )
@@ -164,7 +174,9 @@ export const run = (options: Options) =>
           yield* Effect.logInfo("organization meeting reply", { runId: replied.runId, joined: replied.joined })
           return
         }
-        const started = yield* Effect.tryPromise(() => ops.submit(teamRequest(options.stateDir, options.team, request, Date.now())))
+        const started = yield* Effect.tryPromise(() =>
+          ops.submit(teamRequest(options.stateDir, options.team, request, Date.now()))
+        )
         update((current) => ({ ...current, threads: { ...current.threads, [started.runId]: request.conversation! } }))
         yield* Effect.logInfo("organization intake", { runId: started.runId, joined: started.joined })
       })
@@ -178,7 +190,12 @@ export const run = (options: Options) =>
         if (outcome._tag !== "Decided") return
         const decision = outcome.decision
         yield* Effect.tryPromise(() =>
-          ops.answer({ gateId: prompt.gateId, runId: prompt.runId, approved: decision.approved, reason: `decided in Slack by ${decision.decidedBy}` })
+          ops.answer({
+            gateId: prompt.gateId,
+            runId: prompt.runId,
+            approved: decision.approved,
+            reason: `decided in Slack by ${decision.decidedBy}`
+          })
         )
         update((current) => ({ ...current, prompts: { ...current.prompts, [token]: { ...prompt, settled: true } } }))
         yield* mark("reactions.remove", state.threads[prompt.runId])

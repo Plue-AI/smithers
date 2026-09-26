@@ -14,10 +14,19 @@ import type * as Host from "../src/host.ts"
 const log = (line: string) => appendFileSync(join(process.cwd(), "host.log"), `${line}\n`)
 let pending = true
 const request: Approvals.Pending = {
-  requestId: "req-1", flow: "bash", subject: "true", source: "chat", action: "proc:spawn", tier: "irreversible", always: true
+  requestId: "req-1",
+  flow: "bash",
+  subject: "true",
+  source: "chat",
+  action: "proc:spawn",
+  tier: "irreversible",
+  always: true
 }
 const host: Host.Host = {
-  cwd: process.cwd(), judged: false, compaction: async () => undefined, dispose: async () => {},
+  cwd: process.cwd(),
+  judged: false,
+  compaction: async () => undefined,
+  dispose: async () => {},
   run: (input) => {
     log(`run ${input.prompt}`)
     input.runtime?.publish({
@@ -35,7 +44,8 @@ const host: Host.Host = {
   },
   approvals: {
     authorize: async () => {},
-    mode: "ask", pending: async () => pending ? [request] : [],
+    mode: "ask",
+    pending: async () => pending ? [request] : [],
     reply: async (_, choice) => {
       pending = false
       log(`reply ${choice}`)

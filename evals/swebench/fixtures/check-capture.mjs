@@ -29,8 +29,7 @@ const root = resolve(here, "..")
 const temporary = mkdtempSync(join(tmpdir(), "flows-swebench-capture-"))
 
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim()
-const run = (script, ...args) =>
-  execFileSync(join(root, script), args, { cwd: root, encoding: "utf8" }).trim()
+const run = (script, ...args) => execFileSync(join(root, script), args, { cwd: root, encoding: "utf8" }).trim()
 
 /** A testbed the way an official image ships one: a base commit, then churn. */
 const makeTestbed = (name, { commitChurn }) => {
@@ -64,7 +63,11 @@ try {
     const imageIndex = readFileSync(join(work, ".git", "index"))
     const captureBase = run("lib/snapshot-base.sh", work)
     assert.match(captureBase, /^[0-9a-f]{40}$/, `${label}: capture base is a commit`)
-    assert.deepEqual(readFileSync(join(work, ".git", "index")), imageIndex, `${label}: snapshot leaves the task index unchanged`)
+    assert.deepEqual(
+      readFileSync(join(work, ".git", "index")),
+      imageIndex,
+      `${label}: snapshot leaves the task index unchanged`
+    )
 
     // No agent runs. The captured patch must be empty: the image's own churn is
     // in the capture base, so it cancels.
@@ -82,7 +85,11 @@ try {
     const agentIndex = readFileSync(join(work, ".git", "index"))
     const patchPath = join(temporary, `${commitChurn}.patch`)
     run("lib/capture-patch.sh", work, patchPath)
-    assert.deepEqual(readFileSync(join(work, ".git", "index")), agentIndex, `${label}: capture leaves the task index unchanged`)
+    assert.deepEqual(
+      readFileSync(join(work, ".git", "index")),
+      agentIndex,
+      `${label}: capture leaves the task index unchanged`
+    )
     const patch = readFileSync(patchPath, "utf8")
 
     assert.match(patch, /^diff --git a\/src\.py b\/src\.py$/m, `${label}: the agent's edit is captured`)
@@ -105,7 +112,11 @@ try {
       "commands=\n    pytest -rA --durations 25",
       `${label}: the capture base carries the image's pre_install churn`
     )
-    assert.equal(git(work, "show", `${base}:tox.ini`), "commands=\n    pytest --durations 25", `${label}: the base commit does not`)
+    assert.equal(
+      git(work, "show", `${base}:tox.ini`),
+      "commands=\n    pytest --durations 25",
+      `${label}: the base commit does not`
+    )
   }
 
   // Repository config is container-controlled. Exercise each execution surface
@@ -160,7 +171,9 @@ try {
       const { work } = makeTestbed(label, { commitChurn: false })
       const marker = join(temporary, `${label}.executed`)
       const helper = join(temporary, `${label}.sh`)
-      writeFileSync(helper, `#!/bin/sh\nprintf executed >> '${marker}'\nif [ "$#" -eq 0 ]; then cat; fi\n`, { mode: 0o755 })
+      writeFileSync(helper, `#!/bin/sh\nprintf executed >> '${marker}'\nif [ "$#" -eq 0 ]; then cat; fi\n`, {
+        mode: 0o755
+      })
       if (phase === "capture") run("lib/snapshot-base.sh", work)
       const env = { ...process.env, ...install(work, helper) }
       if (phase === "snapshot") {
@@ -170,12 +183,18 @@ try {
       }
       writeFileSync(join(work, "src.py"), "value = 2\n")
       const patchPath = join(temporary, `${label}.patch`)
-      const result = spawnSync(join(root, "lib/capture-patch.sh"), [work, patchPath], { encoding: "utf8", env, timeout: 10_000 })
+      const result = spawnSync(join(root, "lib/capture-patch.sh"), [work, patchPath], {
+        encoding: "utf8",
+        env,
+        timeout: 10_000
+      })
       if (result.status !== 0) failures.push(`${label}: capture exited ${result.status}: ${result.stderr}`)
       if (existsSync(marker)) failures.push(`${label}: helper executed on host`)
       const patch = existsSync(patchPath) ? readFileSync(patchPath, "utf8") : ""
-      if (!/^-value = 1$/m.test(patch) || !/^\+value = 2$/m.test(patch) ||
-          patch.split("diff --git ").length - 1 !== 1 || /tox\.ini/.test(patch)) {
+      if (
+        !/^-value = 1$/m.test(patch) || !/^\+value = 2$/m.test(patch) ||
+        patch.split("diff --git ").length - 1 !== 1 || /tox\.ini/.test(patch)
+      ) {
         failures.push(`${label}: patch does not contain exactly the agent's edit`)
       }
     }
@@ -194,7 +213,10 @@ try {
   git(stale, "commit", "--quiet", "-m", "base")
   const refused = execFileSync(
     "bash",
-    ["-c", `"${join(root, "lib/capture-patch.sh")}" "${stale}" "${join(temporary, "stale.patch")}" 2>&1; echo "exit:$?"`],
+    [
+      "-c",
+      `"${join(root, "lib/capture-patch.sh")}" "${stale}" "${join(temporary, "stale.patch")}" 2>&1; echo "exit:$?"`
+    ],
     { encoding: "utf8" }
   )
   assert.match(refused, /exit:3/, "a workspace with no capture base exits 3")
@@ -213,7 +235,11 @@ try {
   assert.equal(strip("pure-rename", pureRename), pureRename, "a pure rename is kept")
   const modeRename =
     "diff --git a/old.py b/new.py\nold mode 100644\nnew mode 100755\nsimilarity index 100%\nrename from old.py\nrename to new.py\n"
-  assert.match(strip("mode-rename", modeRename), /^rename from old\.py\nrename to new\.py$/m, "a rename with a mode change keeps the rename")
+  assert.match(
+    strip("mode-rename", modeRename),
+    /^rename from old\.py\nrename to new\.py$/m,
+    "a rename with a mode change keeps the rename"
+  )
   const pureCopy = "diff --git a/old.py b/copy.py\nsimilarity index 100%\ncopy from old.py\ncopy to copy.py\n"
   assert.equal(strip("pure-copy", pureCopy), pureCopy, "a pure copy is kept")
   const modeOnly = "diff --git a/run.sh b/run.sh\nold mode 100644\nnew mode 100755\n"
@@ -222,4 +248,6 @@ try {
   rmSync(temporary, { recursive: true, force: true })
 }
 
-console.log("check-capture.mjs: 2 capture scenarios, 18 hostile-config scenarios, missing-ref refusal and mode cleanup passed.")
+console.log(
+  "check-capture.mjs: 2 capture scenarios, 18 hostile-config scenarios, missing-ref refusal and mode cleanup passed."
+)

@@ -6,8 +6,10 @@ import { PlanningInput, PreparePlan } from "./planning.ts"
 import { Plan } from "./schema.ts"
 
 export const PrepareRequest = Flow.make("coding/PrepareRequest", {
-  payload: PlanningInput, success: Plan, error: PreparePlan.errorSchema,
-  body: input => PreparePlan.child(input)
+  payload: PlanningInput,
+  success: Plan,
+  error: PreparePlan.errorSchema,
+  body: (input) => PreparePlan.child(input)
 })
 
 export const preparationLayers = Interpreter.layer(PrepareRequest)

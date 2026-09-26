@@ -1,6 +1,6 @@
 /** Private composition of captured-evidence model actions over existing authority. */
-import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Agent from "@smthrs/agent/Agent"
+import * as AgentAction from "@smthrs/agent/AgentAction"
 import { Action, FlowRuntime } from "@smthrs/flow"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Option } from "effect"
@@ -39,7 +39,7 @@ const evidence = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       // capability guards and every other host/run policy remain installed.
       Effect.provideService(Agent.Agent, {
         ...agent.value,
-        run: options => agent.value.run({ ...options, unmovedCap: 0 })
+        run: (options) => agent.value.run({ ...options, unmovedCap: 0 })
       }),
       Effect.provideService(AgentAction.Host, {
         ...current.value,
@@ -57,14 +57,21 @@ const evidence = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
  * Wrapping the executing handlers matters: ModuleAuthority restores the parent
  * Host at invocation and resume, after the action layers were constructed.
  */
-export const evidenceOnly = <A, E, R>(actions: Layer.Layer<A, E, R>, additionalNames: ReadonlySet<string> = new Set()) => {
+export const evidenceOnly = <A, E, R>(
+  actions: Layer.Layer<A, E, R>,
+  additionalNames: ReadonlySet<string> = new Set()
+) => {
   const included = (name: string) => restricted.has(name) || additionalNames.has(name)
   const execute = <A, E, R>(effect: Effect.Effect<A, E, R>, payload: unknown) => {
-    const deadline = payload !== null && typeof payload === "object" && "deadlineAt" in payload ? payload.deadlineAt : undefined
-    const bounded = typeof deadline === "number" ? effect.pipe(Effect.timeoutOrElse({
-      duration: Math.max(1, deadline - Date.now()),
-      orElse: () => Effect.die(new Error("The repository job reached its configured deadline"))
-    })) : effect
+    const deadline = payload !== null && typeof payload === "object" && "deadlineAt" in payload
+      ? payload.deadlineAt
+      : undefined
+    const bounded = typeof deadline === "number" ?
+      effect.pipe(Effect.timeoutOrElse({
+        duration: Math.max(1, deadline - Date.now()),
+        orElse: () => Effect.die(new Error("The repository job reached its configured deadline"))
+      })) :
+      effect
     return evidence(bounded)
   }
   return actions.pipe(

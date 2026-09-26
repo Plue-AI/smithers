@@ -92,8 +92,10 @@ console.log(
 console.log(`cost            ${priced.usd === undefined ? priced.source : `$${priced.usd.toFixed(4)}`}`)
 console.log(`demands         ${demands.length}`)
 for (const demand of demands) {
-  console.log(`  read-only-demanded streak=${demand.streak} cap=${demand.cap} nextFrame=${demand.nextFrame} `
-    + `nextAction=${demand.nextAction}`)
+  console.log(
+    `  read-only-demanded streak=${demand.streak} cap=${demand.cap} nextFrame=${demand.nextFrame} `
+      + `nextAction=${demand.nextAction}`
+  )
 }
 
 if (demands.length > 0) {

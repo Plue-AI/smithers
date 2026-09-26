@@ -4,11 +4,19 @@ import type * as Transcript from "./transcript.ts"
 import type { Tab } from "./workspace.ts"
 
 const glyph: Record<string, string> = {
-  requested: "○", queued: "○", running: "●", waiting: "●",
-  parked: "⏸", done: "✓", failed: "✗", cancelled: "✗"
+  requested: "○",
+  queued: "○",
+  running: "●",
+  waiting: "●",
+  parked: "⏸",
+  done: "✓",
+  failed: "✗",
+  cancelled: "✗"
 }
-const elapsed = (tab: Tab, now: number): string => tab.launchedAt === undefined ? "—" :
-  `${Math.max(0, Math.floor(((tab.endedAt ?? now) - tab.launchedAt) / 60_000))}m`
+const elapsed = (tab: Tab, now: number): string =>
+  tab.launchedAt === undefined ?
+    "—" :
+    `${Math.max(0, Math.floor(((tab.endedAt ?? now) - tab.launchedAt) / 60_000))}m`
 /** Builds a current tree from tabs and their latest captions. */
 export const panel = (
   rootId: string,
@@ -32,7 +40,9 @@ export const panel = (
     const seat = (tab.activeSeat ?? tab.seat).split(":").at(-1) ?? tab.seat
     rows.push({
       id: `tree:${tab.id}`,
-      label: `${"  ".repeat(level)}${children.length ? "▾ " : "  "}${glyph[tab.status] ?? "○"} ${tab.title}  ${seat}  ${elapsed(tab, now)}${current ? `  ${current}` : ""}${children.length ? `  ${done}/${children.length} children` : ""}`.slice(0, 240),
+      label: `${"  ".repeat(level)}${children.length ? "▾ " : "  "}${glyph[tab.status] ?? "○"} ${tab.title}  ${seat}  ${
+        elapsed(tab, now)
+      }${current ? `  ${current}` : ""}${children.length ? `  ${done}/${children.length} children` : ""}`.slice(0, 240),
       status: tab.status,
       details: []
     })
@@ -44,7 +54,8 @@ export const panel = (
   const queued = rows.filter((row) => row.status === "queued").length
   const parked = rows.filter((row) => row.status === "parked").length
   return {
-    id: `tree:${rootId}`, title: root?.title ?? rootId,
+    id: `tree:${rootId}`,
+    title: root?.title ?? rootId,
     summary: `${descendants} agents · ${running} running · ${queued} queued · ${parked} parked`,
     rows
   }

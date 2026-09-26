@@ -45,7 +45,8 @@ export type CitationState = typeof CitationState.Type
 
 /** The one question every citation answers. */
 export const citationClassifier = Classifier.make("citation/support", {
-  description: "Judge one cited source excerpt against the one claim it is cited for: does the excerpt support that claim?",
+  description:
+    "Judge one cited source excerpt against the one claim it is cited for: does the excerpt support that claim?",
   state: CitationState,
   questions: {
     support: Classifier.choice({
@@ -64,8 +65,13 @@ export const CitationChoice = Schema.Literals(["supports", "contradicts", "unrel
 /** What one citation, or a whole page of them, comes to. */
 export const CitationOutcome = Schema.Literals(["supported", "unsupported", "uncertain"])
 export const CitationVerdict = Schema.Struct({
-  section: Schema.String, path: Schema.String, line: Schema.Int, quote: Schema.String,
-  choice: CitationChoice, confidence: Schema.Number, outcome: CitationOutcome
+  section: Schema.String,
+  path: Schema.String,
+  line: Schema.Int,
+  quote: Schema.String,
+  choice: CitationChoice,
+  confidence: Schema.Number,
+  outcome: CitationOutcome
 })
 export type CitationVerdict = typeof CitationVerdict.Type
 export const PageCitations = Schema.Struct({ verdict: CitationOutcome, citations: Schema.Array(CitationVerdict) })
@@ -96,7 +102,7 @@ const clipToBytes = (value: string, limit: number): string => {
  * A line the page's excerpts hid is not evidence, so it is not shown here
  * either. */
 export const citationExcerpt = (evidence: Evidence, path: string, line: number): string => {
-  const source = evidence.sources.find(entry => entry.path === path)
+  const source = evidence.sources.find((entry) => entry.path === path)
   if (!source) return ""
   const lines = source.text.split("\n")
   const first = Math.max(1, line - CITATION_CONTEXT_LINES)
@@ -125,13 +131,18 @@ const fitted = (claim: string, path: string, excerpt: string): CitationState => 
  * The claim is the section's own Markdown, which is the unit the reviewer
  * attached the citation to. */
 export const citationRequests = (evidence: Evidence, review: Review): ReadonlyArray<CitationRequest> => {
-  const claims = new Map(evidence.sections.map(section => [section.id, section.markdown]))
+  const claims = new Map(evidence.sections.map((section) => [section.id, section.markdown]))
   const found: Array<CitationRequest> = []
   for (const section of review.sections) {
     const claim = claims.get(section.id) ?? ""
     for (const citation of section.citations) {
-      found.push({ section: section.id, path: citation.path, line: citation.line, quote: citation.quote,
-        state: fitted(claim, citation.path, citationExcerpt(evidence, citation.path, citation.line)) })
+      found.push({
+        section: section.id,
+        path: citation.path,
+        line: citation.line,
+        quote: citation.quote,
+        state: fitted(claim, citation.path, citationExcerpt(evidence, citation.path, citation.line))
+      })
     }
   }
   return found
@@ -146,13 +157,26 @@ export const citationVerdicts = (
 ): PageCitations => {
   const citations = requests.map((request, index): CitationVerdict => {
     const support = answers[index]!.support
-    const outcome = support.confidence < UNSUPPORTED_CONFIDENCE ? "uncertain" as const
-      : support.value === "supports" ? "supported" as const : "unsupported" as const
-    return { section: request.section, path: request.path, line: request.line, quote: request.quote,
-      choice: support.value, confidence: support.confidence, outcome }
+    const outcome = support.confidence < UNSUPPORTED_CONFIDENCE ?
+      "uncertain" as const
+      : support.value === "supports"
+      ? "supported" as const
+      : "unsupported" as const
+    return {
+      section: request.section,
+      path: request.path,
+      line: request.line,
+      quote: request.quote,
+      choice: support.value,
+      confidence: support.confidence,
+      outcome
+    }
   })
-  const verdict = citations.some(citation => citation.outcome === "unsupported") ? "unsupported" as const
-    : citations.some(citation => citation.outcome === "uncertain") ? "uncertain" as const : "supported" as const
+  const verdict = citations.some((citation) => citation.outcome === "unsupported") ?
+    "unsupported" as const
+    : citations.some((citation) => citation.outcome === "uncertain")
+    ? "uncertain" as const
+    : "supported" as const
   return { verdict, citations }
 }
 
@@ -160,18 +184,30 @@ export const citationVerdicts = (
  * evaluator's own code so a refused run says which part of the transport gave
  * out, not merely that the page was not checked. */
 export const citationCheckUnavailable = (evidence: Evidence, failure: Classifier.ClassifierError): WikiError =>
-  new WikiError({ code: "citation-check-unavailable",
-    message: `Jev could not check the citations of ${evidence.spec.id}: ${failure.code} — ${failure.message}` })
+  new WikiError({
+    code: "citation-check-unavailable",
+    message: `Jev could not check the citations of ${evidence.spec.id}: ${failure.code} — ${failure.message}`
+  })
 
 /** The refusal an unsupported page becomes, naming the citations that earned
  * it the way exact assessment names the ones that are not really there. */
 export const unsupportedCitations = (evidence: Evidence, page: PageCitations): WikiError => {
-  const failing = page.citations.filter(citation => citation.outcome === "unsupported")
-  return new WikiError({ code: "review-failed",
+  const failing = page.citations.filter((citation) => citation.outcome === "unsupported")
+  return new WikiError({
+    code: "review-failed",
     message: `Review citation does not support its claim: ${evidence.spec.id}/${failing[0]!.section}; ` +
-      JSON.stringify({ unsupportedCitationCount: failing.length, citations: failing.slice(0, 24).map(citation => ({
-        section: citation.section.slice(0, 80), path: citation.path.slice(0, 320), line: citation.line,
-        quote: citation.quote.slice(0, 320), choice: citation.choice, confidence: citation.confidence })) }) })
+      JSON.stringify({
+        unsupportedCitationCount: failing.length,
+        citations: failing.slice(0, 24).map((citation) => ({
+          section: citation.section.slice(0, 80),
+          path: citation.path.slice(0, 320),
+          line: citation.line,
+          quote: citation.quote.slice(0, 320),
+          choice: citation.choice,
+          confidence: citation.confidence
+        }))
+      })
+  })
 }
 
 /**
@@ -192,11 +228,13 @@ export const checkCitations = (
   Effect.gen(function*() {
     const requests = citationRequests(evidence, review)
     if (!requests.length) return { verdict: "supported" as const, citations: [] }
-    const answered = yield* Effect.forEach(batches(requests),
-      batch => citationClassifier.evaluateAll(batch.map(request => request.state)), { concurrency: 1 })
+    const answered = yield* Effect.forEach(batches(requests), (batch) =>
+      citationClassifier.evaluateAll(batch.map((request) => request.state)), { concurrency: 1 })
     const answers: Array<{ readonly support: Classifier.ChoiceAnswer<typeof CitationChoice.Type> }> = []
     for (const answer of answered.flat()) {
-      if (Result.isFailure(answer)) return yield* Effect.fail(citationCheckUnavailable(evidence, answer.failure))
+      if (Result.isFailure(answer)) {
+        return yield* Effect.fail(citationCheckUnavailable(evidence, answer.failure))
+      }
       answers.push(answer.success)
     }
     return citationVerdicts(requests, answers)

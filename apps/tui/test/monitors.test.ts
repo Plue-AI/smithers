@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import { describe, expect, it } from "bun:test"
 import { Effect, Layer } from "effect"
 import * as Monitors from "../src/monitors.ts"
 import * as Runtime from "../src/runtime.ts"
@@ -88,7 +88,8 @@ describe("monitor ticks", () => {
   it("fails visibly and typed when Jev fails, and stops judging", async () => {
     const world = harness({
       values: ["a", "b", "c"],
-      judge: () => Promise.reject(new Monitors.MonitorError({ _tag: "JevFailed", code: "refused", message: "Gateway said 401" }))
+      judge: () =>
+        Promise.reject(new Monitors.MonitorError({ _tag: "JevFailed", code: "refused", message: "Gateway said 401" }))
     })
     world.monitors.create(watchTab)
     await world.monitors.tick("ci")
@@ -145,7 +146,12 @@ describe("monitor lifecycle", () => {
 
   it("needs an interval for a shell source and bounds it", () => {
     const world = harness({ values: ["a"] })
-    const shell = { id: "log", title: "Log", watch: "an error", source: { kind: "shell" as const, command: "tail -5 x.log" } }
+    const shell = {
+      id: "log",
+      title: "Log",
+      watch: "an error",
+      source: { kind: "shell" as const, command: "tail -5 x.log" }
+    }
     expect(() => world.monitors.create({ ...shell, trigger: { kind: "events" } })).toThrow("interval")
     expect(() => world.monitors.create({ ...shell, trigger: { kind: "interval", seconds: 1 } })).toThrow("10")
     expect(world.monitors.create(shell)).toEqual({ id: "log", status: "active" })
@@ -212,7 +218,10 @@ describe("restart by id with a tick in flight", () => {
   const restartMidJudge = async () => {
     const verdict = deferred<boolean>()
     let calls = 0
-    const world = harness({ values: ["a", "b", "c", "d"], judge: () => ++calls === 1 ? verdict.promise : Promise.resolve(true) })
+    const world = harness({
+      values: ["a", "b", "c", "d"],
+      judge: () => ++calls === 1 ? verdict.promise : Promise.resolve(true)
+    })
     world.monitors.create(watchTab)
     await world.monitors.tick("ci")
     const stale = world.monitors.tick("ci")
@@ -317,9 +326,11 @@ describe("restored shell monitors", () => {
 
 describe("Jev adapter", () => {
   const evaluate = (layer: Layer.Layer<Evaluator.Evaluator>) => (request: Evaluator.Request) =>
-    Effect.runPromise(Effect.gen(function*() {
-      return yield* (yield* Evaluator.Evaluator).evaluate(request)
-    }).pipe(Effect.provide(layer)))
+    Effect.runPromise(
+      Effect.gen(function*() {
+        return yield* (yield* Evaluator.Evaluator).evaluate(request)
+      }).pipe(Effect.provide(layer))
+    )
 
   it("asks one boolean question and reads its value", async () => {
     let asked: Evaluator.Request | undefined
@@ -357,8 +368,9 @@ describe("runtime flows", () => {
     const world = harness({ values: ["a"] })
     const bindings = await Effect.runPromise(Runtime.source({ publish: () => {}, monitors: world.monitors }).bindings())
     const create = bindings.find((binding) => binding.descriptor.name === "monitor.create")!
-    const call = { input: { id: "ci", title: "CI", watch: "the build fails", source: { kind: "tab", id: "build" } } } as unknown as
-      Parameters<typeof create.run>[0]
+    const call = {
+      input: { id: "ci", title: "CI", watch: "the build fails", source: { kind: "tab", id: "build" } }
+    } as unknown as Parameters<typeof create.run>[0]
     const result = await Effect.runPromise(create.run(call))
     expect(result.outcome).toBe("success")
     expect(world.monitors.list()).toHaveLength(1)
@@ -368,13 +380,16 @@ describe("runtime flows", () => {
     const failed = await Effect.runPromise(refused.run(call))
     expect(failed.outcome).toBe("failure")
     // The cell reads the failure's tag and code, not prose alone.
-    expect(failed.message).toBe("Flow monitor.create failed: JevFailed (unreachable): Jev is unavailable: set AI_GATEWAY_API_KEY")
+    expect(failed.message).toBe(
+      "Flow monitor.create failed: JevFailed (unreachable): Jev is unavailable: set AI_GATEWAY_API_KEY"
+    )
   })
 
   it("monitor.create declares proc:spawn, so the approval gate sees it; list and stop declare nothing", async () => {
     const world = harness({ values: ["a"] })
     const bindings = await Effect.runPromise(Runtime.source({ publish: () => {}, monitors: world.monitors }).bindings())
-    const declared = (name: string) => bindings.find((binding) => binding.descriptor.name === name)!.descriptor.capabilities
+    const declared = (name: string) =>
+      bindings.find((binding) => binding.descriptor.name === name)!.descriptor.capabilities
     expect(declared("monitor.create")).toEqual(["proc:spawn:*"])
     expect(declared("monitor.list")).toEqual([])
     expect(declared("monitor.stop")).toEqual([])

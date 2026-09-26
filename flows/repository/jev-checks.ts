@@ -130,12 +130,15 @@ export const hunks = (comparison: typeof Comparison.Type): ReadonlyArray<Hunk> =
  * will become. `line` is 1 because the hunk covers the file from its first
  * line, and `cited` pulls a finding back onto the captured text. */
 export const proposalHunks = (comparison: typeof Comparison.Type): ReadonlyArray<Hunk> =>
-  comparison.changes.map(change => {
+  comparison.changes.map((change) => {
     const before = change.before === null ? [] : change.before.replace(/\n$/, "").split("\n")
     const after = change.after === null ? [] : change.after.replace(/\n$/, "").split("\n")
     const header = `@@ -${before.length ? 1 : 0},${before.length} +${after.length ? 1 : 0},${after.length} @@`
-    return { path: change.path, line: 1,
-      hunk: bounded([header, ...before.map(text => `-${text}`), ...after.map(text => `+${text}`)].join("\n")) }
+    return {
+      path: change.path,
+      line: 1,
+      hunk: bounded([header, ...before.map((text) => `-${text}`), ...after.map((text) => `+${text}`)].join("\n"))
+    }
   })
 
 /** The states of one evaluation, at most {@link MAX_STATES} each. */
@@ -148,14 +151,14 @@ export const batches = <A>(states: ReadonlyArray<A>): ReadonlyArray<ReadonlyArra
 /** The changed paths this check is configured to cover, matched the way
  * `verifyTrialChecks` matches them. */
 export const scopedPaths = (comparison: typeof Comparison.Type, check: typeof Check.Type): ReadonlyArray<string> =>
-  comparison.paths.filter(path => !check.paths.length || check.paths.some(pattern => matchesGlob(path, pattern)))
+  comparison.paths.filter((path) => !check.paths.length || check.paths.some((pattern) => matchesGlob(path, pattern)))
 
 /** A finding cites captured evidence or the check errors instead of failing,
  * so a line the hunk arithmetic put past the captured source is pulled back
  * onto it rather than thrown away, which would turn a fail into a pass. */
 const cited = (comparison: typeof Comparison.Type, path: string, line: number): number => {
-  const text = comparison.files.find(file => file.path === path)?.text
-    ?? comparison.changes.find(change => change.path === path && change.after === null)?.before ?? undefined
+  const text = comparison.files.find((file) => file.path === path)?.text
+    ?? comparison.changes.find((change) => change.path === path && change.after === null)?.before ?? undefined
   return text === undefined || text === null ? line : Math.min(line, Math.max(1, text.split("\n").length))
 }
 
@@ -184,24 +187,39 @@ export const jevVerdict = (
     const probability = answer.violates.probability
     return probability >= FLAG_PROBABILITY ? true : probability <= CLEAN_PROBABILITY ? false : undefined
   })
-  const unsure = decided.filter(value => value === undefined).length
+  const unsure = decided.filter((value) => value === undefined).length
   const flagged = states.filter((_, index) => decided[index] === true)
   if (unsure) {
-    return { verdict: "uncertain", summary: `Jev was unsure about ${unsure} of ${states.length} hunks against ${named}`,
-      examinedPaths, findings: [] }
+    return {
+      verdict: "uncertain",
+      summary: `Jev was unsure about ${unsure} of ${states.length} hunks against ${named}`,
+      examinedPaths,
+      findings: []
+    }
   }
   if (!flagged.length) {
     return { verdict: "pass", summary: `Jev found no hunk violating ${named}`, examinedPaths, findings: [] }
   }
-  return { verdict: "fail", summary: `Jev flagged ${flagged.length} of ${states.length} hunks against ${named}`, examinedPaths,
-    findings: flagged.slice(0, 40).map(state => ({ path: state.path, line: cited(comparison, state.path, state.line), message: check.rule })) }
+  return {
+    verdict: "fail",
+    summary: `Jev flagged ${flagged.length} of ${states.length} hunks against ${named}`,
+    examinedPaths,
+    findings: flagged.slice(0, 40).map((state) => ({
+      path: state.path,
+      line: cited(comparison, state.path, state.line),
+      message: check.rule
+    }))
+  }
 }
 
 /** The typed failure a hunk Jev could not answer becomes. It names the
  * evaluator's own code and message so an errored check row says which part of
  * the transport gave out, not merely that something did. */
 export const jevUnavailable = (check: typeof Check.Type, failure: Classifier.ClassifierError): CodingError =>
-  new CodingError({ code: "unavailable", message: `Jev could not judge ${check.name || check.id}: ${failure.code} — ${failure.message}` })
+  new CodingError({
+    code: "unavailable",
+    message: `Jev could not judge ${check.name || check.id}: ${failure.code} — ${failure.message}`
+  })
 
 /** Asks Jev about every in-scope hunk and reports what it decided.
  *
@@ -221,10 +239,13 @@ export const jevSemanticCheck = (
     // so its exact changes are rendered as hunks instead.
     const parsed = hunks(comparison)
     const changed = parsed.length ? parsed : proposalHunks(comparison)
-    const states: ReadonlyArray<RuleState> = !rule ? []
-      : changed.filter(hunk => scoped.has(hunk.path)).map(hunk => ({ rule, ...hunk }))
+    const states: ReadonlyArray<RuleState> = !rule ?
+      []
+      : changed.filter((hunk) => scoped.has(hunk.path)).map((hunk) => ({ rule, ...hunk }))
     if (!states.length) return jevVerdict(comparison, check, [], [])
-    const answered = yield* Effect.forEach(batches(states), batch => ruleClassifier.evaluateAll(batch), { concurrency: 1 })
+    const answered = yield* Effect.forEach(batches(states), (batch) => ruleClassifier.evaluateAll(batch), {
+      concurrency: 1
+    })
     const answers: Array<{ readonly violates: Classifier.BooleanAnswer }> = []
     for (const answer of answered.flat()) {
       if (Result.isFailure(answer)) return yield* Effect.fail(jevUnavailable(check, answer.failure))

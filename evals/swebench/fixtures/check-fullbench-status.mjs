@@ -38,7 +38,14 @@ const ledger = (name, budget) => {
     `${
       [
         JSON.stringify(header),
-        JSON.stringify({ kind: "instance", id: "a__1", state: "ran", at: NOW + 1, wallSeconds: 900, cost: { usd: 1.5 } }),
+        JSON.stringify({
+          kind: "instance",
+          id: "a__1",
+          state: "ran",
+          at: NOW + 1,
+          wallSeconds: 900,
+          cost: { usd: 1.5 }
+        }),
         JSON.stringify({ kind: "instance", id: "a__1", state: "graded", at: NOW + 2, verdict: "resolved" })
       ].join("\n")
     }\n`

@@ -17,7 +17,16 @@
  */
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -56,18 +65,26 @@ const soloLedger = join(temporary, "solo-ledger.txt")
 // `SWB_ARTIFACT_ROOT`. A real run's `run-instance.sh` creates them; a stubbed
 // run does not, so the fixture creates the one its stub writes into.
 const artifactRoots = [
-  "work", "work-codex", "patches", "patches-codex",
-  "timings", "timings-codex", "logs-agent", "logs-codex", "journals"
+  "work",
+  "work-codex",
+  "patches",
+  "patches-codex",
+  "timings",
+  "timings-codex",
+  "logs-agent",
+  "logs-codex",
+  "journals"
 ]
 
 // What the checkout's artifact roots hold, so the same reading after the runs
 // can say the fixture neither added to them nor took from them. Compared as a
 // before and after rather than as an emptiness, because a wave's own artifacts
 // are none of this fixture's business.
-const checkoutArtifacts = () => Object.fromEntries(artifactRoots.map((name) => [
-  name,
-  existsSync(join(root, name)) ? readdirSync(join(root, name)).sort() : []
-]))
+const checkoutArtifacts = () =>
+  Object.fromEntries(artifactRoots.map((name) => [
+    name,
+    existsSync(join(root, name)) ? readdirSync(join(root, name)).sort() : []
+  ]))
 
 const before = checkoutArtifacts()
 

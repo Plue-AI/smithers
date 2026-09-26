@@ -22,7 +22,10 @@ const flow = (name: string, description: string, modelInvocable: boolean): Liste
   capabilities: [],
   path: `flows/${name}/flow.ts`
 })
-const listed: ReadonlyArray<Listed> = [flow("review", "Review a change.", true), flow("release", "Cut a release.", false)]
+const listed: ReadonlyArray<Listed> = [
+  flow("review", "Review a change.", true),
+  flow("release", "Cut a release.", false)
+]
 
 it("shows runs newest first with their real status, then the discovered flows", () => {
   const panel = Smithers.panel(listed, [

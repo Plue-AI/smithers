@@ -9,7 +9,10 @@ it("runs the next declared model after context overflow", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-fallback-"))
   const project = join(root, "project")
   mkdirSync(join(project, "flows/fallback"), { recursive: true })
-  writeFileSync(join(project, "flows/fallback/flow.mdx"), "---\ndescription: Test fallback\nmodel: [openai:first, openai:second]\n---\nAnswer Pong.\n")
+  writeFileSync(
+    join(project, "flows/fallback/flow.mdx"),
+    "---\ndescription: Test fallback\nmodel: [openai:first, openai:second]\n---\nAnswer Pong.\n"
+  )
   const log = join(root, "requests.log")
   let tui: Tui | undefined
   try {
@@ -17,9 +20,12 @@ it("runs the next declared model after context overflow", async () => {
       cwd: project,
       command: `bun ${resolve(import.meta.dir, "real-flows-fixture.tsx")}`,
       env: {
-        PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "",
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
         SMITHERS_TUI_SESSION_DIR: join(root, "sessions"),
-        TUI_MODEL_LOG: log, TUI_REFUSED_MODEL: "first", TUI_REFUSAL: "overflow"
+        TUI_MODEL_LOG: log,
+        TUI_REFUSED_MODEL: "first",
+        TUI_REFUSAL: "overflow"
       }
     })
     await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")

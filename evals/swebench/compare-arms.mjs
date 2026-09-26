@@ -60,7 +60,9 @@ export const NOT_A_GRADING = new Set(["eval error", ""])
  * @since 0.1.0
  */
 export const readVerdict = (verdict) => {
-  if (verdict === undefined || NOT_A_GRADING.has(verdict)) return { graded: false, resolved: false, verdict: verdict ?? "not run" }
+  if (verdict === undefined || NOT_A_GRADING.has(verdict)) {
+    return { graded: false, resolved: false, verdict: verdict ?? "not run" }
+  }
   return { graded: true, resolved: verdict === "resolved", verdict }
 }
 
@@ -85,7 +87,8 @@ export const compareArms = ({ manifestPath, codexManifestPath }) => {
   // the raw table over the whole graded intersection is computed beside it so
   // both are always available to print.
   const scoredRows = graded.filter((row) => !isExcluded(row.id))
-  const cellOver = (set) => (f, c) => set.filter((row) => row.flows.resolved === f && row.codex.resolved === c).map((row) => row.id)
+  const cellOver = (set) => (f, c) =>
+    set.filter((row) => row.flows.resolved === f && row.codex.resolved === c).map((row) => row.id)
   const tableOver = (set) => {
     const cell = cellOver(set)
     return {
@@ -131,7 +134,10 @@ export const compareArms = ({ manifestPath, codexManifestPath }) => {
     agreement,
     rawAgreement,
     // The standing goal: flows resolves everything codex does, and possibly more.
-    superset: { met: agreement.codexOnly.length === 0, provisional: ungraded.codex.length > 0 || ungraded.flows.length > 0 },
+    superset: {
+      met: agreement.codexOnly.length === 0,
+      provisional: ungraded.codex.length > 0 || ungraded.flows.length > 0
+    },
     ungraded,
     rows
   }
@@ -175,10 +181,14 @@ export const render = (summary) => {
     `| both resolved | ${agreement.both.length} | ${rawAgreement.both.length} | ${list(agreement.both)} |`
   )
   lines.push(
-    `| **flows only** | ${agreement.flowsOnly.length} | ${rawAgreement.flowsOnly.length} | ${list(agreement.flowsOnly)} |`
+    `| **flows only** | ${agreement.flowsOnly.length} | ${rawAgreement.flowsOnly.length} | ${
+      list(agreement.flowsOnly)
+    } |`
   )
   lines.push(
-    `| **codex only** | ${agreement.codexOnly.length} | ${rawAgreement.codexOnly.length} | ${list(agreement.codexOnly)} |`
+    `| **codex only** | ${agreement.codexOnly.length} | ${rawAgreement.codexOnly.length} | ${
+      list(agreement.codexOnly)
+    } |`
   )
   lines.push(
     `| neither | ${agreement.neither.length} | ${rawAgreement.neither.length} | ${list(agreement.neither)} |`

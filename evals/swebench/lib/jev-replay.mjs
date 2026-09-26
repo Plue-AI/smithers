@@ -51,23 +51,24 @@
  *
  * @since 0.1.0
  */
-import * as EgressHttpClient from "../../../packages/smithers/flows/platform-node/src/EgressHttpClient.ts"
 import { Effect, Layer, Redacted } from "effect"
 import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import * as Evaluator from "../../../packages/smithers/agent/model/src/Evaluator.ts"
 import * as Supervision from "../../../packages/smithers/agent/harness/src/internal/supervision.ts"
 import * as Judgement from "../../../packages/smithers/agent/harness/src/Judgement.ts"
 import * as Monitor from "../../../packages/smithers/agent/harness/src/Monitor.ts"
 import * as Relevance from "../../../packages/smithers/agent/harness/src/Relevance.ts"
 import * as Supervisor from "../../../packages/smithers/agent/harness/src/Supervisor.ts"
 import * as UnmovedTree from "../../../packages/smithers/agent/harness/src/UnmovedTree.ts"
+import * as Evaluator from "../../../packages/smithers/agent/model/src/Evaluator.ts"
+import * as EgressHttpClient from "../../../packages/smithers/flows/platform-node/src/EgressHttpClient.ts"
 import { read as readManifest } from "./fullbench-manifest.mjs"
 import { read as readFacts } from "./journal-facts.mjs"
 import { journalRows } from "./journal-rows.mjs"
 
-const usage = "usage: node lib/jev-replay.mjs <journals-dir> --manifest <manifest.jsonl> [--suffix S] [--limit N] [--json] [--dry-run]"
+const usage =
+  "usage: node lib/jev-replay.mjs <journals-dir> --manifest <manifest.jsonl> [--suffix S] [--limit N] [--json] [--dry-run]"
 
 /** Parses the command line into its options. */
 export const parseArguments = (argv) => {
@@ -481,9 +482,10 @@ export const gates = (facts, rows, board = emptyGates()) => {
       entry.frameChecks.some((check) => check.passing && !passing.has(check.signature))
     )
     const last = readings.filter((reading) => reading.frame < frame).at(-1)
-    const rose = last !== undefined && readings.some((reading) =>
-      reading.frame >= frame && reading.frame < frame + resolvedWithin && reading.onTarget > last.onTarget
-    )
+    const rose = last !== undefined &&
+      readings.some((reading) =>
+        reading.frame >= frame && reading.frame < frame + resolvedWithin && reading.onTarget > last.onTarget
+      )
     if (checked || rose) board.monitors[id].resolved++
   }
   return board
@@ -534,29 +536,45 @@ const percent = (value) => `${(value * 100).toFixed(0)}%`
 const markdown = (report) => {
   const lines = []
   lines.push(`# Supervisor replay`, ``)
-  lines.push(`journals: ${report.journals}, labelled: ${report.board.labelled} (${report.board.unresolved} unresolved), frames: ${report.frames}, readings: ${report.readings}, unjudged: ${report.unjudgedTotal}`)
+  lines.push(
+    `journals: ${report.journals}, labelled: ${report.board.labelled} (${report.board.unresolved} unresolved), frames: ${report.frames}, readings: ${report.readings}, unjudged: ${report.unjudgedTotal}`
+  )
   if (Object.keys(report.unjudged).length > 0) {
     lines.push(``, `| unjudged reason | frames |`, `| --- | ---: |`)
     for (const [reason, count] of Object.entries(report.unjudged)) lines.push(`| ${reason} | ${count} |`)
   }
   lines.push(``, `Positive predicts unresolved.`, ``)
-  lines.push(`| signal | frame | tp | fp | fn | tn | precision | recall | f1 |`, `| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |`)
+  lines.push(
+    `| signal | frame | tp | fp | fn | tn | precision | recall | f1 |`,
+    `| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |`
+  )
   for (const row of report.board.rows) {
     lines.push(
-      `| ${row.signal} | ${row.frame} | ${row.tp} | ${row.fp} | ${row.fn} | ${row.tn} | ${percent(row.precision)} | ${percent(row.recall)} | ${row.f1.toFixed(2)} |`
+      `| ${row.signal} | ${row.frame} | ${row.tp} | ${row.fp} | ${row.fn} | ${row.tn} | ${percent(row.precision)} | ${
+        percent(row.recall)
+      } | ${row.f1.toFixed(2)} |`
     )
   }
-  lines.push(``, `| instance | verdict | frames | last thrashing | max thrashing | last on_target | min on_target | last suspect | last needs_help | last emotions |`)
+  lines.push(
+    ``,
+    `| instance | verdict | frames | last thrashing | max thrashing | last on_target | min on_target | last suspect | last needs_help | last emotions |`
+  )
   lines.push(`| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |`)
   for (const run of report.runs) {
     const last = run.readings[run.readings.length - 1]
     if (last === undefined) {
-      lines.push(`| ${run.id} | ${run.label ?? "-"} | ${run.frames} | - | - | - | - | - | - | unjudged ${run.unjudged} |`)
+      lines.push(
+        `| ${run.id} | ${run.label ?? "-"} | ${run.frames} | - | - | - | - | - | - | unjudged ${run.unjudged} |`
+      )
       continue
     }
     const emotions = Supervisor.emotions.map((emotion) => `${emotion}:${last.emotions[emotion]}`).join(" ")
     lines.push(
-      `| ${run.id} | ${run.label ?? "-"} | ${run.frames} | ${last.thrashing.toFixed(2)} | ${run.maxThrashing.toFixed(2)} | ${last.onTarget.toFixed(2)} | ${run.minOnTarget.toFixed(2)} | ${last.suspect.toFixed(2)} | ${last.needsHelp} | ${emotions} |`
+      `| ${run.id} | ${run.label ?? "-"} | ${run.frames} | ${last.thrashing.toFixed(2)} | ${
+        run.maxThrashing.toFixed(2)
+      } | ${last.onTarget.toFixed(2)} | ${run.minOnTarget.toFixed(2)} | ${
+        last.suspect.toFixed(2)
+      } | ${last.needsHelp} | ${emotions} |`
     )
   }
   lines.push(``, gatesMarkdown(report.gates))
@@ -569,7 +587,9 @@ const evaluatorLayer = (environment) => {
   if (apiKey === undefined || apiKey === "") throw new Error("AI_GATEWAY_API_KEY is required unless --dry-run")
   return Evaluator.layerVercelGateway({
     apiKey: Redacted.make(apiKey),
-    ...(environment.SMITHERS_EVALUATOR_BASE_URL === undefined ? {} : { baseUrl: environment.SMITHERS_EVALUATOR_BASE_URL })
+    ...(environment.SMITHERS_EVALUATOR_BASE_URL === undefined
+      ? {}
+      : { baseUrl: environment.SMITHERS_EVALUATOR_BASE_URL })
   }).pipe(Layer.provide(EgressHttpClient.layer(environment)))
 }
 
@@ -658,7 +678,9 @@ const main = async () => {
     for (const run of report.runs) {
       const last = run.snapshots[run.snapshots.length - 1]
       process.stdout.write(
-        `${run.id}: ${run.frames} frames, verdict ${run.label ?? "-"}, last signals ${JSON.stringify(last?.signals ?? null)}\n`
+        `${run.id}: ${run.frames} frames, verdict ${run.label ?? "-"}, last signals ${
+          JSON.stringify(last?.signals ?? null)
+        }\n`
       )
     }
     process.stdout.write(`\n${gatesMarkdown(report.gates)}\n`)

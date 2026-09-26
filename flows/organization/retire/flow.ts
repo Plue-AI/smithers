@@ -32,17 +32,20 @@ export default Flow.make("organization/retire", {
   error: Schema.Union([StaffFailed, Actions.ReceiptFailed]),
   body: (payload) =>
     Retire.call({ key: payload.key, principal: payload.principal }).pipe(
-      Node.map(Node.capture({ implementationVersion, key: payload.key, principal: payload.principal }, function(outcome) {
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
-        return {
-          key: this.key,
-          status: outcome.retired.length === 0 ? "refused" : "retired",
-          summary: outcome.reason,
-          principal: this.principal,
-          paths: outcome.paths
-        } as StaffReport
-      })),
-      Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-        finish(payload.key, "retire", payload, outcome)))
+      Node.map(
+        Node.capture({ implementationVersion, key: payload.key, principal: payload.principal }, function(outcome) {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
+          return {
+            key: this.key,
+            status: outcome.retired.length === 0 ? "refused" : "retired",
+            summary: outcome.reason,
+            principal: this.principal,
+            paths: outcome.paths
+          } as StaffReport
+        })
+      ),
+      Node.bindPlanned(
+        Node.capture({ implementationVersion }, (outcome) => finish(payload.key, "retire", payload, outcome))
+      )
     )
 })

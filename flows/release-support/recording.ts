@@ -1,22 +1,30 @@
-import { chromium } from "playwright"
+import { randomUUID } from "node:crypto"
 import { mkdir, readFile } from "node:fs/promises"
 import { relative } from "node:path"
-import { randomUUID } from "node:crypto"
-import { atomicWrite, inside } from "./io.ts"
+import { chromium } from "playwright"
 import { digest } from "./content.ts"
-import type { Recording, Evidence } from "./schema.ts"
+import { atomicWrite, inside } from "./io.ts"
+import type { Evidence, Recording } from "./schema.ts"
 
 /** Record an explicitly supplied local product scenario in an isolated browser. */
 export const recordUi = async (
-  root: string, recording: typeof Recording.Type, evidence: Evidence, signal?: AbortSignal
+  root: string,
+  recording: typeof Recording.Type,
+  evidence: Evidence,
+  signal?: AbortSignal
 ): Promise<Evidence> => {
   const url = new URL(recording.url)
-  if (!/^https?:$/.test(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password) throw new Error("UI recording requires a local URL without credentials")
+  if (
+    !/^https?:$/.test(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username ||
+    url.password
+  ) throw new Error("UI recording requires a local URL without credentials")
   const directory = `.flows/releases/recordings/${evidence.version}/${randomUUID()}`
   const output = await inside(root, directory)
   await mkdir(output, { recursive: true })
   const browser = await chromium.launch()
-  const stop = () => { void browser.close() }
+  const stop = () => {
+    void browser.close()
+  }
   signal?.addEventListener("abort", stop, { once: true })
   const assets: Array<Evidence["recordings"][number]> = []
   const capture = async (name: string, bytes: Buffer) => {
@@ -27,7 +35,8 @@ export const recordUi = async (
   try {
     signal?.throwIfAborted()
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 800 }, colorScheme: "dark",
+      viewport: { width: 1280, height: 800 },
+      colorScheme: "dark",
       recordVideo: { dir: output, size: { width: 1280, height: 800 } }
     })
     const page = await context.newPage()
@@ -62,8 +71,10 @@ export const recordUi = async (
     if (bytes.length < 1000) throw new Error("UI recording produced an empty video")
     assets.push({ path: relative(root, videoPath).split("\\").join("/"), digest: digest(bytes) })
     return {
-      ...evidence, recordings: assets,
-      documents: `${evidence.documents}\nRecording: ${recording.url}; ${recording.steps.length} scenario steps completed. Assets require human visual review; do not infer unseen behavior from filenames.`,
+      ...evidence,
+      recordings: assets,
+      documents:
+        `${evidence.documents}\nRecording: ${recording.url}; ${recording.steps.length} scenario steps completed. Assets require human visual review; do not infer unseen behavior from filenames.`,
       sources: [...evidence.sources, ...assets.map((asset) => asset.path)]
     }
   } finally {

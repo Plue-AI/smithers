@@ -20,7 +20,13 @@ import { Schema } from "effect"
 import * as Config from "../../../packages/smithers/agent/organization/src/Config.ts"
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import Assignment from "../assignment/flow.ts"
-import { type Assignment as AssignmentPayload, type AssignmentReport, FinishRoutine, RoutineOccurrence, RunQualification } from "../autonomy.ts"
+import {
+  type Assignment as AssignmentPayload,
+  type AssignmentReport,
+  FinishRoutine,
+  RoutineOccurrence,
+  RunQualification
+} from "../autonomy.ts"
 
 const implementationVersion = "organization/routine/v1"
 
@@ -42,15 +48,27 @@ type Payload = {
 type Ended = { readonly key: string; readonly status: string; readonly summary: string }
 
 /** One assignment; a failure is its report, so the next one still runs. */
-const assign = (payload: Omit<AssignmentPayload, "after">, after: Planned.Planned<string> | undefined): Node.Node<Ended> =>
+const assign = (
+  payload: Omit<AssignmentPayload, "after">,
+  after: Planned.Planned<string> | undefined
+): Node.Node<Ended> =>
   Assignment.child({ ...payload, ...(after === undefined ? {} : { after }) }).pipe(
-    Node.map(Node.capture({ implementationVersion }, (report: AssignmentReport): Ended => ({ key: report.key, status: report.status, summary: report.summary }))),
+    Node.map(
+      Node.capture(
+        { implementationVersion },
+        (report: AssignmentReport): Ended => ({ key: report.key, status: report.status, summary: report.summary })
+      )
+    ),
     Node.catch({
       onFailure: Node.capture({ implementationVersion }, (failure): Node.Node<Ended> =>
         Node.all({
           key: Node.succeed(payload.key),
           summary: Node.succeed((failure as Planned.Planned<{ readonly message: string }>).message)
-        }).pipe(Node.map(Node.capture({ implementationVersion }, ({ key, summary }): Ended => ({ key, status: "blocked", summary })))))
+        }).pipe(
+          Node.map(
+            Node.capture({ implementationVersion }, ({ key, summary }): Ended => ({ key, status: "blocked", summary }))
+          )
+        ))
     })
   )
 
@@ -65,7 +83,9 @@ const sequence = (steps: ReadonlyArray<Omit<AssignmentPayload, "after">>): Node.
           // `after` names the previous result, so this assignment waits for it.
           next: assign(
             step,
-            index === 0 ? undefined : (done as unknown as Record<string, { readonly key: Planned.Planned<string> }>)[String(index - 1)]!.key
+            index === 0
+              ? undefined
+              : (done as unknown as Record<string, { readonly key: Planned.Planned<string> }>)[String(index - 1)]!.key
           )
         }))),
       Node.map(Node.capture({ implementationVersion }, ({ done, next }): ReadonlyArray<Ended> => [...done, next]))
@@ -89,7 +109,9 @@ export const onboarding = (id: string, roles: ReadonlyArray<string>, triage: str
     peers
   })
   const peersOf = (index: number) =>
-    roles.length < 2 ? [] : [roles[(index + 1) % roles.length]!, ...(roles.length > 2 ? [roles[(index + 2) % roles.length]!] : [])]
+    roles.length < 2
+      ? []
+      : [roles[(index + 1) % roles.length]!, ...(roles.length > 2 ? [roles[(index + 2) % roles.length]!] : [])]
   return [
     ...roles.map((role) => base(role, "onboard", "Onboarding", [])),
     ...roles.map((role, index) => base(role, "review", "Onboarding review", peersOf(index))),
@@ -118,15 +140,26 @@ export default Flow.make("organization/routine", {
         Node.succeed(occurrence).pipe(Node.branch({
           if: Node.capture({ implementationVersion }, (seen) => seen.run),
           else: () =>
-            Node.succeed({ key: occurrence.key, status: "skipped", summary: occurrence.reason, assignments: [] } as unknown as RoutineReport),
+            Node.succeed(
+              {
+                key: occurrence.key,
+                status: "skipped",
+                summary: occurrence.reason,
+                assignments: []
+              } as unknown as RoutineReport
+            ),
           then: () => {
             const routine = payload.routine
             const work: Node.Node<ReadonlyArray<Ended>> = routine.onboarding === true
               ? sequence(onboarding(routine.id, payload.roles, payload.triage, routine.repository))
               : routine.run === "qualify"
               ? RunQualification.call({ key: occurrence.key }).pipe(
-                Node.bindPlanned(Node.capture({ implementationVersion }, (qualified) =>
-                  assign(taskOf(routine, occurrence.key, qualified.scorecard), undefined))),
+                Node.bindPlanned(
+                  Node.capture(
+                    { implementationVersion },
+                    (qualified) => assign(taskOf(routine, occurrence.key, qualified.scorecard), undefined)
+                  )
+                ),
                 Node.map(Node.capture({ implementationVersion }, (ended): ReadonlyArray<Ended> => [ended]))
               ) as Node.Node<ReadonlyArray<Ended>>
               : assign(taskOf(routine, occurrence.key), undefined).pipe(
@@ -150,7 +183,11 @@ export default Flow.make("organization/routine", {
 })
 
 /** A task routine's assignment. */
-const taskOf = (routine: Config.Routine, key: Planned.Planned<string>, scorecard?: Planned.Planned<string>): Omit<AssignmentPayload, "after"> => ({
+const taskOf = (
+  routine: Config.Routine,
+  key: Planned.Planned<string>,
+  scorecard?: Planned.Planned<string>
+): Omit<AssignmentPayload, "after"> => ({
   key: key as unknown as string,
   role: routine.role!,
   kind: "report",

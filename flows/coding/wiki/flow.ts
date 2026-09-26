@@ -14,11 +14,16 @@ import { ReadPublishedWiki, WikiRefreshInput, WikiRefreshResult } from "../wiki-
  * pages the service publishes.
  */
 export default Flow.make("coding/Wiki", {
-  description: "Refresh the repository wiki on one retained commit of the mythical stack and answer its verified pages.",
+  description:
+    "Refresh the repository wiki on one retained commit of the mythical stack and answer its verified pages.",
   capabilities: ["*"],
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
-  payload: WikiRefreshInput, success: WikiRefreshResult, error: Schema.Union([CodingError, RefreshWiki.errorSchema]),
-  body: input => admitStackBase(input.base).pipe(
-    Node.andThen(RefreshWiki.child({ pool: input.prior ?? null })),
-    Node.bindPlanned(refreshed => ReadPublishedWiki.call({ base: input.base, refreshed })))
+  payload: WikiRefreshInput,
+  success: WikiRefreshResult,
+  error: Schema.Union([CodingError, RefreshWiki.errorSchema]),
+  body: (input) =>
+    admitStackBase(input.base).pipe(
+      Node.andThen(RefreshWiki.child({ pool: input.prior ?? null })),
+      Node.bindPlanned((refreshed) => ReadPublishedWiki.call({ base: input.base, refreshed }))
+    )
 })

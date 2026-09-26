@@ -75,8 +75,7 @@ export const EXCLUDED = new Map([
   [
     "psf__requests-2317",
     {
-      cause:
-        "grading environment: same httpbin dependency. A re-grade against the public service refused 22 of 133"
+      cause: "grading environment: same httpbin dependency. A re-grade against the public service refused 22 of 133"
         + " PASS_TO_PASS and 5 of 8 FAIL_TO_PASS, so no healthy environment existed to appeal to in either direction."
         + " Excluded for both arms.",
       reportedIn: "fullbench/reports/rerun-r92.md"
@@ -144,8 +143,8 @@ export const renderExclusions = (excluded) => {
     "## Excluded from the scoreboard, by name",
     "",
     "These instances were run and graded; their verdicts are statements about the grading environment rather than"
-      + " about a harness, so they are outside every rate above. The exclusion applies to both arms equally, and the"
-      + " raw count is printed beside the scored one everywhere.",
+    + " about a harness, so they are outside every rate above. The exclusion applies to both arms equally, and the"
+    + " raw count is printed beside the scored one everywhere.",
     "",
     "| instance | cause | reported in |",
     "| --- | --- | --- |",

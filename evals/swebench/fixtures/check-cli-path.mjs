@@ -57,9 +57,12 @@ try {
   assert.equal(unbuilt.status, 1, "a checkout with no CLI build is refused, not run against source")
   assert.match(unbuilt.stderr, /would fall back to src\/bin\.ts/)
 
-  writeFileSync(join(temporary, executable), `
+  writeFileSync(
+    join(temporary, executable),
+    `
 console.log(JSON.stringify({ executable: process.argv[1], args: process.argv.slice(2), cwd: process.cwd() }))
-`)
+`
+  )
   mkdirSync(join(temporary, "packages/smithers/dist/esm"), { recursive: true })
   writeFileSync(join(temporary, "packages/smithers/dist/esm/bin.js"), "\n")
   const built = spawnSync("bash", [join(temporary, "evals/swebench/flows.sh"), "--help"], {

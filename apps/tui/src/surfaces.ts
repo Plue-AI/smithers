@@ -13,7 +13,17 @@ import type { Snapshot, Tab } from "./workspace.ts"
 export const tabTitle = (tab: Tab): string => (tab.agent === undefined ? tab.title : `${tab.agent.name}: ${tab.title}`)
 
 export const flowGlyph = (status: Run["status"]): string =>
-  status === "done" ? "✓ " : status === "failed" ? "✗ " : status === "cancelled" ? "■ " : status === "queued" ? "… " : status === "parked" ? "⏸ " : "◌ "
+  status === "done"
+    ? "✓ "
+    : status === "failed"
+    ? "✗ "
+    : status === "cancelled"
+    ? "■ "
+    : status === "queued"
+    ? "… "
+    : status === "parked"
+    ? "⏸ "
+    : "◌ "
 
 /**
  * Every tab in strip order. Built-in plugins' open tabs sit beside Summary;
@@ -36,8 +46,10 @@ export const chips = (input: {
     { id: "summary", label: "Summary" },
     ...input.plugins.map((panel) => ({ id: `ui:${panel.id}`, label: panel.title })),
     ...workspace.tabs.map(input.worker),
-    ...workspace.tabs.filter((tab) => tab.parent === undefined && workspace.tabs.some((child) => child.parent === tab.id) &&
-      !workspace.panels.some((panel) => panel.bind?.tree === tab.id))
+    ...workspace.tabs.filter((tab) =>
+      tab.parent === undefined && workspace.tabs.some((child) => child.parent === tab.id) &&
+      !workspace.panels.some((panel) => panel.bind?.tree === tab.id)
+    )
       .map((tab) => ({ id: `tree:${tab.id}`, label: `Tree: ${tab.title}` })),
     ...input.runs.map((run) => ({
       id: `flow:${run.id}`,
@@ -117,5 +129,16 @@ export const useSurface = () => {
   }
   /** Shows the tab after (or before) the one the last key showed. */
   const stepTab = (strip: ReadonlyArray<Chip>, back: boolean) => showTab(step(strip, shown.current, back))
-  return { surface, setSurface, panelFocus, setPanelFocus, navigation, setNavigation, steerTarget, setSteerTarget, showTab, stepTab }
+  return {
+    surface,
+    setSurface,
+    panelFocus,
+    setPanelFocus,
+    navigation,
+    setNavigation,
+    steerTarget,
+    setSteerTarget,
+    showTab,
+    stepTab
+  }
 }

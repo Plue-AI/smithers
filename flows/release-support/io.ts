@@ -14,8 +14,11 @@ export type RunCommand = (command: string, args: ReadonlyArray<string>, options?
 export const commandRunner = (root: string): RunCommand => async (command, args, options = {}) =>
   new Promise((accept, reject) => {
     const child = spawn(command, [...args], {
-      cwd: root, env: { ...process.env, ...options.env }, stdio: ["ignore", "pipe", "pipe"],
-      signal: options.signal, detached: process.platform !== "win32"
+      cwd: root,
+      env: { ...process.env, ...options.env },
+      stdio: ["ignore", "pipe", "pipe"],
+      signal: options.signal,
+      detached: process.platform !== "win32"
     })
     let killTimer: ReturnType<typeof setTimeout> | undefined
     const stop = () => {
@@ -38,7 +41,9 @@ export const commandRunner = (root: string): RunCommand => async (command, args,
       stdout += chunk.toString()
       if (stdout.length > 16_000_000) stop()
     })
-    child.stderr.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-32_000) })
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-32_000)
+    })
     child.once("error", reject)
     child.once("close", (code) => {
       options.signal?.removeEventListener("abort", stop)
@@ -49,7 +54,9 @@ export const commandRunner = (root: string): RunCommand => async (command, args,
         // so a confirmed 404 remains distinguishable from an auth/network error.
         let diagnostic = `${command} exited ${code}: ${stdout.slice(-6000)}\n${stderr.slice(-6000)}`
         for (const [key, value] of Object.entries({ ...process.env, ...options.env })) {
-          if (/token|secret|password|api.?key/i.test(key) && value && value.length >= 4) diagnostic = diagnostic.split(value).join("<redacted>")
+          if (/token|secret|password|api.?key/i.test(key) && value && value.length >= 4) {
+            diagnostic = diagnostic.split(value).join("<redacted>")
+          }
         }
         reject(new ReleaseError({ step: command, message: diagnostic }))
       }
@@ -58,7 +65,9 @@ export const commandRunner = (root: string): RunCommand => async (command, args,
 
 /** Reject traversal and symlink escapes for existing files and new descendants. */
 export const inside = async (root: string, path: string): Promise<string> => {
-  if (isAbsolute(path) || path.includes("\\") || path.split("/").some((part) => part === "..")) throw new Error(`Unsafe relative path: ${path}`)
+  if (isAbsolute(path) || path.includes("\\") || path.split("/").some((part) => part === "..")) {
+    throw new Error(`Unsafe relative path: ${path}`)
+  }
   const base = await realpath(root)
   const target = resolve(base, path)
   if (target === base || !target.startsWith(base + sep)) throw new Error(`Path escapes workspace: ${path}`)
@@ -84,7 +93,9 @@ export const atomicWrite = async (root: string, path: string, contents: string |
 }
 
 export const maybeRead = async (path: string): Promise<string | undefined> => {
-  try { return await readFile(path, "utf8") } catch (error) {
+  try {
+    return await readFile(path, "utf8")
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
     throw error
   }
@@ -97,7 +108,8 @@ export const relativePath = (root: string, path: string) => relative(root, path)
 export const postTweet = async (text: string, replyTo: string | undefined, signal?: AbortSignal): Promise<string> => {
   const required = ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"] as const
   for (const name of required) if (!process.env[name]) throw new Error(`Missing ${name}`)
-  const escape = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+  const escape = (value: string) =>
+    encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
   const url = "https://api.x.com/2/tweets"
   const oauth: Record<string, string> = {
     oauth_consumer_key: process.env.X_API_KEY!,
@@ -113,7 +125,9 @@ export const postTweet = async (text: string, replyTo: string | undefined, signa
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      authorization: `OAuth ${Object.keys(oauth).sort().map((name) => `${escape(name)}="${escape(oauth[name]!)}"`).join(", ")}`,
+      authorization: `OAuth ${
+        Object.keys(oauth).sort().map((name) => `${escape(name)}="${escape(oauth[name]!)}"`).join(", ")
+      }`,
       "content-type": "application/json"
     },
     body: JSON.stringify({ text, ...(replyTo === undefined ? {} : { reply: { in_reply_to_tweet_id: replyTo } }) }),
@@ -121,6 +135,8 @@ export const postTweet = async (text: string, replyTo: string | undefined, signa
   })
   if (!response.ok) throw new Error(`X rejected the tweet with HTTP ${response.status}`)
   const body = await response.json() as { data?: { id?: string } }
-  if (!body.data?.id || !/^\d+$/.test(body.data.id)) throw new Error("X returned no tweet ID; reconcile the pending post before resuming")
+  if (!body.data?.id || !/^\d+$/.test(body.data.id)) {
+    throw new Error("X returned no tweet ID; reconcile the pending post before resuming")
+  }
   return body.data.id
 }

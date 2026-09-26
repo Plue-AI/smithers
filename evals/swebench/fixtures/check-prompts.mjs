@@ -142,8 +142,7 @@ try {
   // route its own tools offer, which is the rule this file pins; what neither
   // may carry is a runner, a path, or anything about this instance.
   const codexExample = `      docker exec ${container} bash -lc 'cd /testbed && <command>'`
-  const flowsExample =
-    `      { mode: "unhermetic", container: "${container}", cwd: "/testbed", command: "<command>" }`
+  const flowsExample = `      { mode: "unhermetic", container: "${container}", cwd: "/testbed", command: "<command>" }`
   assert.ok(codexPrompt.includes(codexExample), "the codex prompt's example is a placeholder")
   assert.ok(flowsPrompt.includes(flowsExample), "the flows prompt's example is the same placeholder")
   assert.ok(

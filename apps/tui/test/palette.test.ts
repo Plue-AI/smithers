@@ -6,7 +6,14 @@ import type { Tab } from "../src/workspace.ts"
 
 const files = ["README.md", "src/app.tsx", "src/view.tsx", "test/app.test.ts", "docs/my notes.md"]
 const tab = (id: string, title: string, status: Tab["status"]): Tab => ({
-  id, title, status, prompt: "p", seat: "s", file: `${id}.jsonl`, startedAt: 0, depth: 0
+  id,
+  title,
+  status,
+  prompt: "p",
+  seat: "s",
+  file: `${id}.jsonl`,
+  startedAt: 0,
+  depth: 0
 })
 const sessions = [
   { file: "/s/b.jsonl", name: "Fix the build", firstPrompt: "fix it", modified: 1_000 },
@@ -20,7 +27,8 @@ const sources: Palette.Sources = {
   hits: [{ path: "math.js", line: 1, text: "  export const add = (a, b) => a - b" }],
   now: 2_000
 }
-const rows = (raw: string, extra: Partial<Palette.Sources> = {}) => Palette.rows(Palette.parse(raw), { ...sources, ...extra })
+const rows = (raw: string, extra: Partial<Palette.Sources> = {}) =>
+  Palette.rows(Palette.parse(raw), { ...sources, ...extra })
 
 describe("parse", () => {
   it("reads the first token as the mode, like the web palette", () => {
@@ -57,23 +65,41 @@ describe("rows", () => {
 
   it("lists rg hits as path:line with the line text", () => {
     expect(rows("text:a - b")).toEqual([
-      { key: "hit:math.js:1", label: "math.js:1", detail: "export const add = (a, b) => a - b", value: { kind: "hit", path: "math.js", line: 1 } }
+      {
+        key: "hit:math.js:1",
+        label: "math.js:1",
+        detail: "export const add = (a, b) => a - b",
+        value: { kind: "hit", path: "math.js", line: 1 }
+      }
     ])
   })
 
   it("draws awkward file and hit names on one line and keeps the exact path in values and mentions", () => {
-    const odd = ["new\nline.ts", "tab\there.ts", "café 日本.ts", 'say "hi"\\x.ts']
+    const odd = ["new\nline.ts", "tab\there.ts", "café 日本.ts", "say \"hi\"\\x.ts"]
     const fileRows = rows("", { commands: [], files: () => odd }).filter((row) => row.value.kind === "file")
-    expect(fileRows.map((row) => row.label).sort()).toEqual(["new\\nline.ts", "tab\\there.ts", "café 日本.ts", 'say "hi"\\x.ts'].sort())
+    expect(fileRows.map((row) => row.label).sort()).toEqual(
+      ["new\\nline.ts", "tab\\there.ts", "café 日本.ts", "say \"hi\"\\x.ts"].sort()
+    )
     expect(fileRows.map((row) => row.value).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))
-      .toEqual(odd.map((path) => ({ kind: "file" as const, path })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))
+      .toEqual(
+        odd.map((path) => ({ kind: "file" as const, path })).sort((a, b) =>
+          JSON.stringify(a).localeCompare(JSON.stringify(b))
+        )
+      )
     const hits = rows("text:x", { hits: [{ path: "new\nline.ts", line: 3, text: "\ta\tb\u0007 café" }] })
     expect(hits).toEqual([
-      { key: "hit:new\nline.ts:3", label: "new\\nline.ts:3", detail: "a\\tb\\u0007 café", value: { kind: "hit", path: "new\nline.ts", line: 3 } }
+      {
+        key: "hit:new\nline.ts:3",
+        label: "new\\nline.ts:3",
+        detail: "a\\tb\\u0007 café",
+        value: { kind: "hit", path: "new\nline.ts", line: 3 }
+      }
     ])
-    for (const row of [...fileRows, ...hits]) expect(`${row.label}${row.detail ?? ""}`).not.toMatch(/[\u0000-\u001f\u007f]/)
-    expect(Palette.mention("new\nline.ts", 3)).toBe('@"new\\nline.ts":3 ')
-    expect(Palette.mention('say "hi"\\x.ts')).toBe('@"say \\"hi\\"\\\\x.ts" ')
+    for (const row of [...fileRows, ...hits]) {
+      expect(`${row.label}${row.detail ?? ""}`).not.toMatch(/[\u0000-\u001f\u007f]/)
+    }
+    expect(Palette.mention("new\nline.ts", 3)).toBe("@\"new\\nline.ts\":3 ")
+    expect(Palette.mention("say \"hi\"\\x.ts")).toBe("@\"say \\\"hi\\\"\\\\x.ts\" ")
   })
 
   it("filters worker tabs by title and status", () => {
@@ -84,7 +110,10 @@ describe("rows", () => {
 
   it("lists sessions exactly as /resume does", () => {
     const listed = rows("session:")
-    expect(listed.map((row) => row.value)).toEqual([{ kind: "session", file: "/s/b.jsonl" }, { kind: "session", file: "/s/a.jsonl" }])
+    expect(listed.map((row) => row.value)).toEqual([{ kind: "session", file: "/s/b.jsonl" }, {
+      kind: "session",
+      file: "/s/a.jsonl"
+    }])
     expect(listed.map((row) => row.label)).toEqual(Palette.sessionRows(sessions, "", 2_000).map((row) => row.label))
     expect(listed.map((row) => row.label)).toEqual(["Fix the build", "add a view"])
     expect(rows("session:view").map((row) => row.label)).toEqual(["add a view"])
@@ -104,7 +133,7 @@ describe("rows", () => {
 describe("mentions", () => {
   it("writes @path and @path:line, quoting paths with spaces", () => {
     expect(Palette.mention("src/a.ts", 12)).toBe("@src/a.ts:12 ")
-    expect(Palette.mention("docs/my notes.md")).toBe('@"docs/my notes.md" ')
+    expect(Palette.mention("docs/my notes.md")).toBe("@\"docs/my notes.md\" ")
   })
 
   it("inserts at the cursor with a separating space, merging a trailing one", () => {
@@ -116,9 +145,18 @@ describe("mentions", () => {
 
 describe("contributed actions", () => {
   it("lists contributed keys and status items in the plain search and picks their action", () => {
-    const actions = [{ key: "repo:review/alt+r", label: "Review", hint: "alt+r", action: { kind: "flow" as const, flow: "review" } }]
+    const actions = [{
+      key: "repo:review/alt+r",
+      label: "Review",
+      hint: "alt+r",
+      action: { kind: "flow" as const, flow: "review" }
+    }]
     const found = rows("revi", { actions })
-    expect(found[0]).toMatchObject({ label: "Review", hint: "alt+r", value: { kind: "action", action: { kind: "flow", flow: "review" } } })
+    expect(found[0]).toMatchObject({
+      label: "Review",
+      hint: "alt+r",
+      value: { kind: "action", action: { kind: "flow", flow: "review" } }
+    })
     expect(rows("/revi", { actions }).some((row) => row.value.kind === "action")).toBe(false)
   })
 })

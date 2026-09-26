@@ -98,8 +98,12 @@ export const cached = (): typeof merge => {
   let selected: Filter | undefined
   let rows: ReadonlyArray<Row> = []
   return (sources, filter = all) => {
-    if (selected === filter && sources.length === previous.length &&
-      sources.every((source, index) => source.id === previous[index]!.id && source.transcript === previous[index]!.transcript)) return rows
+    if (
+      selected === filter && sources.length === previous.length &&
+      sources.every((source, index) =>
+        source.id === previous[index]!.id && source.transcript === previous[index]!.transcript
+      )
+    ) return rows
     previous = sources
     selected = filter
     rows = merge(sources, filter)

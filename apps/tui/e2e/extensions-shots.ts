@@ -64,10 +64,18 @@ try {
   await tui.press(key.escape)
   await tui.type("plan release")
   await tui.press(key.enter)
-  await tui.until((screen) => screen.includes("Release plan · Two steps left.") && screen.includes("CI ✓"), 5_000, "card")
+  await tui.until(
+    (screen) => screen.includes("Release plan · Two steps left.") && screen.includes("CI ✓"),
+    5_000,
+    "card"
+  )
   shoot(tui, "after-card")
   await tui.press("\x1br")
-  await tui.until((screen) => screen.includes("review · Running.") && screen.includes("review · running"), 5_000, "run card")
+  await tui.until(
+    (screen) => screen.includes("review · Running.") && screen.includes("review · running"),
+    5_000,
+    "run card"
+  )
   shoot(tui, "after-key-run")
   await tui.type("finish")
   await tui.press(key.enter)

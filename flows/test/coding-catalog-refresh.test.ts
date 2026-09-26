@@ -14,11 +14,6 @@
  * written after startup is rebuilt, and a reserved job declaration is not,
  * because its bytes are the bundle and not whatever is on disk.
  */
-import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { test, type TestContext } from "node:test"
 import { NodeServices } from "@effect/platform-node"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Action, Flow, FlowRuntime, Graph } from "@smthrs/flow"
@@ -27,7 +22,17 @@ import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Schema } from "effect"
-import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog, repositoryRegistration } from "../repository/registry.ts"
+import assert from "node:assert/strict"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { test, type TestContext } from "node:test"
+import {
+  bindRepositoryRegistry,
+  provisionBuiltins,
+  repositoryCatalog,
+  repositoryRegistration
+} from "../repository/registry.ts"
 
 const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
 const policy = "a".repeat(64)
@@ -110,32 +115,34 @@ const host = (repositoryPath: string, stateRoot: string, registered: Array<strin
 test("a project flow written after the catalog was built is planned from the bytes on disk", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   const registered: Array<string> = []
-  const observedNames = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-    const composed = yield* host(repositoryPath, stateRoot, registered)
-    return yield* Effect.gen(function*() {
-      const catalog = yield* Executable.Catalog
-      const refresh = yield* Executable.Refresh
-      assert.equal(catalog.executables.some((entry) => entry.descriptor.name === "mine"), false)
+  const observedNames = await Effect.runPromise(Effect.scoped(
+    Effect.gen(function*() {
+      const composed = yield* host(repositoryPath, stateRoot, registered)
+      return yield* Effect.gen(function*() {
+        const catalog = yield* Executable.Catalog
+        const refresh = yield* Executable.Refresh
+        assert.equal(catalog.executables.some((entry) => entry.descriptor.name === "mine"), false)
 
-      yield* Effect.promise(async () => {
-        await mkdir(join(repositoryPath, "flows", "mine"), { recursive: true })
-        await writeFile(join(repositoryPath, "flows", "mine", "flow.mdx"), declaration)
-      })
-      const outcome = yield* refresh.flow("mine")
-      assert.equal(outcome._tag, "Registered")
+        yield* Effect.promise(async () => {
+          await mkdir(join(repositoryPath, "flows", "mine"), { recursive: true })
+          await writeFile(join(repositoryPath, "flows", "mine", "flow.mdx"), declaration)
+        })
+        const outcome = yield* refresh.flow("mine")
+        assert.equal(outcome._tag, "Registered")
 
-      const entry = catalog.executables.find((candidate) => candidate.descriptor.name === "mine")
-      assert.ok(entry, "the rebuilt entry must be in the catalog the host serves")
-      assert.equal(entry.delegate, "refresh/Project")
-      // The plan this host would now draw is the delegate's own topology,
-      // rather than the empty one a missing executable leaves behind.
-      assert.ok(
-        Graph.drafts(Graph.build(entry.flow, { input: {} })).length > 1,
-        "the rebuilt entry must plan its delegate's nodes"
-      )
-      return registered
-    }).pipe(Effect.provide(composed.layer))
-  }).pipe(Effect.provide(platform))))
+        const entry = catalog.executables.find((candidate) => candidate.descriptor.name === "mine")
+        assert.ok(entry, "the rebuilt entry must be in the catalog the host serves")
+        assert.equal(entry.delegate, "refresh/Project")
+        // The plan this host would now draw is the delegate's own topology,
+        // rather than the empty one a missing executable leaves behind.
+        assert.ok(
+          Graph.drafts(Graph.build(entry.flow, { input: {} })).length > 1,
+          "the rebuilt entry must plan its delegate's nodes"
+        )
+        return registered
+      }).pipe(Effect.provide(composed.layer))
+    }).pipe(Effect.provide(platform))
+  ))
 
   assert.ok(observedNames.includes("mine"), "the rebuilt entry must be registered with the runtime")
 })
@@ -143,29 +150,31 @@ test("a project flow written after the catalog was built is planned from the byt
 test("a reserved job declaration is held fixed against whatever the working tree says", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   const registered: Array<string> = []
-  await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-    const composed = yield* host(repositoryPath, stateRoot, registered)
-    const before = composed.built.executables.find((entry) => entry.descriptor.name === "repository/setup")
-    assert.ok(before, "the reserved setup job is part of this host's catalog")
-    return yield* Effect.gen(function*() {
-      const catalog = yield* Executable.Catalog
-      const refresh = yield* Executable.Refresh
-      // Everything this host's catalog holds is registered while it starts.
-      const atStartup = [...registered]
-      assert.ok(atStartup.includes("repository/setup"), "the reserved setup job registers at startup")
-      // A run this host is serving can write anything into the tree. What it
-      // must not be able to do is make the host rebuild a reserved job's
-      // declaration out of what it wrote.
-      yield* Effect.promise(async () => {
-        await mkdir(join(repositoryPath, "flows", "repository", "setup"), { recursive: true })
-        await writeFile(join(repositoryPath, "flows", "repository", "setup", "flow.mdx"), declaration)
-      })
-      assert.equal((yield* refresh.flow("repository/setup"))._tag, "Fixed")
-      assert.equal(
-        catalog.executables.find((entry) => entry.descriptor.name === "repository/setup"),
-        before
-      )
-      assert.deepEqual(registered, atStartup)
-    }).pipe(Effect.provide(composed.layer))
-  }).pipe(Effect.provide(platform))))
+  await Effect.runPromise(Effect.scoped(
+    Effect.gen(function*() {
+      const composed = yield* host(repositoryPath, stateRoot, registered)
+      const before = composed.built.executables.find((entry) => entry.descriptor.name === "repository/setup")
+      assert.ok(before, "the reserved setup job is part of this host's catalog")
+      return yield* Effect.gen(function*() {
+        const catalog = yield* Executable.Catalog
+        const refresh = yield* Executable.Refresh
+        // Everything this host's catalog holds is registered while it starts.
+        const atStartup = [...registered]
+        assert.ok(atStartup.includes("repository/setup"), "the reserved setup job registers at startup")
+        // A run this host is serving can write anything into the tree. What it
+        // must not be able to do is make the host rebuild a reserved job's
+        // declaration out of what it wrote.
+        yield* Effect.promise(async () => {
+          await mkdir(join(repositoryPath, "flows", "repository", "setup"), { recursive: true })
+          await writeFile(join(repositoryPath, "flows", "repository", "setup", "flow.mdx"), declaration)
+        })
+        assert.equal((yield* refresh.flow("repository/setup"))._tag, "Fixed")
+        assert.equal(
+          catalog.executables.find((entry) => entry.descriptor.name === "repository/setup"),
+          before
+        )
+        assert.deepEqual(registered, atStartup)
+      }).pipe(Effect.provide(composed.layer))
+    }).pipe(Effect.provide(platform))
+  ))
 })

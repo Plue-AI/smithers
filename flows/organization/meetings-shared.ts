@@ -5,8 +5,8 @@
 import { Node } from "@smthrs/plan"
 import type * as Planned from "@smthrs/plan/Planned"
 import * as Actions from "../../packages/smithers/agent/organization/src/Actions.ts"
-import { Describe, type StepFailure } from "./schema.ts"
 import { type MeetingReport, SettleMeeting } from "./meetings.ts"
+import { Describe, type StepFailure } from "./schema.ts"
 
 const implementationVersion = "organization/meetings/v1"
 

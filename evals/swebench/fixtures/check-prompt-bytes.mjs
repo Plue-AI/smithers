@@ -51,7 +51,10 @@ const instance = (id) => ({
 
 try {
   const dataset = join(temporary, "dataset.json")
-  writeFileSync(dataset, JSON.stringify([instance("stub__told-1"), instance("stub__untold-2"), instance("stub__absent-3")]))
+  writeFileSync(
+    dataset,
+    JSON.stringify([instance("stub__told-1"), instance("stub__untold-2"), instance("stub__absent-3")])
+  )
 
   const log = join(temporary, "driver.log")
   writeFileSync(
@@ -99,7 +102,9 @@ try {
   assert.equal(quiet.status, 1)
   assert.match(quiet.stderr, /records no project interpreter line/)
 
-  console.log("check-prompt-bytes: one row per stated interpreter, an unstated one renders smaller, and the summary adds up.")
+  console.log(
+    "check-prompt-bytes: one row per stated interpreter, an unstated one renders smaller, and the summary adds up."
+  )
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }

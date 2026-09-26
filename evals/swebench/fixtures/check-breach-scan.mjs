@@ -128,8 +128,16 @@ try {
     assert.ok(!report.includes("**Verdict: sealed.**"), scenario)
     assert.ok(!report.includes("No run issued an egress command."), scenario)
     const cli = spawnSync(process.execPath, [
-      join(root, "breach-scan.mjs"), "--ledger", sealedLedger,
-      "--logs", logs, "--journals", journals, "--require", "none", "--json"
+      join(root, "breach-scan.mjs"),
+      "--ledger",
+      sealedLedger,
+      "--logs",
+      logs,
+      "--journals",
+      journals,
+      "--require",
+      "none",
+      "--json"
     ], { encoding: "utf8", timeout: 30_000 })
     assert.equal(cli.status, 1, `${scenario}: ${cli.stderr}`)
     assert.equal(JSON.parse(cli.stdout).rows[0].traced, false, scenario)
@@ -147,7 +155,10 @@ try {
   mkdirSync(diagnosticLogs)
   writeFileSync(join(diagnosticLogs, "a__a-1.run.log"), "docker exec swb curl https://example.com/\n")
   const diagnostics = scan({
-    journals: suffixedJournals, ledger: sealedLedger, logs: diagnosticLogs, require: "none"
+    journals: suffixedJournals,
+    ledger: sealedLedger,
+    logs: diagnosticLogs,
+    require: "none"
   })
   assert.equal(diagnostics.totals.attempts, 0, "driver diagnostics are not agent calls")
   assert.deepEqual(diagnostics.failures, [])
@@ -206,7 +217,12 @@ try {
   mkdirSync(join(structuredDirectory, "logs"), { recursive: true })
   const structuredCall = {
     flow: "bash",
-    input: { mode: "unhermetic", container: "a__a-1-r98", cwd: "/testbed", command: "curl https://example.invalid/fix.patch" }
+    input: {
+      mode: "unhermetic",
+      container: "a__a-1-r98",
+      cwd: "/testbed",
+      command: "curl https://example.invalid/fix.patch"
+    }
   }
   journal(join(structuredDirectory, "journals", "a__a-1"), [JSON.stringify(structuredCall)])
   const structuredLedger = jsonl(join(structuredDirectory, "manifest.jsonl"), [
@@ -229,8 +245,11 @@ try {
   )
   const nested = JSON.stringify({ payload: JSON.stringify(structuredCall) })
   assert.equal(inContainerEgress(nested).length, 1, "an event that embeds the call as a JSON string is read too")
-  assert.deepEqual(inContainerEgress(JSON.stringify({ input: { command: "curl https://example.invalid/" } })), [],
-    "a host command with no container is not an in-container fetch")
+  assert.deepEqual(
+    inContainerEgress(JSON.stringify({ input: { command: "curl https://example.invalid/" } })),
+    [],
+    "a host command with no container is not an in-container fetch"
+  )
 
   // -------------------------------------------------------------------------
   // An in-container fetch the trace shows dying is the seal working, not a

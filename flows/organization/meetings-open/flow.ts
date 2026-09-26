@@ -18,8 +18,8 @@ import { Schema } from "effect"
 import * as Slack from "../../../packages/smithers/agent/integrations/src/slack/Actions.ts"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
-import { FindOccurrence, MeetingFailed, MeetingReport, OpenDirect, ReadAgenda, RecordThread } from "../meetings.ts"
 import { blocked, finish, report } from "../meetings-shared.ts"
+import { FindOccurrence, MeetingFailed, MeetingReport, OpenDirect, ReadAgenda, RecordThread } from "../meetings.ts"
 import { slackConnection } from "../slack-connection.ts"
 
 const implementationVersion = "organization/meetings-open/v1"
@@ -35,13 +35,30 @@ export default Flow.make("organization/meetings-open", {
   success: MeetingReport,
   error: Schema.Union([MeetingFailed, Actions.ReceiptFailed]),
   body: (payload) =>
-    FindOccurrence.call({ principal: payload.principal, which: "current", ...(payload.at === undefined ? {} : { at: payload.at }) }).pipe(
+    FindOccurrence.call({
+      principal: payload.principal,
+      which: "current",
+      ...(payload.at === undefined ? {} : { at: payload.at })
+    }).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (occurrence) =>
         Node.branch(Node.succeed(occurrence), {
           if: Node.capture({ implementationVersion }, (seen) => seen.found),
-          else: () => report({ key: occurrence.key, status: "not planned", summary: occurrence.reason, principal: payload.principal }),
+          else: () =>
+            report({
+              key: occurrence.key,
+              status: "not planned",
+              summary: occurrence.reason,
+              principal: payload.principal
+            }),
           then: () =>
-            Node.all({ agenda: ReadAgenda.call({ occurrence }), direct: OpenDirect.call({ principal: payload.principal, occurrence, ...(payload.at === undefined ? {} : { at: payload.at }) }) }).pipe(
+            Node.all({
+              agenda: ReadAgenda.call({ occurrence }),
+              direct: OpenDirect.call({
+                principal: payload.principal,
+                occurrence,
+                ...(payload.at === undefined ? {} : { at: payload.at })
+              })
+            }).pipe(
               Node.bindPlanned(Node.capture({ implementationVersion }, (opened) =>
                 Node.branch(Node.succeed(opened), {
                   if: Node.capture({ implementationVersion }, (seen) => seen.direct.connected),
@@ -78,8 +95,12 @@ export default Flow.make("organization/meetings-open", {
             )
         }).pipe(
           blocked(occurrence.key, payload.principal),
-          Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-            finish(occurrence.key, "meeting-open", payload, outcome)))
+          Node.bindPlanned(
+            Node.capture(
+              { implementationVersion },
+              (outcome) => finish(occurrence.key, "meeting-open", payload, outcome)
+            )
+          )
         )))
     )
 })

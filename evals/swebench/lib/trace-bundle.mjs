@@ -58,8 +58,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
-import { readRows } from "./fullbench-manifest.mjs"
 import { readTokensFile } from "./codex-tokens.mjs"
+import { readRows } from "./fullbench-manifest.mjs"
 import { readCost } from "./run-cost.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -382,10 +382,16 @@ trace.
 const metricsTable = (ours, theirs) => {
   const rows = [
     ["verdict", ours.verdict ?? "—", theirs.verdict ?? "not back filled yet"],
-    ["wall clock, whole instance", ours.wallSeconds === undefined ? "—" : `${ours.wallSeconds}s`,
-      theirs.wallSeconds === undefined ? "—" : `${theirs.wallSeconds}s`],
-    ["wall clock, agent only", ours.agentSeconds === null ? "—" : `${ours.agentSeconds}s`,
-      theirs.agentSeconds === undefined ? "—" : `${theirs.agentSeconds}s`],
+    [
+      "wall clock, whole instance",
+      ours.wallSeconds === undefined ? "—" : `${ours.wallSeconds}s`,
+      theirs.wallSeconds === undefined ? "—" : `${theirs.wallSeconds}s`
+    ],
+    [
+      "wall clock, agent only",
+      ours.agentSeconds === null ? "—" : `${ours.agentSeconds}s`,
+      theirs.agentSeconds === undefined ? "—" : `${theirs.agentSeconds}s`
+    ],
     ["model turns", number(ours.frames), theirs.assistantTurns === undefined ? "—" : number(theirs.assistantTurns)],
     ["model calls", number(ours.modelCalls), "—"],
     ["tool calls / exec commands", number(ours.calls), theirs.execs === undefined ? "—" : number(theirs.execs)],
@@ -393,11 +399,18 @@ const metricsTable = (ours, theirs) => {
     ["cached input tokens", number(ours.usage?.cachedInputTokens), "—"],
     ["output tokens", number(ours.usage?.outputTokens), "—"],
     ["reasoning tokens", number(ours.usage?.reasoningTokens), "—"],
-    ["tokens, total", number(ours.totalTokens), theirs.tokens === undefined || theirs.tokens === null ? "—" : number(theirs.tokens)],
+    [
+      "tokens, total",
+      number(ours.totalTokens),
+      theirs.tokens === undefined || theirs.tokens === null ? "—" : number(theirs.tokens)
+    ],
     ["USD", ours.usd === null || ours.usd === undefined ? "—" : `$${ours.usd.toFixed(4)}`, "not derivable"],
     ["patch bytes", number(ours.patch?.bytes), number(theirs.patch?.bytes)],
-    ["files touched", ours.patch === undefined ? "—" : String(ours.patch.files.length),
-      theirs.patch === undefined ? "—" : String(theirs.patch.files.length)]
+    [
+      "files touched",
+      ours.patch === undefined ? "—" : String(ours.patch.files.length),
+      theirs.patch === undefined ? "—" : String(theirs.patch.files.length)
+    ]
   ]
   return [
     "| | ours (flows harness) | codex CLI |",
@@ -645,12 +658,24 @@ const parse = (argv) => {
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index]
     switch (argument) {
-      case "--prompt-only": options.promptOnly = true; break
-      case "--clip": options.clip = Number(argv[++index]); break
-      case "--text-clip": options.textClip = Number(argv[++index]); break
-      case "--cell-clip": options.cellClip = Number(argv[++index]); break
-      case "--fb": options.fb = resolve(argv[++index]); break
-      case "--dataset": options.dataset = resolve(argv[++index]); break
+      case "--prompt-only":
+        options.promptOnly = true
+        break
+      case "--clip":
+        options.clip = Number(argv[++index])
+        break
+      case "--text-clip":
+        options.textClip = Number(argv[++index])
+        break
+      case "--cell-clip":
+        options.cellClip = Number(argv[++index])
+        break
+      case "--fb":
+        options.fb = resolve(argv[++index])
+        break
+      case "--dataset":
+        options.dataset = resolve(argv[++index])
+        break
       default:
         if (argument.startsWith("--")) {
           console.error(`trace-bundle.mjs: unknown option '${argument}'`)

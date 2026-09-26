@@ -151,9 +151,10 @@ export const monitorRequest = (command: string, source = "chat"): Request => ({
  * monitor asks under this session's mode, whatever the session that created
  * it allowed. Other sources run nothing and ask nothing.
  */
-export const restored = (authorize: (requests: ReadonlyArray<Request>) => Promise<void>) =>
-(monitor: Pick<Monitors.Monitor, "source">): Promise<void> =>
-  authorize(monitor.source.kind === "shell" ? [monitorRequest(monitor.source.command)] : [])
+export const restored =
+  (authorize: (requests: ReadonlyArray<Request>) => Promise<void>) =>
+  (monitor: Pick<Monitors.Monitor, "source">): Promise<void> =>
+    authorize(monitor.source.kind === "shell" ? [monitorRequest(monitor.source.command)] : [])
 
 /** One request per consequential capability, narrowed to what this call touches. */
 export const requests = (call: Cell.Call, cwd: string, source: string): ReadonlyArray<Request> => {
@@ -193,20 +194,31 @@ export const requests = (call: Cell.Call, cwd: string, source: string): Readonly
 }
 
 /** A project plan grants its declared envelope, not a built-in writer's input shape. */
-export const project = (flow: string, capabilities: ReadonlyArray<string>, cwd: string, source: string): ReadonlyArray<Request> => {
+export const project = (
+  flow: string,
+  capabilities: ReadonlyArray<string>,
+  cwd: string,
+  source: string
+): ReadonlyArray<Request> => {
   const found = new Map<string, Request>()
   for (const declared of capabilities) {
     const parsed = Capability.parsePattern(declared)
-    if (Option.isNone(parsed)) throw new HarnessError({ code: "engine_failed", message: `Invalid capability: ${declared}` })
+    if (Option.isNone(parsed)) {
+      throw new HarnessError({ code: "engine_failed", message: `Invalid capability: ${declared}` })
+    }
     const pattern = parsed.value
     for (const action of Capability.Action.literals) {
-      if (pattern.action !== "*" && pattern.action !== action && pattern.action !== `${action.split(":")[0]}:*`) continue
+      if (pattern.action !== "*" && pattern.action !== action && pattern.action !== `${action.split(":")[0]}:*`) {
+        continue
+      }
       // A glob cannot prove symlink containment. Ask for broad write authority.
       const resource = action === "fs:write"
         ? Capability.isLiteralResource(pattern.resource)
           ? real(isAbsolute(pattern.resource) ? pattern.resource : `${cwd}/${pattern.resource}`)
           : "/**"
-        : action === "proc:spawn" ? flow : pattern.resource
+        : action === "proc:spawn"
+        ? flow
+        : pattern.resource
       const capability = Capability.make(action, resource)
       if (!consequential(capability, cwd)) continue
       const subject = Capability.format(capability)
@@ -247,12 +259,15 @@ export const notices = () => {
 }
 
 /** `Agent.Options.authorize`: waits for every consequential request, in order. */
-export const authorize = (grants: GrantStore.Service, options: { readonly cwd: string; readonly source: string }) =>
-(call: Cell.Call): Effect.Effect<void, HarnessError> =>
-  check(grants, requests(call, options.cwd, options.source))
+export const authorize =
+  (grants: GrantStore.Service, options: { readonly cwd: string; readonly source: string }) =>
+  (call: Cell.Call): Effect.Effect<void, HarnessError> => check(grants, requests(call, options.cwd, options.source))
 
 /** Both worker calls and project launches wait on this same store. */
-export const check = (grants: GrantStore.Service, requests: ReadonlyArray<Request>): Effect.Effect<void, HarnessError> =>
+export const check = (
+  grants: GrantStore.Service,
+  requests: ReadonlyArray<Request>
+): Effect.Effect<void, HarnessError> =>
   Effect.forEach(
     requests,
     (request) =>
@@ -333,7 +348,11 @@ export const poll = (read: () => Promise<unknown>, ms = pollMs): () => void => {
   const tick = () => {
     if (busy) return
     busy = true
-    read().then(() => { busy = false }, () => { busy = false })
+    read().then(() => {
+      busy = false
+    }, () => {
+      busy = false
+    })
   }
   tick()
   const timer = setInterval(tick, ms)
@@ -384,8 +403,7 @@ export const edited = (arming: Arming, now: number): Arming =>
 export const answered = (requestId: string): Arming => ({ requestId: undefined, since: 0, waiting: requestId })
 
 /** The store refused the answer to `requestId`; its row shows and arms again. */
-export const failed = (arming: Arming, requestId: string): Arming =>
-  arming.waiting === requestId ? idle : arming
+export const failed = (arming: Arming, requestId: string): Arming => arming.waiting === requestId ? idle : arming
 
 export const armed = (arming: Arming, front: string | undefined, now: number): boolean =>
   front !== undefined && arming.waiting === undefined && arming.requestId === front && now - arming.since >= armMs

@@ -11,7 +11,7 @@ import * as Palette from "../src/palette.ts"
 it("shows palette commands immediately and fills files after asynchronous enumeration", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "tui-files-"))
   const saved = process.env.PATH
-  writeFileSync(join(cwd, "git"), '#!/bin/sh\n/bin/sleep 0.4\nprintf "a.ts\\000"\n', { mode: 0o755 })
+  writeFileSync(join(cwd, "git"), "#!/bin/sh\n/bin/sleep 0.4\nprintf \"a.ts\\000\"\n", { mode: 0o755 })
   process.env.PATH = cwd
   try {
     let refreshed = 0
@@ -37,12 +37,14 @@ it("times out file enumeration without blocking timers", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "tui-files-timeout-"))
   const saved = process.env.PATH
   for (const command of ["git", "rg"]) {
-    writeFileSync(join(cwd, command), '#!/bin/sh\nexec /bin/sleep 0.4\n', { mode: 0o755 })
+    writeFileSync(join(cwd, command), "#!/bin/sh\nexec /bin/sleep 0.4\n", { mode: 0o755 })
   }
   process.env.PATH = cwd
   try {
     let timerRan = false
-    const timer = setTimeout(() => { timerRan = true }, 5)
+    const timer = setTimeout(() => {
+      timerRan = true
+    }, 5)
     const started = Date.now()
     expect(await Files.list(cwd, 30)).toEqual([])
     expect(timerRan).toBe(true)
@@ -54,12 +56,22 @@ it("times out file enumeration without blocking timers", async () => {
   }
 })
 
-const awkward = ["café.txt", "日本語.txt", "my notes.md", "tab\there.txt", "new\nline.txt", 'say "hi".txt', "back\\slash.txt", "bell\u0007.txt", "line.ts:12"]
+const awkward = [
+  "café.txt",
+  "日本語.txt",
+  "my notes.md",
+  "tab\there.txt",
+  "new\nline.txt",
+  "say \"hi\".txt",
+  "back\\slash.txt",
+  "bell\u0007.txt",
+  "line.ts:12"
+]
 
 /** The path a mention names, read back the way a model or user would. */
 const named = (mention: string): string => {
   const body = mention.slice(1, -1).replace(/(?<=^".*"|^[^"].*):\d+$/, "")
-  return body.startsWith('"') ? JSON.parse(body) : body
+  return body.startsWith("\"") ? JSON.parse(body) : body
 }
 
 const which = (command: string) => execFileSync("/usr/bin/which", [command], { encoding: "utf8" }).trim()
@@ -89,7 +101,14 @@ const expectExact = async (cwd: string, extra: string) => {
     expect(item.label).not.toMatch(/[\u0000-\u001f\u007f]/)
   }
   // Ctrl+K file rows carry the exact path Palette.mention inserts.
-  const rows = Palette.rows(Palette.parse("café"), { commands: [], files: () => files, sessions: [], tabs: [], hits: [], now: 0 })
+  const rows = Palette.rows(Palette.parse("café"), {
+    commands: [],
+    files: () => files,
+    sessions: [],
+    tabs: [],
+    hits: [],
+    now: 0
+  })
   const row = rows.find((each) => each.value.kind === "file")!
   expect(row.value).toEqual({ kind: "file", path: "sub/café.txt" })
   expect(Palette.mention("sub/café.txt")).toBe("@sub/café.txt ")
@@ -101,7 +120,7 @@ it("lists Unicode, whitespace, quote, backslash, and control-character names exa
     execFileSync(which("git"), ["init", "-q"], { cwd })
     execFileSync(which("git"), ["add", "sub/café.txt", "sub/日本語.txt", "sub/tab\there.txt"], { cwd })
     // Tracked and untracked names both arrive unquoted; core.quotePath is on by default.
-    expect(execFileSync(which("git"), ["ls-files"], { cwd, encoding: "utf8" })).toContain('"sub/caf\\303\\251.txt"')
+    expect(execFileSync(which("git"), ["ls-files"], { cwd, encoding: "utf8" })).toContain("\"sub/caf\\303\\251.txt\"")
     await expectExact(cwd, ".gitignore")
   } finally {
     rmSync(cwd, { recursive: true, force: true })

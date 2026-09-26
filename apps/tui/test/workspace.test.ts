@@ -1,6 +1,6 @@
 /** Custom agents in worker tabs: the body is read at launch, never at request. */
-import { describe, expect, it } from "bun:test"
 import * as Seat from "@smthrs/agent/Seat"
+import { describe, expect, it } from "bun:test"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -29,7 +29,11 @@ const listed: ReadonlyArray<Extension.Descriptor> = [
   descriptor({ name: "echo", kind: "module" }),
   descriptor({ name: "manual", modelInvocable: false, seat: undefined })
 ]
-const body = (text = "Review the change."): Flows.Body => ({ text, baseDirectory: "/repo/flows/review", digest: "a".repeat(64) })
+const body = (text = "Review the change."): Flows.Body => ({
+  text,
+  baseDirectory: "/repo/flows/review",
+  digest: "a".repeat(64)
+})
 
 const setup = (options: { readonly known?: boolean; readonly routes?: boolean } = {}) => {
   const inputs: Array<Host.TurnInput> = []
@@ -83,7 +87,17 @@ const setup = (options: { readonly known?: boolean; readonly routes?: boolean } 
     agents,
     seatOf: (declared) => Models.seatOf(declared, [])
   })
-  return { workspace, inputs, finishes, loads, records, routers, relist: (next: ReadonlyArray<Extension.Descriptor>) => { current = next } }
+  return {
+    workspace,
+    inputs,
+    finishes,
+    loads,
+    records,
+    routers,
+    relist: (next: ReadonlyArray<Extension.Descriptor>) => {
+      current = next
+    }
+  }
 }
 const request = { id: "rev", title: "Review src", prompt: "Look at src.", agent: "review" }
 
@@ -157,7 +171,10 @@ describe("custom agents", () => {
     await tick()
     f.loads[0]!.reject(new Error("body for flow \"review\" is unavailable\n  at stack"))
     await tick()
-    expect(f.workspace.read("rev")).toMatchObject({ status: "failed", message: "body for flow \"review\" is unavailable" })
+    expect(f.workspace.read("rev")).toMatchObject({
+      status: "failed",
+      message: "body for flow \"review\" is unavailable"
+    })
     expect(f.workspace.snapshot().tabs[0]?.code).toBe("unreadable")
     expect(f.inputs).toHaveLength(0)
     f.workspace.retry("rev")
@@ -177,7 +194,11 @@ describe("custom agents", () => {
     await tick()
     f.loads[0]!.resolve(body())
     await tick()
-    expect(f.workspace.snapshot().tabs[0]).toMatchObject({ status: "failed", code: "unknown_seat", message: "Unknown model gpt-9" })
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({
+      status: "failed",
+      code: "unknown_seat",
+      message: "Unknown model gpt-9"
+    })
     expect(f.inputs).toHaveLength(0)
   })
 
@@ -297,12 +318,18 @@ describe("routed workers", () => {
 
   it("an operator's SMITHERS_TUI_WORKER_SEAT means no routing", async () => {
     const available: Models.Available = {
-      models: [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }, { seat: "openai:gpt-6-astra", label: "GPT-6 Astra", provider: "OpenAI" }],
+      models: [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }, {
+        seat: "openai:gpt-6-astra",
+        label: "GPT-6 Astra",
+        provider: "OpenAI"
+      }],
       defaultSeat: undefined,
       workerSeat: undefined,
       environment: {}
     }
-    const f = setup({ routes: Models.routing(available, { SMITHERS_TUI_WORKER_SEAT: "worker:test" }, true) !== undefined })
+    const f = setup({
+      routes: Models.routing(available, { SMITHERS_TUI_WORKER_SEAT: "worker:test" }, true) !== undefined
+    })
     f.workspace.request(plain)
     await tick()
     expect(seats(f)).toEqual(["worker:test"])

@@ -78,7 +78,13 @@ export interface Judged {
 
 export type Delivery =
   | { readonly _tag: "update"; readonly id: string; readonly title: string; readonly text: string; readonly at: number }
-  | { readonly _tag: "failed"; readonly id: string; readonly title: string; readonly failure: Failure; readonly at: number }
+  | {
+    readonly _tag: "failed"
+    readonly id: string
+    readonly title: string
+    readonly failure: Failure
+    readonly at: number
+  }
 
 export interface Ports {
   /** Whether this host binds Jev; without it a monitor is refused at creation. */
@@ -168,7 +174,8 @@ export class Monitors {
         message: "Jev is unavailable: set AI_GATEWAY_API_KEY"
       })
     }
-    const trigger = request.trigger ?? (request.source.kind === "shell" ? { kind: "interval", seconds: 60 } : { kind: "events" })
+    const trigger = request.trigger ??
+      (request.source.kind === "shell" ? { kind: "interval", seconds: 60 } : { kind: "events" })
     if (trigger.kind === "events" && request.source.kind === "shell") {
       throw new Error("A shell monitor needs an interval trigger")
     }
@@ -282,7 +289,11 @@ export class Monitors {
     try {
       notable = await this.ports.judge(judged)
     } catch (error) {
-      return this.fail(id, generation, failedWith(error, (message) => ({ _tag: "JevFailed", code: "unreachable", message })))
+      return this.fail(
+        id,
+        generation,
+        failedWith(error, (message) => ({ _tag: "JevFailed", code: "unreachable", message }))
+      )
     }
     const decided = current()
     if (decided === undefined) return
@@ -322,13 +333,15 @@ export class Monitors {
   list = (): ReadonlyArray<Omit<Monitor, "seen">> =>
     [...this.monitors.values()].map(({ seen: _seen, ...monitor }) => monitor)
   context = (): string =>
-    JSON.stringify(this.list().map(({ id, title, status, updates, failure }) => ({
-      id,
-      title,
-      status,
-      updates,
-      ...(failure === undefined ? {} : { failure: message(failure) })
-    })))
+    JSON.stringify(
+      this.list().map(({ id, title, status, updates, failure }) => ({
+        id,
+        title,
+        status,
+        updates,
+        ...(failure === undefined ? {} : { failure: message(failure) })
+      }))
+    )
   dispose = (): Promise<void> => {
     this.closed = true
     for (const id of [...this.stops.keys()]) this.disarm(id)
@@ -361,7 +374,10 @@ export const jev = (
 async (input: Judged): Promise<boolean> => {
   let response: Evaluator.Response
   try {
-    response = await evaluate({ state: { watching: input.watch, before: input.before, after: input.after }, questions: question })
+    response = await evaluate({
+      state: { watching: input.watch, before: input.before, after: input.after },
+      questions: question
+    })
   } catch (error) {
     const typed = error as Partial<Evaluator.EvaluatorError>
     throw new MonitorError(
@@ -376,7 +392,11 @@ async (input: Judged): Promise<boolean> => {
   }
   const raw = response.answers.notable
   if (raw?.type !== "boolean") {
-    throw new MonitorError({ _tag: "JevFailed", code: "invalid_answer", message: "Jev did not answer the notable question" })
+    throw new MonitorError({
+      _tag: "JevFailed",
+      code: "invalid_answer",
+      message: "Jev did not answer the notable question"
+    })
   }
   return raw.probability >= 0.5
 }
@@ -392,8 +412,18 @@ export const composeText = (input: Judged): string =>
  * labels, never streamed tokens, so a change means progress and not typing.
  */
 export const observer = (options: {
-  readonly tab: (id: string) => { status: string; summary?: string; message?: string; answer?: string; turns: ReadonlyArray<{ label: string; status?: string }> }
-  readonly run: (id: string) => { status: string; message?: string; answer?: string; steps: ReadonlyArray<{ label: string; status?: string }> }
+  readonly tab: (
+    id: string
+  ) => {
+    status: string
+    summary?: string
+    message?: string
+    answer?: string
+    turns: ReadonlyArray<{ label: string; status?: string }>
+  }
+  readonly run: (
+    id: string
+  ) => { status: string; message?: string; answer?: string; steps: ReadonlyArray<{ label: string; status?: string }> }
   readonly shell: (command: string, signal?: AbortSignal) => Promise<{ output: string; exitCode: number | null }>
 }) =>
 async (source: Source, signal?: AbortSignal): Promise<string> => {

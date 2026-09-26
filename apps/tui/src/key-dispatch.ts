@@ -58,7 +58,9 @@ export const context = (state: {
 /** A printable key with no modifier: typing, not a command. */
 const typing = (key: KeyEvent): string | undefined => {
   const typed = key.sequence
-  return !key.ctrl && !key.meta && !key.option && typed.length === 1 && typed >= " " && typed !== "\x7f" ? typed : undefined
+  return !key.ctrl && !key.meta && !key.option && typed.length === 1 && typed >= " " && typed !== "\x7f"
+    ? typed
+    : undefined
 }
 
 /**
@@ -95,8 +97,10 @@ export const scrubberKey = (key: KeyEvent, activity: Activity.Activity, seq: num
   readonly follow: () => void
   readonly inspect: (seq: number) => void
 }): boolean => {
-  if (key.ctrl || key.meta || key.option ||
-    !["left", "right", "up", "down", "home", "end", "escape", "return", "[", "]"].includes(key.name)) return false
+  if (
+    key.ctrl || key.meta || key.option ||
+    !["left", "right", "up", "down", "home", "end", "escape", "return", "[", "]"].includes(key.name)
+  ) return false
   key.preventDefault()
   if (key.name === "escape" || key.name === "return") {
     act.follow()
@@ -152,7 +156,9 @@ export const formKey = (key: KeyEvent, open: FlowForm, act: {
   const field = open.fields[open.focus]
   const move = (step: number) => {
     key.preventDefault()
-    if (open.fields.length > 0) act.change({ ...open, focus: (open.focus + step + open.fields.length) % open.fields.length })
+    if (open.fields.length > 0) {
+      act.change({ ...open, focus: (open.focus + step + open.fields.length) % open.fields.length })
+    }
   }
   if (key.name === "escape") {
     // Closes only; the run stays parked (`a` in its tab reopens, `x` stops it).
@@ -163,7 +169,11 @@ export const formKey = (key: KeyEvent, open: FlowForm, act: {
   if ((key.name === "tab" && key.shift) || key.name === "up") return move(-1)
   if (key.name === "space" && field?.kind === "boolean") {
     key.preventDefault()
-    return act.change({ ...open, draft: { ...open.draft, [field.name]: open.draft[field.name] !== true }, error: undefined })
+    return act.change({
+      ...open,
+      draft: { ...open.draft, [field.name]: open.draft[field.name] !== true },
+      error: undefined
+    })
   }
   if ((key.name === "left" || key.name === "right") && field?.kind === "select" && field.options !== undefined) {
     key.preventDefault()
@@ -284,7 +294,10 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   if (key.name === "x" && surface.startsWith("flow:") && state.flow.stop) return act.cancelRun(surface.slice(5))
   if (key.name === "a" && surface.startsWith("flow:")) return act.fillRun(surface.slice(5))
   if (key.name === "u" && (surface === "summary" || surface.startsWith("tab:"))) {
-    return act.undo(panel.rows[Math.min(navigation.selected, panel.rows.length - 1)], surface.startsWith("tab:") ? surface.slice(4) : undefined)
+    return act.undo(
+      panel.rows[Math.min(navigation.selected, panel.rows.length - 1)],
+      surface.startsWith("tab:") ? surface.slice(4) : undefined
+    )
   }
   if (state.worker !== undefined) {
     const binding = Keys.bindingFor(key, "panel")
@@ -292,7 +305,9 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
     if (action !== undefined) return act.workerAction(state.worker, action.id)
     if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
     // j/k pick the transcript row `u` undoes.
-    if (["j", "k", "up", "down"].includes(key.name)) return act.navigate((current) => Panels.navigate(current, key.name, panel.rows))
+    if (["j", "k", "up", "down"].includes(key.name)) {
+      return act.navigate((current) => Panels.navigate(current, key.name, panel.rows))
+    }
     return
   }
   if (key.name === "a") {

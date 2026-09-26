@@ -16,5 +16,9 @@ export { Vibe }
 export { VibeError } from "./vibe/flow.ts"
 
 /** Landing is supplied by the deployment; models by the host's evidence-only policy. */
-export const vibeRegistration = Layer.mergeAll(Interpreter.layer(Vibe),
-  vibeAdmissionLayers, cleanupLayers, landingLayers)
+export const vibeRegistration = Layer.mergeAll(
+  Interpreter.layer(Vibe),
+  vibeAdmissionLayers,
+  cleanupLayers,
+  landingLayers
+)

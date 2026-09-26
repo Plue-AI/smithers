@@ -17,7 +17,12 @@ const setup = () => {
     dispose: async () => {},
     run: (value) => {
       input = value
-      return { done: new Promise((done) => { resolve = done }), cancel: () => resolve({ _tag: "cancelled" }) }
+      return {
+        done: new Promise((done) => {
+          resolve = done
+        }),
+        cancel: () => resolve({ _tag: "cancelled" })
+      }
     }
   }
   const workspace = new Workspace({ host, workerSeat: "worker:test", history: () => [], persist: () => {} })

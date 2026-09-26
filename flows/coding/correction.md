@@ -7,7 +7,7 @@ coding ledger. A host must explicitly compose it with the existing coding,
 agent, native JJ, executable catalog and check layers before advertising it.
 
 ```ts
-const result = yield* CorrectPlan.execute({ plan, maxRounds: 3 })
+const result = yield * CorrectPlan.execute({ plan, maxRounds: 3 })
 ```
 
 ## Bounds and durable rounds

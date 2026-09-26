@@ -15,7 +15,7 @@ Interactive mode requires terminal input and output. Use `--print` in scripts or
 
 | Option                     | Short | Effect                                                   |
 | -------------------------- | ----- | -------------------------------------------------------- |
-| `--help` | `-h` | Show command-line options without opening a session. |
+| `--help`                   | `-h`  | Show command-line options without opening a session.     |
 | `directory`                |       | Working directory; defaults to the current directory.    |
 | `--model provider:modelId` | `-m`  | Chat or print-mode model; overrides `SMITHERS_TUI_SEAT`. |
 | `--continue`               | `-c`  | Continue the latest saved session for this directory.    |

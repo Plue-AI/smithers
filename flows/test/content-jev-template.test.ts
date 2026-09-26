@@ -1,23 +1,28 @@
 import * as EventSink from "@smthrs/agent/EventSink"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
-import assert from "node:assert/strict"
-import { readFile } from "node:fs/promises"
-import { join } from "node:path"
-import { test, type TestContext } from "node:test"
 import { Action, HumanTask, Interpreter } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Exit, Layer } from "effect"
-import {
-  chooseTemplate, MAX_STATE_BYTES, ReleaseTemplate, templateClassifier, templates, templateState,
-  TEMPLATE_CONFIDENCE
-} from "../release-content/jev-template.ts"
+import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
+import { join } from "node:path"
+import { test, type TestContext } from "node:test"
 import ReleaseContent from "../release-content/flow.ts"
+import {
+  chooseTemplate,
+  MAX_STATE_BYTES,
+  ReleaseTemplate,
+  TEMPLATE_CONFIDENCE,
+  templateClassifier,
+  templates,
+  templateState
+} from "../release-content/jev-template.ts"
 import * as Content from "../release-content/workflow.ts"
 import { contentInput } from "../release-support/input.ts"
 import { actionLayers } from "../release-support/operations.ts"
 import { agentLayers } from "../release-support/runtime.ts"
-import { Outline, type Analysis, type Evidence } from "../release-support/schema.ts"
+import { type Analysis, type Evidence, Outline } from "../release-support/schema.ts"
 import { analysis, evidence, repository, scriptedSeats } from "./fixtures.ts"
 
 /** A scripted Jev that names one narrative with one confidence, with the rest
@@ -43,7 +48,10 @@ test("the classifier asks one closed question over the four narratives and nothi
   const question = templateClassifier.questions.template
   assert.equal(question.type, "choice")
   assert.deepEqual(Object.keys((question as { criteria: Record<string, string> }).criteria), [
-    "feature deep dive", "migration guide", "reliability report", "release roundup"
+    "feature deep dive",
+    "migration guide",
+    "reliability report",
+    "release roundup"
   ])
   assert.deepEqual([...templates], Object.keys((question as { criteria: Record<string, string> }).criteria))
 })
@@ -69,27 +77,37 @@ test("a release too large for one state is clipped, not dropped", () => {
   }
   const input = contentInput({ notes: "y".repeat(40_000) }, evidence.version)
   const state = templateState(input, bigEvidence, bigAnalysis)
-  assert.ok(new TextEncoder().encode(JSON.stringify(state)).length <= MAX_STATE_BYTES,
-    "one state stays inside the 32 KiB an evaluation may carry")
-  assert.ok(state.ledger.length > 0 && state.evidence.length > 0,
-    "clipping keeps a ledger and evidence to judge, it does not empty them")
+  assert.ok(
+    new TextEncoder().encode(JSON.stringify(state)).length <= MAX_STATE_BYTES,
+    "one state stays inside the 32 KiB an evaluation may carry"
+  )
+  assert.ok(
+    state.ledger.length > 0 && state.evidence.length > 0,
+    "clipping keeps a ledger and evidence to judge, it does not empty them"
+  )
 })
 
 test("a confident answer is the pick, exactly as Jev gave it", async () => {
   const input = contentInput({}, evidence.version)
-  const picked = await Effect.runPromise(chooseTemplate(input, evidence, analysis)
-    .pipe(Effect.provide(scriptedJev("migration guide", 0.9))))
+  const picked = await Effect.runPromise(
+    chooseTemplate(input, evidence, analysis)
+      .pipe(Effect.provide(scriptedJev("migration guide", 0.9)))
+  )
   assert.deepEqual(picked, { template: "migration guide", confidence: 0.9 })
-  const floor = await Effect.runPromise(chooseTemplate(input, evidence, analysis)
-    .pipe(Effect.provide(scriptedJev("feature deep dive", TEMPLATE_CONFIDENCE))))
+  const floor = await Effect.runPromise(
+    chooseTemplate(input, evidence, analysis)
+      .pipe(Effect.provide(scriptedJev("feature deep dive", TEMPLATE_CONFIDENCE)))
+  )
   assert.equal(floor.template, "feature deep dive", "the floor itself is decisive")
 })
 
 test("an answer below the floor fails the step and names the candidates instead of defaulting", async () => {
   assert.equal(TEMPLATE_CONFIDENCE, 0.8)
   const input = contentInput({}, evidence.version)
-  const failure = await Effect.runPromise(Effect.flip(chooseTemplate(input, evidence, analysis)
-    .pipe(Effect.provide(scriptedJev("release roundup", 0.5)))))
+  const failure = await Effect.runPromise(Effect.flip(
+    chooseTemplate(input, evidence, analysis)
+      .pipe(Effect.provide(scriptedJev("release roundup", 0.5)))
+  ))
   assert.equal(failure._tag, "ReleaseError")
   assert.equal(failure.step, "pick-template")
   assert.match(failure.message, /release roundup/)
@@ -100,13 +118,20 @@ test("an answer below the floor fails the step and names the candidates instead 
 
 test("an evaluator Jev cannot reach fails the step typed, naming the transport", async () => {
   const input = contentInput({}, evidence.version)
-  const unreachable = await Effect.runPromise(Effect.flip(chooseTemplate(input, evidence, analysis)
-    .pipe(Effect.provide(Evaluator.layerUnavailable()))))
+  const unreachable = await Effect.runPromise(Effect.flip(
+    chooseTemplate(input, evidence, analysis)
+      .pipe(Effect.provide(Evaluator.layerUnavailable()))
+  ))
   assert.equal(unreachable._tag, "ReleaseError")
   assert.equal(unreachable.step, "pick-template")
   assert.match(unreachable.message, /unreachable/)
-  const refused = await Effect.runPromise(Effect.flip(chooseTemplate(input, evidence, analysis).pipe(Effect.provide(
-    Evaluator.layerScripted(() => Effect.fail(new Evaluator.EvaluatorError({ code: "refused", message: "scripted refusal" })))))))
+  const refused = await Effect.runPromise(Effect.flip(
+    chooseTemplate(input, evidence, analysis).pipe(Effect.provide(
+      Evaluator.layerScripted(() =>
+        Effect.fail(new Evaluator.EvaluatorError({ code: "refused", message: "scripted refusal" }))
+      )
+    ))
+  ))
   assert.match(refused.message, /refused/)
   assert.match(refused.message, /scripted refusal/)
 })
@@ -127,30 +152,42 @@ const runContent = async (t: TestContext, evaluator: Layer.Layer<Evaluator.Evalu
     emit: (event) => Effect.sync(() => event._tag === "discipline-armed" && armed.push(event.judged))
   }))
   const input = contentInput({ from: "v0.35.0", channels: { blog: false, thread: false } }, fixture.evidence.version)
-  const host = NodeRuntime.layerHost({
-    filename: join(fixture.root, ".flows", "engine.db"), workspaceRoot: fixture.root,
-    owner: { hostId: "release-jev-template-test" }, signals: []
-  }, Layer.mergeAll(
-    actionLayers({ root: fixture.root, evaluator }),
-    // The writer seat's own completion is judged by the harness brake, which
-    // never falls back. Its judge is a separate layer from the one under test
-    // here, so a scripted Jev that only answers `template` cannot be mistaken
-    // for a gateway outage at the seat.
-    agentLayers(scriptedSeats(counts, { prompts }), 250_000, scriptedCompletion),
-    HumanTask.layer, Interpreter.layer(ReleaseContent)
-  ).pipe(Layer.provideMerge(Action.layerImplementations), Layer.provideMerge(sink)))
+  const host = NodeRuntime.layerHost(
+    {
+      filename: join(fixture.root, ".flows", "engine.db"),
+      workspaceRoot: fixture.root,
+      owner: { hostId: "release-jev-template-test" },
+      signals: []
+    },
+    Layer.mergeAll(
+      actionLayers({ root: fixture.root, evaluator }),
+      // The writer seat's own completion is judged by the harness brake, which
+      // never falls back. Its judge is a separate layer from the one under test
+      // here, so a scripted Jev that only answers `template` cannot be mistaken
+      // for a gateway outage at the seat.
+      agentLayers(scriptedSeats(counts, { prompts }), 250_000, scriptedCompletion),
+      HumanTask.layer,
+      Interpreter.layer(ReleaseContent)
+    ).pipe(Layer.provideMerge(Action.layerImplementations), Layer.provideMerge(sink))
+  )
   const exit = await Effect.runPromise(Effect.scoped(Effect.exit(
-    ReleaseContent.execute(input, { executionId }).pipe(Effect.provide(host)))))
+    ReleaseContent.execute(input, { executionId }).pipe(Effect.provide(host))
+  )))
   const brief = Exit.isSuccess(exit)
-    ? (JSON.parse(await readFile(join(fixture.root, exit.value.artifact.directory, "bundle.json"), "utf8")) as
-      { brief: { template: string; angle: string } }).brief
+    ? (JSON.parse(await readFile(join(fixture.root, exit.value.artifact.directory, "bundle.json"), "utf8")) as {
+      brief: { template: string; angle: string }
+    }).brief
     : undefined
   return { exit, counts, prompts, brief, armed }
 }
 
 for (const template of ["migration guide", "release roundup"] as const) {
   test(`Jev's ${template} reaches the writer's prompt and the brief`, { timeout: 90_000 }, async (t) => {
-    const { exit, prompts, brief, armed } = await runContent(t, scriptedJev(template, 0.95), `jev-template-${template.split(" ")[0]}`)
+    const { exit, prompts, brief, armed } = await runContent(
+      t,
+      scriptedJev(template, 0.95),
+      `jev-template-${template.split(" ")[0]}`
+    )
     assert.equal(exit._tag, "Success", JSON.stringify(exit))
     assert.ok(armed.length > 0 && armed.every((judged) => judged === true), "every writer step arms judged discipline")
     const asked = prompts.filter((prompt) => prompt.includes("this release calls for"))
@@ -161,9 +198,13 @@ for (const template of ["migration guide", "release roundup"] as const) {
 }
 
 test("a Jev outage fails the run and the writer is never asked to outline", { timeout: 90_000 }, async (t) => {
-  const { exit, counts, prompts } = await runContent(t, Evaluator.layerScripted(
-    () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "the gateway did not answer" }))
-  ), "jev-template-outage")
+  const { exit, counts, prompts } = await runContent(
+    t,
+    Evaluator.layerScripted(
+      () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "the gateway did not answer" }))
+    ),
+    "jev-template-outage"
+  )
   assert.equal(exit._tag, "Failure")
   assert.match(JSON.stringify(exit), /timeout/)
   assert.match(JSON.stringify(exit), /the gateway did not answer/)

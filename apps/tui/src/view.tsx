@@ -6,8 +6,8 @@
  * instead of a boxed border, and a selected row filled with the brand color.
  */
 import { RGBA, type ScrollBoxRenderable } from "@opentui/core"
+import { memo, type ReactNode, type RefObject, useState } from "react"
 import stringWidth from "string-width"
-import { memo, useState, type ReactNode, type RefObject } from "react"
 import type * as Extension from "./extension.ts"
 import * as Keys from "./keys.ts"
 import type * as Panels from "./panels.ts"
@@ -39,17 +39,44 @@ export const bar = {
   cross: ""
 }
 
-
 export function Home(props: { readonly width: number }) {
   return (
-    <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0, overflow: "hidden", alignItems: "center", justifyContent: "center", paddingBottom: 1 }}>
-      <text><span fg={color.brand}><strong>smithers</strong></span></text>
+    <box
+      style={{
+        flexGrow: 1,
+        flexShrink: 1,
+        minHeight: 0,
+        overflow: "hidden",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingBottom: 1
+      }}
+    >
+      <text>
+        <span fg={color.brand}>
+          <strong>smithers</strong>
+        </span>
+      </text>
       <text fg={color.faint} wrapMode="none" style={{ marginTop: 1 }}>
         {props.width >= 60
-          ? <><span fg={color.muted}>/</span> commands  <span fg={color.muted}>@</span> files  <span fg={color.muted}>!</span> shell  <span fg={color.muted}>ctrl+o</span> keys</>
+          ? (
+            <>
+              <span fg={color.muted}>/</span> commands{"  "}<span fg={color.muted}>@</span> files{"  "}
+              <span fg={color.muted}>!</span> shell{"  "}<span fg={color.muted}>ctrl+o</span> keys
+            </>
+          )
           : props.width >= 32
-          ? <><span fg={color.muted}>/</span> commands  <span fg={color.muted}>@</span> files  <span fg={color.muted}>?</span> keys</>
-          : <><span fg={color.muted}>?</span> keys</>}
+          ? (
+            <>
+              <span fg={color.muted}>/</span> commands{"  "}<span fg={color.muted}>@</span> files{"  "}
+              <span fg={color.muted}>?</span> keys
+            </>
+          )
+          : (
+            <>
+              <span fg={color.muted}>?</span> keys
+            </>
+          )}
       </text>
     </box>
   )
@@ -64,7 +91,7 @@ export function KeyHints(props: { readonly bindings: ReadonlyArray<Keys.Binding>
         <span key={binding.id}>
           {index === 0 ? "" : "  "}
           <span fg={color.text}>{Keys.primaryKey(binding)}</span>
-          <span fg={color.faint}> {binding.label}</span>
+          <span fg={color.faint}>{" "}{binding.label}</span>
         </span>
       ))}
     </text>
@@ -83,14 +110,28 @@ export function KeyPopup(props: {
       style={{ position: "absolute", left: 0, bottom: 1, width: "100%", zIndex: 200, alignItems: "center" }}
     >
       <box
-        style={{ width: Math.max(1, props.width - 2), maxHeight: Math.max(4, props.height - 2), overflow: "hidden", paddingTop: 1, paddingBottom: 1, paddingLeft: 2, paddingRight: 2 }}
+        style={{
+          width: Math.max(1, props.width - 2),
+          maxHeight: Math.max(4, props.height - 2),
+          overflow: "hidden",
+          paddingTop: 1,
+          paddingBottom: 1,
+          paddingLeft: 2,
+          paddingRight: 2
+        }}
         backgroundColor={color.surface}
       >
         <box style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 1 }}>
-          <text fg={color.text}><strong>Keys</strong></text>
+          <text fg={color.text}>
+            <strong>Keys</strong>
+          </text>
           <text fg={color.faint}>esc</text>
         </box>
-        <scrollbox ref={props.scrollRef} style={{ height: Math.max(1, props.height - 7), width: "100%" }} scrollX={false}>
+        <scrollbox
+          ref={props.scrollRef}
+          style={{ height: Math.max(1, props.height - 7), width: "100%" }}
+          scrollX={false}
+        >
           <KeyColumns bindings={props.bindings} />
         </scrollbox>
         <text fg={color.faint}>pgup/pgdn</text>
@@ -163,8 +204,16 @@ function EntryView(props: EntryProps) {
     case "user":
       return <UserMessage text={item.text} queued={item.queued === true} tone={props.tone ?? color.brand} />
     case "cell":
-      return <CellView cell={item} now={props.now} tick={props.tick} expanded={props.expanded}
-        selected={props.selected === true} step={props.step ?? { notes: [] }} />
+      return (
+        <CellView
+          cell={item}
+          now={props.now}
+          tick={props.tick}
+          expanded={props.expanded}
+          selected={props.selected === true}
+          step={props.step ?? { notes: [] }}
+        />
+      )
     case "shell":
       return <ShellView item={item} tick={props.tick} expanded={props.expanded} />
     case "answer":
@@ -175,12 +224,18 @@ function EntryView(props: EntryProps) {
       )
     case "error":
       return (
-        <box style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }} borderColor={color.danger} customBorderChars={bar}>
+        <box
+          style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
+          borderColor={color.danger}
+          customBorderChars={bar}
+        >
           <text fg={color.danger}>✗ {item.text}</text>
         </box>
       )
     case "note":
-      return item.text === "" ? null : <text fg={color.faint} style={{ paddingLeft: 2, marginBottom: 1 }}>{item.text}</text>
+      return item.text === ""
+        ? null
+        : <text fg={color.faint} style={{ paddingLeft: 2, marginBottom: 1 }}>{item.text}</text>
     case "card":
       return <Card panel={item.panel} />
   }
@@ -217,7 +272,9 @@ const clip = (text: string, width: number): string => {
 const pad = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - stringWidth(text)))
 
 /** A panel placed in the transcript: title, summary and its first rows, updated in place. Click, or `enter` while focused, opens its view. */
-export function Card(props: { readonly panel: Panels.Panel; readonly focused?: boolean; readonly onOpen?: () => void }) {
+export function Card(
+  props: { readonly panel: Panels.Panel; readonly focused?: boolean; readonly onOpen?: () => void }
+) {
   const { panel } = props
   const shown = panel.rows.slice(0, cardRows)
   const failed = panel.rows.some((row) => row.status === "failed")
@@ -230,7 +287,9 @@ export function Card(props: { readonly panel: Panels.Panel; readonly focused?: b
       {...(props.onOpen === undefined ? {} : { onMouseDown: props.onOpen })}
     >
       <text>
-        <span fg={color.text}><strong>{panel.title}</strong></span>
+        <span fg={color.text}>
+          <strong>{panel.title}</strong>
+        </span>
         <span fg={color.muted}>{" · "}{panel.summary}</span>
       </text>
       {shown.length === 0 ? null : (
@@ -240,7 +299,7 @@ export function Card(props: { readonly panel: Panels.Panel; readonly focused?: b
             return (
               <span key={row.id}>
                 {index === 0 ? "" : "   "}
-                <span fg={tone}>{glyph} </span>
+                <span fg={tone}>{glyph}{" "}</span>
                 <span fg={row.status === "failed" ? color.danger : color.text}>{clip(row.label, 32)}</span>
               </span>
             )
@@ -263,8 +322,13 @@ export function StatusItems(props: {
   return (
     <box style={{ flexDirection: "row", flexShrink: 0 }}>
       {props.items.map((item) => (
-        <text key={item.id} wrapMode="none" fg={statusTone(item.tone)} style={{ marginRight: 2 }}
-          onMouseDown={() => props.onSelect(item)}>
+        <text
+          key={item.id}
+          wrapMode="none"
+          fg={statusTone(item.tone)}
+          style={{ marginRight: 2 }}
+          onMouseDown={() => props.onSelect(item)}
+        >
           {item.text}
         </text>
       ))}
@@ -321,7 +385,11 @@ function ShellView(props: { readonly item: ShellItem; readonly tick: string; rea
   const shown = lines.slice(hidden).join("\n")
   const result = item.result
   return (
-    <box style={{ border: ["left"], marginBottom: 1 }} borderColor={item.excluded ? color.faint : color.success} customBorderChars={bar}>
+    <box
+      style={{ border: ["left"], marginBottom: 1 }}
+      borderColor={item.excluded ? color.faint : color.success}
+      customBorderChars={bar}
+    >
       <box style={{ paddingLeft: 1, paddingRight: 1 }} backgroundColor={color.surface}>
         <text fg={color.success}>$ {item.command.split("\n")[0]}</text>
         {hidden > 0 ? <text fg={color.faint}>… {hidden} more lines (ctrl+o to expand)</text> : null}
@@ -331,7 +399,9 @@ function ShellView(props: { readonly item: ShellItem; readonly tick: string; rea
         {result !== undefined && !result.cancelled && result.exitCode !== 0
           ? <text fg={color.warning}>(exit {result.exitCode ?? "?"})</text>
           : null}
-        {result?.fullOutputPath === undefined ? null : <text fg={color.faint}>Full output: {result.fullOutputPath}</text>}
+        {result?.fullOutputPath === undefined
+          ? null
+          : <text fg={color.faint}>Full output: {result.fullOutputPath}</text>}
       </box>
     </box>
   )
@@ -350,9 +420,13 @@ function Callout(props: { readonly note: Scrubber.Step["notes"][number]; readonl
   return (
     <box style={{ border: ["left"], marginTop: 1 }} borderColor={tone} customBorderChars={bar}>
       <box style={{ paddingLeft: 1, paddingRight: 1 }} backgroundColor={mix(tone, 10, color.page)}>
-        <text fg={tone}><strong>{note.tone === "good" ? "✓" : "△"} {note.title}</strong></text>
+        <text fg={tone}>
+          <strong>{note.tone === "good" ? "✓" : "△"} {note.title}</strong>
+        </text>
         {!props.expanded || note.body === "" ? null : <text fg={color.text}>{note.body}</text>}
-        {props.expanded ? note.evidence?.map((line, index) => <text key={index} fg={color.muted} wrapMode="char">{line}</text>) : null}
+        {props.expanded
+          ? note.evidence?.map((line, index) => <text key={index} fg={color.muted} wrapMode="char">{line}</text>)
+          : null}
       </box>
     </box>
   )
@@ -384,14 +458,21 @@ function CellView(props: {
   const result = line === undefined ? "" : Scrubber.outcome(line)
   return (
     <box style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }} borderColor={tone} customBorderChars={bar}>
-      <box style={{ flexDirection: "row", justifyContent: "space-between" }}
+      <box
+        style={{ flexDirection: "row", justifyContent: "space-between" }}
         {...(props.selected ? { backgroundColor: color.element } : {})}
-        onMouseDown={() => setFolded(!folded)}>
+        onMouseDown={() => setFolded(!folded)}
+      >
         <text style={{ flexShrink: 1 }} wrapMode="none">
-          <span fg={live ? tone : color.faint}>{mark} </span>
-          <span fg={props.selected ? color.brand : color.faint}>{String(cell.index).padStart(2)}  </span>
+          <span fg={live ? tone : color.faint}>{mark}{" "}</span>
+          <span fg={props.selected ? color.brand : color.faint}>{String(cell.index).padStart(2)}{"  "}</span>
           {line !== undefined
-            ? <><span fg={line.failed ? color.danger : color.text}>{line.verb} </span><span fg={color.muted}>{line.subject}</span></>
+            ? (
+              <>
+                <span fg={line.failed ? color.danger : color.text}>{line.verb}{" "}</span>
+                <span fg={color.muted}>{line.subject}</span>
+              </>
+            )
             : cell.prose !== ""
             ? <span fg={color.text}>{cell.prose.split("\n")[0]}</span>
             : cell.status === "writing"
@@ -399,19 +480,34 @@ function CellView(props: {
             : <span fg={color.muted}>{firstLine(cell.source)}</span>}
         </text>
         <text style={{ flexShrink: 0 }} wrapMode="none">
-          {result === "" ? null : <span fg={line?.failed === true ? color.danger : color.muted}>{result.split("\n")[0]!.slice(0, 24)}  </span>}
+          {result === ""
+            ? null
+            : (
+              <span fg={line?.failed === true ? color.danger : color.muted}>
+                {result.split("\n")[0]!.slice(0, 24)}
+                {"  "}
+              </span>
+            )}
           <span fg={color.faint}>{Transcript.duration(elapsed)}</span>
         </text>
       </box>
       {!open ? null : line !== undefined && cell.prose !== ""
-        ? <text fg={color.muted} style={{ paddingLeft: 2 }}><em>“{cell.prose}”</em></text>
-        : cell.prose.includes("\n") ? <text fg={color.muted}>{cell.prose.split("\n").slice(1).join("\n")}</text> : null}
-      {!open || code === "" ? null : (
-        <box style={{ paddingLeft: 1, paddingRight: 1, marginTop: 1 }} backgroundColor={color.page}>
-          <code content={code} filetype="javascript" syntaxStyle={syntax} streaming={cell.status === "writing"} />
-          {hiddenCode === 0 ? null : <text fg={color.faint}>… {hiddenCode} more lines</text>}
-        </box>
-      )}
+        ? (
+          <text fg={color.muted} style={{ paddingLeft: 2 }}>
+            <em>“{cell.prose}”</em>
+          </text>
+        )
+        : cell.prose.includes("\n")
+        ? <text fg={color.muted}>{cell.prose.split("\n").slice(1).join("\n")}</text>
+        : null}
+      {!open || code === "" ?
+        null :
+        (
+          <box style={{ paddingLeft: 1, paddingRight: 1, marginTop: 1 }} backgroundColor={color.page}>
+            <code content={code} filetype="javascript" syntaxStyle={syntax} streaming={cell.status === "writing"} />
+            {hiddenCode === 0 ? null : <text fg={color.faint}>… {hiddenCode} more lines</text>}
+          </box>
+        )}
       {!open || cell.calls.length === 0 ? null : (
         <box>
           {cell.calls.map((call, index) => (
@@ -426,8 +522,12 @@ function CellView(props: {
           </box>
         )
         : <text fg={color.faint}>printed {printedRows} {printedRows === 1 ? "line" : "lines"} · ctrl+o</text>}
-      {cell.error === undefined ? null : <text fg={cell.status === "rejected" ? color.warning : color.danger}>{cell.error}</text>}
-      {step.notes.filter((note) => props.expanded || (note.tone !== "good" && note.title !== "unmoved")).map((note) => <Callout key={note.seq} note={note} expanded={props.expanded} />)}
+      {cell.error === undefined
+        ? null
+        : <text fg={cell.status === "rejected" ? color.warning : color.danger}>{cell.error}</text>}
+      {step.notes.filter((note) => props.expanded || (note.tone !== "good" && note.title !== "unmoved")).map((note) => (
+        <Callout key={note.seq} note={note} expanded={props.expanded} />
+      ))}
     </box>
   )
 }
@@ -443,7 +543,9 @@ const icons: Record<string, string> = {
   write: "←"
 }
 
-function CallView(props: { readonly call: Transcript.Call; readonly now: number; readonly tick: string; readonly expanded: boolean }) {
+function CallView(
+  props: { readonly call: Transcript.Call; readonly now: number; readonly tick: string; readonly expanded: boolean }
+) {
   const { call } = props
   const tone = call.status === "running" ? color.info : call.status === "ok" ? color.muted : color.danger
   const verb = call.verb === undefined
@@ -460,14 +562,19 @@ function CallView(props: { readonly call: Transcript.Call; readonly now: number;
     <box>
       <box style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <text style={{ flexShrink: 1 }} wrapMode="none">
-          <span fg={call.status === "running" ? color.info : tone}>{call.status === "running" ? props.tick : icons[call.flow] ?? "⚙"} </span>
-          <span fg={call.status === "failed" ? color.danger : color.text}>{verb} </span>
+          <span fg={call.status === "running" ? color.info : tone}>
+            {call.status === "running" ? props.tick : icons[call.flow] ?? "⚙"}
+            {" "}
+          </span>
+          <span fg={call.status === "failed" ? color.danger : color.text}>{verb}{" "}</span>
           <span fg={color.muted}>{subject}</span>
-          {call.exit === undefined ? null : <span fg={color.warning}>  exit {call.exit}</span>}
+          {call.exit === undefined ? null : <span fg={color.warning}>{"  "}exit {call.exit}</span>}
         </text>
-        <text fg={color.faint} style={{ flexShrink: 0 }}>{Transcript.duration((call.endedAt ?? props.now) - call.startedAt)}</text>
+        <text fg={color.faint} style={{ flexShrink: 0 }}>
+          {Transcript.duration((call.endedAt ?? props.now) - call.startedAt)}
+        </text>
       </box>
-      {call.message === undefined ? null : <text fg={color.danger}>  {call.message.split("\n")[0]}</text>}
+      {call.message === undefined ? null : <text fg={color.danger}>{"  "}{call.message.split("\n")[0]}</text>}
       {diff === undefined ? null : (
         <box style={{ marginTop: 1, marginBottom: 1, marginLeft: 2 }}>
           <diff
@@ -487,7 +594,9 @@ function CallView(props: { readonly call: Transcript.Call; readonly now: number;
             addedSignColor={color.success}
             removedSignColor={color.danger}
           />
-          {!props.expanded && diffRows > diffLines ? <text fg={color.faint}>… {diffRows - diffLines} more lines</text> : null}
+          {!props.expanded && diffRows > diffLines
+            ? <text fg={color.faint}>… {diffRows - diffLines} more lines</text>
+            : null}
         </box>
       )}
     </box>
@@ -565,11 +674,31 @@ export function Dialog(props: {
   const compact = props.height < 20
   return (
     <box
-      style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", alignItems: "center", paddingTop: compact ? 1 : Math.max(1, Math.floor(props.height / 5)), zIndex: 100 }}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        alignItems: "center",
+        paddingTop: compact ? 1 : Math.max(1, Math.floor(props.height / 5)),
+        zIndex: 100
+      }}
       backgroundColor={backdrop}
     >
-      <box style={{ width: props.width, paddingTop: compact ? 0 : 1, paddingBottom: compact ? 0 : 1 }} backgroundColor={color.surface}>
-        <box style={{ flexDirection: "row", justifyContent: "space-between", paddingLeft: 3, paddingRight: 3, marginBottom: compact ? 0 : 1 }}>
+      <box
+        style={{ width: props.width, paddingTop: compact ? 0 : 1, paddingBottom: compact ? 0 : 1 }}
+        backgroundColor={color.surface}
+      >
+        <box
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            paddingLeft: 3,
+            paddingRight: 3,
+            marginBottom: compact ? 0 : 1
+          }}
+        >
           <text fg={color.text} wrapMode="none" style={{ flexShrink: 1 }}>
             <strong>{props.title}</strong>
           </text>
@@ -601,7 +730,15 @@ export function Approval(
   }
 ) {
   return (
-    <box style={{ flexDirection: props.width < 90 ? "column" : "row", justifyContent: "space-between", marginTop: 1, paddingLeft: 2, flexShrink: 0 }}>
+    <box
+      style={{
+        flexDirection: props.width < 90 ? "column" : "row",
+        justifyContent: "space-between",
+        marginTop: 1,
+        paddingLeft: 2,
+        flexShrink: 0
+      }}
+    >
       {/* Wrapped, never clipped: `y` approves exactly the text shown. */}
       <text wrapMode="char" style={{ flexShrink: 1 }} fg={color.warning}>
         {props.worker === undefined ? "" : `↳ ${props.worker} `}? {props.request.flow}{" "}
@@ -636,7 +773,17 @@ export function ToastStack(
 ) {
   if (props.rows.length === 0) return null
   return (
-    <scrollbox stickyScroll stickyStart="bottom" scrollX={false} style={{ height: Math.min(props.height, props.rows.length * (props.compact ? 1 : 2)), flexShrink: 0, scrollbarOptions: { visible: false }, contentOptions: { alignItems: "flex-end" } }}>
+    <scrollbox
+      stickyScroll
+      stickyStart="bottom"
+      scrollX={false}
+      style={{
+        height: Math.min(props.height, props.rows.length * (props.compact ? 1 : 2)),
+        flexShrink: 0,
+        scrollbarOptions: { visible: false },
+        contentOptions: { alignItems: "flex-end" }
+      }}
+    >
       {props.rows.map((row) => (
         <box
           key={row.id}

@@ -293,7 +293,9 @@ for (const row of rows) {
 lines.push("")
 lines.push("## Totals")
 lines.push("")
-lines.push(`- single attempt (r1): flows ${totals.singleAttempt.flows}/${rows.length}, codex ${totals.singleAttempt.codex}/${rows.length}`)
+lines.push(
+  `- single attempt (r1): flows ${totals.singleAttempt.flows}/${rows.length}, codex ${totals.singleAttempt.codex}/${rows.length}`
+)
 lines.push(
   `- best-of-${options.count}: flows ${totals.bestOfN.flowsSelected}/${rows.length} (selected, pre-grading) `
     + `vs codex ${totals.bestOfN.codexOracle}/${rows.length} (ORACLE, more generous)`

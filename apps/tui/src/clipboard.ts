@@ -33,7 +33,10 @@ const pipe = (command: string, args: ReadonlyArray<string>, text: string): Promi
   })
 
 /** Writes `text` to the system clipboard without blocking the render loop; false when no command took it. */
-export const write = async (text: string, candidates: ReadonlyArray<readonly [string, ReadonlyArray<string>]>): Promise<boolean> => {
+export const write = async (
+  text: string,
+  candidates: ReadonlyArray<readonly [string, ReadonlyArray<string>]>
+): Promise<boolean> => {
   for (const [command, args] of candidates) if (await pipe(command, args, text)) return true
   return false
 }

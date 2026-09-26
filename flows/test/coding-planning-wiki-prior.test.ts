@@ -1,42 +1,124 @@
-import assert from "node:assert/strict"
-import { test } from "node:test"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
 import { Flow } from "@smthrs/flow"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Effect, Exit, Schema } from "effect"
+import assert from "node:assert/strict"
+import { test } from "node:test"
 import { findPlanningWikiReview } from "../coding/planning-wiki.ts"
 import { Receipt, WikiError } from "../wiki/schema.ts"
 
-const config = { mode: "verified" as const, pages: [{ id: "page", title: "Page", purpose: "Read", kind: "current" as const,
-  document: "page.md", inputs: [], related: [] }], reviewer: "reviewer", scopeDigest: "current-scope", output: "/wiki" }
-const resultSchema = Schema.toCodecJson(Flow.Result({ success: Schema.Struct({ scopeDigest: Schema.String, wikiRunId: Schema.String, receipt: Receipt }), error: WikiError }))
-const row = (id: string, scope = config.scopeDigest): RunStore.RunRow => ({ runId: id, status: "completed", createdAtMs: 1,
-  startedAtMs: 1, finishedAtMs: 2, owner: null, heartbeatAtMs: null, claim: null, claimedAtMs: null, parentRunId: null,
+const config = {
+  mode: "verified" as const,
+  pages: [{
+    id: "page",
+    title: "Page",
+    purpose: "Read",
+    kind: "current" as const,
+    document: "page.md",
+    inputs: [],
+    related: []
+  }],
+  reviewer: "reviewer",
+  scopeDigest: "current-scope",
+  output: "/wiki"
+}
+const resultSchema = Schema.toCodecJson(
+  Flow.Result({
+    success: Schema.Struct({ scopeDigest: Schema.String, wikiRunId: Schema.String, receipt: Receipt }),
+    error: WikiError
+  })
+)
+const row = (id: string, scope = config.scopeDigest): RunStore.RunRow => ({
+  runId: id,
+  status: "completed",
+  createdAtMs: 1,
+  startedAtMs: 1,
+  finishedAtMs: 2,
+  owner: null,
+  heartbeatAtMs: null,
+  claim: null,
+  claimedAtMs: null,
+  parentRunId: null,
   cancelRequestedAtMs: null,
-  stateJson: JSON.stringify({ version: 1, flowName: "coding/RefreshWiki", payload: {}, result: Schema.encodeSync(resultSchema)(new Flow.Complete({
-    exit: Exit.succeed({ scopeDigest: scope, wikiRunId: `wiki-${id}`, receipt: { schemaVersion: 1, sourceRevision: "sha256:source",
-      inputDigest: "source", output: config.output, pages: 1, verification: "verified" } }) })) }) })
-const missing = (id: string) => new RunStore.RunStoreError({ code: "not_found_row", method: "get", message: `Collected ${id}`, cause: { runId: id } })
+  stateJson: JSON.stringify({
+    version: 1,
+    flowName: "coding/RefreshWiki",
+    payload: {},
+    result: Schema.encodeSync(resultSchema)(
+      new Flow.Complete({
+        exit: Exit.succeed({
+          scopeDigest: scope,
+          wikiRunId: `wiki-${id}`,
+          receipt: {
+            schemaVersion: 1,
+            sourceRevision: "sha256:source",
+            inputDigest: "source",
+            output: config.output,
+            pages: 1,
+            verification: "verified"
+          }
+        })
+      })
+    )
+  })
+})
+const missing = (id: string) =>
+  new RunStore.RunStoreError({ code: "not_found_row", method: "get", message: `Collected ${id}`, cause: { runId: id } })
 const lookup = (rows: readonly RunStore.RunRow[], collected = new Set<string>()) => {
-  const byId = new Map(rows.map(r => [r.runId, r]))
+  const byId = new Map(rows.map((r) => [r.runId, r]))
   const reads: string[] = [], windows: number[] = []
   const catalog: RunCatalogRead.Service = {
     // Mirrors the real filtered SQL ordering that caused the original bug.
-    listRuns: options => Effect.succeed({ source: "0".repeat(32), revision: 1, cursor: null,
-      runs: rows.filter(r => JSON.parse(r.stateJson).flowName === "coding/RefreshWiki").slice(0, options?.limit ?? 20).map(r => ({
-        _tag: "Observed" as const, runId: r.runId, source: "0".repeat(32), revision: 1, status: r.status,
-        flowName: "coding/RefreshWiki", createdAtMs: r.createdAtMs, startedAtMs: r.startedAtMs, finishedAtMs: r.finishedAtMs,
-        parentRunId: null, lineageId: r.runId, roundOrdinal: 0, cancellation: { requestedAtMs: null, acknowledgement: null }, waiting: null
-      })) }),
+    listRuns: (options) =>
+      Effect.succeed({
+        source: "0".repeat(32),
+        revision: 1,
+        cursor: null,
+        runs: rows.filter((r) => JSON.parse(r.stateJson).flowName === "coding/RefreshWiki").slice(
+          0,
+          options?.limit ?? 20
+        ).map((r) => ({
+          _tag: "Observed" as const,
+          runId: r.runId,
+          source: "0".repeat(32),
+          revision: 1,
+          status: r.status,
+          flowName: "coding/RefreshWiki",
+          createdAtMs: r.createdAtMs,
+          startedAtMs: r.startedAtMs,
+          finishedAtMs: r.finishedAtMs,
+          parentRunId: null,
+          lineageId: r.runId,
+          roundOrdinal: 0,
+          cancellation: { requestedAtMs: null, acknowledgement: null },
+          waiting: null
+        }))
+      }),
     // Existing listRunIds selects the latest insertion window, oldest first.
-    listRunIds: options => Effect.sync(() => { windows.push(options?.limit ?? 0); return rows.slice(-(options?.limit ?? 10000)).map(r => r.runId) })
+    listRunIds: (options) =>
+      Effect.sync(() => {
+        windows.push(options?.limit ?? 0)
+        return rows.slice(-(options?.limit ?? 10000)).map((r) => r.runId)
+      })
   }
-  return { reads, windows, run: () => Effect.runPromise(findPlanningWikiReview(config).pipe(
-    Effect.provideService(RunCatalogRead.RunCatalogRead, catalog), Effect.provide(RunStore.layerNoop({ get: id => Effect.suspend(() => {
-      reads.push(id)
-      if (collected.has(id)) return Effect.fail(missing(id))
-      return Effect.succeed(byId.get(id) ?? { ...row(id), stateJson: "{}" })
-    }) })))) }
+  return {
+    reads,
+    windows,
+    run: () =>
+      Effect.runPromise(
+        findPlanningWikiReview(config).pipe(
+          Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
+          Effect.provide(RunStore.layerNoop({
+            get: (id) =>
+              Effect.suspend(() => {
+                reads.push(id)
+                if (collected.has(id)) return Effect.fail(missing(id))
+                return Effect.succeed(byId.get(id) ?? { ...row(id), stateJson: "{}" })
+              })
+          }))
+        )
+      )
+  }
 }
 test("planning wiki finds the latest compatible review beyond the first twenty refreshes", async () => {
   const rows = Array.from({ length: 30 }, (_, i) => row(`refresh-${i}`, i >= 28 ? config.scopeDigest : "older-policy"))
@@ -50,14 +132,22 @@ test("a collected oldest child does not hide a newer compatible review", async (
   assert.equal(await f.run(), "wiki-new-live")
 })
 test("a collected newest child or parent is skipped within the bounded window", async () => {
-  const f = lookup([row("old-live"), row("new-collected"), row("parent-collected")], new Set(["wiki-new-collected", "parent-collected"]))
+  const f = lookup(
+    [row("old-live"), row("new-collected"), row("parent-collected")],
+    new Set(["wiki-new-collected", "parent-collected"])
+  )
   assert.equal(await f.run(), "wiki-old-live")
   assert.deepEqual(f.reads, ["parent-collected", "new-collected", "wiki-new-collected", "old-live", "wiki-old-live"])
 })
 
 test("unrelated recent runs can cause an explicit bounded reuse miss", async () => {
-  const unrelated = Array.from({ length: 300 }, (_, i) => ({ ...row(`unrelated-${i}`),
-    stateJson: JSON.stringify({ version: 1, flowName: "another/Flow", payload: {} }) }))
+  const unrelated = Array.from(
+    { length: 300 },
+    (_, i) => ({
+      ...row(`unrelated-${i}`),
+      stateJson: JSON.stringify({ version: 1, flowName: "another/Flow", payload: {} })
+    })
+  )
   const f = lookup([row("older-wiki"), ...unrelated])
   assert.equal(await f.run(), null)
   assert.deepEqual(f.windows, [256])

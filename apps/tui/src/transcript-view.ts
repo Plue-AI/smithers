@@ -40,7 +40,9 @@ export const useTranscriptView = (options: {
   const [cardFocus, setCardFocus] = useState<string | undefined>()
   /** A worker whose chat lane the next render scrolls to. */
   const revealWorker = useRef<string | undefined>(undefined)
-  const [inspection, setInspection] = useState<{ source: string; seq: number; first: Activity.Activity["records"][number] } | undefined>()
+  const [inspection, setInspection] = useState<
+    { source: string; seq: number; first: Activity.Activity["records"][number] } | undefined
+  >()
   const scroll = useRef<ScrollBoxRenderable>(null)
 
   const lanes = new Map(tabs.map((tab, index) => [tab.id, { title: tabTitle(tab), tone: lane(index) }]))
@@ -60,15 +62,19 @@ export const useTranscriptView = (options: {
 
   const activitySources = [
     { id: "chat", title: "Chat", activity: transcript.activity },
-    ...tabs.map(tab => ({ id: tab.id, title: tabTitle(tab), activity: worker(tab.id).activity }))
+    ...tabs.map((tab) => ({ id: tab.id, title: tabTitle(tab), activity: worker(tab.id).activity }))
   ].filter((source): source is Source => source.activity !== undefined && source.activity.records.length > 0)
   const latestActivity = [...activitySources].sort((a, b) =>
-    (b.activity.records.at(-1)?.occurredAt ?? 0) - (a.activity.records.at(-1)?.occurredAt ?? 0))
+    (b.activity.records.at(-1)?.occurredAt ?? 0) - (a.activity.records.at(-1)?.occurredAt ?? 0)
+  )
   // A new turn or restored session cannot inherit a cursor from an old turn.
-  const pinnedActivity = activitySources.find(source => source.id === inspection?.source &&
-    source.activity.records[0] === inspection.first)
-  const monitored = (surface.startsWith("tab:") ? activitySources.find(source => source.id === surface.slice(4)) : pinnedActivity)
-    ?? latestActivity.find(source => source.activity.status === "running") ?? latestActivity[0]
+  const pinnedActivity = activitySources.find((source) =>
+    source.id === inspection?.source &&
+    source.activity.records[0] === inspection.first
+  )
+  const monitored =
+    (surface.startsWith("tab:") ? activitySources.find((source) => source.id === surface.slice(4)) : pinnedActivity)
+      ?? latestActivity.find((source) => source.activity.status === "running") ?? latestActivity[0]
   const showActivity = monitored !== undefined && (panel === undefined || surface.startsWith("tab:"))
   const activeInspection = showActivity && pinnedActivity === monitored ? inspection : undefined
   const transcriptOf = (source: string) => source === Timeline.chat ? transcript : worker(source)
@@ -121,7 +127,9 @@ export const useTranscriptView = (options: {
     setCardFocus,
     reveal,
     /** Scrolls the chat to a worker's newest row once the chat shows. */
-    revealLane: (id: string) => { revealWorker.current = id },
+    revealLane: (id: string) => {
+      revealWorker.current = id
+    },
     monitored,
     showActivity,
     activeInspection,

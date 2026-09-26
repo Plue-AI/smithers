@@ -22,7 +22,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { PROMPT, readCodexTrace, VISIBLE_KEYS, visible, WITHHELD_KEYS } from "../lib/trace-bundle.mjs"
+import { PROMPT, readCodexTrace, visible, VISIBLE_KEYS, WITHHELD_KEYS } from "../lib/trace-bundle.mjs"
 
 const temporary = mkdtempSync(join(tmpdir(), "flows-trace-bundle-"))
 const fb = join(temporary, "fullbench")
@@ -79,10 +79,20 @@ const longResult = { content: "x".repeat(5000) }
 const events = [
   [1, 1000, "control.agent.turn-opened", { seat: "openai:gpt-5.6-sol", at: 1000 }],
   [2, 1100, "control.agent.model-settled", { text: "```cell\n…\n```", usage, durationMillis: 7200 }],
-  [3, 1110, "control.agent.cell-produced", { language: "javascript", text: "CELL-ONE-SENTINEL\nawait ctx.call(\"grep\", {})" }],
+  [3, 1110, "control.agent.cell-produced", {
+    language: "javascript",
+    text: "CELL-ONE-SENTINEL\nawait ctx.call(\"grep\", {})"
+  }],
   [4, 1120, "control.agent.cell-call-started", { flowName: "grep", input: { pattern: "widget" }, at: 1120 }],
   [5, 1500, "control.agent.cell-call-settled", { flowName: "grep", outcome: "success", value: longResult, at: 1500 }],
-  [6, 1510, "control.agent.mutation-observed", { basis: "observed", mutated: false, digest: "d", paths: 10, declaredWrites: 0, at: 1510 }],
+  [6, 1510, "control.agent.mutation-observed", {
+    basis: "observed",
+    mutated: false,
+    digest: "d",
+    paths: 10,
+    declaredWrites: 0,
+    at: 1510
+  }],
   [7, 1520, "control.agent.transition-applied", { transition: { _tag: "continue" }, at: 1520 }],
   [8, 1530, "control.agent.narrowed-demanded", { reason: "broad" }],
   [9, 1540, "control.agent.turn-closed", { stopReason: "stop", outcome: "continue", at: 1540 }],
@@ -90,8 +100,20 @@ const events = [
   [11, 2100, "control.agent.model-settled", { text: "```cell\n…\n```", usage, durationMillis: 3300 }],
   [12, 2110, "control.agent.cell-produced", { language: "javascript", text: "CELL-TWO-SENTINEL" }],
   [13, 2120, "control.agent.cell-call-started", { flowName: "edit", input: { path: "a.py" }, at: 2120 }],
-  [14, 2300, "control.agent.cell-call-settled", { flowName: "edit", outcome: "success", value: { replacements: 1 }, at: 2300 }],
-  [15, 2310, "control.agent.mutation-observed", { basis: "observed", mutated: true, digest: "e", paths: 10, declaredWrites: 1, at: 2310 }],
+  [14, 2300, "control.agent.cell-call-settled", {
+    flowName: "edit",
+    outcome: "success",
+    value: { replacements: 1 },
+    at: 2300
+  }],
+  [15, 2310, "control.agent.mutation-observed", {
+    basis: "observed",
+    mutated: true,
+    digest: "e",
+    paths: 10,
+    declaredWrites: 1,
+    at: 2310
+  }],
   [16, 2320, "control.agent.transition-applied", { transition: { _tag: "complete" }, at: 2320 }],
   [17, 2330, "control.agent.turn-closed", { stopReason: "stop", outcome: "resolved", at: 2330 }],
   [18, 2340, "control.agent.resolved", { text: "RESOLVED-TEXT-SENTINEL" }]

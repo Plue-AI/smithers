@@ -14,8 +14,8 @@ import type * as Planned from "@smthrs/plan/Planned"
 import { Schema } from "effect"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
-import { BookTime, MeetingFailed, MeetingReport } from "../meetings.ts"
 import { finish } from "../meetings-shared.ts"
+import { BookTime, MeetingFailed, MeetingReport } from "../meetings.ts"
 import { Describe, RequestKey, type StepFailure } from "../schema.ts"
 
 const implementationVersion = "organization/meetings-book/v1"
@@ -43,7 +43,9 @@ export default Flow.make("organization/meetings-book", {
         key: booking.key,
         status: booking.booked ? "booked" : "refused",
         summary: booking.booked
-          ? `${booking.localDate} ${booking.startLocal} ${booking.timezone}, ${Math.round((booking.endMs - booking.startMs) / 60_000)} minutes, booked by ${booking.bookedBy}`
+          ? `${booking.localDate} ${booking.startLocal} ${booking.timezone}, ${
+            Math.round((booking.endMs - booking.startMs) / 60_000)
+          } minutes, booked by ${booking.bookedBy}`
           : booking.reason,
         principal: booking.requestedBy,
         paths: booking.booked ? [booking.path] : [],
@@ -52,18 +54,24 @@ export default Flow.make("organization/meetings-book", {
       Node.catch({
         onFailure: Node.capture({ implementationVersion }, (failure) =>
           Describe.call({ failure: failure as Planned.Planned<typeof StepFailure.Type> }).pipe(
-            Node.map(Node.capture({ implementationVersion, key: payload.key, principal: payload.requestedBy }, function(described) {
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
-              return {
-                key: this.key,
-                status: "refused",
-                summary: `${described.code}: ${described.message}`,
-                principal: this.principal,
-                paths: []
-              } as MeetingReport
-            }))
+            Node.map(
+              Node.capture(
+                { implementationVersion, key: payload.key, principal: payload.requestedBy },
+                function(described) {
+                  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
+                  return {
+                    key: this.key,
+                    status: "refused",
+                    summary: `${described.code}: ${described.message}`,
+                    principal: this.principal,
+                    paths: []
+                  } as MeetingReport
+                }
+              )
+            )
           ))
       }),
-      Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) => finish(payload.key, "book", payload, outcome)))
+      Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
+        finish(payload.key, "book", payload, outcome)))
     )
 })

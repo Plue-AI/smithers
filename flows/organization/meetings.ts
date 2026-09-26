@@ -31,8 +31,8 @@
  *   calendar is connected, its busy times; it is written to
  *   `<generatedDir>/meetings/bookings.md` and to the calendar when connected.
  */
-import { Action } from "@smthrs/flow"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import { Action } from "@smthrs/flow"
 import { Clock, Effect, Layer, Option, Result, Schema } from "effect"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs"
@@ -46,8 +46,8 @@ import * as Grants from "../../packages/smithers/agent/organization/src/Grants.t
 import * as Confined from "../../packages/smithers/agent/organization/src/internal/confined.ts"
 import * as Meetings from "../../packages/smithers/agent/organization/src/Meetings.ts"
 import * as Profile from "../../packages/smithers/agent/organization/src/Profile.ts"
-import * as TriggerStore from "../../packages/smithers/agent/triggers/src/TriggerStore.ts"
 import * as Trigger from "../../packages/smithers/agent/triggers/src/Trigger.ts"
+import * as TriggerStore from "../../packages/smithers/agent/triggers/src/TriggerStore.ts"
 import * as Links from "./links.ts"
 import { Answer, Stage } from "./schema.ts"
 
@@ -114,7 +114,9 @@ export const SyncCalendar = Action.make("organization/meetings-calendar", {
 /** The schedule triggers the plan registered. */
 export const ScheduleReport = Schema.Struct({
   status: Schema.Literals(["scheduled", "not planned"]),
-  triggers: Schema.Array(Schema.Struct({ id: Schema.String, flowId: Schema.String, cron: Schema.String, timezone: Schema.String })),
+  triggers: Schema.Array(
+    Schema.Struct({ id: Schema.String, flowId: Schema.String, cron: Schema.String, timezone: Schema.String })
+  ),
   disabled: Schema.Array(Schema.String)
 })
 export type ScheduleReport = typeof ScheduleReport.Type
@@ -290,7 +292,17 @@ export const BookTime = Action.make("organization/meetings-book", {
 /** How a meetings step ended, as its receipt and its run record it. */
 export const MeetingReport = Schema.Struct({
   key: Schema.String,
-  status: Schema.Literals(["planned", "prepared", "opened", "followed-up", "not held", "booked", "not planned", "refused", "blocked"]),
+  status: Schema.Literals([
+    "planned",
+    "prepared",
+    "opened",
+    "followed-up",
+    "not held",
+    "booked",
+    "not planned",
+    "refused",
+    "blocked"
+  ]),
   summary: Schema.String,
   principal: Schema.String,
   paths: Schema.Array(Schema.String),
@@ -408,7 +420,9 @@ export const sections = (text: string): Map<string, string> => {
 /** A note with `heading`'s section replaced (or added), every other section kept as it was. */
 export const withSection = (text: string, heading: string, body: string): string => {
   const [title = "", ...rest] = text.split(/^## /m)
-  const kept = rest.map((part) => `## ${part.trimEnd()}`).filter((part) => !part.startsWith(`## ${heading}\n`) && part !== `## ${heading}`)
+  const kept = rest.map((part) => `## ${part.trimEnd()}`).filter((part) =>
+    !part.startsWith(`## ${heading}\n`) && part !== `## ${heading}`
+  )
   const order = ["Agenda", "Notes", "Tasks"]
   const all = [...kept, `## ${heading}\n\n${body.trim()}`]
   all.sort((left, right) => {
@@ -427,7 +441,9 @@ export const notesPlaceholder = "Write notes here, or reply in the meeting's Sla
 
 const bulleted = (value: unknown): ReadonlyArray<string> =>
   Array.isArray(value)
-    ? value.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).map((item) => item.trim()).filter((item) => item !== "")
+    ? value.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).map((item) => item.trim()).filter((
+      item
+    ) => item !== "")
     : typeof value === "string"
     ? value.split("\n").map((item) => item.replace(/^\s*[-*]\s*/, "").trim()).filter((item) => item !== "")
     : []
@@ -447,7 +463,8 @@ const tasksOf = (value: unknown, principal: string): ReadonlyArray<Task> =>
   })
 
 /** A task list line: `- [ ] title (owner, due)`. */
-export const taskLine = (task: Task) => `- [ ] ${task.title} (${task.owner}${task.due === undefined ? "" : `, due ${task.due}`})`
+export const taskLine = (task: Task) =>
+  `- [ ] ${task.title} (${task.owner}${task.due === undefined ? "" : `, due ${task.due}`})`
 
 interface Threads {
   readonly threads: Record<string, { readonly principal: string; readonly key: string; readonly notePath: string }>
@@ -492,7 +509,15 @@ const threadOf = (stateDir: string, key: string): { readonly channel: string; re
 export const receiptsOf = (root: string, generatedDir: string, principal: string, sinceMs: number) => {
   const directory = join(root, generatedDir)
   if (!existsSync(directory)) return []
-  const found: Array<{ readonly key: string; readonly kind: string; readonly status: string; readonly summary: string; readonly at: number }> = []
+  const found: Array<
+    {
+      readonly key: string
+      readonly kind: string
+      readonly status: string
+      readonly summary: string
+      readonly at: number
+    }
+  > = []
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === "meetings") continue
     for (const kind of ["deliver", "hire", "delegate", "retire", "qualify"]) {
@@ -626,11 +651,19 @@ export const layer = (options: Options) => {
   // Contact with the owner is checked against a receipt this host mints for
   // the one occasion it read: a scheduled slot, or a thread the owner wrote in.
   const issuer = Grants.makeReceiptIssuer("organization/meetings")
-  const contactOwner = (principal: string, occasion: Omit<Grants.ContactReceipt, "issuedBy" | "principal">, nowMs: number) =>
+  const contactOwner = (
+    principal: string,
+    occasion: Omit<Grants.ContactReceipt, "issuedBy" | "principal">,
+    nowMs: number
+  ) =>
     Effect.gen(function*() {
       const snapshot = yield* (yield* Authority.RosterRegistry).current
       const profile = snapshot.roster.profiles.get(principal)
-      if (profile === undefined) return Result.fail(new Grants.Denied({ reason: "unknown-principal", message: `${principal} is not on the roster` }))
+      if (profile === undefined) {
+        return Result.fail(
+          new Grants.Denied({ reason: "unknown-principal", message: `${principal} is not on the roster` })
+        )
+      }
       return Result.flatMap(
         issuer.issue({ ...occasion, principal }),
         (receipt) => Grants.canContactOwner(profile, receipt, { destination: occasion.destination, nowMs })
@@ -656,7 +689,11 @@ export const layer = (options: Options) => {
         if (calendar === undefined) {
           return { status: "not connected" as const, reason: "no calendar is connected", events: [] }
         }
-        const first = occurrencesIn(current, Date.parse(`${current.firstDate}T00:00:00Z`) - day, Date.parse(`${current.firstDate}T00:00:00Z`) + 2 * day)
+        const first = occurrencesIn(
+          current,
+          Date.parse(`${current.firstDate}T00:00:00Z`) - day,
+          Date.parse(`${current.firstDate}T00:00:00Z`) + 2 * day
+        )
         const events: Array<CalendarReport["events"][number]> = []
         for (const slot of current.slots) {
           const occurrence = first.find((each) => each.principal === slot.principal)
@@ -670,11 +707,18 @@ export const layer = (options: Options) => {
             recurrence: [`RRULE:${slot.rrule}`],
             visibility: "private" as const
           }
-          const upserted = yield* calendar.client.insertEvent(calendar.calendarId, input, { id: eventId, sendUpdates: "none" }).pipe(
+          const upserted = yield* calendar.client.insertEvent(calendar.calendarId, input, {
+            id: eventId,
+            sendUpdates: "none"
+          }).pipe(
             Effect.map((event) => ({ event, created: true })),
             Effect.catchIf(
               (error) => error.details?.["status"] === 409,
-              () => Effect.map(calendar.client.getEvent(calendar.calendarId, eventId), (event) => ({ event, created: false }))
+              () =>
+                Effect.map(
+                  calendar.client.getEvent(calendar.calendarId, eventId),
+                  (event) => ({ event, created: false })
+                )
             ),
             Effect.result
           )
@@ -710,7 +754,12 @@ export const layer = (options: Options) => {
               enabled: true
             }).pipe(Effect.orDie)
             yield* store.register(declaration).pipe(Effect.orDie)
-            triggers.push({ id: declaration.id, flowId: declaration.flowId, cron: declaration.cron, timezone: current.timezone })
+            triggers.push({
+              id: declaration.id,
+              flowId: declaration.flowId,
+              cron: declaration.cron,
+              timezone: current.timezone
+            })
           }
         }
         const wanted = new Set(triggers.map((each) => each.id))
@@ -733,7 +782,9 @@ export const layer = (options: Options) => {
           ? [
             "# Weekly one-on-ones",
             "",
-            `${current.seriesId} · every ${["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][current.weekday]} ${current.blockStart}–${current.blockEnd} ${current.timezone} · from ${current.firstDate}`,
+            `${current.seriesId} · every ${
+              ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][current.weekday]
+            } ${current.blockStart}–${current.blockEnd} ${current.timezone} · from ${current.firstDate}`,
             "",
             "| Role | Slot | Next | Calendar |",
             "| --- | --- | --- | --- |",
@@ -745,7 +796,9 @@ export const layer = (options: Options) => {
               } |`
             }),
             "",
-            `Calendar: ${calendar.status}${calendar.reason === "" ? "" : ` (${calendar.reason})`}. Schedule: ${schedule.status}, ${schedule.triggers.length} triggers.`,
+            `Calendar: ${calendar.status}${
+              calendar.reason === "" ? "" : ` (${calendar.reason})`
+            }. Schedule: ${schedule.status}, ${schedule.triggers.length} triggers.`,
             ""
           ].join("\n")
           : ["# Weekly one-on-ones", "", `Not planned: ${current.reason}.`, ""].join("\n")
@@ -769,7 +822,11 @@ export const layer = (options: Options) => {
           notePath: ""
         })
         if (!current.configured) return none(current.reason)
-        const window = which === "next" ? [now, now + 8 * day] : which === "current" ? [now - day, now + day] : [now - 8 * day, now + minute]
+        const window = which === "next"
+          ? [now, now + 8 * day]
+          : which === "current"
+          ? [now - day, now + day]
+          : [now - 8 * day, now + minute]
         const found = occurrencesIn(current, window[0]!, window[1]!).filter((each) => each.principal === principal)
         const chosen = which === "next"
           ? found.find((each) => each.startMs >= now)
@@ -797,14 +854,22 @@ export const layer = (options: Options) => {
         const at = yield* Clock.currentTimeMillis
         const since = occurrence.startMs - 7 * day
         const receipts = receiptsOf(options.root, options.generatedDir, profile.id, since)
-        const blockers = receipts.filter((each) => ["blocked", "failed", "changes-requested", "refused", "revise"].includes(each.status))
+        const blockers = receipts.filter((each) =>
+          ["blocked", "failed", "changes-requested", "refused", "revise"].includes(each.status)
+        )
         const open = read(`${meetingsDir(options)}/${profile.id}/tasks.md`) ?? ""
         const context = [
           `Receipts since ${new Date(since).toISOString().slice(0, 10)}:`,
-          ...(receipts.length === 0 ? ["none"] : receipts.slice(0, 25).map((each) => `- ${each.kind} ${each.key}: ${each.status} — ${flat(each.summary, 300)}`)),
+          ...(receipts.length === 0
+            ? ["none"]
+            : receipts.slice(0, 25).map((each) =>
+              `- ${each.kind} ${each.key}: ${each.status} — ${flat(each.summary, 300)}`
+            )),
           "",
           "Blockers:",
-          ...(blockers.length === 0 ? ["none"] : blockers.slice(0, 10).map((each) => `- ${each.key}: ${flat(each.summary, 300)}`)),
+          ...(blockers.length === 0
+            ? ["none"]
+            : blockers.slice(0, 10).map((each) => `- ${each.key}: ${flat(each.summary, 300)}`)),
           "",
           "Open tasks from earlier one-on-ones:",
           open.trim() === "" ? "none" : open.trim()
@@ -859,7 +924,9 @@ export const layer = (options: Options) => {
         const opened = yield* Effect.result(slack.call("conversations.open", { users: options.owner }))
         if (Result.isFailure(opened)) return { connected: false, channel: "", reason: opened.failure.message }
         const channel = (opened.success["channel"] as { readonly id?: unknown } | undefined)?.id
-        if (typeof channel !== "string") return { connected: false, channel: "", reason: "Slack opened no direct-message channel" }
+        if (typeof channel !== "string") {
+          return { connected: false, channel: "", reason: "Slack opened no direct-message channel" }
+        }
         // The owner's direct messages are reached only inside the slot.
         const contact = yield* contactOwner(principal, {
           kind: "one-on-one",
@@ -878,7 +945,9 @@ export const layer = (options: Options) => {
         const agenda = note === undefined ? "" : sections(note).get("Agenda") ?? ""
         const heading = `1:1 · ${occurrence.localDate} ${occurrence.startLocal} ${occurrence.timezone}`
         return {
-          text: (options.links ?? Links.none).slack(`${heading}\n${agenda.trim() === "" ? "No agenda was prepared." : agenda.trim()}`.slice(0, 3_000)),
+          text: (options.links ?? Links.none).slack(
+            `${heading}\n${agenda.trim() === "" ? "No agenda was prepared." : agenda.trim()}`.slice(0, 3_000)
+          ),
           persona: yield* personaOf(occurrence.principal)
         }
       }), { implementationVersion: "meetings-read-agenda/v2" }),
@@ -896,7 +965,9 @@ export const layer = (options: Options) => {
         const lines: Array<string> = []
         const sources: Array<string> = []
         const note = noteOf(occurrence)
-        const written = note === undefined ? "" : (sections(note).get("Notes") ?? "").replace(notesPlaceholder, "").trim()
+        const written = note === undefined
+          ? ""
+          : (sections(note).get("Notes") ?? "").replace(notesPlaceholder, "").trim()
         if (written !== "") {
           sources.push(`wiki:${occurrence.notePath}`)
           lines.push(...written.split("\n").map((line) => `Will (note): ${line}`))
@@ -976,7 +1047,12 @@ export const layer = (options: Options) => {
           const listPath = `${meetingsDir(options)}/${occurrence.principal}/tasks.md`
           const list = read(listPath) ?? `# Open tasks · ${occurrence.principal}\n\n`
           const fresh = tasks.map(taskLine).filter((entry) => !list.includes(entry))
-          if (fresh.length > 0) yield* write(listPath, `${list.trimEnd()}\n${fresh.map((entry) => `${entry} · ${occurrence.localDate}`).join("\n")}\n`)
+          if (fresh.length > 0) {
+            yield* write(
+              listPath,
+              `${list.trimEnd()}\n${fresh.map((entry) => `${entry} · ${occurrence.localDate}`).join("\n")}\n`
+            )
+          }
         }
         return { path: occurrence.notePath, tasks }
       }), { implementationVersion: "meetings-write-tasks/v1" }),
@@ -1079,7 +1155,9 @@ export const layer = (options: Options) => {
             timeMax: new Date(after + 14 * day).toISOString(),
             calendarIds: [options.calendar.calendarId]
           }))
-          if (Result.isFailure(freeBusy)) return refuse(`the calendar's busy times could not be read: ${freeBusy.failure.message}`)
+          if (Result.isFailure(freeBusy)) {
+            return refuse(`the calendar's busy times could not be read: ${freeBusy.failure.message}`)
+          }
           calendarStatus = "connected"
           for (const calendar of freeBusy.success.calendars) busy.push(...calendar.busy)
         }
@@ -1097,16 +1175,23 @@ export const layer = (options: Options) => {
         const slot = found.success.value
         if (options.calendar !== undefined) {
           const eventId = eventIdOf(`organization-booking/${payload.key}`)
-          const inserted = yield* Effect.result(options.calendar.client.insertEvent(options.calendar.calendarId, {
-            summary: `${payload.requestedBy}: ${flat(payload.purpose, 120)}`,
-            description: `Booked by ${options.assistant} for ${payload.requestedBy}. ${payload.purpose}`,
-            start: { dateTime: new Date(slot.startMs).toISOString(), timeZone: current.timezone },
-            end: { dateTime: new Date(slot.endMs).toISOString(), timeZone: current.timezone },
-            visibility: "private"
-          }, { id: eventId, sendUpdates: "none" }).pipe(
-            Effect.catchIf((error) => error.details?.["status"] === 409, () => options.calendar!.client.getEvent(options.calendar!.calendarId, eventId))
-          ))
-          if (Result.isFailure(inserted)) return refuse(`the calendar event could not be written: ${inserted.failure.message}`)
+          const inserted = yield* Effect.result(
+            options.calendar.client.insertEvent(options.calendar.calendarId, {
+              summary: `${payload.requestedBy}: ${flat(payload.purpose, 120)}`,
+              description: `Booked by ${options.assistant} for ${payload.requestedBy}. ${payload.purpose}`,
+              start: { dateTime: new Date(slot.startMs).toISOString(), timeZone: current.timezone },
+              end: { dateTime: new Date(slot.endMs).toISOString(), timeZone: current.timezone },
+              visibility: "private"
+            }, { id: eventId, sendUpdates: "none" }).pipe(
+              Effect.catchIf(
+                (error) => error.details?.["status"] === 409,
+                () => options.calendar!.client.getEvent(options.calendar!.calendarId, eventId)
+              )
+            )
+          )
+          if (Result.isFailure(inserted)) {
+            return refuse(`the calendar event could not be written: ${inserted.failure.message}`)
+          }
         }
         const entry: BookingEntry = {
           key: payload.key,
@@ -1120,17 +1205,22 @@ export const layer = (options: Options) => {
         }
         const all = [...earlier, entry].sort((left, right) => left.startMs - right.startMs)
         yield* write(`${meetingsDir(options)}/bookings.json`, `${JSON.stringify({ bookings: all }, null, 2)}\n`)
-        yield* write(path, [
-          "# Extra time",
-          "",
-          "| When | Minutes | For | Purpose | Calendar |",
-          "| --- | --- | --- | --- | --- |",
-          ...all.map((each) => {
-            const local = localClock(current.timezone, each.startMs)
-            return `| ${local.date} ${local.time} | ${Math.round((each.endMs - each.startMs) / minute)} | ${each.requestedBy} | ${flat(each.purpose, 200).replaceAll("|", "\\|")} | ${each.calendar} |`
-          }),
-          ""
-        ].join("\n"))
+        yield* write(
+          path,
+          [
+            "# Extra time",
+            "",
+            "| When | Minutes | For | Purpose | Calendar |",
+            "| --- | --- | --- | --- | --- |",
+            ...all.map((each) => {
+              const local = localClock(current.timezone, each.startMs)
+              return `| ${local.date} ${local.time} | ${
+                Math.round((each.endMs - each.startMs) / minute)
+              } | ${each.requestedBy} | ${flat(each.purpose, 200).replaceAll("|", "\\|")} | ${each.calendar} |`
+            }),
+            ""
+          ].join("\n")
+        )
         return { ...base, ...entry, booked: true, reason: "" }
       }), { implementationVersion: "meetings-book/v1" })
   )

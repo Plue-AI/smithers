@@ -68,7 +68,9 @@ export interface Sources {
   readonly hits: ReadonlyArray<Search.Hit>
   readonly now: number
   /** Contributed keys and status items; `hint` is the key. */
-  readonly actions?: ReadonlyArray<{ readonly key: string; readonly label: string; readonly hint?: string; readonly action: Extension.Action }>
+  readonly actions?: ReadonlyArray<
+    { readonly key: string; readonly label: string; readonly hint?: string; readonly action: Extension.Action }
+  >
 }
 
 /** The session rows `/resume` and `session:` both show. */
@@ -80,7 +82,9 @@ export const sessionRows = (
   Fuzzy.filter(sessions, query, (session) => `${session.name ?? ""} ${session.firstPrompt}`).map((session) => ({
     key: session.file,
     label: (session.name ?? session.firstPrompt).split("\n")[0]!.slice(0, 60),
-    detail: session.parent === undefined ? View.ago(session.modified, now) : `fork · ${View.ago(session.modified, now)}`,
+    detail: session.parent === undefined
+      ? View.ago(session.modified, now)
+      : `fork · ${View.ago(session.modified, now)}`,
     file: session.file
   }))
 

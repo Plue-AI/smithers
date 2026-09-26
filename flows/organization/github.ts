@@ -21,8 +21,8 @@
  * an assignee, an `org:` label, a factory branch, or an open pull request
  * that closes it.
  */
-import { spawnSync } from "node:child_process"
 import { Effect, Schema } from "effect"
+import { spawnSync } from "node:child_process"
 import { IntegrationError } from "../../packages/smithers/agent/integrations/src/core/IntegrationError.ts"
 import * as GitHubClient from "../../packages/smithers/agent/integrations/src/github/GitHubClient.ts"
 import { fullNamePath } from "../../packages/smithers/agent/integrations/src/github/Repository.ts"
@@ -48,7 +48,11 @@ let cached: { readonly token: string | undefined; readonly at: number } | undefi
 /** The owner's `gh` login token, or `undefined` without one. Never logged. */
 export const ghToken = (): string | undefined => {
   if (cached !== undefined && Date.now() - cached.at < tokenCacheMs) return cached.token
-  const result = spawnSync("gh", ["auth", "token"], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] })
+  const result = spawnSync("gh", ["auth", "token"], {
+    encoding: "utf8",
+    timeout: 10_000,
+    stdio: ["ignore", "pipe", "ignore"]
+  })
   const token = result.status === 0 && result.stdout.trim() !== "" ? result.stdout.trim() : undefined
   cached = { token, at: Date.now() }
   return token
@@ -91,7 +95,11 @@ export type Issue = typeof Issue.Type
 export const labelsOf = (issue: Pick<Issue, "labels">): ReadonlyArray<string> =>
   issue.labels.map((label) => typeof label === "string" ? label : label.name)
 
-const Comment = Schema.Struct({ id: Schema.Number, body: Schema.optional(Schema.NullOr(Schema.String)), html_url: Schema.String })
+const Comment = Schema.Struct({
+  id: Schema.Number,
+  body: Schema.optional(Schema.NullOr(Schema.String)),
+  html_url: Schema.String
+})
 const Pull = Schema.Struct({
   number: Schema.Number,
   html_url: Schema.String,
@@ -113,7 +121,9 @@ const statusOf = (error: IntegrationError): unknown => error.details?.["status"]
 const decoded = <A>(schema: Schema.Schema<A>) => (items: ReadonlyArray<unknown>) =>
   Effect.forEach(items, (item) =>
     Schema.decodeUnknownEffect(schema)(item).pipe(
-      Effect.mapError((cause) => new IntegrationError("decode-failed", "GitHub returned an item this host cannot read.", {}, { cause }))
+      Effect.mapError((cause) =>
+        new IntegrationError("decode-failed", "GitHub returned an item this host cannot read.", {}, { cause })
+      )
     ))
 
 /** The repository's id, visibility, default branch, and whether the token may push. */
@@ -165,16 +175,28 @@ export const heldBy = (
 }
 
 /** Adds labels by name; GitHub creates a missing label. Repeating it changes nothing. */
-export const addLabels = (github: GitHubClient.GitHubClient, full: string, number: number, labels: ReadonlyArray<string>) =>
-  github.request("POST", `/repos/${fullNamePath(full)}/issues/${number}/labels`, { labels }, { retryUnsafeWrites: true }).pipe(
+export const addLabels = (
+  github: GitHubClient.GitHubClient,
+  full: string,
+  number: number,
+  labels: ReadonlyArray<string>
+) =>
+  github.request("POST", `/repos/${fullNamePath(full)}/issues/${number}/labels`, { labels }, {
+    retryUnsafeWrites: true
+  }).pipe(
     Effect.asVoid
   )
 
 /** Removes a label; one already gone is not an error. */
 export const removeLabel = (github: GitHubClient.GitHubClient, full: string, number: number, label: string) =>
-  github.request("DELETE", `/repos/${fullNamePath(full)}/issues/${number}/labels/${encodeURIComponent(label)}`, undefined, {
-    retryUnsafeWrites: true
-  }).pipe(
+  github.request(
+    "DELETE",
+    `/repos/${fullNamePath(full)}/issues/${number}/labels/${encodeURIComponent(label)}`,
+    undefined,
+    {
+      retryUnsafeWrites: true
+    }
+  ).pipe(
     Effect.asVoid,
     Effect.catchIf((error) => statusOf(error) === 404, () => Effect.void)
   )
@@ -190,7 +212,13 @@ export const comments = (github: GitHubClient.GitHubClient, full: string, number
  * its body updated when it differs), so a repeat after an unknown outcome
  * finds the first one instead of posting a second.
  */
-export const commentOnce = (github: GitHubClient.GitHubClient, full: string, number: number, marker: string, body: string) =>
+export const commentOnce = (
+  github: GitHubClient.GitHubClient,
+  full: string,
+  number: number,
+  marker: string,
+  body: string
+) =>
   Effect.gen(function*() {
     const text = `${body}\n\n${marker}`
     const existing = (yield* comments(github, full, number)).find((comment) => (comment.body ?? "").includes(marker))
@@ -202,7 +230,9 @@ export const commentOnce = (github: GitHubClient.GitHubClient, full: string, num
       }
       return { id: existing.id, url: existing.html_url, created: false }
     }
-    const created = yield* github.request("POST", `/repos/${fullNamePath(full)}/issues/${number}/comments`, { body: text }, {
+    const created = yield* github.request("POST", `/repos/${fullNamePath(full)}/issues/${number}/comments`, {
+      body: text
+    }, {
       schema: Comment
     })
     return { id: created.id, url: created.html_url, created: true }
@@ -254,7 +284,10 @@ export const pullOnce = (
 const gitEnvironment = () => {
   const env: Record<string, string> = {}
   for (const [name, value] of Object.entries(process.env)) {
-    if (value === undefined || /^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|COMMON_DIR)$/.test(name)) continue
+    if (
+      value === undefined ||
+      /^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|COMMON_DIR)$/.test(name)
+    ) continue
     env[name] = value
   }
   env.GIT_TERMINAL_PROMPT = "0"
@@ -271,12 +304,17 @@ const git = (repo: string, args: ReadonlyArray<string>, timeoutMs = 120_000) => 
   return {
     ok: result.status === 0,
     stdout: result.stdout ?? "",
-    message: (result.stderr || result.error?.message || `git exited ${result.status}`).trim().split("\n").slice(-3).join(" ")
+    message: (result.stderr || result.error?.message || `git exited ${result.status}`).trim().split("\n").slice(-3)
+      .join(" ")
   }
 }
 
 /** The commit a remote holds for `branch`, `null` when it has none, or why the remote could not be read. */
-export const remoteHead = (repo: string, remote: string, branch: string): { readonly commit: string | null } | { readonly error: string } => {
+export const remoteHead = (
+  repo: string,
+  remote: string,
+  branch: string
+): { readonly commit: string | null } | { readonly error: string } => {
   const listed = git(repo, ["ls-remote", "--heads", remote, `refs/heads/${branch}`])
   if (!listed.ok) return { error: `git ls-remote ${remote}: ${listed.message}` }
   const line = listed.stdout.split("\n").find((entry) => entry.endsWith(`\trefs/heads/${branch}`))
@@ -289,11 +327,22 @@ export const remoteHead = (repo: string, remote: string, branch: string): { read
  * remote holds is read first, so a push whose outcome was lost is not
  * repeated blindly.
  */
-export const push = (repo: string, remote: string, branch: string, commit: string): { readonly pushed: boolean } | { readonly error: string } => {
+export const push = (
+  repo: string,
+  remote: string,
+  branch: string,
+  commit: string
+): { readonly pushed: boolean } | { readonly error: string } => {
   const before = remoteHead(repo, remote, branch)
   if ("error" in before) return before
   if (before.commit === commit) return { pushed: false }
-  if (before.commit !== null) return { error: `${remote} already has ${branch} at ${before.commit.slice(0, 12)}, not ${commit.slice(0, 12)}; it is never force-pushed` }
+  if (before.commit !== null) {
+    return {
+      error: `${remote} already has ${branch} at ${before.commit.slice(0, 12)}, not ${
+        commit.slice(0, 12)
+      }; it is never force-pushed`
+    }
+  }
   const pushed = git(repo, ["push", "--porcelain", remote, `${commit}:refs/heads/${branch}`])
   if (pushed.ok) return { pushed: true }
   const after = remoteHead(repo, remote, branch)
@@ -303,6 +352,10 @@ export const push = (repo: string, remote: string, branch: string, commit: strin
 
 /** Whether the remote accepts a push, without changing it: a dry run of a new branch. */
 export const canPush = (repo: string, remote: string): { readonly ok: true } | { readonly error: string } => {
-  const probe = git(repo, ["push", "--dry-run", "--porcelain", remote, "HEAD:refs/heads/organization/doctor-probe"], 60_000)
+  const probe = git(
+    repo,
+    ["push", "--dry-run", "--porcelain", remote, "HEAD:refs/heads/organization/doctor-probe"],
+    60_000
+  )
   return probe.ok ? { ok: true } : { error: probe.message }
 }

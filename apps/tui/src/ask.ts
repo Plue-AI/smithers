@@ -10,7 +10,7 @@ import * as Models from "./models.ts"
 
 const prompt = process.argv[2]
 if (prompt === undefined) {
-  console.error('usage: bun src/ask.ts "<prompt>" [seat]')
+  console.error("usage: bun src/ask.ts \"<prompt>\" [seat]")
   process.exit(2)
 }
 // SMITHERS_TUI_RECORD=file.jsonl records every event with its arrival time.

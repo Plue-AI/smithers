@@ -12,10 +12,10 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { spawnSync } from "node:child_process"
 import { resolve } from "node:path"
+import * as Approvals from "./approvals.ts"
 import * as Cli from "./cli.ts"
 import type * as Context from "./context.ts"
 import * as FlowControl from "./flow-control.ts"
-import * as Approvals from "./approvals.ts"
 import * as Host from "./host.ts"
 import * as Models from "./models.ts"
 import * as Session from "./session.ts"
@@ -82,7 +82,10 @@ if (values.print !== undefined) {
 let flows: ReturnType<typeof FlowControl.make> | undefined
 try {
   const [{ createCliRenderer }, { createRoot }, { App }, { createElement }] = await Promise.all([
-    import("@opentui/core"), import("@opentui/react"), import("./app.tsx"), import("react")
+    import("@opentui/core"),
+    import("@opentui/react"),
+    import("./app.tsx"),
+    import("react")
   ])
   // App warms the host after first draw; discovery alone never imports a flow module.
   flows = FlowControl.make({ cwd, environment: available.environment, approvals: host.approvals! })

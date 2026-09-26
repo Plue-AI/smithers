@@ -50,7 +50,17 @@ const rehydrate = (source, out, index, patches) => {
 const select = (instance, journals, patches, out, extra = []) =>
   spawnSync(
     process.execPath,
-    [join(root, "select-candidate.mjs"), instance, "--journals", journals, "--patches", patches, "--out", out, ...extra],
+    [
+      join(root, "select-candidate.mjs"),
+      instance,
+      "--journals",
+      journals,
+      "--patches",
+      patches,
+      "--out",
+      out,
+      ...extra
+    ],
     { encoding: "utf8" }
   )
 
@@ -262,7 +272,12 @@ try {
   // Two candidates: wave 10 as r2 beside wave 11 as r1, and the choice each
   // instance's two real runs produce.
   // -----------------------------------------------------------------------
-  rehydrate(join(root, "../../packages/smithers/agent/harness/test/fixtures/wave10Journals.json"), journals, "r2", patches)
+  rehydrate(
+    join(root, "../../packages/smithers/agent/harness/test/fixtures/wave10Journals.json"),
+    journals,
+    "r2",
+    patches
+  )
 
   /**
    * What the two waves choose, and which key decides it.
@@ -295,7 +310,11 @@ try {
     for (const candidate of rationale.candidates) {
       assert.equal(candidate.score, expected.scores[candidate.index], `${instance} ${candidate.index}: score`)
       if (expected.terms !== undefined) {
-        assert.equal(candidate.finalCheckTerms, expected.terms[candidate.index], `${instance} ${candidate.index}: terms`)
+        assert.equal(
+          candidate.finalCheckTerms,
+          expected.terms[candidate.index],
+          `${instance} ${candidate.index}: terms`
+        )
       }
     }
   }

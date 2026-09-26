@@ -17,7 +17,10 @@ export const id = "smithers"
 
 export const panel = (listed: ReadonlyArray<Listed>, runs: ReadonlyArray<Run>): Panels.Panel => {
   const newest = [...runs].sort((a, b) => b.startedAt - a.startedAt)
-  const active = newest.filter((run) => { const shown = status(run); return shown === "running" || shown === "requested" })
+  const active = newest.filter((run) => {
+    const shown = status(run)
+    return shown === "running" || shown === "requested"
+  })
   return {
     id,
     title: "Smithers",

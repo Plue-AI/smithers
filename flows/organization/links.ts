@@ -19,10 +19,10 @@
  * is linked anyway. A commit or branch the remote does not hold is shown in
  * code format.
  */
+import { Schema } from "effect"
 import { spawnSync } from "node:child_process"
 import { existsSync, realpathSync, statSync } from "node:fs"
 import { basename, extname, relative, resolve, sep } from "node:path"
-import { Schema } from "effect"
 import * as Wiki from "./wiki.ts"
 
 /** One reference a post makes. */
@@ -31,7 +31,12 @@ export const Ref = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("page"), path: Schema.NonEmptyString }),
   /** An issue (or a pull request by its number) of a GitHub repository, `owner/name`. */
   Schema.Struct({ kind: Schema.Literal("issue"), github: Schema.NonEmptyString, number: Schema.Int }),
-  Schema.Struct({ kind: Schema.Literal("pull"), github: Schema.NonEmptyString, number: Schema.Int, url: Schema.NonEmptyString }),
+  Schema.Struct({
+    kind: Schema.Literal("pull"),
+    github: Schema.NonEmptyString,
+    number: Schema.Int,
+    url: Schema.NonEmptyString
+  }),
   /** A commit of a configured repository, by its configured name. */
   Schema.Struct({ kind: Schema.Literal("commit"), repository: Schema.NonEmptyString, sha: Schema.NonEmptyString }),
   Schema.Struct({ kind: Schema.Literal("branch"), repository: Schema.NonEmptyString, branch: Schema.NonEmptyString }),
@@ -77,14 +82,16 @@ export const none: Linker = {
 }
 
 /** A link-like reference the host was handed as a string: a URL, else a wiki path. */
-export const refOf = (link: string): Ref => /^https?:\/\//.test(link) ? { kind: "url", url: link } : { kind: "page", path: link }
+export const refOf = (link: string): Ref =>
+  /^https?:\/\//.test(link) ? { kind: "url", url: link } : { kind: "page", path: link }
 
 /** Slack's three escapes. */
 export const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
 
 /** `owner/name` of a GitHub remote URL, or `undefined`. */
 export const githubOfRemote = (url: string): string | undefined =>
-  /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/\s]+@)?github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(url.trim())?.[1]
+  /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/\s]+@)?github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/
+    .exec(url.trim())?.[1]
 
 const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/")
 
@@ -180,7 +187,9 @@ export const make = (options: Options): Linker => {
 
   /** A wiki page's path relative to the root, when `token` names one that exists: as written, or with `.md`. */
   const pageOf = (token: string): string | undefined => {
-    if (token.split("/").some((segment) => segment === "" || segment.startsWith(".")) || token.includes("\\")) return undefined
+    if (token.split("/").some((segment) => segment === "" || segment.startsWith(".")) || token.includes("\\")) {
+      return undefined
+    }
     for (const candidate of [token, `${token}.md`]) {
       const target = resolve(root, candidate)
       if (!target.startsWith(root + sep)) continue
@@ -236,8 +245,15 @@ export const make = (options: Options): Linker => {
   const branchOf = (repository: Repository | undefined, branch: string) => {
     if (repository === undefined || !existsSync(repository.path)) return undefined
     if (git(repository.path, ["check-ref-format", "--branch", branch]).status !== 0) return undefined
-    if (git(repository.path, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).status !== 0) return undefined
-    const pushed = git(repository.path, ["rev-parse", "--verify", "--quiet", `refs/remotes/${repository.remote ?? "origin"}/${branch}`]).status === 0
+    if (git(repository.path, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).status !== 0) {
+      return undefined
+    }
+    const pushed = git(repository.path, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `refs/remotes/${repository.remote ?? "origin"}/${branch}`
+    ]).status === 0
     return { pushed }
   }
 
@@ -252,15 +268,23 @@ export const make = (options: Options): Linker => {
     const url = githubUrl.exec(token)
     if (url !== null) {
       const number = Number(url[3])
-      return url[2] === "pull" ? { kind: "pull", github: url[1]!, number, url: token } : { kind: "issue", github: url[1]!, number }
+      return url[2] === "pull"
+        ? { kind: "pull", github: url[1]!, number, url: token }
+        : { kind: "issue", github: url[1]!, number }
     }
     if (/^https?:\/\//.test(token)) return undefined
     const qualified = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(token)
     if (qualified !== null) {
-      return githubs.includes(qualified[1]!) ? { kind: "issue", github: qualified[1]!, number: Number(qualified[2]) } : undefined
+      return githubs.includes(qualified[1]!)
+        ? { kind: "issue", github: qualified[1]!, number: Number(qualified[2]) }
+        : undefined
     }
     const bare = /^#(\d+)$/.exec(token)
-    if (bare !== null) return defaultGithub === undefined ? undefined : { kind: "issue", github: defaultGithub, number: Number(bare[1]) }
+    if (bare !== null) {
+      return defaultGithub === undefined
+        ? undefined
+        : { kind: "issue", github: defaultGithub, number: Number(bare[1]) }
+    }
     if (token.includes("/")) {
       const page = pageOf(token)
       if (page !== undefined) return { kind: "page", path: page }
@@ -309,7 +333,10 @@ export const make = (options: Options): Linker => {
         if (piece.code || named) continue
         for (const candidate of candidates) {
           let start = piece.text.indexOf(candidate)
-          while (start >= 0 && (!bounded(piece.text, start, start + candidate.length) || overlaps(index, start, start + candidate.length))) {
+          while (
+            start >= 0 &&
+            (!bounded(piece.text, start, start + candidate.length) || overlaps(index, start, start + candidate.length))
+          ) {
             start = piece.text.indexOf(candidate, start + 1)
           }
           if (start < 0) continue
@@ -343,7 +370,9 @@ export const make = (options: Options): Linker => {
     switch (ref.kind) {
       case "page": {
         const url = pages.get(ref.path)
-        return url === undefined ? escape(raw ?? ref.path) : `<${url}|${escape(labelOf(ref.path, options.generatedDir))}>`
+        return url === undefined
+          ? escape(raw ?? ref.path)
+          : `<${url}|${escape(labelOf(ref.path, options.generatedDir))}>`
       }
       case "issue":
         return `<https://github.com/${ref.github}/issues/${ref.number}|${escape(issueLabel(ref.github, ref.number))}>`
@@ -365,7 +394,9 @@ export const make = (options: Options): Linker => {
       }
       case "url": {
         const known = githubUrl.exec(ref.url)
-        return known === null ? escape(ref.url) : `<${escape(ref.url)}|${escape(issueLabel(known[1]!, Number(known[3])))}>`
+        return known === null
+          ? escape(ref.url)
+          : `<${escape(ref.url)}|${escape(issueLabel(known[1]!, Number(known[3])))}>`
       }
     }
   }
@@ -382,7 +413,11 @@ export const make = (options: Options): Linker => {
       // The pages named, found first so one push covers them all.
       const found = spansOf(prose, refs, true, () => false)
       const pages = publish([
-        ...new Set([...found.spans.flat(), ...found.unnamed.map((ref) => ({ ref }))].flatMap(({ ref }) => ref.kind === "page" ? [ref.path] : []))
+        ...new Set(
+          [...found.spans.flat(), ...found.unnamed.map((ref) => ({ ref }))].flatMap(({ ref }) =>
+            ref.kind === "page" ? [ref.path] : []
+          )
+        )
       ])
       const { spans, unnamed } = spansOf(prose, refs, false, (path) => pages.has(path))
       const body = prose.map((piece, index) => {
@@ -405,7 +440,8 @@ export const make = (options: Options): Linker => {
         let out = ""
         let at = 0
         for (const span of spans[index]!) {
-          out += piece.text.slice(at, span.start) + (span.ref.kind === "page" && pageOf(span.ref.path) !== undefined ? wikiLink(span.ref) : span.raw)
+          out += piece.text.slice(at, span.start) +
+            (span.ref.kind === "page" && pageOf(span.ref.path) !== undefined ? wikiLink(span.ref) : span.raw)
           at = span.end
         }
         return out + piece.text.slice(at)

@@ -7,14 +7,31 @@
  * again rebuilds the screen and the conversation the next turn is told.
  * Credential shapes in that text are redacted before a line reaches the disk.
  */
-import type * as Activity from "./activity.ts"
-import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import * as Redaction from "@smthrs/journal/Redaction"
+import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { createHash, randomUUID } from "node:crypto"
-import { appendFileSync, chmodSync, closeSync, existsSync, fstatSync, ftruncateSync, openSync, readSync, writeSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
+import {
+  appendFileSync,
+  chmodSync,
+  closeSync,
+  existsSync,
+  fstatSync,
+  ftruncateSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  writeSync
+} from "node:fs"
 import { homedir } from "node:os"
 import { basename, join } from "node:path"
 import { StringDecoder } from "node:string_decoder"
+import type * as Activity from "./activity.ts"
 import type * as Changes from "./changes.ts"
 import type * as Context from "./context.ts"
 import type * as Extension from "./extension.ts"
@@ -66,7 +83,12 @@ export type Record =
     readonly type: "outcome"
     readonly at: number
     readonly prompt: string
-    readonly outcome: { readonly _tag: string; readonly answer?: string; readonly message?: string; readonly headline?: string }
+    readonly outcome: {
+      readonly _tag: string
+      readonly answer?: string
+      readonly message?: string
+      readonly headline?: string
+    }
   }
   | { readonly type: "shell"; readonly at: number; readonly result: Shell.Result; readonly excluded: boolean }
   /** An Alt+Enter follow-up admitted to this conversation's FIFO queue. */
@@ -119,11 +141,13 @@ export const directory = (cwd: string): string =>
 const legacyDirectory = (cwd: string): string => join(root(), `--${slug(cwd)}--`)
 
 /** APFS may hold a pre-bound Unicode slug that exceeds Linux's byte limit. */
-const readableDirectories = (cwd: string): ReadonlyArray<string> => [...new Set([
-  directory(cwd),
-  join(root(), `--${slug(cwd)}--${createHash("sha256").update(cwd).digest("hex").slice(0, 12)}`),
-  legacyDirectory(cwd)
-])]
+const readableDirectories = (cwd: string): ReadonlyArray<string> => [
+  ...new Set([
+    directory(cwd),
+    join(root(), `--${slug(cwd)}--${createHash("sha256").update(cwd).digest("hex").slice(0, 12)}`),
+    legacyDirectory(cwd)
+  ])
+]
 
 /** Sessions hold prompts, code, diffs and shell output: owner-only folders and files. */
 const privateFolder = (folder: string): void => {
@@ -133,7 +157,10 @@ const privateFolder = (folder: string): void => {
 const append = (file: string, text: string): void => appendFileSync(file, text, { mode: 0o600 })
 
 const text = (value: string): string =>
-  Redaction.defaultRules.reduce((redacted, rule) => redacted.replace(rule.pattern, rule.replace ?? Redaction.placeholder), value)
+  Redaction.defaultRules.reduce(
+    (redacted, rule) => redacted.replace(rule.pattern, rule.replace ?? Redaction.placeholder),
+    value
+  )
 
 /** `value` as JSON with every string redacted. */
 const strings = (value: unknown): string =>
@@ -260,11 +287,18 @@ const repairTail = (file: string): void => {
         const byte = chunk[index]!
         if (!content && (byte === 10 || byte === 13 || byte === 32 || byte === 9)) continue
         content = true
-        if (byte === 10) { start = position + index + 1; break scan }
+        if (byte === 10) {
+          start = position + index + 1
+          break scan
+        }
       }
       end = position
     }
-    if (!content) { unchanged(); ftruncateSync(fd, 0); return }
+    if (!content) {
+      unchanged()
+      ftruncateSync(fd, 0)
+      return
+    }
     const tail = Buffer.allocUnsafe(size - start)
     let read = 0
     while (read < tail.length) {
@@ -272,15 +306,21 @@ const repairTail = (file: string): void => {
       if (count === 0) throw new Error("Session changed while repairing its final record")
       read += count
     }
-    try { JSON.parse(tail.toString("utf8")) }
-    catch (error) {
+    try {
+      JSON.parse(tail.toString("utf8"))
+    } catch (error) {
       if (!(error instanceof SyntaxError)) throw error
       unchanged()
       ftruncateSync(fd, start)
       return
     }
-    if (tail.at(-1) !== 10) { unchanged(); writeSync(fd, "\n", size, "utf8") }
-  } finally { closeSync(fd) }
+    if (tail.at(-1) !== 10) {
+      unchanged()
+      writeSync(fd, "\n", size, "utf8")
+    }
+  } finally {
+    closeSync(fd)
+  }
 }
 
 /** Continues an existing file. */
@@ -322,7 +362,11 @@ export const guarded = (writer: Writer, report: (failure: WriteFailed) => void):
         failing = false
       } catch (error) {
         if (!failing) {
-          report({ _tag: "SessionWriteFailed", file: writer.file, message: error instanceof Error ? error.message : String(error) })
+          report({
+            _tag: "SessionWriteFailed",
+            file: writer.file,
+            message: error instanceof Error ? error.message : String(error)
+          })
         }
         failing = true
       }
@@ -393,7 +437,9 @@ function* metadata(file: string): Generator<string> {
       }
     }
     if (!skip && line !== "") yield line + decoder.end()
-  } finally { closeSync(fd) }
+  } finally {
+    closeSync(fd)
+  }
 }
 
 /** A listing parses only the header, the first prompt and names, and skips a damaged file instead of failing the list. */
@@ -435,7 +481,9 @@ const summaries = (folder: string): ReadonlyArray<Summary & { readonly cwd?: str
 
 /** Sessions for `cwd`, newest first. */
 export const list = (cwd: string): ReadonlyArray<Summary> =>
-  readableDirectories(cwd).flatMap((folder) => summaries(folder).filter((row) => folder !== legacyDirectory(cwd) || row.cwd === cwd))
+  readableDirectories(cwd).flatMap((folder) =>
+    summaries(folder).filter((row) => folder !== legacyDirectory(cwd) || row.cwd === cwd)
+  )
     .map(({ cwd: _cwd, ...row }) => row)
     .sort((a, b) => b.modified - a.modified)
 
@@ -455,7 +503,9 @@ export const latest = (cwd: string): string | undefined => {
           try {
             const first = records.next().value
             if (first === undefined || (JSON.parse(first) as { cwd?: string }).cwd !== cwd) continue
-          } finally { records.return(undefined) }
+          } finally {
+            records.return(undefined)
+          }
         }
         candidates.push({ file, modified: info.mtimeMs })
       } catch { /* A concurrent removal must not block startup. */ }
@@ -495,7 +545,8 @@ export const fork = (source: string, cwd: string, turn: Turn): Fork => {
   if (at?.type !== "user" || at.steered === true || at.at !== turn.at || at.text !== turn.text) return { _tag: "Stale" }
   // Queued follow-ups belong to the source conversation; a fork never inherits them.
   const before: ReadonlyArray<Record> = records.slice(0, turn.index).filter((record) =>
-    record.type !== "session" && record.type !== "queued" && record.type !== "dequeued")
+    record.type !== "session" && record.type !== "queued" && record.type !== "dequeued"
+  )
   // A worker started before the fork point may have settled after it: carry its last record, not a stale `requested`.
   type TabRecord = Extract<Record, { readonly type: "tab" }>
   const key = (tab: Workspace.Tab) => `${tab.id}\0${tab.file}`
@@ -643,7 +694,9 @@ export const restore = (records: ReadonlyArray<Record>): {
         } else {
           transcript = Transcript.failure(
             transcript,
-            record.outcome._tag === "cancelled" ? "Stopped" : record.outcome.headline ?? record.outcome.message ?? "Failed",
+            record.outcome._tag === "cancelled"
+              ? "Stopped"
+              : record.outcome.headline ?? record.outcome.message ?? "Failed",
             record.at
           )
         }
@@ -671,7 +724,11 @@ export const restore = (records: ReadonlyArray<Record>): {
     prompts,
     queued,
     name,
-    workspace: { tabs: [...tabs.values()], panels: [...panels.values()], cards: [...cards].filter((id) => panels.has(id)) },
+    workspace: {
+      tabs: [...tabs.values()],
+      panels: [...panels.values()],
+      cards: [...cards].filter((id) => panels.has(id))
+    },
     flows: [...flows.values()],
     monitors: [...monitors.values()],
     contributions: [...contributions.values()]

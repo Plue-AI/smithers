@@ -36,34 +36,34 @@ import type * as MicrosandboxSandbox from "../../packages/smithers/flows/sandbox
 import * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
 import * as SupervisorMemory from "../../packages/smithers/src/internal/SupervisorMemory.ts"
 import * as OrganizationActions from "./actions.ts"
-import deliver from "./deliver/flow.ts"
+import assignment from "./assignment/flow.ts"
+import * as Autonomy from "./autonomy.ts"
 import delegate from "./delegate/flow.ts"
+import deliver from "./deliver/flow.ts"
+import digest from "./digest/flow.ts"
 import hire from "./hire/flow.ts"
 import intake from "./intake/flow.ts"
-import type { Settings } from "./settings.ts"
-import * as Subscriptions from "./setup/subscriptions.ts"
-import qualify from "./qualify/flow.ts"
-import retire from "./retire/flow.ts"
-import * as Staff from "./staff.ts"
-import * as Meetings from "./meetings.ts"
+import * as Links from "./links.ts"
 import meetingsBook from "./meetings-book/flow.ts"
-import teamReply from "./team-reply/flow.ts"
-import * as TeamChannel from "./team-channel.ts"
 import meetingsFollowUp from "./meetings-follow-up/flow.ts"
 import meetingsOpen from "./meetings-open/flow.ts"
 import meetingsPlan from "./meetings-plan/flow.ts"
 import meetingsPrepare from "./meetings-prepare/flow.ts"
 import meetingsReply from "./meetings-reply/flow.ts"
-import * as Schedule from "./schedule.ts"
-import status from "./status/flow.ts"
-import * as Autonomy from "./autonomy.ts"
-import * as Links from "./links.ts"
-import assignment from "./assignment/flow.ts"
-import digest from "./digest/flow.ts"
+import * as Meetings from "./meetings.ts"
+import qualify from "./qualify/flow.ts"
+import retire from "./retire/flow.ts"
 import routine from "./routine/flow.ts"
-import work from "./work/flow.ts"
-import workItem from "./work-item/flow.ts"
+import * as Schedule from "./schedule.ts"
+import type { Settings } from "./settings.ts"
+import * as Subscriptions from "./setup/subscriptions.ts"
+import * as Staff from "./staff.ts"
+import status from "./status/flow.ts"
+import * as TeamChannel from "./team-channel.ts"
+import teamReply from "./team-reply/flow.ts"
 import * as Wiki from "./wiki.ts"
+import workItem from "./work-item/flow.ts"
+import work from "./work/flow.ts"
 
 /**
  * The flows a client may start, by the name their paths give them.
@@ -189,7 +189,9 @@ export const catalog = async (options: Pick<Options, "settings">) => {
       await writeFile(file, source, { flag: "wx", mode: 0o444 })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-      if (await readFile(file, "utf8") !== source) throw new Error("Organization flow identity was modified; refusing to serve")
+      if (await readFile(file, "utf8") !== source) {
+        throw new Error("Organization flow identity was modified; refusing to serve")
+      }
     }
     const descriptor = new Descriptor.FlowDescriptor({
       name: `organization/${name}`,
@@ -246,11 +248,14 @@ const resources = (platform: NativeControl.Platform, settings: Settings) =>
 
 /** Runs `effect` with the completion brake that demands a workspace change disarmed. */
 const withoutUnmoved = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-  Effect.flatMap(Effect.serviceOption(Agent.Agent), (agent) =>
-    Option.isNone(agent) ? effect : effect.pipe(Effect.provideService(Agent.Agent, {
-      ...agent.value,
-      run: (options: Agent.Options) => agent.value.run({ ...options, unmovedCap: 0 })
-    })))
+  Effect.flatMap(
+    Effect.serviceOption(Agent.Agent),
+    (agent) =>
+      Option.isNone(agent) ? effect : effect.pipe(Effect.provideService(Agent.Agent, {
+        ...agent.value,
+        run: (options: Agent.Options) => agent.value.run({ ...options, unmovedCap: 0 })
+      }))
+  )
 
 /** Role tasks this host runs at once when `SMITHERS_ORG_MAX_CONCURRENT_TASKS` does not say. */
 export const defaultMaxConcurrentTasks = 4
@@ -275,34 +280,35 @@ export const maxConcurrentTasks = (environment: Readonly<Record<string, string |
  * result against its charter, and the diff and the checks are what judge a
  * build.
  */
-const roleTasks = (tasks: number) => Authority.layer(Budgets.layer(Actions.RoleTask.layer, { maxConcurrentTasks: tasks })).pipe(
-  Layer.provide(Layer.unwrap(Effect.gen(function*() {
-    const runtime = yield* FlowRuntime.FlowRuntime
-    const table = yield* Action.Implementations
-    return Layer.mergeAll(
-      Layer.succeed(FlowRuntime.FlowRuntime)({
-        ...runtime,
-        register: (flow, handler) =>
-          runtime.register(
-            flow,
-            flow._tag === Authority.roleTaskTag
-              ? (payload, executionId) => withoutUnmoved(handler(payload, executionId))
-              : handler
-          )
-      }),
-      Layer.succeed(Action.Implementations)({
-        ...table,
-        add: (implementation, options) =>
-          table.add(
-            implementation.name === Authority.roleTaskTag
-              ? { ...implementation, action: (payload) => withoutUnmoved(implementation.action(payload)) }
-              : implementation,
-            options
-          )
-      })
-    )
-  })))
-)
+const roleTasks = (tasks: number) =>
+  Authority.layer(Budgets.layer(Actions.RoleTask.layer, { maxConcurrentTasks: tasks })).pipe(
+    Layer.provide(Layer.unwrap(Effect.gen(function*() {
+      const runtime = yield* FlowRuntime.FlowRuntime
+      const table = yield* Action.Implementations
+      return Layer.mergeAll(
+        Layer.succeed(FlowRuntime.FlowRuntime)({
+          ...runtime,
+          register: (flow, handler) =>
+            runtime.register(
+              flow,
+              flow._tag === Authority.roleTaskTag
+                ? (payload, executionId) => withoutUnmoved(handler(payload, executionId))
+                : handler
+            )
+        }),
+        Layer.succeed(Action.Implementations)({
+          ...table,
+          add: (implementation, options) =>
+            table.add(
+              implementation.name === Authority.roleTaskTag
+                ? { ...implementation, action: (payload) => withoutUnmoved(implementation.action(payload)) }
+                : implementation,
+              options
+            )
+        })
+      )
+    })))
+  )
 
 /** A configured repository's GitHub repository: the page's `github`, else its own name when that is `owner/name`. */
 const githubOf = (settings: Settings, name: string): string | undefined => {
@@ -312,11 +318,15 @@ const githubOf = (settings: Settings, name: string): string | undefined => {
 
 /** The configured repositories whose landed branches become pull requests. */
 export const pullsOf = (settings: Settings): Record<string, { readonly remote: string; readonly github: string }> =>
-  Object.fromEntries(Object.keys(settings.repositories).flatMap((name) => {
-    const entry = settings.organization.repositories?.[name]
-    const github = githubOf(settings, name)
-    return entry?.landing === "pr" && github !== undefined ? [[name, { remote: entry.remote ?? "origin", github }]] : []
-  }))
+  Object.fromEntries(
+    Object.keys(settings.repositories).flatMap((name) => {
+      const entry = settings.organization.repositories?.[name]
+      const github = githubOf(settings, name)
+      return entry?.landing === "pr" && github !== undefined
+        ? [[name, { remote: entry.remote ?? "origin", github }]]
+        : []
+    })
+  )
 
 /**
  * The host's linker (`links.ts`): the wiki's pages at `wiki.webUrl` or its
@@ -332,11 +342,13 @@ export const linksOf = (settings: Settings): Links.Linker => {
     generatedDir: wiki.generatedDir,
     webUrl: wiki.webUrl,
     publish: wiki.commit && wiki.sync === "push" ? Wiki.hostPaths(settings.organization) : undefined,
-    repositories: Object.fromEntries(Object.entries(settings.repositories).map(([name, path]) => [name, {
-      path,
-      github: githubOf(settings, name),
-      remote: settings.organization.repositories?.[name]?.remote
-    }]))
+    repositories: Object.fromEntries(
+      Object.entries(settings.repositories).map(([name, path]) => [name, {
+        path,
+        github: githubOf(settings, name),
+        remote: settings.organization.repositories?.[name]?.remote
+      }])
+    )
   })
 }
 
@@ -357,12 +369,18 @@ const autonomyOf = (settings: Settings, options: Options): Autonomy.Options => (
   triage: settings.organization.autonomy?.triage,
   ...teamDirs(settings),
   repositories: settings.repositories,
-  bases: Object.fromEntries(Object.entries(settings.environments).flatMap(([name, environment]) => environment.base === undefined ? [] : [[name, environment.base]])),
-  autonomy: Object.fromEntries(Object.keys(settings.repositories).flatMap((name) => {
-    const github = githubOf(settings, name)
-    const issues = settings.organization.repositories?.[name]?.issues
-    return github === undefined ? [] : [[name, { github, ...(issues === undefined ? {} : { issues }) }]]
-  })),
+  bases: Object.fromEntries(
+    Object.entries(settings.environments).flatMap(([name, environment]) =>
+      environment.base === undefined ? [] : [[name, environment.base]]
+    )
+  ),
+  autonomy: Object.fromEntries(
+    Object.keys(settings.repositories).flatMap((name) => {
+      const github = githubOf(settings, name)
+      const issues = settings.organization.repositories?.[name]?.issues
+      return github === undefined ? [] : [[name, { github, ...(issues === undefined ? {} : { issues }) }]]
+    })
+  ),
   environment: options.environment,
   owner: options.slack ? settings.owners[0] : undefined,
   links: options.links ?? linksOf(settings)
@@ -490,7 +508,9 @@ const registrations = (
         maxConcurrentVMs: settings.maxConcurrentVMs,
         // The workspaces know repositories by host path; the page names them.
         environments: Object.fromEntries(
-          Object.entries(settings.environments).map(([name, environment]) => [settings.repositories[name]!, environment])
+          Object.entries(settings.environments).map((
+            [name, environment]
+          ) => [settings.repositories[name]!, environment])
         )
       }).pipe(
         Layer.provide(NodeServices.layer)
@@ -516,7 +536,10 @@ export const layer = (platform: NativeControl.Platform, options: Options, seats?
     () =>
       seats === undefined
         ? Layer.effect(SeatResolver.SeatResolver)(
-          Effect.map(RequestExecutor.RequestExecutor, (executor) => Subscriptions.resolver(options.environment, executor))
+          Effect.map(
+            RequestExecutor.RequestExecutor,
+            (executor) => Subscriptions.resolver(options.environment, executor)
+          )
         )
         : SeatResolver.layer(seats)
   )
@@ -547,15 +570,17 @@ export const layer = (platform: NativeControl.Platform, options: Options, seats?
           : Effect.succeed({ default: entry.declaration })
       }
     }
-    const modules = Layer.unwrap(Executable.catalog(executableOptions).pipe(
-      Effect.provide(host),
-      Effect.map((built) =>
-        Layer.mergeAll(
-          Executable.layerRefreshable(built, executableOptions),
-          ...built.executables.map((executable) => executable.layer)
+    const modules = Layer.unwrap(
+      Executable.catalog(executableOptions).pipe(
+        Effect.provide(host),
+        Effect.map((built) =>
+          Layer.mergeAll(
+            Executable.layerRefreshable(built, executableOptions),
+            ...built.executables.map((executable) => executable.layer)
+          )
         )
       )
-    )).pipe(
+    ).pipe(
       Layer.provideMerge(registrations(platform, options, triggers)),
       Layer.provide(registry),
       Layer.orDie
@@ -568,6 +593,9 @@ export const layer = (platform: NativeControl.Platform, options: Options, seats?
       registry
     )
     // The scheduler launches through the served control plane.
-    return Schedule.layer({ declarations: declarations(settings, Date.now()) }).pipe(Layer.provide(triggers), Layer.provideMerge(served))
+    return Schedule.layer({ declarations: declarations(settings, Date.now()) }).pipe(
+      Layer.provide(triggers),
+      Layer.provideMerge(served)
+    )
   })))
 }

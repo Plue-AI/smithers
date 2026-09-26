@@ -35,10 +35,10 @@
  *
  * @since 0.1.0
  */
-import { journalRows } from "./journal-rows.mjs"
 import * as NarrowedCheck from "../../../packages/smithers/agent/harness/src/NarrowedCheck.ts"
 import * as Sufficiency from "../../../packages/smithers/agent/harness/src/Sufficiency.ts"
 import * as UnresolvedFailure from "../../../packages/smithers/agent/harness/src/UnresolvedFailure.ts"
+import { journalRows } from "./journal-rows.mjs"
 
 /** Flows whose calls change the workspace, so they are never checks. */
 const editing = new Set(["write", "edit", "apply_patch"])

@@ -1,6 +1,6 @@
+import { Effect } from "effect"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
-import { Effect } from "effect"
 import { modelTransport } from "../release-support/runtime.ts"
 
 let redirected = 0

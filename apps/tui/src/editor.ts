@@ -84,7 +84,8 @@ export const commands: ReadonlyArray<Command> = [
 ]
 
 /** Tab and Enter insert `/name ` for these, so the argument can be typed or completed. */
-export const takesArgument = (command: Command): boolean => command.args?.startsWith("<") === true || command.name === "thinking"
+export const takesArgument = (command: Command): boolean =>
+  command.args?.startsWith("<") === true || command.name === "thinking"
 
 /** `/model gpt` → `{ name: "model", argument: "gpt" }`. */
 export const parseCommand = (text: string): { readonly name: string; readonly argument: string } | undefined => {

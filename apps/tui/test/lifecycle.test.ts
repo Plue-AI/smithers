@@ -29,13 +29,18 @@ describe("step", () => {
     expect(columns).toEqual([...Lifecycle.events])
   })
 
-  const pairs = rows.flatMap((row) => columns.map((event, index) => ({ status: row[0] as Lifecycle.Status, event, cell: row[index + 1]! })))
-  it.each(pairs.map((pair) => [pair.status, pair.event, pair.cell] as const))("%s + %s -> %s", (status, event, cell) => {
-    const [free = cell, full = free] = cell.split("/")
-    const expected = (target: string) => (target === "-" ? undefined : target as Lifecycle.Status)
-    expect(Lifecycle.step(status, event, false)).toBe(expected(free))
-    expect(Lifecycle.step(status, event, true)).toBe(expected(full))
-  })
+  const pairs = rows.flatMap((row) =>
+    columns.map((event, index) => ({ status: row[0] as Lifecycle.Status, event, cell: row[index + 1]! }))
+  )
+  it.each(pairs.map((pair) => [pair.status, pair.event, pair.cell] as const))(
+    "%s + %s -> %s",
+    (status, event, cell) => {
+      const [free = cell, full = free] = cell.split("/")
+      const expected = (target: string) => (target === "-" ? undefined : target as Lifecycle.Status)
+      expect(Lifecycle.step(status, event, false)).toBe(expected(free))
+      expect(Lifecycle.step(status, event, true)).toBe(expected(full))
+    }
+  )
 
   it("maps each reported outcome to its event", () => {
     for (const outcome of ["done", "failed", "cancelled"] as const) {

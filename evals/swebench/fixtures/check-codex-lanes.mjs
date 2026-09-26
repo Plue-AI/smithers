@@ -37,7 +37,16 @@
  */
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
@@ -167,7 +176,7 @@ assert.ok(
   "tools.web_search is a key this build ignores; it must not be what the seal relies on"
 )
 assert.ok(
-  runner.includes('"$NETWORK"') && runner.includes('"network": "%s"'),
+  runner.includes("\"$NETWORK\"") && runner.includes("\"network\": \"%s\""),
   "the condition a run was given is stamped into its timings"
 )
 
@@ -177,21 +186,21 @@ assert.ok(
 // The runner takes it from the environment now, defaults to high, and every lane
 // pins its own — which is what lets the older lanes keep reproducing.
 assert.ok(
-  runner.includes('EFFORT="${SWB_CODEX_EFFORT:-high}"'),
+  runner.includes("EFFORT=\"${SWB_CODEX_EFFORT:-high}\""),
   "run-instance-codex.sh takes its effort from SWB_CODEX_EFFORT and defaults to high"
 )
 assert.ok(
-  runner.includes('-c model_reasoning_effort="$EFFORT"'),
+  runner.includes("-c model_reasoning_effort=\"$EFFORT\""),
   "the effort a run was given is the one passed to codex"
 )
 assert.ok(
   !runner.split("\n").some((line) =>
-    !line.trimStart().startsWith("#") && line.includes('model_reasoning_effort="medium"')
+    !line.trimStart().startsWith("#") && line.includes("model_reasoning_effort=\"medium\"")
   ),
   "the medium pin is gone from the runner; a lane that wants medium pins it itself"
 )
 assert.ok(
-  runner.includes('"$EFFORT"') && runner.includes('"effort": "%s"'),
+  runner.includes("\"$EFFORT\"") && runner.includes("\"effort\": \"%s\""),
   "the effort a run was given is stamped into its timings"
 )
 for (const effort of declared.map((lane) => lane.effort)) {
@@ -228,17 +237,22 @@ function runnerFixture(harness, scenario, check, overrideEnvironment = {}) {
     }
     put("swb-verified.json", "[]")
     put("bin/smithers-jj-export", "#!/bin/sh\nexit 0\n")
-    put(".subject.json", '{"stamp":"fixture"}')
-    put("lib/validate-instance.mjs", 'console.log("base")')
-    put("lib/write-prompt-codex.mjs", 'console.log("fix the bug")')
-    put(".venv-swb/bin/python", '#!/bin/bash\necho "python -m pytest"\n')
-    put("lib/snapshot-base.sh", '#!/bin/bash\necho base\n')
-    put("lib/interpreter.sh", '#!/bin/bash\necho python\n')
-    put("lib/testbed-network.sh", `#!/bin/bash
+    put(".subject.json", "{\"stamp\":\"fixture\"}")
+    put("lib/validate-instance.mjs", "console.log(\"base\")")
+    put("lib/write-prompt-codex.mjs", "console.log(\"fix the bug\")")
+    put(".venv-swb/bin/python", "#!/bin/bash\necho \"python -m pytest\"\n")
+    put("lib/snapshot-base.sh", "#!/bin/bash\necho base\n")
+    put("lib/interpreter.sh", "#!/bin/bash\necho python\n")
+    put(
+      "lib/testbed-network.sh",
+      `#!/bin/bash
 if [ "$1" = assert ] && [ "$FIXTURE_SCENARIO" = network-failure ]; then exit 7; fi
 echo none
-`)
-    put("lib/capture-patch.sh", `#!/bin/bash
+`
+    )
+    put(
+      "lib/capture-patch.sh",
+      `#!/bin/bash
 case "$FIXTURE_SCENARIO" in
   capture-failure) exit 3 ;;
   missing-patch) exit 0 ;;
@@ -246,8 +260,11 @@ case "$FIXTURE_SCENARIO" in
   *) printf 'paid attempt patch\\n' > "$2" ;;
 esac
 : > "$2.untracked"
-`)
-    put("bin/codex", `#!/bin/bash
+`
+    )
+    put(
+      "bin/codex",
+      `#!/bin/bash
 if [ "$1" = login ] && [ "$2" = status ]; then echo 'Logged in using an API key'; exit 0; fi
 if [ "$1" = login ]; then exit 0; fi
 while [ "$#" -gt 0 ]; do
@@ -255,8 +272,11 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 if [ "$FIXTURE_SCENARIO" = agent-timeout ]; then exit 124; fi
-`)
-    put("bin/docker", `#!${process.execPath}
+`
+    )
+    put(
+      "bin/docker",
+      `#!${process.execPath}
 const fs = require("node:fs")
 const path = require("node:path")
 const args = process.argv.slice(2)
@@ -286,10 +306,18 @@ switch (args[0]) {
     break
   default: throw new Error("unexpected docker command: " + args.join(" "))
 }
-`)
-    const result = spawnSync("bash", ["-c", 'export FIXTURE_RUNNER_PID=$$; exec bash "$@"',
-      "fixture", join(dir, script), "a__a-1", ...(harness === "codex"
-        ? ["10", "fixture-model", "r1"] : ["fixture-seat", "10", "r1"])], {
+`
+    )
+    const result = spawnSync("bash", [
+      "-c",
+      "export FIXTURE_RUNNER_PID=$$; exec bash \"$@\"",
+      "fixture",
+      join(dir, script),
+      "a__a-1",
+      ...(harness === "codex"
+        ? ["10", "fixture-model", "r1"] :
+        ["fixture-seat", "10", "r1"])
+    ], {
       cwd: dir,
       encoding: "utf8",
       timeout: 15_000,

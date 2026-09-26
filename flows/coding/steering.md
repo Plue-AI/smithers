@@ -101,7 +101,7 @@ The nonempty list accepts up to 64 exact types. Filtering runs before pagination
 `(run_id, event_type, seq)` index. The recipe calls it as follows:
 
 ```ts
-const page = yield* journal.entries({
+const page = yield * journal.entries({
   runId: JournalEvent.RunId.make(rootId),
   eventTypes: [NotificationEvent.PromotedEventType],
   limit: 1000

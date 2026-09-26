@@ -56,7 +56,8 @@ export const PairState = Schema.Struct({
 
 /** The pairwise judgment the whole duplicates step is built from. */
 export const pairClassifier = Classifier.make("duplicates/pair", {
-  description: "Judge one prior issue against the request under investigation: do they report the same underlying defect or request?",
+  description:
+    "Judge one prior issue against the request under investigation: do they report the same underlying defect or request?",
   state: PairState,
   questions: {
     score: Classifier.score({
@@ -73,7 +74,9 @@ export type PairState = typeof PairState.Type
 const encoder = new TextEncoder()
 const bytes = (value: string): number => encoder.encode(value).length
 const object = (value: unknown): globalThis.Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value) ? value as globalThis.Record<string, unknown> : {}
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as globalThis.Record<string, unknown>
+    : {}
 const string = (value: unknown): string => typeof value === "string" ? value : ""
 
 /** The request under investigation, read from the same screened event payload
@@ -88,8 +91,9 @@ export const subjectOf = (work: typeof Work.Type): { readonly title: string; rea
  * because that is the only thing `verifyObservation` accepts, and the event's
  * own issue is never a duplicate of itself. */
 export const duplicateCandidates = (work: typeof Work.Type): ReadonlyArray<typeof Record.Type> =>
-  work.evidence.records.filter(record =>
-    record.kind === "issue" && !(record.source === work.event.source && record.number === work.event.issueNumber))
+  work.evidence.records.filter((record) =>
+    record.kind === "issue" && !(record.source === work.event.source && record.number === work.event.issueNumber)
+  )
 
 /** One state per candidate, with the two bodies sharing whatever the titles
  * leave. Each body may take half the room, and a body shorter than half leaves
@@ -97,14 +101,22 @@ export const duplicateCandidates = (work: typeof Work.Type): ReadonlyArray<typeo
  * under investigation out of its own state. */
 export const duplicateStates = (work: typeof Work.Type): ReadonlyArray<PairState> => {
   const subject = subjectOf(work)
-  return duplicateCandidates(work).map(record => {
+  return duplicateCandidates(work).map((record) => {
     const framed = (subjectBody: string, candidateBody: string): PairState => ({
       subject: { title: clip(subject.title, MAX_TITLE_BYTES), body: subjectBody },
-      candidate: { source: record.source, number: record.number, title: clip(record.title, MAX_TITLE_BYTES), body: candidateBody }
+      candidate: {
+        source: record.source,
+        number: record.number,
+        title: clip(record.title, MAX_TITLE_BYTES),
+        body: candidateBody
+      }
     })
     const room = Math.max(0, MAX_STATE_BYTES - bytes(JSON.stringify(framed("", ""))))
     const half = Math.floor(room / 2)
-    const own = clip(subject.body, bytes(subject.body) <= half ? bytes(subject.body) : Math.max(half, room - bytes(record.body)))
+    const own = clip(
+      subject.body,
+      bytes(subject.body) <= half ? bytes(subject.body) : Math.max(half, room - bytes(record.body))
+    )
     let state = framed(own, clip(record.body, Math.max(0, room - bytes(own))))
     // JSON escaping grows a quote-heavy or newline-heavy body past its share,
     // so the longer body sheds the remainder until the encoded state fits.
@@ -129,16 +141,18 @@ export const duplicateObservation = (
   matched: ReadonlyArray<typeof Record.Type>
 ): typeof Observation.Type => {
   const judged = duplicateCandidates(work).length
-  const allowed = new Set([...work.evidence.files.map(file => file.path),
-    ...work.evidence.records.map(record => record.url).filter(Boolean)])
+  const allowed = new Set([
+    ...work.evidence.files.map((file) => file.path),
+    ...work.evidence.records.map((record) => record.url).filter(Boolean)
+  ])
   return {
     classification,
     summary: matched.length
       ? `Jev matched ${matched.length} of ${judged} prior records as the same defect.`
       : "Jev found no prior record describing the same defect.",
     question: "",
-    citations: matched.map(record => record.url).filter(url => allowed.has(url)),
-    duplicates: matched.map(record => ({ source: record.source, number: record.number, reason: SAME })),
+    citations: matched.map((record) => record.url).filter((url) => allowed.has(url)),
+    duplicates: matched.map((record) => ({ source: record.source, number: record.number, reason: SAME })),
     reproduction: null
   }
 }
@@ -164,13 +178,18 @@ export const jevDuplicates = (
     const candidates = duplicateCandidates(work)
     if (!candidates.length) return duplicateObservation(work, classification, [])
     const states = duplicateStates(work)
-    const answered = (yield* Effect.forEach(batches(states), batch => pairClassifier.evaluateAll(batch), { concurrency: 1 })).flat()
-    if (answered.length !== candidates.length) return yield* failed("Jev answered a different number of prior records than it was asked about")
+    const answered = (yield* Effect.forEach(batches(states), (batch) =>
+      pairClassifier.evaluateAll(batch), { concurrency: 1 })).flat()
+    if (answered.length !== candidates.length) {
+      return yield* failed("Jev answered a different number of prior records than it was asked about")
+    }
     const matched: Array<typeof Record.Type> = []
     for (const [index, answer] of answered.entries()) {
       const candidate = candidates[index]!
       if (Result.isFailure(answer)) {
-        return yield* failed(`Jev could not judge ${candidate.source}#${candidate.number}: ${answer.failure.code}. ${answer.failure.message}`)
+        return yield* failed(
+          `Jev could not judge ${candidate.source}#${candidate.number}: ${answer.failure.code}. ${answer.failure.message}`
+        )
       }
       const score = answer.success.score
       if (score.label === SAME && score.confidence >= DUPLICATE_CONFIDENCE) matched.push(candidate)
@@ -179,7 +198,9 @@ export const jevDuplicates = (
     // than that fails the step rather than reporting a truncated count as if
     // it were the whole answer.
     if (matched.length > MAX_DUPLICATES) {
-      return yield* failed(`Jev matched ${matched.length} of ${candidates.length} prior records, more than one observation may carry`)
+      return yield* failed(
+        `Jev matched ${matched.length} of ${candidates.length} prior records, more than one observation may carry`
+      )
     }
     return duplicateObservation(work, classification, matched)
   })

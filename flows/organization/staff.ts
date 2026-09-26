@@ -15,15 +15,15 @@
  * Every principal is resolved against the host's registry; nothing a role
  * writes names a profile, a grant, or a path the host did not decide.
  */
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Action } from "@smthrs/flow"
 import { Clock, Effect, Layer, Option, Result, Schema, Semaphore } from "effect"
-import * as NodeServices from "@effect/platform-node/NodeServices"
 import { join } from "node:path"
 import * as Actions from "../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Authority from "../../packages/smithers/agent/organization/src/Authority.ts"
 import * as Hiring from "../../packages/smithers/agent/organization/src/Hiring.ts"
-import * as Profile from "../../packages/smithers/agent/organization/src/Profile.ts"
 import * as Confined from "../../packages/smithers/agent/organization/src/internal/confined.ts"
+import * as Profile from "../../packages/smithers/agent/organization/src/Profile.ts"
 import * as Roster from "../../packages/smithers/agent/organization/src/Roster.ts"
 import { renderDocument } from "./actions.ts"
 import { Answer, RequestKey, Stage } from "./schema.ts"
@@ -68,7 +68,9 @@ export const fieldViolations = (
       principal,
       message: `missing field ${name}`
     })),
-    ...(result.evidence.length === 0 ? [{ code: "missing-evidence" as const, principal, message: "missing evidence" }] : [])
+    ...(result.evidence.length === 0
+      ? [{ code: "missing-evidence" as const, principal, message: "missing evidence" }]
+      : [])
   ]
 
 /** The parent's hiring task: what it needs, and the grants and limits it may hire within. */
@@ -169,7 +171,13 @@ export const ReviewTask = Action.make("organization/review-task", {
  */
 export const PublishWork = Action.make("organization/publish-work", {
   implementationVersion: "publish-work/v1",
-  payload: { revision: Schema.NonEmptyString, key: RequestKey, parent: Profile.PrincipalId, work: Answer, review: Answer },
+  payload: {
+    revision: Schema.NonEmptyString,
+    key: RequestKey,
+    parent: Profile.PrincipalId,
+    work: Answer,
+    review: Answer
+  },
   success: Schema.Struct({ written: Schema.Boolean, path: Schema.String, reason: Schema.String }),
   error: Schema.Union([Authority.DispatchRefused, Actions.ReceiptFailed])
 })
@@ -261,8 +269,12 @@ const describeGrants = (profile: Profile.Profile): ReadonlyArray<string> => [
   ...(profile.grants.tools.includes("retrieval")
     ? [
       `Your web scope: ${
-        profile.grants.retrieval?.allow === undefined ? "any public domain" : profile.grants.retrieval.allow.join(", ") || "no domain"
-      }${profile.grants.retrieval?.deny === undefined ? "" : `, except ${profile.grants.retrieval.deny.join(", ")}`}; a hire's may only be narrower.`
+        profile.grants.retrieval?.allow === undefined
+          ? "any public domain"
+          : profile.grants.retrieval.allow.join(", ") || "no domain"
+      }${
+        profile.grants.retrieval?.deny === undefined ? "" : `, except ${profile.grants.retrieval.deny.join(", ")}`
+      }; a hire's may only be narrower.`
     ]
     : []),
   `Your skills: ${profile.skills.join(", ") || "none"}.`,
@@ -356,7 +368,9 @@ export const layer = (options: Options) =>
           if (!answer.valid) return refused(`${parent}'s answer broke its task: ${answer.violations.join("; ")}`)
           if (answer.result.status !== "done") return refused(`${parent}: ${answer.result.summary}`)
           const spec = answer.result.fields["hire"]
-          if (spec === null || spec === undefined) return refused(`${parent} decided no hire is needed: ${answer.result.summary}`)
+          if (spec === null || spec === undefined) {
+            return refused(`${parent} decided no hire is needed: ${answer.result.summary}`)
+          }
           const at = new Date(yield* Clock.currentTimeMillis).toISOString().replace(/\.\d{3}Z$/, "Z")
           const request = Hiring.fromSpec(hirer, spec, at, key)
           if (Result.isFailure(request)) return refused("the hire request is malformed", request.failure)
@@ -367,7 +381,9 @@ export const layer = (options: Options) =>
           })
           if (Result.isFailure(proposed)) {
             return refused(
-              `the hire breaks ${proposed.failure.length} rule(s): ${proposed.failure.map((found) => found.message).join("; ")}`,
+              `the hire breaks ${proposed.failure.length} rule(s): ${
+                proposed.failure.map((found) => found.message).join("; ")
+              }`,
               proposed.failure
             )
           }
@@ -386,9 +402,11 @@ export const layer = (options: Options) =>
             reason: `${parent} hired ${active.id}`,
             violations: []
           }
-        })).pipe(Effect.catch((message) =>
-          Effect.succeed({ hired: false, principal: parent, path: "", reason: String(message), violations: [] })
-        )), { implementationVersion: "store-hire/v1" }),
+        })).pipe(
+          Effect.catch((message) =>
+            Effect.succeed({ hired: false, principal: parent, path: "", reason: String(message), violations: [] })
+          )
+        ), { implementationVersion: "store-hire/v1" }),
       Retire.toLayer(({ principal }) =>
         lock.withPermits(1)(Effect.gen(function*() {
           const registry = yield* Authority.RosterRegistry
@@ -405,7 +423,9 @@ export const layer = (options: Options) =>
           const committed = yield* Effect.result(commit(retired, false))
           if (Result.isFailure(committed)) {
             const failure = committed.failure
-            return refused(`the retirement could not be stored: ${typeof failure === "string" ? failure : failure.message}`)
+            return refused(
+              `the retirement could not be stored: ${typeof failure === "string" ? failure : failure.message}`
+            )
           }
           return {
             retired: retired.map((each) => each.id),
@@ -454,7 +474,9 @@ export const layer = (options: Options) =>
                 ...payload.inputs,
                 ...(payload.findings.length === 0
                   ? []
-                  : [`Round ${payload.round}: ${payload.parent} asked for changes; its findings are in the context below.`])
+                  : [
+                    `Round ${payload.round}: ${payload.parent} asked for changes; its findings are in the context below.`
+                  ])
               ]),
               acceptance: lines([
                 ...payload.acceptance,
@@ -517,8 +539,12 @@ export const layer = (options: Options) =>
           if (writer === undefined) {
             return { written: false, path: "", reason: `neither ${work.principal} nor ${parent} holds wiki-write` }
           }
-          const relative = `${options.generatedDir.replace(/\/+$/, "")}/${Actions.runDirectory(key)}/${work.principal}.md`
-          const content = `${renderDocument(work).trimEnd()}\n\n## Review\n\nAccepted by ${parent}: ${review.result.summary.trim()}\n`
+          const relative = `${options.generatedDir.replace(/\/+$/, "")}/${
+            Actions.runDirectory(key)
+          }/${work.principal}.md`
+          const content = `${
+            renderDocument(work).trimEnd()
+          }\n\n## Review\n\nAccepted by ${parent}: ${review.result.summary.trim()}\n`
           yield* Confined.writeText({ root: options.root, relative, content }).pipe(
             Effect.mapError((refusal) => new Actions.ReceiptFailed({ message: `${relative} ${refusal.message}` })),
             Effect.provide(NodeServices.layer)
@@ -528,7 +554,9 @@ export const layer = (options: Options) =>
       Judge.toLayer(({ review, work }) =>
         Effect.sync(() => {
           const findings: Array<string> = []
-          if (!work.valid || work.result.status !== "done") findings.push(`${work.principal} did not finish: ${work.result.summary}`)
+          if (!work.valid || work.result.status !== "done") {
+            findings.push(`${work.principal} did not finish: ${work.result.summary}`)
+          }
           const verdict = review.result.fields["verdict"]
           const accepted = review.valid && review.result.status === "done" && typeof verdict === "string" &&
             verdict.trim().toLowerCase() === "accept"

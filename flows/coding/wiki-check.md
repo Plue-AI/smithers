@@ -6,7 +6,7 @@ required slow check in the existing project configuration. It returns the
 existing coding `Receipt`; it introduces no public package API or database.
 
 ```json
-{"id":"wiki","target":"public engineering wiki","flow":"checks/wiki","tier":"slow","required":true}
+{ "id": "wiki", "target": "public engineering wiki", "flow": "checks/wiki", "tier": "slow", "required": true }
 ```
 
 ## Capture before asynchronous review

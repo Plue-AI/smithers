@@ -1,12 +1,12 @@
 /** Pins the offline CI registration and its separate operator prerequisites. */
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { Package } from "../PACKAGE.ts"
 import { Package as RootPackage } from "../../../PACKAGE.ts"
 import { metadata } from "../../../packages/smithers/build/targets/src/Target.ts"
+import { Package } from "../PACKAGE.ts"
 
 const root = resolve(import.meta.dirname, "../../..")
 assert.ok(Package.offline, "SWE-bench declares an offline test target")
@@ -15,7 +15,9 @@ assert.equal(offline.target, "Shell.Test")
 assert.deepEqual(offline.kinds, ["test"])
 assert.equal(offline.attrs.script.path, "verify.sh")
 assert.deepEqual(offline.attrs.args, ["--offline"])
-for (const pattern of ["//evals/swebench/*.{ts,mjs,sh,md}", "//evals/swebench/lib/**", "//evals/swebench/fixtures/**"]) {
+for (
+  const pattern of ["//evals/swebench/*.{ts,mjs,sh,md}", "//evals/swebench/lib/**", "//evals/swebench/fixtures/**"]
+) {
   assert.ok(offline.attrs.data.some((input) => input.pattern === pattern), `offline inputs include ${pattern}`)
 }
 const prerequisites = metadata(Package.prerequisites)
@@ -36,7 +38,16 @@ for (const fixture of ["check-subject.mjs", "check-eval-exports.py", "check-prom
   assert.ok(operator.includes(fixture), `${fixture} requires explicit operator prerequisites`)
   assert.ok(!suite.includes(fixture), `${fixture} is outside the offline suite`)
 }
-for (const fixture of ["check-fullbench.mjs", "check-prompts.mjs", "check-run-paths.mjs", "check-lock.sh", "check-compare-codex-lanes.mjs", "check-cli-path.mjs"]) {
+for (
+  const fixture of [
+    "check-fullbench.mjs",
+    "check-prompts.mjs",
+    "check-run-paths.mjs",
+    "check-lock.sh",
+    "check-compare-codex-lanes.mjs",
+    "check-cli-path.mjs"
+  ]
+) {
   assert.ok(suite.includes(fixture), `the offline suite runs ${fixture}`)
 }
 const temporary = mkdtempSync(join(tmpdir(), "swebench-prerequisites-"))
@@ -60,6 +71,9 @@ try {
   rmSync(temporary, { recursive: true, force: true })
 }
 const ci = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8")
-assert.ok(ci.includes("smthrs test '//evals/swebench:offline' --jobs 1"), "required CI must run the serial offline SWE-bench target")
+assert.ok(
+  ci.includes("smthrs test '//evals/swebench:offline' --jobs 1"),
+  "required CI must run the serial offline SWE-bench target"
+)
 assert.ok(!ci.includes("//evals/swebench:prerequisites"), "operator prerequisites stay outside CI")
 console.log("check-offline-target.mjs: offline fixtures gate CI; operator prerequisites are explicit.")

@@ -63,8 +63,12 @@ const record = (payload: Payload, outcome: unknown): Node.Node<Attempt, typeof A
     // Planned references resolve wherever they sit; the declared types cannot say so.
     receipt: { principal: payload.principal, task: payload.task, outcome } as never
   }).pipe(
-    Node.bindPlanned(Node.capture({ implementationVersion }, (written) =>
-      Node.succeed({ key: payload.key, receipt: written.path } as unknown as Attempt)))
+    Node.bindPlanned(
+      Node.capture(
+        { implementationVersion },
+        (written) => Node.succeed({ key: payload.key, receipt: written.path } as unknown as Attempt)
+      )
+    )
   ) as Node.Node<Attempt, typeof Actions.ReceiptFailed.Type, any>
 
 /** Run one qualification attempt. */
@@ -127,28 +131,56 @@ export default Flow.make("organization/qualify", {
       run: ReadonlyArray<Workspace.Check>
     ): Node.Node<Outcome, any, any> =>
       Node.andThen(Node.succeed(answer), Actions.CollectDiff.call({ workspace: prepared })).pipe(
-        Node.bindPlanned(Node.capture({ implementationVersion }, (diff) =>
-          Actions.RunChecks.call({ repository: repository!, commit: prepared.commit, patch: diff.patch, checks: run }).pipe(
-            // Planned references resolve wherever they sit in a node's value; the declared types cannot say so.
-            Node.bindPlanned(Node.capture({ implementationVersion }, (ran) =>
-              Node.succeed<unknown>({
-                answer,
-                change: { digest: diff.digest, files: diff.files, added: diff.added, deleted: diff.deleted },
-                checks: ran
-              }) as Node.Node<Outcome, any, any>))
-          )))
+        Node.bindPlanned(
+          Node.capture(
+            { implementationVersion },
+            (diff) =>
+              Actions.RunChecks.call({
+                repository: repository!,
+                commit: prepared.commit,
+                patch: diff.patch,
+                checks: run
+              })
+                .pipe(
+                  // Planned references resolve wherever they sit in a node's value; the declared types cannot say so.
+                  Node.bindPlanned(Node.capture({ implementationVersion }, (ran) =>
+                    Node.succeed<unknown>({
+                      answer,
+                      change: { digest: diff.digest, files: diff.files, added: diff.added, deleted: diff.deleted },
+                      checks: ran
+                    }) as Node.Node<Outcome, any, any>))
+                )
+          )
+        )
       )
     /** The turn in a workspace machine of `repo`, removed once the turn has answered and its change is checked. */
-    const inWorkspace = (revision: Planned.Planned<string>, planned: Planned.Planned<Stage>, repo: string): Node.Node<Outcome, any, any> =>
+    const inWorkspace = (
+      revision: Planned.Planned<string>,
+      planned: Planned.Planned<Stage>,
+      repo: string
+    ): Node.Node<Outcome, any, any> =>
       Actions.PrepareWorkspace.call({ repository: repo, commit, slug: "qualify" }).pipe(
         Node.bindPlanned(Node.capture({ implementationVersion }, (prepared): Node.Node<Outcome, any, any> => {
-          const answered: Node.Node<Answer, any, any> = turn(revision, planned, { key: prepared.key, repository: repo, commit: prepared.commit })
+          const answered: Node.Node<Answer, any, any> = turn(revision, planned, {
+            key: prepared.key,
+            repository: repo,
+            commit: prepared.commit
+          })
           const outcome: Node.Node<Outcome, any, any> = answered.pipe(
-            Node.bindPlanned(Node.capture({ implementationVersion }, (answer: Planned.Planned<Answer>): Node.Node<Outcome, any, any> =>
-              checks === undefined ? Node.succeed<unknown>({ answer }) as Node.Node<Outcome, any, any> : checked(prepared, answer, checks)))
+            Node.bindPlanned(
+              Node.capture(
+                { implementationVersion },
+                (answer: Planned.Planned<Answer>): Node.Node<Outcome, any, any> =>
+                  checks === undefined
+                    ? Node.succeed<unknown>({ answer }) as Node.Node<Outcome, any, any>
+                    : checked(prepared, answer, checks)
+              )
+            )
           )
           return outcome.pipe(
-            Node.catch({ onFailure: Node.capture({ implementationVersion }, (failure) => disposing(prepared).fail(failure)) }),
+            Node.catch({
+              onFailure: Node.capture({ implementationVersion }, (failure) => disposing(prepared).fail(failure))
+            }),
             Node.bindPlanned(Node.capture({ implementationVersion }, (settled) => disposing(prepared).then(settled)))
           ) as Node.Node<Outcome, any, any>
         }))
@@ -158,14 +190,19 @@ export default Flow.make("organization/qualify", {
         Node.succeed(stage).pipe(
           Node.bindPlanned(Node.capture({ implementationVersion }, (planned) =>
             repository === undefined
-              ? turn(pin.revision, planned).pipe(Node.map(Node.capture({ implementationVersion }, (answer): Outcome => ({ answer }))))
+              ? turn(pin.revision, planned).pipe(
+                Node.map(Node.capture({ implementationVersion }, (answer): Outcome => ({ answer })))
+              )
               : inWorkspace(pin.revision, planned, repository)))
         ))),
       Node.catch({
-        onFailure: Node.capture({ implementationVersion }, (failure) =>
-          Describe.call({ failure: failure as Planned.Planned<typeof StepFailure.Type> }).pipe(
-            Node.map(Node.capture({ implementationVersion }, (described): Outcome => ({ failure: described })))
-          ))
+        onFailure: Node.capture(
+          { implementationVersion },
+          (failure) =>
+            Describe.call({ failure: failure as Planned.Planned<typeof StepFailure.Type> }).pipe(
+              Node.map(Node.capture({ implementationVersion }, (described): Outcome => ({ failure: described })))
+            )
+        )
       }),
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) => record(payload, outcome)))
     )

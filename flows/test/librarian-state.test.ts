@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir } from "node:fs/promises"
+import { mkdir, mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -12,6 +12,8 @@ test("librarian Control state is durable and outside the served repository", asy
   assert.equal(State.resolveStateRoot({ root }), join(parent, ".smithers-librarian-state", "repo"))
   assert.equal(State.resolveStateRoot({ root, explicit: join(parent, "runtime") }), join(parent, "runtime"))
   assert.throws(() => State.resolveStateRoot({ root, explicit: ".flows" }), /inside the served repository/)
-  assert.equal(State.resolveStateRoot({ root, explicit: ".flows", environment: { [State.inRootVariable]: "1" } }), join(root, ".flows"))
+  assert.equal(
+    State.resolveStateRoot({ root, explicit: ".flows", environment: { [State.inRootVariable]: "1" } }),
+    join(root, ".flows")
+  )
 })
-

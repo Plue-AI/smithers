@@ -19,7 +19,7 @@ const between = (from, to) => {
 // reapers, the shared poll, and the final drain loop verbatim.
 const helpers = between("now_ms() {", "# Locks and claims")
 const reapers = between("# Reaps every worker", "checkpoint() {")
-const drain = between('log "draining', 'log "final checkpoint"')
+const drain = between("log \"draining", "log \"final checkpoint\"")
 
 const temporary = mkdtempSync(join(tmpdir(), "swebench-drain-"))
 // A rig root of its own, so a reconcile the driver logs can never touch the
@@ -39,17 +39,20 @@ const runDrain = ({ bound = 40, ledger = [], unreadable = false, worker }, sourc
   const manifest = join(fb, "manifest.jsonl")
   if (unreadable) mkdirSync(manifest)
   else if (ledger.length > 0) writeFileSync(manifest, `${ledger.map((row) => JSON.stringify(row)).join("\n")}\n`)
-  const result = spawnSync("bash", ["-c", [
-    helpers,
-    reapers,
-    "TICKS=0",
-    `sleep() { TICKS=$((TICKS + 1)); if [ "$TICKS" -gt ${bound} ]; then printf 'STALLED\\n'; exit 9; fi; }`,
-    `FB=${fb}; MANIFEST=$FB/manifest.jsonl; S=${rig}`,
-    "POLL_SECONDS=0; POLL_LIMIT=3; JOBS=1; STOPPING=0",
-    worker,
-    source,
-    'printf "RUNNING=%s POLLS=%s TICKS=%s\\n" "$RUNNING" "$POLLS" "$TICKS"'
-  ].join("\n")], { encoding: "utf8", timeout: 60_000 })
+  const result = spawnSync("bash", [
+    "-c",
+    [
+      helpers,
+      reapers,
+      "TICKS=0",
+      `sleep() { TICKS=$((TICKS + 1)); if [ "$TICKS" -gt ${bound} ]; then printf 'STALLED\\n'; exit 9; fi; }`,
+      `FB=${fb}; MANIFEST=$FB/manifest.jsonl; S=${rig}`,
+      "POLL_SECONDS=0; POLL_LIMIT=3; JOBS=1; STOPPING=0",
+      worker,
+      source,
+      "printf \"RUNNING=%s POLLS=%s TICKS=%s\\n\" \"$RUNNING\" \"$POLLS\" \"$TICKS\""
+    ].join("\n")
+  ], { encoding: "utf8", timeout: 60_000 })
   return { ...result, manifest, out: `${result.stdout}${result.stderr}` }
 }
 
@@ -58,8 +61,8 @@ const runDrain = ({ bound = 40, ledger = [], unreadable = false, worker }, sourc
 // child, which is what makes `kill -0` report it dead rather than a zombie.
 const diedWithoutMarker = [
   "( exit 0 ) & PID=$!",
-  'PIDS=("$PID"); NAMES=("astropy__astropy-12907"); RUNNING=1',
-  'SPIN=0; while kill -0 "$PID" 2>/dev/null && [ "$SPIN" -lt 200000 ]; do SPIN=$((SPIN + 1)); done'
+  "PIDS=(\"$PID\"); NAMES=(\"astropy__astropy-12907\"); RUNNING=1",
+  "SPIN=0; while kill -0 \"$PID\" 2>/dev/null && [ \"$SPIN\" -lt 200000 ]; do SPIN=$((SPIN + 1)); done"
 ].join("\n")
 
 try {
@@ -101,8 +104,8 @@ try {
   const finished = runDrain({
     worker: [
       "( exit 0 ) & PID=$!",
-      'PIDS=("$PID"); NAMES=("astropy__astropy-12907"); RUNNING=1',
-      'printf "0\\n" > "$FB/workers/astropy__astropy-12907.done"'
+      "PIDS=(\"$PID\"); NAMES=(\"astropy__astropy-12907\"); RUNNING=1",
+      "printf \"0\\n\" > \"$FB/workers/astropy__astropy-12907.done\""
     ].join("\n")
   })
   assert.equal(finished.status, 0, finished.out)
@@ -118,8 +121,8 @@ try {
       // `command` because the poll counter above stubbed `sleep` out, and this
       // child has to outlive the polls that report it.
       "( command sleep 30 ) & PID=$!",
-      'trap \'kill "$PID" 2>/dev/null\' EXIT',
-      'PIDS=("$PID"); NAMES=("astropy__astropy-12907"); RUNNING=1'
+      "trap 'kill \"$PID\" 2>/dev/null' EXIT",
+      "PIDS=(\"$PID\"); NAMES=(\"astropy__astropy-12907\"); RUNNING=1"
     ].join("\n")
   })
   assert.equal(alive.status, 9, `a live worker must not be reaped: ${alive.out}`)
@@ -139,12 +142,18 @@ try {
 
   // The reader the driver asks, on its own: done, not done, unreadable, misused.
   const ask = (...argv) =>
-    spawnSync(process.execPath, [join(root, "lib", "fullbench-state.mjs"), ...argv], { encoding: "utf8", timeout: 10_000 })
+    spawnSync(process.execPath, [join(root, "lib", "fullbench-state.mjs"), ...argv], {
+      encoding: "utf8",
+      timeout: 10_000
+    })
   const ledger = join(temporary, "asked.jsonl")
-  writeFileSync(ledger, [
-    JSON.stringify({ kind: "instance", id: "astropy__astropy-12907", state: "ran" }),
-    JSON.stringify({ kind: "instance", id: "django__django-11039", state: "graded" })
-  ].join("\n") + "\n")
+  writeFileSync(
+    ledger,
+    [
+      JSON.stringify({ kind: "instance", id: "astropy__astropy-12907", state: "ran" }),
+      JSON.stringify({ kind: "instance", id: "django__django-11039", state: "graded" })
+    ].join("\n") + "\n"
+  )
   assert.equal(ask(ledger, "django__django-11039").status, 0)
   assert.equal(ask(ledger, "django__django-11039").stdout, "graded")
   assert.equal(ask(ledger, "astropy__astropy-12907").status, 1)

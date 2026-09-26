@@ -44,7 +44,13 @@ export type Picker =
     readonly selected: number
     readonly turns: ReadonlyArray<Session.Turn>
   }
-  | { readonly kind: "undo"; readonly query: ""; readonly selected: number; readonly target: Undo.Target; readonly tab?: string }
+  | {
+    readonly kind: "undo"
+    readonly query: ""
+    readonly selected: number
+    readonly target: Undo.Target
+    readonly tab?: string
+  }
 
 /** A `text:` search in the palette, from launch through its real settlement. */
 export interface TextSearch {
@@ -89,13 +95,29 @@ export const rows = (
     }))
   }
   if (picker.kind === "palette") {
-    const sources = { commands: Editor.commands, files, sessions: picker.sessions, tabs, hits, now: Date.now(), actions }
+    const sources = {
+      commands: Editor.commands,
+      files,
+      sessions: picker.sessions,
+      tabs,
+      hits,
+      now: Date.now(),
+      actions
+    }
     // The value is the JSON of a `Palette.Value`, so every dialog picks a string.
-    return Palette.rows(Palette.parse(picker.query), sources).map((row) => ({ ...row, value: JSON.stringify(row.value) }))
+    return Palette.rows(Palette.parse(picker.query), sources).map((row) => ({
+      ...row,
+      value: JSON.stringify(row.value)
+    }))
   }
   if (picker.kind === "filter") {
     const rows = [
-      { key: "source:chat", label: "Chat", current: !filter.sources.includes(Timeline.chat), value: `source:${Timeline.chat}` },
+      {
+        key: "source:chat",
+        label: "Chat",
+        current: !filter.sources.includes(Timeline.chat),
+        value: `source:${Timeline.chat}`
+      },
       ...tabs.map((tab) => ({
         key: `source:${tab.id}`,
         label: `↳ ${tab.title}`,
@@ -116,9 +138,14 @@ export const rows = (
       ...Fuzzy.filter(rows, picker.query, (row) => row.label)
     ]
   }
-  if (picker.kind === "theme") return Fuzzy.filter(Object.keys(themes), picker.query, (name) => name).map((name) => ({
-    key: name, label: name, current: name === activeTheme(), value: name
-  }))
+  if (picker.kind === "theme") {
+    return Fuzzy.filter(Object.keys(themes), picker.query, (name) => name).map((name) => ({
+      key: name,
+      label: name,
+      current: name === activeTheme(),
+      value: name
+    }))
+  }
   if (picker.kind === "model" || picker.kind === "worker-model") {
     const listed = Fuzzy.filter(models, picker.query, (model) => `${model.label} ${model.seat} ${model.provider}`)
     const custom = picker.query.includes(":") && !models.some((model) => model.seat === picker.query)
@@ -146,7 +173,10 @@ export const rows = (
       value: String(turn.index)
     }))
   }
-  return Palette.sessionRows(picker.sessions, picker.query, Date.now()).map(({ file, ...row }) => ({ ...row, value: file }))
+  return Palette.sessionRows(picker.sessions, picker.query, Date.now()).map(({ file, ...row }) => ({
+    ...row,
+    value: file
+  }))
 }
 
 /** The dialog's title; a capped `text:` search says so. */
@@ -215,7 +245,13 @@ export const useSearch = (options: {
       void running.done.then((outcome) => {
         if (generation !== searchGeneration.current || outcome._tag === "cancelled") return
         if (outcome._tag === "done") {
-          setSearch({ query: textQuery.query, startedAt: 0, status: "done", hits: outcome.hits, truncated: outcome.truncated })
+          setSearch({
+            query: textQuery.query,
+            startedAt: 0,
+            status: "done",
+            hits: outcome.hits,
+            truncated: outcome.truncated
+          })
           return
         }
         setSearch(undefined)

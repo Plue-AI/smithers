@@ -1,9 +1,9 @@
+import { Effect, Fiber } from "effect"
 import assert from "node:assert/strict"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
-import { Effect, Fiber } from "effect"
 import type { RunView } from "./client.ts"
 import * as Notify from "./notify.ts"
 
@@ -23,7 +23,12 @@ test("tells the owner each gate and failure once, across restarts, and not failu
   const stateDir = join(scratch, "state")
   const shown: Array<string> = []
   let runs: ReadonlyArray<RunView> = [gate("run-1", "d1"), failed("run-0")]
-  const options: Notify.Options = { stateDir, runs: async () => runs, notify: (notice) => shown.push(notice.text), log: () => {} }
+  const options: Notify.Options = {
+    stateDir,
+    runs: async () => runs,
+    notify: (notice) => shown.push(notice.text),
+    log: () => {}
+  }
 
   assert.deepEqual((await Notify.check(options)).map((notice) => notice.text), ["answer land: Land this change?"])
   assert.equal(statSync(join(stateDir, "notified.json")).mode & 0o777, 0o600)

@@ -44,8 +44,8 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
-import type { ControlSchema } from "../../packages/smithers/control/src/index.ts"
 import type * as AgentEvent from "../../packages/smithers/agent/harness/src/AgentEvent.ts"
+import type { ControlSchema } from "../../packages/smithers/control/src/index.ts"
 import * as Forensics from "../../packages/smithers/src/Forensics.ts"
 import { jevCaller, jevCellQuestionsOf, jevUsageOf } from "./jev-usage.ts"
 import { jevModel, usd } from "./prices.ts"
@@ -572,9 +572,11 @@ const aggregate = {
   flowsTokens: sum(rows.map((row) => row.cost.inputTokens + row.cost.outputTokens)),
   codexTokens: sum(rows.map((row) => row.baseline?.tokens)),
   flowsUsd: Math.round(sum(rows.map((row) => row.cost.usd)) * 10_000) / 10_000,
-  flowsJevReadings: sum(rows.map((row) =>
-    row.cost.jevCellCalls + row.cost.jevBrakeReadings + row.cost.jevSupervisorReadings + row.cost.jevGateReadings
-  )),
+  flowsJevReadings: sum(
+    rows.map((row) =>
+      row.cost.jevCellCalls + row.cost.jevBrakeReadings + row.cost.jevSupervisorReadings + row.cost.jevGateReadings
+    )
+  ),
   flowsJevTokens: sum(rows.map((row) => row.cost.jevInputTokens + row.cost.jevOutputTokens)),
   flowsJevUsd: Math.round(sum(rows.map((row) => row.cost.jevUsd)) * 10_000) / 10_000,
   flowsJevInterrupted: sum(rows.map((row) => row.cost.jevInterrupted)),
@@ -672,8 +674,12 @@ const markdown = [
   // a wave measured before a package move keeps the paths it actually loaded.
   `| \`${subject.marker?.path ?? "harness marker"}\` | \`${subject.marker?.hash ?? "—"}\` |`,
   `| loaded from | ${subject.marker?.resolvedBy ?? "—"} |`,
-  `| \`${subject.cliDist?.directory ?? "CLI build"}\` | \`${subject.cliDist?.hash ?? "—"}\` (${subject.cliDist?.files ?? 0} modules) |`,
-  `| \`${subject.cliSrc?.directory ?? "CLI source"}\` | \`${subject.cliSrc?.hash ?? "—"}\` (${subject.cliSrc?.files ?? 0} files, built above) |`,
+  `| \`${subject.cliDist?.directory ?? "CLI build"}\` | \`${subject.cliDist?.hash ?? "—"}\` (${
+    subject.cliDist?.files ?? 0
+  } modules) |`,
+  `| \`${subject.cliSrc?.directory ?? "CLI source"}\` | \`${subject.cliSrc?.hash ?? "—"}\` (${
+    subject.cliSrc?.files ?? 0
+  } files, built above) |`,
   `| node | ${subject.node ?? "—"} ${subject.platform ?? ""} |`,
   "",
   ...(subject.refusals === undefined || subject.refusals.length === 0 ? [] : [
@@ -722,9 +728,11 @@ const markdown = [
     + `${money(row.cost.totalUsd)} | ${show(row.baseline?.tokens)} | ${money(row.baseline?.usd)} |`
   ),
   "",
-  `Totals: flows ${money(aggregate.flowsUsd)} model + ${money(aggregate.flowsJevUsd)} Jev (${aggregate.flowsJevReadings} readings) = ${
-    money(aggregate.flowsTotalUsd)
-  } · codex ${money(aggregate.codexUsdFloor)} (floor).`,
+  `Totals: flows ${money(aggregate.flowsUsd)} model + ${
+    money(aggregate.flowsJevUsd)
+  } Jev (${aggregate.flowsJevReadings} readings) = ${money(aggregate.flowsTotalUsd)} · codex ${
+    money(aggregate.codexUsdFloor)
+  } (floor).`,
   "",
   "Prices come from the committed table in `prices.ts`. `flows USD` is the seat's"
   + " model turns; `Jev USD` is every reading the run took of Jev (the completion"
@@ -761,8 +769,8 @@ console.log(`scorecard.ts: ${join(options.out, "scorecard.json")}`)
 console.log(`scorecard.ts: ${join(options.out, "scorecard.md")}`)
 console.log(
   `flows ${aggregate.flowsResolved}/${aggregate.instances} · codex ${aggregate.codexResolved}/${aggregate.instances}`
-  + ` · flows wins ${aggregate.flowsWins} · ${money(aggregate.flowsUsd)} + ${money(aggregate.flowsJevUsd)} Jev vs ${
-    money(aggregate.codexUsdFloor)
-  } (floor)`
-  + ` · ${aggregate.flowsWallClockSeconds}s vs ${aggregate.codexWallClockSeconds}s`
+    + ` · flows wins ${aggregate.flowsWins} · ${money(aggregate.flowsUsd)} + ${money(aggregate.flowsJevUsd)} Jev vs ${
+      money(aggregate.codexUsdFloor)
+    } (floor)`
+    + ` · ${aggregate.flowsWallClockSeconds}s vs ${aggregate.codexWallClockSeconds}s`
 )

@@ -8,7 +8,7 @@
  * box, these handlers see every bubbled drag and forward it to the scroll box
  * the press started in.
  */
-import { ScrollBoxRenderable, type MouseEvent, type Renderable } from "@opentui/core"
+import { type MouseEvent, type Renderable, ScrollBoxRenderable } from "@opentui/core"
 
 const scrollBoxOf = (target: Renderable | null): ScrollBoxRenderable | undefined => {
   for (let node: Renderable | null = target; node !== null; node = node.parent) {

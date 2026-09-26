@@ -59,7 +59,20 @@ import { fileURLToPath } from "node:url"
 const here = dirname(fileURLToPath(import.meta.url))
 const work = resolve(process.argv[2] ?? join(here, "..", "work"))
 const out = resolve(
-  process.argv[3] ?? join(here, "..", "..", "..", "packages", "smithers", "agent", "harness", "test", "fixtures", "narrowingJournals.json")
+  process.argv[3] ??
+    join(
+      here,
+      "..",
+      "..",
+      "..",
+      "packages",
+      "smithers",
+      "agent",
+      "harness",
+      "test",
+      "fixtures",
+      "narrowingJournals.json"
+    )
 )
 
 /** Flows whose calls change the workspace, so they are never checks. */
@@ -176,6 +189,8 @@ const journals = instances.map((instance) => ({
 writeFileSync(out, `${JSON.stringify({ journals }, null, 2)}\n`)
 for (const journal of journals) {
   const calls = journal.frames.reduce((total, frame) => total + frame.calls.length, 0)
-  console.log(`${journal.instance}: ${journal.frames.length} frames, ${calls} calls, opened on ${journal.openedOn.slice(0, 12)}`)
+  console.log(
+    `${journal.instance}: ${journal.frames.length} frames, ${calls} calls, opened on ${journal.openedOn.slice(0, 12)}`
+  )
 }
 console.log(`wrote ${out}`)

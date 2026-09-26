@@ -7,8 +7,8 @@ import * as Log from "./log.ts"
  * control plane's watch. The
  * `Port` is the seam to the native control host (`flow-control.ts`).
  */
-import type { ControlSchema } from "@smthrs/control"
 import * as NodeOutput from "@smthrs/cli/NodeOutput"
+import type { ControlSchema } from "@smthrs/control"
 import type { Schema } from "effect"
 import * as Extension from "./extension.ts"
 import * as Form from "./form.ts"
@@ -78,7 +78,9 @@ export interface Port {
 /** Registry infrastructure failed; the last successful catalog remains available. */
 export class FlowDiscoveryFailed extends Error {
   readonly _tag = "FlowDiscoveryFailed"
-  constructor(readonly cause: unknown) { super("Flow discovery unavailable") }
+  constructor(readonly cause: unknown) {
+    super("Flow discovery unavailable")
+  }
 }
 export class FlowError extends Error {
   constructor(
@@ -124,7 +126,12 @@ export const interrupted = "Interrupted; retry to continue."
 /** Concurrent flow runs; later requests wait FIFO in `queued` and start when one settles. */
 export const seats = 3
 /** Events the watch settles on; they never move a parked run back to running. */
-export const terminal: ReadonlySet<string> = new Set(["control.run.completed", "control.run.failed", "control.run.cancelled", "control.run.pending"])
+export const terminal: ReadonlySet<string> = new Set([
+  "control.run.completed",
+  "control.run.failed",
+  "control.run.cancelled",
+  "control.run.pending"
+])
 /** Work is in flight: a launch in progress or a remote run. */
 export const running = (run: Run): boolean =>
   run.status === "requested" || run.status === "running" || run.status === "waiting"
@@ -191,13 +198,17 @@ export class FlowRuns {
     if (this.opened || this.warming !== undefined || this.closed || this.options.port?.warm === undefined) return
     this.isOpening = true
     this.changed()
-    this.warming = this.options.port.warm().then(() => { this.opened = true }, (error) => Log.write("flow.open", error)).finally(() => {
+    this.warming = this.options.port.warm().then(() => {
+      this.opened = true
+    }, (error) => Log.write("flow.open", error)).finally(() => {
       this.isOpening = false
       this.warming = undefined
       if (!this.closed) this.changed()
     })
   }
-  get opening(): boolean { return this.isOpening }
+  get opening(): boolean {
+    return this.isOpening
+  }
   subscribe = (listener: () => void): () => void => this.runs.subscribe(listener)
   private changed() {
     this.runs.changed()
@@ -256,8 +267,17 @@ export class FlowRuns {
         ? undefined
         : schema === undefined
         ? []
-        : Form.fields(schema).slice(0, 12).map((field) => ({ name: field.name, type: field.kind, required: field.required }))
-      return { name: flow.name, description: flow.description, agent: Extension.isAgent(flow), ...(input === undefined ? {} : { input }) }
+        : Form.fields(schema).slice(0, 12).map((field) => ({
+          name: field.name,
+          type: field.kind,
+          required: field.required
+        }))
+      return {
+        name: flow.name,
+        description: flow.description,
+        agent: Extension.isAgent(flow),
+        ...(input === undefined ? {} : { input })
+      }
     })
   refresh = (): void => {
     const port = this.options.port
@@ -278,7 +298,10 @@ export class FlowRuns {
     return event === undefined ? this.runs.put(next) : this.runs.move(next, event)
   }
   private fail(id: string, attempt: number, error: unknown) {
-    if (this.runs.get(id)?.stopRequested && error instanceof FlowError && error.code === "refused" && error.message === "Stopped") {
+    if (
+      this.runs.get(id)?.stopRequested && error instanceof FlowError && error.code === "refused" &&
+      error.message === "Stopped"
+    ) {
       this.update(id, attempt, { endedAt: Date.now(), message: undefined }, "cancel")
       return
     }
@@ -366,7 +389,9 @@ export class FlowRuns {
   }
   private track(task: Promise<void>): Promise<void> {
     this.launches.add(task)
-    const settled = () => { this.launches.delete(task) }
+    const settled = () => {
+      this.launches.delete(task)
+    }
     void task.then(settled, settled)
     return task
   }
@@ -380,7 +405,9 @@ export class FlowRuns {
         // Preserve the receipt even after the UI detached; retry must target this run.
         this.runs.move({ ...run, runId, message: interrupted, endedAt: Date.now() }, "fail")
       } else {
-        if (this.update(id, attempt, { runId, message: undefined, launchedAt: Date.now() }, "launch") === undefined) return
+        if (this.update(id, attempt, { runId, message: undefined, launchedAt: Date.now() }, "launch") === undefined) {
+          return
+        }
         this.follow(id, attempt, runId)
       }
       if (run.stopRequested) await this.stop(id, runId)
@@ -391,14 +418,21 @@ export class FlowRuns {
   private async resumeExisting(id: string, attempt: number): Promise<void> {
     const run = this.runs.get(id)
     if (run?.runId === undefined || this.closed) return
-    this.update(id, attempt, { resumeRequested: undefined, message: undefined, launchedAt: Date.now() }, run.status === "requested" ? "launch" : undefined)
+    this.update(
+      id,
+      attempt,
+      { resumeRequested: undefined, message: undefined, launchedAt: Date.now() },
+      run.status === "requested" ? "launch" : undefined
+    )
     try {
       const receipt = await this.options.port!.resume(run.runId)
       if ("runId" in receipt) {
         if (this.closed) {
           const current = this.runs.get(id)!
           this.runs.move({ ...current, runId: receipt.runId, message: interrupted, endedAt: Date.now() }, "fail")
-        } else if (this.update(id, attempt, { runId: receipt.runId }) !== undefined) this.follow(id, attempt, receipt.runId)
+        } else if (this.update(id, attempt, { runId: receipt.runId }) !== undefined) {
+          this.follow(id, attempt, receipt.runId)
+        }
         if (this.runs.get(id)?.stopRequested) await this.stop(id, receipt.runId)
       } else this.settle(id, attempt, receipt)
     } catch (error) {
@@ -423,8 +457,9 @@ export class FlowRuns {
       this.events.get(id)?.push(event)
       const status = this.runs.get(id)?.status
       if (event.kind === "control.run.parked") this.update(id, attempt, {}, "park")
-      else if (event.kind === "control.run.waiting-approval" && (status === "running" || status === "waiting")) this.update(id, attempt, {}, "block")
-      else if (event.kind === "control.run.running" && (status === "waiting" || status === "parked")) {
+      else if (event.kind === "control.run.waiting-approval" && (status === "running" || status === "waiting")) {
+        this.update(id, attempt, {}, "block")
+      } else if (event.kind === "control.run.running" && (status === "waiting" || status === "parked")) {
         // A remote resume is already executing and cannot be queued by this UI.
         this.runs.put({ ...this.runs.get(id)!, status: "running", message: undefined })
       } else if (event.kind === "control.agent.suspended") {
@@ -444,8 +479,9 @@ export class FlowRuns {
   }
   private settle(id: string, attempt: number, settled: Settled) {
     const endedAt = Date.now()
-    if (settled.kind === "done") this.update(id, attempt, { answer: settled.answer, endedAt, message: undefined }, "done")
-    else if (settled.kind === "failed") this.update(id, attempt, { message: settled.message, endedAt }, "fail")
+    if (settled.kind === "done") {
+      this.update(id, attempt, { answer: settled.answer, endedAt, message: undefined }, "done")
+    } else if (settled.kind === "failed") this.update(id, attempt, { message: settled.message, endedAt }, "fail")
     else this.update(id, attempt, { endedAt, message: undefined }, "cancel")
   }
   /** Supplies the input a run parked for, then plans it. */
@@ -471,7 +507,10 @@ export class FlowRuns {
       void this.stop(id, run.runId)
       return
     }
-    if (run.runId !== undefined && (run.status === "running" || run.status === "waiting" || run.status === "parked" || run.resumeRequested)) {
+    if (
+      run.runId !== undefined &&
+      (run.status === "running" || run.status === "waiting" || run.status === "parked" || run.resumeRequested)
+    ) {
       // The watch settles the status; a refused cancel keeps it running.
       this.runs.put({ ...run, stopRequested: true })
       void this.stop(id, run.runId)
@@ -491,8 +530,14 @@ export class FlowRuns {
     if (this.options.port === undefined) throw new Error("Flows unavailable")
     const { endedAt: _ended, answer: _answer, launchedAt: _launched, ...previous } = run
     // Each retry is new work with its own clock, so it is estimated and scored on its own.
-    const resume = run.runId !== undefined && (run.status === "parked" || run.message === interrupted || run.resumeRequested)
-    const rest = { ...previous, attempt: (run.attempt ?? 1) + 1, startedAt: Date.now(), resumeRequested: resume ? true as const : undefined }
+    const resume = run.runId !== undefined &&
+      (run.status === "parked" || run.message === interrupted || run.resumeRequested)
+    const rest = {
+      ...previous,
+      attempt: (run.attempt ?? 1) + 1,
+      startedAt: Date.now(),
+      resumeRequested: resume ? true as const : undefined
+    }
     const attempt = this.attempt(id)
     this.watches.get(id)?.close()
     this.watches.delete(id)
@@ -558,7 +603,11 @@ export class FlowRuns {
     const nodes = NodeOutput.project(this.events.get(id) ?? []).map((node) => ({
       id: node.nodeId,
       label: node.flowName,
-      status: node.outcome === "success" ? "done" as const : node.outcome === "failure" ? "failed" as const : "running" as const,
+      status: node.outcome === "success"
+        ? "done" as const
+        : node.outcome === "failure"
+        ? "failed" as const
+        : "running" as const,
       details: [{
         kind: "code" as const,
         language: "json",
@@ -569,7 +618,12 @@ export class FlowRuns {
       ? [{ id: "act", label: "Fill in", details: [], action: { label: "Fill in", prompt: "" } }]
       : []
     const result = run.answer !== undefined && !nodes.some((node) => node.id === NodeOutput.resultNodeId)
-      ? [{ id: NodeOutput.resultNodeId, label: "Result", status: "done" as const, details: [{ kind: "code" as const, code: run.answer.slice(0, 200_000) }] }]
+      ? [{
+        id: NodeOutput.resultNodeId,
+        label: "Result",
+        status: "done" as const,
+        details: [{ kind: "code" as const, code: run.answer.slice(0, 200_000) }]
+      }]
       : []
     return { id: `flow:${id}`, title: run.flow, summary, rows: [...act, ...nodes, ...result] }
   }

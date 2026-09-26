@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import * as Cases from "./cases.ts"
 
-const page = (lines: string) => `---
+const page = (lines: string) =>
+  `---
 id: probe
 principal: builder
 kind: accepted
@@ -47,10 +48,13 @@ expect:
 })
 
 test("an empty mustMention alternative list is not a case", () => {
-  const parsed = Cases.parse("Org/Cases/probe.md", page(`${task}
+  const parsed = Cases.parse(
+    "Org/Cases/probe.md",
+    page(`${task}
 expect:
   status: done
-  mustMention: [[]]`))
+  mustMention: [[]]`)
+  )
   assert.deepEqual(parsed, {
     mode: "invalid",
     id: "probe",
@@ -71,20 +75,26 @@ expect:
 })
 
 test("a revision without a workspace is not a case", () => {
-  const parsed = Cases.parse("Org/Cases/probe.md", page(`revision: main
+  const parsed = Cases.parse(
+    "Org/Cases/probe.md",
+    page(`revision: main
 ${task}
 expect:
-  status: done`))
+  status: done`)
+  )
   assert.equal(parsed.mode, "invalid")
   assert.equal((parsed as Cases.Invalid).reason, "revision needs requires: [workspace]")
 })
 
 test("an all-digit revision must be quoted, or YAML would drop its leading zeros", () => {
-  const parsed = Cases.parse("Org/Cases/probe.md", page(`requires: [workspace]
+  const parsed = Cases.parse(
+    "Org/Cases/probe.md",
+    page(`requires: [workspace]
 revision: 0000000000000000000000000000000000000001
 ${task}
 expect:
-  status: done`))
+  status: done`)
+  )
   assert.equal((parsed as Cases.Invalid).reason, "revision reads as a number; quote it")
   const quoted = role(page(`requires: [workspace]
 revision: "0000000000000000000000000000000000000001"
@@ -111,8 +121,14 @@ expect:
     const parsed = Cases.parse("Org/Cases/probe.md", page(`${lines}\n${task}\nexpect:\n  status: done`))
     return parsed.mode === "invalid" ? parsed.reason : undefined
   }
-  assert.equal(reason("requires: [host-commands]\ncommands: [serve]"), "commands[0] runs serve, not one of backup, restore")
-  assert.equal(reason("requires: [host-commands]\ncommands: [backup /tmp/x]"), "commands[0] names /tmp/x outside {drill}")
+  assert.equal(
+    reason("requires: [host-commands]\ncommands: [serve]"),
+    "commands[0] runs serve, not one of backup, restore"
+  )
+  assert.equal(
+    reason("requires: [host-commands]\ncommands: [backup /tmp/x]"),
+    "commands[0] names /tmp/x outside {drill}"
+  )
   assert.equal(reason("commands:\n  - backup {drill}/b"), "commands and requires: [host-commands] go together")
   assert.equal(reason("requires: [host-commands]"), "commands and requires: [host-commands] go together")
 })
@@ -131,18 +147,32 @@ expect:
   const done = answer("Fixed; all checks exit 0.", "done")
   const receipt = (name: string, exitCode: number | null, timedOut = false) => ({ name, exitCode, timedOut })
   assert.deepEqual(
-    Cases.scoreRole(entry, { ...done, change: { files: [{ path: "src/a.ts" }] }, checks: { passed: true, receipts: [receipt("tests", 0), receipt("refuses the bug", 0)] } }),
+    Cases.scoreRole(entry, {
+      ...done,
+      change: { files: [{ path: "src/a.ts" }] },
+      checks: { passed: true, receipts: [receipt("tests", 0), receipt("refuses the bug", 0)] }
+    }),
     []
   )
   assert.deepEqual(Cases.scoreRole(entry, done), ["src/a.ts not changed", "no checks ran"])
   assert.deepEqual(
-    Cases.scoreRole(entry, { ...done, change: { files: [{ path: "src/b.ts" }] }, checks: { passed: false, receipts: [receipt("tests", 0), receipt("refuses the bug", 1), receipt("slow", null, true)] } }),
+    Cases.scoreRole(entry, {
+      ...done,
+      change: { files: [{ path: "src/b.ts" }] },
+      checks: {
+        passed: false,
+        receipts: [receipt("tests", 0), receipt("refuses the bug", 1), receipt("slow", null, true)]
+      }
+    }),
     ["src/a.ts not changed", "checks failed: refuses the bug exit 1, slow timed out"]
   )
   // A case that does not check its change runs no checks.
   assert.equal(role(page(`requires: [workspace]\n${task}\nexpect:\n  status: done`)).checks, undefined)
   const unchecked = Cases.parse("Org/Cases/probe.md", page(`${task}\nexpect:\n  status: done\n  checks: passed`))
   assert.equal((unchecked as Cases.Invalid).reason, "checks and expect.files need requires: [workspace]")
-  const wrong = Cases.parse("Org/Cases/probe.md", page(`requires: [workspace]\n${task}\nexpect:\n  status: done\n  checks: failed`))
+  const wrong = Cases.parse(
+    "Org/Cases/probe.md",
+    page(`requires: [workspace]\n${task}\nexpect:\n  status: done\n  checks: failed`)
+  )
   assert.equal((wrong as Cases.Invalid).reason, "expect.checks is passed")
 })

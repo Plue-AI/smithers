@@ -13,12 +13,18 @@ after(() => rmSync(scratch, { recursive: true, force: true }))
 
 test("the policy defaults to 10 MB logs, three copies, and every receipt kept", () => {
   assert.deepEqual(policyOf({}), { logMaxBytes: 10 * 1024 * 1024, logKeep: 3, runsKeepDays: undefined })
-  assert.deepEqual(policyOf({ SMITHERS_ORG_LOG_MAX_MB: "1", SMITHERS_ORG_LOG_KEEP: "2", SMITHERS_ORG_RUNS_KEEP_DAYS: "30" }), {
-    logMaxBytes: 1024 * 1024,
-    logKeep: 2,
-    runsKeepDays: 30
-  })
-  assert.throws(() => policyOf({ SMITHERS_ORG_RUNS_KEEP_DAYS: "0" }), /SMITHERS_ORG_RUNS_KEEP_DAYS must be an integer of at least 1/)
+  assert.deepEqual(
+    policyOf({ SMITHERS_ORG_LOG_MAX_MB: "1", SMITHERS_ORG_LOG_KEEP: "2", SMITHERS_ORG_RUNS_KEEP_DAYS: "30" }),
+    {
+      logMaxBytes: 1024 * 1024,
+      logKeep: 2,
+      runsKeepDays: 30
+    }
+  )
+  assert.throws(
+    () => policyOf({ SMITHERS_ORG_RUNS_KEEP_DAYS: "0" }),
+    /SMITHERS_ORG_RUNS_KEEP_DAYS must be an integer of at least 1/
+  )
   assert.throws(() => policyOf({ SMITHERS_ORG_LOG_MAX_MB: "ten" }), /SMITHERS_ORG_LOG_MAX_MB/)
 })
 
@@ -128,7 +134,11 @@ test("finished runs' workspaces go whoever holds them; a dead holder's go unless
 
 const capture = (env: Io["env"]) => {
   const out: Array<string> = [], err: Array<string> = []
-  return { io: { out: (line: string) => out.push(line), err: (line: string) => err.push(line), env, cwd: scratch }, out, err }
+  return {
+    io: { out: (line: string) => out.push(line), err: (line: string) => err.push(line), env, cwd: scratch },
+    out,
+    err
+  }
 }
 
 test("clean rotates and prunes by the .env policy", async () => {
@@ -136,7 +146,10 @@ test("clean rotates and prunes by the .env policy", async () => {
   mkdirSync(join(stateDir, "logs"), { recursive: true })
   mkdirSync(join(wiki, "Org", "Runs", "cli-old"), { recursive: true })
   writeFileSync(join(stateDir, "logs", "host.log"), "x".repeat(2 * 1024 * 1024))
-  writeFileSync(join(stateDir, ".env"), `SMITHERS_ORG_LOG_MAX_MB=1\nSMITHERS_ORG_RUNS_KEEP_DAYS=1\nSMITHERS_ORG_ROOT=${wiki}\n`)
+  writeFileSync(
+    join(stateDir, ".env"),
+    `SMITHERS_ORG_LOG_MAX_MB=1\nSMITHERS_ORG_RUNS_KEEP_DAYS=1\nSMITHERS_ORG_ROOT=${wiki}\n`
+  )
   const old = new Date(Date.now() - 3 * 86_400_000)
   utimesSync(join(wiki, "Org", "Runs", "cli-old"), old, old)
   // No Organization.md: the policy needs the wiki's configuration to find its receipts.
@@ -158,7 +171,12 @@ test("clean rotates and prunes by the .env policy", async () => {
   assert.equal(readFileSync(join(stateDir, "logs", "host.log"), "utf8"), "")
 })
 
-const view = (runId: string, status: string, gates: RunView["gates"] = []): RunView => ({ runId, flowId: "organization/intake", status, gates })
+const view = (runId: string, status: string, gates: RunView["gates"] = []): RunView => ({
+  runId,
+  flowId: "organization/intake",
+  status,
+  gates
+})
 
 test("status at a glance: counts, then parked with the answer command, failed, running", () => {
   assert.deepEqual(glance([]), ["no runs"])

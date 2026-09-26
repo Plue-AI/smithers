@@ -1,9 +1,9 @@
 /** Bash capture in a git repository: the VCS's own before/after, relative to the working directory. */
 import { describe, expect, it } from "bun:test"
+import { Effect } from "effect"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Effect } from "effect"
 import * as Changes from "../src/changes.ts"
 
 const sh = (cwd: string, ...command: string[]) => {
@@ -23,13 +23,23 @@ const repository = (commit = true) => {
   return cwd
 }
 /** Runs one captured bash call whose body is `effect`, from `cwd`. */
-const bash = async (cwd: string, effect: () => void, input: unknown = { command: "x" }): Promise<ReadonlyArray<Changes.Receipt>> => {
+const bash = async (
+  cwd: string,
+  effect: () => void,
+  input: unknown = { command: "x" }
+): Promise<ReadonlyArray<Changes.Receipt>> => {
   const receipts: Array<Changes.Receipt> = []
   const source = {
     name: "test",
-    bindings: () => Effect.succeed([{ descriptor: { name: "bash" }, run: () => Effect.sync(() => (effect(), { outcome: "success" })) }])
+    bindings: () =>
+      Effect.succeed([{
+        descriptor: { name: "bash" },
+        run: () => Effect.sync(() => (effect(), { outcome: "success" }))
+      }])
   } as unknown as Parameters<typeof Changes.capture>[0]
-  const [binding] = await Effect.runPromise(Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings())
+  const [binding] = await Effect.runPromise(
+    Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings()
+  )
   await Effect.runPromise(
     binding!.run({ flowName: "bash", input, identity: { session: "t", frame: 1, ordinal: 0 } } as never)
   )
@@ -115,10 +125,18 @@ describe("named write capture", () => {
     const receipts: Changes.Receipt[] = []
     const source = {
       name: "test",
-      bindings: () => Effect.succeed([{ descriptor: { name: flow }, run: () => Effect.sync(() => (effect(), { outcome: "success" })) }])
+      bindings: () =>
+        Effect.succeed([{
+          descriptor: { name: flow },
+          run: () => Effect.sync(() => (effect(), { outcome: "success" }))
+        }])
     } as unknown as Parameters<typeof Changes.capture>[0]
-    const [binding] = await Effect.runPromise(Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings())
-    await Effect.runPromise(binding!.run({ flowName: flow, input, identity: { session: "t", frame: 1, ordinal: 0 } } as never))
+    const [binding] = await Effect.runPromise(
+      Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings()
+    )
+    await Effect.runPromise(
+      binding!.run({ flowName: flow, input, identity: { session: "t", frame: 1, ordinal: 0 } } as never)
+    )
     return receipts
   }
 
@@ -138,7 +156,11 @@ describe("named write capture", () => {
 
   it("counts only changed files beyond the patch display limit", async () => {
     const cwd = repository()
-    const input = { input: `*** Begin Patch\n${Array.from({ length: 202 }, (_, i) => `*** Add File: f-${i}.txt\n+new`).join("\n")}\n*** End Patch` }
+    const input = {
+      input: `*** Begin Patch\n${
+        Array.from({ length: 202 }, (_, i) => `*** Add File: f-${i}.txt\n+new`).join("\n")
+      }\n*** End Patch`
+    }
     const receipts = await run(cwd, input, () => {
       for (let i = 0; i < 201; i++) writeFileSync(join(cwd, `f-${i}.txt`), "new\n")
     }, "apply_patch")
@@ -156,7 +178,11 @@ describe("patch", () => {
     let clock = now()
     Date.now = () => (clock += 150)
     try {
-      const patch = Changes.patch("math.js", "export const add = (a, b) => a - b\n", "export const add = (a, b) => a + b\n")
+      const patch = Changes.patch(
+        "math.js",
+        "export const add = (a, b) => a - b\n",
+        "export const add = (a, b) => a + b\n"
+      )
       expect(patch?.patch).toContain("-export const add = (a, b) => a - b")
       expect(patch?.patch).toContain("+export const add = (a, b) => a + b")
     } finally {

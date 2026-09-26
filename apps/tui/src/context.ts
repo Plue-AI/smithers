@@ -28,7 +28,7 @@ export const instructionFiles = (cwd: string, home = homedir()): ReadonlyArray<s
   const global = join(home, ".smithers", "agent", "AGENTS.md")
   if (existsSync(global)) found.push(global)
   const directories: Array<string> = []
-  for (let directory = resolve(cwd); ; directory = dirname(directory)) {
+  for (let directory = resolve(cwd);; directory = dirname(directory)) {
     directories.unshift(directory)
     if (existsSync(join(directory, ".jj")) || existsSync(join(directory, ".git"))) break
     if (dirname(directory) === directory) {
@@ -52,7 +52,7 @@ export const jjRule =
 
 /** Whether `cwd` sits inside a jj workspace. */
 export const jjManaged = (cwd: string): boolean => {
-  for (let directory = resolve(cwd); ; directory = dirname(directory)) {
+  for (let directory = resolve(cwd);; directory = dirname(directory)) {
     if (existsSync(join(directory, ".jj"))) return true
     if (dirname(directory) === directory) return false
   }

@@ -3,8 +3,8 @@
  * worker list and the worker view: its status glyph and color, its model,
  * its clock, and the actions its status allows.
  */
-import * as Keys from "./keys.ts"
 import * as WorkerControls from "@smthrs/rpc/WorkerControls"
+import * as Keys from "./keys.ts"
 import { delegateModels } from "./models.ts"
 import type { Model } from "./models.ts"
 import { color } from "./theme.ts"
@@ -54,7 +54,9 @@ export type ActionId = "stop" | "retry" | "model" | "wait" | "steer" | "open-cha
 type Worker = Pick<Tab, "status" | "failure">
 
 /** Each worker action is a button in the worker view and a registry key (`panel` context). */
-const registered: ReadonlyArray<{ readonly id: ActionId; readonly binding: string; readonly when: (tab: Worker) => boolean }> = [
+const registered: ReadonlyArray<
+  { readonly id: ActionId; readonly binding: string; readonly when: (tab: Worker) => boolean }
+> = [
   { id: "stop", binding: "stop", when: (tab) => WorkerControls.allowed("stop", tab) },
   { id: "retry", binding: "retry", when: (tab) => WorkerControls.allowed("retry", tab) },
   { id: "model", binding: "worker-model", when: (tab) => WorkerControls.allowed("model", tab) },
@@ -86,7 +88,8 @@ export const fit = (widths: ReadonlyArray<number>, active: number, width: number
   let first = at
   let last = Math.min(widths.length, at + 1)
   const used = (from: number, to: number) =>
-    widths.slice(from, to).reduce((sum, each) => sum + each, 0) + (from > 0 ? arrow : 0) + (to < widths.length ? arrow : 0)
+    widths.slice(from, to).reduce((sum, each) => sum + each, 0) + (from > 0 ? arrow : 0) +
+    (to < widths.length ? arrow : 0)
   for (let grew = true; grew;) {
     grew = false
     if (last < widths.length && used(first, last + 1) <= width) {

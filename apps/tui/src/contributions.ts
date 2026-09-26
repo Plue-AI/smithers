@@ -174,7 +174,9 @@ export class Store {
       if (problem === undefined) keys.push({ owner, key })
       else problems.push(`${name(owner)}: ${problem}`)
     }
-    for (const { owner, contribution } of this.pluginEntries()) if (contribution.kind === "key") offer(owner, contribution.key)
+    for (const { owner, contribution } of this.pluginEntries()) {
+      if (contribution.kind === "key") offer(owner, contribution.key)
+    }
     for (const each of this.declared) {
       problems.push(...each.problems)
       for (const key of each.keys) offer(each.owner, key)

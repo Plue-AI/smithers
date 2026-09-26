@@ -29,34 +29,41 @@ const doctorMachines = () => {
   return (JSON.parse(listed.stdout) as Array<unknown>).filter((machine) => JSON.stringify(machine).includes(run))
 }
 
-test("the boot probe runs a command in a real Linux guest and leaves no machine", { skip, timeout: 900_000 }, async () => {
-  const sdk = await sdkOf(install!)
-  // Exit 0 only inside a Linux guest: this host is not Linux.
-  const guest = await bootProbe(sdk, image, {
-    command: "test \"$(uname -s)\" = Linux && test -f /etc/debian_version",
-    run: `${run}-guest`
-  })
-  assert.equal(guest.ok, true, guest.detail)
-  const plain = await bootProbe(sdk, image, { run: `${run}-plain` })
-  assert.equal(plain.ok, true, plain.detail)
-  assert.match(plain.detail, /^node:26-bookworm booted, `true` exited 0 in /)
-  // While a probe runs its machine is listed under this run, so the final
-  // emptiness check below is not vacuous.
-  const slow = bootProbe(sdk, image, { command: "sleep 3", run: `${run}-slow` })
-  let seen = false
-  for (let attempt = 0; attempt < 50 && !seen; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    seen = doctorMachines().length > 0
+test(
+  "the boot probe runs a command in a real Linux guest and leaves no machine",
+  { skip, timeout: 900_000 },
+  async () => {
+    const sdk = await sdkOf(install!)
+    // Exit 0 only inside a Linux guest: this host is not Linux.
+    const guest = await bootProbe(sdk, image, {
+      command: "test \"$(uname -s)\" = Linux && test -f /etc/debian_version",
+      run: `${run}-guest`
+    })
+    assert.equal(guest.ok, true, guest.detail)
+    const plain = await bootProbe(sdk, image, { run: `${run}-plain` })
+    assert.equal(plain.ok, true, plain.detail)
+    assert.match(plain.detail, /^node:26-bookworm booted, `true` exited 0 in /)
+    // While a probe runs its machine is listed under this run, so the final
+    // emptiness check below is not vacuous.
+    const slow = bootProbe(sdk, image, { command: "sleep 3", run: `${run}-slow` })
+    let seen = false
+    for (let attempt = 0; attempt < 50 && !seen; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      seen = doctorMachines().length > 0
+    }
+    assert.equal(seen, true)
+    assert.equal((await slow).ok, true)
+    const failing = await bootProbe(sdk, image, { command: "exit 7", run: `${run}-exit` })
+    assert.equal(failing.ok, false)
+    assert.match(failing.detail, /`exit 7` exited 7/)
+    const missing = await bootProbe(sdk, "smithers-doctor-no-such-image:0", {
+      timeoutMs: 120_000,
+      run: `${run}-missing`
+    })
+    assert.equal(missing.ok, false)
+    assert.deepEqual(doctorMachines(), [])
   }
-  assert.equal(seen, true)
-  assert.equal((await slow).ok, true)
-  const failing = await bootProbe(sdk, image, { command: "exit 7", run: `${run}-exit` })
-  assert.equal(failing.ok, false)
-  assert.match(failing.detail, /`exit 7` exited 7/)
-  const missing = await bootProbe(sdk, "smithers-doctor-no-such-image:0", { timeoutMs: 120_000, run: `${run}-missing` })
-  assert.equal(missing.ok, false)
-  assert.deepEqual(doctorMachines(), [])
-})
+)
 
 test("doctor passes the real host checks against the example organization", { skip, timeout: 900_000 }, async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "org-probe-"))

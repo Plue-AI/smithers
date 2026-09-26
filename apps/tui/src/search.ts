@@ -40,7 +40,10 @@ const decode = (data: Data | undefined, exact: boolean): string | undefined => {
  * be named and is skipped. Line text is decoded lossily for display.
  */
 export const parse = (line: string): Hit | undefined => {
-  let message: { readonly type?: string; readonly data?: { readonly path?: Data; readonly lines?: Data; readonly line_number?: number } }
+  let message: {
+    readonly type?: string
+    readonly data?: { readonly path?: Data; readonly lines?: Data; readonly line_number?: number }
+  }
   try {
     message = JSON.parse(line)
   } catch {
@@ -50,7 +53,11 @@ export const parse = (line: string): Hit | undefined => {
   const path = decode(message.data!.path, true)
   const text = decode(message.data!.lines, false)
   if (path === undefined || text === undefined) return undefined
-  return { path: path.replace(/^\.\//, ""), line: message.data!.line_number!, text: text.replace(/\r?\n$/, "").slice(0, maxColumns) }
+  return {
+    path: path.replace(/^\.\//, ""),
+    line: message.data!.line_number!,
+    text: text.replace(/\r?\n$/, "").slice(0, maxColumns)
+  }
 }
 
 export const run = (options: {
@@ -67,8 +74,10 @@ export const run = (options: {
     "--json",
     "--smart-case",
     ...(options.regex === undefined ? ["-F"] : []),
-    "-e", options.regex ?? options.query,
-    "--", "."
+    "-e",
+    options.regex ?? options.query,
+    "--",
+    "."
   ]
   const child = spawn(options.command ?? "rg", args, {
     cwd: options.cwd,

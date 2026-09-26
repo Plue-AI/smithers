@@ -444,7 +444,9 @@ const completed = (output = "green") => [
     opened(),
     ...call("edit", { path: "a.py" }),
     ...call("bash", { command: "pytest" }),
-    produced("const after = await ctx.call(\"bash\", {})\nif (after.exitCode === 0) ctx.done({ summary: \"green\" })\n"),
+    produced(
+      "const after = await ctx.call(\"bash\", {})\nif (after.exitCode === 0) ctx.done({ summary: \"green\" })\n"
+    ),
     printed("green"),
     completed()
   ])

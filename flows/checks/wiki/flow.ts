@@ -26,8 +26,11 @@ import { Check, Implementation, Receipt } from "../../coding/schema.ts"
 
 export default Flow.make({
   name: "checks/wiki",
-  description: "Review the configured public wiki against the implemented immutable JJ revision and return ordinary owning-Change findings.",
-  input: Schema.Struct({ implementation: Implementation, check: Check }), output: Receipt,
-  capabilities: ["*"], flows: ["coding/WikiCheck"],
+  description:
+    "Review the configured public wiki against the implemented immutable JJ revision and return ordinary owning-Change findings.",
+  input: Schema.Struct({ implementation: Implementation, check: Check }),
+  output: Receipt,
+  capabilities: ["*"],
+  flows: ["coding/WikiCheck"],
   effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" }
 })

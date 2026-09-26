@@ -16,10 +16,14 @@ it("shows help without validating the workspace or starting a model", () => {
 })
 
 it("refuses invalid options and ignored extra inputs before changing directory", () => {
-  for (const args of [["--unknown"], ["--model"], ["/", "/tmp"], ["-c", "-r"], ["-p", "hi", "-c"], ["-m", ""], ["-p", " "]]) {
+  for (
+    const args of [["--unknown"], ["--model"], ["/", "/tmp"], ["-c", "-r"], ["-p", "hi", "-c"], ["-m", ""], ["-p", " "]]
+  ) {
     expect(Cli.parse(args, "/")).toHaveProperty("error")
   }
-  expect(Cli.parse(["/missing-tui-directory-1987"], "/")).toEqual({ error: "Cannot open directory: /missing-tui-directory-1987" })
+  expect(Cli.parse(["/missing-tui-directory-1987"], "/")).toEqual({
+    error: "Cannot open directory: /missing-tui-directory-1987"
+  })
   expect(Cli.parse([import.meta.filename], "/")).toEqual({ error: `Not a directory: ${import.meta.filename}` })
   const result = spawnSync("bun", [resolve(import.meta.dir, "../src/main.tsx"), "--unknown"], { encoding: "utf8" })
   expect(result.status).toBe(1)
@@ -29,7 +33,8 @@ it("refuses invalid options and ignored extra inputs before changing directory",
 
 it("resolves a relative workspace and keeps prompt and model flags", () => {
   expect(Cli.parse(["tmp", "-m", "replay:recording", "-p", "hello"], "/")).toMatchObject({
-    cwd: "/tmp", values: { model: "replay:recording", print: "hello" }
+    cwd: "/tmp",
+    values: { model: "replay:recording", print: "hello" }
   })
 })
 
@@ -47,12 +52,21 @@ it("refuses redirected interactive streams while print mode still works", () => 
   expect(printed.stderr).toBe("")
 })
 
-it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])("does not load terminal libraries for %j", ({ args }) => {
-  const app = resolve(import.meta.dir, "../src/main.tsx")
-  const probe = `Bun.plugin({name:"refuse-terminal",setup(build){build.onLoad({filter:/\\/@opentui\\//},()=>{throw new Error("terminal library must not load")})}});process.argv=${JSON.stringify(["bun", app, ...args])};await import(${JSON.stringify(app)})`
-  const result = spawnSync("bun", ["-e", probe], { encoding: "utf8", timeout: 10_000,
-    env: { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl") } })
-  expect(result.status, result.stderr).toBe(0)
-  expect(result.stdout).toContain(args[0] === "--help" ? "Usage: smithers-tui" : "pong")
-  expect(result.stderr).toBe("")
-})
+it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])(
+  "does not load terminal libraries for %j",
+  ({ args }) => {
+    const app = resolve(import.meta.dir, "../src/main.tsx")
+    const probe =
+      `Bun.plugin({name:"refuse-terminal",setup(build){build.onLoad({filter:/\\/@opentui\\//},()=>{throw new Error("terminal library must not load")})}});process.argv=${
+        JSON.stringify(["bun", app, ...args])
+      };await import(${JSON.stringify(app)})`
+    const result = spawnSync("bun", ["-e", probe], {
+      encoding: "utf8",
+      timeout: 10_000,
+      env: { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl") }
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain(args[0] === "--help" ? "Usage: smithers-tui" : "pong")
+    expect(result.stderr).toBe("")
+  }
+)

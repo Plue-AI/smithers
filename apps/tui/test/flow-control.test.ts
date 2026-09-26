@@ -86,13 +86,16 @@ it("keeps the actionable import failure and its original cause", async () => {
   const folder = join(project, "flows/broken")
   mkdirSync(folder, { recursive: true })
   symlinkSync(join(import.meta.dir, "../node_modules"), join(project, "node_modules"), "dir")
-  writeFileSync(join(folder, "flow.ts"), `
+  writeFileSync(
+    join(folder, "flow.ts"),
+    `
     import { Flow } from "@smthrs/flow"
     import { Node } from "@smthrs/plan"
     import { Schema } from "effect"
     throw new Error("missing project configuration\\nadditional diagnostic detail")
     export default Flow.make("broken", { description: "Broken", payload: {}, success: Schema.String, body: () => Node.succeed("unused") })
-  `)
+  `
+  )
   const broken = FlowControl.make({ cwd: project, environment: {}, approvals: host.approvals! })
   try {
     const failure = await broken.input("broken").catch((error: unknown) => error) as FlowError
@@ -179,7 +182,12 @@ for (const mode of ["ask", "deny", "all"] as const) {
     it(`${by} project flows honor ${mode} through the worker approval store`, async () => {
       const stateRoot = mkdtempSync(join(tmpdir(), "tui-flow-approval-"))
       const host = Host.make({ cwd: root, environment: {}, approvals: mode })
-      const port = FlowControl.make({ cwd: root, stateRoot, environment: { SMITHERS_TUI_APPROVE: mode }, approvals: host.approvals! })
+      const port = FlowControl.make({
+        cwd: root,
+        stateRoot,
+        environment: { SMITHERS_TUI_APPROVE: mode },
+        approvals: host.approvals!
+      })
       const runs = new FlowRuns({ port, persist: () => {} })
       const request = runs.request({ id: "consequential", flow: "consequential", input: {}, by })
       const wait = async (until: () => Promise<boolean>) => {
@@ -191,7 +199,9 @@ for (const mode of ["ask", "deny", "all"] as const) {
         }
       }
       try {
-        await wait(async () => (await host.approvals!.pending()).length > 0 || ["done", "failed"].includes(runs.get(request.id)!.status))
+        await wait(async () =>
+          (await host.approvals!.pending()).length > 0 || ["done", "failed"].includes(runs.get(request.id)!.status)
+        )
         if (mode === "ask") {
           expect((await host.approvals!.pending()).length).toBe(1)
           const actions: string[] = []

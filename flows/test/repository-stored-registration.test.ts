@@ -1,6 +1,6 @@
+import { Schema } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { Schema } from "effect"
 import { initialSetup, setupCandidate } from "../../packages/rpc/src/RepositorySetup.ts"
 import { JobInput, SetupInput } from "../repository/schema.ts"
 
@@ -18,11 +18,26 @@ const sourceRevision = "c2556c7da43868894aa8368a01d7d1ce2c736d0f"
 // draft at revision 6: the identity its enabled registration still carries.
 const registeredDigest = "7d58fb03b7f0ed28a6ba637caacb19617776ea94925eea34b1a495887a2df04b"
 const registered = () => ({ ...initialSetup(repo, job, "maintainer"), revision: 6 })
-const event = { source: "github", type: "issues", action: "opened", deliveryKey: "delivery-1", issueNumber: 7,
-  payload: { issue: { number: 7, title: "Add the greeting", body: "Append one line" } } }
+const event = {
+  source: "github",
+  type: "issues",
+  action: "opened",
+  deliveryKey: "delivery-1",
+  issueNumber: 7,
+  payload: { issue: { number: 7, title: "Add the greeting", body: "Append one line" } }
+}
 const dispatched = (over: Record<string, unknown> = {}) => {
   const setup = registered()
-  return { repo, job, revision: setup.revision, digest: registeredDigest, sourceRevision, configuration: setup.draft, event, ...over }
+  return {
+    repo,
+    job,
+    revision: setup.revision,
+    digest: registeredDigest,
+    sourceRevision,
+    configuration: setup.draft,
+    event,
+    ...over
+  }
 }
 
 test("a job registered before the trial's test request left the candidate still dispatches", () => {
@@ -34,19 +49,45 @@ test("a job registered before the trial's test request left the candidate still 
 
 test("a registration dispatching another configuration or another revision is still refused", () => {
   const setup = registered()
-  for (const over of [
-    { configuration: { ...setup.draft, budgetMinutes: 20 } },
-    { configuration: { ...setup.draft, trialTitle: "Another test issue" } },
-    { revision: 7 },
-    { digest: "0".repeat(64) }
-  ]) assert.throws(() => Schema.decodeUnknownSync(JobInput)(dispatched(over)), /The job candidate changed/, JSON.stringify(over))
+  for (
+    const over of [
+      { configuration: { ...setup.draft, budgetMinutes: 20 } },
+      { configuration: { ...setup.draft, trialTitle: "Another test issue" } },
+      { revision: 7 },
+      { digest: "0".repeat(64) }
+    ]
+  ) {
+    assert.throws(
+      () => Schema.decodeUnknownSync(JobInput)(dispatched(over)),
+      /The job candidate changed/,
+      JSON.stringify(over)
+    )
+  }
 })
 
 test("a setup operation stored before the trial's test request left the candidate still decodes", () => {
   const setup = registered()
-  const input = Schema.decodeUnknownSync(SetupInput)({ requestId: "stored-request", repo, job, operation: "apply",
-    revision: setup.revision, digest: registeredDigest, draft: setup.draft })
+  const input = Schema.decodeUnknownSync(SetupInput)({
+    requestId: "stored-request",
+    repo,
+    job,
+    operation: "apply",
+    revision: setup.revision,
+    digest: registeredDigest,
+    draft: setup.draft
+  })
   assert.equal(input.digest, registeredDigest)
-  assert.throws(() => Schema.decodeUnknownSync(SetupInput)({ requestId: "stored-request", repo, job, operation: "apply",
-    revision: setup.revision, digest: registeredDigest, draft: { ...setup.draft, budgetMinutes: 20 } }), /Invalid setup input or candidate digest/)
+  assert.throws(
+    () =>
+      Schema.decodeUnknownSync(SetupInput)({
+        requestId: "stored-request",
+        repo,
+        job,
+        operation: "apply",
+        revision: setup.revision,
+        digest: registeredDigest,
+        draft: { ...setup.draft, budgetMinutes: 20 }
+      }),
+    /Invalid setup input or candidate digest/
+  )
 })

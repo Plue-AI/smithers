@@ -10,11 +10,18 @@ import { AdmitSource } from "../source-admission.ts"
 export default Flow.make("coding/Prototype", {
   description: "Create and retain a disposable source prototype without implementing or landing it.",
   capabilities: ["*"],
-  payload: RequestInput, success: PocResult, error: Schema.Union([PrepareRequest.errorSchema, Poc.errorSchema]),
-  body: input => PrepareRequest.child({ prompt: input.prompt, feedback: input.feedback ?? "" }).pipe(
-    Node.bindPlanned(plan => AdmitSource.call({ plan })),
-    Node.bindPlanned(plan => Poc.child({ plan, source: plan.observedHead }).pipe(
-      Node.bindPlanned(result => Node.succeed(result).pipe(Node.andThen(AdmitSource.call({ plan })),
-        Node.andThen(Node.succeed(result))))))
-  )
+  payload: RequestInput,
+  success: PocResult,
+  error: Schema.Union([PrepareRequest.errorSchema, Poc.errorSchema]),
+  body: (input) =>
+    PrepareRequest.child({ prompt: input.prompt, feedback: input.feedback ?? "" }).pipe(
+      Node.bindPlanned((plan) => AdmitSource.call({ plan })),
+      Node.bindPlanned((plan) =>
+        Poc.child({ plan, source: plan.observedHead }).pipe(
+          Node.bindPlanned((result) =>
+            Node.succeed(result).pipe(Node.andThen(AdmitSource.call({ plan })), Node.andThen(Node.succeed(result)))
+          )
+        )
+      )
+    )
 })

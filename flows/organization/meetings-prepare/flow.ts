@@ -14,8 +14,8 @@ import { Schema } from "effect"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import { fieldTurn } from "../field-turn.ts"
-import { FindOccurrence, MeetingFailed, MeetingReport, PrepareTask, WriteAgenda } from "../meetings.ts"
 import { blocked, finish, report } from "../meetings-shared.ts"
+import { FindOccurrence, MeetingFailed, MeetingReport, PrepareTask, WriteAgenda } from "../meetings.ts"
 
 const implementationVersion = "organization/meetings-prepare/v1"
 
@@ -30,19 +30,33 @@ export default Flow.make("organization/meetings-prepare", {
   success: MeetingReport,
   error: Schema.Union([MeetingFailed, Actions.ReceiptFailed]),
   body: (payload) =>
-    FindOccurrence.call({ principal: payload.principal, which: "next", ...(payload.at === undefined ? {} : { at: payload.at }) }).pipe(
+    FindOccurrence.call({
+      principal: payload.principal,
+      which: "next",
+      ...(payload.at === undefined ? {} : { at: payload.at })
+    }).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (occurrence) =>
         Node.branch(Node.succeed(occurrence), {
           if: Node.capture({ implementationVersion }, (seen) => seen.found),
-          else: () => report({ key: occurrence.key, status: "not planned", summary: occurrence.reason, principal: payload.principal }),
+          else: () =>
+            report({
+              key: occurrence.key,
+              status: "not planned",
+              summary: occurrence.reason,
+              principal: payload.principal
+            }),
           then: () =>
             Actions.PinRoster.call({}).pipe(
               Node.bindPlanned(Node.capture({ implementationVersion }, (pin) =>
                 PrepareTask.call({ revision: pin.revision, occurrence }).pipe(
-                  Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => fieldTurn(pin.revision, stage, ["agenda"])))
+                  Node.bindPlanned(
+                    Node.capture({ implementationVersion }, (stage) => fieldTurn(pin.revision, stage, ["agenda"]))
+                  )
                 ))),
-              Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
-                Node.all({ occurrence: Node.succeed(occurrence), written: WriteAgenda.call({ occurrence, answer }) }))),
+              Node.bindPlanned(
+                Node.capture({ implementationVersion }, (answer) =>
+                  Node.all({ occurrence: Node.succeed(occurrence), written: WriteAgenda.call({ occurrence, answer }) }))
+              ),
               Node.map(Node.capture({ implementationVersion }, ({ occurrence: seen, written }): MeetingReport => ({
                 key: seen.key,
                 status: "prepared",
@@ -53,8 +67,10 @@ export default Flow.make("organization/meetings-prepare", {
             )
         }).pipe(
           blocked(occurrence.key, payload.principal),
-          Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-            finish(occurrence.key, "meeting-prepare", payload, outcome)))
+          Node.bindPlanned(
+            Node.capture({ implementationVersion }, (outcome) =>
+              finish(occurrence.key, "meeting-prepare", payload, outcome))
+          )
         )))
     )
 })

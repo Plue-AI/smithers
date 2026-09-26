@@ -18,11 +18,22 @@ const name = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160))
 /** What choosing a key, a status item or a row does. Never a shell command. */
 export const Action = Schema.Union([
   /** Sends a prompt to the chat coordinator. */
-  Schema.Struct({ kind: Schema.Literal("prompt"), prompt: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32_000)) }),
+  Schema.Struct({
+    kind: Schema.Literal("prompt"),
+    prompt: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32_000))
+  }),
   /** Requests a flow run; missing input opens the flow's form. */
-  Schema.Struct({ kind: Schema.Literal("flow"), flow: name, input: Schema.optional(Schema.Record(Schema.String, Schema.Json)) }),
+  Schema.Struct({
+    kind: Schema.Literal("flow"),
+    flow: name,
+    input: Schema.optional(Schema.Record(Schema.String, Schema.Json))
+  }),
   /** Starts a custom agent in a worker tab; without a prompt the composer asks for one. */
-  Schema.Struct({ kind: Schema.Literal("agent"), agent: name, prompt: Schema.optional(Schema.String.check(Schema.isMaxLength(32_000))) }),
+  Schema.Struct({
+    kind: Schema.Literal("agent"),
+    agent: name,
+    prompt: Schema.optional(Schema.String.check(Schema.isMaxLength(32_000)))
+  }),
   /** Switches to a surface: `chat`, `summary`, `smithers`, `tab:<id>`, `flow:<id>` or `ui:<id>`. */
   Schema.Struct({ kind: Schema.Literal("open"), surface: short })
 ])
@@ -30,7 +41,9 @@ export type Action = typeof Action.Type
 export const Row = Schema.Struct({
   id: short,
   label: short,
-  status: Schema.optional(Schema.Literals(["running", "waiting", "queued", "parked", "done", "failed", "requested", "cancelled"])),
+  status: Schema.optional(
+    Schema.Literals(["running", "waiting", "queued", "parked", "done", "failed", "requested", "cancelled"])
+  ),
   details: Schema.Array(Block).check(Schema.isMaxLength(40)),
   // A user selects an action; publishing a panel never executes its actions.
   action: Schema.optional(Schema.Union([

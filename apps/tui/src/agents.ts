@@ -44,7 +44,9 @@ export const find = (
 ): Extension.Descriptor => {
   const found = listed.find((each) => each.name === name)
   if (found === undefined) throw new AgentError("unknown_agent", `No agent named ${name}`)
-  if (!Extension.isAgent(found)) throw new AgentError("not_an_agent", `${name} is a module flow; run it with smithers.run or /flow`)
+  if (!Extension.isAgent(found)) {
+    throw new AgentError("not_an_agent", `${name} is a module flow; run it with smithers.run or /flow`)
+  }
   if (by === "agent" && !found.modelInvocable) throw new AgentError("not_invocable", `${name} is for a person to start`)
   return found
 }
@@ -76,7 +78,9 @@ export const profile = (
   return {
     name: descriptor.name,
     digest: body.digest,
-    system: MarkdownFlow.renderPrompt(new FlowBodyPrompt({ text: body.text, baseDirectory: body.baseDirectory }), { args: "" }),
+    system: MarkdownFlow.renderPrompt(new FlowBodyPrompt({ text: body.text, baseDirectory: body.baseDirectory }), {
+      args: ""
+    }),
     ...(seat === undefined ? {} : { seat }),
     ...(fallbackSeats === undefined ? {} : { fallbackSeats }),
     ...(descriptor.effort === undefined ? {} : { thinking: descriptor.effort }),
@@ -87,12 +91,16 @@ export const profile = (
 
 /** A failed body read, as the tab's typed failure. */
 export const unreadable = (error: unknown): AgentError =>
-  error instanceof AgentError ? error : new AgentError("unreadable", error instanceof Error ? error.message : String(error))
+  error instanceof AgentError
+    ? error
+    : new AgentError("unreadable", error instanceof Error ? error.message : String(error))
 
 /** The coordinator's `Agents:` context: model-invocable agents, at most 20. */
 export const context = (listed: ReadonlyArray<Extension.Descriptor>): string =>
   JSON.stringify(
-    listed.filter((each) => Extension.isAgent(each) && each.modelInvocable).slice(0, 20).map(({ name, description }) => ({
+    listed.filter((each) => Extension.isAgent(each) && each.modelInvocable).slice(0, 20).map((
+      { name, description }
+    ) => ({
       name,
       description
     }))
@@ -108,7 +116,10 @@ export interface Port {
 
 /** Agents over the flow runs' discovery and the flows port's body read. */
 export const port = (
-  runs: { readonly known: () => ReadonlyArray<Extension.Descriptor> | undefined; readonly listing: () => Promise<ReadonlyArray<Extension.Descriptor>> },
+  runs: {
+    readonly known: () => ReadonlyArray<Extension.Descriptor> | undefined
+    readonly listing: () => Promise<ReadonlyArray<Extension.Descriptor>>
+  },
   flows: Pick<Flows.Port, "body">
 ): Port => ({
   listed: runs.known,

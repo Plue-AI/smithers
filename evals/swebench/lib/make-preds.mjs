@@ -39,7 +39,9 @@ for (const id of ids) {
 }
 if (missing.length > 0) {
   for (const path of missing) console.error(`make-preds: no patch file at ${path}`)
-  console.error(`make-preds: ${missing.length} requested instance(s) have no patch file; a missing patch is never an empty prediction`)
+  console.error(
+    `make-preds: ${missing.length} requested instance(s) have no patch file; a missing patch is never an empty prediction`
+  )
   process.exit(1)
 }
 process.stdout.write(JSON.stringify(preds, null, 2))

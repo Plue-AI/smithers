@@ -27,9 +27,24 @@ export function FlowFormView(props: {
   const rows = Math.max(1, props.height - (props.compact ? 1 : 4) - (form.error === undefined ? 0 : 1))
   const start = Math.min(Math.max(0, form.focus - Math.floor(rows / 2)), Math.max(0, form.fields.length - rows))
   return (
-    <box style={{ border: ["left"], marginTop: props.compact ? 0 : 1, flexShrink: 0 }} borderColor={color.brand} customBorderChars={View.bar}>
-      <box style={{ paddingLeft: 2, paddingRight: 2, paddingTop: props.compact ? 0 : 1, paddingBottom: props.compact ? 0 : 1 }} backgroundColor={color.element}>
-        <text fg={color.text} wrapMode="none">{form.flow}{form.fields.length > rows ? `  ${form.focus + 1}/${form.fields.length}` : ""}</text>
+    <box
+      style={{ border: ["left"], marginTop: props.compact ? 0 : 1, flexShrink: 0 }}
+      borderColor={color.brand}
+      customBorderChars={View.bar}
+    >
+      <box
+        style={{
+          paddingLeft: 2,
+          paddingRight: 2,
+          paddingTop: props.compact ? 0 : 1,
+          paddingBottom: props.compact ? 0 : 1
+        }}
+        backgroundColor={color.element}
+      >
+        <text fg={color.text} wrapMode="none">
+          {form.flow}
+          {form.fields.length > rows ? `  ${form.focus + 1}/${form.fields.length}` : ""}
+        </text>
         {form.fields.slice(start, start + rows).map((field, offset) => {
           const index = start + offset
           const value = form.draft[field.name]
@@ -120,21 +135,23 @@ export function PickerDialog(props: {
   const visible = compact ? Math.max(1, height - 6) : Math.max(3, Math.floor(height / 2) - 6)
   return (
     <View.Dialog title={props.title} width={props.width} height={height}>
-      {props.query === undefined ? null : (
-      <box style={{ paddingLeft: 3, paddingRight: 3, marginBottom: compact ? 0 : 1 }}>
-        <input
-          focused
-          value={props.query}
-          placeholder="Search"
-          placeholderColor={color.faint}
-          textColor={color.text}
-          backgroundColor={color.surface}
-          focusedBackgroundColor={color.surface}
-          cursorColor={color.brand}
-          onInput={props.onQuery}
-        />
-      </box>
-      )}
+      {props.query === undefined ?
+        null :
+        (
+          <box style={{ paddingLeft: 3, paddingRight: 3, marginBottom: compact ? 0 : 1 }}>
+            <input
+              focused
+              value={props.query}
+              placeholder="Search"
+              placeholderColor={color.faint}
+              textColor={color.text}
+              backgroundColor={color.surface}
+              focusedBackgroundColor={color.surface}
+              cursorColor={color.brand}
+              onInput={props.onQuery}
+            />
+          </box>
+        )}
       <box style={{ paddingLeft: 2, paddingRight: 2 }}>
         <View.List
           rows={rows}
@@ -155,14 +172,20 @@ export const meter = (transcript: Transcript.Transcript, window: number, compact
   return {
     percent,
     context: transcript.contextAssessment?.outdated || transcript.contextAssessment?.irrelevant
-      ? `context: ${[
-        transcript.contextAssessment.outdated ? "outdated" : "",
-        transcript.contextAssessment.irrelevant ? "irrelevant" : ""
-      ].filter(Boolean).join(" + ")} · compact?  `
+      ? `context: ${
+        [
+          transcript.contextAssessment.outdated ? "outdated" : "",
+          transcript.contextAssessment.irrelevant ? "irrelevant" : ""
+        ].filter(Boolean).join(" + ")
+      } · compact?  `
       : "",
-    usage: `↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}${usage.cached === 0 ? "" : ` R${Editor.tokens(usage.cached)}`}`,
+    usage: `↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}${
+      usage.cached === 0 ? "" : ` R${Editor.tokens(usage.cached)}`
+    }`,
     window: window > 0
-      ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}${compact === undefined ? "" : ` · compact ${Editor.tokens(compact)}`}`
+      ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}${
+        compact === undefined ? "" : ` · compact ${Editor.tokens(compact)}`
+      }`
       : ""
   }
 }
@@ -189,14 +212,18 @@ export function StatusLine(props: {
         <View.KeyHints bindings={props.hints} />
       </box>
       <box style={{ flexDirection: "row", flexShrink: 0 }}>
-      <View.StatusItems items={props.items} onSelect={props.onItem} />
-      <text wrapMode="none" style={{ flexShrink: 0 }}>
-        {meter.context === "" ? null : <span fg={color.warning}>{meter.context}</span>}
-        <span fg={color.faint}>{meter.usage}</span>
-        {meter.window === "" ? null : (
-          <span fg={meter.percent > 90 ? color.danger : meter.percent > 70 ? color.warning : color.faint}>{meter.window}</span>
-        )}
-      </text>
+        <View.StatusItems items={props.items} onSelect={props.onItem} />
+        <text wrapMode="none" style={{ flexShrink: 0 }}>
+          {meter.context === "" ? null : <span fg={color.warning}>{meter.context}</span>}
+          <span fg={color.faint}>{meter.usage}</span>
+          {meter.window === "" ?
+            null :
+            (
+              <span fg={meter.percent > 90 ? color.danger : meter.percent > 70 ? color.warning : color.faint}>
+                {meter.window}
+              </span>
+            )}
+        </text>
       </box>
     </box>
   )

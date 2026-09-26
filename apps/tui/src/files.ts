@@ -18,7 +18,11 @@ const freshMs = 5_000
 export const parse = (stdout: Buffer): Array<string> => {
   const paths = new Set<string>()
   let start = 0
-  for (let end = stdout.indexOf(0); end >= 0 && paths.size < maxFiles; start = end + 1, end = stdout.indexOf(0, start)) {
+  for (
+    let end = stdout.indexOf(0);
+    end >= 0 && paths.size < maxFiles;
+    start = end + 1, end = stdout.indexOf(0, start)
+  ) {
     const bytes = stdout.subarray(start, end)
     const path = bytes.toString("utf8")
     if (path !== "" && Buffer.from(path, "utf8").equals(bytes)) paths.add(path)
@@ -26,20 +30,34 @@ export const parse = (stdout: Buffer): Array<string> => {
   return [...paths]
 }
 
-const run = (command: string, args: ReadonlyArray<string>, cwd: string, timeout: number): Promise<Array<string> | undefined> =>
+const run = (
+  command: string,
+  args: ReadonlyArray<string>,
+  cwd: string,
+  timeout: number
+): Promise<Array<string> | undefined> =>
   new Promise((resolve) => {
-    execFile(command, args, { cwd, encoding: "buffer", timeout, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => {
-      if (error) Log.write(`files.${command}`, error)
-      resolve(error ? undefined : parse(stdout))
-    })
+    execFile(
+      command,
+      args,
+      { cwd, encoding: "buffer", timeout, killSignal: "SIGKILL", maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) Log.write(`files.${command}`, error)
+        resolve(error ? undefined : parse(stdout))
+      }
+    )
   })
 
 export const list = async (cwd: string, timeoutMs = 2_000): Promise<ReadonlyArray<string>> =>
   await run("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd, timeoutMs) ??
-  await run("rg", ["--files", "--null"], cwd, timeoutMs) ?? []
+    await run("rg", ["--files", "--null"], cwd, timeoutMs) ?? []
 
 /** `list`, cached for a few seconds. */
-export const lister = (cwd: string, now: () => number = Date.now, changed: () => void = () => {}): (() => ReadonlyArray<string>) => {
+export const lister = (
+  cwd: string,
+  now: () => number = Date.now,
+  changed: () => void = () => {}
+): () => ReadonlyArray<string> => {
   let cached: ReadonlyArray<string> = []
   let readAt = -Infinity
   let loading = false

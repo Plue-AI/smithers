@@ -103,13 +103,15 @@ export const reproductionCitations = (
   work: typeof Work.Type,
   reproduction: typeof Reproduction.Type
 ): ReadonlyArray<string> => {
-  const text = reproduction.files.map(file => file.content).join("\n")
+  const text = reproduction.files.map((file) => file.content).join("\n")
   const names = (path: string): boolean => {
     const segment = path.split("/").filter(Boolean).at(-1)
     return text.includes(path) || (segment !== undefined && segment !== "" && text.includes(segment))
   }
-  return [...work.evidence.files.filter(file => names(file.path)).map(file => file.path),
-    ...reproduction.files.map(file => file.path)].slice(0, MAX_REPRODUCTION_CITATIONS)
+  return [
+    ...work.evidence.files.filter((file) => names(file.path)).map((file) => file.path),
+    ...reproduction.files.map((file) => file.path)
+  ].slice(0, MAX_REPRODUCTION_CITATIONS)
 }
 
 /** The state this measurement is judged as, clipped so the encoded state fits.
@@ -128,26 +130,41 @@ export const reproductionState = (
   const framed = (parts: ReadonlyArray<string>): ReproductionState => ({
     report: { title: clip(subject.title, 1000), body: parts[0]! },
     fixture: reproduction.files.map((file, index) => ({ path: file.path, content: parts[index + 1]! })),
-    command: { argv: reproduction.argv, cwd: reproduction.cwd, expected: reproduction.expected,
-      failureContains: reproduction.failureContains },
-    measured: { exitCode: integer(measured.exitCode), stdout: parts.at(-2)!, stderr: parts.at(-1)!,
-      truncated: measured.truncated === true },
-    source: work.evidence.files.map(file => file.path)
+    command: {
+      argv: reproduction.argv,
+      cwd: reproduction.cwd,
+      expected: reproduction.expected,
+      failureContains: reproduction.failureContains
+    },
+    measured: {
+      exitCode: integer(measured.exitCode),
+      stdout: parts.at(-2)!,
+      stderr: parts.at(-1)!,
+      truncated: measured.truncated === true
+    },
+    source: work.evidence.files.map((file) => file.path)
   })
-  const texts = [subject.body, ...reproduction.files.map(file => file.content),
-    string(measured.stdout), string(measured.stderr)]
+  const texts = [
+    subject.body,
+    ...reproduction.files.map((file) => file.content),
+    string(measured.stdout),
+    string(measured.stderr)
+  ]
   const room = Math.max(0, MAX_REPRODUCTION_STATE_BYTES - bytes(JSON.stringify(framed(texts.map(() => "")))))
   // Every text takes an equal share and no more than it needs; each pass hands
   // whatever the short ones left back to the long ones, so a state with one
   // long part clips only that part.
   const share = Math.floor(room / texts.length)
-  let budgets = texts.map(text => Math.min(bytes(text), share))
+  let budgets = texts.map((text) => Math.min(bytes(text), share))
   for (let pass = 0; pass < 4; pass++) {
     const spare = room - budgets.reduce((total, budget) => total + budget, 0)
     const hungry = texts.filter((text, index) => bytes(text) > budgets[index]!).length
     if (spare <= 0 || hungry === 0) break
-    budgets = budgets.map((budget, index) => bytes(texts[index]!) > budget
-      ? Math.min(bytes(texts[index]!), budget + Math.floor(spare / hungry)) : budget)
+    budgets = budgets.map((budget, index) =>
+      bytes(texts[index]!) > budget
+        ? Math.min(bytes(texts[index]!), budget + Math.floor(spare / hungry)) :
+        budget
+    )
   }
   let state = framed(texts.map((text, index) => clip(text, budgets[index]!)))
   // JSON escaping grows a quote-heavy or newline-heavy text past its share, so
@@ -171,8 +188,10 @@ export const reproductionReview = (
   verdict: keyof typeof verdicts
 ): typeof ReproductionReview.Type => ({
   verdict,
-  summary: verdict === "demonstrates" ? "Jev judged the executed fixture to demonstrate the reported defect."
-    : verdict === "unrelated" ? "Jev judged the executed fixture unrelated to the reported defect."
+  summary: verdict === "demonstrates" ?
+    "Jev judged the executed fixture to demonstrate the reported defect."
+    : verdict === "unrelated" ?
+    "Jev judged the executed fixture unrelated to the reported defect."
     : "Jev was unsure whether the executed fixture demonstrates the reported defect.",
   citations: reproductionCitations(work, reproduction)
 })
@@ -199,7 +218,8 @@ export const jevReproduction = (
     const reproduction = observation.reproduction
     if (reproduction === null) return yield* failed("This step measured no reproduction, so there is nothing to review")
     const answers = yield* reproductionClassifier.evaluate(reproductionState(work, reproduction, output)).pipe(
-      Effect.mapError(failure => failed(`Jev could not judge this reproduction: ${failure.code}. ${failure.message}`)))
+      Effect.mapError((failure) => failed(`Jev could not judge this reproduction: ${failure.code}. ${failure.message}`))
+    )
     const decided = answers.verdict.confidence >= REPRODUCTION_CONFIDENCE ? answers.verdict.value : "uncertain"
     return reproductionReview(work, reproduction, decided)
   })

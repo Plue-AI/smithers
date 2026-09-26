@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test"
 import { testRender } from "@opentui/react/test-utils"
+import { afterEach, describe, expect, it } from "bun:test"
 import { act } from "react"
 import * as Keys from "../src/keys.ts"
-import * as Tabs from "../src/tabs.ts"
 import { TabStrip, WorkerList, WorkerView } from "../src/tabs-view.tsx"
+import * as Tabs from "../src/tabs.ts"
 import { color } from "../src/theme.ts"
 import * as Transcript from "../src/transcript.ts"
 import type { Tab } from "../src/workspace.ts"
@@ -29,21 +29,31 @@ const find = (frame: string, text: string): { x: number; y: number } => {
   return { x: lines[y]!.indexOf(text), y }
 }
 
-const tab = (id: string, status: Tabs.Status, extra: Partial<Tab> = {}): Tab => ({
-  id,
-  title: `Worker ${id}`,
-  prompt: `Do ${id}.`,
-  seat: "openai:gpt-6-sol",
-  file: `/tmp/${id}.jsonl`,
-  status: status as Tab["status"],
-  startedAt: 1_000,
-  ...extra
-}) as Tab
+const tab = (id: string, status: Tabs.Status, extra: Partial<Tab> = {}): Tab =>
+  ({
+    id,
+    title: `Worker ${id}`,
+    prompt: `Do ${id}.`,
+    seat: "openai:gpt-6-sol",
+    file: `/tmp/${id}.jsonl`,
+    status: status as Tab["status"],
+    startedAt: 1_000,
+    ...extra
+  }) as Tab
 const models = [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "openai" }]
 
 describe("worker status", () => {
   it("gives every status its own glyph and color", () => {
-    const statuses: ReadonlyArray<Tabs.Status> = ["requested", "queued", "running", "waiting", "parked", "done", "failed", "cancelled"]
+    const statuses: ReadonlyArray<Tabs.Status> = [
+      "requested",
+      "queued",
+      "running",
+      "waiting",
+      "parked",
+      "done",
+      "failed",
+      "cancelled"
+    ]
     const styles = statuses.map((status) => Tabs.style(status, "⠋"))
     expect(new Set(styles.map((each) => each.glyph)).size).toBe(statuses.length)
     expect(new Set(styles.map((each) => `${each.glyph}${each.tone}`)).size).toBe(statuses.length)
@@ -56,7 +66,8 @@ describe("worker status", () => {
 
   it("names the model by its delegate alias, its label, then its id", () => {
     expect(Tabs.model("openai:gpt-6-sol", models)).toBe("sol")
-    expect(Tabs.model("anthropic:claude-x", [{ seat: "anthropic:claude-x", label: "Claude X", provider: "anthropic" }])).toBe("Claude X")
+    expect(Tabs.model("anthropic:claude-x", [{ seat: "anthropic:claude-x", label: "Claude X", provider: "anthropic" }]))
+      .toBe("Claude X")
     expect(Tabs.model("test:worker", [])).toBe("worker")
     expect(Tabs.model("replay:/tmp/sessions/fix-add.jsonl", [])).toBe("replay")
   })
@@ -83,7 +94,8 @@ describe("worker actions", () => {
     expect(keys("done")).toEqual(["c"])
   })
   it("resolves a key to the action it runs, never one the status forbids", () => {
-    const run = (name: string, status: Tabs.Status) => Tabs.actionFor(Keys.bindingFor({ name }, "panel")!.id, { status })?.id
+    const run = (name: string, status: Tabs.Status) =>
+      Tabs.actionFor(Keys.bindingFor({ name }, "panel")!.id, { status })?.id
     expect(run("x", "running")).toBe("stop")
     expect(run("r", "running")).toBeUndefined()
     expect(run("r", "failed")).toBe("retry")
@@ -130,7 +142,9 @@ describe("TabStrip", () => {
     }))
   ]
   it("shows whole titles, the status detail and hidden counts on both sides", async () => {
-    const { captureCharFrame } = await mount(<TabStrip chips={chips} active="tab:charlie" width={80} onSelect={() => {}} />)
+    const { captureCharFrame } = await mount(
+      <TabStrip chips={chips} active="tab:charlie" width={80} onSelect={() => {}} />
+    )
     const frame = captureCharFrame()
     expect(frame).toContain("Worker charlie with a long title")
     expect(frame).toContain("sol · 3s")
@@ -152,8 +166,12 @@ describe("TabStrip", () => {
     await mockMouse.click(left.x, left.y)
     expect(selected[0]).toBe("tab:charlie")
     expect(selected.slice(1)).toHaveLength(2)
-    expect(chips.findIndex((chip) => chip.id === selected[1])).toBeGreaterThan(chips.findIndex((chip) => chip.id === "tab:charlie"))
-    expect(chips.findIndex((chip) => chip.id === selected[2])).toBeLessThan(chips.findIndex((chip) => chip.id === "tab:charlie"))
+    expect(chips.findIndex((chip) => chip.id === selected[1])).toBeGreaterThan(
+      chips.findIndex((chip) => chip.id === "tab:charlie")
+    )
+    expect(chips.findIndex((chip) => chip.id === selected[2])).toBeLessThan(
+      chips.findIndex((chip) => chip.id === "tab:charlie")
+    )
   })
 })
 
@@ -161,8 +179,15 @@ describe("WorkerList", () => {
   it("lists each worker with its glyph, model and elapsed time, and opens one on click", async () => {
     const opened: Array<string> = []
     const { captureCharFrame, mockMouse } = await mount(
-      <WorkerList tabs={[tab("a", "running"), tab("b", "queued")]} active="tab:a" models={models} now={4_000} tick="⠋" eta={() => ""}
-        onSelect={(id) => opened.push(id)} />,
+      <WorkerList
+        tabs={[tab("a", "running"), tab("b", "queued")]}
+        active="tab:a"
+        models={models}
+        now={4_000}
+        tick="⠋"
+        eta={() => ""}
+        onSelect={(id) => opened.push(id)}
+      />,
       24,
       8
     )
@@ -181,7 +206,14 @@ describe("WorkerView", () => {
     (value: Transcript.Transcript) => Transcript.user(value, "Audit the auth middleware.", false, 1_000),
     (value: Transcript.Transcript) => Transcript.apply(value, { _tag: "model-requested" } as never, 1_100),
     (value: Transcript.Transcript) =>
-      Transcript.apply(value, { _tag: "model-delta", delta: { type: "text-delta", text: "Read the middleware.\n```js\nawait ctx.call(\"read\")\n```" } } as never, 1_200),
+      Transcript.apply(
+        value,
+        {
+          _tag: "model-delta",
+          delta: { type: "text-delta", text: "Read the middleware.\n```js\nawait ctx.call(\"read\")\n```" }
+        } as never,
+        1_200
+      ),
     (value: Transcript.Transcript) =>
       Transcript.apply(value, {
         _tag: "model-settled",
@@ -192,8 +224,17 @@ describe("WorkerView", () => {
 
   it("heads the transcript with status, model, elapsed and tokens, and renders cells as the chat does", async () => {
     const { captureCharFrame } = await mount(
-      <WorkerView tab={tab("a", "running")} transcript={transcript} models={models} now={4_000} tick="⠋" tone={color.info}
-        width={90} expanded={false} onAction={() => {}} />,
+      <WorkerView
+        tab={tab("a", "running")}
+        transcript={transcript}
+        models={models}
+        now={4_000}
+        tick="⠋"
+        tone={color.info}
+        width={90}
+        expanded={false}
+        onAction={() => {}}
+      />,
       90,
       24
     )
@@ -212,8 +253,18 @@ describe("WorkerView", () => {
   it("marks the row u undoes", async () => {
     const cell = transcript.items.find((item) => item.kind === "cell")!
     const { captureCharFrame } = await mount(
-      <WorkerView tab={tab("a", "done", { endedAt: 2_000 })} transcript={transcript} models={models} now={4_000} tick="⠋"
-        tone={color.info} width={90} expanded={false} onAction={() => {}} selected={cell.id} />,
+      <WorkerView
+        tab={tab("a", "done", { endedAt: 2_000 })}
+        transcript={transcript}
+        models={models}
+        now={4_000}
+        tick="⠋"
+        tone={color.info}
+        width={90}
+        expanded={false}
+        onAction={() => {}}
+        selected={cell.id}
+      />,
       90,
       24
     )
@@ -225,13 +276,26 @@ describe("WorkerView", () => {
   it("shows a failure and runs an action from its button", async () => {
     const actions: Array<string> = []
     const { captureCharFrame, mockMouse } = await mount(
-      <WorkerView tab={tab("a", "failed", {
-        endedAt: 2_000,
-        message: "Seat quota exhausted",
-        failure: { headline: "Seat quota exhausted", fault: "infra", line: "The seat ran out.", actions: ["resume", "switch-model"] } as never
-      })} transcript={transcript}
-        models={models} now={9_000} tick="⠋" tone={color.info} width={90} expanded={false}
-        onAction={(action) => actions.push(action)} />,
+      <WorkerView
+        tab={tab("a", "failed", {
+          endedAt: 2_000,
+          message: "Seat quota exhausted",
+          failure: {
+            headline: "Seat quota exhausted",
+            fault: "infra",
+            line: "The seat ran out.",
+            actions: ["resume", "switch-model"]
+          } as never
+        })}
+        transcript={transcript}
+        models={models}
+        now={9_000}
+        tick="⠋"
+        tone={color.info}
+        width={90}
+        expanded={false}
+        onAction={(action) => actions.push(action)}
+      />,
       90,
       24
     )

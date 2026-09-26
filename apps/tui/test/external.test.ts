@@ -38,12 +38,15 @@ describe("bounded quit", () => {
   })
 })
 
-
 it("keeps the event loop responsive while the external editor is open", async () => {
   let progressed = false
-  const timer = setTimeout(() => { progressed = true }, 10)
+  const timer = setTimeout(() => {
+    progressed = true
+  }, 10)
   try {
     await External.edit("draft", "sleep 0.2; printf edited >")
     expect(progressed).toBe(true)
-  } finally { clearTimeout(timer) }
+  } finally {
+    clearTimeout(timer)
+  }
 })

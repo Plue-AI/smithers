@@ -9,7 +9,9 @@ const fixture = new URL("./fixtures/timeline-worker.jsonl", import.meta.url).pat
 const transcript = Session.restore(Session.load(fixture)).transcript
 const activity = transcript.activity!
 const model = Activity.model(activity)
-const cells = transcript.items.filter((item): item is Extract<Transcript.Item, { kind: "cell" }> => item.kind === "cell")
+const cells = transcript.items.filter((item): item is Extract<Transcript.Item, { kind: "cell" }> =>
+  item.kind === "cell"
+)
 
 describe("scrubber layout from a recorded session", () => {
   test("phase segments tile the track in journal order and never overflow", () => {
@@ -50,7 +52,9 @@ describe("scrubber layout from a recorded session", () => {
     expect(layout.ticks).toHaveLength(2)
     expect(layout.ticks.every((tick) => tick.label === "")).toBe(true)
     expect(layout.rows).toBe(0)
-    expect(layout.segments.every((segment) => segment.label === "" || segment.label.length + 1 <= segment.width)).toBe(true)
+    expect(layout.segments.every((segment) => segment.label === "" || segment.label.length + 1 <= segment.width)).toBe(
+      true
+    )
   })
 
   test("the knob follows the live end; a cursor moves it and dims what is ahead", () => {
@@ -80,7 +84,9 @@ describe("scrubber layout from a recorded session", () => {
     const end = activity.records.at(-1)!.occurredAt!
     for (const subject of [activity, running]) {
       for (const cursor of [undefined, ...activity.records.map((record) => record.sequence!)]) {
-        const phases = [end, end + 60_000, end + 86_400_000].map((now) => Scrubber.layout(subject, 120, cursor, now).phase)
+        const phases = [end, end + 60_000, end + 86_400_000].map((now) =>
+          Scrubber.layout(subject, 120, cursor, now).phase
+        )
         expect(new Set(phases).size).toBe(1)
       }
     }
@@ -98,7 +104,9 @@ describe("scrubber layout from a recorded session", () => {
 })
 
 describe("scrubber navigation", () => {
-  const opened = activity.records.filter((record) => record.kind === "control.agent.turn-opened").map((record) => record.sequence!)
+  const opened = activity.records.filter((record) => record.kind === "control.agent.turn-opened").map((record) =>
+    record.sequence!
+  )
 
   test("left and right step frame to frame; brackets step event to event", () => {
     expect(Scrubber.key(activity, undefined, "left")).toBe(opened.at(-1))

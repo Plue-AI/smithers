@@ -262,7 +262,9 @@ const main = () => {
   const total = summary.total
   console.log(`instances          ${summary.instances}`)
   console.log(`frames             ${total.frames}`)
-  console.log(`test flow          ${total.testCalls} calls in ${summary.testInstances} instances, ${total.basedTestCalls} against base`)
+  console.log(
+    `test flow          ${total.testCalls} calls in ${summary.testInstances} instances, ${total.basedTestCalls} against base`
+  )
   console.log(`bash               ${total.bashCalls} calls`)
   console.log(`  stated path      ${total.statedInterpreter} in ${summary.statedInterpreterInstances} instances`)
   if (summary.taughtInstances > 0) {
@@ -271,10 +273,16 @@ const main = () => {
     )
   }
   console.log(`  bare interpreter ${total.bareInterpreter}`)
-  console.log(`interpreter hunt   ${total.huntCalls} calls over ${total.huntFrames} frames in ${summary.huntInstances} instances`)
+  console.log(
+    `interpreter hunt   ${total.huntCalls} calls over ${total.huntFrames} frames in ${summary.huntInstances} instances`
+  )
   console.log(`missing module     ${total.missingModule} results`)
   console.log(`invalid probes     ${total.invalidProbes}`)
-  console.log(`model retries      ${total.modelRetries} (${total.transportRetries} transport) ${JSON.stringify(total.retriesByCode)}`)
+  console.log(
+    `model retries      ${total.modelRetries} (${total.transportRetries} transport) ${
+      JSON.stringify(total.retriesByCode)
+    }`
+  )
   if (summary.unreadable.length > 0) {
     console.log(`unreadable         ${summary.unreadable.map((one) => one.instance).join(", ")}`)
   }

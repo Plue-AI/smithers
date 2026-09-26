@@ -37,23 +37,31 @@ it("coerces given values and lists required blanks by label", () => {
   expect(Form.payload(schema, fields, {}, draft)).toEqual({ error: "Needs: Title, Mode" })
   const filled = Form.payload(schema, fields, { extra: 1 }, { ...draft, title: "x", mode: "b" })
   expect(filled).toEqual({ payload: { extra: 1, title: "x", count: 3, draft: false, mode: "b" } })
-  expect(Form.payload(schema, fields, {}, { title: "x", mode: "a", count: "4" })).toMatchObject({ payload: { count: 4 } })
-  expect(Form.payload(schema, fields, {}, { title: "x", mode: "a", count: "four" })).toEqual({ error: "Count: not a number" })
+  expect(Form.payload(schema, fields, {}, { title: "x", mode: "a", count: "4" })).toMatchObject({
+    payload: { count: 4 }
+  })
+  expect(Form.payload(schema, fields, {}, { title: "x", mode: "a", count: "four" })).toEqual({
+    error: "Count: not a number"
+  })
   expect(Form.valid(schema, { title: "x", count: 3, draft: false, mode: "b" })).toBe(true)
 })
 
 it("parses /flow arguments like smthrs up", () => {
   expect(Form.parseArgs("")).toEqual({ input: {} })
-  expect(Form.parseArgs('{"a":1}')).toEqual({ input: { a: 1 } })
+  expect(Form.parseArgs("{\"a\":1}")).toEqual({ input: { a: 1 } })
   expect(Form.parseArgs("a=1 b")).toEqual({ input: { a: "1", b: true } })
   expect(Form.parseArgs("[1]")).toEqual({ input: { data: [1] } })
   expect(Form.parseArgs("{bad")).toEqual({ error: "Invalid JSON" })
 })
 
 it("keeps quoted and escaped flow values intact", () => {
-  expect(Form.parseArgs('text="hello world" enabled')).toEqual({ input: { text: "hello world", enabled: true } })
-  expect(Form.parseArgs("text='日本語 with spaces' empty='' equal='a=b'")).toEqual({ input: { text: "日本語 with spaces", empty: "", equal: "a=b" } })
-  expect(Form.parseArgs(String.raw`text="say \"hi\"" path=C:\work\file escaped=hello\ world`)).toEqual({ input: { text: 'say "hi"', path: String.raw`C:\work\file`, escaped: "hello world" } })
-  expect(Form.parseArgs('text="unclosed')).toEqual({ error: "Unclosed quote" })
+  expect(Form.parseArgs("text=\"hello world\" enabled")).toEqual({ input: { text: "hello world", enabled: true } })
+  expect(Form.parseArgs("text='日本語 with spaces' empty='' equal='a=b'")).toEqual({
+    input: { text: "日本語 with spaces", empty: "", equal: "a=b" }
+  })
+  expect(Form.parseArgs(String.raw`text="say \"hi\"" path=C:\work\file escaped=hello\ world`)).toEqual({
+    input: { text: "say \"hi\"", path: String.raw`C:\work\file`, escaped: "hello world" }
+  })
+  expect(Form.parseArgs("text=\"unclosed")).toEqual({ error: "Unclosed quote" })
   expect(Form.parseArgs("text=trailing\\")).toEqual({ error: "Trailing escape" })
 })

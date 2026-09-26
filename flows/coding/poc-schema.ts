@@ -22,16 +22,29 @@ export type PocDraft = typeof PocDraft.Type
 export const PocChanges = Schema.Struct({
   sourceDigest: Schema.NonEmptyString,
   transactionBase: Schema.NonEmptyString,
-  files: Schema.Array(Schema.Struct({ path: FilePath, before: Schema.NullOr(Content), after: Schema.NullOr(Content),
-    beforeDigest: Schema.NullOr(Schema.String), afterDigest: Schema.NullOr(Schema.String) })).check(Schema.isMaxLength(48)),
-  preview: Schema.Struct({ mediaType: Schema.Literal("text/html"), content: Schema.String.check(Schema.isMaxLength(4_194_304)) })
+  files: Schema.Array(
+    Schema.Struct({
+      path: FilePath,
+      before: Schema.NullOr(Content),
+      after: Schema.NullOr(Content),
+      beforeDigest: Schema.NullOr(Schema.String),
+      afterDigest: Schema.NullOr(Schema.String)
+    })
+  ).check(Schema.isMaxLength(48)),
+  preview: Schema.Struct({
+    mediaType: Schema.Literal("text/html"),
+    content: Schema.String.check(Schema.isMaxLength(4_194_304))
+  })
 })
 export const PocReview = Schema.Struct({
   findings: Schema.Array(Text).check(Schema.isMinLength(1), Schema.isMaxLength(12)),
   nextPlan: Text
 })
 export const PocResult = Schema.Struct({
-  status: Schema.Literal("drafted-unvalidated"), source: Revision, changes: PocChanges,
-  findings: PocReview.fields.findings, feedback: Schema.String.check(Schema.isMaxLength(32_768))
+  status: Schema.Literal("drafted-unvalidated"),
+  source: Revision,
+  changes: PocChanges,
+  findings: PocReview.fields.findings,
+  feedback: Schema.String.check(Schema.isMaxLength(32_768))
 })
 export type PocResult = typeof PocResult.Type

@@ -28,7 +28,9 @@ const unwrapOptional = (ast: SchemaAST.AST): { readonly ast: SchemaAST.AST; read
   const optional = ast.context?.isOptional === true
   if (ast._tag === "Union") {
     const rest = ast.types.filter((member) => member._tag !== "Undefined")
-    if (rest.length === 1 && rest[0] !== undefined) return { ast: rest[0], optional: optional || rest.length < ast.types.length }
+    if (rest.length === 1 && rest[0] !== undefined) {
+      return { ast: rest[0], optional: optional || rest.length < ast.types.length }
+    }
   }
   return { ast, optional }
 }
@@ -38,13 +40,15 @@ const control = (ast: SchemaAST.AST): Pick<Field, "kind" | "options"> => {
     node._tag === "Number" ||
     (node._tag === "Literal" && ["Infinity", "-Infinity", "NaN"].includes(String(node.literal))) ||
     (node._tag === "Union" && node.types.every(numeric))
-  if (ast._tag === "Number" || (ast._tag === "Union" && ast.types.some((type) => type._tag === "Number") && numeric(ast))) {
+  if (
+    ast._tag === "Number" || (ast._tag === "Union" && ast.types.some((type) => type._tag === "Number") && numeric(ast))
+  ) {
     return { kind: "number" }
   }
   if (ast._tag === "Boolean") return { kind: "boolean" }
   if (ast._tag === "Literal") return { kind: "select", options: [ast.literal as Value] }
   if (ast._tag === "Union" && ast.types.length > 0 && ast.types.every((member) => member._tag === "Literal")) {
-    return { kind: "select", options: ast.types.map((member) => (member).literal as Value) }
+    return { kind: "select", options: ast.types.map((member) => member.literal as Value) }
   }
   return { kind: "text" }
 }
@@ -106,7 +110,9 @@ export const payload = (
   const shown = new Set(list.map((field) => field.name))
   const result: Record<string, unknown> = Object.fromEntries(Object.entries(given).filter(([name]) => !shown.has(name)))
   const properties = schema.ast._tag === "Objects"
-    ? new Map(schema.ast.propertySignatures.map((signature) => [String(signature.name), unwrapOptional(signature.type).ast]))
+    ? new Map(
+      schema.ast.propertySignatures.map((signature) => [String(signature.name), unwrapOptional(signature.type).ast])
+    )
     : new Map<string, SchemaAST.AST>()
   for (const field of list) {
     const value = values[field.name]
@@ -148,7 +154,7 @@ export const parseArgs = (
   }
   const tokens: Array<string> = []
   let token = ""
-  let quote: "'" | '"' | undefined
+  let quote: "'" | "\"" | undefined
   let started = false
   for (let index = 0; index < trimmed.length; index++) {
     const character = trimmed[index]!
@@ -156,7 +162,7 @@ export const parseArgs = (
       const next = trimmed[index + 1]
       if (next === undefined) return { error: "Trailing escape" }
       // Preserve ordinary path backslashes; only syntax needs escaping.
-      if (next === "\\" || next === '"' || next === "'" || /\s/.test(next)) {
+      if (next === "\\" || next === "\"" || next === "'" || /\s/.test(next)) {
         token += next
         index++
       } else token += character
@@ -164,7 +170,7 @@ export const parseArgs = (
     } else if (quote !== undefined) {
       if (character === quote) quote = undefined
       else token += character
-    } else if (character === '"' || character === "'") {
+    } else if (character === "\"" || character === "'") {
       quote = character
       started = true
     } else if (/\s/.test(character)) {

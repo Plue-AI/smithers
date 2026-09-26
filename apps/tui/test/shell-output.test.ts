@@ -4,17 +4,28 @@ import * as Shell from "../src/shell.ts"
 
 describe("incremental shell output", () => {
   it("preserves UTF-8 and strips split CSI, OSC, DCS and CRLF at every byte boundary", () => {
-    const raw = Buffer.from("中文 👩🏽‍💻 é\r\n\x1b[31mred\x1b[0m\x1b]0;title\x07\x1bPprivate\x1b\\\x1b]8;;https://example.invalid\x1b\\link\x1b]8;;\x1b\\\rend")
+    const raw = Buffer.from(
+      "中文 👩🏽‍💻 é\r\n\x1b[31mred\x1b[0m\x1b]0;title\x07\x1bPprivate\x1b\\\x1b]8;;https://example.invalid\x1b\\link\x1b]8;;\x1b\\\rend"
+    )
     for (let split = 0; split <= raw.length; split++) {
       const stream = Output.decoder()
-      expect(stream.write(raw.subarray(0, split)) + stream.write(raw.subarray(split)) + stream.end()).toBe("中文 👩🏽‍💻 é\nredlink\nend")
+      expect(stream.write(raw.subarray(0, split)) + stream.write(raw.subarray(split)) + stream.end()).toBe(
+        "中文 👩🏽‍💻 é\nredlink\nend"
+      )
     }
     const stream = Output.decoder()
-    expect([...raw].map((byte) => stream.write(Buffer.from([byte]))).join("") + stream.end()).toBe("中文 👩🏽‍💻 é\nredlink\nend")
+    expect([...raw].map((byte) => stream.write(Buffer.from([byte]))).join("") + stream.end()).toBe(
+      "中文 👩🏽‍💻 é\nredlink\nend"
+    )
   })
 
   it("redacts before emitting split values, including overlapping credentials and regexp characters", () => {
-    const env = { API_KEY: "abcdefgh", AUTH_TOKEN: "defghijklm", LONG_SECRET: "abcdefgh-plus", OTHER_SECRET: "x.$[abc](value)" }
+    const env = {
+      API_KEY: "abcdefgh",
+      AUTH_TOKEN: "defghijklm",
+      LONG_SECRET: "abcdefgh-plus",
+      OTHER_SECRET: "x.$[abc](value)"
+    }
     const text = "plain abcdefghijklm abcdefgh-plus x.$[abc](value) ending abc"
     const expected = "plain [redacted $API_KEY]ijklm [redacted $LONG_SECRET] [redacted $OTHER_SECRET] ending abc"
     for (let split = 0; split <= text.length; split++) {

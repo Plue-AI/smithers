@@ -15,6 +15,7 @@ description: Verify the generated schema matches its declarations.
 flows: ["coding/CommandCheck"]
 capabilities: ["fs:read:**", "proc:spawn:node scripts/check-schema.mjs *"]
 ---
+
 {"argv":["node","scripts/check-schema.mjs"],"cwd":".","timeoutMs":30000}
 ```
 

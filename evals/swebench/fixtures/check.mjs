@@ -37,8 +37,23 @@ const check = (label, actual, expected) => {
 
 const journal = read(join(here, "jev-callers-journal.json"))
 const expectedCallers = [
-  undefined, undefined, undefined, undefined, "cell", undefined, undefined, undefined, undefined, undefined,
-  "brake", "supervisor", undefined, "gate", undefined, undefined, undefined
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  "cell",
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  "brake",
+  "supervisor",
+  undefined,
+  "gate",
+  undefined,
+  undefined,
+  undefined
 ]
 check("jev callers journal rows", journal.length, expectedCallers.length)
 journal.forEach(([eventType, payload], index) =>
@@ -62,11 +77,14 @@ const ddl = `CREATE TABLE flows_journal_events (
 const temporary = mkdtempSync(join(tmpdir(), "swebench-jev-callers-"))
 try {
   // The same journal twice: as recorded, and with the `jev` result bounded to a marker.
-  const bounded = journal.map(([eventType, payload]) =>
-    [eventType, eventType === "control.agent.cell-call-settled" && payload.flowName === "jev"
+  const bounded = journal.map((
+    [eventType, payload]
+  ) => [
+    eventType,
+    eventType === "control.agent.cell-call-settled" && payload.flowName === "jev"
       ? { ...payload, value: marker }
-      : payload]
-  )
+      : payload
+  ])
   const instances = { "jev__callers-1": journal, "jev__callers-2": bounded }
   for (const [id, events] of Object.entries(instances)) {
     mkdirSync(join(temporary, "work", id, ".flows"), { recursive: true })
@@ -74,7 +92,17 @@ try {
     database.exec(ddl)
     const insert = database.prepare("insert into flows_journal_events values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     events.forEach(([eventType, payload], index) =>
-      insert.run(id, index, `${id}-${index}`, "fixture", index, 1_755_500_000_000 + index, eventType, JSON.stringify(payload), "{}")
+      insert.run(
+        id,
+        index,
+        `${id}-${index}`,
+        "fixture",
+        index,
+        1_755_500_000_000 + index,
+        eventType,
+        JSON.stringify(payload),
+        "{}"
+      )
     )
     database.close()
   }
@@ -82,13 +110,20 @@ try {
   writeFileSync(join(temporary, "report.json"), JSON.stringify({ resolved_ids: ids }))
   const scored = spawnSync(process.execPath, [
     join(here, "..", "scorecard.ts"),
-    "--work", join(temporary, "work"),
-    "--patches", join(temporary, "patches"),
-    "--timings", join(temporary, "timings"),
-    "--report", join(temporary, "report.json"),
-    "--subject", join(temporary, "subject.json"),
-    "--out", temporary,
-    "--instances", ids.join(",")
+    "--work",
+    join(temporary, "work"),
+    "--patches",
+    join(temporary, "patches"),
+    "--timings",
+    join(temporary, "timings"),
+    "--report",
+    join(temporary, "report.json"),
+    "--subject",
+    join(temporary, "subject.json"),
+    "--out",
+    temporary,
+    "--instances",
+    ids.join(",")
   ], { encoding: "utf8", timeout: 60_000 })
   check("jev callers scorecard exit", scored.status, 0)
   if (scored.status !== 0) failures.push(scored.stderr)
@@ -96,9 +131,14 @@ try {
     const rows = read(join(temporary, "scorecard.json")).instances
     const columns = (row) =>
       [
-        row.cost.jevCellCalls, row.cost.jevCellQuestions, row.cost.jevCellQuestionsUnknown,
-        row.cost.jevBrakeReadings, row.cost.jevSupervisorReadings, row.cost.jevGateReadings,
-        `${row.cost.cellsWithJev}/${row.cost.cells}`, row.cost.jevUnjudged
+        row.cost.jevCellCalls,
+        row.cost.jevCellQuestions,
+        row.cost.jevCellQuestionsUnknown,
+        row.cost.jevBrakeReadings,
+        row.cost.jevSupervisorReadings,
+        row.cost.jevGateReadings,
+        `${row.cost.cellsWithJev}/${row.cost.cells}`,
+        row.cost.jevUnjudged
       ].join(" ")
     check("jev callers columns", columns(rows[0]), "1 3 0 1 1 1 1/2 2")
     check("bounded jev callers columns", columns(rows[1]), "1 0 1 1 1 1 1/2 2")
@@ -127,9 +167,13 @@ const wave = () => {
   const card = read(join(here, "scorecard.json"))
 
   const bucket = (flows, codex) =>
-    flows === "resolved" && codex !== "resolved" ? "FLOWS WIN"
-    : codex === "resolved" && flows !== "resolved" ? "codex win"
-    : flows === "resolved" ? "both pass" : "both fail"
+    flows === "resolved" && codex !== "resolved" ?
+      "FLOWS WIN"
+      : codex === "resolved" && flows !== "resolved" ?
+      "codex win"
+      : flows === "resolved"
+      ? "both pass"
+      : "both fail"
 
   check("instance count", card.instances.length, mirror.length)
   for (const expected of mirror) {
@@ -173,12 +217,20 @@ const wave = () => {
     // The supervisor's faults are counted, and apart from the metered calls:
     // one reading interrupted by the run's end, one memory write refused.
     check(`${expected.id} jev interrupted`, row.cost.jevInterrupted, 1)
-    check(`${expected.id} supervisor unjudged`, JSON.stringify(row.cost.supervisorUnjudged), JSON.stringify({ interrupted: 1 }))
+    check(
+      `${expected.id} supervisor unjudged`,
+      JSON.stringify(row.cost.supervisorUnjudged),
+      JSON.stringify({ interrupted: 1 })
+    )
     check(`${expected.id} supervisor memory failures`, row.cost.supervisorMemoryFailures, 1)
 
     if (mode === "expect-latency") {
       if (row.speed.meanCallLatencyMs === undefined) failures.push(`${expected.id}: expected a per-call latency`)
-      check(`${expected.id} mean call latency`, row.speed.meanCallLatencyMs, Math.round(4000 + (expected.turns - 1) / 2))
+      check(
+        `${expected.id} mean call latency`,
+        row.speed.meanCallLatencyMs,
+        Math.round(4000 + (expected.turns - 1) / 2)
+      )
       check(`${expected.id} latency availability`, row.speed.perCallLatency, "journaled")
     } else {
       if (row.speed.meanCallLatencyMs !== undefined) failures.push(`${expected.id}: expected no per-call latency`)
@@ -201,19 +253,33 @@ const wave = () => {
   // paths the repository uses today: a later layout change must not rewrite an
   // old measurement's provenance.
   const rendered = readFileSync(join(here, "scorecard.md"), "utf8")
-  for (const row of [
-    `| \`${pinned.marker.path}\` | \`${pinned.marker.hash}\` |`,
-    `| loaded from | ${pinned.marker.resolvedBy} |`,
-    `| \`${pinned.cliDist.directory}\` | \`${pinned.cliDist.hash}\` (${pinned.cliDist.files} modules) |`,
-    `| \`${pinned.cliSrc.directory}\` | \`${pinned.cliSrc.hash}\` (${pinned.cliSrc.files} files, built above) |`
-  ]) {
+  for (
+    const row of [
+      `| \`${pinned.marker.path}\` | \`${pinned.marker.hash}\` |`,
+      `| loaded from | ${pinned.marker.resolvedBy} |`,
+      `| \`${pinned.cliDist.directory}\` | \`${pinned.cliDist.hash}\` (${pinned.cliDist.files} modules) |`,
+      `| \`${pinned.cliSrc.directory}\` | \`${pinned.cliSrc.hash}\` (${pinned.cliSrc.files} files, built above) |`
+    ]
+  ) {
     if (!rendered.includes(row)) failures.push(`scorecard.md: missing the recorded subject row ${row}`)
   }
 
   check("flows resolved", card.aggregate.flowsResolved, mirror.filter((row) => row.graded === "resolved").length)
-  check("codex resolved", card.aggregate.codexResolved, baseline.filter((row) => row.codex.verdict === "resolved").length)
-  check("flows wall clock total", card.aggregate.flowsWallClockSeconds, mirror.reduce((total, row) => total + row.seconds, 0))
-  check("codex wall clock total", card.aggregate.codexWallClockSeconds, baseline.reduce((total, row) => total + row.codex.seconds, 0))
+  check(
+    "codex resolved",
+    card.aggregate.codexResolved,
+    baseline.filter((row) => row.codex.verdict === "resolved").length
+  )
+  check(
+    "flows wall clock total",
+    card.aggregate.flowsWallClockSeconds,
+    mirror.reduce((total, row) => total + row.seconds, 0)
+  )
+  check(
+    "codex wall clock total",
+    card.aggregate.codexWallClockSeconds,
+    baseline.reduce((total, row) => total + row.codex.seconds, 0)
+  )
 }
 
 if (mode !== undefined) wave()

@@ -1,14 +1,14 @@
+import { traceFromJournal } from "@smthrs/gateway/RunTrace"
+import type { AgentEvent } from "@smthrs/harness/AgentEvent"
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import * as Activity from "../src/activity.ts"
 import * as Scrubber from "../src/scrubber.ts"
-import * as Transcript from "../src/transcript.ts"
 import * as Session from "../src/session.ts"
-import type { AgentEvent } from "@smthrs/harness/AgentEvent"
-import { traceFromJournal } from "@smthrs/gateway/RunTrace"
+import * as Transcript from "../src/transcript.ts"
 
 const events = readFileSync(new URL("./fixtures/fix-add.jsonl", import.meta.url), "utf8").trim().split("\n")
-  .map(line => JSON.parse(line) as { event: AgentEvent; at: number })
+  .map((line) => JSON.parse(line) as { event: AgentEvent; at: number })
 const replay = () => events.reduce((state, { event, at }) => Transcript.apply(state, event, at), Transcript.empty)
 
 describe("the shared terminal monitor", () => {
@@ -16,16 +16,18 @@ describe("the shared terminal monitor", () => {
     const activity = replay().activity!
     const model = Activity.model(activity)
     expect(activity.status).toBe("completed")
-    expect(model.bands.some(band => band.phase === "implementing")).toBe(true)
-    expect(model.bands.some(band => band.phase === "researching")).toBe(true)
-    expect(model.milestones.some(pin => pin.label === "math.js")).toBe(true)
-    expect(activity.records.some(record => record.kind === "control.agent.cell-call-settled" &&
-      (record.payload as { value?: { exitCode?: number } }).value?.exitCode === 1)).toBe(true)
-    expect(activity.records.every(record => record.kind !== "control.agent.model-delta")).toBe(true)
+    expect(model.bands.some((band) => band.phase === "implementing")).toBe(true)
+    expect(model.bands.some((band) => band.phase === "researching")).toBe(true)
+    expect(model.milestones.some((pin) => pin.label === "math.js")).toBe(true)
+    expect(activity.records.some((record) =>
+      record.kind === "control.agent.cell-call-settled" &&
+      (record.payload as { value?: { exitCode?: number } }).value?.exitCode === 1
+    )).toBe(true)
+    expect(activity.records.every((record) => record.kind !== "control.agent.model-delta")).toBe(true)
   })
 
   test("session restore reconstructs the same timeline from durable events", () => {
-    const records: Session.Record[] = events.map(row => ({ type: "event", ...row }))
+    const records: Session.Record[] = events.map((row) => ({ type: "event", ...row }))
     const restored = Session.restore(records)
     expect(Activity.model(restored.transcript.activity!)).toEqual(Activity.model(replay().activity!))
   })
@@ -54,10 +56,12 @@ describe("the shared terminal monitor", () => {
 /** A recorded session's events: `{ event, at }` rows, or the `event` records of a session file. */
 const recorded = (name: string): ReadonlyArray<{ event: AgentEvent; at: number }> =>
   readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8").trim().split("\n")
-    .map(line => JSON.parse(line) as { type?: string; event?: AgentEvent; at: number })
-    .flatMap(row => row.event === undefined || (row.type !== undefined && row.type !== "event")
-      ? []
-      : [{ event: row.event, at: row.at }])
+    .map((line) => JSON.parse(line) as { type?: string; event?: AgentEvent; at: number })
+    .flatMap((row) =>
+      row.event === undefined || (row.type !== undefined && row.type !== "event")
+        ? []
+        : [{ event: row.event, at: row.at }]
+    )
 
 describe("the incremental monitor trace", () => {
   test.each(["fix-add.jsonl", "timeline-worker.jsonl"])(

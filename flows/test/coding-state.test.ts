@@ -1,18 +1,18 @@
-import { makeHostJudge } from "./fixtures/scripted-judge.ts"
+import * as ApprovalAuthority from "@smthrs/control/ApprovalAuthority"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { test } from "node:test"
-import * as ApprovalAuthority from "@smthrs/control/ApprovalAuthority"
-import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
-import { layer } from "../coding/host.ts"
-import * as CodingState from "../coding/state.ts"
-import { changedPaths, driftOf, staleRevisionMessage } from "../coding/planning.ts"
 import * as ControlDatabasePath from "../../packages/smithers/src/internal/ControlDatabasePath.ts"
 import * as ExecutionDatabasePath from "../../packages/smithers/src/internal/ExecutionDatabasePath.ts"
+import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
+import { layer } from "../coding/host.ts"
+import { changedPaths, driftOf, staleRevisionMessage } from "../coding/planning.ts"
+import * as CodingState from "../coding/state.ts"
+import { makeHostJudge } from "./fixtures/scripted-judge.ts"
 
 const options = {
   gatewayId: "11111111-1111-4111-8111-111111111111",
@@ -26,9 +26,17 @@ test("host state resolves beside the served working copy and never inside it", (
   assert.equal(stateRoot, "/home/developer/.smithers-coding-state/workspace")
   assert.equal(CodingState.inside(root, stateRoot), false)
   // The two databases the 2026-09-15 workspace failure put inside the checkout.
-  assert.equal(ControlDatabasePath.databasePath(stateRoot), "/home/developer/.smithers-coding-state/workspace/.flows/control.db")
-  assert.equal(ExecutionDatabasePath.executionDatabasePath(stateRoot), "/home/developer/.smithers-coding-state/workspace/.flows/engine.db")
-  for (const path of [ControlDatabasePath.databasePath(stateRoot), ExecutionDatabasePath.executionDatabasePath(stateRoot)]) {
+  assert.equal(
+    ControlDatabasePath.databasePath(stateRoot),
+    "/home/developer/.smithers-coding-state/workspace/.flows/control.db"
+  )
+  assert.equal(
+    ExecutionDatabasePath.executionDatabasePath(stateRoot),
+    "/home/developer/.smithers-coding-state/workspace/.flows/engine.db"
+  )
+  for (
+    const path of [ControlDatabasePath.databasePath(stateRoot), ExecutionDatabasePath.executionDatabasePath(stateRoot)]
+  ) {
     assert.equal(CodingState.inside(root, path), false)
   }
   // A root with no parent of its own still resolves outside itself.
@@ -56,10 +64,32 @@ test("an explicit state directory is honored, and an in-root one is refused by n
 
 test("the configured host refuses an in-root state directory before it opens a database", () => {
   const repositoryPath = "/home/developer/workspace"
-  assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, repositoryPath, stateRoot: `${repositoryPath}/.flows` }), /inside the served working copy/)
-  assert.throws(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, repositoryPath, stateRoot: repositoryPath }), /stale_revision|freshness check/)
+  assert.throws(
+    () =>
+      layer({ ...platform, evaluator: makeHostJudge().layer }, {
+        ...options,
+        repositoryPath,
+        stateRoot: `${repositoryPath}/.flows`
+      }),
+    /inside the served working copy/
+  )
+  assert.throws(
+    () =>
+      layer({ ...platform, evaluator: makeHostJudge().layer }, {
+        ...options,
+        repositoryPath,
+        stateRoot: repositoryPath
+      }),
+    /stale_revision|freshness check/
+  )
   assert.doesNotThrow(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, repositoryPath }))
-  assert.doesNotThrow(() => layer({ ...platform, evaluator: makeHostJudge().layer }, { ...options, repositoryPath, stateRoot: "/srv/coding-state" }))
+  assert.doesNotThrow(() =>
+    layer({ ...platform, evaluator: makeHostJudge().layer }, {
+      ...options,
+      repositoryPath,
+      stateRoot: "/srv/coding-state"
+    })
+  )
 })
 
 const jjAvailable = (() => {
@@ -73,7 +103,7 @@ const jjAvailable = (() => {
 
 test("engine state written to the resolved directory leaves a JJ working copy clean", {
   skip: jjAvailable ? false : "jj is not installed"
-}, async t => {
+}, async (t) => {
   const temporary = await mkdtemp(join(tmpdir(), "coding-state-"))
   t.after(() => rm(temporary, { force: true, recursive: true }))
   const root = join(temporary, "workspace")
@@ -91,7 +121,10 @@ test("engine state written to the resolved directory leaves a JJ working copy cl
   // workspace, where the repository never agreed to ignore the host's state.
   const stateRoot = CodingState.resolveStateRoot({ root })
   assert.equal(stateRoot, join(temporary, ".smithers-coding-state", "workspace"))
-  const databases = [ControlDatabasePath.databasePath(stateRoot), ExecutionDatabasePath.executionDatabasePath(stateRoot)]
+  const databases = [
+    ControlDatabasePath.databasePath(stateRoot),
+    ExecutionDatabasePath.executionDatabasePath(stateRoot)
+  ]
   await mkdir(join(stateRoot, ".flows"), { recursive: true })
   // Stand in for a wiki refresh and a plan cycle: the files the engine and the
   // control plane actually create, WAL companions included.
@@ -115,8 +148,13 @@ test("engine state written to the resolved directory leaves a JJ working copy cl
 })
 
 test("a stale_revision names the revisions and paths that moved", () => {
-  const revision = { changeId: "kmnopqrstuvwxyzkmnopqrstuvwxyzkm", commitId: "a".repeat(40), treeId: "b".repeat(40),
-    operationId: "f".repeat(128), parentCommitIds: ["c".repeat(40)] }
+  const revision = {
+    changeId: "kmnopqrstuvwxyzkmnopqrstuvwxyzkm",
+    commitId: "a".repeat(40),
+    treeId: "b".repeat(40),
+    operationId: "f".repeat(128),
+    parentCommitIds: ["c".repeat(40)]
+  }
   assert.equal(driftOf(revision, { ...revision, kind: "resolved" }), undefined)
   assert.equal(
     driftOf(revision, { ...revision, kind: "resolved", treeId: "d".repeat(40) }),
@@ -142,7 +180,10 @@ test("a stale_revision names the revisions and paths that moved", () => {
 
   assert.equal(staleRevisionMessage(), "Native code changed during planning or clarification; gather and plan again")
   assert.equal(
-    staleRevisionMessage([`head ${revision.changeId} tree bbbbbbbbbbbb->dddddddddddd`], [".flows/control.db", ".flows/engine.db-wal"]),
+    staleRevisionMessage([`head ${revision.changeId} tree bbbbbbbbbbbb->dddddddddddd`], [
+      ".flows/control.db",
+      ".flows/engine.db-wal"
+    ]),
     "Native code changed during planning or clarification; gather and plan again" +
       ` (changed: head ${revision.changeId} tree bbbbbbbbbbbb->dddddddddddd; paths: .flows/control.db, .flows/engine.db-wal)`
   )

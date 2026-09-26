@@ -233,7 +233,10 @@ export const fingerprint = ({ compareToHead = true } = {}) => {
   for (const [name, record] of [...closure(refusals)].sort(([a], [b]) => a < b ? -1 : 1)) {
     const inside = relative(root, record.resolved)
     if (inside.startsWith("..") || inside.startsWith(sep)) {
-      refusals.push({ code: "foreign-subject", message: `${name} resolves outside this checkout, to ${record.resolved}` })
+      refusals.push({
+        code: "foreign-subject",
+        message: `${name} resolves outside this checkout, to ${record.resolved}`
+      })
       continue
     }
     const segments = inside.split(sep)
@@ -246,7 +249,10 @@ export const fingerprint = ({ compareToHead = true } = {}) => {
       })
     }
     if (kind === "other") {
-      refusals.push({ code: "foreign-subject", message: `${name} resolves to ${inside}, which is neither src nor dist` })
+      refusals.push({
+        code: "foreign-subject",
+        message: `${name} resolves to ${inside}, which is neither src nor dist`
+      })
     }
     // The CLI is entered through `dist/esm/bin.js`; its `dist/cjs` twin is
     // built and never loaded, so it is not part of the subject.

@@ -17,6 +17,7 @@
  * `node flows/organization/qualify/cli.ts [flags]` runs it directly; the
  * organization CLI registers it as `qualify`.
  */
+import { Effect } from "effect"
 import { execFileSync, spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -25,7 +26,6 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
-import { Effect } from "effect"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Workspace from "../../../packages/smithers/agent/organization/src/Workspace.ts"
 import * as MicrosandboxSandbox from "../../../packages/smithers/flows/sandbox/src/MicrosandboxSandbox/index.ts"
@@ -57,7 +57,9 @@ const freePort = () =>
 const integer = (name: string, value: string | undefined, fallback: number, max: number) => {
   if (value === undefined) return fallback
   const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) throw new Error(`${name} must be an integer from 1 to ${max}`)
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) {
+    throw new Error(`${name} must be an integer from 1 to ${max}`)
+  }
   return parsed
 }
 
@@ -96,7 +98,10 @@ const liftDailyBudgets = (directory: string, tasks: (own: number) => number) => 
     const text = readFileSync(path, "utf8")
     const end = text.startsWith("---") ? text.indexOf("\n---", 3) : -1
     if (end < 0) continue
-    const head = text.slice(0, end).replace(/(\btasksPerDay:\s*)(\d+)/g, (_, key: string, own: string) => `${key}${tasks(Number(own))}`)
+    const head = text.slice(0, end).replace(
+      /(\btasksPerDay:\s*)(\d+)/g,
+      (_, key: string, own: string) => `${key}${tasks(Number(own))}`
+    )
     if (head !== text.slice(0, end)) writeFileSync(path, head + text.slice(end))
   }
 }
@@ -211,10 +216,19 @@ export const command: Command = {
     const timeoutMs = integer("--timeout", values.timeout, 30, 240) * 60_000
     const environment = environmentOf(values, io.env, io.cwd)
     /** The repository a workspace case's principal works in: the case's, or the first configured one it is granted. */
-    const workspaceOf = (entry: Cases.RoleCase, profile: { readonly grants: { readonly tools: ReadonlyArray<string>; readonly repositories: ReadonlyArray<string> } }) => {
+    const workspaceOf = (
+      entry: Cases.RoleCase,
+      profile: {
+        readonly grants: { readonly tools: ReadonlyArray<string>; readonly repositories: ReadonlyArray<string> }
+      }
+    ) => {
       if (!profile.grants.tools.includes("workspace")) return undefined
       const granted = profile.grants.repositories.filter((name) => Object.hasOwn(settings.repositories, name))
-      return entry.repository === undefined ? granted[0] : granted.includes(entry.repository) ? entry.repository : undefined
+      return entry.repository === undefined
+        ? granted[0]
+        : granted.includes(entry.repository)
+        ? entry.repository
+        : undefined
     }
     const scratch = mkdtempSync(join(tmpdir(), "organization-qualify-"))
     const stateDir = join(scratch, "state")
@@ -225,7 +239,11 @@ export const command: Command = {
       io.cwd
     )
     const casesDir = settings.organization.casesDir ?? `${settings.organization.rosterDir}/Cases`
-    const graded = { wiki: wikiRevision(settings.root), roster: settings.snapshot.revision, cases: casesDigest(join(settings.root, casesDir)) }
+    const graded = {
+      wiki: wikiRevision(settings.root),
+      roster: settings.snapshot.revision,
+      cases: casesDigest(join(settings.root, casesDir))
+    }
     copyOrganization(settings, root)
     const cases = await Cases.load(settings.root, casesDir)
     const selected = cases.filter((entry) =>
@@ -243,14 +261,23 @@ export const command: Command = {
       const profile = settings.snapshot.roster.profiles.get(entry.principal)
       if (reason !== undefined) pending.push({ caseId: entry.id, principal: entry.principal, reason })
       else if (profile === undefined) {
-        invalid.push({ caseId: entry.id, principal: entry.principal, reason: `${entry.principal} is not in the roster` })
-      } else if (entry.mode === "role" && entry.requires.includes("workspace") && workspaceOf(entry, profile) === undefined) {
+        invalid.push({
+          caseId: entry.id,
+          principal: entry.principal,
+          reason: `${entry.principal} is not in the roster`
+        })
+      } else if (
+        entry.mode === "role" && entry.requires.includes("workspace") && workspaceOf(entry, profile) === undefined
+      ) {
         pending.push({
           caseId: entry.id,
           principal: entry.principal,
           reason: `needs workspace: no configured repository ${entry.principal} works in`
         })
-      } else if (entry.mode === "role" && entry.revision !== undefined && !hasCommit(settings.repositories[workspaceOf(entry, profile)!]!, entry.revision)) {
+      } else if (
+        entry.mode === "role" && entry.revision !== undefined &&
+        !hasCommit(settings.repositories[workspaceOf(entry, profile)!]!, entry.revision)
+      ) {
         pending.push({
           caseId: entry.id,
           principal: entry.principal,
@@ -408,15 +435,23 @@ export const command: Command = {
           reasons = [`${Cases.infrastructure} ${error instanceof Error ? error.message : String(error)}`]
         }
         const seconds = Math.round((Date.now() - started) / 1_000)
-        io.out(`${reasons.length === 0 ? "pass" : "FAIL"} ${entry.id} #${n} ${seconds}s${reasons.length === 0 ? "" : `: ${reasons.join("; ")}`}`)
+        io.out(
+          `${reasons.length === 0 ? "pass" : "FAIL"} ${entry.id} #${n} ${seconds}s${
+            reasons.length === 0 ? "" : `: ${reasons.join("; ")}`
+          }`
+        )
         return { caseId: entry.id, principal: entry.principal, kind: entry.kind, attempt: n, reasons, receipt, seconds }
       }
-      const queue = runnable.flatMap((entry) => Array.from({ length: runsOf(entry) }, (_, index) => [entry, index + 1] as const))
+      const queue = runnable.flatMap((entry) =>
+        Array.from({ length: runsOf(entry) }, (_, index) => [entry, index + 1] as const)
+      )
       const scored: Array<Scored> = []
       await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
         for (let next = queue.shift(); next !== undefined; next = queue.shift()) scored.push(await attempt(...next))
       }))
-      const seats = Object.fromEntries([...settings.snapshot.roster.profiles.values()].map((profile) => [profile.id, profile.seat]))
+      const seats = Object.fromEntries(
+        [...settings.snapshot.roster.profiles.values()].map((profile) => [profile.id, profile.seat])
+      )
       const directory = join(settings.root, settings.organization.wiki.generatedDir)
       mkdirSync(directory, { recursive: true })
       let path = join(directory, `Qualification-${date}.md`)

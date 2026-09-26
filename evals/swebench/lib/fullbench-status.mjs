@@ -10,9 +10,9 @@
  * screen and the report can never disagree about a rate, or about a budget the
  * driver spliced through the shell as text.
  */
+import { summarise } from "../fullbench-report.mjs"
 import { formatMoney as money } from "./format-money.mjs"
 import { read } from "./fullbench-manifest.mjs"
-import { summarise } from "../fullbench-report.mjs"
 
 const percent = (value) => `${(value * 100).toFixed(1)}%`
 const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().replace(".000", "") : "—")

@@ -18,7 +18,8 @@ export const redactor = (env: NodeJS.ProcessEnv) => {
   const names = new Map<string, string>()
   for (const [name, value] of values) if (!names.has(value)) names.set(value, name)
   const pattern = values.length === 0 ? undefined : new RegExp(
-    [...names.keys()].map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g"
+    [...names.keys()].map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "g"
   )
   let pending = ""
   const take = (text: string, final: boolean): string => {
@@ -63,26 +64,46 @@ const cleaner = () => {
     let result = ""
     for (const character of text) {
       if (state === "osc" || state === "string" || state === "osc-escape" || state === "string-escape") {
-        if (character === "\x9c" || (character === "\x07" && state.startsWith("osc")) ||
-          (character === "\\" && state.endsWith("-escape"))) state = "text"
+        if (
+          character === "\x9c" || (character === "\x07" && state.startsWith("osc")) ||
+          (character === "\\" && state.endsWith("-escape"))
+        ) state = "text"
         else if (character === "\x1b") state = state.startsWith("osc") ? "osc-escape" : "string-escape"
         else state = state.startsWith("osc") ? "osc" : "string"
         continue
       }
-      if (character === "\x1b") { state = "escape"; continue }
+      if (character === "\x1b") {
+        state = "escape"
+        continue
+      }
       if (state === "escape") {
         state = character === "[" ? "csi" : character === "]" ? "osc" : "PX^_".includes(character)
-          ? "string" : character >= " " && character <= "/" ? "intermediate" : "text"
+          ? "string" :
+          character >= " " && character <= "/"
+          ? "intermediate"
+          : "text"
         continue
       }
       if (state === "csi" || state === "intermediate") {
         if (character >= (state === "csi" ? "@" : "0") && character <= "~") state = "text"
         continue
       }
-      if (character === "\x9b") { state = "csi"; continue }
-      if (character === "\x9d") { state = "osc"; continue }
-      if (["\x90", "\x98", "\x9e", "\x9f"].includes(character)) { state = "string"; continue }
-      if (character === "\n" && carriageReturn) { carriageReturn = false; continue }
+      if (character === "\x9b") {
+        state = "csi"
+        continue
+      }
+      if (character === "\x9d") {
+        state = "osc"
+        continue
+      }
+      if (["\x90", "\x98", "\x9e", "\x9f"].includes(character)) {
+        state = "string"
+        continue
+      }
+      if (character === "\n" && carriageReturn) {
+        carriageReturn = false
+        continue
+      }
       carriageReturn = character === "\r"
       result += carriageReturn ? "\n" : character
     }

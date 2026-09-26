@@ -1,10 +1,10 @@
 /** Every way a background worker ends badly settles its tab, timeline and tab.read as failed. */
+import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import { describe, expect, it } from "bun:test"
 import { Effect } from "effect"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as Host from "../src/host.ts"
 import * as Runtime from "../src/runtime.ts"
 import * as Session from "../src/session.ts"
@@ -34,12 +34,14 @@ const setup = (run: Host.Host["run"], restored?: ConstructorParameters<typeof Wo
 
 /** What the coordinator sees through the real `tab.read` flow binding. */
 const tabRead = async (workspace: Workspace, id: string) => {
-  const bindings = await Effect.runPromise(Runtime.source({
-    publish: () => {},
-    delegate: workspace.request,
-    read: workspace.read,
-    list: () => workspace.snapshot().tabs
-  }).bindings())
+  const bindings = await Effect.runPromise(
+    Runtime.source({
+      publish: () => {},
+      delegate: workspace.request,
+      read: workspace.read,
+      list: () => workspace.snapshot().tabs
+    }).bindings()
+  )
   const read = bindings.find((binding) => binding.descriptor.name === "tab.read")!
   return Effect.runPromise(read.run({ input: { id } } as unknown as Parameters<typeof read.run>[0]))
 }
@@ -70,14 +72,32 @@ describe("failed worker status", () => {
     f.workspace.request(request)
     await tick()
     const wakeAt = Date.UTC(2026, 8, 24, 14, 20)
-    input!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol",
-      wakeAt, source: "retry-after", code: "rate_limited" }))
+    input!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt,
+        source: "retry-after",
+        code: "rate_limited"
+      })
+    )
     expect(await tabRead(f.workspace, request.id)).toMatchObject({
       outcome: "success",
-      value: { id: request.id, status: "parked", wakeAt: "2026-09-24T14:20:00.000Z", summary: "waits for ChatGPT reset · 14:20" }
+      value: {
+        id: request.id,
+        status: "parked",
+        wakeAt: "2026-09-24T14:20:00.000Z",
+        summary: "waits for ChatGPT reset · 14:20"
+      }
     })
     expect(JSON.parse(f.workspace.context())[0]).toMatchObject({ status: "parked", wakeAt: "2026-09-24T14:20:00.000Z" })
-    input!.onEvent(new AgentEvent.ModelUnparked({ eventType: "flows.harness.model-unparked.v1", seat: "openai:gpt-6-sol", at: wakeAt }))
+    input!.onEvent(
+      new AgentEvent.ModelUnparked({
+        eventType: "flows.harness.model-unparked.v1",
+        seat: "openai:gpt-6-sol",
+        at: wakeAt
+      })
+    )
     const resumed = await tabRead(f.workspace, request.id) as unknown as { value: { status: string; wakeAt?: string } }
     expect(resumed.value.status).toBe("running")
     expect(resumed.value.wakeAt).toBeUndefined()
@@ -94,7 +114,10 @@ describe("failed worker status", () => {
   })
 
   it("settles a worker whose completion throws", async () => {
-    const f = setup(() => ({ done: Promise.reject(new TypeError("cannot read property 'map' of undefined")), cancel: () => {} }))
+    const f = setup(() => ({
+      done: Promise.reject(new TypeError("cannot read property 'map' of undefined")),
+      cancel: () => {}
+    }))
     f.workspace.request(request)
     await tick()
     await expectFailed(f.workspace, "cannot read property 'map' of undefined")

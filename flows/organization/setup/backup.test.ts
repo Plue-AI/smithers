@@ -1,6 +1,16 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -26,7 +36,11 @@ const stateDirectory = (name: string) => {
   mkdirSync(join(stateDir, ".flows"), { recursive: true, mode: 0o700 })
   mkdirSync(join(stateDir, "execution", ".jj", "repo"), { recursive: true })
   mkdirSync(join(stateDir, "logs"), { recursive: true })
-  writeFileSync(join(stateDir, ".env"), `SMITHERS_ORG_ROOT=${wiki}\nSMITHERS_ORG_STATE_DIR=${stateDir}\nSECRET=s3cret\n`, { mode: 0o600 })
+  writeFileSync(
+    join(stateDir, ".env"),
+    `SMITHERS_ORG_ROOT=${wiki}\nSMITHERS_ORG_STATE_DIR=${stateDir}\nSECRET=s3cret\n`,
+    { mode: 0o600 }
+  )
   writeFileSync(join(stateDir, "credential"), "token\n", { mode: 0o600 })
   writeFileSync(join(stateDir, "installation"), "smithers-org-test\n", { mode: 0o600 })
   writeFileSync(join(stateDir, "execution", ".jj", "repo", "op"), "operation\n")
@@ -42,7 +56,11 @@ const stateDirectory = (name: string) => {
 
 const capture = (env: Io["env"] = {}) => {
   const out: Array<string> = [], err: Array<string> = []
-  return { io: { out: (line: string) => out.push(line), err: (line: string) => err.push(line), env, cwd: scratch }, out, err }
+  return {
+    io: { out: (line: string) => out.push(line), err: (line: string) => err.push(line), env, cwd: scratch },
+    out,
+    err
+  }
 }
 
 test("a backup of a running host copies consistent databases, modes, and the wiki revision", async () => {
@@ -63,7 +81,9 @@ test("a backup of a running host copies consistent databases, modes, and the wik
   const copy = new DatabaseSync(join(dest, "state", ".flows", "engine.db"), { readOnly: true })
   assert.deepEqual(copy.prepare("SELECT id FROM runs ORDER BY id").all().map((row) => row.id), ["run-1", "run-2"])
   copy.close()
-  for (const file of [".env", "credential", "installation"]) assert.equal(statSync(join(dest, "state", file)).mode & 0o777, 0o600, file)
+  for (const file of [".env", "credential", "installation"]) {
+    assert.equal(statSync(join(dest, "state", file)).mode & 0o777, 0o600, file)
+  }
   assert.equal(statSync(dest).mode & 0o777, 0o700)
   assert.equal(statSync(join(dest, "manifest.json")).mode & 0o777, 0o600)
   assert.ok(!existsSync(`${dest}.partial`))
@@ -96,13 +116,18 @@ test("restore verifies the manifest, refuses a held or occupied target, repoints
   assert.equal(manifest.source, stateDir)
   assert.match(readFileSync(join(target, ".env"), "utf8"), new RegExp(`^SMITHERS_ORG_STATE_DIR=${target}$`, "m"))
   assert.match(readFileSync(join(target, ".env"), "utf8"), /^SECRET=s3cret$/m)
-  for (const file of [".env", "credential", "installation"]) assert.equal(statSync(join(target, file)).mode & 0o777, 0o600, file)
+  for (const file of [".env", "credential", "installation"]) {
+    assert.equal(statSync(join(target, file)).mode & 0o777, 0o600, file)
+  }
   const db = new DatabaseSync(join(target, ".flows", "engine.db"))
   assert.equal(db.prepare("SELECT count(*) AS n FROM runs").get()?.n, 1)
 
   // A process (this one) holds the target's database: refused, even with --replace.
   assert.deepEqual(holders([join(target, ".flows", "engine.db")]), [process.pid])
-  assert.throws(() => restore(dest, target, { replace: true, relocate: true }), new RegExp(`pid ${process.pid}.*stop the host first`))
+  assert.throws(
+    () => restore(dest, target, { replace: true, relocate: true }),
+    new RegExp(`pid ${process.pid}.*stop the host first`)
+  )
   db.close()
   assert.throws(() => restore(dest, target, { relocate: true }), /not empty; pass --replace/)
   const second = restore(dest, target, { replace: true, relocate: true, now: new Date("2026-09-25T01:02:03Z") })
@@ -136,7 +161,10 @@ test("restore refuses a mode change and another manifest format; the command pri
   await assert.rejects(restoreCommand.run([dest], run.io), /--relocate/)
   assert.equal(await restoreCommand.run([dest, "--relocate"], run.io), 0)
   const written = JSON.parse(readFileSync(join(dest, "manifest.json"), "utf8"))
-  assert.equal(run.out[0], `restored ${target} from ${written.createdAt}: ${written.entries.length} files match their manifest SHA-256`)
+  assert.equal(
+    run.out[0],
+    `restored ${target} from ${written.createdAt}: ${written.entries.length} files match their manifest SHA-256`
+  )
   assert.match(run.out[1]!, /^wiki [0-9a-f]{40}$/)
   const again = capture({ SMITHERS_ORG_STATE_DIR: target })
   assert.equal(await restoreCommand.run([dest, "--replace", "--relocate"], again.io), 0)

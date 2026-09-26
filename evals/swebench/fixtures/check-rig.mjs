@@ -1,21 +1,24 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { spawnSync } from "node:child_process"
 
 const root = resolve(import.meta.dirname, "..")
 const temporary = mkdtempSync(join(tmpdir(), "flows-swebench-rig-"))
 
 try {
   const dataset = join(temporary, "dataset.json")
-  writeFileSync(dataset, JSON.stringify([{
-    instance_id: "django__django-1",
-    repo: "django/django",
-    version: "4.1",
-    base_commit: "abc123",
-    problem_statement: "Fix the redirect."
-  }]))
+  writeFileSync(
+    dataset,
+    JSON.stringify([{
+      instance_id: "django__django-1",
+      repo: "django/django",
+      version: "4.1",
+      base_commit: "abc123",
+      problem_statement: "Fix the redirect."
+    }])
+  )
 
   const generated = spawnSync(
     process.execPath,

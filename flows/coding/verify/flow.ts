@@ -1,8 +1,8 @@
 /** Required checks on one retained commit of the mythical stack. */
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { AdmitVerifySource, verifyImplementation, VerifyInput, VerifyResult, verifySummary } from "../verify-schema.ts"
 import { CodingError, type Receipt, type Revision } from "../schema.ts"
+import { AdmitVerifySource, verifyImplementation, VerifyInput, VerifyResult, verifySummary } from "../verify-schema.ts"
 import { RunCheck } from "../workflow.ts"
 
 /**
@@ -15,15 +15,41 @@ export default Flow.make("coding/Verify", {
   description: "Run the project's required checks on one retained commit of the repository's mythical stack.",
   capabilities: ["*"],
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
-  payload: VerifyInput, success: VerifyResult, error: CodingError,
-  body: input => {
+  payload: VerifyInput,
+  success: VerifyResult,
+  error: CodingError,
+  body: (input) => {
     // Admission refuses a check set that cannot verify anything before any check runs.
     return AdmitVerifySource.call({ source: input.source, checks: input.checks }).pipe(
-      Node.bindPlanned(head => Node.all({
-        head: Node.succeed(head),
-        receipts: Node.all(Object.fromEntries(input.checks.map(check => [check.id,
-          RunCheck.call({ implementation: { change: "mythical-candidate", parent: head, atoms: [head], head, reads: [], writes: [] }, check })])))
-      }).pipe(Node.map(({ head, receipts }: { head: typeof Revision.Type, receipts: Readonly<Record<string, typeof Receipt.Type>> }) =>
-        verifySummary(input.checks, verifyImplementation(head), Object.values(receipts))))))
+      Node.bindPlanned((head) =>
+        Node.all({
+          head: Node.succeed(head),
+          receipts: Node.all(
+            Object.fromEntries(
+              input.checks.map(
+                (check) => [
+                  check.id,
+                  RunCheck.call({
+                    implementation: {
+                      change: "mythical-candidate",
+                      parent: head,
+                      atoms: [head],
+                      head,
+                      reads: [],
+                      writes: []
+                    },
+                    check
+                  })
+                ]
+              )
+            )
+          )
+        }).pipe(
+          Node.map((
+            { head, receipts }: { head: typeof Revision.Type; receipts: Readonly<Record<string, typeof Receipt.Type>> }
+          ) => verifySummary(input.checks, verifyImplementation(head), Object.values(receipts)))
+        )
+      )
+    )
   }
 })

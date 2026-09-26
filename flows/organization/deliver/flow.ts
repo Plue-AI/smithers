@@ -36,6 +36,11 @@ import * as Actions from "../../../packages/smithers/agent/organization/src/Acti
 import * as Gates from "../../../packages/smithers/agent/organization/src/Gates.ts"
 import type * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import type * as Workspace from "../../../packages/smithers/agent/organization/src/Workspace.ts"
+import Delegate from "../delegate/flow.ts"
+import { fieldTurn } from "../field-turn.ts"
+import Hire from "../hire/flow.ts"
+import type { Ref } from "../links.ts"
+import MeetingsBook from "../meetings-book/flow.ts"
 import {
   Admission,
   AgainTask,
@@ -50,7 +55,13 @@ import {
   Decide,
   DeliveryFailed,
   Describe,
+  DisposeWorkspaces,
+  hostFields,
+  HostRoute,
   LeadTask,
+  PublishChange,
+  React,
+  ReadAsk,
   RenderReply,
   Report,
   Request,
@@ -58,19 +69,8 @@ import {
   Settle,
   type Stage,
   StepFailure,
-  DisposeWorkspaces,
-  hostFields,
-  HostRoute,
-  PublishChange,
-  React,
-  ReadAsk,
   WriteDocument
 } from "../schema.ts"
-import { fieldTurn } from "../field-turn.ts"
-import type { Ref } from "../links.ts"
-import Delegate from "../delegate/flow.ts"
-import Hire from "../hire/flow.ts"
-import MeetingsBook from "../meetings-book/flow.ts"
 import { slackConnection } from "../slack-connection.ts"
 import { TeamPost } from "../team-channel.ts"
 
@@ -206,7 +206,9 @@ const round = (
               if: Node.capture({ implementationVersion }, (diff) => diff.patch === ""),
               then: () =>
                 AgainTask.call({ stage, reason: noChangeAgain }).pipe(
-                  Node.bindPlanned(Node.capture({ implementationVersion }, (again) => turn(revision, again, workspace))),
+                  Node.bindPlanned(
+                    Node.capture({ implementationVersion }, (again) => turn(revision, again, workspace))
+                  ),
                   Node.bindPlanned(Node.capture({ implementationVersion }, (rebuilt) =>
                     collected(rebuilt).pipe(
                       Node.branch({
@@ -214,8 +216,10 @@ const round = (
                         then: () =>
                           disposeAll(machines).pipe(
                             Node.andThen(Node.succeed(rebuilt)),
-                            Node.map(Node.capture({ implementationVersion }, (answer) =>
-                              `no change: ${answer.principal} left no change in the workspace (${answer.result.status}: ${answer.result.summary})`)),
+                            Node.map(
+                              Node.capture({ implementationVersion }, (answer) =>
+                                `no change: ${answer.principal} left no change in the workspace (${answer.result.status}: ${answer.result.summary})`)
+                            ),
                             Node.bindPlanned(Node.capture({ implementationVersion }, (summary) =>
                               report(payload, {
                                 status: "blocked",
@@ -225,129 +229,147 @@ const round = (
                                 checks: [noChangeCheck]
                               })))
                           ),
-                        else: (diff) => judged(rebuilt, diff)
+                        else: (diff) =>
+                          judged(rebuilt, diff)
                       })
                     )))
                 ),
-              else: (diff) => judged(build, diff)
+              else: (diff) =>
+                judged(build, diff)
             })
           )))
       )))
   )
 
-  function judged(build: Planned.Planned<Answer>, diff: Planned.Planned<Workspace.Diff>): Node.Node<Report, Failure, any> {
+  function judged(
+    build: Planned.Planned<Answer>,
+    diff: Planned.Planned<Workspace.Diff>
+  ): Node.Node<Report, Failure, any> {
     return Actions.RunChecks.call({
-            repository: admission.repository,
-            commit: prepared.commit,
-            patch: diff.patch,
-            checks: admission.checks
-          }).pipe(
-            Node.bindPlanned(Node.capture({ implementationVersion }, (checks) =>
-              CheckTask.call({ request, assignment, workdir: prepared.workdir, round: n, build, diff, checks }).pipe(
-                // A checker that holds a workspace in the repository reproduces
-                // the change in a machine of its own, seeded from the same
-                // commit with the collected change applied; any other judges
-                // the diff and the receipts.
-                Node.branch({
-                  if: Node.capture({ implementationVersion }, (stage) => stage.workspace === true),
-                  then: (stage) =>
-                    Actions.PrepareWorkspace.call({
-                      repository: admission.repository,
-                      commit: prepared.commit,
-                      slug: `check-${n}`,
-                      patch: diff.patch
-                    }).pipe(
-                      Node.bindPlanned(Node.capture({ implementationVersion }, (checking) =>
-                        Node.all({
-                          check: turn(revision, stage, {
-                            key: checking.key,
-                            repository: admission.repository,
-                            commit: checking.commit
-                          }).pipe(
-                            Node.catch({
-                              onFailure: Node.capture({ implementationVersion }, (failure) =>
-                                disposeAll([...machines, checking]).pipe(
-                                  Node.andThen(Node.fail(failure as Planned.Planned<Failure>))
-                                ))
-                            })
-                          ),
-                          checking: Node.succeed(checking)
-                        })))
-                    ),
-                  else: (stage) => Node.all({ check: turn(revision, stage), checking: Node.succeed(null) })
-                }),
-                Node.bindPlanned(Node.capture({ implementationVersion }, (checked) => {
-                  const check = checked.check
-                  const all: Machines = [...machines, checked.checking]
-                  return Decide.call({ build, check, checks, diff }).pipe(
-                    Node.bindPlanned(Node.capture({ implementationVersion, n }, function(verdict) {
-                      return say(payload, assignment.checker, Node.succeed(verdict).pipe(
-                        Node.map(Node.capture({ implementationVersion, n: this.n }, function(seen) {
-                          return seen.approved ? `Round ${this.n}: approved` : `Round ${this.n}: changes requested: ${(seen.findings[0] ?? "").slice(0, 160)}`
-                        }))
-                      )).pipe(Node.andThen(Node.succeed(verdict)))
-                    })),
-                    Node.branch({
-                      if: Node.capture({ implementationVersion }, (verdict) => verdict.approved),
-                      then: (verdict) =>
-                        Gates.before(
-                          admission.gates,
-                          landGate,
-                          {
-                            repository: admission.repository,
-                            branch: admission.branch,
-                            parent: prepared.commit,
-                            patchDigest: diff.digest,
-                            files: diff.files,
-                            checksPassed: checks.passed,
-                            approvedBy: assignment.checker
-                          },
-                          Actions.ApplyChange.call({
-                            repository: admission.repository,
-                            branch: admission.branch,
-                            parent: prepared.commit,
-                            patch: diff.patch,
-                            message: assignment.message,
-                            principal: assignment.builder,
-                            at: admission.at
+      repository: admission.repository,
+      commit: prepared.commit,
+      patch: diff.patch,
+      checks: admission.checks
+    }).pipe(
+      Node.bindPlanned(
+        Node.capture(
+          { implementationVersion },
+          (checks) =>
+            CheckTask.call({ request, assignment, workdir: prepared.workdir, round: n, build, diff, checks }).pipe(
+              // A checker that holds a workspace in the repository reproduces
+              // the change in a machine of its own, seeded from the same
+              // commit with the collected change applied; any other judges
+              // the diff and the receipts.
+              Node.branch({
+                if: Node.capture({ implementationVersion }, (stage) => stage.workspace === true),
+                then: (stage) =>
+                  Actions.PrepareWorkspace.call({
+                    repository: admission.repository,
+                    commit: prepared.commit,
+                    slug: `check-${n}`,
+                    patch: diff.patch
+                  }).pipe(
+                    Node.bindPlanned(Node.capture({ implementationVersion }, (checking) =>
+                      Node.all({
+                        check: turn(revision, stage, {
+                          key: checking.key,
+                          repository: admission.repository,
+                          commit: checking.commit
+                        }).pipe(
+                          Node.catch({
+                            onFailure: Node.capture({ implementationVersion }, (failure) =>
+                              disposeAll([...machines, checking]).pipe(
+                                Node.andThen(Node.fail(failure as Planned.Planned<Failure>))
+                              ))
                           })
-                        ).pipe(
-                          Node.bindPlanned(Node.capture({ implementationVersion }, (applied) =>
-                            Node.andThen(Node.succeed(applied), disposeAll(all)).pipe(
-                              Node.andThen(published(payload, assignment, applied, verdict.checks, {
-                                status: "landed",
-                                summary: check.result.summary,
-                                principals,
-                                rounds: n,
-                                applied,
-                                checks: verdict.checks
-                              }))
-                            )))
                         ),
-                      else: (verdict) =>
-                        n >= admission.maxRounds
-                          ? disposeAll(all).pipe(
-                            Node.andThen(report(payload, {
-                              status: "changes-requested",
+                        checking: Node.succeed(checking)
+                      })))
+                  ),
+                else: (stage) => Node.all({ check: turn(revision, stage), checking: Node.succeed(null) })
+              }),
+              Node.bindPlanned(Node.capture({ implementationVersion }, (checked) => {
+                const check = checked.check
+                const all: Machines = [...machines, checked.checking]
+                return Decide.call({ build, check, checks, diff }).pipe(
+                  Node.bindPlanned(Node.capture({ implementationVersion, n }, function(verdict) {
+                    return say(
+                      payload,
+                      assignment.checker,
+                      Node.succeed(verdict).pipe(
+                        Node.map(Node.capture({ implementationVersion, n: this.n }, function(seen) {
+                          return seen.approved
+                            ? `Round ${this.n}: approved`
+                            : `Round ${this.n}: changes requested: ${(seen.findings[0] ?? "").slice(0, 160)}`
+                        }))
+                      )
+                    ).pipe(Node.andThen(Node.succeed(verdict)))
+                  })),
+                  Node.branch({
+                    if: Node.capture({ implementationVersion }, (verdict) => verdict.approved),
+                    then: (verdict) =>
+                      Gates.before(
+                        admission.gates,
+                        landGate,
+                        {
+                          repository: admission.repository,
+                          branch: admission.branch,
+                          parent: prepared.commit,
+                          patchDigest: diff.digest,
+                          files: diff.files,
+                          checksPassed: checks.passed,
+                          approvedBy: assignment.checker
+                        },
+                        Actions.ApplyChange.call({
+                          repository: admission.repository,
+                          branch: admission.branch,
+                          parent: prepared.commit,
+                          patch: diff.patch,
+                          message: assignment.message,
+                          principal: assignment.builder,
+                          at: admission.at
+                        })
+                      ).pipe(
+                        Node.bindPlanned(Node.capture({ implementationVersion }, (applied) =>
+                          Node.andThen(Node.succeed(applied), disposeAll(all)).pipe(
+                            Node.andThen(published(payload, assignment, applied, verdict.checks, {
+                              status: "landed",
                               summary: check.result.summary,
                               principals,
                               rounds: n,
-                              findings: verdict.findings,
+                              applied,
                               checks: verdict.checks
                             }))
-                          )
-                          : round(payload, revision, assignment, prepared, n + 1, verdict.findings, all)
-                    }),
-                    // A failure after the checker's turn (a declined gate, a
-                    // landing refused) removes this round's machines too.
-                    Node.catch({
-                      onFailure: Node.capture({ implementationVersion }, (failure) =>
-                        disposeAll(all).pipe(Node.andThen(Node.fail(failure))))
-                    })
-                  )
-                }))
-              )))
-          )
+                          )))
+                      ),
+                    else: (verdict) =>
+                      n >= admission.maxRounds
+                        ? disposeAll(all).pipe(
+                          Node.andThen(report(payload, {
+                            status: "changes-requested",
+                            summary: check.result.summary,
+                            principals,
+                            rounds: n,
+                            findings: verdict.findings,
+                            checks: verdict.checks
+                          }))
+                        )
+                        : round(payload, revision, assignment, prepared, n + 1, verdict.findings, all)
+                  }),
+                  // A failure after the checker's turn (a declined gate, a
+                  // landing refused) removes this round's machines too.
+                  Node.catch({
+                    onFailure: Node.capture(
+                      { implementationVersion },
+                      (failure) => disposeAll(all).pipe(Node.andThen(Node.fail(failure)))
+                    )
+                  })
+                )
+              }))
+            )
+        )
+      )
+    )
   }
 }
 
@@ -381,7 +403,11 @@ const published = (
 }
 
 /** A post to the team channel in the request's thread, under `role`'s name. */
-const say = (payload: Payload, role: Planned.Planned<string> | string, text: Node.Node<string, any, any>): Node.Node<unknown, Failure, any> =>
+const say = (
+  payload: Payload,
+  role: Planned.Planned<string> | string,
+  text: Node.Node<string, any, any>
+): Node.Node<unknown, Failure, any> =>
   text.pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (line) =>
       TeamPost.call({ thread: payload.request.key, role: role as string, text: line })))
@@ -393,7 +419,11 @@ const routed = (payload: Payload, revision: Planned.Planned<string>): Node.Node<
     ? RouteTask.call({ revision, assistant: payload.admission.assistant, request: payload.request }).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => turn(revision, stage)))
     )
-    : HostRoute.call({ revision, assistant: payload.admission.assistant, request: payload.request })) as Node.Node<Answer, Failure, any>
+    : HostRoute.call({ revision, assistant: payload.admission.assistant, request: payload.request })) as Node.Node<
+      Answer,
+      Failure,
+      any
+    >
 
 /** Routing, the contract, the gated build, and every early ending, as one report. */
 const work = (payload: Payload) => {
@@ -403,97 +433,146 @@ const work = (payload: Payload) => {
       routed(payload, pin.revision).pipe(
         Node.bindPlanned(Node.capture({ implementationVersion }, (routed) =>
           withAsk(payload, routed, () =>
-          questioned(payload, pin.revision, routed, () =>
-          say(payload, admission.assistant, Node.succeed(routed).pipe(
-            Node.map(Node.capture({ implementationVersion }, (seen) => {
-              const handoff = seen.result.handoffs[0]
-              return handoff === undefined ? `Answered: ${seen.result.summary.slice(0, 200)}` : `Handoff → ${handoff.to}`
-            }))
-          )).pipe(Node.andThen(
-          LeadTask.call({ revision: pin.revision, request, repository: admission.repository, routed }))).pipe(
-            Node.branch({
-              if: Node.capture({ implementationVersion }, (stage) => stage.proceed),
-              else: (stage) =>
-                report(payload, {
-                  status: stage.outcome,
-                  summary: stage.reason,
-                  principals: { assistant: admission.assistant },
-                  rounds: 0
-                }),
-              then: (stage) =>
-                turn(pin.revision, stage).pipe(
-                  Node.bindPlanned(Node.capture({ implementationVersion }, (answered) =>
-                  withAsk(payload, answered, () => Node.succeed(answered).pipe(
-                  Node.branch({
-                    // A valid `done` with no handoffs is the role's own answer: a document, not a change.
-                    if: Node.capture({ implementationVersion }, (contract) =>
-                      contract.valid && contract.result.status === "done" && contract.result.handoffs.length === 0),
-                    then: (contract) => documented(payload, pin.revision, contract),
-                    else: (contract) =>
-                    Assign.call({ revision: pin.revision, key: request.key, repository: admission.repository, contract }).pipe(
-                      Node.branch({
-                        if: Node.capture({ implementationVersion }, (assignment) => assignment.proceed),
-                        else: (assignment) =>
-                          report(payload, {
-                            status: "blocked",
-                            summary: assignment.reason,
-                            principals: { assistant: admission.assistant, lead: contract.principal },
-                            rounds: 0
-                          }),
-                        then: (assignment) =>
-                          Node.succeed(assignment).pipe(Node.branch({
-                            if: Node.capture({ implementationVersion }, (planned) => planned.delegate !== null),
-                            then: (planned) =>
-                              child(payload, "organization/delegate", contract.principal, Delegate.child(planned.delegate as never)),
-                            else: () =>
-                          say(payload, contract.principal, Node.succeed(assignment).pipe(
-                            Node.map(Node.capture({ implementationVersion }, (planned) =>
-                              `Handoff → ${planned.builder} builds, ${planned.checker} checks: ${planned.objective.slice(0, 160)}`))
-                          )).pipe(
-                            Node.andThen(Gates.before(
-                              admission.gates,
-                              taskGate,
-                              { request: request.text, assignment },
-                              based(payload).pipe(
-                                Node.branch({
-                                  if: Node.capture({ implementationVersion }, (base) => base.commit !== null),
-                                  else: (base) =>
-                                    report(payload, {
-                                      status: "blocked",
-                                      summary: base.reason,
-                                      principals: { assistant: admission.assistant, lead: contract.principal },
-                                      rounds: 0
-                                    }),
-                                  then: (base) =>
-                              Actions.PrepareWorkspace.call({
-                                repository: admission.repository,
-                                commit: base.commit as Planned.Planned<string>,
-                                slug: "build"
-                              }).pipe(
-                                Node.bindPlanned(Node.capture({ implementationVersion }, (prepared) =>
-                                  round(payload, pin.revision, assignment, prepared, 1, [], [prepared]).pipe(
-                                    // Every ending removes the workspace machine: a failed
-                                    // round disposes it before it is reported.
-                                    Node.catch({
-                                      onFailure: Node.capture({ implementationVersion }, (failure) =>
-                                        Actions.DisposeWorkspace.call({ workspace: prepared }).pipe(
-                                          Node.andThen(failed(payload, failure))
-                                        ))
-                                    })
-                                  )))
-                              )
-                                })
-                              )
-                            ))
-                          )
-                          }))
-                      })
-                    )
-                  })
-                ))))
+            questioned(payload, pin.revision, routed, () =>
+              say(
+                payload,
+                admission.assistant,
+                Node.succeed(routed).pipe(
+                  Node.map(Node.capture({ implementationVersion }, (seen) => {
+                    const handoff = seen.result.handoffs[0]
+                    return handoff === undefined
+                      ? `Answered: ${seen.result.summary.slice(0, 200)}`
+                      : `Handoff → ${handoff.to}`
+                  }))
                 )
-            })
-          )))))
+              ).pipe(Node.andThen(
+                LeadTask.call({ revision: pin.revision, request, repository: admission.repository, routed })
+              )).pipe(
+                Node.branch({
+                  if: Node.capture({ implementationVersion }, (stage) =>
+                    stage.proceed),
+                  else: (stage) =>
+                    report(payload, {
+                      status: stage.outcome,
+                      summary: stage.reason,
+                      principals: { assistant: admission.assistant },
+                      rounds: 0
+                    }),
+                  then: (stage) =>
+                    turn(pin.revision, stage).pipe(
+                      Node.bindPlanned(Node.capture({ implementationVersion }, (answered) =>
+                        withAsk(payload, answered, () =>
+                          Node.succeed(answered).pipe(
+                            Node.branch({
+                              // A valid `done` with no handoffs is the role's own answer: a document, not a change.
+                              if: Node.capture({ implementationVersion }, (contract) =>
+                                contract.valid && contract.result.status === "done" &&
+                                contract.result.handoffs.length === 0),
+                              then: (contract) =>
+                                documented(payload, pin.revision, contract),
+                              else: (contract) =>
+                                Assign.call({
+                                  revision: pin.revision,
+                                  key: request.key,
+                                  repository: admission.repository,
+                                  contract
+                                }).pipe(
+                                  Node.branch({
+                                    if: Node.capture({ implementationVersion }, (assignment) => assignment.proceed),
+                                    else: (assignment) =>
+                                      report(payload, {
+                                        status: "blocked",
+                                        summary: assignment.reason,
+                                        principals: { assistant: admission.assistant, lead: contract.principal },
+                                        rounds: 0
+                                      }),
+                                    then: (assignment) =>
+                                      Node.succeed(assignment).pipe(Node.branch({
+                                        if: Node.capture(
+                                          { implementationVersion },
+                                          (planned) => planned.delegate !== null
+                                        ),
+                                        then: (planned) =>
+                                          child(
+                                            payload,
+                                            "organization/delegate",
+                                            contract.principal,
+                                            Delegate.child(planned.delegate as never)
+                                          ),
+                                        else: () =>
+                                          say(
+                                            payload,
+                                            contract.principal,
+                                            Node.succeed(assignment).pipe(
+                                              Node.map(
+                                                Node.capture(
+                                                  { implementationVersion },
+                                                  (planned) =>
+                                                    `Handoff → ${planned.builder} builds, ${planned.checker} checks: ${
+                                                      planned.objective.slice(0, 160)
+                                                    }`
+                                                )
+                                              )
+                                            )
+                                          ).pipe(
+                                            Node.andThen(Gates.before(
+                                              admission.gates,
+                                              taskGate,
+                                              { request: request.text, assignment },
+                                              based(payload).pipe(
+                                                Node.branch({
+                                                  if: Node.capture(
+                                                    { implementationVersion },
+                                                    (base) => base.commit !== null
+                                                  ),
+                                                  else: (base) =>
+                                                    report(payload, {
+                                                      status: "blocked",
+                                                      summary: base.reason,
+                                                      principals: {
+                                                        assistant: admission.assistant,
+                                                        lead: contract.principal
+                                                      },
+                                                      rounds: 0
+                                                    }),
+                                                  then: (base) =>
+                                                    Actions.PrepareWorkspace.call({
+                                                      repository: admission.repository,
+                                                      commit: base.commit as Planned.Planned<string>,
+                                                      slug: "build"
+                                                    }).pipe(
+                                                      Node.bindPlanned(
+                                                        Node.capture({ implementationVersion }, (prepared) =>
+                                                          round(payload, pin.revision, assignment, prepared, 1, [], [
+                                                            prepared
+                                                          ]).pipe(
+                                                            // Every ending removes the workspace machine: a failed
+                                                            // round disposes it before it is reported.
+                                                            Node.catch({
+                                                              onFailure: Node.capture(
+                                                                { implementationVersion },
+                                                                (failure) =>
+                                                                  Actions.DisposeWorkspace.call({ workspace: prepared })
+                                                                    .pipe(
+                                                                      Node.andThen(failed(payload, failure))
+                                                                    )
+                                                              )
+                                                            })
+                                                          ))
+                                                      )
+                                                    )
+                                                })
+                                              )
+                                            ))
+                                          )
+                                      }))
+                                  })
+                                )
+                            })
+                          ))))
+                    )
+                })
+              )))))
       )))
   )
 }
@@ -510,29 +589,49 @@ const questioned = (
   otherwise: () => Node.Node<Report, Failure, any>
 ): Node.Node<Report, Failure, any> => {
   const answeredBy = (answer: Node.Node<Answer, any, any>) =>
-    answer.pipe(Node.map(Node.capture({ implementationVersion, key: payload.request.key, assistant: payload.admission.assistant }, function(seen): Report {
-      // The answer a valid `done` result carries in `fields.answer`; empty when none.
-      const field = seen.result.fields["answer"]
-      const text = seen.valid && seen.result.status === "done" && typeof field === "string" ? field.trim() : ""
-      const principals = { assistant: this.assistant, lead: seen.principal }
-      return text === ""
-        ? { key: this.key, status: "blocked", summary: seen.result.summary, principals, rounds: 0 }
-        : { key: this.key, status: "answered", summary: text.slice(0, 2_000), principals, rounds: 0, answer: { principal: seen.principal, text } }
-    }))) as Node.Node<Report, Failure, any>
+    answer.pipe(
+      Node.map(
+        Node.capture(
+          { implementationVersion, key: payload.request.key, assistant: payload.admission.assistant },
+          function(seen): Report {
+            // The answer a valid `done` result carries in `fields.answer`; empty when none.
+            const field = seen.result.fields["answer"]
+            const text = seen.valid && seen.result.status === "done" && typeof field === "string" ? field.trim() : ""
+            const principals = { assistant: this.assistant, lead: seen.principal }
+            return text === ""
+              ? { key: this.key, status: "blocked", summary: seen.result.summary, principals, rounds: 0 }
+              : {
+                key: this.key,
+                status: "answered",
+                summary: text.slice(0, 2_000),
+                principals,
+                rounds: 0,
+                answer: { principal: seen.principal, text }
+              }
+          }
+        )
+      )
+    ) as Node.Node<Report, Failure, any>
   return Node.succeed(routed).pipe(Node.branch({
-    if: Node.capture({ implementationVersion }, (seen) =>
-      seen.valid && seen.result.status === "done" && seen.result.handoffs.length === 0 &&
-      typeof seen.result.fields["answer"] === "string" && seen.result.fields["answer"].trim() !== ""),
+    if: Node.capture(
+      { implementationVersion },
+      (seen) =>
+        seen.valid && seen.result.status === "done" && seen.result.handoffs.length === 0 &&
+        typeof seen.result.fields["answer"] === "string" && seen.result.fields["answer"].trim() !== ""
+    ),
     then: () => answeredBy(Node.succeed(routed)),
     else: () =>
       Node.succeed(routed).pipe(Node.branch({
         if: Node.capture({ implementationVersion }, (seen) =>
-          seen.valid && seen.result.status === "done" && seen.result.fields["question"] === true && seen.result.handoffs.length === 1),
+          seen.valid && seen.result.status === "done" && seen.result.fields["question"] === true &&
+          seen.result.handoffs.length === 1),
         then: () =>
           AnswerTask.call({ revision, request: payload.request, routed }).pipe(
-            Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => answeredBy(fieldTurn(revision, stage, ["answer"]))))
+            Node.bindPlanned(Node.capture({ implementationVersion }, (stage) =>
+              answeredBy(fieldTurn(revision, stage, ["answer"]))))
           ),
-        else: () => otherwise()
+        else: () =>
+          otherwise()
       }))
   }))
 }
@@ -548,13 +647,16 @@ const based = (payload: Payload) =>
       reason: ""
     }))),
     Node.catch({
-      onFailure: Node.capture({ implementationVersion }, (failure) =>
-        Node.succeed(failure as Planned.Planned<{ readonly message: string }>).pipe(
-          Node.map(Node.capture({ implementationVersion }, (refused): { commit: string | null; reason: string } => ({
-            commit: null,
-            reason: `the base could not be resolved: ${refused.message}`
-          })))
-        ))
+      onFailure: Node.capture(
+        { implementationVersion },
+        (failure) =>
+          Node.succeed(failure as Planned.Planned<{ readonly message: string }>).pipe(
+            Node.map(Node.capture({ implementationVersion }, (refused): { commit: string | null; reason: string } => ({
+              commit: null,
+              reason: `the base could not be resolved: ${refused.message}`
+            })))
+          )
+      )
     })
   )
 
@@ -611,7 +713,12 @@ const withAsk = (
             Node.succeed(asked).pipe(Node.branch({
               if: Node.capture({ implementationVersion }, (booking) => booking.kind === "meeting"),
               then: (booking) =>
-                child(payload, "organization/meetings-book", answer.principal, MeetingsBook.child(booking.meeting as never)),
+                child(
+                  payload,
+                  "organization/meetings-book",
+                  answer.principal,
+                  MeetingsBook.child(booking.meeting as never)
+                ),
               else: (refused) =>
                 report(payload, {
                   status: "blocked",
@@ -657,7 +764,11 @@ const progress = (
 ): Node.Node<unknown, Failure, any> => {
   const conversation = payload.request.conversation
   if (conversation === undefined) return Node.succeed(undefined)
-  return RenderReply.call({ speaker, text, ...(refs === undefined ? {} : { refs: refs as unknown as ReadonlyArray<Ref> }) }).pipe(
+  return RenderReply.call({
+    speaker,
+    text,
+    ...(refs === undefined ? {} : { refs: refs as unknown as ReadonlyArray<Ref> })
+  }).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (reply) =>
       Slack.PostMessage.call({
         connectionId: slackConnection,
@@ -685,7 +796,11 @@ const failed = (payload: Payload, failure: unknown): Node.Node<Report, Failure, 
   )
 
 /** The owner's message's reactions: `remove`, then `add`; nothing for a request with no thread. */
-const reacted = (payload: Payload, remove: ReadonlyArray<string>, add: Planned.Planned<string>): Node.Node<unknown, Failure, any> => {
+const reacted = (
+  payload: Payload,
+  remove: ReadonlyArray<string>,
+  add: Planned.Planned<string>
+): Node.Node<unknown, Failure, any> => {
   const conversation = payload.request.conversation
   if (conversation === undefined) return Node.succeed(null)
   return React.call({
@@ -713,10 +828,11 @@ const finish = (payload: Payload, outcome: Planned.Planned<Report>) =>
         repository: payload.admission.repository
       }).pipe(
         Node.bindPlanned(Node.capture({ implementationVersion }, (closing) =>
-          TeamPost.call({ thread: payload.request.key, role: closing.speaker, text: closing.text, refs: closing.refs }).pipe(
-            Node.andThen(progress(payload, closing.speaker, closing.text, "result", closing.refs)),
-            Node.andThen(reacted(payload, ["eyes", "double_vertical_bar"], closing.reaction))
-          ))),
+          TeamPost.call({ thread: payload.request.key, role: closing.speaker, text: closing.text, refs: closing.refs })
+            .pipe(
+              Node.andThen(progress(payload, closing.speaker, closing.text, "result", closing.refs)),
+              Node.andThen(reacted(payload, ["eyes", "double_vertical_bar"], closing.reaction))
+            ))),
         Node.andThen(Settle.call({ report: outcome, receipt: written.path }))
       )))
   )

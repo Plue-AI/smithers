@@ -5,16 +5,24 @@
  * answers every prompt flow with one cell, and a judge that passes the
  * completion. Chat is a fixed reply, since chat is not under test here.
  */
-import { appendFileSync } from "node:fs"
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
+import { appendFileSync } from "node:fs"
 import { App } from "../src/app.tsx"
 import * as FlowControl from "../src/flow-control.ts"
 import * as Host from "../src/host.ts"
 
 const stream = (text: string) => {
   const chunk = (delta: object, finish: string | null) =>
-    `data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+    `data: ${
+      JSON.stringify({
+        id: "c",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "m",
+        choices: [{ index: 0, delta, finish_reason: finish }]
+      })
+    }\n\n`
   return `${chunk({ role: "assistant", content: text }, null)}${chunk({}, "stop")}data: [DONE]\n\n`
 }
 const model = Bun.serve({
@@ -24,10 +32,14 @@ const model = Bun.serve({
     if (process.env.TUI_MODEL_LOG) appendFileSync(process.env.TUI_MODEL_LOG, body.model + "\n")
     if (body.model === process.env.TUI_REFUSED_MODEL) {
       return process.env.TUI_REFUSAL === "overflow"
-        ? Response.json({ error: { message: "maximum context length exceeded", code: "context_length_exceeded" } }, { status: 400 })
+        ? Response.json({ error: { message: "maximum context length exceeded", code: "context_length_exceeded" } }, {
+          status: 400
+        })
         : Response.json({ error: { message: "Fixture provider unavailable", type: "server_error" } }, { status: 503 })
     }
-    return new Response(stream("```cell\n" + (process.env.TUI_FLOW_CELL ?? 'ctx.done("Pong.")') + "\n```"), { headers: { "content-type": "text/event-stream" } })
+    return new Response(stream("```cell\n" + (process.env.TUI_FLOW_CELL ?? "ctx.done(\"Pong.\")") + "\n```"), {
+      headers: { "content-type": "text/event-stream" }
+    })
   }
 })
 // The completion brake asks Jev; this judge says the run stayed on target and its claim holds.
@@ -35,15 +47,19 @@ const passing = new Set(["on_target", "complete"])
 const judge = Bun.serve({
   port: 0,
   fetch: async (request) => {
-    const body = await request.json() as { questions: Record<string, { type: string; options?: ReadonlyArray<string> }> }
-    const answers = Object.fromEntries(Object.entries(body.questions).map(([id, question]) => [
-      id,
-      question.type === "boolean"
-        ? { type: "boolean", probability: passing.has(id) ? 0.99 : 0.01 }
-        : question.type === "choice"
-        ? { type: "choice", choice: question.options?.[0] ?? "" }
-        : { type: "score", score: 0 }
-    ]))
+    const body = await request.json() as {
+      questions: Record<string, { type: string; options?: ReadonlyArray<string> }>
+    }
+    const answers = Object.fromEntries(
+      Object.entries(body.questions).map(([id, question]) => [
+        id,
+        question.type === "boolean"
+          ? { type: "boolean", probability: passing.has(id) ? 0.99 : 0.01 }
+          : question.type === "choice"
+          ? { type: "choice", choice: question.options?.[0] ?? "" }
+          : { type: "score", score: 0 }
+      ])
+    )
     return Response.json({ answers })
   }
 })

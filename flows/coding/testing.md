@@ -5,16 +5,16 @@ targets. These labels describe test scope, not a claim that a suite is near
 instant. Use measured build/typecheck gates for fast backpressure; run suites
 that take longer asynchronously.
 
-| Label | Scope | Runtime / budget |
-| --- | --- | --- |
-| `//flows:codingPolicy` | Host configuration/seat contracts, test-inventory coverage, missing-native-tool refusal | Node, existing 10 minute test budget |
-| `//flows:coding` | Linear coding policy with real JJ and SQLite, scripted implementations/checks | Node, 10 minutes |
-| `//flows:codingRuntime` | Real QuickJS authority refusal and explicit operator configuration/startup | Node, 10 minutes |
-| `//flows:codingConfigBun` | Operator configuration/startup using injected Bun services | Bun, 10 minutes |
-| `//flows:codingNative` | Existing native ports, atoms, checks, planning/wiki, correction, POC and configured host fixtures | Node, 45 minutes |
-| `//flows:codingNativeBun` | The fixtures that select the Bun platform/runtime, including the complete request host | Bun, 45 minutes |
-| `//flows:codingBundle` | Existing deployment bundler acceptance for manual plans and prompt requests | Node, 45 minutes |
-| `//flows:codingBundleBun` | The same two bundled host acceptance cases | Bun, 45 minutes |
+| Label                     | Scope                                                                                             | Runtime / budget                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `//flows:codingPolicy`    | Host configuration/seat contracts, test-inventory coverage, missing-native-tool refusal           | Node, existing 10 minute test budget |
+| `//flows:coding`          | Linear coding policy with real JJ and SQLite, scripted implementations/checks                     | Node, 10 minutes                     |
+| `//flows:codingRuntime`   | Real QuickJS authority refusal and explicit operator configuration/startup                        | Node, 10 minutes                     |
+| `//flows:codingConfigBun` | Operator configuration/startup using injected Bun services                                        | Bun, 10 minutes                      |
+| `//flows:codingNative`    | Existing native ports, atoms, checks, planning/wiki, correction, POC and configured host fixtures | Node, 45 minutes                     |
+| `//flows:codingNativeBun` | The fixtures that select the Bun platform/runtime, including the complete request host            | Bun, 45 minutes                      |
+| `//flows:codingBundle`    | Existing deployment bundler acceptance for manual plans and prompt requests                       | Node, 45 minutes                     |
+| `//flows:codingBundleBun` | The same two bundled host acceptance cases                                                        | Bun, 45 minutes                      |
 
 The native and bundle labels are slow gates. Their private launcher runs one
 existing test file at a time, with a 25 minute child limit in addition to each

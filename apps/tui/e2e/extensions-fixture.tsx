@@ -31,7 +31,12 @@ const host: Host.Host = {
           rows: [
             { id: "changelog", label: "Changelog", status: "done", details: [] },
             { id: "tag", label: "Tag", status: "running", details: [] },
-            { id: "publish", label: "Publish", details: [], action: { label: "Publish", action: { kind: "flow", flow: "review" } } }
+            {
+              id: "publish",
+              label: "Publish",
+              details: [],
+              action: { label: "Publish", action: { kind: "flow", flow: "review" } }
+            }
           ]
         }
       })
@@ -66,7 +71,12 @@ const flows: Flows.Port = {
   plan: async () => ({ all: false, raw: {} }),
   start: async () => "run-1",
   resume: async (runId) => ({ runId }),
-  watch: () => ({ done: new Promise((resolve) => { settle = resolve }), close: () => {} }),
+  watch: () => ({
+    done: new Promise((resolve) => {
+      settle = resolve
+    }),
+    close: () => {}
+  }),
   events: async () => [],
   cancel: async () => settle({ kind: "cancelled" }),
   dispose: async () => {}

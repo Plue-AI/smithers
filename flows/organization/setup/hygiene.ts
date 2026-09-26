@@ -33,15 +33,7 @@ import * as MicrosandboxSandbox from "../../../packages/smithers/flows/sandbox/s
 import { executionDatabasePath } from "../../../packages/smithers/src/internal/ExecutionDatabasePath.ts"
 import * as SetupMicrosandbox from "./microsandbox.ts"
 import { logsDir } from "./service.ts"
-import {
-  absolute,
-  type Command,
-  type Io,
-  loadOrganization,
-  nonEmpty,
-  stateDirOf,
-  withEnvFile
-} from "./settings.ts"
+import { absolute, type Command, type Io, loadOrganization, nonEmpty, stateDirOf, withEnvFile } from "./settings.ts"
 
 const megabyte = 1024 * 1024
 
@@ -152,17 +144,19 @@ const engineStatuses = (stateDir: string) => async (): Promise<ReadonlyMap<strin
     import("../../../packages/smithers/src/internal/NodeControlHost.ts"),
     import("@smthrs/engine-store/RunCatalogRead")
   ])
-  return Effect.runPromise(Effect.gen(function*() {
-    const catalog = yield* RunCatalogRead.make()
-    const statuses = new Map<string, string>()
-    let cursor: string | undefined
-    do {
-      const page = yield* catalog.listRuns(cursor === undefined ? {} : { cursor })
-      for (const run of page.runs) statuses.set(run.runId, run.status)
-      cursor = page.cursor ?? undefined
-    } while (cursor !== undefined)
-    return statuses
-  }).pipe(Effect.scoped, Effect.provide(platform.database(file))))
+  return Effect.runPromise(
+    Effect.gen(function*() {
+      const catalog = yield* RunCatalogRead.make()
+      const statuses = new Map<string, string>()
+      let cursor: string | undefined
+      do {
+        const page = yield* catalog.listRuns(cursor === undefined ? {} : { cursor })
+        for (const run of page.runs) statuses.set(run.runId, run.status)
+        cursor = page.cursor ?? undefined
+      } while (cursor !== undefined)
+      return statuses
+    }).pipe(Effect.scoped, Effect.provide(platform.database(file)))
+  )
 }
 
 export const command: Command = {
@@ -174,7 +168,9 @@ export const command: Command = {
     const env = withEnvFile(io.env, join(stateDir, ".env"))
     const policy = policyOf(env)
     const stamp = new Date().toISOString()
-    for (const name of rotateLogs(logsDir(stateDir), policy.logMaxBytes, policy.logKeep)) io.out(`${stamp} rotated ${name}`)
+    for (const name of rotateLogs(logsDir(stateDir), policy.logMaxBytes, policy.logKeep)) {
+      io.out(`${stamp} rotated ${name}`)
+    }
     if (policy.runsKeepDays !== undefined) {
       const root = nonEmpty(env.SMITHERS_ORG_ROOT)
       if (root === undefined) throw new Error("SMITHERS_ORG_RUNS_KEEP_DAYS is set but SMITHERS_ORG_ROOT is not")

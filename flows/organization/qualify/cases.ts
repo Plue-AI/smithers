@@ -138,7 +138,9 @@ export const drill = "{drill}"
 
 const command = (line: string, name: string): ReadonlyArray<string> => {
   const argv = line.split(/\s+/).filter((part) => part !== "")
-  if (!hostCommands.has(argv[0] ?? "")) throw new Error(`${name} runs ${argv[0]}, not one of ${[...hostCommands].join(", ")}`)
+  if (!hostCommands.has(argv[0] ?? "")) {
+    throw new Error(`${name} runs ${argv[0]}, not one of ${[...hostCommands].join(", ")}`)
+  }
   for (const part of argv.slice(1)) {
     if (!part.startsWith("--") && !part.startsWith(drill)) throw new Error(`${name} names ${part} outside ${drill}`)
   }
@@ -176,7 +178,9 @@ const alternatives = (value: unknown, name: string): ReadonlyArray<ReadonlyArray
   if (value === undefined || value === null) return []
   if (!Array.isArray(value)) throw new Error(`${name} is a list`)
   return value.map((item, index) => {
-    const found = Array.isArray(item) ? texts(item, `${name}[${index}]`) : [text(item)].filter((entry) => entry !== undefined)
+    const found = Array.isArray(item)
+      ? texts(item, `${name}[${index}]`)
+      : [text(item)].filter((entry) => entry !== undefined)
     if (found.length === 0) throw new Error(`${name}[${index}] is empty`)
     return found
   })
@@ -193,7 +197,10 @@ const caseChecks = (value: unknown): ReadonlyArray<{ readonly name: string; read
   if (!Array.isArray(value)) throw new Error("checks is a list")
   return value.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`checks[${index}] is a mapping`)
-    return { name: required(entry.name, `checks[${index}].name`), argv: ["sh", "-c", required(entry.run, `checks[${index}].run`)] }
+    return {
+      name: required(entry.name, `checks[${index}].name`),
+      argv: ["sh", "-c", required(entry.run, `checks[${index}].run`)]
+    }
   })
 }
 
@@ -242,14 +249,18 @@ export const parse = (path: string, source: string): Case | Invalid => {
     // YAML reads an all-digit id as a number and drops its leading zeros.
     if (typeof page.revision === "number") throw new Error("revision reads as a number; quote it")
     const revision = text(page.revision)
-    if (revision !== undefined && !requires.includes("workspace")) throw new Error("revision needs requires: [workspace]")
+    if (revision !== undefined && !requires.includes("workspace")) {
+      throw new Error("revision needs requires: [workspace]")
+    }
     const commands = texts(page.commands, "commands").map((line, index) => command(line, `commands[${index}]`))
     if ((commands.length > 0) !== requires.includes("host-commands")) {
       throw new Error("commands and requires: [host-commands] go together")
     }
     const checks = caseChecks(page.checks)
     const checked = checks.length > 0 || expect.checks !== undefined || expect.files.length > 0
-    if (checked && !requires.includes("workspace")) throw new Error("checks and expect.files need requires: [workspace]")
+    if (checked && !requires.includes("workspace")) {
+      throw new Error("checks and expect.files need requires: [workspace]")
+    }
     const context = page.context === undefined || page.context === null ? [] : page.context
     if (!Array.isArray(context)) throw new Error("context is a list")
     return {
@@ -382,7 +393,9 @@ export interface RoleOutcome {
   /** The checks that change ran in a fresh machine. */
   readonly checks?: {
     readonly passed: boolean
-    readonly receipts: ReadonlyArray<{ readonly name: string; readonly exitCode: number | null; readonly timedOut: boolean }>
+    readonly receipts: ReadonlyArray<
+      { readonly name: string; readonly exitCode: number | null; readonly timedOut: boolean }
+    >
   }
   readonly failure?: { readonly code: string; readonly message: string }
 }
@@ -391,7 +404,9 @@ export interface RoleOutcome {
 export const scoreRole = (entry: RoleCase, outcome: RoleOutcome): ReadonlyArray<string> => {
   if (outcome.answer === undefined) {
     return [
-      `${infrastructure} ${outcome.failure?.code ?? "no answer"}${outcome.failure === undefined ? "" : `: ${outcome.failure.message}`}`
+      `${infrastructure} ${outcome.failure?.code ?? "no answer"}${
+        outcome.failure === undefined ? "" : `: ${outcome.failure.message}`
+      }`
     ]
   }
   const { result, valid, violations } = outcome.answer
@@ -415,7 +430,12 @@ export const scoreRole = (entry: RoleCase, outcome: RoleOutcome): ReadonlyArray<
       const failed = (outcome.checks?.receipts ?? []).filter((receipt) => receipt.exitCode !== 0 || receipt.timedOut)
       if (outcome.checks === undefined || outcome.checks.receipts.length === 0) reasons.push("no checks ran")
       else if (!outcome.checks.passed || failed.length > 0) {
-        reasons.push(`checks failed: ${failed.map((receipt) => `${receipt.name} ${receipt.timedOut ? "timed out" : `exit ${receipt.exitCode}`}`).join(", ")}`)
+        reasons.push(
+          `checks failed: ${
+            failed.map((receipt) => `${receipt.name} ${receipt.timedOut ? "timed out" : `exit ${receipt.exitCode}`}`)
+              .join(", ")
+          }`
+        )
       }
     }
   }

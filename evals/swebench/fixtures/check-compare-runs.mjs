@@ -263,9 +263,12 @@ try {
   const run = () =>
     spawnSync(process.execPath, [
       join(root, "compare-runs.mjs"),
-      "--baseline", baselinePath,
-      "--rerun", rerunPath,
-      "--out", out
+      "--baseline",
+      baselinePath,
+      "--rerun",
+      rerunPath,
+      "--out",
+      out
     ], { encoding: "utf8" })
   const first = run()
   assert.equal(first.status, 0, first.stderr)
@@ -281,7 +284,9 @@ try {
 
   // A missing baseline is a refusal, not an empty report.
   const missing = spawnSync(process.execPath, [
-    join(root, "compare-runs.mjs"), "--baseline", join(temporary, "nope.jsonl")
+    join(root, "compare-runs.mjs"),
+    "--baseline",
+    join(temporary, "nope.jsonl")
   ], { encoding: "utf8" })
   assert.equal(missing.status, 1)
   assert.match(missing.stderr, /no baseline ledger/)

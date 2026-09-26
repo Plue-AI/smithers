@@ -102,16 +102,19 @@ try {
 
   // The roots evaluate.sh reads are the roots the run scripts write.
   const roots = spawnSync(join(rig, "lib/run-paths.sh"), ["flows", "--roots"], {
-    encoding: "utf8", env: { ...process.env, SWB_ARTIFACT_ROOT: artifacts }
+    encoding: "utf8",
+    env: { ...process.env, SWB_ARTIFACT_ROOT: artifacts }
   })
   assert.equal(roots.status, 0, roots.stderr)
   assert.match(roots.stdout, new RegExp(`^PATCH_ROOT=${artifacts}/patches$`, "mu"))
   const perRun = spawnSync(join(rig, "lib/run-paths.sh"), ["flows", id], {
-    encoding: "utf8", env: { ...process.env, SWB_ARTIFACT_ROOT: artifacts }
+    encoding: "utf8",
+    env: { ...process.env, SWB_ARTIFACT_ROOT: artifacts }
   })
   assert.match(perRun.stdout, new RegExp(`^PATCH=${artifacts}/patches/${id}\\.patch$`, "mu"))
   assert.equal(
-    spawnSync(join(rig, "lib/run-paths.sh"), ["flows", "--roots", "r1"], { encoding: "utf8" }).status, 2,
+    spawnSync(join(rig, "lib/run-paths.sh"), ["flows", "--roots", "r1"], { encoding: "utf8" }).status,
+    2,
     "--roots takes no run index"
   )
 

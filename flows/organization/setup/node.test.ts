@@ -51,7 +51,11 @@ test("prefers PATH, follows an fnm shell link to its installation, then fnm, Vol
   const pinned = fake(join(scratch, "pinned/node"), "26.7.0")
   assert.equal(NodeResolve.candidates({ SMITHERS_ORG_NODE: pinned }, home, on)[0], pinned)
   assert.deepEqual(
-    NodeResolve.candidates({ NVM_DIR: join(home, ".nvm"), VOLTA_HOME: join(scratch, "none"), FNM_DIR: join(scratch, "none") }, join(scratch, "nobody"), local),
+    NodeResolve.candidates(
+      { NVM_DIR: join(home, ".nvm"), VOLTA_HOME: join(scratch, "none"), FNM_DIR: join(scratch, "none") },
+      join(scratch, "nobody"),
+      local
+    ),
     [nvm, nvmOld]
   )
 })
@@ -73,7 +77,10 @@ test("names the newest Node too old, and the one command that installs one", () 
   assert.equal(NodeResolve.resolve({}, none, "26.5.0", bare)._tag, "Missing")
   assert.equal(NodeResolve.installFix({ FNM_DIR: home }, none, "26.5.0", bare), "fnm install 26.5.0")
   assert.equal(NodeResolve.installFix({ VOLTA_HOME: home }, none, "26.5.0", bare), "volta install node@26.5.0")
-  assert.equal(NodeResolve.installFix({}, none, "26.5.0", bare), "curl -fsSL https://fnm.vercel.app/install | bash && fnm install 26.5.0")
+  assert.equal(
+    NodeResolve.installFix({}, none, "26.5.0", bare),
+    "curl -fsSL https://fnm.vercel.app/install | bash && fnm install 26.5.0"
+  )
   assert.equal(
     NodeResolve.installFix({}, none, "26.5.0", { ...bare, exists: (path) => path === "/opt/homebrew/bin/brew" }),
     "brew install node"

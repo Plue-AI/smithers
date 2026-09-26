@@ -70,7 +70,9 @@ export const useComposer = (options: {
     current?.controller.abort()
     return current?.done.then(() => {}, () => {})
   }, [])
-  useEffect(() => () => { void stopEditor() }, [stopEditor])
+  useEffect(() => () => {
+    void stopEditor()
+  }, [stopEditor])
 
   const completeAt = (text: string, at: number): Complete.Completion | undefined => {
     const completion = Complete.complete(text, at, {
@@ -79,7 +81,9 @@ export const useComposer = (options: {
       flows: runs.listed,
       agents: () => runs.listed().filter(Extension.isAgent)
     })
-    return completion !== undefined && (completion.items.length > 0 || completion.kind !== "file") ? completion : undefined
+    return completion !== undefined && (completion.items.length > 0 || completion.kind !== "file")
+      ? completion
+      : undefined
   }
   const menu = useMemo(
     () => (menuDismissed ? undefined : completeAt(draft, cursor)),

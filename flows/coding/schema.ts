@@ -1,7 +1,7 @@
 /** Coding policy is ordinary flow input; the engine remains its durable store. */
-import { Schema } from "effect"
 import * as Digest from "@smthrs/core/Digest"
 import * as Stall from "@smthrs/flow/Stall"
+import { Schema } from "effect"
 
 const Text = Schema.NonEmptyString
 const Id = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,199}$/))
@@ -60,9 +60,11 @@ export type Plan = typeof Plan.Type
 export const SuppliedWiki = Schema.Struct({
   sourceRevision: Text.check(Schema.isMaxLength(256)),
   pages: Schema.Array(Schema.Struct({
-    id: Text.check(Schema.isMaxLength(128)), title: Text.check(Schema.isMaxLength(512)),
+    id: Text.check(Schema.isMaxLength(128)),
+    title: Text.check(Schema.isMaxLength(512)),
     kind: Schema.Literals(["current", "intent"]),
-    body: Text.check(Schema.isMaxLength(64 * 1024)), inputDigest: Text.check(Schema.isMaxLength(128))
+    body: Text.check(Schema.isMaxLength(64 * 1024)),
+    inputDigest: Text.check(Schema.isMaxLength(128))
   })).check(Schema.isMaxLength(30))
 })
 export type SuppliedWiki = typeof SuppliedWiki.Type
@@ -135,15 +137,29 @@ export type Result = typeof Result.Type
 /** Domain outcome is distinct from the enclosing engine execution finishing. */
 export const CorrectionResult = Schema.Struct({
   status: Schema.Literals(["validated", "changes-requested", "blocked"]),
-  rounds: Schema.Int, result: Schema.NullOr(Result),
+  rounds: Schema.Int,
+  result: Schema.NullOr(Result),
   blocked: Schema.NullOr(Schema.Struct({ executionId: Schema.String, message: Schema.String })),
   // Present when the stall breaker ended the correction (Stall in @smthrs/flow).
   stalled: Schema.optionalKey(Stall.Stalled)
 })
 export const RequestResult = Schema.Struct({ plan: Plan, outcome: CorrectionResult })
 export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error", {
-  code: Schema.Literals(["invalid_plan", "invalid_request", "fast_gate", "stale_revision", "invalid_receipt", "unavailable", "execution",
-    "source_missing", "source_changed", "source_refused", "source_unavailable", "declined", "stalled"]),
+  code: Schema.Literals([
+    "invalid_plan",
+    "invalid_request",
+    "fast_gate",
+    "stale_revision",
+    "invalid_receipt",
+    "unavailable",
+    "execution",
+    "source_missing",
+    "source_changed",
+    "source_refused",
+    "source_unavailable",
+    "declined",
+    "stalled"
+  ]),
   message: Text
 }) {}
 
@@ -155,16 +171,25 @@ export const validatePlan = (plan: Plan): void => {
     groups.add(change.id)
     const checks = new Set<string>()
     for (const check of change.checks) {
-      if (checks.has(check.id)) throw new CodingError({ code: "invalid_plan", message: `Duplicate check ${check.id} in ${change.id}` })
+      if (checks.has(check.id)) {
+        throw new CodingError({ code: "invalid_plan", message: `Duplicate check ${check.id} in ${change.id}` })
+      }
       checks.add(check.id)
     }
-    if (!change.checks.some(check => check.required && check.tier === "fast") ||
-        !change.checks.some(check => check.required && check.tier === "slow")) {
-      throw new CodingError({ code: "invalid_plan", message: `${change.id} needs a required fast check and a required slow check` })
+    if (
+      !change.checks.some((check) => check.required && check.tier === "fast") ||
+      !change.checks.some((check) => check.required && check.tier === "slow")
+    ) {
+      throw new CodingError({
+        code: "invalid_plan",
+        message: `${change.id} needs a required fast check and a required slow check`
+      })
     }
     for (const atom of change.atoms) {
       if (atom.changeId === null) continue
-      if (nativeChanges.has(atom.changeId)) throw new CodingError({ code: "invalid_plan", message: `JJ change ${atom.changeId} has more than one owner` })
+      if (nativeChanges.has(atom.changeId)) {
+        throw new CodingError({ code: "invalid_plan", message: `JJ change ${atom.changeId} has more than one owner` })
+      }
       nativeChanges.add(atom.changeId)
     }
   }

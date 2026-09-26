@@ -38,12 +38,16 @@ describe("rg search", () => {
 
   it("keeps a colon inside a path", async () => {
     const outcome = await Search.run({ cwd, query: "needle" }).done
-    expect(outcome._tag === "done" ? outcome.hits : undefined).toEqual([{ path: "we:ird.js", line: 1, text: "needle here" }])
+    expect(outcome._tag === "done" ? outcome.hits : undefined).toEqual([{
+      path: "we:ird.js",
+      line: 1,
+      text: "needle here"
+    }])
   })
 
   it("finds hits in files with newline, tab, Unicode, quote, and backslash names, keeping exact paths", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-search-odd-"))
-    const names = ["new\nline.txt", "tab\there.txt", "café 日本.txt", 'say "hi".txt', "back\\slash.txt"]
+    const names = ["new\nline.txt", "tab\there.txt", "café 日本.txt", "say \"hi\".txt", "back\\slash.txt"]
     for (const name of names) writeFileSync(join(dir, name), `a\tpin "q" \\ é\n`)
     const outcome = await Search.run({ cwd: dir, query: "pin" }).done
     expect(outcome._tag).toBe("done")
@@ -51,14 +55,19 @@ describe("rg search", () => {
     expect(outcome.hits.map((hit) => hit.path).sort()).toEqual([...names].sort())
     for (const hit of outcome.hits) {
       expect(readFileSync(join(dir, hit.path), "utf8")).toContain("pin")
-      expect(hit).toMatchObject({ line: 1, text: 'a\tpin "q" \\ é' })
+      expect(hit).toMatchObject({ line: 1, text: "a\tpin \"q\" \\ é" })
     }
   })
 
   it("decodes rg's base64 bytes, caps line text, and skips a path it cannot name exactly", () => {
     const b64 = (bytes: Buffer) => bytes.toString("base64")
-    const match = (path: object, lines: object) => JSON.stringify({ type: "match", data: { path, lines, line_number: 7 } })
-    expect(Search.parse(match({ bytes: b64(Buffer.from("./café.txt")) }, { bytes: b64(Buffer.from([0x70, 0x69, 0x6e, 0xff, 0x0a])) })))
+    const match = (path: object, lines: object) =>
+      JSON.stringify({ type: "match", data: { path, lines, line_number: 7 } })
+    expect(
+      Search.parse(
+        match({ bytes: b64(Buffer.from("./café.txt")) }, { bytes: b64(Buffer.from([0x70, 0x69, 0x6e, 0xff, 0x0a])) })
+      )
+    )
       .toEqual({ path: "café.txt", line: 7, text: "pin\ufffd" })
     expect(Search.parse(match({ bytes: b64(Buffer.from([0x62, 0xff])) }, { text: "pin\n" }))).toBeUndefined()
     expect(Search.parse(match({ text: "./long.txt" }, { text: `${"x".repeat(300)}\n` }))?.text).toHaveLength(200)

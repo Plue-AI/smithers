@@ -31,10 +31,14 @@ const alive = (pid: number): boolean => {
 /** Every `zmuxd` serving a socket under `root`, and the processes it runs. */
 export const daemons = (root: string): ReadonlyArray<number> => {
   const listing = spawnSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" }).stdout ?? ""
-  const rows = listing.split("\n").map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter((row) => row !== null)
-  const owned = new Set(rows
-    .filter((row) => /(^|\/)zmuxd\s/.test(row[3]!) && row[3]!.includes(`--socket ${root}/`))
-    .map((row) => Number(row[1])))
+  const rows = listing.split("\n").map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter((row) =>
+    row !== null
+  )
+  const owned = new Set(
+    rows
+      .filter((row) => /(^|\/)zmuxd\s/.test(row[3]!) && row[3]!.includes(`--socket ${root}/`))
+      .map((row) => Number(row[1]))
+  )
   for (const row of rows) if (owned.has(Number(row[2]))) owned.add(Number(row[1]))
   return [...owned]
 }
@@ -67,7 +71,7 @@ export const sweep = (base: string) => {
 }
 
 /** Points `TMPDIR` at a fresh private root; the returned function releases it. */
-export const claim = (): (() => void) => {
+export const claim = (): () => void => {
   const base = tmpdir()
   sweep(base)
   const root = mkdtempSync(join(base, `${PREFIX}${process.pid}-`))

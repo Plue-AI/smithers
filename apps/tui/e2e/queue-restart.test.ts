@@ -14,8 +14,7 @@ import { key, Tui } from "./zmux.ts"
 const app = resolve(import.meta.dir, "..")
 const fixture = join(app, "test", "fixtures", "fix-add.jsonl")
 const drawn = (screen: string) => /↑\S+ ↓\S+/.test(screen)
-const idle = (screen: string) =>
-  drawn(screen) && !screen.includes("esc Interrupt") && !/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \d/.test(screen)
+const idle = (screen: string) => drawn(screen) && !screen.includes("esc Interrupt") && !/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \d/.test(screen)
 const altEnter = "\x1b\r"
 const altUp = "\x1b[1;3A"
 
@@ -35,7 +34,9 @@ const repository = () => {
   return directory
 }
 
-const start = async (options: { readonly cwd: string; readonly sessions: string; readonly holdMs?: number; readonly args?: string }) => {
+const start = async (
+  options: { readonly cwd: string; readonly sessions: string; readonly holdMs?: number; readonly args?: string }
+) => {
   tui = await Tui.start({
     cwd: options.cwd,
     command: `bun ${join(app, "src", "main.tsx")} ${options.cwd} ${options.args ?? ""}`,
@@ -55,7 +56,9 @@ const start = async (options: { readonly cwd: string; readonly sessions: string;
 /** Every chat session file under the root, newest last. */
 const chats = (sessions: string): ReadonlyArray<string> =>
   readdirSync(sessions, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((folder) =>
-    readdirSync(join(sessions, folder.name)).filter((name) => name.endsWith(".jsonl")).map((name) => join(sessions, folder.name, name))
+    readdirSync(join(sessions, folder.name)).filter((name) => name.endsWith(".jsonl")).map((name) =>
+      join(sessions, folder.name, name)
+    )
   ).sort()
 const records = (file: string) => Session.load(file).filter((record) => record.type !== "event")
 const pending = (file: string) => Session.restore(Session.load(file)).queued.map((prompt) => prompt.text)
@@ -111,12 +114,20 @@ describe("follow-up queue and interrupted turns across a restart", () => {
     expect(pending(file!)).toEqual(["queued survive restart 123", "queued second 456"])
 
     await screen.press(altUp)
-    const editor = await screen.until((text) => text.includes("Restored 2 queued messages"), 5_000, "back to the editor")
+    const editor = await screen.until(
+      (text) => text.includes("Restored 2 queued messages"),
+      5_000,
+      "back to the editor"
+    )
     expect(editor).not.toContain("Follow-up:")
     expect(editor).toMatch(/┃\s+queued survive restart 123/)
     expect(editor.indexOf("queued survive restart 123")).toBeLessThan(editor.indexOf("queued second 456"))
     expect(pending(file!)).toEqual([])
-    expect(records(file!).filter((record) => record.type === "dequeued").map((record) => record.type === "dequeued" && record.reason))
+    expect(
+      records(file!).filter((record) => record.type === "dequeued").map((record) =>
+        record.type === "dequeued" && record.reason
+      )
+    )
       .toEqual(["restored", "restored"])
   }, 120_000)
 
@@ -156,8 +167,14 @@ describe("follow-up queue and interrupted turns across a restart", () => {
     await screen.press(altEnter)
     await screen.until((text) => text.includes("Follow-up: follow up 789"), 5_000, "queued")
     const [file] = chats(sessions)
-    await screen.until(() => records(file!).some((record) => record.type === "user" && record.text === "follow up 789"), 90_000, "follow-up turn")
-    const kept = records(file!).filter((record) => record.type === "user" || record.type === "outcome" || record.type === "queued" || record.type === "dequeued")
+    await screen.until(
+      () => records(file!).some((record) => record.type === "user" && record.text === "follow up 789"),
+      90_000,
+      "follow-up turn"
+    )
+    const kept = records(file!).filter((record) =>
+      record.type === "user" || record.type === "outcome" || record.type === "queued" || record.type === "dequeued"
+    )
     expect(kept.map((record) => record.type)).toEqual(["user", "queued", "outcome", "dequeued", "user"])
     expect(pending(file!)).toEqual([])
     await screen.press(key.escape)

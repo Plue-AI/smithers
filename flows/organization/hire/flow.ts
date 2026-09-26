@@ -73,31 +73,46 @@ export default Flow.make("organization/hire", {
   body: (payload) => {
     const task = payload.task
     return Actions.PinRoster.call({}).pipe(
-      Node.bindPlanned(Node.capture({ implementationVersion }, (pin) =>
-        HireTask.call({ revision: pin.revision, parent: payload.parent, key: payload.key, need: payload.need }).pipe(
-          Node.bindPlanned(Node.capture({ implementationVersion }, (stage) =>
-            fieldTurn(pin.revision, stage, ["hire"]).pipe(
-              Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
-                StoreHire.call({ key: payload.key, attempt: 1, parent: payload.parent, answer }).pipe(
-                  // A hire the rules refuse is asked again once, with the rules it broke.
-                  Node.branch({
-                    if: Node.capture({ implementationVersion }, (seen) => !seen.hired && seen.violations.length > 0),
-                    else: (seen) => Node.succeed(seen),
-                    then: (seen) =>
-                      CorrectTask.call({
-                        stage,
-                        result: answer.result,
-                        validation: { valid: false, violations: seen.violations } as never
-                      }).pipe(
-                        Node.bindPlanned(Node.capture({ implementationVersion }, (corrected) =>
-                          fieldTurn(pin.revision, corrected, ["hire"]))),
-                        Node.bindPlanned(Node.capture({ implementationVersion }, (again) =>
-                          StoreHire.call({ key: payload.key, attempt: 2, parent: payload.parent, answer: again })))
-                      )
-                  })
-                )))
-            )))
-        ))),
+      Node.bindPlanned(
+        Node.capture(
+          { implementationVersion },
+          (pin) =>
+            HireTask.call({ revision: pin.revision, parent: payload.parent, key: payload.key, need: payload.need })
+              .pipe(
+                Node.bindPlanned(
+                  Node.capture({ implementationVersion }, (stage) =>
+                    fieldTurn(pin.revision, stage, ["hire"]).pipe(
+                      Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
+                        StoreHire.call({ key: payload.key, attempt: 1, parent: payload.parent, answer }).pipe(
+                          // A hire the rules refuse is asked again once, with the rules it broke.
+                          Node.branch({
+                            if: Node.capture({ implementationVersion }, (seen) =>
+                              !seen.hired && seen.violations.length > 0),
+                            else: (seen) =>
+                              Node.succeed(seen),
+                            then: (seen) =>
+                              CorrectTask.call({
+                                stage,
+                                result: answer.result,
+                                validation: { valid: false, violations: seen.violations } as never
+                              }).pipe(
+                                Node.bindPlanned(Node.capture({ implementationVersion }, (corrected) =>
+                                  fieldTurn(pin.revision, corrected, ["hire"]))),
+                                Node.bindPlanned(Node.capture({ implementationVersion }, (again) =>
+                                  StoreHire.call({
+                                    key: payload.key,
+                                    attempt: 2,
+                                    parent: payload.parent,
+                                    answer: again
+                                  })))
+                              )
+                          })
+                        )))
+                    ))
+                )
+              )
+        )
+      ),
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
         Node.branch(Node.succeed(outcome), {
           if: Node.capture({ implementationVersion }, (seen) => seen.hired),
@@ -124,31 +139,42 @@ export default Flow.make("organization/hire", {
               principal: outcome.principal,
               paths: [outcome.path]
             } as unknown as StaffReport)
-            if (task === undefined) return announced.pipe(Node.andThen(hired))
+            if (task === undefined) {
+              return announced.pipe(Node.andThen(hired))
+            }
             const child = `${payload.key}.task`
             // The first task's own ending is its receipt; the hire stands either way.
-            return announced.pipe(Node.andThen(Delegate.child({
-              key: child,
-              parent: payload.parent,
-              specialist: outcome.principal as unknown as string,
-              objective: task,
-              ...(payload.acceptance === undefined ? {} : { acceptance: payload.acceptance })
-            }).pipe(
-              Node.catch({ onFailure: Node.capture({ implementationVersion }, () => Node.succeed(null)) }),
-              Node.andThen(Node.succeed({
-                key: payload.key,
-                status: "hired",
-                summary: outcome.reason,
-                principal: outcome.principal,
-                paths: [outcome.path],
-                delegated: child
-              } as unknown as StaffReport))
-            )))
+            return announced.pipe(Node.andThen(
+              Delegate.child({
+                key: child,
+                parent: payload.parent,
+                specialist: outcome.principal as unknown as string,
+                objective: task,
+                ...(payload.acceptance === undefined ? {} : { acceptance: payload.acceptance })
+              }).pipe(
+                Node.catch({
+                  onFailure: Node.capture({ implementationVersion }, () =>
+                    Node.succeed(null))
+                }),
+                Node.andThen(Node.succeed({
+                  key: payload.key,
+                  status: "hired",
+                  summary: outcome.reason,
+                  principal: outcome.principal,
+                  paths: [outcome.path],
+                  delegated: child
+                } as unknown as StaffReport))
+              )
+            ))
           }
         }))),
       Node.catch({ onFailure: Node.capture({ implementationVersion }, (failure) => failed(payload, failure)) }),
-      Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-        finish(payload.key, "hire", payload, outcome as Planned.Planned<StaffReport>)))
+      Node.bindPlanned(
+        Node.capture(
+          { implementationVersion },
+          (outcome) => finish(payload.key, "hire", payload, outcome as Planned.Planned<StaffReport>)
+        )
+      )
     )
   }
 })

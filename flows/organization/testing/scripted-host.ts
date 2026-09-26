@@ -98,7 +98,8 @@ const done = (fields: Record<string, unknown>, summary: string, handoffs: Readon
 const answering = (result: unknown) => `ctx.done(${JSON.stringify(JSON.stringify(result))})`
 
 const hold = process.env.SMITHERS_ORGANIZATION_SCRIPTED_HOLD
-const appendLine = `ctx.call("bash", { command: "printf '${scriptedLine}\\\\n' >> /workspace/README.md && tail -n 1 /workspace/README.md" })`
+const appendLine =
+  `ctx.call("bash", { command: "printf '${scriptedLine}\\\\n' >> /workspace/README.md && tail -n 1 /workspace/README.md" })`
 
 /** One principal's part in the script. */
 type Part =
@@ -128,7 +129,10 @@ const partOf = (spec: string): Part => {
 const exampleParts = { assistant: "route:lead", lead: "contract:builder,checker", builder: "build", checker: "check" }
 const parts = new Map(
   Object.entries(
-    JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_ROLES ?? JSON.stringify(exampleParts)) as Record<string, string>
+    JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_ROLES ?? JSON.stringify(exampleParts)) as Record<
+      string,
+      string
+    >
   ).map(([principal, spec]) => [principal, partOf(spec)])
 )
 
@@ -143,13 +147,19 @@ const fieldsOf = (system: string): ReadonlyArray<string> => {
 
 const omissions = new Map(
   Object.entries(
-    JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_OMIT ?? "{}") as Record<string, { field: string; asks: number }>
+    JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_OMIT ?? "{}") as Record<
+      string,
+      { field: string; asks: number }
+    >
   )
 )
 
 const extras = new Map(
   Object.entries(
-    JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_EXTRA ?? "{}") as Record<string, { field: string; asks: number }>
+    JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_EXTRA ?? "{}") as Record<
+      string,
+      { field: string; asks: number }
+    >
   )
 )
 
@@ -190,15 +200,22 @@ const heldBuilder = (system: string, turn: number, holdFile: string): string | u
 const autonomyTask = (system: string, principal: string, task: string): string | undefined => {
   if (task.endsWith("/triage")) {
     const number = /-(\d+)-[0-9a-f]{8}(?:-r\d+)?\/triage$/.exec(task)?.[1] ?? ""
-    const specs = JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_TRIAGE ?? "{}") as Record<string, Record<string, unknown>>
+    const specs = JSON.parse(process.env.SMITHERS_ORGANIZATION_SCRIPTED_TRIAGE ?? "{}") as Record<
+      string,
+      Record<string, unknown>
+    >
     const spec = specs[number] ?? specs["*"] ?? {
       decision: "take",
       owner: "lead",
       contract: `Append the line '${scriptedLine}' to README.md.\nREADME.md ends with that line.`
     }
-    return answering(done({ reason: `Scripted triage of #${number}.`, ...spec }, `Triage: ${String(spec["decision"])}.`))
+    return answering(
+      done({ reason: `Scripted triage of #${number}.`, ...spec }, `Triage: ${String(spec["decision"])}.`)
+    )
   }
-  if (task.endsWith("/report")) return answering(done({ report: `- ${principal}: nothing new.` }, `${principal} reported.`))
+  if (task.endsWith("/report")) {
+    return answering(done({ report: `- ${principal}: nothing new.` }, `${principal} reported.`))
+  }
   if (task.endsWith("/onboard")) {
     return answering(done({
       owns: [`${principal}'s area`],
@@ -223,7 +240,12 @@ const autonomyTask = (system: string, principal: string, task: string): string |
     const pages = /Pages you may comment on: ([^\n]+)\.$/m.exec(system)?.[1]?.split(", ") ?? []
     return answering(done({
       comments: pages.slice(0, 1).map((path) => ({ path, text: `Reviewed by ${principal}: agreed.` })),
-      requests: [{ title: `${principal} needs a decision`, need: "Pick the first release.", why: "Scope depends on it.", decisionFrom: "owner" }]
+      requests: [{
+        title: `${principal} needs a decision`,
+        need: "Pick the first release.",
+        why: "Scope depends on it.",
+        decisionFrom: "owner"
+      }]
     }, `${principal} reviewed.`))
   }
   if (task.endsWith("/priorities")) {
@@ -259,15 +281,29 @@ const hostTask = (system: string, principal: string): string | undefined => {
     const key = task.slice(0, -"/hire".length)
     return answering(done({ hire: specs[key] ?? specs[principal] ?? null }, `${principal} decided the hire.`))
   }
-  if (/\/work-\d+$/.test(task)) return answering(done(filled(system, `Brief by ${principal}: Cursor Pro $20/month (source: pricing page, 2026-09-25).`), `${principal} wrote the brief.`))
+  if (/\/work-\d+$/.test(task)) {
+    return answering(
+      done(
+        filled(system, `Brief by ${principal}: Cursor Pro $20/month (source: pricing page, 2026-09-25).`),
+        `${principal} wrote the brief.`
+      )
+    )
+  }
   const review = /\/review-(\d+)$/.exec(task)
   if (review !== null) {
     const revise = process.env.SMITHERS_ORGANIZATION_SCRIPTED_REVISE === "1" && review[1] === "1"
-    return answering(done({ verdict: revise ? "revise" : "accept" }, revise ? "Add the source date to every row." : "Verified against the pricing page."))
+    return answering(
+      done(
+        { verdict: revise ? "revise" : "accept" },
+        revise ? "Add the source date to every row." : "Verified against the pricing page."
+      )
+    )
   }
   if (task.endsWith("/answer")) return answering(done({ answer: scriptedAnswer }, `${principal} answered.`))
   if (task.endsWith("/prepare")) {
-    return answering(done({ agenda: [`${principal}: progress`, "Decision needed: none"] }, `${principal}'s agenda is ready.`))
+    return answering(
+      done({ agenda: [`${principal}: progress`, "Decision needed: none"] }, `${principal}'s agenda is ready.`)
+    )
   }
   if (task.endsWith("/reply")) {
     const said = [...system.matchAll(/^Will: (.+)$/gm)].at(-1)?.[1] ?? ""
@@ -295,7 +331,10 @@ ctx.done(${JSON.stringify(JSON.stringify(done(filled(system, "blocked"), "blocke
   }
   const seen = observed.includes(scriptedLine)
   return answering({
-    ...done(filled(system, seen ? "approve" : "blocked"), seen ? `Read after the refusal: ${scriptedLine}` : "No output delivered."),
+    ...done(
+      filled(system, seen ? "approve" : "blocked"),
+      seen ? `Read after the refusal: ${scriptedLine}` : "No output delivered."
+    ),
     status: seen ? "done" : "blocked"
   })
 }
@@ -328,12 +367,17 @@ const cellFor = (system: string, turn: number, observed = ""): string | undefine
       ))
     case "build": {
       if (hold !== undefined) return heldBuilder(system, turn, hold)
-      const result = done(filled(system, `README.md now ends with the line '${scriptedLine}'.`), "Added the line to README.md.")
+      const result = done(
+        filled(system, `README.md now ends with the line '${scriptedLine}'.`),
+        "Added the line to README.md."
+      )
       // A correction only restates the answer: the edit is already in the workspace.
       if (ask > 1) return answering(result)
       const asked = /^# Task \S+\/again$/m.test(system) ? 2 : 1
       if (asked <= noChange) return answering(result)
-      return `await ctx.call("edit", ${JSON.stringify({ path: "/workspace/README.md", oldString: "# Demo\n", newString: `# Demo\n${scriptedLine}\n` })});
+      return `await ctx.call("edit", ${
+        JSON.stringify({ path: "/workspace/README.md", oldString: "# Demo\n", newString: `# Demo\n${scriptedLine}\n` })
+      });
 ctx.done(${JSON.stringify(JSON.stringify(result))})`
     }
     case "check": {
@@ -350,7 +394,11 @@ ctx.done(JSON.stringify(result))`
       return answering(done(
         {
           ...filled(system, "A hire does this."),
-          hire: { need: "A sourced competitor pricing brief.", task: "Write a sourced pricing brief.", acceptance: ["Every row has a source and a date."] }
+          hire: {
+            need: "A sourced competitor pricing brief.",
+            task: "Write a sourced pricing brief.",
+            acceptance: ["Every row has a source and a date."]
+          }
         },
         "A researcher should do this."
       ))
@@ -465,13 +513,15 @@ const { values } = parseArgs({
 if (!values.standalone) throw new Error("the scripted host serves --standalone only")
 const environment = environmentOf(values, process.env, process.cwd())
 const settings = await resolve(values, environment, process.cwd())
-NodeRuntime.runMain(await start({
-  settings,
-  environment,
-  platform,
-  seats,
-  // A Slack fixture serves Socket Mode over plaintext on loopback.
-  allowPlaintextSocket: environment.SMITHERS_ORGANIZATION_SLACK_FIXTURE === "1",
-  // The owner's notices go to a file a test reads, never to this Mac's screen.
-  notify: (notice) => appendFileSync(join(settings.stateDir, "notices.log"), `${notice.text}\n`)
-}))
+NodeRuntime.runMain(
+  await start({
+    settings,
+    environment,
+    platform,
+    seats,
+    // A Slack fixture serves Socket Mode over plaintext on loopback.
+    allowPlaintextSocket: environment.SMITHERS_ORGANIZATION_SLACK_FIXTURE === "1",
+    // The owner's notices go to a file a test reads, never to this Mac's screen.
+    notify: (notice) => appendFileSync(join(settings.stateDir, "notices.log"), `${notice.text}\n`)
+  })
+)

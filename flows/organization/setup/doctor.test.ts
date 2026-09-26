@@ -8,9 +8,9 @@ import { after, before, test } from "node:test"
 import { atLeast, command, doctor, type DoctorOptions, hypervisorLine, type Line, render } from "./doctor.ts"
 import { init } from "./init.ts"
 import type { Install } from "./microsandbox.ts"
-import { reactionScopes, teamChannelScopes } from "./templates.ts"
 import type { System as NodeSystem } from "./node.ts"
 import type { Io } from "./settings.ts"
+import { reactionScopes, teamChannelScopes } from "./templates.ts"
 
 const scratch = mkdtempSync(join(tmpdir(), "org-doctor-"))
 after(() => rmSync(scratch, { recursive: true, force: true }))
@@ -33,29 +33,53 @@ let slackUrl = ""
 
 before(async () => {
   await init({ dir: root, stateDir, appName: "Smithers Org" })
-  for (const [dir, builder, checker] of [[noWorkspace, "[]", "[]"], [twoRepos, "[example/demo]", "[example/other]"]] as const) {
+  for (
+    const [dir, builder, checker] of [[noWorkspace, "[]", "[]"], [
+      twoRepos,
+      "[example/demo]",
+      "[example/other]"
+    ]] as const
+  ) {
     await init({ dir, stateDir: `${dir}-state`, appName: "Smithers Org" })
     for (const [role, repositories] of [["builder", builder], ["checker", checker]] as const) {
       const file = join(dir, "Org", "Roles", `${role}.md`)
-      writeFileSync(file, readFileSync(file, "utf8").replace("repositories: [example/demo]", `repositories: ${repositories}`))
+      writeFileSync(
+        file,
+        readFileSync(file, "utf8").replace("repositories: [example/demo]", `repositories: ${repositories}`)
+      )
     }
   }
   mkdirSync(join(checkout, "target", "release"), { recursive: true })
   writeFileSync(join(checkout, ".node-version"), "26.4.0\n")
   writeFileSync(join(checkout, "target", "release", "smithers-jj-export"), "#!/bin/sh\n")
   chmodSync(join(checkout, "target", "release", "smithers-jj-export"), 0o755)
-  writeFileSync(fakeCli, [
-    "const [a, b, c] = process.argv.slice(2)",
-    "if (a === '--version') { console.log('msb 0.0.0-test'); process.exit(0) }",
-    "if (a === 'image' && b === 'inspect') process.exit(c === 'node:26-bookworm' ? 0 : 1)",
-    "if (a === 'pull') process.exit(b === 'pullable:1' ? 0 : 1)",
-    "process.exit(3)"
-  ].join("\n"))
+  writeFileSync(
+    fakeCli,
+    [
+      "const [a, b, c] = process.argv.slice(2)",
+      "if (a === '--version') { console.log('msb 0.0.0-test'); process.exit(0) }",
+      "if (a === 'image' && b === 'inspect') process.exit(c === 'node:26-bookworm' ? 0 : 1)",
+      "if (a === 'pull') process.exit(b === 'pullable:1' ? 0 : 1)",
+      "process.exit(3)"
+    ].join("\n")
+  )
   mkdirSync(codexHome)
   writeFileSync(join(codexHome, "auth.json"), "{}\n")
   mkdirSync(repo)
   spawnSync("git", ["init", "-q", repo])
-  spawnSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"])
+  spawnSync("git", [
+    "-C",
+    repo,
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@t",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "init"
+  ])
   slack = createServer((request, response) => {
     calls.push(request.url!)
     const token = request.headers.authorization
@@ -74,7 +98,9 @@ before(async () => {
       : ["chat:write"]
     if (request.url === "/api/auth.test") response.setHeader("x-oauth-scopes", scopes.join(","))
     const older = token === "Bearer xoxb-old" || token === "Bearer xoxb-unreacting"
-    response.end(JSON.stringify(older && request.url === "/api/auth.test" ? { ok: true, team_id: "T1", user_id: "UBOT" } : body))
+    response.end(
+      JSON.stringify(older && request.url === "/api/auth.test" ? { ok: true, team_id: "T1", user_id: "UBOT" } : body)
+    )
   })
   await new Promise<void>((resolve) => slack.listen(0, "127.0.0.1", resolve))
   const address = slack.address()
@@ -127,11 +153,15 @@ const one = (lines: ReadonlyArray<Line>, name: string) => {
 
 /** A hire's charter sections, from the package's fixture roster. */
 const charter = readFileSync(
-  new URL("../../../packages/smithers/agent/organization/test/fixtures/org/Specialists/lead.research.md", import.meta.url),
+  new URL(
+    "../../../packages/smithers/agent/organization/test/fixtures/org/Specialists/lead.research.md",
+    import.meta.url
+  ),
   "utf8"
 ).split("\n---\n")[1]!
 
-const specialist = (slug: string, status: "active" | "retired") => `---
+const specialist = (slug: string, status: "active" | "retired") =>
+  `---
 id: lead.${slug}
 name: ${slug}
 kind: specialist
@@ -168,7 +198,21 @@ test("counts roles and hires apart, and leaves retired hires out", async () => {
 test("every check passes on a complete setup, in a stable order, without printing a secret", async () => {
   const lines = await doctor(healthy())
   assert.deepEqual(lines.map((line) => line.name), [
-    "node", "microsandbox", "hypervisor", "org", "image", "boot", "jj", "jj-export", "seats", "slack", "slack team", "slack reactions", "slack socket", "repo", "state"
+    "node",
+    "microsandbox",
+    "hypervisor",
+    "org",
+    "image",
+    "boot",
+    "jj",
+    "jj-export",
+    "seats",
+    "slack",
+    "slack team",
+    "slack reactions",
+    "slack socket",
+    "repo",
+    "state"
   ])
   assert.deepEqual(lines.filter((line) => line.status !== "pass"), [])
   assert.equal(one(lines, "slack team").detail, "#smithers-team")
@@ -182,9 +226,13 @@ test("every check passes on a complete setup, in a stable order, without printin
 test("Slack is skipped without tokens and each Slack misconfiguration fails with its fix", async () => {
   const { SMITHERS_SLACK_BOT_TOKEN: _b, SMITHERS_SLACK_APP_TOKEN: _a, ...noTokens } = healthyEnv()
   const skipped = await doctor(healthy({ env: noTokens }))
-  assert.deepEqual(byName(skipped, "slack").concat(byName(skipped, "slack socket")).map((line) => [line.status, line.detail]), [
-    ["skip", "no tokens"], ["skip", "no tokens"]
-  ])
+  assert.deepEqual(
+    byName(skipped, "slack").concat(byName(skipped, "slack socket")).map((line) => [line.status, line.detail]),
+    [
+      ["skip", "no tokens"],
+      ["skip", "no tokens"]
+    ]
+  )
   assert.ok(skipped.every((line) => line.status !== "fail"))
   const cases: Array<[Record<string, string>, RegExp]> = [
     [{ SMITHERS_SLACK_BOT_TOKEN: "" }, /SMITHERS_SLACK_BOT_TOKEN is missing/],
@@ -200,13 +248,25 @@ test("Slack is skipped without tokens and each Slack misconfiguration fails with
     assert.match(line.detail, expected)
     assert.ok(line.fix)
   }
-  assert.equal(one(await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_TEAM_IDS: "" } })), "slack").fix, "set SMITHERS_SLACK_TEAM_IDS=T1")
-  const socket = one(await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_APP_TOKEN: "xapp-revoked" } })), "slack socket")
+  assert.equal(
+    one(await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_TEAM_IDS: "" } })), "slack").fix,
+    "set SMITHERS_SLACK_TEAM_IDS=T1"
+  )
+  const socket = one(
+    await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_APP_TOKEN: "xapp-revoked" } })),
+    "slack socket"
+  )
   assert.equal(socket.status, "fail")
   assert.match(socket.detail, /apps\.connections\.open: invalid_auth/)
-  const old = one(await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_BOT_TOKEN: "xoxb-old" } })), "slack team")
+  const old = one(
+    await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_BOT_TOKEN: "xoxb-old" } })),
+    "slack team"
+  )
   assert.equal(old.status, "fail")
-  assert.match(old.detail, /missing scopes channels:history, channels:join, channels:manage, channels:read, chat:write\.customize, chat:write\.public/)
+  assert.match(
+    old.detail,
+    /missing scopes channels:history, channels:join, channels:manage, channels:read, chat:write\.customize, chat:write\.public/
+  )
   assert.equal(old.fix, "reinstall the app from the updated manifest")
   const unreacting = await doctor(healthy({ env: { ...healthyEnv(), SMITHERS_SLACK_BOT_TOKEN: "xoxb-unreacting" } }))
   assert.equal(one(unreacting, "slack team").status, "pass")
@@ -214,7 +274,11 @@ test("Slack is skipped without tokens and each Slack misconfiguration fails with
   assert.equal(reactions.status, "fail")
   assert.equal(reactions.detail, "missing scope reactions:write; acknowledgements are posted as text until then")
   assert.equal(reactions.fix, "reinstall the app from the updated manifest")
-  const offline = await doctor(healthy({ fetch: async () => { throw new Error("offline") } }))
+  const offline = await doctor(healthy({
+    fetch: async () => {
+      throw new Error("offline")
+    }
+  }))
   assert.match(one(offline, "slack").detail, /offline/)
   assert.match(one(offline, "slack socket").detail, /offline/)
 })
@@ -222,8 +286,14 @@ test("Slack is skipped without tokens and each Slack misconfiguration fails with
 test("seats resolve on the ChatGPT login, never on a key, and a missing login fails naming the sign-in", async () => {
   const seats = one(await doctor(healthy()), "seats")
   assert.equal(seats.status, "pass")
-  assert.equal(seats.detail, `openai:gpt-6-sol, openai:gpt-6-luna resolve on subscriptions (ChatGPT login ${join(codexHome, "auth.json")})`)
-  const signedOut = one(await doctor(healthy({ env: { ...healthyEnv(), CODEX_HOME: join(scratch, "no-codex") } })), "seats")
+  assert.equal(
+    seats.detail,
+    `openai:gpt-6-sol, openai:gpt-6-luna resolve on subscriptions (ChatGPT login ${join(codexHome, "auth.json")})`
+  )
+  const signedOut = one(
+    await doctor(healthy({ env: { ...healthyEnv(), CODEX_HOME: join(scratch, "no-codex") } })),
+    "seats"
+  )
   assert.equal(signedOut.status, "fail")
   assert.match(signedOut.detail, /codex login/)
   assert.doesNotMatch(signedOut.detail, new RegExp(modelKey))
@@ -261,9 +331,13 @@ test("host prerequisites fail with the command that fixes them", async () => {
   assert.match(one(missing, "microsandbox").fix!, /pnpm -C .* install/)
   // Without a working microsandbox the probe is not attempted, and says why.
   assert.match(one(missing, "boot").detail, /not attempted: microsandbox failed/)
-  const noHypervisor = await doctor(healthy({ hypervisor: () => ({ name: "hypervisor", status: "fail", detail: "none", fix: "x" }) }))
+  const noHypervisor = await doctor(
+    healthy({ hypervisor: () => ({ name: "hypervisor", status: "fail", detail: "none", fix: "x" }) })
+  )
   assert.match(one(noHypervisor, "boot").detail, /not attempted: hypervisor failed/)
-  const bootFails = await doctor(healthy({ probe: async () => ({ ok: false, detail: "guest crashed", durationMs: 1 }) }))
+  const bootFails = await doctor(
+    healthy({ probe: async () => ({ ok: false, detail: "guest crashed", durationMs: 1 }) })
+  )
   assert.equal(one(bootFails, "boot").status, "fail")
   assert.match(one(bootFails, "boot").fix!, /msb\.mjs doctor$/)
   const bare = join(scratch, "bare-checkout")
@@ -272,7 +346,18 @@ test("host prerequisites fail with the command that fixes them", async () => {
   const helper = one(await doctor(healthy({ checkout: bare })), "jj-export")
   assert.equal(helper.status, "fail")
   assert.match(helper.fix!, /^cargo \+1\.98\.0 build --release --locked -p smithers-ffi --bin smithers-jj-export/)
-  const configured = one(await doctor(healthy({ checkout: bare, env: { ...healthyEnv(), SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(checkout, "target", "release", "smithers-jj-export") } })), "jj-export")
+  const configured = one(
+    await doctor(
+      healthy({
+        checkout: bare,
+        env: {
+          ...healthyEnv(),
+          SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(checkout, "target", "release", "smithers-jj-export")
+        }
+      })
+    ),
+    "jj-export"
+  )
   assert.equal(configured.status, "pass")
   assert.equal(hypervisorLine("win32").status, "fail")
   assert.ok(atLeast("26.10.0", "26.4.0") && !atLeast("25.99.0", "26.0.0") && atLeast("26.4", "26.4.0"))
@@ -313,7 +398,10 @@ test("the Org, repositories and state directory are checked", async () => {
   const repos = await doctor(healthy({ repos: [`example/demo=${repo}`, `other=${scratch}`] }))
   assert.deepEqual(byName(repos, "repo").map((line) => line.status), ["pass", "fail"])
   assert.match(byName(repos, "repo")[0]!.detail, /^example\/demo = .* \(builder, checker\)$/)
-  assert.match(byName(await doctor(healthy({ repos: [] })), "repo")[0]!.fix!, /^set SMITHERS_ORG_REPOS=example\/demo=<path>/)
+  assert.match(
+    byName(await doctor(healthy({ repos: [] })), "repo")[0]!.fix!,
+    /^set SMITHERS_ORG_REPOS=example\/demo=<path>/
+  )
   const empty = join(scratch, "empty-repo")
   spawnSync("git", ["init", "-q", empty])
   assert.match(one(await doctor(healthy({ repos: [empty] })), "repo").detail, /has no commit/)
@@ -341,7 +429,12 @@ test("the Org, repositories and state directory are checked", async () => {
 
 test("the command reads the state dir's .env, exits 1 on a failure, and renders fixes", async () => {
   const out: Array<string> = []
-  const io: Io = { out: (line) => out.push(line), err: (line) => out.push(line), env: { SMITHERS_ORG_STATE_DIR: stateDir }, cwd: scratch }
+  const io: Io = {
+    out: (line) => out.push(line),
+    err: (line) => out.push(line),
+    env: { SMITHERS_ORG_STATE_DIR: stateDir },
+    cwd: scratch
+  }
   // The seeded .env names the root and no repository, and has no model key.
   const code = await command.run([], io)
   assert.equal(code, 1)

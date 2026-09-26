@@ -30,7 +30,6 @@ import type * as Authority from "../../packages/smithers/agent/organization/src/
 import * as Config from "../../packages/smithers/agent/organization/src/Config.ts"
 import type * as Gates from "../../packages/smithers/agent/organization/src/Gates.ts"
 import type * as Workspace from "../../packages/smithers/agent/organization/src/Workspace.ts"
-import * as Subscriptions from "./setup/subscriptions.ts"
 import {
   absolute,
   describeFailure,
@@ -40,6 +39,7 @@ import {
   stateDirOf,
   withEnvFile
 } from "./setup/settings.ts"
+import * as Subscriptions from "./setup/subscriptions.ts"
 
 /** The default loopback port of an organization host. */
 export const defaultPort = 7433
@@ -118,7 +118,9 @@ export const parseCheck = (entry: string): Workspace.Check => {
 const positive = (name: string, value: string | undefined, fallback: number, max: number): number => {
   if (value === undefined || value.trim() === "") return fallback
   const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) throw new Error(`${name} must be an integer from 1 to ${max}`)
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) {
+    throw new Error(`${name} must be an integer from 1 to ${max}`)
+  }
   return parsed
 }
 
@@ -154,7 +156,9 @@ export const resolve = async (
     throw new Error(`${root} holds no ${Config.defaultOrganizationFile}; pass --root or set SMITHERS_ORG_ROOT`)
   }
   const entries = flags.repo !== undefined && flags.repo.length > 0 ? flags.repo : list(env.SMITHERS_ORG_REPOS)
-  if (entries.length === 0) throw new Error("no repository configured; pass --repo <name=path> or set SMITHERS_ORG_REPOS")
+  if (entries.length === 0) {
+    throw new Error("no repository configured; pass --repo <name=path> or set SMITHERS_ORG_REPOS")
+  }
   const repositories: Record<string, string> = {}
   for (const entry of entries) {
     const [name, path] = parseRepository(cwd, entry)
@@ -166,7 +170,9 @@ export const resolve = async (
     ? flags.check
     : (env.SMITHERS_ORG_CHECKS ?? "").split("\n").filter((entry) => entry.trim() !== "")).map(parseCheck)
   const loaded = await loadOrganization(root).catch((error: unknown) => {
-    throw new Error(`the organization at ${root} does not load:\n${describeFailure(error).map((line) => `  ${line}`).join("\n")}`)
+    throw new Error(
+      `the organization at ${root} does not load:\n${describeFailure(error).map((line) => `  ${line}`).join("\n")}`
+    )
   })
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
   const organization = loaded.loaded.organization

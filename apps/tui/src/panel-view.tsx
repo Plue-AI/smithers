@@ -1,27 +1,51 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { type RefObject, useEffect, useRef } from "react"
 import type * as Panels from "./panels.ts"
-import * as Workspace from "./workspace.ts"
-import type * as Transcript from "./transcript.ts"
 import { color, syntax } from "./theme.ts"
+import type * as Transcript from "./transcript.ts"
 import { bar } from "./view.tsx"
+import * as Workspace from "./workspace.ts"
 
 /** A stopped worker's compact action card; technical details open with Ctrl+O. */
 /** `hints: false` where the actions are buttons of their own, as in a worker's tab. */
-export function FailureCard({ tab, transcript, details, hints = true }: { tab: Workspace.Tab; transcript: Transcript.Transcript; details: boolean; hints?: boolean }) {
+export function FailureCard(
+  { tab, transcript, details, hints = true }: {
+    tab: Workspace.Tab
+    transcript: Transcript.Transcript
+    details: boolean
+    hints?: boolean
+  }
+) {
   const failure = tab.failure
   if (failure === undefined) return null
   const fault = failure.fault === "wait"
     ? "not your fault · provider"
-    : failure.fault === "infra" ? "not your fault · infra" : failure.fault
-  return <box style={{ flexShrink: 0, paddingLeft: 1, marginBottom: 1 }}>
-    <text fg={color.danger}>{failure.headline}  ·  {fault}</text>
-    <text fg={color.muted}>{Workspace.failureLine(tab, transcript)}</text>
-    {hints ? <text fg={color.brand}>[r] Resume here   [m] Switch model   {failure.actions.includes("wait") ? "[w] Wait for reset   " : ""}[ctrl+o] Details</text> : null}
-    {details ? <text fg={color.faint}>{tab.detail?.includes(tab.message ?? "") && tab.detail !== ""
-      ? tab.detail
-      : [tab.message, tab.detail].filter((part) => part !== undefined && part !== "").join("\n")}</text> : null}
-  </box>
+    : failure.fault === "infra"
+    ? "not your fault · infra"
+    : failure.fault
+  return (
+    <box style={{ flexShrink: 0, paddingLeft: 1, marginBottom: 1 }}>
+      <text fg={color.danger}>{failure.headline}{"  "}·{"  "}{fault}</text>
+      <text fg={color.muted}>{Workspace.failureLine(tab, transcript)}</text>
+      {hints
+        ? (
+          <text fg={color.brand}>
+            [r] Resume here [m] Switch model{"   "}
+            {failure.actions.includes("wait") ? "[w] Wait for reset   " : ""}[ctrl+o] Details
+          </text>
+        )
+        : null}
+      {details ?
+        (
+          <text fg={color.faint}>
+            {tab.detail?.includes(tab.message ?? "") && tab.detail !== ""
+              ? tab.detail
+              : [tab.message, tab.detail].filter((part) => part !== undefined && part !== "").join("\n")}
+          </text>
+        ) :
+        null}
+    </box>
+  )
 }
 
 function BlockView({ block, split }: { block: Panels.Block; split: boolean }) {
@@ -105,7 +129,9 @@ export function PanelView(
   }, [panel.id, row?.id, expanded, nav.diff])
   return (
     <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }}>
-      {props.hideSummary ? null : <text fg={color.text} style={{ paddingLeft: 1, marginBottom: 1 }}>{panel.summary}</text>}
+      {props.hideSummary
+        ? null
+        : <text fg={color.text} style={{ paddingLeft: 1, marginBottom: 1 }}>{panel.summary}</text>}
       <box style={{ flexShrink: 0 }}>
         {panel.rows.slice(first, first + visible).map((item, index) => (
           <box
@@ -115,7 +141,8 @@ export function PanelView(
           >
             <text fg={item.status === "failed" ? color.danger : first + index === selected ? color.brand : color.faint}>
               {first + index === selected ? "› " : "  "}
-              {String(first + index + 1).padStart(2)} {item.id.startsWith("tree:") ? "" : nav.expanded.has(item.id) ? "▾ " : "▸ "}
+              {String(first + index + 1).padStart(2)}{" "}
+              {item.id.startsWith("tree:") ? "" : nav.expanded.has(item.id) ? "▾ " : "▸ "}
             </text>
             <text fg={item.status === "failed" ? color.danger : color.text} wrapMode="none" style={{ flexShrink: 1 }}>
               {item.label}

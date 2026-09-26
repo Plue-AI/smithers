@@ -1,11 +1,11 @@
 /** Deterministic host for PTY coverage of chat while a worker remains unresolved. */
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
-import { App } from "../src/app.tsx"
 import { Schema } from "effect"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { App } from "../src/app.tsx"
 import * as Changes from "../src/changes.ts"
 import type * as Flows from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
@@ -23,10 +23,14 @@ const host: Host.Host = {
       const before = readFileSync("math.js", "utf8")
       const after = before.replace("a - b", "a + b")
       input.onEvent({ _tag: "cell-produced", cell: { text: "await ctx.call(\"edit\")" } } as any)
-      input.onEvent({ _tag: "cell-call-started", call: { flowName: "edit", input: { path: "math.js" }, identity } } as any)
+      input.onEvent(
+        { _tag: "cell-call-started", call: { flowName: "edit", input: { path: "math.js" }, identity } } as any
+      )
       writeFileSync("math.js", after)
       input.onPatch!({ call: Changes.identity(identity as any), patches: [Changes.patch("math.js", before, after)!] })
-      input.onEvent({ _tag: "cell-call-settled", flowName: "edit", identity, result: { outcome: "success", value: {} } } as any)
+      input.onEvent(
+        { _tag: "cell-call-settled", flowName: "edit", identity, result: { outcome: "success", value: {} } } as any
+      )
       input.onEvent({ _tag: "cell-settled", outcome: { _tag: "settled" } } as any)
       return { done: Promise.resolve({ _tag: "done", answer: "Fixed." }), cancel: () => {} }
     }
@@ -41,8 +45,10 @@ const host: Host.Host = {
     if (input.prompt === "what is the ETA on all tasks") {
       // A real coordinator turn: the recorded model's cell calls `tab.eta` through the runtime binding.
       // Loaded on demand: the real host's import must not slow every other test's first draw.
-      const turn = import("../src/host.ts").then((Real) => (real ??= Real.make({ cwd: process.cwd(), environment: {} }))
-        .run({ ...input, seat: `replay:${etaReplay()}` }))
+      const turn = import("../src/host.ts").then((Real) =>
+        (real ??= Real.make({ cwd: process.cwd(), environment: {} }))
+          .run({ ...input, seat: `replay:${etaReplay()}` })
+      )
       return { done: turn.then((started) => started.done), cancel: () => void turn.then((started) => started.cancel()) }
     }
     let answer = "Still here."
@@ -77,27 +83,45 @@ const etaReplay = (): string => {
   const delta = (value: object) => JSON.stringify({ at: 0, event: { _tag: "model-delta", delta: value } })
   const cell = "const eta = await ctx.call(\"tab.eta\", {})\n" +
     "ctx.done(\"ETA \" + eta.tasks.map((task) => task.id + \":\" + task.status + \":\" + task.method).join(\",\"))"
-  writeFileSync(file, [
-    JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
-    delta({ type: "text-start", id: "cell" }),
-    delta({ type: "text-delta", id: "cell", text: `\`\`\`cell\n${cell}\n\`\`\`` }),
-    delta({ type: "text-end", id: "cell" }),
-    JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
-  ].join("\n"))
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
+      delta({ type: "text-start", id: "cell" }),
+      delta({ type: "text-delta", id: "cell", text: `\`\`\`cell\n${cell}\n\`\`\`` }),
+      delta({ type: "text-end", id: "cell" }),
+      JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
+    ].join("\n")
+  )
   return file
 }
 /** One flow that needs `{title}`; its run settles only when stopped. */
 let settle = (_: Flows.Settled) => {}
 const flows: Flows.Port = {
   discover: async () => [
-    { name: "review", description: "Review a change", modelInvocable: true, kind: "module", flows: [], capabilities: [], path: "flows/review/flow.ts" }
+    {
+      name: "review",
+      description: "Review a change",
+      modelInvocable: true,
+      kind: "module",
+      flows: [],
+      capabilities: [],
+      path: "flows/review/flow.ts"
+    }
   ],
-  body: async (flow) => { throw new Error(`${flow} is a module flow`) },
+  body: async (flow) => {
+    throw new Error(`${flow} is a module flow`)
+  },
   input: async () => Schema.Struct({ title: Schema.String }),
   plan: async () => ({ raw: {} }),
   start: async () => "run-1",
   resume: async (runId) => ({ runId }),
-  watch: () => ({ done: new Promise((resolve) => { settle = resolve }), close: () => {} }),
+  watch: () => ({
+    done: new Promise((resolve) => {
+      settle = resolve
+    }),
+    close: () => {}
+  }),
   events: async () => [],
   cancel: async () => settle({ kind: "cancelled" }),
   dispose: async () => {}

@@ -65,7 +65,8 @@ export const runId = (run: Flows.Run): string => `flow:${run.id}:${run.attempt ?
 export const tabStart = (tab: Workspace.Tab): number => tab.launchedAt ?? tab.startedAt
 
 /** The general estimation prompt. */
-export const system = `You estimate how long a task will take an autonomous coding agent, from request to final answer, and how many model tokens it will spend (input plus output, summed over every model call).
+export const system =
+  `You estimate how long a task will take an autonomous coding agent, from request to final answer, and how many model tokens it will spend (input plus output, summed over every model call).
 
 1. Choose the reference class: the past tasks below most similar in kind (investigation, bug fix, feature, refactor, review, flow run) and in size.
 2. Start from their actual durations and tokens, not from how easy the task sounds.
@@ -109,7 +110,11 @@ export const duration = (ms: number): string => {
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 === 0 ? "" : `${minutes % 60}m`}`
 }
 export const count = (tokens: number): string =>
-  tokens >= 1_000_000 ? `${Number((tokens / 1_000_000).toFixed(1))}M` : tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : `${Math.round(tokens)}`
+  tokens >= 1_000_000
+    ? `${Number((tokens / 1_000_000).toFixed(1))}M`
+    : tokens >= 1000
+    ? `${Math.round(tokens / 1000)}k`
+    : `${Math.round(tokens)}`
 
 /**
  * What the model is told: the task, its context, the most similar finished
@@ -132,7 +137,10 @@ export const prompt = (work: Work, ledger: Improve.Ledger): string => {
     const subject = observation.subject.replace(/\s+/g, " ").trim().slice(0, 200)
     return `- ${subject} | ${estimated === undefined ? "" : `estimated ${duration(estimated)}, `}took ${took}${tokens}`
   })
-  const stats = ledger.stats((prediction) => prediction.kind === work.kind && prediction.method === "model", ["ms", "tokens"])
+  const stats = ledger.stats((prediction) => prediction.kind === work.kind && prediction.method === "model", [
+    "ms",
+    "tokens"
+  ])
   const bias = [
     stats.bias.ms === undefined ? undefined : `time ${stats.bias.ms.toFixed(2)}x`,
     stats.bias.tokens === undefined ? undefined : `tokens ${stats.bias.tokens.toFixed(2)}x`
@@ -141,17 +149,22 @@ export const prompt = (work: Work, ledger: Improve.Ledger): string => {
     `Task (${work.kind}):\n${work.subject.slice(0, 4000)}`,
     ...(work.context === undefined || work.context === "" ? [] : [`Context:\n${work.context.slice(0, 2000)}`]),
     `Most similar past tasks, newest last:\n${lines.length === 0 ? "(none yet)" : lines.join("\n")}`,
-    `Your past estimates, actual / estimate (median of ${stats.n}): ${bias.length === 0 ? "none scored yet" : bias.join(", ")}.`
+    `Your past estimates, actual / estimate (median of ${stats.n}): ${
+      bias.length === 0 ? "none scored yet" : bias.join(", ")
+    }.`
   ].join("\n\n")
 }
 
 /** The model's JSON answer as raw metrics, or undefined when it is not usable. */
-export const parse = (text: string): { raw: Improve.Metrics; low?: Improve.Metrics; high?: Improve.Metrics } | undefined => {
+export const parse = (
+  text: string
+): { raw: Improve.Metrics; low?: Improve.Metrics; high?: Improve.Metrics } | undefined => {
   const match = /\{[\s\S]*\}/.exec(text)
   if (match === null) return undefined
   try {
     const value = JSON.parse(match[0]) as Record<string, unknown>
-    const positive = (field: unknown) => typeof field === "number" && Number.isFinite(field) && field > 0 ? field : undefined
+    const positive = (field: unknown) =>
+      typeof field === "number" && Number.isFinite(field) && field > 0 ? field : undefined
     const minutes = positive(value.minutes)
     if (minutes === undefined) return undefined
     const tokens = positive(value.tokens)
@@ -172,8 +185,11 @@ export const usage = (records: ReadonlyArray<Session.Record>): number | undefine
   let total: number | undefined
   for (const record of records) {
     if (record.type !== "event" || record.event._tag !== "model-settled") continue
-    const spent = record.event.usage as { totalTokens?: number; inputTokens?: number; outputTokens?: number } | undefined
-    const tokens = spent?.totalTokens ?? (spent === undefined ? undefined : (spent.inputTokens ?? 0) + (spent.outputTokens ?? 0))
+    const spent = record.event.usage as
+      | { totalTokens?: number; inputTokens?: number; outputTokens?: number }
+      | undefined
+    const tokens = spent?.totalTokens ??
+      (spent === undefined ? undefined : (spent.inputTokens ?? 0) + (spent.outputTokens ?? 0))
     if (tokens !== undefined) total = (total ?? 0) + tokens
   }
   return total
@@ -280,14 +296,20 @@ export class Estimator {
       ).slice(-20)
       if (past.length > 0) return this.record(work, "history", reference(past))
     }
-    if (this.model !== undefined && work.kind !== "turn" && !this.asked.has(work.id) && this.ledger.failure(work.id) === undefined) {
+    if (
+      this.model !== undefined && work.kind !== "turn" && !this.asked.has(work.id) &&
+      this.ledger.failure(work.id) === undefined
+    ) {
       this.asked.add(work.id)
       const model = this.model
       const pending = model({ system, prompt: prompt(work, this.ledger) })
         .then(
           (text): ReturnType<typeof parse> | { readonly reason: FailureReason; readonly message: string } =>
             parse(text) ?? { reason: "unusable-answer", message: text.replace(/\s+/g, " ").trim().slice(0, 200) },
-          (error: unknown) => ({ reason: "model-error" as const, message: error instanceof Error ? error.message : String(error) })
+          (error: unknown) => ({
+            reason: "model-error" as const,
+            message: error instanceof Error ? error.message : String(error)
+          })
         )
         .then((answer) => {
           // Hindsight is not a prediction: work that settled first stays unestimated.
@@ -305,7 +327,15 @@ export class Estimator {
     return this.fallback(work)
   }
   private failed(work: Work, reason: FailureReason, message: string) {
-    const failure: Improve.Failure = { id: work.id, kind: work.kind, key: work.key, method: "model", reason, message, at: Date.now() }
+    const failure: Improve.Failure = {
+      id: work.id,
+      kind: work.kind,
+      key: work.key,
+      method: "model",
+      reason,
+      message,
+      at: Date.now()
+    }
     this.ledger.fail(failure)
     if (this.reported) return
     this.reported = true
@@ -354,7 +384,13 @@ export class Estimator {
   tabs = (tabs: ReadonlyArray<Workspace.Tab>): void => {
     for (const tab of tabs) {
       const id = tabId(tab)
-      const work: Work = { id, kind: "delegate", key: "delegate", subject: `${tab.title}\n${tab.prompt}`, startedAt: tabStart(tab) }
+      const work: Work = {
+        id,
+        kind: "delegate",
+        key: "delegate",
+        subject: `${tab.title}\n${tab.prompt}`,
+        startedAt: tabStart(tab)
+      }
       if (!settled(tab.status)) {
         this.request(work)
         continue
@@ -409,7 +445,9 @@ export class Estimator {
       const user = records.find((record) => record.type === "user")
       const outcome = records.findLast((record) => record.type === "outcome")
       const ms = worked(records)
-      if (user?.type !== "user" || outcome?.type !== "outcome" || !settled(outcome.outcome._tag) || ms === undefined) continue
+      if (user?.type !== "user" || outcome?.type !== "outcome" || !settled(outcome.outcome._tag) || ms === undefined) {
+        continue
+      }
       const tokens = usage(records)
       this.ledger.observe({
         id,
@@ -483,7 +521,10 @@ export class Estimator {
       allDoneInMinutes: tasks.some((task) => task.remainingMinutes === null)
         ? null
         : Math.max(0, ...tasks.map((task) => task.remainingMinutes!)),
-      accuracy: { scored: scored.n, typicalMiss: scored.error.ms === undefined ? null : Number(scored.error.ms.toFixed(2)) }
+      accuracy: {
+        scored: scored.n,
+        typicalMiss: scored.error.ms === undefined ? null : Number(scored.error.ms.toFixed(2))
+      }
     }
   }
 }
@@ -491,7 +532,9 @@ export class Estimator {
 /** The reference class's median and 10th to 90th percentile. */
 const reference = (past: ReadonlyArray<Improve.Observation>): NonNullable<ReturnType<typeof parse>> => {
   const times = past.map((observation) => observation.actual.ms!)
-  const tokens = past.flatMap((observation) => observation.actual.tokens === undefined ? [] : [observation.actual.tokens])
+  const tokens = past.flatMap((observation) =>
+    observation.actual.tokens === undefined ? [] : [observation.actual.tokens]
+  )
   const raw: Improve.Metrics = tokens.length === 0
     ? { ms: Improve.quantile(times, 0.5) }
     : { ms: Improve.quantile(times, 0.5), tokens: Improve.quantile(tokens, 0.5) }

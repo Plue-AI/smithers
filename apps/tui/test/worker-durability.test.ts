@@ -1,38 +1,63 @@
-import { describe, expect, it, jest } from "bun:test"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
+import * as AgentEvent from "@smthrs/harness/AgentEvent"
+import { ModelError } from "@smthrs/model/ModelError"
+import { describe, expect, it, jest } from "bun:test"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type * as Host from "../src/host.ts"
-import * as Session from "../src/session.ts"
 import { workerFallbackSeats } from "../src/models.ts"
-import { ModelError } from "@smthrs/model/ModelError"
-import * as AgentEvent from "@smthrs/harness/AgentEvent"
+import * as Session from "../src/session.ts"
 import { tabToast, Workspace } from "../src/workspace.ts"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 /** Drains microtasks without timers, so it also runs under fake timers. */
-const flush = async () => { for (let index = 0; index < 20; index++) await Promise.resolve() }
+const flush = async () => {
+  for (let index = 0; index < 20; index++) await Promise.resolve()
+}
 const request = { id: "review", title: "Review", prompt: "Review the files.", model: "sol" as const }
 
-const fixture = (run: Host.Host["run"], restored?: ConstructorParameters<typeof Workspace>[0]["restored"],
-  history: () => ReadonlyArray<import("../src/context.ts").Entry> = () => []) => {
+const fixture = (
+  run: Host.Host["run"],
+  restored?: ConstructorParameters<typeof Workspace>[0]["restored"],
+  history: () => ReadonlyArray<import("../src/context.ts").Entry> = () => []
+) => {
   const records: Session.Record[] = []
-  const host = { cwd: mkdtempSync(join(tmpdir(), "tui-durable-")), judged: false, compaction: async () => undefined,
-    dispose: async () => {}, run } satisfies Host.Host
-  return { records, workspace: new Workspace({ host, workerSeat: "openai:gpt-6-astra", history,
-    persist: (record) => records.push(record), restored }) }
+  const host = {
+    cwd: mkdtempSync(join(tmpdir(), "tui-durable-")),
+    judged: false,
+    compaction: async () => undefined,
+    dispose: async () => {},
+    run
+  } satisfies Host.Host
+  return {
+    records,
+    workspace: new Workspace({
+      host,
+      workerSeat: "openai:gpt-6-astra",
+      history,
+      persist: (record) => records.push(record),
+      restored
+    })
+  }
 }
 
 describe("worker durability", () => {
   it("tries detected non-Cerebras seats in order and honors the override", () => {
-    const available = { models: [
-      { seat: "openai:gpt-6-sol", provider: "ChatGPT", label: "Sol" },
-      { seat: "anthropic:claude", provider: "Anthropic", label: "Claude" },
-      { seat: "cerebras:qwen", provider: "Cerebras", label: "Qwen" }
-    ], defaultSeat: "openai:gpt-6-sol", workerSeat: "openai:gpt-6-sol", environment: {} }
+    const available = {
+      models: [
+        { seat: "openai:gpt-6-sol", provider: "ChatGPT", label: "Sol" },
+        { seat: "anthropic:claude", provider: "Anthropic", label: "Claude" },
+        { seat: "cerebras:qwen", provider: "Cerebras", label: "Qwen" }
+      ],
+      defaultSeat: "openai:gpt-6-sol",
+      workerSeat: "openai:gpt-6-sol",
+      environment: {}
+    }
     expect(workerFallbackSeats("openai:gpt-6-sol", available, {})).toEqual(["anthropic:claude"])
-    expect(workerFallbackSeats("openai:gpt-6-sol", available, { SMITHERS_TUI_WORKER_SEATS: "other:a,anthropic:claude" }))
+    expect(
+      workerFallbackSeats("openai:gpt-6-sol", available, { SMITHERS_TUI_WORKER_SEATS: "other:a,anthropic:claude" })
+    )
       .toEqual(["other:a", "anthropic:claude"])
   })
 
@@ -48,8 +73,15 @@ describe("worker durability", () => {
       f.workspace.request(request)
       await flush()
       const wakeAt = Date.now() + 600_000
-      inputs[0]!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol",
-        wakeAt, source: "retry-after", code: "rate_limited" }))
+      inputs[0]!.onEvent(
+        new AgentEvent.ModelParked({
+          eventType: "flows.harness.model-parked.v1",
+          seat: "openai:gpt-6-sol",
+          wakeAt,
+          source: "retry-after",
+          code: "rate_limited"
+        })
+      )
       stops[0]!({ _tag: "cancelled" })
       await flush()
       const parked = f.workspace.snapshot().tabs[0]!
@@ -77,14 +109,33 @@ describe("worker durability", () => {
       const f = fixture((input) => {
         inputs.push(input)
         if (input.maxParks === 0) {
-          return { done: Promise.resolve({ _tag: "failed" as const, message: "limit", detail: "stack",
-            error: new ModelError({ code: "rate_limited", message: "limit", retryAfterMillis: 60_000 }) }), cancel: () => {} }
+          return {
+            done: Promise.resolve({
+              _tag: "failed" as const,
+              message: "limit",
+              detail: "stack",
+              error: new ModelError({ code: "rate_limited", message: "limit", retryAfterMillis: 60_000 })
+            }),
+            cancel: () => {}
+          }
         }
-        return { done: new Promise<Host.Outcome>((resolve) => queueMicrotask(() => {
-          input.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol",
-            wakeAt: Date.now() + 60_000, source: "retry-after", code: "rate_limited" }))
-          resolve({ _tag: "cancelled" })
-        })), cancel: () => {} }
+        return {
+          done: new Promise<Host.Outcome>((resolve) =>
+            queueMicrotask(() => {
+              input.onEvent(
+                new AgentEvent.ModelParked({
+                  eventType: "flows.harness.model-parked.v1",
+                  seat: "openai:gpt-6-sol",
+                  wakeAt: Date.now() + 60_000,
+                  source: "retry-after",
+                  code: "rate_limited"
+                })
+              )
+              resolve({ _tag: "cancelled" })
+            })
+          ),
+          cancel: () => {}
+        }
       })
       f.workspace.request(request)
       for (let park = 0; park <= QuotaPolicy.defaultMaxParks; park++) {
@@ -97,8 +148,11 @@ describe("worker durability", () => {
       )
       const tab = f.workspace.snapshot().tabs[0]!
       expect(tab.status).toBe("failed")
-      expect(tab.failure).toMatchObject({ headline: "ChatGPT usage limit reached", fault: "wait",
-        line: `Still limited after ${QuotaPolicy.defaultMaxParks} waits.` })
+      expect(tab.failure).toMatchObject({
+        headline: "ChatGPT usage limit reached",
+        fault: "wait",
+        line: `Still limited after ${QuotaPolicy.defaultMaxParks} waits.`
+      })
       expect(f.workspace.read("review")).toMatchObject({ status: "failed" })
     } finally {
       jest.useRealTimers()
@@ -113,12 +167,31 @@ describe("worker durability", () => {
     })
     f.workspace.request(request)
     await tick()
-    input!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol",
-      wakeAt: Date.now() + 1, source: "reset", code: "rate_limited" }))
-    input!.onEvent(new AgentEvent.ModelUnparked({ eventType: "flows.harness.model-unparked.v1", seat: "openai:gpt-6-sol", at: Date.now() }))
+    input!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt: Date.now() + 1,
+        source: "reset",
+        code: "rate_limited"
+      })
+    )
+    input!.onEvent(
+      new AgentEvent.ModelUnparked({
+        eventType: "flows.harness.model-unparked.v1",
+        seat: "openai:gpt-6-sol",
+        at: Date.now()
+      })
+    )
     expect(f.workspace.snapshot().tabs[0]?.parks).toBe(1)
-    input!.onEvent({ _tag: "model-settled", message: { stopReason: "stop", content: [] },
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, durationMillis: 1 } as never)
+    input!.onEvent(
+      {
+        _tag: "model-settled",
+        message: { stopReason: "stop", content: [] },
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        durationMillis: 1
+      } as never
+    )
     expect(f.workspace.snapshot().tabs[0]?.parks).toBe(0)
   })
 
@@ -130,12 +203,41 @@ describe("worker durability", () => {
     })
     f.workspace.request(request)
     await tick()
-    input!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol", wakeAt: Date.UTC(2026, 8, 30, 21), source: "reset", code: "rate_limited" }))
-    expect(f.workspace.snapshot().tabs[0]).toMatchObject({ id: "review", status: "parked", wakeAt: Date.UTC(2026, 8, 30, 21) })
-    input!.onEvent(new AgentEvent.ModelUnparked({ eventType: "flows.harness.model-unparked.v1", seat: "openai:gpt-6-sol", at: Date.UTC(2026, 8, 30, 21) }))
+    input!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt: Date.UTC(2026, 8, 30, 21),
+        source: "reset",
+        code: "rate_limited"
+      })
+    )
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({
+      id: "review",
+      status: "parked",
+      wakeAt: Date.UTC(2026, 8, 30, 21)
+    })
+    input!.onEvent(
+      new AgentEvent.ModelUnparked({
+        eventType: "flows.harness.model-unparked.v1",
+        seat: "openai:gpt-6-sol",
+        at: Date.UTC(2026, 8, 30, 21)
+      })
+    )
     expect(f.workspace.snapshot().tabs[0]).toMatchObject({ id: "review", status: "running" })
-    input!.onEvent(new AgentEvent.SeatFailedOver({ eventType: "flows.harness.seat-failed-over.v1", from: "openai:gpt-6-sol", to: "anthropic:claude", code: "rate_limited" }))
-    expect(f.workspace.transcript("review").items.some((item) => item.kind === "note" && item.text.includes("↪ switched to anthropic:claude"))).toBe(true)
+    input!.onEvent(
+      new AgentEvent.SeatFailedOver({
+        eventType: "flows.harness.seat-failed-over.v1",
+        from: "openai:gpt-6-sol",
+        to: "anthropic:claude",
+        code: "rate_limited"
+      })
+    )
+    expect(
+      f.workspace.transcript("review").items.some((item) =>
+        item.kind === "note" && item.text.includes("↪ switched to anthropic:claude")
+      )
+    ).toBe(true)
     expect(f.workspace.snapshot().tabs[0]?.activeSeat).toBe("anthropic:claude")
     expect(f.workspace.tree("review").rows[0]?.label).toContain("claude")
   })
@@ -146,13 +248,25 @@ describe("worker durability", () => {
     const f = fixture((input) => {
       inputs.push(input)
       return inputs.length === 1
-        ? { done: new Promise((resolve) => { stop = resolve }), cancel: () => {} }
+        ? {
+          done: new Promise((resolve) => {
+            stop = resolve
+          }),
+          cancel: () => {}
+        }
         : { done: new Promise(() => {}), cancel: () => {} }
     })
     f.workspace.request(request)
     await tick()
-    inputs[0]!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol",
-      wakeAt: Date.now() + 80, source: "reset", code: "rate_limited" }))
+    inputs[0]!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt: Date.now() + 80,
+        source: "reset",
+        code: "rate_limited"
+      })
+    )
     stop!({ _tag: "cancelled" })
     await tick()
     expect(f.workspace.snapshot().tabs[0]?.status).toBe("parked")
@@ -172,8 +286,15 @@ describe("worker durability", () => {
     for (let index = 0; index < 7; index++) f.workspace.request({ ...request, id: `worker-${index}` })
     await tick()
     expect(f.workspace.snapshot().tabs.find((tab) => tab.id === "worker-6")?.status).toBe("queued")
-    inputs.get("worker-0")!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1",
-      seat: "openai:gpt-6-sol", wakeAt: Date.now() + 60_000, source: "reset", code: "rate_limited" }))
+    inputs.get("worker-0")!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt: Date.now() + 60_000,
+        source: "reset",
+        code: "rate_limited"
+      })
+    )
     await tick()
     expect(f.workspace.snapshot().tabs.find((tab) => tab.id === "worker-0")?.status).toBe("parked")
     expect(f.workspace.snapshot().tabs.find((tab) => tab.id === "worker-6")?.status).toBe("running")
@@ -184,14 +305,23 @@ describe("worker durability", () => {
     const inputs: Host.TurnInput[] = []
     const f = fixture((input) => {
       inputs.push(input)
-      if (inputs.length === 1) return { done: Promise.resolve({ _tag: "failed", message: "raw provider response", detail: "stack" }), cancel: () => {} }
+      if (inputs.length === 1) {
+        return {
+          done: Promise.resolve({ _tag: "failed", message: "raw provider response", detail: "stack" }),
+          cancel: () => {}
+        }
+      }
       return { done: new Promise(() => {}), cancel: () => {} }
     })
     f.workspace.request(request)
     await tick()
     const old = f.workspace.snapshot().tabs[0]!
-    const append = (at: number, event: unknown) => Session.reopen(old.file).append({ type: "event", at,
-      event: event as Extract<Session.Record, { type: "event" }>["event"] })
+    const append = (at: number, event: unknown) =>
+      Session.reopen(old.file).append({
+        type: "event",
+        at,
+        event: event as Extract<Session.Record, { type: "event" }>["event"]
+      })
     append(2, { _tag: "model-requested" })
     append(3, { _tag: "model-delta", delta: { type: "text-delta", text: "```js\nprint(1)\n```" } })
     append(4, { _tag: "cell-produced", cell: { text: "print(1)" } })
@@ -199,8 +329,12 @@ describe("worker durability", () => {
     f.workspace.retry(request.id)
     await tick()
     expect(inputs[1]?.seat).toBe("openai:gpt-6-sol")
-    expect(inputs[1]?.history.some((entry) => entry.kind === "exchange" && entry.answer.includes("raw provider response"))).toBe(true)
-    expect(inputs[1]?.history.some((entry) => entry.kind === "exchange" && entry.answer.includes("print(1)"))).toBe(true)
+    expect(
+      inputs[1]?.history.some((entry) => entry.kind === "exchange" && entry.answer.includes("raw provider response"))
+    ).toBe(true)
+    expect(inputs[1]?.history.some((entry) => entry.kind === "exchange" && entry.answer.includes("print(1)"))).toBe(
+      true
+    )
     expect(inputs[1]?.history.some((entry) => entry.kind === "exchange" && entry.answer.includes("one"))).toBe(true)
     expect(f.workspace.snapshot().tabs.map((tab) => tab.id)).toEqual(["review"])
     expect(Session.load(f.workspace.snapshot().tabs[0]!.file)[0]).toMatchObject({ type: "session", parent: old.file })
@@ -220,7 +354,8 @@ describe("worker durability", () => {
     }, Session.restore(first.records).workspace)
     await tick()
     expect(second.workspace.snapshot().tabs[0]).toMatchObject({ id: "review", status: "running" })
-    expect(inputs[0]?.history.some((entry) => entry.kind === "exchange" && entry.user.includes("Review the files"))).toBe(true)
+    expect(inputs[0]?.history.some((entry) => entry.kind === "exchange" && entry.user.includes("Review the files")))
+      .toBe(true)
   })
 
   it("keeps a parked tab parked until wake, then resumes the recorded task", async () => {
@@ -231,8 +366,15 @@ describe("worker durability", () => {
     })
     first.workspace.request(request)
     await tick()
-    firstInput!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol", wakeAt: Date.now() + 80,
-      source: "reset", code: "rate_limited" }))
+    firstInput!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt: Date.now() + 80,
+        source: "reset",
+        code: "rate_limited"
+      })
+    )
     first.workspace.dispose()
     let relaunched: Host.TurnInput | undefined
     const restored = fixture((input) => {
@@ -252,8 +394,15 @@ describe("worker durability", () => {
     const f = fixture((input) => {
       inputs.push(input)
       return inputs.length === 1
-        ? { done: Promise.resolve({ _tag: "failed", message: "raw limit", detail: "stack",
-          error: new ModelError({ code: "rate_limited", message: "raw limit", resetAtEpochMillis: Date.now() + 80 }) }), cancel: () => {} }
+        ? {
+          done: Promise.resolve({
+            _tag: "failed",
+            message: "raw limit",
+            detail: "stack",
+            error: new ModelError({ code: "rate_limited", message: "raw limit", resetAtEpochMillis: Date.now() + 80 })
+          }),
+          cancel: () => {}
+        }
         : { done: new Promise(() => {}), cancel: () => {} }
     })
     f.workspace.request(request)
@@ -274,9 +423,12 @@ describe("worker durability", () => {
     const launches: Host.TurnInput[] = []
     const first = fixture((input) => {
       launches.push(input)
-      return { done: launches.length === 1
-        ? Promise.resolve({ _tag: "failed", message: "usage limit", detail: "stack" })
-        : new Promise(() => {}), cancel: () => {} }
+      return {
+        done: launches.length === 1
+          ? Promise.resolve({ _tag: "failed", message: "usage limit", detail: "stack" })
+          : new Promise(() => {}),
+        cancel: () => {}
+      }
     })
     first.workspace.request(request)
     await tick()
@@ -296,10 +448,17 @@ describe("worker durability", () => {
     const launches: Host.TurnInput[] = []
     const first = fixture((input) => {
       launches.push(input)
-      return { done: launches.length === 1
-        ? Promise.resolve({ _tag: "failed", message: "usage limit", detail: "stack",
-          error: new ModelError({ code: "rate_limited", message: "usage limit", resetAtEpochMillis: Date.now() + 10 }) })
-        : new Promise(() => {}), cancel: () => {} }
+      return {
+        done: launches.length === 1
+          ? Promise.resolve({
+            _tag: "failed",
+            message: "usage limit",
+            detail: "stack",
+            error: new ModelError({ code: "rate_limited", message: "usage limit", resetAtEpochMillis: Date.now() + 10 })
+          })
+          : new Promise(() => {}),
+        cancel: () => {}
+      }
     })
     first.workspace.request(request)
     await tick()
@@ -320,10 +479,16 @@ describe("worker durability", () => {
     first.workspace.request(request)
     await tick()
     const tab = first.workspace.snapshot().tabs[0]!
-    Session.reopen(tab.file).append({ type: "outcome", at: Date.now(), prompt: tab.prompt,
-      outcome: { _tag: "failed", message: "The usage limit has been reached" } })
-    const restored = fixture(() => ({ done: new Promise(() => {}), cancel: () => {} }),
-      Session.restore(first.records).workspace)
+    Session.reopen(tab.file).append({
+      type: "outcome",
+      at: Date.now(),
+      prompt: tab.prompt,
+      outcome: { _tag: "failed", message: "The usage limit has been reached" }
+    })
+    const restored = fixture(
+      () => ({ done: new Promise(() => {}), cancel: () => {} }),
+      Session.restore(first.records).workspace
+    )
     expect(restored.workspace.snapshot().tabs[0]?.failure?.headline).toBe("ChatGPT usage limit reached")
   })
 
@@ -332,12 +497,24 @@ describe("worker durability", () => {
     let cancelled = 0
     const f = fixture((input) => {
       inputs.push(input)
-      return { done: new Promise(() => {}), cancel: () => { cancelled++ } }
+      return {
+        done: new Promise(() => {}),
+        cancel: () => {
+          cancelled++
+        }
+      }
     })
     f.workspace.request(request)
     await tick()
-    inputs[0]!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1", seat: "openai:gpt-6-sol",
-      wakeAt: Date.now() + 60_000, source: "reset", code: "rate_limited" }))
+    inputs[0]!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt: Date.now() + 60_000,
+        source: "reset",
+        code: "rate_limited"
+      })
+    )
     f.workspace.retry(request.id)
     await tick()
     expect(cancelled).toBe(1)
@@ -354,10 +531,14 @@ describe("worker durability", () => {
     expect(queued.history).toEqual(oldHistory)
     const launches: Host.TurnInput[] = []
     const controls = new Map<string, (outcome: Host.Outcome) => void>()
-    const restored = fixture((input) => {
-      launches.push(input)
-      return { done: new Promise((resolve) => controls.set(input.source!, resolve)), cancel: () => {} }
-    }, Session.restore(first.records).workspace, () => [{ kind: "exchange", user: "Later question", answer: "Later reply" }])
+    const restored = fixture(
+      (input) => {
+        launches.push(input)
+        return { done: new Promise((resolve) => controls.set(input.source!, resolve)), cancel: () => {} }
+      },
+      Session.restore(first.records).workspace,
+      () => [{ kind: "exchange", user: "Later question", answer: "Later reply" }]
+    )
     await tick()
     controls.get("worker-0")!({ _tag: "done", answer: "done" })
     await tick()
@@ -374,12 +555,24 @@ describe("worker durability", () => {
     })
     for (let index = 0; index < 7; index++) f.workspace.request({ ...request, id: `worker-${index}` })
     await tick()
-    inputs.get("worker-0")!.onEvent(new AgentEvent.ModelParked({ eventType: "flows.harness.model-parked.v1",
-      seat: "openai:gpt-6-sol", wakeAt: Date.now() + 1, source: "reset", code: "rate_limited" }))
+    inputs.get("worker-0")!.onEvent(
+      new AgentEvent.ModelParked({
+        eventType: "flows.harness.model-parked.v1",
+        seat: "openai:gpt-6-sol",
+        wakeAt: Date.now() + 1,
+        source: "reset",
+        code: "rate_limited"
+      })
+    )
     await tick()
     expect(f.workspace.snapshot().tabs.find((tab) => tab.id === "worker-6")?.status).toBe("running")
-    const resumed = inputs.get("worker-0")!.onEvent(new AgentEvent.ModelUnparked({ eventType: "flows.harness.model-unparked.v1",
-      seat: "openai:gpt-6-sol", at: Date.now() }))
+    const resumed = inputs.get("worker-0")!.onEvent(
+      new AgentEvent.ModelUnparked({
+        eventType: "flows.harness.model-unparked.v1",
+        seat: "openai:gpt-6-sol",
+        at: Date.now()
+      })
+    )
     expect(f.workspace.snapshot().tabs.find((tab) => tab.id === "worker-0")?.status).toBe("queued")
     controls.get("worker-1")!({ _tag: "done", answer: "done" })
     await resumed
@@ -391,17 +584,32 @@ describe("worker durability", () => {
     const inputs: Host.TurnInput[] = []
     const f = fixture((input) => {
       inputs.push(input)
-      return { done: inputs.length === 1
-        ? Promise.resolve({ _tag: "failed", message: "old error", detail: "stack" })
-        : new Promise<Host.Outcome>(() => {}), cancel: () => {} }
+      return {
+        done: inputs.length === 1
+          ? Promise.resolve({ _tag: "failed", message: "old error", detail: "stack" })
+          : new Promise<Host.Outcome>(() => {}),
+        cancel: () => {}
+      }
     })
     f.workspace.request(request)
     await tick()
     const file = f.workspace.snapshot().tabs[0]!.file
     const writer = Session.reopen(file)
-    writer.append({ type: "event", at: Date.now(), event: { _tag: "cell-produced", cell: { text: "x".repeat(30_000) } } as never })
-    writer.append({ type: "event", at: Date.now(), event: { _tag: "cell-printed", text: "IMPORTANT PRINTED RESULT" } as never })
-    writer.append({ type: "event", at: Date.now(), event: { _tag: "cell-produced", cell: { text: "inspect final file" } } as never })
+    writer.append({
+      type: "event",
+      at: Date.now(),
+      event: { _tag: "cell-produced", cell: { text: "x".repeat(30_000) } } as never
+    })
+    writer.append({
+      type: "event",
+      at: Date.now(),
+      event: { _tag: "cell-printed", text: "IMPORTANT PRINTED RESULT" } as never
+    })
+    writer.append({
+      type: "event",
+      at: Date.now(),
+      event: { _tag: "cell-produced", cell: { text: "inspect final file" } } as never
+    })
     f.workspace.retry(request.id)
     await tick()
     const answer = inputs[1]!.history.find((entry) => entry.kind === "exchange" && entry.user === request.prompt)

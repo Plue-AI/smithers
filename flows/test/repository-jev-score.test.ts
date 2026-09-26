@@ -1,43 +1,99 @@
+import { NodeServices } from "@effect/platform-node"
+import { FlowEngine } from "@smthrs/engine"
+import { Action } from "@smthrs/flow"
+import * as Evaluator from "@smthrs/model/Evaluator"
+import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { NodeServices } from "@effect/platform-node"
-import * as Evaluator from "@smthrs/model/Evaluator"
-import { Action } from "@smthrs/flow"
-import { FlowEngine } from "@smthrs/engine"
-import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import { evaluationLayers, ScoreCase, ScoreExecution, SeatScore } from "../repository/evaluation.ts"
 import { caseClassifier, SCORE_CONFIDENCE, scoreState, verdicts } from "../repository/jev-score.ts"
 import type { EvalCase, EvalResult, JobResult, RepositoryEvidence } from "../repository/schema.ts"
 
 const sourceRevision = "a".repeat(40)
-const event = { source: "smithers-cloud", type: "issues", action: "opened", deliveryKey: "case-1", issueNumber: 3,
-  payload: { issue: { title: "What does widen() return?", body: "The README is short." } } }
-const heldOut: typeof EvalCase.Type = { id: "readme-question", name: "Answer the README question", required: true,
+const event = {
+  source: "smithers-cloud",
+  type: "issues",
+  action: "opened",
+  deliveryKey: "case-1",
+  issueNumber: 3,
+  payload: { issue: { title: "What does widen() return?", body: "The README is short." } }
+}
+const heldOut: typeof EvalCase.Type = {
+  id: "readme-question",
+  name: "Answer the README question",
+  required: true,
   expected: "HELD_OUT: the answer cites greeting.mjs and says the unit is metres.",
-  input: JSON.stringify({ event, sourceRevision, assertions: [{ path: "/results/0/status", equals: "completed" }] }) }
-const observed: JobResult = { repo: "example/repo", job: "issues", revision: 3, digest: "b".repeat(64),
-  sourceRevision, eventKey: "case-1", status: "completed", publicActions: [],
-  results: [{ stepId: "research", status: "completed", summary: "The unit is metres.", executionId: "research-step",
-    evidence: ["source:greeting.mjs@0123"], output: { classification: "question", summary: "The unit is metres." } }] }
-const evidence: RepositoryEvidence = { repo: "example/repo", missing: [], history: [], records: [], sources: [], files: [],
-  source: { changeId: "change", commitId: sourceRevision, treeId: "tree", operationId: "operation", parentCommitIds: [] } }
+  input: JSON.stringify({ event, sourceRevision, assertions: [{ path: "/results/0/status", equals: "completed" }] })
+}
+const observed: JobResult = {
+  repo: "example/repo",
+  job: "issues",
+  revision: 3,
+  digest: "b".repeat(64),
+  sourceRevision,
+  eventKey: "case-1",
+  status: "completed",
+  publicActions: [],
+  results: [{
+    stepId: "research",
+    status: "completed",
+    summary: "The unit is metres.",
+    executionId: "research-step",
+    evidence: ["source:greeting.mjs@0123"],
+    output: { classification: "question", summary: "The unit is metres." }
+  }]
+}
+const evidence: RepositoryEvidence = {
+  repo: "example/repo",
+  missing: [],
+  history: [],
+  records: [],
+  sources: [],
+  files: [],
+  source: {
+    changeId: "change",
+    commitId: sourceRevision,
+    treeId: "tree",
+    operationId: "operation",
+    parentCommitIds: []
+  }
+}
 const written = { reason: "The recorded research answers the question from the captured source.", evidenceIds: [0] }
 
 const scripted = (choice: string, confidence: number): Layer.Layer<Evaluator.Evaluator> => {
   const rest = (1 - confidence) / 2
-  return Evaluator.layerScripted(() => ({ verdict: { choice,
-    probabilities: Object.fromEntries(Object.keys(verdicts).map(key => [key, key === choice ? confidence : rest])) } }))
+  return Evaluator.layerScripted(() => ({
+    verdict: {
+      choice,
+      probabilities: Object.fromEntries(Object.keys(verdicts).map((key) => [key, key === choice ? confidence : rest]))
+    }
+  }))
 }
 
 const score = async (evaluator: Layer.Layer<Evaluator.Evaluator>) => {
   const seat: Array<string> = []
-  const runtime = ManagedRuntime.make(Layer.mergeAll(evaluationLayers({ evaluator }),
-    ScoreCase.toLayer(() => Effect.sync(() => { seat.push(ScoreCase.name); return written })))
-    .pipe(Layer.provideMerge(Action.layerImplementations), Layer.provideMerge(FlowEngine.layerMemory),
-      Layer.provideMerge(NodeServices.layer)))
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      evaluationLayers({ evaluator }),
+      ScoreCase.toLayer(() =>
+        Effect.sync(() => {
+          seat.push(ScoreCase.name)
+          return written
+        })
+      )
+    )
+      .pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(FlowEngine.layerMemory),
+        Layer.provideMerge(NodeServices.layer)
+      )
+  )
   try {
-    const result = await runtime.runPromise(ScoreExecution.execute({ test: heldOut, observed, evidence,
-      deadlineAt: Date.now() + 120_000 }, { executionId: "score-case" }).pipe(Effect.result))
+    const result = await runtime.runPromise(
+      ScoreExecution.execute({ test: heldOut, observed, evidence, deadlineAt: Date.now() + 120_000 }, {
+        executionId: "score-case"
+      }).pipe(Effect.result)
+    )
     return { result, seat }
   } finally {
     await runtime.dispose()
@@ -50,8 +106,11 @@ test("the verdict is one Jev choice, and the seat keeps only what Jev cannot pro
   assert.equal(caseClassifier.id, "eval/case")
   assert.equal(caseClassifier.questions.verdict.type, "choice")
   assert.equal(SCORE_CONFIDENCE, 0.8)
-  assert.deepEqual(Object.keys(SeatScore.fields), ["reason", "evidenceIds"],
-    "the seat writes the prose and picks the numbered evidence; it no longer votes")
+  assert.deepEqual(
+    Object.keys(SeatScore.fields),
+    ["reason", "evidenceIds"],
+    "the seat writes the prose and picks the numbered evidence; it no longer votes"
+  )
 })
 
 test("Jev's verdict decides the recorded row, and the seat's prose and evidence ride along", async () => {
@@ -84,10 +143,16 @@ test("an evaluator failure fails the score typed, and no seat is asked", async (
 test("the state carries the frozen expectation and the recorded job, bounded", () => {
   const state = scoreState(heldOut, observed)
   assert.equal(state.expected, heldOut.expected)
-  assert.deepEqual(state.observed.results.map(result => result.stepId), ["research"])
-  assert.ok(new TextEncoder().encode(JSON.stringify(Schema.encodeUnknownSync(caseClassifier.state)(state))).length <= 32 * 1024)
-  const flooded = scoreState({ ...heldOut, expected: "y".repeat(9000) },
-    { ...observed, results: Array.from({ length: 40 }, (_, index) => ({ ...observed.results[0]!,
-      stepId: `step-${index}`, summary: "z".repeat(4000) })) })
+  assert.deepEqual(state.observed.results.map((result) => result.stepId), ["research"])
+  assert.ok(
+    new TextEncoder().encode(JSON.stringify(Schema.encodeUnknownSync(caseClassifier.state)(state))).length <= 32 * 1024
+  )
+  const flooded = scoreState({ ...heldOut, expected: "y".repeat(9000) }, {
+    ...observed,
+    results: Array.from(
+      { length: 40 },
+      (_, index) => ({ ...observed.results[0]!, stepId: `step-${index}`, summary: "z".repeat(4000) })
+    )
+  })
   assert.ok(new TextEncoder().encode(JSON.stringify(flooded)).length <= 32 * 1024)
 })

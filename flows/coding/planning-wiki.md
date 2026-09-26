@@ -101,7 +101,6 @@ a large intervening workload can cause a normal cold-review miss. This is a
 bounded optimization, never a guarantee that the newest refresh in all history
 was found and never permission to reuse missing evidence.
 
-
 The configured host reevaluates its external-output boundary during configuration,
 child generation and immediately before publication after semantic review. The
 writer uses that newly canonical destination with the explicitly supplied host

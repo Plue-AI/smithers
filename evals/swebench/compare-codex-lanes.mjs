@@ -124,8 +124,7 @@ export const egress = (text) => {
  * @category conversions
  * @since 0.1.0
  */
-export const webSearches = (text) =>
-  (text.match(/^web search:.*$/gmu) ?? []).map((line) => line.slice(0, 160))
+export const webSearches = (text) => (text.match(/^web search:.*$/gmu) ?? []).map((line) => line.slice(0, 160))
 
 /**
  * The egress the seal does not reach: a fetch run **inside** the testbed
@@ -297,8 +296,10 @@ export const inContainerEgress = (trace) => {
  */
 export const provedUnnetworked = (text, read) =>
   read.length > 0 && !/docker\s+network\s+connect/u.test(text)
-  && read.every((one) => one.container !== undefined
-    && read.some((evidence) => evidence.container === one.container && evidence.refused))
+  && read.every((one) =>
+    one.container !== undefined
+    && read.some((evidence) => evidence.container === one.container && evidence.refused)
+  )
 
 /**
  * The in-container fetches that count against a lane, after the seal is read.
@@ -316,8 +317,10 @@ export const countedBreaches = (text, observed) => {
   if (text === undefined) return []
   const read = inContainerEgress(text)
   if (observed !== "none") return read.map((one) => one.command)
-  return read.filter((one) => !one.refused
-    && !provedUnnetworked(text, read.filter((evidence) => evidence.container === one.container)))
+  return read.filter((one) =>
+    !one.refused
+    && !provedUnnetworked(text, read.filter((evidence) => evidence.container === one.container))
+  )
     .map((one) => one.command)
 }
 
@@ -387,9 +390,12 @@ export const testbed = (rows) => {
   // for. Then the request, which is the lane's claim. Then the observation on
   // its own, so a ledger written by a runner that records only the fact still
   // reads as a lane rather than as an absence.
-  const claim = seenOn.size > 1 || askedFor.size > 1 ? "mixed"
-    : askedFor.size === 1 ? [...askedFor][0]
-    : seenOn.size === 1 ? [...seenOn][0]
+  const claim = seenOn.size > 1 || askedFor.size > 1 ?
+    "mixed"
+    : askedFor.size === 1 ?
+    [...askedFor][0]
+    : seenOn.size === 1 ?
+    [...seenOn][0]
     : "unrecorded"
   return { claim, observed: observations.length, missing, unsealed }
 }
@@ -596,14 +602,26 @@ export const render = (result) => {
   lines.push("")
   lines.push("| arm | resolved (scored) | resolved (raw) |")
   lines.push("| --- | --- | --- |")
-  lines.push(`| flows \`r90\` | ${totals.flowsResolvedScored} of ${totals.scored} | ${totals.flowsResolvedRaw} of ${totals.raw} |`)
-  lines.push(`| codex \`r90c\` (network) | ${totals.netResolvedScored} of ${totals.scored} | ${totals.netResolvedRaw} of ${totals.raw} |`)
-  lines.push(`| codex ${label} | ${totals.sealedResolvedScored} of ${totals.scored} | ${totals.sealedResolvedRaw} of ${totals.raw} |`)
+  lines.push(
+    `| flows \`r90\` | ${totals.flowsResolvedScored} of ${totals.scored} | ${totals.flowsResolvedRaw} of ${totals.raw} |`
+  )
+  lines.push(
+    `| codex \`r90c\` (network) | ${totals.netResolvedScored} of ${totals.scored} | ${totals.netResolvedRaw} of ${totals.raw} |`
+  )
+  lines.push(
+    `| codex ${label} | ${totals.sealedResolvedScored} of ${totals.scored} | ${totals.sealedResolvedRaw} of ${totals.raw} |`
+  )
   lines.push("")
   lines.push("## What the seal moved")
   lines.push("")
-  lines.push(`- **lost with the seal** (${movement.lostWithTheSeal.length}): ${movement.lostWithTheSeal.join(", ") || "none"}`)
-  lines.push(`- **gained with the seal** (${movement.gainedWithTheSeal.length}): ${movement.gainedWithTheSeal.join(", ") || "none"}`)
+  lines.push(
+    `- **lost with the seal** (${movement.lostWithTheSeal.length}): ${movement.lostWithTheSeal.join(", ") || "none"}`
+  )
+  lines.push(
+    `- **gained with the seal** (${movement.gainedWithTheSeal.length}): ${
+      movement.gainedWithTheSeal.join(", ") || "none"
+    }`
+  )
   lines.push(`- **unchanged** (${movement.unchanged.length})`)
   lines.push("")
   if (notComparable.length > 0) {

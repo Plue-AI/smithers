@@ -18,8 +18,8 @@
  * The resolution itself is `NativeEquipment.seatResolver`'s; this module only
  * decides the environment it sees.
  */
-import type * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as Seat from "@smthrs/agent/Seat"
+import type * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { Effect } from "effect"
 import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"

@@ -1,26 +1,26 @@
+import { NodeServices } from "@effect/platform-node"
+import * as Agent from "@smthrs/agent/Agent"
+import * as AgentAction from "@smthrs/agent/AgentAction"
+import * as Budget from "@smthrs/agent/Budget"
+import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
+import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
+import * as Seat from "@smthrs/agent/Seat"
+import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import { Action, Graph } from "@smthrs/flow"
+import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
+import * as Model from "@smthrs/model/Model"
+import { ModelEvent } from "@smthrs/model/ModelEvent"
+import * as Registry from "@smthrs/registry/Registry"
+import { Cause, Effect, Layer, Schema, Stream } from "effect"
 import assert from "node:assert/strict"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
-import * as Agent from "@smthrs/agent/Agent"
-import * as AgentAction from "@smthrs/agent/AgentAction"
-import * as Budget from "@smthrs/agent/Budget"
-import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
-import * as Seat from "@smthrs/agent/Seat"
-import * as SeatResolver from "@smthrs/agent/SeatResolver"
-import { Action, Graph } from "@smthrs/flow"
-import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
-import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
-import * as Model from "@smthrs/model/Model"
-import { ModelEvent } from "@smthrs/model/ModelEvent"
-import * as Registry from "@smthrs/registry/Registry"
-import { Cause, Effect, Layer, Schema, Stream } from "effect"
-import { NodeServices } from "@effect/platform-node"
 import { conversation, DispatchInput, dispatchModels, seatFor } from "../coding/dispatch.ts"
 import Dispatch, { dispatchRegistration } from "../coding/dispatch/flow.ts"
-import { NativeCoding } from "../coding/native.ts"
 import { roleResolver } from "../coding/host.ts"
+import { NativeCoding } from "../coding/native.ts"
 
 const changeId = "k".repeat(32)
 const commitId = "a".repeat(40)
@@ -37,16 +37,25 @@ const head = {
 
 /** The workspace adapter a dispatched turn reads after it answers. */
 const nativeStub = (reads: Array<number>) =>
-  Layer.succeed(NativeCoding, NativeCoding.of({
-    sourcePublication: "local-only",
-    read: () =>
-      Effect.sync(() => {
-        reads.push(1)
-        return { status: "read" as const, operationId, head, revisions: [head], capabilities: ["apply-files/v1", "import-source/v1"] }
-      }),
-    apply: () => Effect.die("a dispatch fixture applies no native operation"),
-    publishOriginalSource: () => Effect.die("a dispatch fixture publishes no source")
-  }))
+  Layer.succeed(
+    NativeCoding,
+    NativeCoding.of({
+      sourcePublication: "local-only",
+      read: () =>
+        Effect.sync(() => {
+          reads.push(1)
+          return {
+            status: "read" as const,
+            operationId,
+            head,
+            revisions: [head],
+            capabilities: ["apply-files/v1", "import-source/v1"]
+          }
+        }),
+      apply: () => Effect.die("a dispatch fixture applies no native operation"),
+      publishOriginalSource: () => Effect.die("a dispatch fixture publishes no source")
+    })
+  )
 
 /** A real cell loop; only the provider stream and the seat table are scripted. */
 const scripted = (options: {
@@ -111,10 +120,18 @@ const scripted = (options: {
   })
 }
 
-const agentHost = Layer.effect(AgentAction.Host, Effect.gen(function*() {
-  const registry = yield* Registry.Registry
-  return { registry, limits: { memoryBytes: 128 * 1024 * 1024, steps: 25_000_000, calls: 8 }, capabilityEnvelope: [], maxFrames: 6 }
-})).pipe(Layer.provide(Registry.layerFromDescriptors([])), Layer.provide(NodeServices.layer))
+const agentHost = Layer.effect(
+  AgentAction.Host,
+  Effect.gen(function*() {
+    const registry = yield* Registry.Registry
+    return {
+      registry,
+      limits: { memoryBytes: 128 * 1024 * 1024, steps: 25_000_000, calls: 8 },
+      capabilityEnvelope: [],
+      maxFrames: 6
+    }
+  })
+).pipe(Layer.provide(Registry.layerFromDescriptors([])), Layer.provide(NodeServices.layer))
 
 /** The offline dispatch host judges recorded completion evidence. */
 const confidentEvaluator = ScriptedJudge.layer
@@ -134,8 +151,16 @@ const runTurn = async (
     dispatchModels
   ).pipe(
     Layer.provideMerge(nativeStub(reads)),
-    Layer.provideMerge(Layer.mergeAll(agentHost, scripted({ seats, prompts, answer: options.answer ?? ["Read the greeting.", "Done."] }), Agent.layer)),
-    Layer.provideMerge(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layer({ tokens: { max: 250_000, onExceeded: "fail" } }))),
+    Layer.provideMerge(
+      Layer.mergeAll(
+        agentHost,
+        scripted({ seats, prompts, answer: options.answer ?? ["Read the greeting.", "Done."] }),
+        Agent.layer
+      )
+    ),
+    Layer.provideMerge(
+      Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layer({ tokens: { max: 250_000, onExceeded: "fail" } }))
+    ),
     Layer.provideMerge(Agent.layerDefaults),
     Layer.provideMerge(confidentEvaluator),
     Layer.provideMerge(Action.layerImplementations)
@@ -162,7 +187,10 @@ const baseInput = {
 }
 
 test("a dispatched turn declares one seat per request and carries the caller's window into the prompt", () => {
-  assert.equal(seatFor({ ...baseInput, model: "anthropic:claude-x" } as typeof DispatchInput.Type), "anthropic:claude-x")
+  assert.equal(
+    seatFor({ ...baseInput, model: "anthropic:claude-x" } as typeof DispatchInput.Type),
+    "anthropic:claude-x"
+  )
   assert.equal(seatFor(baseInput as typeof DispatchInput.Type), "coding/dispatch")
   const rendered = conversation(baseInput as typeof DispatchInput.Type)
   assert.match(rendered, /# Conversation so far/)
@@ -170,7 +198,10 @@ test("a dispatched turn declares one seat per request and carries the caller's w
   assert.match(rendered, /<assistant>\nIn greeting\.mjs\.\n<\/assistant>/)
   assert.match(rendered, /# This turn\nExplain what greeting\.mjs exports\./)
   // A first turn has no window and must not announce an empty conversation.
-  assert.equal(conversation({ ...baseInput, history: [] } as typeof DispatchInput.Type), "# This turn\nExplain what greeting.mjs exports.")
+  assert.equal(
+    conversation({ ...baseInput, history: [] } as typeof DispatchInput.Type),
+    "# This turn\nExplain what greeting.mjs exports."
+  )
 })
 
 test("the caller's window is bounded at the schema, not at the prompt", () => {
@@ -189,8 +220,13 @@ test("the dispatched turn is one model call: no plan, no checks, no second loop"
   assert.deepEqual(calls, ["coding/dispatch-turn", "coding/observe-dispatch"])
 })
 
-test("a real cell loop answers one turn on the request's own model and reports the workspace it leaves", { timeout: 60_000 }, async (t) => {
-  const { exit, prompts, reads, seats } = await runTurn(t, { ...baseInput, model: "test:requested-model" } as typeof DispatchInput.Type)
+test("a real cell loop answers one turn on the request's own model and reports the workspace it leaves", {
+  timeout: 60_000
+}, async (t) => {
+  const { exit, prompts, reads, seats } = await runTurn(
+    t,
+    { ...baseInput, model: "test:requested-model" } as typeof DispatchInput.Type
+  )
   assert.equal(exit._tag, "Success", JSON.stringify(exit))
   const result = (exit as Extract<typeof exit, { _tag: "Success" }>).value
   assert.deepEqual(result.messages, [
@@ -207,7 +243,10 @@ test("a real cell loop answers one turn on the request's own model and reports t
   // The declared seat is the request's model, not the host's launch role.
   assert.ok(seats.includes("test:requested-model"), seats.join(","))
   assert.ok(!seats.includes("coding/dispatch"), seats.join(","))
-  assert.ok(prompts.some((prompt) => prompt.includes("Where does the greeting live?")), "the window must reach the model")
+  assert.ok(
+    prompts.some((prompt) => prompt.includes("Where does the greeting live?")),
+    "the window must reach the model"
+  )
 })
 
 test("a turn that names only a role resolves through the host's role table", { timeout: 60_000 }, async (t) => {

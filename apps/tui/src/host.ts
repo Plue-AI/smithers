@@ -16,8 +16,8 @@ import * as AgentSession from "@smthrs/agent/AgentSession"
 import * as Budget from "@smthrs/agent/Budget"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import * as Seat from "@smthrs/agent/Seat"
-import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as StandardFlows from "@smthrs/agent/StandardFlows"
 import * as WorkspaceObservation from "@smthrs/agent/WorkspaceObservation"
 import * as Capability from "@smthrs/capability/Capability"
@@ -32,12 +32,11 @@ import * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
-import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Classifier from "@smthrs/model/Classifier"
-import * as ModelRequest from "@smthrs/model/ModelRequest"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
+import * as ModelRequest from "@smthrs/model/ModelRequest"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
-import { aliases, delegateModels, detect, routing, workerFallbackSeats } from "./models.ts"
 import { Node } from "@smthrs/plan"
 import * as Registry from "@smthrs/registry/Registry"
 import * as NativeSearch from "@smthrs/std/NativeSearch"
@@ -53,6 +52,7 @@ import type * as Agents from "./agents.ts"
 import * as Approvals from "./approvals.ts"
 import * as Changes from "./changes.ts"
 import * as Context from "./context.ts"
+import { aliases, delegateModels, detect, routing, workerFallbackSeats } from "./models.ts"
 import * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
 import * as Replay from "./replay.ts"
@@ -171,7 +171,9 @@ const physicalPath = (path: string): string => {
   let ancestor = resolve(path)
   const missing: Array<string> = []
   for (;;) {
-    try { return join(realpathSync(ancestor), ...missing.toReversed()) } catch {
+    try {
+      return join(realpathSync(ancestor), ...missing.toReversed())
+    } catch {
       const parent = dirname(ancestor)
       if (parent === ancestor) return resolve(path)
       missing.push(basename(ancestor))
@@ -223,7 +225,8 @@ export const make = (options: {
       // Only our owned subtree and log, never every directory named "sessions"
       // or the configured root itself (which may be the project directory).
       excludePaths: [Session.directory(options.cwd), Log.path()].map((path) =>
-        relative(physicalPath(options.cwd), physicalPath(path)).split(sep).join("/"))
+        relative(physicalPath(options.cwd), physicalPath(path)).split(sep).join("/")
+      )
     }),
     // Model HTTP keeps the noop store `executor` provides; this one only
     // answers `authorize` below.
@@ -238,7 +241,8 @@ export const make = (options: {
     if (!judged || used <= 0 || window <= 0) return undefined
     const questions = {
       amount: Classifier.choice({
-        instructions: "How much of the used context should be compacted? Choose 0 if no compaction is needed. Consider the current occupancy and leave enough context for the next turn.",
+        instructions:
+          "How much of the used context should be compacted? Choose 0 if no compaction is needed. Consider the current occupancy and leave enough context for the next turn.",
         criteria: { "0": "none", "25": "a quarter", "50": "half", "75": "three quarters" }
       })
     }
@@ -255,25 +259,30 @@ export const make = (options: {
     }
   }
 
-  const complete: NonNullable<Host["complete"]> = ({ system, prompt, seat: id }) => runtime.runPromise(
-    Effect.gen(function*() {
-      const seat = yield* (yield* SeatResolver.SeatResolver).resolve(id)
-      const events = Array.from(yield* Stream.runCollect(seat.model.stream(ModelRequest.ModelRequest.make({
-        // The seat's own model id: the full `provider:model` seat is refused as a model name.
-        modelId: seat.modelId,
-        system: [ModelRequest.SystemPart.make({ text: system })],
-        messages: [ModelRequest.Message.user([ModelRequest.TextPart.make({ text: prompt })])],
-        tools: [],
-        toolChoice: "none",
-        // No token budget: the ChatGPT-subscription route refuses `maxTokens`
-        // (`OpenAIResponses.chatgptFromRequest`) and no seat says which routes
-        // honor one. The system prompt bounds the answer instead.
-        params: ModelRequest.GenerationParams.make({})
-      }))))
-      if (ModelEvent.ModelEvent.settledMessage(events).message.stopReason !== "stop") throw new Error("Answer incomplete")
-      return events.flatMap((event) => event.type === "text-delta" ? [event.text] : []).join("")
-    })
-  )
+  const complete: NonNullable<Host["complete"]> = ({ system, prompt, seat: id }) =>
+    runtime.runPromise(
+      Effect.gen(function*() {
+        const seat = yield* (yield* SeatResolver.SeatResolver).resolve(id)
+        const events = Array.from(
+          yield* Stream.runCollect(seat.model.stream(ModelRequest.ModelRequest.make({
+            // The seat's own model id: the full `provider:model` seat is refused as a model name.
+            modelId: seat.modelId,
+            system: [ModelRequest.SystemPart.make({ text: system })],
+            messages: [ModelRequest.Message.user([ModelRequest.TextPart.make({ text: prompt })])],
+            tools: [],
+            toolChoice: "none",
+            // No token budget: the ChatGPT-subscription route refuses `maxTokens`
+            // (`OpenAIResponses.chatgptFromRequest`) and no seat says which routes
+            // honor one. The system prompt bounds the answer instead.
+            params: ModelRequest.GenerationParams.make({})
+          })))
+        )
+        if (ModelEvent.ModelEvent.settledMessage(events).message.stopReason !== "stop") {
+          throw new Error("Answer incomplete")
+        }
+        return events.flatMap((event) => event.type === "text-delta" ? [event.text] : []).join("")
+      })
+    )
 
   const monitor: NonNullable<Host["monitor"]> = {
     judge: Monitors.jev((request) =>
@@ -281,12 +290,14 @@ export const make = (options: {
         return yield* (yield* Evaluator.Evaluator).evaluate(request)
       }))
     ),
-    compose: (input) => complete({ system: Monitors.composeSystem, prompt: Monitors.composeText(input), seat: delegateModels.luna })
+    compose: (input) =>
+      complete({ system: Monitors.composeSystem, prompt: Monitors.composeText(input), seat: delegateModels.luna })
   }
 
   const describeTab: NonNullable<Host["describe"]> = ({ title, prompt, seat }) =>
     complete({
-      system: "Summarize this background agent task in one short line (at most 80 characters). Reply with only the description.",
+      system:
+        "Summarize this background agent task in one short line (at most 80 characters). Reply with only the description.",
       prompt: `Title: ${title}\nTask: ${prompt}`,
       seat
     })
@@ -333,8 +344,10 @@ export const make = (options: {
         }
       }
       const fallbackSeats = input.role === "worker" && !chosen.startsWith("replay:")
-        ? yield* Effect.forEach(input.fallbackSeats ?? workerFallbackSeats(aliases[chosen] ?? chosen, available, env),
-          (name) => Effect.flatMap(SeatResolver.SeatResolver, (resolver) => resolver.resolve(name)))
+        ? yield* Effect.forEach(
+          input.fallbackSeats ?? workerFallbackSeats(aliases[chosen] ?? chosen, available, env),
+          (name) => Effect.flatMap(SeatResolver.SeatResolver, (resolver) => resolver.resolve(name))
+        )
         : []
       const agent = yield* Agent.Agent
       const engine = yield* FlowRuntime.FlowRuntime
@@ -347,7 +360,9 @@ export const make = (options: {
       const maxFrames = input.role === "coordinator" ? 8 : 40
       // Only the coordinator: its completion demands are all disarmed, so a
       // budget ending never carries a bounced answer this would drop.
-      const receipts = input.role === "coordinator" ? Runtime.ledger(maxFrames) : (event: AgentEvent.AgentEvent) => event
+      const receipts = input.role === "coordinator"
+        ? Runtime.ledger(maxFrames)
+        : (event: AgentEvent.AgentEvent) => event
       const turn = turnOptions(
         // A coordinator's delegation without a model is routed at launch.
         catalog === undefined ? input : { ...input, workerSeat: Seat.auto },
@@ -364,7 +379,12 @@ export const make = (options: {
       const body = agent.run({
         session,
         seat,
-        ...(input.role === "worker" ? { fallbackSeats, capacity: { park: true, ...(input.maxParks === undefined ? {} : { maxParks: input.maxParks }) } } : { capacity: { park: false } }),
+        ...(input.role === "worker"
+          ? {
+            fallbackSeats,
+            capacity: { park: true, ...(input.maxParks === undefined ? {} : { maxParks: input.maxParks }) }
+          }
+          : { capacity: { park: false } }),
         prompt: input.prompt,
         system: [...turn.system, ...variant],
         // The coordinator is never judged, so it is shown every file whole.
@@ -381,10 +401,13 @@ export const make = (options: {
           ? {}
           : { authorize: Approvals.authorize(grants, { cwd: options.cwd, source: input.source ?? "chat" }) }),
         // The same explicit cell budget `smithers run` uses; never unlimited.
-        limits: { memoryBytes: 256 * 1024 * 1024, steps: 50_000_000,
+        limits: {
+          memoryBytes: 256 * 1024 * 1024,
+          steps: 50_000_000,
           callMs: input.role === "worker" ? 2_147_000_000 : callMs,
           totalMs: options.totalMs ?? Sandbox.defaultLimits.totalMs,
-          ...(input.role === "worker" ? { pauseTotalMsFor: ["agent.wait"] } : {}) },
+          ...(input.role === "worker" ? { pauseTotalMsFor: ["agent.wait"] } : {})
+        },
         // A person reads every answer here, so without a gateway key the one
         // brake that needs Jev is disarmed instead of failing every turn.
         ...(input.role === "coordinator"
@@ -439,8 +462,12 @@ export const make = (options: {
 
   const approvals: NonNullable<Host["approvals"]> = {
     mode: approvalMode,
-    authorize: (requests, signal) => approvalMode === "all" ? Promise.resolve() :
-      runtime.runPromise(Effect.flatMap(GrantStore.GrantStore, (grants) => Approvals.check(grants, requests)), { signal }),
+    authorize: (requests, signal) =>
+      approvalMode === "all" ?
+        Promise.resolve() :
+        runtime.runPromise(Effect.flatMap(GrantStore.GrantStore, (grants) => Approvals.check(grants, requests)), {
+          signal
+        }),
     pending: () =>
       runtime.runPromise(Effect.gen(function*() {
         return Approvals.pending(yield* (yield* GrantStore.GrantStore).list)
@@ -479,7 +506,10 @@ export const workerSources = (
   // `rg` searches this repository in seconds; the in-process walk took
   // longer than grep's 120 s ceiling. It stays the fallback without rg.
   Changes.capture(
-    StandardFlows.filesystem(services, Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)),
+    StandardFlows.filesystem(
+      services,
+      Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)
+    ),
     cwd,
     onPatch
   ),
@@ -490,8 +520,8 @@ export const workerSources = (
 /** Keeps ordinary calls bounded while a worker can wait for children across resets. */
 const boundedCalls = (source: FlowBinding.Source, callMs: number): FlowBinding.Source => ({
   ...source,
-  bindings: () => source.bindings().pipe(Effect.map((bindings) => bindings.map((binding) =>
-    Runtime.boundedBinding(binding, callMs))))
+  bindings: () =>
+    source.bindings().pipe(Effect.map((bindings) => bindings.map((binding) => Runtime.boundedBinding(binding, callMs))))
 })
 
 /**

@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { Effect } from "effect"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import * as Changes from "../src/changes.ts"
@@ -12,7 +22,9 @@ import * as Undo from "../src/undo.ts"
 import { Workspace } from "../src/workspace.ts"
 
 let previousSessionDirectory: string | undefined
-beforeEach(() => { previousSessionDirectory = process.env.SMITHERS_TUI_SESSION_DIR })
+beforeEach(() => {
+  previousSessionDirectory = process.env.SMITHERS_TUI_SESSION_DIR
+})
 afterEach(() => {
   if (previousSessionDirectory === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
   else process.env.SMITHERS_TUI_SESSION_DIR = previousSessionDirectory
@@ -74,7 +86,9 @@ const recorder = (cwd: string) => {
       } as unknown as Parameters<typeof Changes.capture>[0]
       const receipts: Changes.Receipt[] = []
       if (capture) {
-        const [binding] = await Effect.runPromise(Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings())
+        const [binding] = await Effect.runPromise(
+          Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings()
+        )
         await Effect.runPromise(binding!.run({ flowName: flow, input, identity } as never))
       } else mutate()
       for (const receipt of receipts) records.push({ type: "patch", receipt })
@@ -100,10 +114,13 @@ describe("undo", () => {
     put(cwd, "secret", "secret\n")
     chmodSync(join(cwd, "secret"), 0o600)
     put(cwd, "second", "new\n")
-    const plan = { calls: ["c"], files: [
-      { path: "secret", current: "secret\n", next: null },
-      { path: "second", current: "new\n", next: "old\n" }
-    ] }
+    const plan = {
+      calls: ["c"],
+      files: [
+        { path: "secret", current: "secret\n", next: null },
+        { path: "second", current: "new\n", next: "old\n" }
+      ]
+    }
     const result = await Undo.commit(cwd, plan, undefined, async (path, content, mode) => {
       if (path.endsWith("/second") && content === "old\n") throw new Error("injected IO failure")
       await Undo.put(path, content, mode)
@@ -117,12 +134,20 @@ describe("undo", () => {
     const cwd = scratch()
     put(cwd, "secret", "secret\n")
     chmodSync(join(cwd, "secret"), 0o600)
-    const result = await Undo.commit(cwd, { calls: [], files: [
-      { path: "secret", current: "secret\n", next: "old\n" }
-    ] }, undefined, async (path) => {
-      chmodSync(path, 0o644)
-      throw new Error("chmod refused")
-    })
+    const result = await Undo.commit(
+      cwd,
+      {
+        calls: [],
+        files: [
+          { path: "secret", current: "secret\n", next: "old\n" }
+        ]
+      },
+      undefined,
+      async (path) => {
+        chmodSync(path, 0o644)
+        throw new Error("chmod refused")
+      }
+    )
     expect(result).toMatchObject({ _tag: "WriteFailed", restored: false })
   })
 
@@ -134,8 +159,21 @@ describe("undo", () => {
     r.cell()
     await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "after\n"))
     const identity = { session: "test", frame: 1, cell: 1, ordinal: 99 }
-    r.records.push({ type: "event", at: 10, event: { _tag: "cell-call-started", call: { flowName: "bash", input: { command: "true" }, identity } } as never })
-    r.records.push({ type: "event", at: 11, event: { _tag: "cell-call-settled", flowName: "bash", identity, result: { outcome: "failure", code: "capability_refused", message: "Denied: bash true" } } as never })
+    r.records.push({
+      type: "event",
+      at: 10,
+      event: { _tag: "cell-call-started", call: { flowName: "bash", input: { command: "true" }, identity } } as never
+    })
+    r.records.push({
+      type: "event",
+      at: 11,
+      event: {
+        _tag: "cell-call-settled",
+        flowName: "bash",
+        identity,
+        result: { outcome: "failure", code: "capability_refused", message: "Denied: bash true" }
+      } as never
+    })
     r.settle()
     const result = await undo(cwd, r.transcript(), r.transcript().items[0]!.id)
     expect("_tag" in result).toBe(false)
@@ -169,7 +207,8 @@ describe("undo", () => {
     process.env.SMITHERS_TUI_SESSION_DIR = scratch()
     const writer = Session.create(cwd)
     for (const record of r.records) writer.append(record)
-    expect(readFileSync(writer.file, "utf8").split("\n").filter((line) => line.includes("\"event\"")).join("\n")).not.toContain("Rotated9")
+    expect(readFileSync(writer.file, "utf8").split("\n").filter((line) => line.includes("\"event\"")).join("\n")).not
+      .toContain("Rotated9")
 
     const transcript = Session.restore(Session.load(writer.file)).transcript
     const result = await undo(cwd, transcript, cellRows(transcript)[0]!.id)
@@ -204,7 +243,9 @@ describe("undo", () => {
     const r = recorder(cwd)
     r.prompt("rename")
     r.cell()
-    await r.call("apply_patch", { input: "*** Begin Patch\n*** Update File: a.ts\n*** Move to: b.ts\n@@\n-moved\n+moved\n*** End Patch" }, () => {
+    await r.call("apply_patch", {
+      input: "*** Begin Patch\n*** Update File: a.ts\n*** Move to: b.ts\n@@\n-moved\n+moved\n*** End Patch"
+    }, () => {
       unlinkSync(join(cwd, "a.ts"))
       put(cwd, "b.ts", "moved\n")
     })
@@ -302,7 +343,9 @@ describe("undo", () => {
     g.prompt("many")
     g.cell()
     const many = Array.from({ length: 201 }, (_, index) => `f${index}.txt`)
-    await g.call("apply_patch", { input: `*** Begin Patch\n${many.map((path) => `*** Add File: ${path}\n+x`).join("\n")}\n*** End Patch` }, () => {
+    await g.call("apply_patch", {
+      input: `*** Begin Patch\n${many.map((path) => `*** Add File: ${path}\n+x`).join("\n")}\n*** End Patch`
+    }, () => {
       for (const path of many) put(repo, path, "x\n")
     })
     g.settle()
@@ -320,13 +363,19 @@ describe("undo", () => {
     expect(shell.receipts).toHaveLength(0)
     await r.call("write", { path: "b.ts" }, write(cwd, "b.ts", "y\n"))
     r.settle()
-    expect(Undo.target(r.transcript(), cellRows(r.transcript())[0]!.id)).toEqual({ _tag: "Uncaptured", flows: ["bash"] })
+    expect(Undo.target(r.transcript(), cellRows(r.transcript())[0]!.id)).toEqual({
+      _tag: "Uncaptured",
+      flows: ["bash"]
+    })
 
     r.prompt("legacy")
     r.cell()
     await r.call("edit", { path: "a.ts", oldString: "x", newString: "z" }, write(cwd, "a.ts", "z\n"), false)
     r.settle()
-    expect(Undo.target(r.transcript(), cellRows(r.transcript())[1]!.id)).toEqual({ _tag: "Uncaptured", flows: ["edit"] })
+    expect(Undo.target(r.transcript(), cellRows(r.transcript())[1]!.id)).toEqual({
+      _tag: "Uncaptured",
+      flows: ["edit"]
+    })
   })
 
   it("undoes a turn with a verified-empty shell call and a captured write", async () => {
@@ -342,7 +391,9 @@ describe("undo", () => {
     r.settle()
     const summary = Summary.panel(r.transcript())
     expect(summary.rows.flatMap((row) => row.details.filter((detail) => detail.kind === "diff"))).toHaveLength(1)
-    expect(summary.rows.find((row) => row.details.some((detail) => detail.kind === "code"))?.label).toContain("Wrote a.ts")
+    expect(summary.rows.find((row) => row.details.some((detail) => detail.kind === "code"))?.label).toContain(
+      "Wrote a.ts"
+    )
     const result = await undo(cwd, r.transcript(), cellRows(r.transcript())[0]!.id)
     expect(result).toMatchObject({ files: [{ path: "a.ts", next: "x\n" }] })
     expect(get(cwd, "a.ts")).toBe("x\n")
@@ -355,21 +406,33 @@ describe("undo", () => {
     put(cwd, "c.ts", "original C\n")
     let started!: () => void
     let release!: () => void
-    const entered = new Promise<void>((resolve) => { started = resolve })
-    const hold = new Promise<void>((resolve) => { release = resolve })
+    const entered = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const receipts: Changes.Receipt[] = []
     const source = {
       name: "test",
-      bindings: () => Effect.succeed([{ run: () => Effect.promise(async () => {
-        started()
-        await hold
-        put(cwd, "a.ts", "worker A\n")
-        return { outcome: "success", value: {} }
-      }) }])
+      bindings: () =>
+        Effect.succeed([{
+          run: () =>
+            Effect.promise(async () => {
+              started()
+              await hold
+              put(cwd, "a.ts", "worker A\n")
+              return { outcome: "success", value: {} }
+            })
+        }])
     } as unknown as Parameters<typeof Changes.capture>[0]
-    const [binding] = await Effect.runPromise(Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings())
+    const [binding] = await Effect.runPromise(
+      Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings()
+    )
     const identity = { session: "A", frame: 1, cell: 1, ordinal: 0 }
-    const running = Effect.runPromise(binding!.run({ flowName: "write", input: { path: "a.ts", content: "worker A\n" }, identity } as never))
+    const running = Effect.runPromise(
+      binding!.run({ flowName: "write", input: { path: "a.ts", content: "worker A\n" }, identity } as never)
+    )
     await entered
     put(cwd, "b.ts", "worker B\n")
     put(cwd, "c.ts", "external edit\n")
@@ -388,21 +451,33 @@ describe("undo", () => {
     put(cwd, "c.ts", "original C\n")
     let started!: () => void
     let release!: () => void
-    const entered = new Promise<void>((resolve) => { started = resolve })
-    const hold = new Promise<void>((resolve) => { release = resolve })
+    const entered = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const receipts: Changes.Receipt[] = []
     const source = {
       name: "test",
-      bindings: () => Effect.succeed([{ run: () => Effect.promise(async () => {
-        started()
-        await hold
-        put(cwd, "a.ts", "worker A\n")
-        return { outcome: "success", value: {} }
-      }) }])
+      bindings: () =>
+        Effect.succeed([{
+          run: () =>
+            Effect.promise(async () => {
+              started()
+              await hold
+              put(cwd, "a.ts", "worker A\n")
+              return { outcome: "success", value: {} }
+            })
+        }])
     } as unknown as Parameters<typeof Changes.capture>[0]
-    const [binding] = await Effect.runPromise(Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings())
+    const [binding] = await Effect.runPromise(
+      Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings()
+    )
     const identity = { session: "A", frame: 1, cell: 1, ordinal: 0 }
-    const running = Effect.runPromise(binding!.run({ flowName: "bash", input: { command: "edit a.ts" }, identity } as never))
+    const running = Effect.runPromise(
+      binding!.run({ flowName: "bash", input: { command: "edit a.ts" }, identity } as never)
+    )
     await entered
     put(cwd, "b.ts", "worker B\n")
     put(cwd, "c.ts", "external edit\n")
@@ -417,9 +492,17 @@ describe("undo", () => {
     const transcript = Session.restore([
       { type: "user", at: 1, text: "edit a.ts" },
       { type: "event", at: 2, event: { _tag: "cell-produced", cell: { text: "// shell" } } },
-      { type: "event", at: 3, event: { _tag: "cell-call-started", call: { flowName: "bash", input: { command: "edit a.ts" }, identity } } },
+      {
+        type: "event",
+        at: 3,
+        event: { _tag: "cell-call-started", call: { flowName: "bash", input: { command: "edit a.ts" }, identity } }
+      },
       { type: "patch", receipt: receipts[0]! },
-      { type: "event", at: 4, event: { _tag: "cell-call-settled", flowName: "bash", identity, result: { outcome: "success", value: {} } } }
+      {
+        type: "event",
+        at: 4,
+        event: { _tag: "cell-call-settled", flowName: "bash", identity, result: { outcome: "success", value: {} } }
+      }
     ] as Session.Record[]).transcript
     expect(Undo.target(transcript, cellRows(transcript)[0]!.id)).toEqual({ _tag: "Uncaptured", flows: ["bash"] })
     expect(get(cwd, "b.ts")).toBe("worker B\n")
@@ -450,7 +533,11 @@ describe("undo", () => {
     const r = recorder(cwd)
     r.prompt("edit")
     r.cell()
-    await r.call("apply_patch", { input: "*** Begin Patch\n*** Delete File: sub/d.ts\n*** End Patch" }, () => rmSync(join(cwd, "sub"), { recursive: true }))
+    await r.call(
+      "apply_patch",
+      { input: "*** Begin Patch\n*** Delete File: sub/d.ts\n*** End Patch" },
+      () => rmSync(join(cwd, "sub"), { recursive: true })
+    )
     await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "after\n"))
     r.settle()
     const target = Undo.target(r.transcript(), cellRows(r.transcript())[0]!.id) as Undo.Target
@@ -472,7 +559,10 @@ describe("undo", () => {
     await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "after a\n"))
     await r.call("write", { path: "b.ts" }, write(cwd, "b.ts", "after b\n"))
     r.settle()
-    const plan = await Undo.plan(cwd, Undo.target(r.transcript(), cellRows(r.transcript())[0]!.id) as Undo.Target) as Undo.Plan
+    const plan = await Undo.plan(
+      cwd,
+      Undo.target(r.transcript(), cellRows(r.transcript())[0]!.id) as Undo.Target
+    ) as Undo.Plan
     const failing = plan.files.at(-1)!
     let failed = false
     const failure = await Undo.commit(cwd, plan, undefined, async (path, content, mode) => {
@@ -496,7 +586,10 @@ describe("undo", () => {
     r.cell()
     await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "after\n"))
     r.settle()
-    const plan = await Undo.plan(cwd, Undo.target(r.transcript(), cellRows(r.transcript())[0]!.id) as Undo.Target) as Undo.Plan
+    const plan = await Undo.plan(
+      cwd,
+      Undo.target(r.transcript(), cellRows(r.transcript())[0]!.id) as Undo.Target
+    ) as Undo.Plan
     const failure = await Undo.commit(cwd, plan, undefined, async (path) => {
       writeFileSync(path, "")
       throw Object.assign(new Error("io"), { code: "EIO" })
@@ -511,7 +604,11 @@ describe("undo", () => {
     const r = recorder(cwd)
     r.prompt("delete")
     r.cell()
-    await r.call("apply_patch", { input: "*** Begin Patch\n*** Delete File: run.sh\n*** End Patch" }, () => unlinkSync(join(cwd, "run.sh")))
+    await r.call(
+      "apply_patch",
+      { input: "*** Begin Patch\n*** Delete File: run.sh\n*** End Patch" },
+      () => unlinkSync(join(cwd, "run.sh"))
+    )
     r.settle()
     const result = await undo(cwd, r.transcript(), cellRows(r.transcript())[0]!.id)
     expect("_tag" in result).toBe(false)
@@ -559,8 +656,25 @@ describe("undo", () => {
     r.settle()
     const worker = Session.create(cwd, "worker")
     for (const record of r.records) worker.append(record)
-    const tab = { id: "fixer", title: "Fixer", prompt: "fix", seat: "w", file: worker.file, status: "done" as const, startedAt: 1, depth: 0 }
-    const host = { cwd, judged: false, compaction: async () => undefined, dispose: async () => {}, run: () => { throw new Error("no run") } }
+    const tab = {
+      id: "fixer",
+      title: "Fixer",
+      prompt: "fix",
+      seat: "w",
+      file: worker.file,
+      status: "done" as const,
+      startedAt: 1,
+      depth: 0
+    }
+    const host = {
+      cwd,
+      judged: false,
+      compaction: async () => undefined,
+      dispose: async () => {},
+      run: () => {
+        throw new Error("no run")
+      }
+    }
     const workspace = new Workspace({
       host: host as never,
       workerSeat: "w",
@@ -626,7 +740,11 @@ describe("undo", () => {
     const r = recorder(cwd)
     r.prompt("fix")
     r.cell()
-    const edit = await r.call("edit", { path: "math.js", oldString: "a - b", newString: "a + b" }, write(cwd, "math.js", "a + b\n"))
+    const edit = await r.call(
+      "edit",
+      { path: "math.js", oldString: "a - b", newString: "a + b" },
+      write(cwd, "math.js", "a + b\n")
+    )
     r.settle()
     r.records.push({ type: "undo", at: 50, calls: [edit.identity], paths: ["math.js"] })
     const state = Session.restore(r.records)
@@ -645,7 +763,9 @@ describe("undo", () => {
     expect(Changes.patch("n.ts", null, "x\n")!.patch).toContain("--- /dev/null")
     expect(Changes.patch("d.ts", "x\n", null)!.patch).toContain("+++ /dev/null")
     expect(Changes.patch("same", null, null)).toBeUndefined()
-    expect(Changes.patch("run.sh", "x\n", null, 0o755)!.patch).toStartWith("diff --git a/run.sh b/run.sh\ndeleted file mode 100755\n")
+    expect(Changes.patch("run.sh", "x\n", null, 0o755)!.patch).toStartWith(
+      "diff --git a/run.sh b/run.sh\ndeleted file mode 100755\n"
+    )
   })
 
   it("refuses a plan over a bash call without touching the disk or asking the VCS", async () => {
@@ -667,7 +787,9 @@ describe("undo", () => {
 
   it("words failures in the fewest words", () => {
     expect(Undo.message({ _tag: "Busy" })).toBe("Stop running work first")
-    expect(Undo.message({ _tag: "Conflict", paths: ["math.js", "b.ts"] })).toBe("Not undone · changed since: math.js, b.ts")
+    expect(Undo.message({ _tag: "Conflict", paths: ["math.js", "b.ts"] })).toBe(
+      "Not undone · changed since: math.js, b.ts"
+    )
     expect(Undo.message({ _tag: "WriteFailed", path: "math.js", message: "EACCES", restored: false })).toBe(
       "Undo failed · math.js: EACCES · files partly changed"
     )

@@ -19,13 +19,13 @@ import {
   ClaimIssue,
   type Decision,
   DescribeWork,
-  type WorkFailure,
   ItemReport,
   LinkPull,
   ReadTriage,
   RecordItem,
   ReleaseIssue,
   TriageTask,
+  type WorkFailure,
   WorkItem,
   WriteRequest
 } from "../autonomy.ts"
@@ -42,10 +42,13 @@ const ended = (item: Item, fields: Readonly<Record<string, unknown>>): Node.Node
   Node.succeed({ key: item.key, kind: item.kind, owner: "", paths: [], ...fields } as unknown as ItemReport)
 
 const record = (item: Item, report: Node.Node<ItemReport, any, any>): Node.Node<ItemReport, any, any> =>
-  report.pipe(Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) => RecordItem.call({ item, report: outcome }))))
+  report.pipe(
+    Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) => RecordItem.call({ item, report: outcome })))
+  )
 
 /** What a failure says, as a line. */
-const described = (failure: unknown) => DescribeWork.call({ failure: failure as Planned.Planned<typeof WorkFailure.Type> })
+const described = (failure: unknown) =>
+  DescribeWork.call({ failure: failure as Planned.Planned<typeof WorkFailure.Type> })
 
 /** A delivery through intake under `role`, and how it ended for the item. */
 const delivered = (
@@ -60,14 +63,24 @@ const delivered = (
         if: Node.capture({ implementationVersion }, (seen) => seen.pull !== undefined),
         then: (seen) =>
           (item.kind === "issue"
-            ? LinkPull.call({ item, role: role as string, pull: seen.pull as never }).pipe(Node.andThen(Node.succeed(seen)))
+            ? LinkPull.call({ item, role: role as string, pull: seen.pull as never }).pipe(
+              Node.andThen(Node.succeed(seen))
+            )
             : Node.succeed(seen)).pipe(
               Node.bindPlanned(Node.capture({ implementationVersion }, (pulled) =>
-                ended(item, { status: "pull-request", summary: pulled.summary, owner: role, pull: pulled.pull, paths: [] })))
+                ended(item, {
+                  status: "pull-request",
+                  summary: pulled.summary,
+                  owner: role,
+                  pull: pulled.pull,
+                  paths: []
+                })))
             ),
         else: (seen) =>
           (item.kind === "issue"
-            ? ReleaseIssue.call({ item, role: role as string, reason: seen.summary }).pipe(Node.andThen(Node.succeed(seen)))
+            ? ReleaseIssue.call({ item, role: role as string, reason: seen.summary }).pipe(
+              Node.andThen(Node.succeed(seen))
+            )
             : Node.succeed(seen)).pipe(
               Node.bindPlanned(Node.capture({ implementationVersion }, (answered) =>
                 ended(item, { status: "answered", summary: answered.summary, owner: role, paths: [] })))
@@ -96,14 +109,16 @@ const issue = (item: Item) =>
           fieldTurn(pin.revision, stage, ["decision", "reason"]).pipe(
             Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
               ReadTriage.call({ revision: pin.revision, item, answer }).pipe(
-                Node.bindPlanned(Node.capture({ implementationVersion }, (decision) => decide(item, stage.principal, decision)))
+                Node.bindPlanned(Node.capture({ implementationVersion }, (decision) =>
+                  decide(item, stage.principal, decision)))
               )))
           )))
       ))),
     Node.catch({
       onFailure: Node.capture({ implementationVersion }, (failure) =>
         described(failure).pipe(
-          Node.bindPlanned(Node.capture({ implementationVersion }, (reason) => ended(item, { status: "invalid", summary: reason })))
+          Node.bindPlanned(Node.capture({ implementationVersion }, (reason) =>
+            ended(item, { status: "invalid", summary: reason })))
         ))
     })
   )
@@ -130,7 +145,11 @@ const requestOf = (item: Item, taken: Planned.Planned<Decision>): Node.Node<Requ
   })))
 
 /** A taken issue: claimed, handed to its owner in the team channel, delivered. */
-const take = (item: Item, triage: Planned.Planned<string>, taken: Planned.Planned<Decision>): Node.Node<ItemReport, any, any> =>
+const take = (
+  item: Item,
+  triage: Planned.Planned<string>,
+  taken: Planned.Planned<Decision>
+): Node.Node<ItemReport, any, any> =>
   ClaimIssue.call({ item, role: taken.owner }).pipe(
     Node.bindPlanned(Node.capture({ implementationVersion }, (claim) =>
       Node.succeed(claim).pipe(Node.branch({
@@ -138,20 +157,28 @@ const take = (item: Item, triage: Planned.Planned<string>, taken: Planned.Planne
         else: () => ended(item, { status: "held", summary: claim.reason, owner: taken.owner }),
         then: () =>
           Node.succeed(taken).pipe(
-            Node.map(Node.capture({ implementationVersion }, (accepted) => `Handoff → ${accepted.owner}: ${accepted.reason}`)),
+            Node.map(
+              Node.capture({ implementationVersion }, (accepted) => `Handoff → ${accepted.owner}: ${accepted.reason}`)
+            ),
             Node.bindPlanned(Node.capture({ implementationVersion }, (text) =>
               TeamPost.call({
                 thread: item.key,
                 role: triage,
                 text,
-                ...(item.issue === undefined ? {} : { refs: [{ kind: "issue" as const, github: item.issue.github, number: item.issue.number }] })
+                ...(item.issue === undefined
+                  ? {}
+                  : { refs: [{ kind: "issue" as const, github: item.issue.github, number: item.issue.number }] })
               }))),
             Node.andThen(delivered(item, taken.owner, requestOf(item, taken)))
           )
       }))))
   )
 
-const decide = (item: Item, triage: Planned.Planned<string>, decision: Planned.Planned<Decision>): Node.Node<ItemReport, any, any> =>
+const decide = (
+  item: Item,
+  triage: Planned.Planned<string>,
+  decision: Planned.Planned<Decision>
+): Node.Node<ItemReport, any, any> =>
   Node.succeed(decision).pipe(Node.branch({
     if: Node.capture({ implementationVersion }, (seen) => seen.kind === "take"),
     then: (taken) => take(item, triage, taken),
@@ -171,7 +198,8 @@ const decide = (item: Item, triage: Planned.Planned<string>, decision: Planned.P
           ),
         else: (seen) =>
           Node.succeed(seen).pipe(Node.branch({
-            if: Node.capture({ implementationVersion }, (kind) => kind.kind === "skip"),
+            if: Node.capture({ implementationVersion }, (kind) =>
+              kind.kind === "skip"),
             then: (skipped) => ended(item, { status: "skipped", summary: skipped.reason }),
             else: (invalid) => ended(item, { status: "invalid", summary: invalid.reason })
           }))
@@ -183,7 +211,13 @@ const proposal = (item: Item): Node.Node<ItemReport, any, any> => {
   const owner = item.owner ?? ""
   const text = `Accepted proposal ${item.path ?? ""}: ${item.title}\n\n${item.body}`.slice(0, 8_000)
   if (item.work === "code") {
-    return delivered(item, owner, Node.succeed({ key: item.key, text, source: "proposal", role: owner, repository: item.repository } satisfies Request))
+    return delivered(
+      item,
+      owner,
+      Node.succeed(
+        { key: item.key, text, source: "proposal", role: owner, repository: item.repository } satisfies Request
+      )
+    )
   }
   return Assignment.child({
     key: item.key,
@@ -196,12 +230,21 @@ const proposal = (item: Item): Node.Node<ItemReport, any, any> => {
     workspace: false,
     peers: []
   }).pipe(
-    Node.bindPlanned(Node.capture({ implementationVersion }, (report) =>
-      ended(item, { status: "answered", summary: report.summary, owner, paths: report.paths }))),
+    Node.bindPlanned(
+      Node.capture(
+        { implementationVersion },
+        (report) => ended(item, { status: "answered", summary: report.summary, owner, paths: report.paths })
+      )
+    ),
     Node.catch({
       onFailure: Node.capture({ implementationVersion }, (failure) =>
         described(failure).pipe(
-          Node.bindPlanned(Node.capture({ implementationVersion }, (reason) => ended(item, { status: "failed", summary: reason, owner })))
+          Node.bindPlanned(
+            Node.capture(
+              { implementationVersion },
+              (reason) => ended(item, { status: "failed", summary: reason, owner })
+            )
+          )
         ))
     })
   ) as Node.Node<ItemReport, any, any>
@@ -224,8 +267,9 @@ export default Flow.make("organization/work-item", {
   body: ({ item }): Body =>
     record(item, item.kind === "issue" ? issue(item) : proposal(item)).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-        Actions.WriteReceipt.call({ runId: item.key, name: "work-item", receipt: { item, report: outcome } as never }).pipe(
-          Node.andThen(Node.succeed(outcome))
-        )))
+        Actions.WriteReceipt.call({ runId: item.key, name: "work-item", receipt: { item, report: outcome } as never })
+          .pipe(
+            Node.andThen(Node.succeed(outcome))
+          )))
     ) as Body
 })

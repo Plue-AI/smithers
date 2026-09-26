@@ -1,7 +1,3 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
@@ -9,16 +5,20 @@ import * as Capability from "@smthrs/capability/Capability"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import * as FailureCopy from "@smthrs/model/FailureCopy"
+import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import * as FailureCopy from "@smthrs/model/FailureCopy"
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type * as Agents from "../src/agents.ts"
 import * as Approvals from "../src/approvals.ts"
 import * as Host from "../src/host.ts"
-import * as Runtime from "../src/runtime.ts"
 import * as Log from "../src/log.ts"
+import * as Runtime from "../src/runtime.ts"
 import * as Session from "../src/session.ts"
 
 const roots: Array<string> = []
@@ -76,27 +76,48 @@ describe("Host.run workspace observation", () => {
       const cwd = mkdtempSync(join(tmpdir(), "tui-observer-session-"))
       roots.push(cwd)
       if (location === "alias") symlinkSync(cwd, join(cwd, "alias"), "dir")
-      process.env.SMITHERS_TUI_SESSION_DIR = location === "root" ? cwd : join(cwd, location === "alias" ? "alias" : "sessions")
+      process.env.SMITHERS_TUI_SESSION_DIR = location === "root"
+        ? cwd
+        : join(cwd, location === "alias" ? "alias" : "sessions")
       const seat = `replay:${doneReplay(cwd)}`
       const writer = Session.create(cwd)
       const host = Host.make({ cwd, environment: {}, approvals: "all" })
       const events: Array<AgentEvent.AgentEvent> = []
       try {
-        const outcome = await host.run({ prompt: "answer", role: "worker", seat, history: [], onEvent: (event) => {
-          events.push(event)
-          writer.append({ type: "event", at: Date.now(), event })
-          Log.write("observation-test", event._tag)
-        } }).done
+        const outcome = await host.run({
+          prompt: "answer",
+          role: "worker",
+          seat,
+          history: [],
+          onEvent: (event) => {
+            events.push(event)
+            writer.append({ type: "event", at: Date.now(), event })
+            Log.write("observation-test", event._tag)
+          }
+        }).done
         expect(outcome).toEqual({ _tag: "done", answer: "ok" })
-        expect(new Set(events.filter((event) => event._tag === "mutation-observed").map((event) => event.mutated))).toEqual(new Set([false]))
+        expect(new Set(events.filter((event) => event._tag === "mutation-observed").map((event) => event.mutated)))
+          .toEqual(new Set([false]))
         events.length = 0
-        const editingSeat = `replay:${doneReplay(cwd, 'await ctx.call("write", { path: "sessions/project.ts", content: "real project edit" }); ctx.done("edited")')}`
-        const edited = await host.run({ prompt: "edit", role: "worker", seat: editingSeat, history: [], onEvent: (event) => {
-          events.push(event)
-          writer.append({ type: "event", at: Date.now(), event })
-        } }).done
+        const editingSeat = `replay:${
+          doneReplay(
+            cwd,
+            "await ctx.call(\"write\", { path: \"sessions/project.ts\", content: \"real project edit\" }); ctx.done(\"edited\")"
+          )
+        }`
+        const edited = await host.run({
+          prompt: "edit",
+          role: "worker",
+          seat: editingSeat,
+          history: [],
+          onEvent: (event) => {
+            events.push(event)
+            writer.append({ type: "event", at: Date.now(), event })
+          }
+        }).done
         expect(edited).toEqual({ _tag: "done", answer: "edited" })
-        expect(new Set(events.filter((event) => event._tag === "mutation-observed").map((event) => event.mutated))).toEqual(new Set([true]))
+        expect(new Set(events.filter((event) => event._tag === "mutation-observed").map((event) => event.mutated)))
+          .toEqual(new Set([true]))
       } finally {
         await host.dispose()
         if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
@@ -127,7 +148,14 @@ describe("Host.run Smithers plugin", () => {
     roots.push(cwd)
     const host = Host.make({ cwd, environment: {} })
     try {
-      return await host.run({ prompt: "go", role, runtime, seat: `replay:${doneReplay(cwd, cell)}`, history: [], onEvent: () => {} })
+      return await host.run({
+        prompt: "go",
+        role,
+        runtime,
+        seat: `replay:${doneReplay(cwd, cell)}`,
+        history: [],
+        onEvent: () => {}
+      })
         .done
     } finally {
       await host.dispose()
@@ -175,18 +203,33 @@ test("Host.run lets agent.wait settle after the ordinary flow call ceiling", asy
   let contacted = 0
   try {
     const result = await host.run({
-      prompt: "wait for child", role: "worker", seat: `replay:${doneReplay(cwd,
-        'const children = await ctx.call("agent.wait", { ids: ["child"] }); ctx.done(children[0].answer)')}`,
-      history: [], runtime: { publish: () => {}, delegate: () => ({ id: "child", status: "requested" }),
-        read: () => ({}), list: () => [], wait: async () => {
-        contacted++
-        await new Promise((resolve) => setTimeout(resolve, 80))
-        return [{ id: "child", status: "done", answer: "late answer" }]
-      } }, onEvent: () => {}
+      prompt: "wait for child",
+      role: "worker",
+      seat: `replay:${
+        doneReplay(
+          cwd,
+          "const children = await ctx.call(\"agent.wait\", { ids: [\"child\"] }); ctx.done(children[0].answer)"
+        )
+      }`,
+      history: [],
+      runtime: {
+        publish: () => {},
+        delegate: () => ({ id: "child", status: "requested" }),
+        read: () => ({}),
+        list: () => [],
+        wait: async () => {
+          contacted++
+          await new Promise((resolve) => setTimeout(resolve, 80))
+          return [{ id: "child", status: "done", answer: "late answer" }]
+        }
+      },
+      onEvent: () => {}
     }).done
     expect(contacted).toBeGreaterThan(0)
     expect(result).toEqual({ _tag: "done", answer: "late answer" })
-  } finally { await host.dispose() }
+  } finally {
+    await host.dispose()
+  }
 })
 
 test("Host.run bounds a worker frame waiting on a non-flow promise", async () => {
@@ -197,15 +240,21 @@ test("Host.run bounds a worker frame waiting on a non-flow promise", async () =>
     const events: AgentEvent.AgentEvent[] = []
     // The stalled frame is rejected at once; the next frame answers, so the
     // turn ends there instead of replaying the stall until the 40-frame budget.
-    const outcome = await host.run({ prompt: "stall", role: "worker", seat: `replay:${doneReplay(cwd,
-      "await new Promise(() => {}); ctx.done('never')", "ctx.done('recovered')")}`,
-      history: [], onEvent: (event) => events.push(event) }).done
+    const outcome = await host.run({
+      prompt: "stall",
+      role: "worker",
+      seat: `replay:${doneReplay(cwd, "await new Promise(() => {}); ctx.done('never')", "ctx.done('recovered')")}`,
+      history: [],
+      onEvent: (event) => events.push(event)
+    }).done
     expect(events.find((event) => event._tag === "discipline-armed")).toMatchObject({ totalMs: 30 })
     const outcomes = events.flatMap((event) => (event._tag === "cell-settled" ? [event.outcome] : []))
     expect(outcomes[0]).toMatchObject({ _tag: "rejected", code: "stalled" })
     expect(outcomes.slice(1).every((outcome) => outcome._tag !== "rejected")).toBe(true)
     expect(outcome).toEqual({ _tag: "done", answer: "recovered" })
-  } finally { await host.dispose() }
+  } finally {
+    await host.dispose()
+  }
 })
 
 test("Host.run clears the streamed reply when the model retries", async () => {
@@ -213,22 +262,33 @@ test("Host.run clears the streamed reply when the model retries", async () => {
   roots.push(cwd)
   const file = join(cwd, "retry.jsonl")
   const delta = (value: object) => JSON.stringify({ at: 0, event: { _tag: "model-delta", delta: value } })
-  writeFileSync(file, [
-    JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
-    delta({ type: "text-delta", id: "first", text: "seat one partial" }),
-    delta({ type: "retry", attempt: 1, code: "rate_limited", delayMillis: 0 }),
-    delta({ type: "text-delta", id: "second", text: "fallback\n```cell\nctx.done('ok')\n```" }),
-    JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
-  ].join("\n"))
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
+      delta({ type: "text-delta", id: "first", text: "seat one partial" }),
+      delta({ type: "retry", attempt: 1, code: "rate_limited", delayMillis: 0 }),
+      delta({ type: "text-delta", id: "second", text: "fallback\n```cell\nctx.done('ok')\n```" }),
+      JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
+    ].join("\n")
+  )
   const host = Host.make({ cwd, environment: {} })
   const captions: Array<string> = []
   try {
-    const outcome = await host.run({ prompt: "reply", role: "coordinator", seat: `replay:${file}`,
-      history: [], onEvent: () => {}, onCaption: (caption) => captions.push(caption) }).done
+    const outcome = await host.run({
+      prompt: "reply",
+      role: "coordinator",
+      seat: `replay:${file}`,
+      history: [],
+      onEvent: () => {},
+      onCaption: (caption) => captions.push(caption)
+    }).done
     expect(outcome).toEqual({ _tag: "done", answer: "ok" })
     expect(captions).toContain("fallback")
     expect(captions.join(" ")).not.toContain("seat one")
-  } finally { await host.dispose() }
+  } finally {
+    await host.dispose()
+  }
 })
 
 test("Host.run keeps the call ceiling on plugin flows while worker waits are exempt", async () => {
@@ -236,14 +296,27 @@ test("Host.run keeps the call ceiling on plugin flows while worker waits are exe
   roots.push(cwd)
   const host = Host.make({ cwd, environment: {}, callMs: 20 })
   let settle!: (value: AgentEvent.AgentEvent) => void
-  const observed = new Promise<AgentEvent.AgentEvent>((resolve) => { settle = resolve })
+  const observed = new Promise<AgentEvent.AgentEvent>((resolve) => {
+    settle = resolve
+  })
   try {
-    const turn = host.run({ prompt: "list", role: "worker", seat: `replay:${doneReplay(cwd,
-      'await ctx.call("smithers.flows", {}); ctx.done("listed")')}`,
-      history: [], runtime: { publish: () => {}, flows: {
-        list: async () => { await new Promise((resolve) => setTimeout(resolve, 80)); return [] },
-        run: () => ({}), inspect: () => ({})
-      } }, onEvent: (event) => {
+    const turn = host.run({
+      prompt: "list",
+      role: "worker",
+      seat: `replay:${doneReplay(cwd, "await ctx.call(\"smithers.flows\", {}); ctx.done(\"listed\")")}`,
+      history: [],
+      runtime: {
+        publish: () => {},
+        flows: {
+          list: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 80))
+            return []
+          },
+          run: () => ({}),
+          inspect: () => ({})
+        }
+      },
+      onEvent: (event) => {
         if (event._tag === "cell-call-settled" && event.flowName === "smithers.flows") settle(event)
       }
     })
@@ -251,26 +324,41 @@ test("Host.run keeps the call ceiling on plugin flows while worker waits are exe
     turn.cancel()
     await turn.done
     expect(event).toMatchObject({ result: { outcome: "failure", message: expect.stringContaining("timed out") } })
-  } finally { await host.dispose() }
+  } finally {
+    await host.dispose()
+  }
 })
 
 test("Host.run exposes non-parked usage-limit copy for a failure card", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-limit-"))
   roots.push(cwd)
   const file = join(cwd, "limited.jsonl")
-  writeFileSync(file, [
-    JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
-    JSON.stringify({ at: 0, event: { _tag: "replay-failure", code: "rate_limited", message: "The usage limit has been reached" } })
-  ].join("\n"))
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
+      JSON.stringify({
+        at: 0,
+        event: { _tag: "replay-failure", code: "rate_limited", message: "The usage limit has been reached" }
+      })
+    ].join("\n")
+  )
   const host = Host.make({ cwd, environment: {} })
   try {
-    const outcome = await host.run({ prompt: "review", role: "coordinator", seat: `replay:${file}`,
-      history: [], onEvent: () => {} }).done
+    const outcome = await host.run({
+      prompt: "review",
+      role: "coordinator",
+      seat: `replay:${file}`,
+      history: [],
+      onEvent: () => {}
+    }).done
     expect(outcome._tag).toBe("failed")
     const copy = FailureCopy.describe(outcome._tag === "failed" ? outcome.error : undefined, "openai:gpt-6-sol")
     expect(copy.headline).toBe("ChatGPT usage limit reached")
     expect(copy.line).not.toContain("usage limit has been reached")
-  } finally { await host.dispose() }
+  } finally {
+    await host.dispose()
+  }
 })
 
 /** A recorded model whose every reply delegates and prints, never calling `ctx.done`. */
@@ -490,7 +578,10 @@ describe("Host.run shell monitors pass the approval gate", () => {
       const host = Host.make({ cwd, environment: {}, approvals })
       try {
         const gate = Approvals.restored((requests) => host.approvals!.authorize(requests))
-        const settled = gate({ source: { kind: "shell", command: "tail -5 x.log" } }).then(() => "armed", (error) => String(error))
+        const settled = gate({ source: { kind: "shell", command: "tail -5 x.log" } }).then(
+          () => "armed",
+          (error) => String(error)
+        )
         let pending: ReadonlyArray<Approvals.Pending> = []
         if (answer !== undefined) {
           for (let attempt = 0; attempt < 400 && pending.length === 0; attempt++) {
@@ -499,7 +590,11 @@ describe("Host.run shell monitors pass the approval gate", () => {
           }
           await host.approvals!.reply(pending[0]!, answer)
         }
-        return { result: await settled, pending, tab: await gate({ source: { kind: "tab", id: "t" } }).then(() => "armed") }
+        return {
+          result: await settled,
+          pending,
+          tab: await gate({ source: { kind: "tab", id: "t" } }).then(() => "armed")
+        }
       } finally {
         await host.dispose()
       }
@@ -524,10 +619,19 @@ describe("Host.complete", () => {
       fetch: async (request) => {
         bodies.push(await request.json() as Record<string, unknown>)
         const choice = (delta: object, finish: string | null) =>
-          chunk({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })
-        return new Response(`${choice({ role: "assistant", content: "{\"minutes\": 3}" }, null)}${choice({}, "stop")}data: [DONE]\n\n`, {
-          headers: { "content-type": "text/event-stream" }
-        })
+          chunk({
+            id: "c",
+            object: "chat.completion.chunk",
+            created: 0,
+            model: "m",
+            choices: [{ index: 0, delta, finish_reason: finish }]
+          })
+        return new Response(
+          `${choice({ role: "assistant", content: "{\"minutes\": 3}" }, null)}${choice({}, "stop")}data: [DONE]\n\n`,
+          {
+            headers: { "content-type": "text/event-stream" }
+          }
+        )
       }
     })
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-complete-"))
@@ -559,7 +663,13 @@ describe("Host.run under a provider quota refusal", () => {
       fetch: () => {
         asked += 1
         return Response.json(
-          { error: { message: "Rate limit reached. Try again in 10m.", type: "rate_limit_exceeded", code: "rate_limit_exceeded" } },
+          {
+            error: {
+              message: "Rate limit reached. Try again in 10m.",
+              type: "rate_limit_exceeded",
+              code: "rate_limit_exceeded"
+            }
+          },
           { status: 429, headers: { "retry-after": "600" } }
         )
       }
@@ -568,14 +678,26 @@ describe("Host.run under a provider quota refusal", () => {
     roots.push(cwd)
     const host = Host.make({
       cwd,
-      environment: { OPENAI_API_KEY: "sk-test", SMITHERS_OPENAI_COMPATIBLE_BASE_URL: `http://127.0.0.1:${provider.port}` },
+      environment: {
+        OPENAI_API_KEY: "sk-test",
+        SMITHERS_OPENAI_COMPATIBLE_BASE_URL: `http://127.0.0.1:${provider.port}`
+      },
       approvals: "all"
     })
     try {
       const events: AgentEvent.AgentEvent[] = []
-      const turn = host.run({ prompt: "answer", role: "worker", seat: "openai:gpt-test", history: [], onEvent: (event) => events.push(event) })
+      const turn = host.run({
+        prompt: "answer",
+        role: "worker",
+        seat: "openai:gpt-test",
+        history: [],
+        onEvent: (event) => events.push(event)
+      })
       const outcome = await turn.done
-      expect(events.find((event) => event._tag === "model-parked")).toMatchObject({ code: "rate_limited", seat: "openai:gpt-test" })
+      expect(events.find((event) => event._tag === "model-parked")).toMatchObject({
+        code: "rate_limited",
+        seat: "openai:gpt-test"
+      })
       expect(outcome).toMatchObject({ _tag: "cancelled" })
       expect(asked).toBe(1)
     } finally {
@@ -591,7 +713,13 @@ describe("Host.run under a provider quota refusal", () => {
       fetch: () => {
         asked += 1
         return Response.json(
-          { error: { message: "Rate limit reached. Try again in 10m.", type: "rate_limit_exceeded", code: "rate_limit_exceeded" } },
+          {
+            error: {
+              message: "Rate limit reached. Try again in 10m.",
+              type: "rate_limit_exceeded",
+              code: "rate_limit_exceeded"
+            }
+          },
           { status: 429, headers: { "retry-after": "600" } }
         )
       }
@@ -600,13 +728,23 @@ describe("Host.run under a provider quota refusal", () => {
     roots.push(cwd)
     const host = Host.make({
       cwd,
-      environment: { OPENAI_API_KEY: "sk-test", SMITHERS_OPENAI_COMPATIBLE_BASE_URL: `http://127.0.0.1:${provider.port}` },
+      environment: {
+        OPENAI_API_KEY: "sk-test",
+        SMITHERS_OPENAI_COMPATIBLE_BASE_URL: `http://127.0.0.1:${provider.port}`
+      },
       approvals: "all"
     })
     try {
       const events: AgentEvent.AgentEvent[] = []
-      const turn = host.run({ prompt: "answer", role: "worker", seat: "openai:gpt-test", fallbackSeats: [], maxParks: 0,
-        history: [], onEvent: (event) => events.push(event) })
+      const turn = host.run({
+        prompt: "answer",
+        role: "worker",
+        seat: "openai:gpt-test",
+        fallbackSeats: [],
+        maxParks: 0,
+        history: [],
+        onEvent: (event) => events.push(event)
+      })
       const outcome = await turn.done
       expect(events.some((event) => event._tag === "model-parked")).toBe(false)
       expect(outcome._tag).toBe("failed")
@@ -626,8 +764,14 @@ describe("turnOptions", () => {
     bindings: () => Effect.succeed(flows.map((flow) => ({ descriptor: { name: flow } }))) as never
   })
   const standard = [source("filesystem", ["read", "write", "grep"]), source("shell", ["bash"])]
-  const names = async (sources: ReadonlyArray<{ readonly bindings: () => Effect.Effect<ReadonlyArray<{ descriptor: { name: string } }>, unknown> }>) =>
-    (await Promise.all(sources.map((each) => Effect.runPromise(each.bindings())))).flat().map((binding) => binding.descriptor.name)
+  const names = async (
+    sources: ReadonlyArray<
+      { readonly bindings: () => Effect.Effect<ReadonlyArray<{ descriptor: { name: string } }>, unknown> }
+    >
+  ) =>
+    (await Promise.all(sources.map((each) => Effect.runPromise(each.bindings())))).flat().map((binding) =>
+      binding.descriptor.name
+    )
   const base = { prompt: "go", seat: "test:worker", role: "worker" as const, history: [], onEvent: () => {} }
   const profile: Agents.Profile = {
     name: "review",
@@ -641,7 +785,9 @@ describe("turnOptions", () => {
   test("a plain worker keeps every standard flow, the wildcard envelope and the provider's effort", async () => {
     const options = Host.turnOptions(base, "/repo", standard)
     expect(await names(options.flows)).toEqual(["read", "write", "grep", "bash"])
-    expect(options.capabilityEnvelope.map(String)).toEqual([String(new Capability.CapabilityPattern({ action: "*", resource: "*" }))])
+    expect(options.capabilityEnvelope.map(String)).toEqual([
+      String(new Capability.CapabilityPattern({ action: "*", resource: "*" }))
+    ])
     expect(options.reasoningEffort).toBeUndefined()
     expect(options.system.some((part) => part.includes("You review changes."))).toBe(false)
   })
@@ -654,7 +800,9 @@ describe("turnOptions", () => {
     expect(options.capabilityEnvelope.map((pattern) => `${pattern.action}:${pattern.resource}`)).toEqual(["fs:read:**"])
     expect(await names(options.flows)).toEqual(["read", "bash"])
     expect(options.reasoningEffort).toBe("high")
-    expect(Host.turnOptions({ ...base, agent: profile, thinking: "low" }, "/repo", standard).reasoningEffort).toBe("low")
+    expect(Host.turnOptions({ ...base, agent: profile, thinking: "low" }, "/repo", standard).reasoningEffort).toBe(
+      "low"
+    )
   })
 
   test("an agent with no declared flows or capabilities keeps the host defaults", async () => {
@@ -673,7 +821,9 @@ describe("workerSources", () => {
     Effect.context<Evaluator.Evaluator>().pipe(Effect.provide(Evaluator.layerScripted(() => ({}))))
   )
   const names = async (sources: ReadonlyArray<FlowBinding.Source>) =>
-    (await Promise.all(sources.map((each) => Effect.runPromise(each.bindings())))).flat().map((binding) => binding.descriptor.name)
+    (await Promise.all(sources.map((each) => Effect.runPromise(each.bindings())))).flat().map((binding) =>
+      binding.descriptor.name
+    )
 
   test("a judge binds jev after the shell flows; none leaves it absent", async () => {
     const judged = await names(Host.workerSources(services, judge, "/repo", () => {}))
@@ -698,20 +848,23 @@ describe("workerSources", () => {
 
 describe("Host.run jev binding", () => {
   const scripted = Evaluator.layerScripted((request) =>
-    Object.fromEntries(Object.entries(request.questions).map(([id, question]) => [
-      id,
-      question.type === "boolean"
-        ? { probability: 0.9 }
-        : question.type === "choice"
-        ? { choice: Object.keys(question.criteria)[0]! }
-        : { score: 0 }
-    ]))
+    Object.fromEntries(
+      Object.entries(request.questions).map(([id, question]) => [
+        id,
+        question.type === "boolean"
+          ? { probability: 0.9 }
+          : question.type === "choice"
+          ? { choice: Object.keys(question.criteria)[0]! }
+          : { score: 0 }
+      ])
+    )
   )
   /** The outcomes of the `jev` calls a turn settled. */
   const run = async (role: "coordinator" | "worker", judge: typeof scripted | undefined) => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-jev-"))
     roots.push(cwd)
-    const cell = "await ctx.call(\"jev\", { state: {}, questions: { q: { type: \"boolean\", instructions: \"Yes?\" } } }).catch(() => {}); ctx.done(\"ok\")"
+    const cell =
+      "await ctx.call(\"jev\", { state: {}, questions: { q: { type: \"boolean\", instructions: \"Yes?\" } } }).catch(() => {}); ctx.done(\"ok\")"
     const host = Host.make({ cwd, environment: {}, ...(judge === undefined ? {} : { judge }) })
     const settled: Array<string> = []
     const armed: Array<boolean | undefined> = []
@@ -811,7 +964,9 @@ describe("Host.run instructions", () => {
     const { asked, cwd, events, system } = await run("coordinator")
     expect(asked).toEqual([])
     expect(events.some((event) => event._tag === "relevance-settled")).toBe(false)
-    expect(system).toContain(`<project_instructions path="${join(cwd, "AGENTS.md")}">\n${text}\n</project_instructions>`)
+    expect(system).toContain(
+      `<project_instructions path="${join(cwd, "AGENTS.md")}">\n${text}\n</project_instructions>`
+    )
   })
 })
 
@@ -822,7 +977,11 @@ describe("Host.run seat routing", () => {
     roots.push(cwd)
     return {
       cwd,
-      host: Host.make({ cwd, environment: { ...environment, ...extra }, ...(judged ? { judge: ScriptedJudge.layerAll } : {}) })
+      host: Host.make({
+        cwd,
+        environment: { ...environment, ...extra },
+        ...(judged ? { judge: ScriptedJudge.layerAll } : {})
+      })
     }
   }
 

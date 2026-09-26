@@ -44,57 +44,59 @@ export interface Change {
   readonly line?: number
 }
 
-export type Item = (
-  | {
-    readonly kind: "user"
-    readonly id: string
-    readonly text: string
-    /** Sent mid-turn; true until the harness drains it at a cell boundary. */
-    readonly queued?: boolean
+export type Item =
+  & (
+    | {
+      readonly kind: "user"
+      readonly id: string
+      readonly text: string
+      /** Sent mid-turn; true until the harness drains it at a cell boundary. */
+      readonly queued?: boolean
+    }
+    | {
+      readonly kind: "shell"
+      readonly id: string
+      readonly command: string
+      /** `!!`: shown, but kept out of the agent's context. */
+      readonly excluded: boolean
+      readonly output: string
+      readonly result?: Shell.Result
+    }
+    | {
+      readonly kind: "cell"
+      readonly id: string
+      /** One-based, counted across the whole session. */
+      readonly index: number
+      /** The prose the model wrote outside its fences, if any. */
+      readonly prose: string
+      readonly source: string
+      readonly status: CellStatus
+      readonly calls: ReadonlyArray<Call>
+      readonly printed: string
+      readonly error?: string
+      readonly startedAt: number
+      readonly endedAt?: number
+      /** The turn whose journal holds this cell: an index into `past`, or `past.length` for the current one. */
+      readonly turn?: number
+      /** The 1-based frame of that journal the cell was written in. */
+      readonly frame?: number
+    }
+    | { readonly kind: "answer"; readonly id: string; readonly text: string }
+    | {
+      readonly kind: "error"
+      readonly id: string
+      readonly text: string
+      /** Raised by background work such as a monitor; it ends no turn. */
+      readonly background?: true
+    }
+    | { readonly kind: "note"; readonly id: string; readonly text: string }
+    /** A panel published with `placement: "card"`: one item per panel id, updated in place. */
+    | { readonly kind: "card"; readonly id: string; readonly panel: Panels.Panel }
+  )
+  & {
+    /** When the item appeared; an item without one shares the previous item's time. */
+    readonly at?: number
   }
-  | {
-    readonly kind: "shell"
-    readonly id: string
-    readonly command: string
-    /** `!!`: shown, but kept out of the agent's context. */
-    readonly excluded: boolean
-    readonly output: string
-    readonly result?: Shell.Result
-  }
-  | {
-    readonly kind: "cell"
-    readonly id: string
-    /** One-based, counted across the whole session. */
-    readonly index: number
-    /** The prose the model wrote outside its fences, if any. */
-    readonly prose: string
-    readonly source: string
-    readonly status: CellStatus
-    readonly calls: ReadonlyArray<Call>
-    readonly printed: string
-    readonly error?: string
-    readonly startedAt: number
-    readonly endedAt?: number
-    /** The turn whose journal holds this cell: an index into `past`, or `past.length` for the current one. */
-    readonly turn?: number
-    /** The 1-based frame of that journal the cell was written in. */
-    readonly frame?: number
-  }
-  | { readonly kind: "answer"; readonly id: string; readonly text: string }
-  | {
-    readonly kind: "error"
-    readonly id: string
-    readonly text: string
-    /** Raised by background work such as a monitor; it ends no turn. */
-    readonly background?: true
-  }
-  | { readonly kind: "note"; readonly id: string; readonly text: string }
-  /** A panel published with `placement: "card"`: one item per panel id, updated in place. */
-  | { readonly kind: "card"; readonly id: string; readonly panel: Panels.Panel }
-) & {
-  /** When the item appeared; an item without one shares the previous item's time. */
-  readonly at?: number
-}
 
 export interface Transcript {
   readonly activity?: Activity.Activity
@@ -102,7 +104,12 @@ export interface Transcript {
   readonly past?: ReadonlyArray<Activity.Activity>
   readonly items: ReadonlyArray<Item>
   /** Latest Jev reading for this run; absent when no context assessment exists. */
-  readonly contextAssessment?: { readonly scope: string; readonly frame: number; readonly outdated: boolean; readonly irrelevant: boolean }
+  readonly contextAssessment?: {
+    readonly scope: string
+    readonly frame: number
+    readonly outdated: boolean
+    readonly irrelevant: boolean
+  }
   /** The reply text of the model call in flight. */
   readonly streaming: string
   /** Whether the model is reasoning before it writes. */
@@ -201,9 +208,22 @@ export const card = (transcript: Transcript, panel: Panels.Panel, at?: number): 
 
 /** Ends the turn: nothing streams or waits on a model after it. */
 export const failure = (transcript: Transcript, text: string, at: number): Transcript =>
-  withId({ ...settleOpen(transcript, at, "failed"), streaming: "", thinking: false, requestedAt: undefined,
-    activity: Activity.finish(transcript.activity ?? Activity.empty, text === "Stopped" ? "cancelled" : "failed", at, text)
-  }, { kind: "error", text }, at)
+  withId(
+    {
+      ...settleOpen(transcript, at, "failed"),
+      streaming: "",
+      thinking: false,
+      requestedAt: undefined,
+      activity: Activity.finish(
+        transcript.activity ?? Activity.empty,
+        text === "Stopped" ? "cancelled" : "failed",
+        at,
+        text
+      )
+    },
+    { kind: "error", text },
+    at
+  )
 
 /**
  * Splits a reply into the prose around its fences and the program inside
@@ -382,8 +402,10 @@ export const apply = (transcript: Transcript, event: Activity.Observed, at: numb
   if (event._tag === "seat-failed-over") {
     return note(transcript, `↪ switched to ${event.to}`, at)
   }
-  if (event._tag === "supervisor-settled" && transcript.contextAssessment?.scope === event.scope &&
-    transcript.contextAssessment.frame > event.frame) return transcript
+  if (
+    event._tag === "supervisor-settled" && transcript.contextAssessment?.scope === event.scope &&
+    transcript.contextAssessment.frame > event.frame
+  ) return transcript
   const activity = Activity.apply(transcript.activity ?? Activity.empty, event, at)
   return applyEvent(activity === transcript.activity ? transcript : { ...transcript, activity }, event, at)
 }
@@ -392,11 +414,15 @@ const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number
   switch (event._tag) {
     case "supervisor-settled":
       if (event.outdatedContext === undefined && event.irrelevantContext === undefined) return transcript
-      return { ...transcript, contextAssessment: {
-        scope: event.scope, frame: event.frame,
-        outdated: (event.outdatedContext ?? 0) >= 0.5,
-        irrelevant: (event.irrelevantContext ?? 0) >= 0.5
-      } }
+      return {
+        ...transcript,
+        contextAssessment: {
+          scope: event.scope,
+          frame: event.frame,
+          outdated: (event.outdatedContext ?? 0) >= 0.5,
+          irrelevant: (event.irrelevantContext ?? 0) >= 0.5
+        }
+      }
     case "model-requested":
       return { ...transcript, streaming: "", thinking: false, requestedAt: at }
     case "model-delta": {
@@ -425,13 +451,13 @@ const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number
           item.kind === "user" && item.queued === true ? { ...item, queued: false } : item
         )
       }
-    case "model-retried":
-      { const open = lastCell(transcript)
-        const cleared = open?.status === "writing"
-          ? { ...transcript, items: transcript.items.filter((item) => item !== open), cells: open.index - 1 }
-          : transcript
-        return note({ ...cleared, streaming: "", thinking: false, requestedAt: at }, `retrying · ${event.code}`, at)
-      }
+    case "model-retried": {
+      const open = lastCell(transcript)
+      const cleared = open?.status === "writing"
+        ? { ...transcript, items: transcript.items.filter((item) => item !== open), cells: open.index - 1 }
+        : transcript
+      return note({ ...cleared, streaming: "", thinking: false, requestedAt: at }, `retrying · ${event.code}`, at)
+    }
     case "cell-produced": {
       const open = lastCell(transcript)
       const produced = (cell: CellItem): CellItem => ({ ...cell, source: event.cell.text, status: "running" })
@@ -532,19 +558,23 @@ export const undone = (
   paths: ReadonlyArray<string>,
   at: number
 ): Transcript =>
-  note({
-    ...transcript,
-    items: transcript.items.map((item) =>
-      item.kind !== "cell" || !item.calls.some((call) => call.identity !== undefined && calls.includes(call.identity))
-        ? item
-        : ({
-          ...item,
-          calls: item.calls.map((call) =>
-            call.identity !== undefined && calls.includes(call.identity) ? { ...call, undone: true as const } : call
-          )
-        })
-    )
-  }, `Undid ${paths.join(", ")}`, at)
+  note(
+    {
+      ...transcript,
+      items: transcript.items.map((item) =>
+        item.kind !== "cell" || !item.calls.some((call) => call.identity !== undefined && calls.includes(call.identity))
+          ? item
+          : ({
+            ...item,
+            calls: item.calls.map((call) =>
+              call.identity !== undefined && calls.includes(call.identity) ? { ...call, undone: true as const } : call
+            )
+          })
+      )
+    },
+    `Undid ${paths.join(", ")}`,
+    at
+  )
 
 export const caption = (transcript: Transcript, prose: string): Transcript =>
   updateCell(transcript, (cell) => ({ ...cell, prose }))

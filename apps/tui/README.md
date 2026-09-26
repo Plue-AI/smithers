@@ -65,47 +65,47 @@ own rendering and execution adapter.
 `src/keys.ts` lists every key; the footer, the `?` panel, `/hotkeys`, and
 Ctrl+O read it.
 
-| Key | Action |
-| --- | --- |
-| Enter | Send. While a turn runs: steer, delivered before the next cell |
-| Alt+Enter | Queue a follow-up for after the turn |
-| Alt+Up | Move queued follow-ups back to the editor |
-| Shift+Enter, Ctrl+J | Newline |
-| Esc | Stop the turn (queued messages return to the editor) or the shell command |
-| ? | With the editor empty: show the keys for the current context. Esc or ? closes it; other typing keeps the `?` |
-| y, n, a | Approval row showing its keys (editor empty, 400 ms after the row appears and after the editor last changed): allow once, deny, and where the row offers `a all bash` or `a all edits`, allow for the session. Otherwise the key is text |
-| Ctrl+C | Clear the editor; twice within 500 ms to exit |
-| Ctrl+D | Exit when the editor is empty |
-| Up, Down | Prompt history |
-| `/` | Commands: Up/Down choose, Tab inserts, Enter runs, Esc closes the menu |
-| `@` | Mention a file (`git ls-files`, else `rg --files`), fuzzy-matched |
-| Ctrl+K | Search: commands and files; `/` commands, `text:` file text (rg, `text:/re/` for a regex), `session:` resumes, `tab:` opens a worker, `?` lists prefixes. Enter inserts `@path` or `@path:line`, runs the command, or opens the item. Replaces the editor's Ctrl+K (delete to line end); Ctrl+U and Ctrl+W remain |
-| Ctrl+L | Model dialog; type to filter |
-| Ctrl+P, Shift+Ctrl+P | Next, previous model |
-| Shift+Tab | Cycle reasoning effort |
-| Ctrl+O | Expand cell code, output, diffs, and the key list |
-| Ctrl+T | Inspect the run timeline; arrows scrub, [ ] or Shift+Left/Right step milestones, Home/End jump, Esc returns to live |
-| Ctrl+S | Open summary / switch focus between the view and chat |
-| Ctrl+], Ctrl+\\, Ctrl+Right, Ctrl+Left | Next, previous tab: Chat, Summary, worker tabs, trees, and custom views. Click a tab to open it |
-| Ctrl+\\ or `/chat` | Return to full chat from a main view |
-| hjkl or arrows | In a view: move between rows, collapse/expand details |
-| Enter | In a view: toggle the selected row's details |
-| d, v | In a view: toggle the selected turn's diff; toggle split/unified |
-| u | In the Summary view or a worker tab: undo the selected row's captured file changes (confirm first) |
-| Tab | In a view: next tab. In the chat with the editor empty: focus the newest card; Up/Down move, Enter opens it, Esc returns |
-| Esc, i | In a view: focus the composer without stopping background work |
-| a | Activate the selected row's action, if present |
-| Contributed keys | Keys a repository or a cell adds (`alt+r`); listed in the hints and the `?` popup under their owner |
-| r, x | In a worker or flow tab: resume / stop. A worker resumes with its prior steps on its original model |
-| m, w | In a failed worker tab: choose a model for resume / wait for reset |
-| s, c | In a worker tab: steer it from the composer (Esc returns) / show its lane in the chat |
-| a | In a flow tab: approve or fill in |
-| Tab/Down, Shift+Tab/Up, Space, Left/Right, Enter, Esc | In a flow form: next, previous field, toggle, choose, run, close (the run stays parked) |
-| Ctrl+G | Edit the prompt in `$VISUAL` / `$EDITOR` |
-| PageUp, PageDown | Scroll |
-| Shift+Up, Shift+Down | Scroll a line |
-| `!cmd` | Run a shell command; its output joins the next turn's context |
-| `!!cmd` | Run a shell command and keep it out of context |
+| Key                                                   | Action                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Enter                                                 | Send. While a turn runs: steer, delivered before the next cell                                                                                                                                                                                                                                                    |
+| Alt+Enter                                             | Queue a follow-up for after the turn                                                                                                                                                                                                                                                                              |
+| Alt+Up                                                | Move queued follow-ups back to the editor                                                                                                                                                                                                                                                                         |
+| Shift+Enter, Ctrl+J                                   | Newline                                                                                                                                                                                                                                                                                                           |
+| Esc                                                   | Stop the turn (queued messages return to the editor) or the shell command                                                                                                                                                                                                                                         |
+| ?                                                     | With the editor empty: show the keys for the current context. Esc or ? closes it; other typing keeps the `?`                                                                                                                                                                                                      |
+| y, n, a                                               | Approval row showing its keys (editor empty, 400 ms after the row appears and after the editor last changed): allow once, deny, and where the row offers `a all bash` or `a all edits`, allow for the session. Otherwise the key is text                                                                          |
+| Ctrl+C                                                | Clear the editor; twice within 500 ms to exit                                                                                                                                                                                                                                                                     |
+| Ctrl+D                                                | Exit when the editor is empty                                                                                                                                                                                                                                                                                     |
+| Up, Down                                              | Prompt history                                                                                                                                                                                                                                                                                                    |
+| `/`                                                   | Commands: Up/Down choose, Tab inserts, Enter runs, Esc closes the menu                                                                                                                                                                                                                                            |
+| `@`                                                   | Mention a file (`git ls-files`, else `rg --files`), fuzzy-matched                                                                                                                                                                                                                                                 |
+| Ctrl+K                                                | Search: commands and files; `/` commands, `text:` file text (rg, `text:/re/` for a regex), `session:` resumes, `tab:` opens a worker, `?` lists prefixes. Enter inserts `@path` or `@path:line`, runs the command, or opens the item. Replaces the editor's Ctrl+K (delete to line end); Ctrl+U and Ctrl+W remain |
+| Ctrl+L                                                | Model dialog; type to filter                                                                                                                                                                                                                                                                                      |
+| Ctrl+P, Shift+Ctrl+P                                  | Next, previous model                                                                                                                                                                                                                                                                                              |
+| Shift+Tab                                             | Cycle reasoning effort                                                                                                                                                                                                                                                                                            |
+| Ctrl+O                                                | Expand cell code, output, diffs, and the key list                                                                                                                                                                                                                                                                 |
+| Ctrl+T                                                | Inspect the run timeline; arrows scrub, [ ] or Shift+Left/Right step milestones, Home/End jump, Esc returns to live                                                                                                                                                                                               |
+| Ctrl+S                                                | Open summary / switch focus between the view and chat                                                                                                                                                                                                                                                             |
+| Ctrl+], Ctrl+\\, Ctrl+Right, Ctrl+Left                | Next, previous tab: Chat, Summary, worker tabs, trees, and custom views. Click a tab to open it                                                                                                                                                                                                                   |
+| Ctrl+\\ or `/chat`                                    | Return to full chat from a main view                                                                                                                                                                                                                                                                              |
+| hjkl or arrows                                        | In a view: move between rows, collapse/expand details                                                                                                                                                                                                                                                             |
+| Enter                                                 | In a view: toggle the selected row's details                                                                                                                                                                                                                                                                      |
+| d, v                                                  | In a view: toggle the selected turn's diff; toggle split/unified                                                                                                                                                                                                                                                  |
+| u                                                     | In the Summary view or a worker tab: undo the selected row's captured file changes (confirm first)                                                                                                                                                                                                                |
+| Tab                                                   | In a view: next tab. In the chat with the editor empty: focus the newest card; Up/Down move, Enter opens it, Esc returns                                                                                                                                                                                          |
+| Esc, i                                                | In a view: focus the composer without stopping background work                                                                                                                                                                                                                                                    |
+| a                                                     | Activate the selected row's action, if present                                                                                                                                                                                                                                                                    |
+| Contributed keys                                      | Keys a repository or a cell adds (`alt+r`); listed in the hints and the `?` popup under their owner                                                                                                                                                                                                               |
+| r, x                                                  | In a worker or flow tab: resume / stop. A worker resumes with its prior steps on its original model                                                                                                                                                                                                               |
+| m, w                                                  | In a failed worker tab: choose a model for resume / wait for reset                                                                                                                                                                                                                                                |
+| s, c                                                  | In a worker tab: steer it from the composer (Esc returns) / show its lane in the chat                                                                                                                                                                                                                             |
+| a                                                     | In a flow tab: approve or fill in                                                                                                                                                                                                                                                                                 |
+| Tab/Down, Shift+Tab/Up, Space, Left/Right, Enter, Esc | In a flow form: next, previous field, toggle, choose, run, close (the run stays parked)                                                                                                                                                                                                                           |
+| Ctrl+G                                                | Edit the prompt in `$VISUAL` / `$EDITOR`                                                                                                                                                                                                                                                                          |
+| PageUp, PageDown                                      | Scroll                                                                                                                                                                                                                                                                                                            |
+| Shift+Up, Shift+Down                                  | Scroll a line                                                                                                                                                                                                                                                                                                     |
+| `!cmd`                                                | Run a shell command; its output joins the next turn's context                                                                                                                                                                                                                                                     |
+| `!!cmd`                                               | Run a shell command and keep it out of context                                                                                                                                                                                                                                                                    |
 
 ## Commands
 
@@ -114,7 +114,7 @@ The `?` key popup scrolls with PageUp/PageDown or the mouse wheel.
 `/model [query]`, `/theme`, `/thinking [level]`, `/new`, `/resume`, `/fork`, `/session`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/tabs`, `/chat`, `/filter`,
 `/grep [text]`, `/ui [id]`, `/smithers`, `/flows`, `/flow <name> [json|key=value]`, `/agent [name] [prompt]`,
-`/retry <id>`, `/stop <id>`, `/hotkeys`, `/quit`, `/exit`. After `/model `, `/thinking `, `/flow ` and `/agent `
+`/retry <id>`, `/stop <id>`, `/hotkeys`, `/quit`, `/exit`. After `/model`, `/thinking`, `/flow` and `/agent`
 the menu completes the argument, and the `/` menu lists the directory's flows.
 
 ## Look
@@ -253,12 +253,12 @@ value, `Extension.Contribution` (`src/extension.ts`); the TUI owns rendering,
 focus and keys. Publishing never runs an action: only a person (a key, a
 click, `a` on a row, Ctrl+K) or an agent does.
 
-| Contribution | Shows | Limits |
-| --- | --- | --- |
-| A bare panel, or `{ kind: "panel", placement: "tab", panel }` | A `ui:<id>` tab | 24 panels, shared with cards |
-| `{ kind: "panel", placement: "card", panel }` | A live card in the chat: title, summary, first 5 rows. The same id updates it in place; click, or `tab` then `enter` from an empty composer, opens it as a view | 24 panels, shared with tabs |
-| `{ kind: "status", status: { id, text, tone?, action? } }` | A footer item beside the context meter; click runs `action` | 24 characters, one line; 3 shown |
-| `{ kind: "key", key: { id, key, label, action, context? } }` | A key in the hints and the `?` popup, grouped by owner. The footer shows every hint that fits whole, built-in first; `?` lists the rest | Global keys need ctrl or alt; 8 per owner |
+| Contribution                                                  | Shows                                                                                                                                                           | Limits                                    |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| A bare panel, or `{ kind: "panel", placement: "tab", panel }` | A `ui:<id>` tab                                                                                                                                                 | 24 panels, shared with cards              |
+| `{ kind: "panel", placement: "card", panel }`                 | A live card in the chat: title, summary, first 5 rows. The same id updates it in place; click, or `tab` then `enter` from an empty composer, opens it as a view | 24 panels, shared with tabs               |
+| `{ kind: "status", status: { id, text, tone?, action? } }`    | A footer item beside the context meter; click runs `action`                                                                                                     | 24 characters, one line; 3 shown          |
+| `{ kind: "key", key: { id, key, label, action, context? } }`  | A key in the hints and the `?` popup, grouped by owner. The footer shows every hint that fits whole, built-in first; `?` lists the rest                         | Global keys need ctrl or alt; 8 per owner |
 
 An action is `{ kind: "prompt", prompt }`, `{ kind: "flow", flow, input? }`,
 `{ kind: "agent", agent, prompt? }` or `{ kind: "open", surface }`. A panel
@@ -309,7 +309,7 @@ Listing reads `flows/` without importing anything and refreshes within 300 ms
 of any change there. After first draw, projects with `flows/` warm the host
 in the background, importing modules and opening `<cwd>/.flows` (the store `smthrs runs` reads), so an edited `flow.ts` needs a
 restart to run. A markdown flow is a custom agent (below); choosing one in
-`/flows` starts `/agent <name> `. Do not run `smthrs` executors in the same
+`/flows` starts `/agent <name>`. Do not run `smthrs` executors in the same
 directory at the same time. Restarting marks unfinished runs interrupted; retry
 resumes the durable run.
 `/smithers` opens the Smithers tab: every run, newest first, and the discovered flows.
@@ -376,7 +376,7 @@ disable-model-invocation: false  # true = only a person may start it
 ```
 
 `/agent` opens the Agents picker (name, model, description); choosing a row
-puts `/agent <name> ` in the composer, because the prompt is the agent's one
+puts `/agent <name>` in the composer, because the prompt is the agent's one
 field. `/agent <name> <prompt>` opens a worker tab titled `<name>: <prompt>`.
 The coordinator sees `Agents: [{name, description}]` (model-invocable agents,
 at most 20) and starts one with `agent.delegate {id, title, prompt, agent}`.
@@ -395,25 +395,24 @@ and keeps the agent and the model. The tab records `agent: {name, digest}`.
 
 Every refusal is a code and one line:
 
-| Code | When | Where |
-| --- | --- | --- |
-| `unknown_agent` | No flow has that name | Refused at once (tab `failed` if the first listing had not arrived) |
-| `not_an_agent` | The name is a `flow.ts` module | Refused at once; use `/flow` or `smithers.run` |
-| `not_invocable` | `disable-model-invocation: true` and the coordinator asked | Refused at once |
-| `unreadable` | The body could not be read | Tab `failed`, retryable |
-| `unknown_seat` | `model:` names no alias or known provider | Tab `failed` |
-| `unknown_effort` | `effort:` is not a reasoning effort | Tab `failed` |
+| Code             | When                                                       | Where                                                               |
+| ---------------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| `unknown_agent`  | No flow has that name                                      | Refused at once (tab `failed` if the first listing had not arrived) |
+| `not_an_agent`   | The name is a `flow.ts` module                             | Refused at once; use `/flow` or `smithers.run`                      |
+| `not_invocable`  | `disable-model-invocation: true` and the coordinator asked | Refused at once                                                     |
+| `unreadable`     | The body could not be read                                 | Tab `failed`, retryable                                             |
+| `unknown_seat`   | `model:` names no alias or known provider                  | Tab `failed`                                                        |
+| `unknown_effort` | `effort:` is not a reasoning effort                        | Tab `failed`                                                        |
 
 `examples/custom-agent` is a directory with one agent; run
 `bun run tui apps/tui/examples/custom-agent` and type `/agent review`.
 
-
 ## Tests
 
-| Command | What |
-| --- | --- |
-| `bun test ./test` | Transcript fold over a recorded run, and the pure modules |
-| `bun test ./e2e` | The TUI in a real PTY through [zmux](https://github.com/smithersai/zmux): keys in, screen out |
+| Command           | What                                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `bun test ./test` | Transcript fold over a recorded run, and the pure modules                                     |
+| `bun test ./e2e`  | The TUI in a real PTY through [zmux](https://github.com/smithersai/zmux): keys in, screen out |
 
 The end-to-end suite needs `zmuxd` (`$ZMUXD`, `PATH`, or `~/zmux/zig-out/bin`).
 Its model turns replay `test/fixtures/fix-add.jsonl` through the replay seat:

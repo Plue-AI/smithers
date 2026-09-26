@@ -77,7 +77,9 @@ try {
     copyFileSync(join(root, "lib", name), join(preflightRoot, "lib", name))
   }
   const executable = (path, text) => writeFileSync(path, text, { mode: 0o755 })
-  executable(join(bin, "docker"), `#!/bin/bash
+  executable(
+    join(bin, "docker"),
+    `#!/bin/bash
 case "$1" in
   image|rm|ps) exit 0 ;;
   run)
@@ -102,7 +104,8 @@ case "$1" in
     exit 0 ;;
   *) echo "unexpected docker call: $*" >&2; exit 99 ;;
 esac
-`)
+`
+  )
   executable(join(bin, "image"), "#!/bin/sh\necho fixture-image\n")
   executable(join(bin, "testcmd"), "#!/bin/sh\necho true\n")
   const population = jsonl(join(preflightRoot, "manifest.jsonl"), [
@@ -116,7 +119,13 @@ esac
     { name: "assert-both", exits: [254, 254], verdict: "inconclusive", status: 2 },
     { name: "unknown-none", exits: [0, 0], verdict: "inconclusive", status: 2 },
     { name: "unknown-bridge", exits: [0, 0], verdict: "inconclusive", status: 2 },
-    { name: "boot-failed", exits: [255, 255], verdict: "inconclusive", status: 2, instances: "probe__probe-1 works__works-1" },
+    {
+      name: "boot-failed",
+      exits: [255, 255],
+      verdict: "inconclusive",
+      status: 2,
+      instances: "probe__probe-1 works__works-1"
+    },
     { name: "works", exits: [0, 0], verdict: "ok", status: 0 },
     { name: "broken", exits: [1, 1], verdict: "ok", status: 0 },
     { name: "slow", exits: [124, 124], verdict: "ok", status: 0 },
@@ -126,9 +135,12 @@ esac
   for (const fixture of cases) {
     const helper = join(preflightRoot, "lib", "testbed-network.sh")
     if (fixture.name.startsWith("unknown-")) {
-      executable(helper, `#!/bin/sh
+      executable(
+        helper,
+        `#!/bin/sh
 if [ "$3" = "${fixture.name.slice("unknown-".length)}" ]; then echo unknown; else echo "$3"; fi
-`)
+`
+      )
     } else {
       copyFileSync(join(root, "lib", "testbed-network.sh"), helper)
     }
@@ -370,7 +382,19 @@ if [ "$3" = "${fixture.name.slice("unknown-".length)}" ]; then echo unknown; els
   assert.equal(failRun.status, 1, "a lane that fails its testbed assertions fails the process")
   assert.match(failRun.stderr, /this lane is not sealed/u)
 
-  const gated = run("--manifest", manifest, "--net", net, "--sealed", legacy, "--logs", logs, "--require", "none", "--json")
+  const gated = run(
+    "--manifest",
+    manifest,
+    "--net",
+    net,
+    "--sealed",
+    legacy,
+    "--logs",
+    logs,
+    "--require",
+    "none",
+    "--json"
+  )
   assert.equal(gated.status, 1, "--require none gates a lane that never measured its testbed")
 
   const ungated = run("--manifest", manifest, "--net", net, "--sealed", legacy, "--logs", logs, "--json")

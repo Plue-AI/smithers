@@ -27,10 +27,53 @@ export type Source = typeof Source.Type
 // Extensions keep prose out of the path list: "e.g." and "etc." have no
 // extension a repository file would carry, and a bare sentence word has none.
 const extensions = new Set([
-  "c", "cc", "cfg", "cjs", "conf", "cpp", "cs", "css", "go", "gradle", "h", "hpp", "html", "ini",
-  "java", "js", "json", "jsonc", "jsx", "kt", "lock", "lua", "md", "mdx", "mjs", "mts", "nix",
-  "php", "proto", "py", "rb", "rs", "scss", "sh", "sql", "svelte", "swift", "tf", "toml", "ts",
-  "tsx", "txt", "vue", "xml", "yaml", "yml", "zig"
+  "c",
+  "cc",
+  "cfg",
+  "cjs",
+  "conf",
+  "cpp",
+  "cs",
+  "css",
+  "go",
+  "gradle",
+  "h",
+  "hpp",
+  "html",
+  "ini",
+  "java",
+  "js",
+  "json",
+  "jsonc",
+  "jsx",
+  "kt",
+  "lock",
+  "lua",
+  "md",
+  "mdx",
+  "mjs",
+  "mts",
+  "nix",
+  "php",
+  "proto",
+  "py",
+  "rb",
+  "rs",
+  "scss",
+  "sh",
+  "sql",
+  "svelte",
+  "swift",
+  "tf",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "vue",
+  "xml",
+  "yaml",
+  "yml",
+  "zig"
 ])
 // Library names read exactly like a filename and never name a repository file.
 const prose = new Set(["node.js", "next.js", "nuxt.js", "react.js", "three.js", "vue.js", "express.js"])
@@ -41,7 +84,9 @@ const candidate = /(?:\.{1,2}\/|[/.])?[A-Za-z0-9_][A-Za-z0-9_.@+-]*(?:\/[A-Za-z0
 /** Repository-relative, normalized, and outside private or runtime trees. */
 export const normalizePath = (value: string): string | null => {
   if (value.length === 0 || value.length > 4096 || /[\\\0]/.test(value) || value.startsWith("/")) return null
-  if (!value.split("/").every(part => part !== "" && part !== "." && part !== ".." && !/^\.(git|jj)$/i.test(part))) return null
+  if (!value.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !/^\.(git|jj)$/i.test(part))) {
+    return null
+  }
   if (/^(?:\.flows|node_modules|Smithers-Ops)(?:\/|$)/i.test(value) || /(?:^|\/)\.env(?:\.|$)/.test(value)) return null
   return value
 }
@@ -93,38 +138,49 @@ export interface SourceReader {
 }
 
 /** Realpath under the root, regular files only, text only, bounded size. */
-export const reader = (root: string, hostFilesystem?: FileSystem.FileSystem): Effect.Effect<SourceReader, never, FileSystem.FileSystem | Path.Path> =>
+export const reader = (
+  root: string,
+  hostFilesystem?: FileSystem.FileSystem
+): Effect.Effect<SourceReader, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function*() {
     const fs = hostFilesystem ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
     const base = yield* Effect.orElseSucceed(fs.realPath(root), () => root)
     const unreadable = { kind: "unreadable" } as const
-    const read = (relative: string): Effect.Effect<Readback, never> => Effect.gen(function*() {
-      const name = normalizePath(relative)
-      if (name === null) return unreadable
-      const resolved = path.resolve(base, name)
-      const file = yield* Effect.orElseSucceed(fs.realPath(resolved), () => "")
-      if (file === "") return (yield* Effect.orElseSucceed(fs.exists(resolved), () => true)) ? unreadable : { kind: "missing" as const }
-      // A symlink out of the workspace is not this repository's source.
-      if (!file.startsWith(base + path.sep)) return unreadable
-      const stat = yield* Effect.orElseSucceed(fs.stat(file), () => null)
-      if (!stat || stat.type !== "File" || stat.size > BigInt(maxFileBytes)) return unreadable
-      const text = yield* Effect.orElseSucceed(fs.readFileString(file), () => null)
-      return text === null || text.includes("\0") ? unreadable : { kind: "text" as const, text }
-    })
+    const read = (relative: string): Effect.Effect<Readback, never> =>
+      Effect.gen(function*() {
+        const name = normalizePath(relative)
+        if (name === null) return unreadable
+        const resolved = path.resolve(base, name)
+        const file = yield* Effect.orElseSucceed(fs.realPath(resolved), () => "")
+        if (file === "") {
+          return (yield* Effect.orElseSucceed(fs.exists(resolved), () => true))
+            ? unreadable
+            : { kind: "missing" as const }
+        }
+        // A symlink out of the workspace is not this repository's source.
+        if (!file.startsWith(base + path.sep)) return unreadable
+        const stat = yield* Effect.orElseSucceed(fs.stat(file), () => null)
+        if (!stat || stat.type !== "File" || stat.size > BigInt(maxFileBytes)) return unreadable
+        const text = yield* Effect.orElseSucceed(fs.readFileString(file), () => null)
+        return text === null || text.includes("\0") ? unreadable : { kind: "text" as const, text }
+      })
     const names = Effect.orElseSucceed(fs.readDirectory(base), () => [] as ReadonlyArray<string>)
     return { read, names }
   })
 
 /** The repository's own README is evidence for nearly every prose request. */
 export const readmePaths = (reader: SourceReader) =>
-  Effect.map(reader.names, names => names.filter(name => /^README(\.[A-Za-z0-9]+)?$/i.test(name)).sort())
+  Effect.map(reader.names, (names) => names.filter((name) => /^README(\.[A-Za-z0-9]+)?$/i.test(name)).sort())
 
 /** Existing project guidance and manifests, without generated artifacts or
  * recursive scanning. Requested source paths keep first claim on the budget. */
-export const repositoryContextPaths = (reader: SourceReader) => Effect.map(reader.names, names => [
-  ...names.filter(name => /^README(\.[A-Za-z0-9]+)?$/i.test(name)).sort(),
-  ...names.filter(name => /^(?:AGENTS\.md|CONTRIBUTING(?:\.[A-Za-z0-9]+)?|package\.json|Cargo\.toml|go\.mod|pyproject\.toml)$/i.test(name)).sort()
-])
+export const repositoryContextPaths = (reader: SourceReader) =>
+  Effect.map(reader.names, (names) => [
+    ...names.filter((name) => /^README(\.[A-Za-z0-9]+)?$/i.test(name)).sort(),
+    ...names.filter((name) =>
+      /^(?:AGENTS\.md|CONTRIBUTING(?:\.[A-Za-z0-9]+)?|package\.json|Cargo\.toml|go\.mod|pyproject\.toml)$/i.test(name)
+    ).sort()
+  ])
 
 export interface Collected {
   readonly sources: ReadonlyArray<Source>
@@ -150,7 +206,12 @@ export const collectSources = (reader: SourceReader, paths: ReadonlyArray<string
       }
       const retained = clamp(result.text, Math.min(maxSourceBytes, maxSourcesBytes - used))
       used += encoder.encode(retained.text).length
-      sources.push({ path: name, digest: Digest.digest(result.text), text: retained.text, truncated: retained.truncated })
+      sources.push({
+        path: name,
+        digest: Digest.digest(result.text),
+        text: retained.text,
+        truncated: retained.truncated
+      })
     }
     return { sources, missing }
   })

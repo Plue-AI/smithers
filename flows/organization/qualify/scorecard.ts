@@ -63,17 +63,27 @@ export const reasonsOf = (attempts: ReadonlyArray<Scored>): ReadonlyArray<string
 export const render = (card: Scorecard): string => {
   const passed = card.scored.filter((attempt) => attempt.reasons.length === 0).length
   const hosted = card.scored.filter(blockedByHost).length
-  const byRole = group([...card.scored].sort((left, right) => left.principal < right.principal ? -1 : 1), (attempt) => attempt.principal)
-  const byCase = group([...card.scored].sort((left, right) => left.caseId < right.caseId ? -1 : 1), (attempt) => attempt.caseId)
+  const byRole = group(
+    [...card.scored].sort((left, right) => left.principal < right.principal ? -1 : 1),
+    (attempt) => attempt.principal
+  )
+  const byCase = group(
+    [...card.scored].sort((left, right) => left.caseId < right.caseId ? -1 : 1),
+    (attempt) => attempt.caseId
+  )
   const lines = [
     `# Qualification ${card.date}`,
     "",
-    `${passed}/${card.scored.length} attempts passed (${percent(passed, card.scored.length)}); ${hosted} stopped by the host, not the role; ${byCase.size} cases × ${card.runs}${
+    `${passed}/${card.scored.length} attempts passed (${
+      percent(passed, card.scored.length)
+    }); ${hosted} stopped by the host, not the role; ${byCase.size} cases × ${card.runs}${
       card.deliveryRuns === undefined || card.deliveryRuns === card.runs ? "" : ` (deliveries × ${card.deliveryRuns})`
     }; ${card.pending.length} pending; ${card.invalid.length} invalid.`,
     "",
     ...(card.graded === undefined ? [] : [
-      `Graded: wiki ${card.graded.wiki ?? "not a git checkout"}, roster ${card.graded.roster.slice(0, 12)}, cases ${card.graded.cases.slice(0, 12)}.`,
+      `Graded: wiki ${card.graded.wiki ?? "not a git checkout"}, roster ${card.graded.roster.slice(0, 12)}, cases ${
+        card.graded.cases.slice(0, 12)
+      }.`,
       ""
     ]),
     "| Role | Seat | Passed | Rate | Host stops |",

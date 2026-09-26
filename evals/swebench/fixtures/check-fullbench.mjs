@@ -22,12 +22,12 @@
  */
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { renderCheckpoint, renderReport, summarise, wilson } from "../fullbench-report.mjs"
 import { isDone, read } from "../lib/fullbench-manifest.mjs"
 import { drawOrder } from "../lib/fullbench-queue.mjs"
-import { renderCheckpoint, renderReport, summarise, wilson } from "../fullbench-report.mjs"
 import { PINNED } from "../lib/sample.mjs"
 
 const root = resolve(import.meta.dirname, "..")
@@ -39,7 +39,21 @@ const HOUR = 3600_000
 
 try {
   // Run the real worker in a copied rig so its shared-root paths stay isolated.
-  for (const mode of ["patch-fail", "untracked-fail", "timings-fail", "log-fail", "journal-fail", "interrupted-copy", "corrupt", "journal-corrupt", "link-fail", "publish-fail", "success"]) {
+  for (
+    const mode of [
+      "patch-fail",
+      "untracked-fail",
+      "timings-fail",
+      "log-fail",
+      "journal-fail",
+      "interrupted-copy",
+      "corrupt",
+      "journal-corrupt",
+      "link-fail",
+      "publish-fail",
+      "success"
+    ]
+  ) {
     const rig = join(temporary, mode)
     const bin = join(rig, "bin")
     const fb = join(rig, "fullbench")
@@ -48,7 +62,9 @@ try {
     cpSync(join(root, "lib"), join(rig, "lib"), { recursive: true })
     const script = (name, body) => writeFileSync(join(bin, name), `#!/bin/bash\nset -eu\n${body}\n`, { mode: 0o755 })
     script("docker", "exit 0")
-    script("run", `
+    script(
+      "run",
+      `
 S="$RIG"
 eval "$("$S/lib/run-paths.sh" flows "$1" "$4")"
 mkdir -p "$PATCH_ROOT" "$JOURNAL/nested" "$TIMINGS_ROOT" "$LOG_ROOT"
@@ -62,9 +78,12 @@ printf 'run log' > "$LOG_PREFIX.run.log"
 if [ "$ARCHIVE_MODE" = patch-fail ]; then
   printf '{"kind":"instance","id":"torn' >> "$FB_DIR/manifest.jsonl"
 fi
-`)
-    script("grade", 'touch "$RIG/graded"')
-    script("cp", `
+`
+    )
+    script("grade", "touch \"$RIG/graded\"")
+    script(
+      "cp",
+      `
 case "$ARCHIVE_MODE" in
   patch-fail) exit 1 ;;
   interrupted-copy) kill -TERM $$ ;;
@@ -82,24 +101,37 @@ if [ "$ARCHIVE_MODE" = journal-corrupt ]; then
   for last; do :; done
   if [ -d "$last" ]; then printf 'fake journal' > "$last/engine.db"; fi
 fi
-`)
-    script("ln", 'if [ "$ARCHIVE_MODE" = link-fail ]; then exit 1; fi\n/bin/ln "$@"')
-    script("mv", `
+`
+    )
+    script("ln", "if [ \"$ARCHIVE_MODE\" = link-fail ]; then exit 1; fi\n/bin/ln \"$@\"")
+    script(
+      "mv",
+      `
 test ! -e "$FB_DIR/patches/archive__1.patch"
 test ! -e "$FB_DIR/journals/archive__1"
 test -f "$RIG/patches/archive__1-r90.patch"
 test -f "$RIG/journals/archive__1-r90/engine.db"
 if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
 /bin/mv "$@"
-`)
+`
+    )
     const env = {
-      ...process.env, PATH: `${bin}:${process.env.PATH}`, RIG: rig, ARCHIVE_MODE: mode,
-      FB_DIR: fb, SWB_RUN_CMD: join(bin, "run"), SWB_GRADE_CMD: join(bin, "grade"),
-      SWB_DISK_FREE_MIB: "999999", SWB_FULLBENCH_INDEX: "r90",
-      SWB_FULLBENCH_PINNED: id, SWB_EVAL_LOG_ROOT: join(rig, "eval-logs")
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      RIG: rig,
+      ARCHIVE_MODE: mode,
+      FB_DIR: fb,
+      SWB_RUN_CMD: join(bin, "run"),
+      SWB_GRADE_CMD: join(bin, "grade"),
+      SWB_DISK_FREE_MIB: "999999",
+      SWB_FULLBENCH_INDEX: "r90",
+      SWB_FULLBENCH_PINNED: id,
+      SWB_EVAL_LOG_ROOT: join(rig, "eval-logs")
     }
     const worker = spawnSync("bash", [join(rig, "lib", "fullbench-instance.sh"), id], {
-      env, encoding: "utf8", timeout: 30_000
+      env,
+      encoding: "utf8",
+      timeout: 30_000
     })
     assert.ifError(worker.error)
     const patch = join(rig, "patches", `${id}-r90.patch`)
@@ -111,7 +143,7 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
       assert.equal(existsSync(journal), false)
       assert.equal(readFileSync(join(fb, "patches", `${id}.patch`), "utf8"), "paid patch")
       assert.equal(readFileSync(join(fb, "patches", `${id}.patch.untracked`), "utf8"), "untracked")
-      assert.equal(readFileSync(join(fb, "timings", `${id}.json`), "utf8"), '{"hostShell":"allowed"}')
+      assert.equal(readFileSync(join(fb, "timings", `${id}.json`), "utf8"), "{\"hostShell\":\"allowed\"}")
       assert.equal(readFileSync(join(fb, "logs", `${id}.run.log`), "utf8"), "run log")
       // The host-shell condition travels off the timings into the ledger row,
       // beside testbedNetwork, so a report reads it rather than assumes it.
@@ -119,7 +151,9 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
         .map((line) => JSON.parse(line)).find((row) => row.kind === "instance" && row.state === "ran")
       assert.equal(ran.hostShell, "allowed", "the ran row records the flows arm's host shell")
       assert.equal(ran.testbedNetwork, "none")
-      for (const [file, content] of [["engine.db", "paid journal"], [".metadata", "hidden"], ["nested/frame", "nested"]]) {
+      for (
+        const [file, content] of [["engine.db", "paid journal"], [".metadata", "hidden"], ["nested/frame", "nested"]]
+      ) {
         assert.equal(readFileSync(join(fb, "journals", id, file), "utf8"), content)
       }
       assert.equal(existsSync(join(rig, "graded")), true)
@@ -129,7 +163,7 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
       assert.equal(readFileSync(patch, "utf8"), "paid patch", `${mode}: patch survives`)
       assert.equal(readFileSync(join(journal, "engine.db"), "utf8"), "paid journal", `${mode}: journal survives`)
       assert.equal(readFileSync(`${patch}.untracked`, "utf8"), "untracked")
-      assert.equal(readFileSync(join(rig, "timings", `${id}-r90.json`), "utf8"), '{"hostShell":"allowed"}')
+      assert.equal(readFileSync(join(rig, "timings", `${id}-r90.json`), "utf8"), "{\"hostShell\":\"allowed\"}")
       assert.equal(readFileSync(join(rig, "logs-agent", `${id}-r90.run.log`), "utf8"), "run log")
       assert.equal(existsSync(join(fb, "patches", `${id}.patch`)), false)
       assert.equal(existsSync(join(fb, "journals", id)), false)
@@ -142,21 +176,29 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
       assert.deepEqual(readdirSync(join(fb, "journals")), [], "no dangling journal link is left")
 
       if (mode === "patch-fail") {
-        assert.equal(read(join(fb, "manifest.jsonl")).malformed.length, 1,
-          "the failed row survives appending after a torn tail (fixed before review)")
+        assert.equal(
+          read(join(fb, "manifest.jsonl")).malformed.length,
+          1,
+          "the failed row survives appending after a torn tail (fixed before review)"
+        )
         // The next attempt must archive these bytes before its purge overwrites
         // them. Different contents distinguish recovery from the fresh attempt.
         writeFileSync(patch, "earlier paid patch")
         writeFileSync(join(journal, "engine.db"), "earlier paid journal")
         const retry = spawnSync("bash", [join(rig, "lib", "fullbench-instance.sh"), id], {
-          env: { ...env, ARCHIVE_MODE: "success" }, encoding: "utf8", timeout: 30_000
+          env: { ...env, ARCHIVE_MODE: "success" },
+          encoding: "utf8",
+          timeout: 30_000
         })
         assert.ifError(retry.error)
         assert.equal(retry.status, 0, retry.stderr)
         const recovered = readdirSync(join(fb, "archives")).filter((name) => name.startsWith(`${id}.recovered-`))
         assert.equal(recovered.length, 1)
         assert.equal(readFileSync(join(fb, "archives", recovered[0], "patch"), "utf8"), "earlier paid patch")
-        assert.equal(readFileSync(join(fb, "archives", recovered[0], "journal", "engine.db"), "utf8"), "earlier paid journal")
+        assert.equal(
+          readFileSync(join(fb, "archives", recovered[0], "journal", "engine.db"), "utf8"),
+          "earlier paid journal"
+        )
         assert.equal(readFileSync(join(fb, "patches", `${id}.patch`), "utf8"), "paid patch")
       }
     }
@@ -293,10 +335,24 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
       [
         JSON.stringify({ kind: "header", at: NOW, subject: "s1", jobs: 2, budgetUsd: 600 }),
         JSON.stringify({ kind: "instance", id: "a__1", state: "pulled", at: NOW }),
-        JSON.stringify({ kind: "instance", id: "a__1", state: "ran", at: NOW + 1, wallSeconds: 900, cost: { usd: 1.5, usage } }),
+        JSON.stringify({
+          kind: "instance",
+          id: "a__1",
+          state: "ran",
+          at: NOW + 1,
+          wallSeconds: 900,
+          cost: { usd: 1.5, usage }
+        }),
         // The crash, and the attempt that replaced it.
         JSON.stringify({ kind: "instance", id: "a__1", state: "pulled", at: NOW + 2 }),
-        JSON.stringify({ kind: "instance", id: "a__1", state: "ran", at: NOW + 3, wallSeconds: 900, cost: { usd: 2, usage } }),
+        JSON.stringify({
+          kind: "instance",
+          id: "a__1",
+          state: "ran",
+          at: NOW + 3,
+          wallSeconds: 900,
+          cost: { usd: 2, usage }
+        }),
         JSON.stringify({ kind: "instance", id: "a__1", state: "graded", at: NOW + 4, verdict: "resolved" }),
         JSON.stringify({ kind: "instance", id: "a__1", state: "cleaned", at: NOW + 5 })
       ].join("\n")
@@ -340,8 +396,20 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
         JSON.stringify({ kind: "instance", id: "a__2", state: "graded", at: NOW + 2, verdict: "unresolved" }),
         // The pair the r92 report rules out by name: graded, and graded on the
         // environment rather than on a harness.
-        JSON.stringify({ kind: "instance", id: "psf__requests-1766", state: "graded", at: NOW + 3, verdict: "unresolved" }),
-        JSON.stringify({ kind: "instance", id: "psf__requests-2317", state: "graded", at: NOW + 4, verdict: "unresolved" })
+        JSON.stringify({
+          kind: "instance",
+          id: "psf__requests-1766",
+          state: "graded",
+          at: NOW + 3,
+          verdict: "unresolved"
+        }),
+        JSON.stringify({
+          kind: "instance",
+          id: "psf__requests-2317",
+          state: "graded",
+          at: NOW + 4,
+          verdict: "unresolved"
+        })
       ].join("\n")
     }\n`
   )
@@ -389,8 +457,22 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
       [
         // Killed between the verdict and the `docker rmi`: done as far as
         // resume is concerned, so nothing ever looks at its image again.
-        JSON.stringify({ kind: "instance", id: "u__1", state: "graded", at: NOW, verdict: "resolved", image: "img/u1:latest" }),
-        JSON.stringify({ kind: "instance", id: "u__2", state: "cleaned", at: NOW, verdict: "unresolved", image: "img/u2:latest" }),
+        JSON.stringify({
+          kind: "instance",
+          id: "u__1",
+          state: "graded",
+          at: NOW,
+          verdict: "resolved",
+          image: "img/u1:latest"
+        }),
+        JSON.stringify({
+          kind: "instance",
+          id: "u__2",
+          state: "cleaned",
+          at: NOW,
+          verdict: "unresolved",
+          image: "img/u2:latest"
+        }),
         // Interrupted before its verdict: the queue re-runs it, so its own
         // purge deals with the image and this sweep must leave it alone.
         JSON.stringify({ kind: "instance", id: "u__3", state: "ran", at: NOW, image: "img/u3:latest" })
@@ -474,8 +556,24 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
     sessionsPath,
     `${
       [
-        JSON.stringify({ kind: "header", at: NOW, subject: "sha256:aaa", subjectSource: "preflight", head: "h1", jobs: 2, budgetUsd: 600 }),
-        JSON.stringify({ kind: "header", at: NOW + HOUR, subject: "sha256:aaa", subjectSource: "adopted", head: "h2", jobs: 3, budgetUsd: 900 })
+        JSON.stringify({
+          kind: "header",
+          at: NOW,
+          subject: "sha256:aaa",
+          subjectSource: "preflight",
+          head: "h1",
+          jobs: 2,
+          budgetUsd: 600
+        }),
+        JSON.stringify({
+          kind: "header",
+          at: NOW + HOUR,
+          subject: "sha256:aaa",
+          subjectSource: "adopted",
+          head: "h2",
+          jobs: 3,
+          budgetUsd: 900
+        })
       ].join("\n")
     }\n`
   )
@@ -504,7 +602,10 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
     { encoding: "utf8" }
   )
   assert.deepEqual(JSON.parse(rowOut.stdout), { kind: "header", budgetUsd: 0.5, jobs: 2, id: "a__1" })
-  assert.match(renderReport({ ...twoSessions, header: { ...twoSessions.header, budgetUsd: "0.50" } }), /\| cost budget \| \$0\.50 \|/)
+  assert.match(
+    renderReport({ ...twoSessions, header: { ...twoSessions.header, budgetUsd: "0.50" } }),
+    /\| cost budget \| \$0\.50 \|/
+  )
 
   const moved = summarise({ manifest: sessionsPath, now: NOW + 2 * HOUR, total: 4 })
   assert.match(moved.subjectAgreement, /^MISMATCH: 1 of 2 sessions ran a different subject \(sha256:bbb\)/)
@@ -581,16 +682,52 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
     rows.push(JSON.stringify({ kind: "instance", id: ids[index], state: "graded", at: at + 120_000, verdict }))
     rows.push(JSON.stringify({ kind: "instance", id: ids[index], state: "cleaned", at: at + 130_000 }))
   }
-  rows.push(JSON.stringify({ kind: "instance", id: ids[25], state: "failed", at: NOW + 26 * HOUR, reason: "docker pull failed" }))
-  rows.push(JSON.stringify({ kind: "instance", id: ids[26], state: "ran", at: NOW + 27 * HOUR, patchBytes: 10, wallSeconds: 100 }))
+  rows.push(
+    JSON.stringify({
+      kind: "instance",
+      id: ids[25],
+      state: "failed",
+      at: NOW + 26 * HOUR,
+      reason: "docker pull failed"
+    })
+  )
+  rows.push(
+    JSON.stringify({
+      kind: "instance",
+      id: ids[26],
+      state: "ran",
+      at: NOW + 27 * HOUR,
+      patchBytes: 10,
+      wallSeconds: 100
+    })
+  )
   rows.push(JSON.stringify({ kind: "note", at: NOW + 27 * HOUR, note: "head-moved", from: "abc1234", to: "def5678" }))
   writeFileSync(manifestPath, `${rows.join("\n")}\n`)
-  writeFileSync(join(out, "waits.jsonl"), `${
-    [
-      JSON.stringify({ kind: "wait", id: ids[3], phase: "pull", at: NOW, freeMiB: 5000, neededMiB: 8192, waitedSeconds: 0 }),
-      JSON.stringify({ kind: "wait", id: ids[3], phase: "pull", at: NOW + 60_000, freeMiB: 6000, neededMiB: 8192, waitedSeconds: 60 })
-    ].join("\n")
-  }\n`)
+  writeFileSync(
+    join(out, "waits.jsonl"),
+    `${
+      [
+        JSON.stringify({
+          kind: "wait",
+          id: ids[3],
+          phase: "pull",
+          at: NOW,
+          freeMiB: 5000,
+          neededMiB: 8192,
+          waitedSeconds: 0
+        }),
+        JSON.stringify({
+          kind: "wait",
+          id: ids[3],
+          phase: "pull",
+          at: NOW + 60_000,
+          freeMiB: 6000,
+          neededMiB: 8192,
+          waitedSeconds: 60
+        })
+      ].join("\n")
+    }\n`
+  )
 
   const summary = summarise({
     manifest: manifestPath,
@@ -699,8 +836,7 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
   // -----------------------------------------------------------------------
   // The command line: --checkpoint appends, --spend-cents adds up
   // -----------------------------------------------------------------------
-  const run = (args) =>
-    spawnSync("node", [join(root, "fullbench-report.mjs"), ...args], { encoding: "utf8" })
+  const run = (args) => spawnSync("node", [join(root, "fullbench-report.mjs"), ...args], { encoding: "utf8" })
 
   const spend = run(["--spend-cents", "--manifest", manifestPath])
   assert.equal(spend.status, 0, spend.stderr)
@@ -747,4 +883,6 @@ if [ "$ARCHIVE_MODE" = publish-fail ]; then exit 1; fi
   rmSync(temporary, { recursive: true, force: true })
 }
 
-console.log("check-fullbench.mjs: 11 archive scenarios and retry recovery pass; the ledger folds, the queue resumes, and the report adds up.")
+console.log(
+  "check-fullbench.mjs: 11 archive scenarios and retry recovery pass; the ledger folds, the queue resumes, and the report adds up."
+)

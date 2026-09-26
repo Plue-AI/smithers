@@ -86,7 +86,9 @@ const round = (
                 round: n,
                 work
               }).pipe(
-                Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => fieldTurn(revision, stage, ["verdict"]))),
+                Node.bindPlanned(
+                  Node.capture({ implementationVersion }, (stage) => fieldTurn(revision, stage, ["verdict"]))
+                ),
                 Node.bindPlanned(Node.capture({ implementationVersion }, (review) =>
                   Judge.call({ work, review }).pipe(
                     Node.branch({
@@ -119,22 +121,25 @@ const round = (
 /** The report of a delegation a step failure ended: a refused principal, a failed turn. */
 const failed = (payload: Payload, failure: unknown): Node.Node<StaffReport, any, any> =>
   Describe.call({ failure: failure as Planned.Planned<typeof StepFailure.Type> }).pipe(
-    Node.map(Node.capture({ implementationVersion, key: payload.key, principal: payload.specialist }, function(described) {
-      return {
-        key: this.key,
-        status: "refused",
-        summary: `${described.code}: ${described.message}`,
-        principal: this.principal,
-        paths: []
-      }
-    }))
+    Node.map(
+      Node.capture({ implementationVersion, key: payload.key, principal: payload.specialist }, function(described) {
+        return {
+          key: this.key,
+          status: "refused",
+          summary: `${described.code}: ${described.message}`,
+          principal: this.principal,
+          paths: []
+        }
+      })
+    )
   )
 
 /** The receipt and the run's ending, for any report. */
 export const finish = (key: string, name: string, request: unknown, outcome: Planned.Planned<StaffReport>) =>
   Actions.WriteReceipt.call({ runId: key, name, receipt: { request, report: outcome } as never }).pipe(
-    Node.bindPlanned(Node.capture({ implementationVersion }, (written) =>
-      SettleStaff.call({ report: outcome, receipt: written.path })))
+    Node.bindPlanned(
+      Node.capture({ implementationVersion }, (written) => SettleStaff.call({ report: outcome, receipt: written.path }))
+    )
   )
 
 /** Delegate one task to a hire, and review it. */
@@ -152,7 +157,8 @@ export default Flow.make("organization/delegate", {
     Actions.PinRoster.call({}).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (pin) => round(payload, pin.revision, 1, []))),
       Node.catch({ onFailure: Node.capture({ implementationVersion }, (failure) => failed(payload, failure)) }),
-      Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-        finish(payload.key, "delegate", payload, outcome)))
+      Node.bindPlanned(
+        Node.capture({ implementationVersion }, (outcome) => finish(payload.key, "delegate", payload, outcome))
+      )
     )
 })

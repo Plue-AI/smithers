@@ -30,14 +30,15 @@ it("appends private redacted diagnostics without losing earlier failures", () =>
   }
 })
 
-
 it("records renderer errors while retaining the renderer console sink", () => {
   const previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
   const previousError = console.error
   const root = mkdtempSync(join(tmpdir(), "tui-render-log-"))
   process.env.SMITHERS_TUI_SESSION_DIR = root
   const captured: unknown[][] = []
-  console.error = (...values) => { captured.push(values) }
+  console.error = (...values) => {
+    captured.push(values)
+  }
   const uninstall = Log.install()
   try {
     console.error(new Error("render failed"))

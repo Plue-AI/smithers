@@ -1,20 +1,20 @@
+import * as Target from "@smthrs/targets/Target"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { readdir } from "node:fs/promises"
-import { fileURLToPath } from "node:url"
 import { test } from "node:test"
-import * as Target from "@smthrs/targets/Target"
+import { fileURLToPath } from "node:url"
 import { workspacePackages } from "../../scripts/workspace-packages.mjs"
 import { Package } from "../PACKAGE.ts"
 import { bunNativeTests, nativeTests } from "./coding-native-gate.mjs"
 
 test("coding gates track source-only groups at every Smithers package boundary", () => {
   const metadata = Target.metadata(Package.codingPolicy)
-  const groups = metadata.dependencies.map(Target.metadata).filter(member => member.target === "Filegroup")
-  const backend = groups.filter(member => (member.attrs as { cwd: string }).cwd.startsWith("packages/smithers"))
-  const actual = backend.map(member => (member.attrs as { cwd: string }).cwd).sort()
-  const expected = workspacePackages().map(member => member.dir)
-    .filter(dir => dir === "packages/smithers" || dir.startsWith("packages/smithers/")).sort()
+  const groups = metadata.dependencies.map(Target.metadata).filter((member) => member.target === "Filegroup")
+  const backend = groups.filter((member) => (member.attrs as { cwd: string }).cwd.startsWith("packages/smithers"))
+  const actual = backend.map((member) => (member.attrs as { cwd: string }).cwd).sort()
+  const expected = workspacePackages().map((member) => member.dir)
+    .filter((dir) => dir === "packages/smithers" || dir.startsWith("packages/smithers/")).sort()
   assert.deepEqual(actual, expected)
   for (const group of backend) {
     assert.equal(group.dependencies.length, 0, "source groups must not trigger package builds")
@@ -24,7 +24,7 @@ test("coding gates track source-only groups at every Smithers package boundary",
       { _tag: "File", path: "tsconfig.json" }
     ])
   }
-  assert.ok(metadata.inputs.some(input => input._tag === "PnpmWorkspace" && input.path === "//pnpm-workspace.yaml"))
+  assert.ok(metadata.inputs.some((input) => input._tag === "PnpmWorkspace" && input.path === "//pnpm-workspace.yaml"))
 })
 
 // A rebased stack replays these verdicts, so their declarations must name what
@@ -33,8 +33,10 @@ test("the fast coding checks replay unchanged verdicts over their declared input
   for (const target of [Package.codingPolicy, Package.codingRuntime]) {
     const metadata = Target.metadata(target)
     assert.equal(metadata.cacheable, true)
-    assert.ok(metadata.inputs.some(input => input._tag === "File" && input.path === "//.smithers/coding-project.json"))
-    assert.ok(metadata.inputs.some(input => input._tag === "File" && input.path === "//pnpm-lock.yaml"))
+    assert.ok(
+      metadata.inputs.some((input) => input._tag === "File" && input.path === "//.smithers/coding-project.json")
+    )
+    assert.ok(metadata.inputs.some((input) => input._tag === "File" && input.path === "//pnpm-lock.yaml"))
   }
 })
 
@@ -45,20 +47,33 @@ test("the fast coding checks replay unchanged verdicts over their declared input
 // read from the declarations, never from PACKAGE.ts source text, so a target
 // that builds its file list stays visible here.
 test("every flows fixture belongs to a declared gate; native targets stay separate and uncached", async () => {
-  const actual = (await readdir(fileURLToPath(new URL("./", import.meta.url)))).filter(name => /\.test\.(?:ts|mjs)$/.test(name))
-  const ordinary = Object.values(Package).filter(target => Target.metadata(target).target === "NodeTest")
-    .flatMap(target => (Target.metadata(target).attrs as { runner: { tests?: ReadonlyArray<{ path: string }> } }).runner.tests ?? [])
-    .map(file => file.path.split("/").at(-1)!).filter(name => actual.includes(name))
+  const actual = (await readdir(fileURLToPath(new URL("./", import.meta.url)))).filter((name) =>
+    /\.test\.(?:ts|mjs)$/.test(name)
+  )
+  const ordinary = Object.values(Package).filter((target) => Target.metadata(target).target === "NodeTest")
+    .flatMap((target) =>
+      (Target.metadata(target).attrs as { runner: { tests?: ReadonlyArray<{ path: string }> } }).runner.tests ?? []
+    )
+    .map((file) => file.path.split("/").at(-1)!).filter((name) => actual.includes(name))
   // Fixtures a second runtime re-runs, and the two the native gate also owns:
   // `//flows:repository` runs the cases that need no Plue tool, and the gate
   // runs the whole file under the prerequisites the rest of it requires.
   const twice = ordinary.filter((name, index) => ordinary.indexOf(name) !== index).sort()
-  assert.deepEqual([...new Set(twice)], ["coding-host-policy.test.ts", "coding-landing-config.test.ts",
-    "coding-landing.test.ts", "coding-project-config.test.ts", "coding-source-publication.test.ts",
-    "coding-vibe-admission.test.ts", "coding-vibe-evidence.test.ts", "coding-vibe-landing.test.ts",
-    "coding-wiki-registry.test.ts"], "a fixture in two ordinary targets is a declared runtime pair")
-  assert.deepEqual([...new Set(ordinary)].filter(name => nativeTests.includes(name)).sort(),
-    ["repository-check-context.test.ts", "repository-checks.test.ts"], "dual ownership is declared, not accidental")
+  assert.deepEqual([...new Set(twice)], [
+    "coding-host-policy.test.ts",
+    "coding-landing-config.test.ts",
+    "coding-landing.test.ts",
+    "coding-project-config.test.ts",
+    "coding-source-publication.test.ts",
+    "coding-vibe-admission.test.ts",
+    "coding-vibe-evidence.test.ts",
+    "coding-vibe-landing.test.ts",
+    "coding-wiki-registry.test.ts"
+  ], "a fixture in two ordinary targets is a declared runtime pair")
+  assert.deepEqual([...new Set(ordinary)].filter((name) => nativeTests.includes(name)).sort(), [
+    "repository-check-context.test.ts",
+    "repository-checks.test.ts"
+  ], "dual ownership is declared, not accidental")
   assert.deepEqual([...new Set([...ordinary, ...nativeTests])].sort(), actual.sort())
   for (const target of [Package.codingNative, Package.codingNativeBun, Package.codingBundle, Package.codingBundleBun]) {
     const metadata = Target.metadata(target), attrs = metadata.attrs as { timeout: string; args: string[] }
@@ -73,14 +88,21 @@ test("every flows fixture belongs to a declared gate; native targets stay separa
 
 test("native gate refuses absent prerequisites before an opt-in fixture can skip", () => {
   const result = spawnSync(process.execPath, [fileURLToPath(new URL("./coding-native-gate.mjs", import.meta.url))], {
-    encoding: "utf8", timeout: 15_000, env: { PATH: process.env.PATH,
-      SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: "/smithers-acceptance-does-not-exist/helper" }
+    encoding: "utf8",
+    timeout: 15_000,
+    env: { PATH: process.env.PATH, SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: "/smithers-acceptance-does-not-exist/helper" }
   })
   assert.equal(result.status, 1, result.stderr)
   assert.match(result.stderr, /Native coding prerequisite is missing/)
   assert.doesNotMatch(result.stdout, /Native coding gate:/)
-  const unlisted = spawnSync(process.execPath, [fileURLToPath(new URL("./coding-native-gate.mjs", import.meta.url)), "source", "../unlisted.ts"], {
-    encoding: "utf8", timeout: 15_000, env: { PATH: process.env.PATH }
+  const unlisted = spawnSync(process.execPath, [
+    fileURLToPath(new URL("./coding-native-gate.mjs", import.meta.url)),
+    "source",
+    "../unlisted.ts"
+  ], {
+    encoding: "utf8",
+    timeout: 15_000,
+    env: { PATH: process.env.PATH }
   })
   assert.equal(unlisted.status, 1, unlisted.stderr)
   assert.match(unlisted.stderr, /Select an existing source fixture/)

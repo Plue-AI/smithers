@@ -16,13 +16,16 @@ const readReplay = (directory: string): string => {
   const file = join(directory, "read.jsonl")
   const delta = (value: object) => JSON.stringify({ at: 0, event: { _tag: "model-delta", delta: value } })
   const cell = `const r = await ctx.call("read", { path: ${path} }); ctx.done(JSON.stringify(r))`
-  writeFileSync(file, [
-    JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
-    delta({ type: "text-start", id: "cell" }),
-    delta({ type: "text-delta", id: "cell", text: `\`\`\`cell\n${cell}\n\`\`\`` }),
-    delta({ type: "text-end", id: "cell" }),
-    JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
-  ].join("\n"))
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ at: 0, event: { _tag: "model-requested" } }),
+      delta({ type: "text-start", id: "cell" }),
+      delta({ type: "text-delta", id: "cell", text: `\`\`\`cell\n${cell}\n\`\`\`` }),
+      delta({ type: "text-end", id: "cell" }),
+      JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
+    ].join("\n")
+  )
   return file
 }
 
@@ -34,7 +37,13 @@ describe("Host.run between-turn reads (#1948)", () => {
     const host = Host.make({ cwd, environment: {}, approvals: "all" })
     const seat = `replay:${readReplay(cwd)}`
     const answer = async () => {
-      const outcome = await host.run({ prompt: "read", seat, history: [], onEvent: () => {}, ...(role === undefined ? {} : { role }) }).done
+      const outcome = await host.run({
+        prompt: "read",
+        seat,
+        history: [],
+        onEvent: () => {},
+        ...(role === undefined ? {} : { role })
+      }).done
       if (outcome._tag !== "done") throw new Error(JSON.stringify(outcome))
       return outcome.answer
     }
@@ -72,13 +81,19 @@ describe("Host.run between-turn reads (#1948)", () => {
     const file = readReplay(cwd)
     const recorded = readFileSync(file, "utf8")
     // First frame observes; the next frame answers using the same read input.
-    writeFileSync(file, recorded.replace("ctx.done(JSON.stringify(r))", "console.log(JSON.stringify(r))") + "\n" + recorded)
+    writeFileSync(
+      file,
+      recorded.replace("ctx.done(JSON.stringify(r))", "console.log(JSON.stringify(r))") + "\n" + recorded
+    )
     const host = Host.make({ cwd, environment: {}, approvals: "all" })
     let requests = 0
     const mutations: boolean[] = []
     try {
       const outcome = await host.run({
-        prompt: "Read the current status", seat: `replay:${file}`, history: [], role: "worker",
+        prompt: "Read the current status",
+        seat: `replay:${file}`,
+        history: [],
+        role: "worker",
         onEvent: (event) => {
           if (event._tag === "model-requested" && ++requests === 2) {
             writeFileSync(join(cwd, "check-status.txt"), "changed by another worker")

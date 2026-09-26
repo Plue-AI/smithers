@@ -192,7 +192,9 @@ export const ensure = (options: Pick<Options, "stateDir" | "environment">, log: 
       update(options.stateDir, (state) => {
         state.fallback = reason
       })
-      log(`team channel off (${reason}); the wiki log is the channel until the app is reinstalled from the updated manifest`)
+      log(
+        `team channel off (${reason}); the wiki log is the channel until the app is reinstalled from the updated manifest`
+      )
       return undefined
     }
     const id = found.success
@@ -242,8 +244,13 @@ const refsOf = (entry: Post): ReadonlyArray<Links.Ref> => [
 ]
 
 /** The role ids a post names as `@<id>`. */
-export const mentionsOf = (text: string): ReadonlyArray<string> =>
-  [...new Set([...text.matchAll(/(?:^|[\s(])@([a-z][a-z0-9-]{0,62}(?:\.[a-z][a-z0-9-]{0,62}){0,3})\b/g)].map((match) => match[1]!))]
+export const mentionsOf = (
+  text: string
+): ReadonlyArray<string> => [
+  ...new Set(
+    [...text.matchAll(/(?:^|[\s(])@([a-z][a-z0-9-]{0,62}(?:\.[a-z][a-z0-9-]{0,62}){0,3})\b/g)].map((match) => match[1]!)
+  )
+]
 
 /** No two posts at once in one process: a new thread's parent is recorded before its first reply goes out. */
 const lock = Semaphore.makeUnsafe(1)
@@ -308,12 +315,24 @@ export const post = (options: Options, entry: Post) =>
     }
     update(options.stateDir, (current) => {
       current.posted = [...current.posted, key].slice(-5_000)
-      if (posted === "slack") current.mentioned = [...current.mentioned, ...tagged.map((user) => `${entry.thread}:${user}`)]
+      if (posted === "slack") {
+        current.mentioned = [
+          ...current.mentioned,
+          ...tagged.map((user) => `${entry.thread}:${user}`)
+        ]
+      }
       for (const role of asked) {
         const used = current.replies[entry.thread] ?? 0
         if (used >= maxReplies || depth >= maxReplies) break
         current.replies[entry.thread] = used + 1
-        current.pending.push({ key: `team-reply-${key.slice(0, 16)}-${role}`.slice(0, 128), thread: entry.thread, from: entry.role, to: role, text, depth: depth + 1 })
+        current.pending.push({
+          key: `team-reply-${key.slice(0, 16)}-${role}`.slice(0, 128),
+          thread: entry.thread,
+          from: entry.role,
+          to: role,
+          text,
+          depth: depth + 1
+        })
       }
     })
     return posted
@@ -334,7 +353,11 @@ export const threadOf = (stateDir: string, channel: string, ts: string): string 
 export const channelId = (stateDir: string): string | undefined => readState(stateDir).channel?.id
 
 /** The channel's last `limit` posts, in one thread when `thread` is given, as lines for a task's context. */
-export const recent = (options: Pick<Options, "root" | "teamDir">, thread?: string, limit = 40): ReadonlyArray<string> => {
+export const recent = (
+  options: Pick<Options, "root" | "teamDir">,
+  thread?: string,
+  limit = 40
+): ReadonlyArray<string> => {
   const target = resolve(options.root, channelPath(options))
   if (!existsSync(target)) return []
   return readFileSync(target, "utf8").split("\n")
@@ -351,10 +374,16 @@ export const history = (options: Options, thread: string, limit = 40) =>
   Effect.gen(function*() {
     const state = readState(options.stateDir)
     const parent = state.threads[thread]
-    if (!connected(options.environment) || state.channel === undefined || parent === undefined) return recent(options, thread, limit)
+    if (!connected(options.environment) || state.channel === undefined || parent === undefined) {
+      return recent(options, thread, limit)
+    }
     const slack = SlackClient.make({}, options.environment)
-    const read = yield* Effect.result(slack.call("conversations.replies", { channel: state.channel.id, ts: parent, limit }))
-    if (Result.isFailure(read)) return recent(options, thread, limit)
+    const read = yield* Effect.result(
+      slack.call("conversations.replies", { channel: state.channel.id, ts: parent, limit })
+    )
+    if (Result.isFailure(read)) {
+      return recent(options, thread, limit)
+    }
     const messages = (read.success["messages"] ?? []) as ReadonlyArray<Record<string, unknown>>
     return messages.slice(-limit).map((message) => {
       const who = typeof message["username"] === "string"
@@ -406,7 +435,9 @@ export const dispatcher = (
   Effect.promise(async () => {
     for (const reply of takePending(options.stateDir)) {
       if (!options.roles.has(reply.to)) continue
-      await start(reply).catch((error: unknown) => log(`team reply ${reply.key}: ${error instanceof Error ? error.message : String(error)}`))
+      await start(reply).catch((error: unknown) =>
+        log(`team reply ${reply.key}: ${error instanceof Error ? error.message : String(error)}`)
+      )
     }
   }).pipe(Effect.andThen(Effect.sleep("3 seconds")), Effect.forever)
 

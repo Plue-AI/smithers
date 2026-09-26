@@ -2,8 +2,11 @@
 import * as Subscriptions from "./subscriptions.ts"
 
 /** Every seat an organization page names that runs a model: its seats and a judge other than `none`. */
-export const modelSeats = (organization: { readonly seats: Readonly<Record<string, string>>; readonly judge: string }) =>
-  [...new Set([...Object.values(organization.seats), ...(organization.judge === "none" ? [] : [organization.judge])])]
+export const modelSeats = (
+  organization: { readonly seats: Readonly<Record<string, string>>; readonly judge: string }
+) => [
+  ...new Set([...Object.values(organization.seats), ...(organization.judge === "none" ? [] : [organization.judge])])
+]
 
 /** Slack bot scopes the one app asks for, matching the integrations Slack guide. */
 export const slackBotScopes = [
@@ -27,14 +30,24 @@ export const slackBotScopes = [
 export const slackBotEvents = ["app_mention", "message.channels", "message.im"] as const
 
 /** The scopes the team channel needs: find, create, join, and post in it under each role's name. */
-export const teamChannelScopes = ["channels:history", "channels:join", "channels:manage", "channels:read", "chat:write", "chat:write.customize", "chat:write.public"] as const
+export const teamChannelScopes = [
+  "channels:history",
+  "channels:join",
+  "channels:manage",
+  "channels:read",
+  "chat:write",
+  "chat:write.customize",
+  "chat:write.public"
+] as const
 
 /** The scope the owner's acknowledgements need: 👀, then ✅ or ❌, on the owner's message. */
 export const reactionScopes = ["reactions:write"] as const
 
 /** Slack's app-manifest YAML for one Socket Mode app with the App Home messages tab open. */
 export const slackManifest = (name: string): string => {
-  if (!/^[\w .-]{1,35}$/.test(name)) throw new Error("The Slack app name must be 1-35 letters, digits, spaces, dots or dashes")
+  if (!/^[\w .-]{1,35}$/.test(name)) {
+    throw new Error("The Slack app name must be 1-35 letters, digits, spaces, dots or dashes")
+  }
   return [
     "display_information:",
     `  name: ${name}`,

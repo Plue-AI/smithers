@@ -9,10 +9,10 @@
  * directory it never announced from says nothing about runs that failed
  * before, and announces every gate still waiting.
  */
+import { Effect } from "effect"
 import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { Effect } from "effect"
 import type { RunView } from "./client.ts"
 
 /** One thing to tell the owner. */
@@ -46,12 +46,17 @@ export const osascript = (notice: Notice): ReadonlyArray<string> => [
 /** Shows `notice` in macOS Notification Center. */
 export const macNotifier = (notice: Notice): void => {
   const shown = spawnSync("osascript", [...osascript(notice)], { encoding: "utf8", timeout: 10_000 })
-  if (shown.status !== 0) throw new Error(`osascript: ${(shown.stderr || shown.error?.message || "failed").trim().split("\n")[0]}`)
+  if (shown.status !== 0) {
+    throw new Error(`osascript: ${(shown.stderr || shown.error?.message || "failed").trim().split("\n")[0]}`)
+  }
 }
 
 /** Whether a host notifies on this Mac: not on other systems, not with Slack, and not when turned off. */
-export const enabled = (environment: Readonly<Record<string, string | undefined>>, slack: boolean, platform = process.platform) =>
-  platform === "darwin" && !slack && (environment.SMITHERS_ORG_NOTIFY ?? "on").toLowerCase() !== "off"
+export const enabled = (
+  environment: Readonly<Record<string, string | undefined>>,
+  slack: boolean,
+  platform = process.platform
+) => platform === "darwin" && !slack && (environment.SMITHERS_ORG_NOTIFY ?? "on").toLowerCase() !== "off"
 
 /** The most announced keys kept; older ones belong to runs long settled. */
 const kept = 2_000
@@ -72,7 +77,9 @@ export interface Options {
 export const check = async (options: Options): Promise<ReadonlyArray<Notice>> => {
   const file = join(options.stateDir, "notified.json")
   const first = !existsSync(file)
-  const seen: Array<string> = first ? [] : (JSON.parse(readFileSync(file, "utf8")) as { readonly keys: Array<string> }).keys
+  const seen: Array<string> = first
+    ? []
+    : (JSON.parse(readFileSync(file, "utf8")) as { readonly keys: Array<string> }).keys
   const known = new Set(seen)
   const fresh = notices(await options.runs()).filter((notice) => !known.has(notice.key))
   const told = first ? fresh.filter((notice) => notice.key.startsWith("gate:")) : fresh

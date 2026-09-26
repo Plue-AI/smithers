@@ -145,7 +145,11 @@ try {
   for (const set of Object.values(result.movement)) assert.ok(!set.includes(excludedId))
   assert.equal(result.totals.raw, 5)
   assert.equal(result.totals.scored, 4)
-  assert.equal(result.totals.netResolvedRaw, result.totals.netResolvedScored + 1, "the excluded row is in the raw count")
+  assert.equal(
+    result.totals.netResolvedRaw,
+    result.totals.netResolvedScored + 1,
+    "the excluded row is in the raw count"
+  )
 
   // The traces are counted rather than assumed.
   assert.equal(result.seal.transcriptsRead, 3)
@@ -157,7 +161,11 @@ try {
   // columns because they are separate findings.
   assert.equal(result.seal.instancesWithAttempts[0].breaches, 0)
   assert.deepEqual(result.seal.instancesWithBreaches.map((row) => row.id), ["c__c-3"])
-  assert.equal(result.seal.instancesWithBreaches[0].sealed, "resolved", "a breach carries the verdict it casts doubt on")
+  assert.equal(
+    result.seal.instancesWithBreaches[0].sealed,
+    "resolved",
+    "a breach carries the verdict it casts doubt on"
+  )
 
   // The web-search surface: zero over these traces, which is the claim a sealed
   // lane makes, and it is read off the transcripts rather than remembered.
@@ -165,21 +173,33 @@ try {
   assert.deepEqual(result.seal.instancesWithWebSearches, [])
 
   const markdown = render(result)
-  assert.match(markdown, /\*\*0 `web search:` lines across 3 transcripts\.\*\*/u, "the seal's second surface is counted")
+  assert.match(
+    markdown,
+    /\*\*0 `web search:` lines across 3 transcripts\.\*\*/u,
+    "the seal's second surface is counted"
+  )
   assert.match(markdown, /4 scored of 5 run/u, "both denominators are stated before any rate")
   assert.match(markdown, /lost with the seal\*\* \(1\): b__b-2/u)
   assert.match(markdown, /gained with the seal\*\* \(1\): c__c-3/u)
   assert.match(markdown, /d__d-4` — network: eval error/u, "a row one lane never graded is named")
   assert.match(markdown, /Excluded from the scoreboard, by name/u)
   assert.match(markdown, /Where the seal did not hold/u)
-  assert.match(markdown, /A verdict on this list is not a sealed verdict/u, "a breach is stated, not left to be inferred")
+  assert.match(
+    markdown,
+    /A verdict on this list is not a sealed verdict/u,
+    "a breach is stated, not left to be inferred"
+  )
   assert.match(markdown, /\| `c__c-3` \| resolved \| 1 \|/u)
-  assert.equal(markdown, render(compareLanes({
-    manifestPath: manifest,
-    netPath: net,
-    sealedPath: sealed,
-    logsDirectory: logs
-  })), "the same ledgers twice produce the same bytes")
+  assert.equal(
+    markdown,
+    render(compareLanes({
+      manifestPath: manifest,
+      netPath: net,
+      sealedPath: sealed,
+      logsDirectory: logs
+    })),
+    "the same ledgers twice produce the same bytes"
+  )
 
   // A lane whose search tool was live says so, names the runs, and says what it
   // costs their verdicts — the same treatment a breach gets, because it is the
@@ -237,8 +257,11 @@ try {
     if (entry.text !== undefined) writeFileSync(join(gateLogs, "a__a-1.run.log"), entry.text)
     for (const required of [undefined, "none"]) {
       const gated = compareLanes({
-        manifestPath: gateManifest, netPath: gateLedger, sealedPath: gateLedger,
-        logsDirectory: gateLogs, require: required
+        manifestPath: gateManifest,
+        netPath: gateLedger,
+        sealedPath: gateLedger,
+        logsDirectory: gateLogs,
+        require: required
       })
       const expected = entry.kind === undefined ? [] : [entry.kind]
       if (JSON.stringify(gated.seal.failures.map((failure) => failure.kind)) !== JSON.stringify(expected)) {
@@ -250,8 +273,17 @@ try {
     }
     const cli = spawnSync(process.execPath, [
       resolve(import.meta.dirname, "../compare-codex-lanes.mjs"),
-      "--manifest", gateManifest, "--net", gateLedger, "--sealed", gateLedger,
-      "--logs", gateLogs, "--require", "none", "--json"
+      "--manifest",
+      gateManifest,
+      "--net",
+      gateLedger,
+      "--sealed",
+      gateLedger,
+      "--logs",
+      gateLogs,
+      "--require",
+      "none",
+      "--json"
     ], { encoding: "utf8", timeout: 30_000 })
     if (cli.status !== (entry.kind === undefined ? 0 : 1)) {
       gateFailures.push(`${entry.name}: CLI exited ${cli.status}: ${cli.stderr}`)

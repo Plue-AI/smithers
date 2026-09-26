@@ -63,8 +63,7 @@ export interface Manifest {
   readonly entries: ReadonlyArray<Entry>
 }
 
-const skipped = (path: string) =>
-  path === "logs" || path.startsWith("logs/") || /-(wal|shm|journal)$/.test(path)
+const skipped = (path: string) => path === "logs" || path.startsWith("logs/") || /-(wal|shm|journal)$/.test(path)
 
 const isDatabase = (path: string) => path.endsWith(".db")
 
@@ -93,13 +92,19 @@ export const holders = (files: ReadonlyArray<string>): Array<number> => {
   const present = files.filter((file) => existsSync(file))
   if (present.length === 0) return []
   const result = spawnSync("lsof", ["-t", "--", ...present], { encoding: "utf8" })
-  if (result.error !== undefined) throw new Error(`lsof could not run, so whether a host holds the state is unknown: ${result.error.message}`)
+  if (result.error !== undefined) {
+    throw new Error(`lsof could not run, so whether a host holds the state is unknown: ${result.error.message}`)
+  }
   return [...new Set(result.stdout.split("\n").filter((line) => /^\d+$/.test(line)).map(Number))]
 }
 
 /** The SQLite databases under a state directory. */
 const databases = (stateDir: string) =>
-  existsSync(stateDir) ? walk(stateDir).filter((path) => isDatabase(path) && lstatSync(join(stateDir, path)).isFile()).map((path) => join(stateDir, path)) : []
+  existsSync(stateDir)
+    ? walk(stateDir).filter((path) => isDatabase(path) && lstatSync(join(stateDir, path)).isFile()).map((path) =>
+      join(stateDir, path)
+    )
+    : []
 
 /**
  * The git revision of the wiki root and whether its tree has changes. With
@@ -165,7 +170,13 @@ export const backup = async (stateDir: string, dest: string, now = new Date()): 
       copyFileSync(from, to)
     }
     chmodSync(to, mode)
-    entries.push({ path, kind: isDatabase(path) ? "sqlite" : "file", mode, bytes: lstatSync(to).size, sha256: sha256(to) })
+    entries.push({
+      path,
+      kind: isDatabase(path) ? "sqlite" : "file",
+      mode,
+      bytes: lstatSync(to).size,
+      sha256: sha256(to)
+    })
   }
   const env = withEnvFile({}, join(stateDir, ".env"))
   const installationFile = join(stateDir, "installation")
@@ -197,7 +208,11 @@ export const verify = (src: string): Manifest => {
       ? createHash("sha256").update(readlinkSync(path)).digest("hex")
       : sha256(path)
     if (digest !== entry.sha256) throw new Error(`${entry.path} does not match the manifest`)
-    if ((stat.mode & 0o7777) !== entry.mode && entry.kind !== "symlink") throw new Error(`${entry.path} has mode ${(stat.mode & 0o777).toString(8)}, not ${(entry.mode & 0o777).toString(8)}`)
+    if ((stat.mode & 0o7777) !== entry.mode && entry.kind !== "symlink") {
+      throw new Error(
+        `${entry.path} has mode ${(stat.mode & 0o777).toString(8)}, not ${(entry.mode & 0o777).toString(8)}`
+      )
+    }
   }
   return manifest
 }
@@ -219,10 +234,14 @@ export const restore = (
 ): { readonly manifest: Manifest; readonly replaced: string | undefined } => {
   const manifest = verify(src)
   if (manifest.source !== stateDir && options.relocate !== true) {
-    throw new Error(`the backup is of ${manifest.source}; parked runs resume only there. Pass --relocate to restore to ${stateDir} anyway`)
+    throw new Error(
+      `the backup is of ${manifest.source}; parked runs resume only there. Pass --relocate to restore to ${stateDir} anyway`
+    )
   }
   const held = holders(databases(stateDir))
-  if (held.length > 0) throw new Error(`a running process (pid ${held.join(", ")}) holds ${stateDir}; stop the host first`)
+  if (held.length > 0) {
+    throw new Error(`a running process (pid ${held.join(", ")}) holds ${stateDir}; stop the host first`)
+  }
   const occupied = existsSync(stateDir) && readdirSync(stateDir).length > 0
   if (occupied && options.replace !== true) throw new Error(`${stateDir} is not empty; pass --replace to move it aside`)
   const staging = `${stateDir}.restoring`
@@ -264,16 +283,24 @@ export const backupCommand: Command = {
   name: "backup",
   usage: "backup <dest> [--state-dir <dir>]",
   run: async (argv, io) => {
-    const { positionals, values } = parseArgs({ args: [...argv], allowPositionals: true, options: { "state-dir": { type: "string" } } })
+    const { positionals, values } = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      options: { "state-dir": { type: "string" } }
+    })
     if (positionals.length !== 1) {
       io.err(`usage: ${backupCommand.usage}`)
       return 2
     }
     const dest = absolute(io.cwd, positionals[0]!)
     const manifest = await backup(stateDirFlag(values, io), dest)
-    io.out(`backup ${dest}: ${manifest.entries.length} files${manifest.hostRunning ? ", host running" : ""}${
-      manifest.wiki?.revision === undefined ? "" : `, wiki ${manifest.wiki.revision.slice(0, 12)}${manifest.wiki.dirty ? "+" : ""}`
-    }`)
+    io.out(
+      `backup ${dest}: ${manifest.entries.length} files${manifest.hostRunning ? ", host running" : ""}${
+        manifest.wiki?.revision === undefined
+          ? ""
+          : `, wiki ${manifest.wiki.revision.slice(0, 12)}${manifest.wiki.dirty ? "+" : ""}`
+      }`
+    )
     return 0
   }
 }
@@ -300,9 +327,13 @@ export const restoreCommand: Command = {
       replace: values.replace,
       relocate: values.relocate
     })
-    io.out(`restored ${stateDir} from ${manifest.createdAt}: ${manifest.entries.length} files match their manifest SHA-256`)
+    io.out(
+      `restored ${stateDir} from ${manifest.createdAt}: ${manifest.entries.length} files match their manifest SHA-256`
+    )
     if (replaced !== undefined) io.out(`previous ${replaced}`)
-    if (manifest.wiki?.revision !== undefined) io.out(`wiki ${manifest.wiki.revision}${manifest.wiki.dirty ? " (had changes)" : ""}`)
+    if (manifest.wiki?.revision !== undefined) {
+      io.out(`wiki ${manifest.wiki.revision}${manifest.wiki.dirty ? " (had changes)" : ""}`)
+    }
     return 0
   }
 }

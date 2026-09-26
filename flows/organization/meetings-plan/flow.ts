@@ -16,8 +16,8 @@ import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
-import { LoadPlan, MeetingFailed, MeetingReport, Schedule, SyncCalendar, WritePlan } from "../meetings.ts"
 import { finish } from "../meetings-shared.ts"
+import { LoadPlan, MeetingFailed, MeetingReport, Schedule, SyncCalendar, WritePlan } from "../meetings.ts"
 
 const implementationVersion = "organization/meetings-plan/v1"
 
@@ -52,7 +52,9 @@ export default Flow.make("organization/meetings-plan", {
           : done.plan.reason,
         principal: "",
         paths: [written.path],
-        calendar: done.calendar.reason === "" ? done.calendar.status : `${done.calendar.status}: ${done.calendar.reason}`
+        calendar: done.calendar.reason === ""
+          ? done.calendar.status
+          : `${done.calendar.status}: ${done.calendar.reason}`
       }))),
       Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) => finish("meetings", "plan", {}, outcome)))
     )

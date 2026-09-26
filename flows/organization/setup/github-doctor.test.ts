@@ -42,7 +42,11 @@ test("a repository that opens pull requests passes with a pushable token and rem
   const fixture = await startGitHubFixture("example/demo")
   fixtures.push(fixture)
   const { organization, repo } = await setup("{ landing: pr, issues: {} }")
-  const env = { SMITHERS_GITHUB_API_BASE_URL: fixture.apiBaseUrl, SMITHERS_GITHUB_TOKEN: "t", SMITHERS_ORG_GITHUB_GH: "off" }
+  const env = {
+    SMITHERS_GITHUB_API_BASE_URL: fixture.apiBaseUrl,
+    SMITHERS_GITHUB_TOKEN: "t",
+    SMITHERS_ORG_GITHUB_GH: "off"
+  }
   assert.deepEqual(await githubLines([`example/demo=${repo}`], scratch, organization, env), [
     { name: "github", status: "pass", detail: "example/demo: push and pull requests via origin; issue intake" }
   ])
@@ -60,12 +64,18 @@ test("each missing piece is a failing line with its fix", async () => {
   assert.equal(token!.fix, "gh auth login, or set SMITHERS_GITHUB_TOKEN in the .env file")
 
   fixture.state.repository.permissions.push = false
-  const [permission] = await githubLines([`example/demo=${repo}`], scratch, organization, { ...env, SMITHERS_GITHUB_TOKEN: "t" })
+  const [permission] = await githubLines([`example/demo=${repo}`], scratch, organization, {
+    ...env,
+    SMITHERS_GITHUB_TOKEN: "t"
+  })
   assert.equal(permission!.detail, "example/demo: the token may not push or open pull requests")
 
   fixture.state.repository.permissions.push = true
   git("-C", repo, "remote", "set-url", "origin", join(scratch, "missing.git"))
-  const [remote] = await githubLines([`example/demo=${repo}`], scratch, organization, { ...env, SMITHERS_GITHUB_TOKEN: "t" })
+  const [remote] = await githubLines([`example/demo=${repo}`], scratch, organization, {
+    ...env,
+    SMITHERS_GITHUB_TOKEN: "t"
+  })
   assert.equal(remote!.status, "fail")
   assert.match(remote!.detail, /^example\/demo: git push to origin refused: /)
 

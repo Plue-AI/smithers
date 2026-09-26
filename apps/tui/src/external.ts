@@ -2,10 +2,10 @@
  * Leaving the TUI for another program: Ctrl+G's external editor, and the
  * bounded wait on quit.
  */
+import { spawn } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { spawn } from "node:child_process"
 import type { Readable } from "node:stream"
 import { stopGroup } from "./subprocess.ts"
 
@@ -15,7 +15,12 @@ import { stopGroup } from "./subprocess.ts"
  * to the shell as `$1`, never spliced into the command. `undefined` when the
  * editor cancels; shell execution failures reject.
  */
-export const edit = async (text: string, editor: string, parent = tmpdir(), signal?: AbortSignal): Promise<string | undefined> => {
+export const edit = async (
+  text: string,
+  editor: string,
+  parent = tmpdir(),
+  signal?: AbortSignal
+): Promise<string | undefined> => {
   if (signal?.aborted) return undefined
   const folder = mkdtempSync(join(parent, "smithers-editor-"))
   try {
@@ -26,9 +31,13 @@ export const edit = async (text: string, editor: string, parent = tmpdir(), sign
     // fd 3 reports that group; fd 4 preserves the editor's stderr while the
     // supervising shell's job announcements stay hidden. Inherit stderr until
     // the shell initializes job control; redirecting it at spawn breaks fg.
-    const program = `exec 2>/dev/null\nset -m\n( exec 3>&- 2>&4 4>&-; ${editor} "$1" ) &\n__smthrs_editor_pid=$!\nprintf '%s\\n' "$__smthrs_editor_pid" >&3\nexec 3>&-\nfg %1 >/dev/null`
+    const program =
+      `exec 2>/dev/null\nset -m\n( exec 3>&- 2>&4 4>&-; ${editor} "$1" ) &\n__smthrs_editor_pid=$!\nprintf '%s\\n' "$__smthrs_editor_pid" >&3\nexec 3>&-\nfg %1 >/dev/null`
     const child = interactive
-      ? spawn("/bin/sh", ["-i", "-c", program, "sh", file], { stdio: ["inherit", "inherit", "inherit", "pipe", 2], env: { ...process.env, ENV: "" } })
+      ? spawn("/bin/sh", ["-i", "-c", program, "sh", file], {
+        stdio: ["inherit", "inherit", "inherit", "pipe", 2],
+        env: { ...process.env, ENV: "" }
+      })
       : spawn("/bin/sh", ["-c", `${editor} "$1"`, "sh", file], { stdio: "inherit", detached: true })
     let group = interactive ? undefined : child.pid
     let stopping: Promise<void> | undefined
@@ -40,13 +49,15 @@ export const edit = async (text: string, editor: string, parent = tmpdir(), sign
       }
     }
     let reported = ""
-    if (interactive) (child.stdio[3] as Readable).on("data", (chunk: Buffer) => {
-      reported += chunk.toString()
-      if (!reported.includes("\n")) return
-      const pid = Number(reported.trim())
-      if (Number.isSafeInteger(pid) && pid > 1) group = pid
-      if (signal?.aborted) cancel()
-    })
+    if (interactive) {
+      ;(child.stdio[3] as Readable).on("data", (chunk: Buffer) => {
+        reported += chunk.toString()
+        if (!reported.includes("\n")) return
+        const pid = Number(reported.trim())
+        if (Number.isSafeInteger(pid) && pid > 1) group = pid
+        if (signal?.aborted) cancel()
+      })
+    }
     signal?.addEventListener("abort", cancel, { once: true })
     if (signal?.aborted) cancel()
     const closed = new Promise<number | null>((resolve, reject) => {

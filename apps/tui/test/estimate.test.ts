@@ -51,11 +51,23 @@ describe("Improve.Ledger", () => {
     const file = join(scratch(), "evals", "loop.jsonl")
     const ledger = new Improve.Ledger(file)
     const prediction = ledger.predict({
-      id: "a", kind: "flow", key: "flow:deploy", method: "history", subject: "deploy", at: 0, raw: { ms: 10 * minute }
+      id: "a",
+      kind: "flow",
+      key: "flow:deploy",
+      method: "history",
+      subject: "deploy",
+      at: 0,
+      raw: { ms: 10 * minute }
     })
     expect(prediction.value).toEqual({ ms: 10 * minute })
     const scored = ledger.observe({
-      id: "a", kind: "flow", key: "flow:deploy", subject: "deploy", at: 1, outcome: "done", actual: { ms: 25 * minute }
+      id: "a",
+      kind: "flow",
+      key: "flow:deploy",
+      subject: "deploy",
+      at: 1,
+      outcome: "done",
+      actual: { ms: 25 * minute }
     })
     expect(scored?.ratio.ms).toBeCloseTo(2.5)
     expect(scored?.inside.ms).toBe(false)
@@ -72,7 +84,9 @@ describe("Improve.Ledger", () => {
   it("does not score failed or cancelled work, but keeps it on record", () => {
     const ledger = new Improve.Ledger(undefined)
     ledger.predict({ id: "a", kind: "flow", key: "k", method: "history", subject: "s", at: 0, raw: { ms: 10 } })
-    expect(ledger.observe({ id: "a", kind: "flow", key: "k", subject: "s", at: 1, outcome: "failed", actual: { ms: 3 } }))
+    expect(
+      ledger.observe({ id: "a", kind: "flow", key: "k", subject: "s", at: 1, outcome: "failed", actual: { ms: 3 } })
+    )
       .toBeUndefined()
     expect(ledger.observations()).toHaveLength(1)
     expect(ledger.scored()).toHaveLength(0)
@@ -83,22 +97,51 @@ describe("Improve.Ledger", () => {
     // The raw predictor is consistently half the truth.
     for (let index = 0; index < 6; index++) {
       const id = `p${index}`
-      ledger.predict({ id, kind: "delegate", key: "delegate", method: "model", subject: id, at: index, raw: { ms: 10 } })
+      ledger.predict({
+        id,
+        kind: "delegate",
+        key: "delegate",
+        method: "model",
+        subject: id,
+        at: index,
+        raw: { ms: 10 }
+      })
       ledger.observe({
-        id, kind: "delegate", key: "delegate", subject: id, at: index, outcome: "done",
+        id,
+        kind: "delegate",
+        key: "delegate",
+        subject: id,
+        at: index,
+        outcome: "done",
         actual: { ms: 20 * (index % 2 === 0 ? 0.8 : 1.25) }
       })
     }
     const stats = ledger.stats((prediction) => prediction.method === "model", ["ms"])
     expect(stats.n).toBe(6)
     expect(stats.bias.ms).toBeCloseTo(20 / 10, 0)
-    const next = ledger.predict({ id: "next", kind: "delegate", key: "delegate", method: "model", subject: "n", at: 9, raw: { ms: 10 } })
+    const next = ledger.predict({
+      id: "next",
+      kind: "delegate",
+      key: "delegate",
+      method: "model",
+      subject: "n",
+      at: 9,
+      raw: { ms: 10 }
+    })
     expect(next.value.ms).toBeGreaterThan(18)
     expect(next.value.ms).toBeLessThan(22)
     expect(next.low.ms!).toBeLessThan(next.value.ms!)
     expect(next.high.ms!).toBeGreaterThan(next.value.ms!)
     // Another method's history does not calibrate this one.
-    const other = ledger.predict({ id: "h", kind: "delegate", key: "delegate", method: "history", subject: "h", at: 9, raw: { ms: 10 } })
+    const other = ledger.predict({
+      id: "h",
+      kind: "delegate",
+      key: "delegate",
+      method: "history",
+      subject: "h",
+      at: 9,
+      raw: { ms: 10 }
+    })
     expect(other.value.ms).toBe(10)
   })
 })
@@ -157,7 +200,11 @@ describe("Estimate", () => {
     estimator.request({ id: "none", kind: "delegate", key: "delegate", subject: "x", startedAt: 0 })
     await estimator.idle()
     expect(estimator.get("none")).toBeUndefined()
-    expect(estimator.ledger.failure("none")).toMatchObject({ method: "model", reason: "unusable-answer", message: "not json" })
+    expect(estimator.ledger.failure("none")).toMatchObject({
+      method: "model",
+      reason: "unusable-answer",
+      message: "not json"
+    })
     // Every workspace change reconciles; a failed answer must not call the model again.
     estimator.request({ id: "none", kind: "delegate", key: "delegate", subject: "x", startedAt: 0 })
     await estimator.idle()
@@ -175,7 +222,15 @@ describe("Estimate", () => {
   it("records a model error with its message, so a class fallback is never mistaken for no model", async () => {
     const file = join(scratch(), "estimates.jsonl")
     const ledger = new Improve.Ledger(file)
-    ledger.observe({ id: "old", kind: "delegate", key: "delegate", subject: "old", at: 0, outcome: "done", actual: { ms: 5 * minute } })
+    ledger.observe({
+      id: "old",
+      kind: "delegate",
+      key: "delegate",
+      subject: "old",
+      at: 0,
+      outcome: "done",
+      actual: { ms: 5 * minute }
+    })
     const estimator = new Estimate.Estimator({
       ledger,
       model: async () => {
@@ -186,7 +241,10 @@ describe("Estimate", () => {
     await estimator.idle()
     expect(estimator.get("new")).toMatchObject({ method: "class", ms: 5 * minute })
     const eta = estimator.eta([{ id: "new", title: "new", status: "running", startedAt: 0 }], minute)
-    expect(eta.tasks[0]).toMatchObject({ method: "class", failure: "model model-error: The ChatGPT-subscription backend rejects max_output_tokens" })
+    expect(eta.tasks[0]).toMatchObject({
+      method: "class",
+      failure: "model model-error: The ChatGPT-subscription backend rejects max_output_tokens"
+    })
     // A reload keeps the failure and does not ask the failed model again.
     let asked = 0
     const reloaded = new Estimate.Estimator({ ledger: new Improve.Ledger(file), model: async () => (asked++, "{}") })
@@ -204,7 +262,9 @@ describe("Estimate", () => {
     const blocker = join(scratch(), "file")
     writeFileSync(blocker, "")
     const errors: Array<unknown> = []
-    const ledger = new Improve.Ledger(join(blocker, "evals", "estimates.jsonl"), { onWriteError: (error) => errors.push(error) })
+    const ledger = new Improve.Ledger(join(blocker, "evals", "estimates.jsonl"), {
+      onWriteError: (error) => errors.push(error)
+    })
     const estimator = new Estimate.Estimator({ ledger })
     for (const index of [0, 1, 2]) {
       estimator.request({ id: `r${index}`, kind: "flow", key: "flow:deploy", subject: "deploy", startedAt: 0 })
@@ -219,12 +279,26 @@ describe("Estimate", () => {
     const ledger = new Improve.Ledger(undefined)
     const past = (id: string, subject: string, method: string, ms: number, actual: number, at: number) => {
       ledger.predict({ id, kind: "delegate", key: "delegate", method, subject, at, raw: { ms: ms * minute } })
-      ledger.observe({ id, kind: "delegate", key: "delegate", subject, at, outcome: "done", actual: { ms: actual * minute } })
+      ledger.observe({
+        id,
+        kind: "delegate",
+        key: "delegate",
+        subject,
+        at,
+        outcome: "done",
+        actual: { ms: actual * minute }
+      })
     }
     past("scroll", "Fix transcript scrolling in the TUI", "model", 10, 20, 0)
     // Newer, but about something else: 13 of them push the scroll task out of a most-recent window.
     for (let index = 0; index < 13; index++) past(`d${index}`, `Update docs page ${index}`, "class", 1, 100, 10 + index)
-    const text = Estimate.prompt({ id: "n", kind: "delegate", key: "delegate", subject: "Fix scrolling up in the transcript", startedAt: 0 }, ledger)
+    const text = Estimate.prompt({
+      id: "n",
+      kind: "delegate",
+      key: "delegate",
+      subject: "Fix scrolling up in the transcript",
+      startedAt: 0
+    }, ledger)
     expect(text).toContain("Fix transcript scrolling in the TUI | estimated 10m, took 20m")
     // A class estimate is not the model's, so it is shown as the actual only.
     expect(text).toMatch(/Update docs page \d+ \| took 1h40m/)
@@ -257,8 +331,11 @@ describe("Estimate", () => {
     expect(Estimate.worked(records.slice(0, 1))).toBeUndefined()
 
     const dir = scratch()
-    writeFileSync(join(dir, "w.jsonl"), [{ type: "session", version: 1, id: "w", cwd: dir, createdAt: 0 }, ...records]
-      .map((record) => JSON.stringify(record)).join("\n") + "\n")
+    writeFileSync(
+      join(dir, "w.jsonl"),
+      [{ type: "session", version: 1, id: "w", cwd: dir, createdAt: 0 }, ...records]
+        .map((record) => JSON.stringify(record)).join("\n") + "\n"
+    )
     const estimator = new Estimate.Estimator({ ledger: new Improve.Ledger(undefined) })
     estimator.seed(dir)
     expect(estimator.ledger.observations()[0]?.actual.ms).toBe(5 * minute)
@@ -269,7 +346,9 @@ describe("Estimate", () => {
     const estimator = new Estimate.Estimator({ ledger: new Improve.Ledger(undefined) })
     // Requested at 0, queued for 20 minutes, worked 10.
     const done = worker(dir, "old", "Old task", 10 * minute, 1_000)
-    estimator.tabs([tab(done, { id: "old", status: "done", startedAt: 0, launchedAt: 20 * minute, endedAt: 30 * minute })])
+    estimator.tabs([
+      tab(done, { id: "old", status: "done", startedAt: 0, launchedAt: 20 * minute, endedAt: 30 * minute })
+    ])
     expect(estimator.ledger.observation(`tab:${done}`)?.actual.ms).toBe(10 * minute)
 
     const tabs = ["a", "b", "c", "d"].map((id, index) =>
@@ -289,9 +368,24 @@ describe("Estimate", () => {
 
   it("plans queued flow runs onto flow seats, apart from worker seats", () => {
     const estimator = new Estimate.Estimator({ ledger: new Improve.Ledger(undefined) })
-    estimator.ledger.observe({ id: "p", kind: "flow", key: "flow:review", subject: "review", at: 0, outcome: "done", actual: { ms: 10 * minute } })
+    estimator.ledger.observe({
+      id: "p",
+      kind: "flow",
+      key: "flow:review",
+      subject: "review",
+      at: 0,
+      outcome: "done",
+      actual: { ms: 10 * minute }
+    })
     const run = (id: string, status: Flows.Run["status"], launchedAt?: number): Flows.Run => ({
-      id, flow: "review", by: "user", input: {}, requested: "{}", status, startedAt: 0, ...(launchedAt === undefined ? {} : { launchedAt })
+      id,
+      flow: "review",
+      by: "user",
+      input: {},
+      requested: "{}",
+      status,
+      startedAt: 0,
+      ...(launchedAt === undefined ? {} : { launchedAt })
     })
     const runs = [run("a", "running", 0), run("b", "running", 0), run("c", "running", 0), run("d", "queued")]
     estimator.flows(runs)
@@ -304,13 +398,26 @@ describe("Estimate", () => {
     const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
     let settle = (_: Flows.Settled) => {}
     const port: Flows.Port = {
-      discover: async () => [{ name: "review", description: "Review", modelInvocable: true, kind: "module", flows: [], capabilities: [], path: "flows/review/flow.ts" }],
+      discover: async () => [{
+        name: "review",
+        description: "Review",
+        modelInvocable: true,
+        kind: "module",
+        flows: [],
+        capabilities: [],
+        path: "flows/review/flow.ts"
+      }],
       input: async () => undefined,
       body: async () => Promise.reject(new Error("review is a module flow")),
       plan: async () => ({ all: false, raw: {} }),
       start: async () => "run-2",
       resume: async (runId) => ({ runId }),
-      watch: () => ({ done: new Promise((resolve) => { settle = resolve }), close: () => {} }),
+      watch: () => ({
+        done: new Promise((resolve) => {
+          settle = resolve
+        }),
+        close: () => {}
+      }),
       events: async () => [],
       cancel: async () => {},
       dispose: async () => {}
@@ -323,7 +430,15 @@ describe("Estimate", () => {
       restored: [{ ...base, id: "r1", status: "running", runId: "run-9", startedAt: 1 }]
     })
     const estimator = new Estimate.Estimator({ ledger: new Improve.Ledger(undefined) })
-    estimator.ledger.observe({ id: "past", kind: "flow", key: "flow:review", subject: "review", at: 0, outcome: "done", actual: { ms: 50 } })
+    estimator.ledger.observe({
+      id: "past",
+      kind: "flow",
+      key: "flow:review",
+      subject: "review",
+      at: 0,
+      outcome: "done",
+      actual: { ms: 50 }
+    })
     estimator.flows(runs.snapshot())
     const first = Estimate.runId(runs.get("r1")!)
     expect(estimator.ledger.observation(first)?.outcome).toBe("failed")
@@ -368,7 +483,13 @@ describe("Estimate", () => {
       { id: "b", title: "deploy", status: "running", startedAt: -15 * minute },
       { id: "c", title: "novel", status: "requested", startedAt: 9 * minute }
     ], 10 * minute)
-    expect(eta.tasks[0]).toMatchObject({ id: "a", elapsedMinutes: 4, estimateMinutes: 10, remainingMinutes: 6, overdue: false })
+    expect(eta.tasks[0]).toMatchObject({
+      id: "a",
+      elapsedMinutes: 4,
+      estimateMinutes: 10,
+      remainingMinutes: 6,
+      overdue: false
+    })
     expect(eta.tasks[1]).toMatchObject({ id: "b", overdue: true })
     expect(eta.tasks[2]).toMatchObject({ id: "c", estimateMinutes: null })
     expect(eta.allDoneInMinutes).toBeNull()
@@ -379,19 +500,29 @@ describe("Estimate", () => {
   })
 
   it("labels a running tab with its remaining time and token estimate", () => {
-    expect(Estimate.label({ ms: 11 * minute, tokens: 250_000, lowMs: 0, highMs: 20 * minute, method: "model", basis: 0 }, 0, 4 * minute))
+    expect(
+      Estimate.label(
+        { ms: 11 * minute, tokens: 250_000, lowMs: 0, highMs: 20 * minute, method: "model", basis: 0 },
+        0,
+        4 * minute
+      )
+    )
       .toBe("~7m·250k")
-    expect(Estimate.label({ ms: 11 * minute, lowMs: 0, highMs: 12 * minute, method: "history", basis: 3 }, 0, 30 * minute))
+    expect(
+      Estimate.label({ ms: 11 * minute, lowMs: 0, highMs: 12 * minute, method: "history", basis: 3 }, 0, 30 * minute)
+    )
       .toBe("late")
     expect(Estimate.label({ ms: 30_000, lowMs: 0, highMs: 60_000, method: "history", basis: 3 }, 0, 0)).toBe("~30s")
     expect(Estimate.label(undefined, 0, 0)).toBe("")
   })
 
   it("exposes tab.eta as a runtime flow only with an eta port", async () => {
-    const bindings = await Effect.runPromise(Runtime.source({
-      publish: () => {},
-      eta: () => ({ tasks: [], allDoneInMinutes: 0 })
-    }).bindings())
+    const bindings = await Effect.runPromise(
+      Runtime.source({
+        publish: () => {},
+        eta: () => ({ tasks: [], allDoneInMinutes: 0 })
+      }).bindings()
+    )
     const eta = bindings.find((binding) => binding.descriptor.name === "tab.eta")!
     expect(await Effect.runPromise(eta.run({ input: {} } as Parameters<typeof eta.run>[0]))).toMatchObject({
       outcome: "success",

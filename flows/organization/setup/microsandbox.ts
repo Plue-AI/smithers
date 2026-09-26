@@ -37,8 +37,7 @@ const packageDirOf = (entry: string): string => {
 export const locate = (): Install | undefined => {
   const candidates: Array<() => string> = [
     () => fileURLToPath(import.meta.resolve("microsandbox")),
-    () =>
-      createRequire(join(checkoutRoot, "packages/smithers/agent/organization/package.json")).resolve("microsandbox")
+    () => createRequire(join(checkoutRoot, "packages/smithers/agent/organization/package.json")).resolve("microsandbox")
   ]
   for (const candidate of candidates) {
     let entry: string
@@ -141,7 +140,11 @@ export const bootProbe = async (
   const leftover = typeof swept === "string" ? `; cleanup failed: ${swept}` : ""
   if ("exitCode" in outcome) {
     return outcome.exitCode === 0 && leftover === ""
-      ? { ok: true, detail: `${image} booted, \`${command}\` exited 0 in ${(durationMs / 1000).toFixed(1)}s`, durationMs }
+      ? {
+        ok: true,
+        detail: `${image} booted, \`${command}\` exited 0 in ${(durationMs / 1000).toFixed(1)}s`,
+        durationMs
+      }
       : { ok: false, detail: `\`${command}\` exited ${outcome.exitCode}${leftover}`, durationMs }
   }
   if ("timedOut" in outcome) return { ok: false, detail: `no boot within the deadline${leftover}`, durationMs }

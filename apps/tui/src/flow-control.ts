@@ -16,9 +16,9 @@ import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Stream } from "effec
 import { FetchHttpClient } from "effect/unstable/http"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { FlowError, type Port, type Settled, terminal } from "./flows.ts"
 import * as Approvals from "./approvals.ts"
 import * as Extension from "./extension.ts"
+import { FlowError, type Port, type Settled, terminal } from "./flows.ts"
 import type { Host } from "./host.ts"
 
 type ControlEvent = ControlSchema.ControlEvent
@@ -38,7 +38,9 @@ const typed = (error: unknown): FlowError => {
     : failure instanceof Error
     ? failure.message
     : String(failure)
-  return new FlowError(tag.endsWith("InvalidInput") ? "invalid_input" : "control", message || tag || "Control failed", { cause: failure })
+  return new FlowError(tag.endsWith("InvalidInput") ? "invalid_input" : "control", message || tag || "Control failed", {
+    cause: failure
+  })
 }
 
 const payloadOf = (event: ControlEvent): Record<string, unknown> =>
@@ -47,7 +49,8 @@ const payloadOf = (event: ControlEvent): Record<string, unknown> =>
     : {}
 
 /** The completed run's answer: a module's committed result, or the agent's final text (as `smthrs up`). */
-const answerOf = (events: ReadonlyArray<ControlEvent>): string => Diagnosis.resolvedOutput(Diagnosis.digest(events)) ?? ""
+const answerOf = (events: ReadonlyArray<ControlEvent>): string =>
+  Diagnosis.resolvedOutput(Diagnosis.digest(events)) ?? ""
 
 export const make = (options: {
   readonly cwd: string
@@ -125,7 +128,9 @@ export const make = (options: {
         Effect.gen(function*() {
           const each = yield* Registry.Registry
           const descriptor = yield* each.getOption(flow)
-          if (descriptor._tag === "None") return yield* Effect.fail(new FlowError("unknown_flow", `Unknown flow ${flow}`))
+          if (descriptor._tag === "None") {
+            return yield* Effect.fail(new FlowError("unknown_flow", `Unknown flow ${flow}`))
+          }
           if (descriptor.value.body._tag !== "Markdown") {
             return yield* Effect.fail(new FlowError("refused", `${flow} is a module flow; run it with /flow`))
           }
@@ -155,8 +160,11 @@ export const make = (options: {
       if (await markdown(flow)) return undefined
       const refused = catalog.refused.find((entry) => entry.flow === flow)
       if (refused !== undefined) {
-        const cause = refused.cause instanceof Error ? refused.cause.message
-          : typeof refused.cause === "string" ? refused.cause : undefined
+        const cause = refused.cause instanceof Error ?
+          refused.cause.message
+          : typeof refused.cause === "string"
+          ? refused.cause
+          : undefined
         const reason = cause?.split("\n")[0]
         throw new FlowError("refused", reason ? `${refused.message}: ${reason}` : refused.message, { cause: refused })
       }
@@ -170,7 +178,10 @@ export const make = (options: {
     start: async (card, source = "chat", signal) => {
       const raw = card.raw as ControlSchema.PlanCard
       try {
-        await options.approvals.authorize(Approvals.project(raw.flowId, raw.envelope.capabilities, options.cwd, source), signal)
+        await options.approvals.authorize(
+          Approvals.project(raw.flowId, raw.envelope.capabilities, options.cwd, source),
+          signal
+        )
         if (signal?.aborted) throw new FlowError("refused", "Stopped")
       } catch (error) {
         throw new FlowError("refused", signal?.aborted ? "Stopped" : typed(error).message)
@@ -210,10 +221,16 @@ export const make = (options: {
       const receipt = await control((service) =>
         service.resume({ runId, idempotencyKey: `tui:resume:${runId}:${Date.now()}` })
       )
-      if (receipt._tag !== "Terminal") return "runId" in receipt && receipt.runId !== undefined ? { runId: receipt.runId } : { runId }
+      if (receipt._tag !== "Terminal") {
+        return "runId" in receipt && receipt.runId !== undefined
+          ? { runId: receipt.runId }
+          : { runId }
+      }
       // The engine finished before the TUI recorded it; the answer is in the journal.
       if (receipt.status === "completed") return { kind: "done", answer: answerOf(await events(runId)) }
-      return receipt.status === "cancelled" ? { kind: "cancelled" } : { kind: "failed", message: `Run ${receipt.status}` }
+      return receipt.status === "cancelled"
+        ? { kind: "cancelled" }
+        : { kind: "failed", message: `Run ${receipt.status}` }
     },
     watch: (runId, onEvent) => {
       const seen: Array<ControlEvent> = []
@@ -238,7 +255,9 @@ export const make = (options: {
         fiber = runtime.runFork(program)
         return Effect.runPromise(Fiber.await(fiber))
       }).then((exit): Settled => {
-        if (Exit.isFailure(exit)) throw new FlowError("control", `Control watch failed: ${typed(Cause.squash(exit.cause)).message}`)
+        if (Exit.isFailure(exit)) {
+          throw new FlowError("control", `Control watch failed: ${typed(Cause.squash(exit.cause)).message}`)
+        }
         const last = exit.value as { _tag: string; value?: ControlEvent }
         const event = last._tag === "Some" ? last.value : undefined
         if (event === undefined) throw new FlowError("control", "Control watch ended")

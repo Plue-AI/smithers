@@ -34,7 +34,7 @@ Capture "Expand the recorded failure before retrying."
 | Monitor creation is refused            | Configure `AI_GATEWAY_API_KEY`; shell monitors also need command approval.                                                                  |
 | Saved session is missing               | Check its working directory and session root. Earlier JSONL damage is preserved as `.damaged`.                                              |
 | Browser run cannot resume              | Re-enter its provider settings; keys are not stored. Branch if the saved request no longer matches.                                         |
-| Browser history is full                | Copy needed results before clearing site data; the sandbox limits history to 4 MB.                                                        |
+| Browser history is full                | Copy needed results before clearing site data; the sandbox limits history to 4 MB.                                                          |
 
 ## Record a reproducible report
 

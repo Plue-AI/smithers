@@ -42,7 +42,11 @@ const checkout = (files: Readonly<Record<string, string>>) => {
   return { work, bare, state: join(base, "state") }
 }
 
-const wikiLinker = (wiki: ReturnType<typeof checkout>, publish?: ReadonlyArray<string>, repositories: Links.Options["repositories"] = {}) => {
+const wikiLinker = (
+  wiki: ReturnType<typeof checkout>,
+  publish?: ReadonlyArray<string>,
+  repositories: Links.Options["repositories"] = {}
+) => {
   mkdirSync(wiki.state, { recursive: true })
   return Links.make({
     root: wiki.work,
@@ -57,8 +61,14 @@ const wikiLinker = (wiki: ReturnType<typeof checkout>, publish?: ReadonlyArray<s
 const web = (path: string) => `https://github.com/acme/wiki/blob/main/${path}`
 
 test("derives the web address from a GitHub remote", () => {
-  assert.equal(Links.webUrlOf("git@github.com:smithersai/Smithers-Ops.git", "main"), "https://github.com/smithersai/Smithers-Ops/blob/main")
-  assert.equal(Links.webUrlOf("https://github.com/acme/wiki", "release/1"), "https://github.com/acme/wiki/blob/release/1")
+  assert.equal(
+    Links.webUrlOf("git@github.com:smithersai/Smithers-Ops.git", "main"),
+    "https://github.com/smithersai/Smithers-Ops/blob/main"
+  )
+  assert.equal(
+    Links.webUrlOf("https://github.com/acme/wiki", "release/1"),
+    "https://github.com/acme/wiki/blob/release/1"
+  )
   assert.equal(Links.webUrlOf("ssh://git@github.com/acme/wiki.git", "main"), "https://github.com/acme/wiki/blob/main")
   assert.equal(Links.webUrlOf("/tmp/remote.git", "main"), undefined)
 })
@@ -76,12 +86,17 @@ test("links a page under its name, and names a path that does not exist as it is
   const wiki = checkout({ "Org/Proposals/2026-09-26-security-vm-cancel.md": "# P\n", "Areas/Deploy Notes.md": "# D\n" })
   const linker = wikiLinker(wiki)
   assert.equal(
-    linker.slack("Commented on 2026-09-26-security-vm-cancel", [{ kind: "page", path: "Org/Proposals/2026-09-26-security-vm-cancel.md" }]),
+    linker.slack("Commented on 2026-09-26-security-vm-cancel", [{
+      kind: "page",
+      path: "Org/Proposals/2026-09-26-security-vm-cancel.md"
+    }]),
     `Commented on <${web("Org/Proposals/2026-09-26-security-vm-cancel.md")}|2026-09-26-security-vm-cancel>`
   )
   assert.equal(
     linker.slack("Read Org/Proposals/2026-09-26-security-vm-cancel.md, then Org/Missing.md."),
-    `Read <${web("Org/Proposals/2026-09-26-security-vm-cancel.md")}|2026-09-26-security-vm-cancel>, then Org/Missing.md.`
+    `Read <${
+      web("Org/Proposals/2026-09-26-security-vm-cancel.md")
+    }|2026-09-26-security-vm-cancel>, then Org/Missing.md.`
   )
   // A typed page is appended when the text does not name it; a space is encoded.
   assert.equal(
@@ -99,7 +114,10 @@ test("links a page under its name, and names a path that does not exist as it is
     linker.wiki("Proposal", [{ kind: "page", path: "Org/Proposals/2026-09-26-security-vm-cancel.md" }]),
     "Proposal · [[Org/Proposals/2026-09-26-security-vm-cancel|2026-09-26-security-vm-cancel]]"
   )
-  assert.equal(linker.wiki("See Areas/Deploy Notes.md or Org/Missing.md"), "See Areas/Deploy Notes.md or Org/Missing.md")
+  assert.equal(
+    linker.wiki("See Areas/Deploy Notes.md or Org/Missing.md"),
+    "See Areas/Deploy Notes.md or Org/Missing.md"
+  )
 })
 
 test("pushes a new page before the text naming it is returned, and labels a receipt", () => {
@@ -156,7 +174,9 @@ test("links issues, pull requests, commits and branches of configured repositori
   )
   assert.equal(
     linker.slack(`Landed on organization/pushed ${pushed.slice(0, 12)}`),
-    `Landed on <https://github.com/acme/demo/tree/organization/pushed|organization/pushed> <https://github.com/acme/demo/commit/${pushed}|${pushed.slice(0, 12)}>`
+    `Landed on <https://github.com/acme/demo/tree/organization/pushed|organization/pushed> <https://github.com/acme/demo/commit/${pushed}|${
+      pushed.slice(0, 12)
+    }>`
   )
   assert.equal(
     linker.slack("Landed on", [
@@ -173,7 +193,12 @@ test("links issues, pull requests, commits and branches of configured repositori
     `Landed on \`organization/local\` \`${local.slice(0, 12)}\``
   )
   assert.equal(
-    linker.slack("Opened", [{ kind: "pull", github: "acme/demo", number: 9, url: "https://github.com/acme/demo/pull/9" }]),
+    linker.slack("Opened", [{
+      kind: "pull",
+      github: "acme/demo",
+      number: 9,
+      url: "https://github.com/acme/demo/pull/9"
+    }]),
     "Opened · <https://github.com/acme/demo/pull/9|#9>"
   )
   // Hex that is no commit here, and a plain number, stay text.

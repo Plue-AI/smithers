@@ -1,9 +1,9 @@
+import { Effect } from "effect"
 import assert from "node:assert/strict"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
-import { Effect } from "effect"
 import * as RequestExecutor from "../../../packages/smithers/agent/model/src/RequestExecutor.ts"
 import * as Subscriptions from "./subscriptions.ts"
 
@@ -59,10 +59,14 @@ test("Anthropic seats run on a subscription token, else on the Claude Code login
     return login(claudeAiOauth)()
   }
   // A token wins, and the stored login is never read.
-  const tokened = Subscriptions.resolver({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-token", ANTHROPIC_API_KEY: "sk-ant-stale" }, executor, {
-    credentials: counted({ accessToken: "unused" }),
-    now
-  })
+  const tokened = Subscriptions.resolver(
+    { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-token", ANTHROPIC_API_KEY: "sk-ant-stale" },
+    executor,
+    {
+      credentials: counted({ accessToken: "unused" }),
+      now
+    }
+  )
   assert.equal(await resolves(tokened, seat), "resolved claude-sonnet-5")
   assert.deepEqual(reads, [])
 
@@ -74,7 +78,10 @@ test("Anthropic seats run on a subscription token, else on the Claude Code login
   assert.equal(await resolves(signedIn, seat), "resolved claude-sonnet-5")
   assert.deepEqual(reads, ["read", "read"])
 
-  const noExpiry = Subscriptions.resolver({}, executor, { credentials: login({ accessToken: "sk-ant-oat-login" }), now })
+  const noExpiry = Subscriptions.resolver({}, executor, {
+    credentials: login({ accessToken: "sk-ant-oat-login" }),
+    now
+  })
   assert.equal(await resolves(noExpiry, seat), "resolved claude-sonnet-5")
 
   const expired = Subscriptions.resolver({}, executor, {
@@ -85,13 +92,23 @@ test("Anthropic seats run on a subscription token, else on the Claude Code login
   assert.match(message, /The Claude Code login in fixture store expired at 1970-01-01T00:00:01\.000Z/)
   assert.doesNotMatch(message, /sk-ant/)
 
-  for (const credentials of [() => undefined, login({}), login({ accessToken: "" }), () => ({ text: "{not json", source: "x" })]) {
+  for (
+    const credentials of [
+      () => undefined,
+      login({}),
+      login({ accessToken: "" }),
+      () => ({ text: "{not json", source: "x" })
+    ]
+  ) {
     const missing = Subscriptions.resolver({}, executor, { credentials, now })
     assert.match(await resolves(missing, seat), /Sign in to Claude Code \(`claude`\), or set CLAUDE_CODE_OAUTH_TOKEN/)
   }
 
   // api-key mode reads keys as the native resolver does.
-  const keyed = Subscriptions.resolver({ SMITHERS_ORG_AUTH: "api-key" }, executor, { credentials: login({ accessToken: "x" }), now })
+  const keyed = Subscriptions.resolver({ SMITHERS_ORG_AUTH: "api-key" }, executor, {
+    credentials: login({ accessToken: "x" }),
+    now
+  })
   assert.match(await resolves(keyed, seat), /ANTHROPIC_API_KEY/)
 })
 
@@ -100,7 +117,10 @@ test("the Claude Code store is its config directory's credentials file", () => {
   mkdirSync(configDir)
   const read = Subscriptions.claudeCredentials({ CLAUDE_CONFIG_DIR: configDir })
   if (process.platform !== "darwin") assert.equal(read(), undefined)
-  writeFileSync(join(configDir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat-file", expiresAt: 5 } }))
+  writeFileSync(
+    join(configDir, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat-file", expiresAt: 5 } })
+  )
   assert.deepEqual(Subscriptions.claudeLogin(read), {
     accessToken: "sk-ant-oat-file",
     expiresAt: 5,

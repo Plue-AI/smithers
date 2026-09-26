@@ -41,7 +41,7 @@ the prompt as the conversation the turn continues; the cell loop takes a
 prompt and system teaching, not a message list, and this package does not add
 a second one.
 
-The seat is per request. `model`, when present, *is* the seat, because the
+The seat is per request. `model`, when present, _is_ the seat, because the
 native resolver already answers a `provider:model` id; absent, `role`
 resolves through the host's role table, where `coding/dispatch` defaults to
 the configured implementation model. Neither is read from the host's launch
@@ -60,9 +60,9 @@ its turn silently run somewhere else.
 ```ts
 {
   turnId: string
-  runId: string                 // the host run: the handle /projections takes
-  seat: string                  // the request's model, or its role
-  messages: Array<{ ordinal: number, role: "assistant", content: string }>
+  runId: string // the host run: the handle /projections takes
+  seat: string // the request's model, or its role
+  messages: Array<{ ordinal: number; role: "assistant"; content: string }>
   head: Revision | null
   revisions: Array<Revision>
 }

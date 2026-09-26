@@ -45,7 +45,8 @@ test("base: the commit a task starts from, fetched from its remote; tools: found
   const { baseLines } = await import("./base.ts")
   const { hostMachines } = await import("../../../packages/smithers/agent/organization/test/workspaceSupport.ts")
   const git = (dir: string, ...args: Array<string>) =>
-    spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { encoding: "utf8" }).stdout.trim()
+    spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { encoding: "utf8" }).stdout
+      .trim()
   const remote = mkdtempSync(join(tmpdir(), "org-doctor-remote-"))
   after(() => rmSync(remote, { recursive: true, force: true }))
   git(remote, "init", "-q", "--bare", "-b", "main")

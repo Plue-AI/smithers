@@ -37,5 +37,7 @@ it("declares alt+p and a status item from the example's flow.mdx, and the key ru
     }
   }])
   expect(snapshot.watched).toEqual(["release-plan"])
-  expect(Keys.bindingFor({ name: "p", meta: true }, "composer", Keys.bindings(snapshot.keys))?.label).toBe("Plan release")
+  expect(Keys.bindingFor({ name: "p", meta: true }, "composer", Keys.bindings(snapshot.keys))?.label).toBe(
+    "Plan release"
+  )
 })

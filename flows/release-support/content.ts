@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto"
 import type { Analysis, ContentInput, Draft, Evidence, Review } from "./schema.ts"
 
-export const digest = (value: string | Uint8Array): string =>
-  createHash("sha256").update(value).digest("hex")
+export const digest = (value: string | Uint8Array): string => createHash("sha256").update(value).digest("hex")
 
 /** Replace only this release's narrative; preserve its mechanical commit block. */
 export const changelogNarrative = (text: string, version: string, date: string, narrative: string): string => {
@@ -17,13 +16,19 @@ export const changelogNarrative = (text: string, version: string, date: string, 
   }
   let end = lines.findIndex((line, index) => index > start && releaseHeading.test(line))
   if (end < 0) end = lines.length
-  const marker = lines.findIndex((line, index) => index > start && index < end && line === `<!-- commits:${version} -->`)
+  const marker = lines.findIndex((line, index) =>
+    index > start && index < end && line === `<!-- commits:${version} -->`
+  )
   return [...lines.slice(0, start + 1), "", narrative.trim(), "", ...lines.slice(marker < 0 ? end : marker)].join("\n")
 }
 
 /** Validate the ledger, enabled channels and limits independently of the model. */
 export const checkContent = (
-  input: ContentInput, evidence: Evidence, analysis: Analysis, draft: Draft, review: Review
+  input: ContentInput,
+  evidence: Evidence,
+  analysis: Analysis,
+  draft: Draft,
+  review: Review
 ): Review => {
   const failures: Array<string> = []
   const sources = new Set(evidence.sources)
@@ -44,13 +49,17 @@ export const checkContent = (
     if (!copy.claimIds.length) failures.push(`${name} has no claim references`)
     for (const id of copy.claimIds) if (!claims.has(id)) failures.push(`${name} cites unknown claim ${id}`)
     for (const phrase of ["game-changing", "revolutionary", "seamless", "unlock the future", "10x", "guaranteed"]) {
-      if (copy.text.toLowerCase().includes(phrase)) failures.push(`${name} contains unsupported promotional language: ${phrase}`)
+      if (copy.text.toLowerCase().includes(phrase)) {
+        failures.push(`${name} contains unsupported promotional language: ${phrase}`)
+      }
     }
   }
   checkCopy("changelog", input.channels.changelog, draft.changelog)
   checkCopy("blog", input.channels.blog, draft.blog)
   if (input.channels.thread) {
-    if (!draft.thread.tweets.length || draft.thread.tweets.length > input.maxTweets) failures.push("Thread length is outside the configured limit")
+    if (!draft.thread.tweets.length || draft.thread.tweets.length > input.maxTweets) {
+      failures.push("Thread length is outside the configured limit")
+    }
     draft.thread.tweets.forEach((tweet, index) => {
       checkCopy(`tweet ${index + 1}`, true, tweet)
       // Conservative weighted length: non-ASCII code points cost two, URLs
@@ -61,14 +70,24 @@ export const checkContent = (
       if (length > input.maxTweetChars) failures.push(`Tweet ${index + 1} exceeds ${input.maxTweetChars} characters`)
     })
   } else if (draft.thread.tweets.length) failures.push("Thread is disabled but contains tweets")
-  if (!Number.isFinite(review.score) || review.score < 0 || review.score > 1) failures.push("Reviewer score must be between 0 and 1")
-  if (!review.passed || review.score < input.minScore) failures.push(`Reviewer score ${review.score} did not pass ${input.minScore}`)
+  if (!Number.isFinite(review.score) || review.score < 0 || review.score > 1) {
+    failures.push("Reviewer score must be between 0 and 1")
+  }
+  if (!review.passed || review.score < input.minScore) {
+    failures.push(`Reviewer score ${review.score} did not pass ${input.minScore}`)
+  }
   return { passed: failures.length === 0, score: review.score, feedback: [...failures, ...review.feedback] }
 }
 
-const xml = (text: string) => text.replace(/[&<>"']/g, (char) => ({
-  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;"
-})[char]!)
+const xml = (text: string) =>
+  text.replace(/[&<>"']/g, (char) =>
+    ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&apos;"
+    })[char]!)
 
 /** Native SVG cards, as in the old release-content workflow. No image service. */
 export const renderCard = (version: string, analysis: Analysis): string => {
@@ -84,7 +103,11 @@ export const renderCard = (version: string, analysis: Analysis): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
 <rect width="1600" height="900" fill="#111827"/>
 <text x="96" y="130" fill="#5eead4" font-family="sans-serif" font-size="36">SMITHERS ${xml(version)}</text>
-${lines.map((line, index) => `<text x="96" y="${250 + index * 66}" fill="#f9fafb" font-family="sans-serif" font-size="34">${xml(line)}</text>`).join("\n")}
+${
+    lines.map((line, index) =>
+      `<text x="96" y="${250 + index * 66}" fill="#f9fafb" font-family="sans-serif" font-size="34">${xml(line)}</text>`
+    ).join("\n")
+  }
 <text x="96" y="830" fill="#9ca3af" font-family="sans-serif" font-size="28">smithers.sh</text>
 </svg>\n`
 }

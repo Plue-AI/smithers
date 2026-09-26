@@ -45,13 +45,18 @@ export default Flow.make("organization/team-reply", {
           to: payload.to,
           text: payload.text
         }).pipe(
-          Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => fieldTurn(pin.revision, stage, ["reply"])))
+          Node.bindPlanned(
+            Node.capture({ implementationVersion }, (stage) => fieldTurn(pin.revision, stage, ["reply"]))
+          )
         ))),
       Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
         Node.branch(Node.succeed(answer), {
-          if: Node.capture({ implementationVersion }, (seen) =>
-            seen.valid && seen.result.status === "done" && typeof seen.result.fields["reply"] === "string" &&
-            (seen.result.fields["reply"]).trim() !== ""),
+          if: Node.capture(
+            { implementationVersion },
+            (seen) =>
+              seen.valid && seen.result.status === "done" && typeof seen.result.fields["reply"] === "string" &&
+              seen.result.fields["reply"].trim() !== ""
+          ),
           else: () => Node.succeed({ key: payload.key, status: "no reply", reply: "" }),
           // The post renders its links; the reply is kept as the role wrote it.
           then: () =>

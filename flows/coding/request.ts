@@ -15,16 +15,27 @@ import { appendFeedback } from "./steering.ts"
 export { Coordinate, MergeFeedback, Request }
 
 export const requestRegistration = Layer.mergeAll(
-  Interpreter.layer(Request), Interpreter.layer(Coordinate),
-  MergeFeedback.toLayer(({ cursor, receipt, advance }) => Effect.gen(function*() {
-    // ReceiveFeedback completed before this action was materialized, so even
-    // a bounded refusal retains the exact message IDs, text and provenance.
-    const feedback = yield* appendFeedback(cursor.feedback, receipt)
-    const revision = cursor.revision + (advance ? 1 : 0)
-    if (revision >= maximumPlanningPasses) return yield* Effect.fail(new CodingError({
-      code: "invalid_plan", message: `Request reached ${maximumPlanningPasses} planning passes at ${receipt.boundary}; retained message IDs: ${receipt.messages.map(message => JSON.stringify(message.id)).join(", ")}`
-    }))
-    const { preparedPlan: _, ...next } = cursor
-    return { ...next, feedback, revision }
-  }))
+  Interpreter.layer(Request),
+  Interpreter.layer(Coordinate),
+  MergeFeedback.toLayer(({ cursor, receipt, advance }) =>
+    Effect.gen(function*() {
+      // ReceiveFeedback completed before this action was materialized, so even
+      // a bounded refusal retains the exact message IDs, text and provenance.
+      const feedback = yield* appendFeedback(cursor.feedback, receipt)
+      const revision = cursor.revision + (advance ? 1 : 0)
+      if (revision >= maximumPlanningPasses) {
+        return yield* Effect.fail(
+          new CodingError({
+            code: "invalid_plan",
+            message:
+              `Request reached ${maximumPlanningPasses} planning passes at ${receipt.boundary}; retained message IDs: ${
+                receipt.messages.map((message) => JSON.stringify(message.id)).join(", ")
+              }`
+          })
+        )
+      }
+      const { preparedPlan: _, ...next } = cursor
+      return { ...next, feedback, revision }
+    })
+  )
 )

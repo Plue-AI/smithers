@@ -12,7 +12,8 @@ import { Schema } from "effect"
 import * as Panels from "./panels.ts"
 
 const short = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(240))
-const line = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max), Schema.isPattern(/^[^\r\n]+$/))
+const line = (max: number) =>
+  Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max), Schema.isPattern(/^[^\r\n]+$/))
 
 /** What choosing a key, a status item or a row does; defined beside `Row` so rows can carry one. */
 export const Action = Panels.Action
@@ -119,7 +120,11 @@ export const project = (source: Source): Descriptor => {
     description: source.description,
     modelInvocable: source.modelInvocable,
     kind: source.body._tag === "Markdown" ? "markdown" : "module",
-    ...(model === undefined ? {} : typeof model === "string" ? { seat: model } : { seat: model[0], fallbackSeats: model.slice(1) }),
+    ...(model === undefined
+      ? {}
+      : typeof model === "string"
+      ? { seat: model }
+      : { seat: model[0], fallbackSeats: model.slice(1) }),
     ...(typeof effort === "string" && effort !== "" ? { effort } : {}),
     flows: [...source.flows],
     capabilities: [...source.capabilities],
@@ -143,12 +148,14 @@ const flag = (value: boolean | "true" | "false" | undefined): boolean => value =
  * without an action runs its owner.
  */
 export const Manifest = Schema.Struct({
-  keys: Schema.optional(Schema.Array(Schema.Struct({
-    key: line(40),
-    label: line(24),
-    action: Schema.optional(Action),
-    context: Schema.optional(Schema.Literals(["global", "panel"]))
-  })).check(Schema.isMaxLength(8))),
+  keys: Schema.optional(
+    Schema.Array(Schema.Struct({
+      key: line(40),
+      label: line(24),
+      action: Schema.optional(Action),
+      context: Schema.optional(Schema.Literals(["global", "panel"]))
+    })).check(Schema.isMaxLength(8))
+  ),
   /** Show the owner's latest run or tab as a status item. */
   status: Schema.optional(Flag),
   /** Show the owner's runs as live transcript cards. */
@@ -174,9 +181,10 @@ export const declared = (descriptor: Descriptor): Declared => {
       typeof descriptor.tui === "string" ? JSON.parse(descriptor.tui) : descriptor.tui
     )
     // A key without an action runs its owner. An agent's key starts it at once, its label the prompt.
-    const own = (label: string): Action => isAgent(descriptor)
-      ? { kind: "agent", agent: descriptor.name, prompt: label }
-      : { kind: "flow", flow: descriptor.name }
+    const own = (label: string): Action =>
+      isAgent(descriptor)
+        ? { kind: "agent", agent: descriptor.name, prompt: label }
+        : { kind: "flow", flow: descriptor.name }
     const keys = (manifest.keys ?? []).map((key) =>
       Schema.decodeUnknownSync(Key)({
         id: `${owner}/${key.key}`,

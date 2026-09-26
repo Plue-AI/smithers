@@ -5,8 +5,7 @@ import * as Transcript from "../src/transcript.ts"
 const chat = Transcript.note(Transcript.user(Transcript.empty, "fix the build", false, 10), "checking", 40)
 const worker = Transcript.note(Transcript.user(Transcript.empty, "run the tests", false, 20), "3 failed", 30)
 const sources = [{ id: Timeline.chat, transcript: chat }, { id: "tests", transcript: worker }]
-const texts = (rows: ReadonlyArray<Timeline.Row>) =>
-  rows.map((row) => `${row.source}:${Timeline.text(row.item)}`)
+const texts = (rows: ReadonlyArray<Timeline.Row>) => rows.map((row) => `${row.source}:${Timeline.text(row.item)}`)
 
 describe("timeline", () => {
   test("interleaves workers with the chat by time", () => {

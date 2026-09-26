@@ -46,7 +46,9 @@ describe("test-run cleanup", () => {
   it("the next run removes what a killed run left, zmuxd included", async () => {
     const base = scratch("tui-cleanup-killed-")
     const child = spawn("bun", ["test", "./e2e/tui.test.ts", "-t", "names no mode by default"], {
-      cwd: app, env: env(base), stdio: "ignore"
+      cwd: app,
+      env: env(base),
+      stdio: "ignore"
     })
     const deadline = Date.now() + 60_000
     while (daemons(base).length === 0 && Date.now() < deadline) await sleep(100)

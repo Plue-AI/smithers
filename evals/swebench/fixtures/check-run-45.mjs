@@ -104,12 +104,12 @@ try {
     [
       "#!/bin/bash",
       "set -eu",
-      'ID="$1"',
+      "ID=\"$1\"",
       `printf 'start %s\\n' "$ID" >> ${JSON.stringify(trace)}`,
-      'if [ "${SWB_STUB_FAIL:-0}" = 1 ]; then exit 1; fi',
+      "if [ \"${SWB_STUB_FAIL:-0}\" = 1 ]; then exit 1; fi",
       "sleep 0.4",
       `printf 'end %s\\n' "$ID" >> ${JSON.stringify(trace)}`,
-      'USD="${SWB_STUB_USD:-0.05}"',
+      "USD=\"${SWB_STUB_USD:-0.05}\"",
       // Every append is checked by `set -e`: a stub whose rows silently failed
       // to land would make the budget gate look like it was never reached.
       `RAN="$(node ${JSON.stringify(rowTool)} --kind instance --id "$ID" --state ran --at 1 \\`,
@@ -121,9 +121,9 @@ try {
       // How the test asks for a stop from inside a live run, which is the only
       // way `--stop` is ever used: an operator types it while instances are in
       // flight.
-      'if [ -n "${SWB_STUB_STOP_AFTER:-}" ]; then',
+      "if [ -n \"${SWB_STUB_STOP_AFTER:-}\" ]; then",
       `  DONE="$(grep -c '^start ' ${JSON.stringify(trace)} || printf 0)"`,
-      '  if [ "$DONE" -ge "$SWB_STUB_STOP_AFTER" ]; then printf \'stop\\n\' > "$FB_DIR/STOP"; fi',
+      "  if [ \"$DONE\" -ge \"$SWB_STUB_STOP_AFTER\" ]; then printf 'stop\\n' > \"$FB_DIR/STOP\"; fi",
       "fi",
       ""
     ].join("\n")
@@ -244,7 +244,9 @@ try {
     mkdirSync(unknown)
     // The priced seat exercises missing accounting; the unpriced seat must be
     // refused on an empty ledger, before the first worker starts.
-    if (seat === "openai:gpt-5.6-sol") jsonl(join(unknown, "manifest.jsonl"), [instance(ordered[0], "ran", { cost: {} })])
+    if (seat === "openai:gpt-5.6-sol") {
+      jsonl(join(unknown, "manifest.jsonl"), [instance(ordered[0], "ran", { cost: {} })])
+    }
     writeFileSync(trace, "")
     const refused = drive(unknown, [], { SWB_SEAT: seat, SWB_RERUN_JOBS: "1" })
     assert.equal(refused.status, 0, refused.stderr)
@@ -368,7 +370,10 @@ try {
   assert.match(unindexed.stdout + unindexed.stderr, /run index must match r<digits>/)
   assert.equal(readFileSync(trace, "utf8"), "", "an instance started under an index run-paths refuses")
   const indexedFb = join(temporary, "fb-lane-indexed")
-  const indexed = drive(indexedFb, ["--lane", "jev1", "--limit", "1"], { SWB_RERUN_INDEX: "r99jev", SWB_RERUN_JOBS: "1" })
+  const indexed = drive(indexedFb, ["--lane", "jev1", "--limit", "1"], {
+    SWB_RERUN_INDEX: "r99jev",
+    SWB_RERUN_JOBS: "1"
+  })
   assert.equal(indexed.status, 0, `${indexed.stdout}\n${indexed.stderr}`)
   const indexedHeader = read(join(indexedFb, "manifest.jsonl")).header
   assert.equal(indexedHeader.lane, "jev1")

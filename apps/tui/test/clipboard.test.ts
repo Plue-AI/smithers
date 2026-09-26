@@ -58,7 +58,10 @@ describe("write", () => {
   })
 
   it("returns before the clipboard command exits and falls through a missing one", async () => {
-    const pending = Clipboard.write("x", [["definitely-not-a-clipboard", []], ["sh", ["-c", "sleep 0.2; cat >/dev/null"]]])
+    const pending = Clipboard.write("x", [["definitely-not-a-clipboard", []], ["sh", [
+      "-c",
+      "sleep 0.2; cat >/dev/null"
+    ]]])
     expect(pending).toBeInstanceOf(Promise)
     expect(await pending).toBe(true)
     expect(await Clipboard.write("x", [["definitely-not-a-clipboard", []]])).toBe(false)

@@ -43,7 +43,9 @@ export const CaseState = Schema.Struct({
     results: Schema.Array(Schema.Struct({
       stepId: Schema.String.annotate({ description: "The configured step this row is for" }),
       status: Schema.String.annotate({ description: "How that step ended" }),
-      summary: Schema.String.annotate({ description: "What it reported, clipped so the whole state stays under 32 KiB" }),
+      summary: Schema.String.annotate({
+        description: "What it reported, clipped so the whole state stays under 32 KiB"
+      }),
       evidence: Schema.Array(Schema.String).annotate({ description: "The exact references it recorded" })
     })).annotate({ description: "Every step the job recorded, in order" })
   })
@@ -79,22 +81,32 @@ const bytes = (value: string): number => encoder.encode(value).length
 export const scoreState = (test: typeof EvalCase.Type, observed: JobResult): CaseState => {
   const steps = observed.results.slice(0, MAX_SCORE_STEPS)
   const framed = (expected: string, summaries: ReadonlyArray<string>): CaseState => ({
-    name: clip(test.name, 200), expected,
-    observed: { job: observed.job, status: observed.status,
-      results: steps.map((step, index) => ({ stepId: step.stepId, status: step.status, summary: summaries[index]!,
-        evidence: step.evidence })) }
+    name: clip(test.name, 200),
+    expected,
+    observed: {
+      job: observed.job,
+      status: observed.status,
+      results: steps.map((step, index) => ({
+        stepId: step.stepId,
+        status: step.status,
+        summary: summaries[index]!,
+        evidence: step.evidence
+      }))
+    }
   })
   const room = Math.max(0, MAX_SCORE_STATE_BYTES - bytes(JSON.stringify(framed("", steps.map(() => "")))))
   const expected = clip(test.expected, Math.floor(room / 2))
   const each = steps.length === 0 ? 0 : Math.floor(Math.max(0, room - bytes(expected)) / steps.length)
-  let state = framed(expected, steps.map(step => clip(step.summary, each)))
+  let state = framed(expected, steps.map((step) => clip(step.summary, each)))
   // JSON escaping grows a quote-heavy or newline-heavy summary past its share,
   // so every summary sheds an equal part of the remainder until the state fits.
   for (let pass = 0; pass < 4 && bytes(JSON.stringify(state)) > MAX_SCORE_STATE_BYTES; pass++) {
     const over = bytes(JSON.stringify(state)) - MAX_SCORE_STATE_BYTES
     const shed = steps.length === 0 ? 0 : Math.ceil(over / steps.length)
-    state = framed(clip(expected, Math.max(0, bytes(expected) - (steps.length === 0 ? over : 0))),
-      state.observed.results.map(step => clip(step.summary, Math.max(0, bytes(step.summary) - shed))))
+    state = framed(
+      clip(expected, Math.max(0, bytes(expected) - (steps.length === 0 ? over : 0))),
+      state.observed.results.map((step) => clip(step.summary, Math.max(0, bytes(step.summary) - shed)))
+    )
   }
   return state
 }
@@ -115,7 +127,12 @@ export const jevScore = (
 ): Effect.Effect<keyof typeof verdicts, CodingError, Evaluator.Evaluator> =>
   Effect.gen(function*() {
     const answers = yield* caseClassifier.evaluate(scoreState(test, observed)).pipe(
-      Effect.mapError(failure =>
-        new CodingError({ code: "unavailable", message: `Jev could not score ${test.id}: ${failure.code}. ${failure.message}` })))
+      Effect.mapError((failure) =>
+        new CodingError({
+          code: "unavailable",
+          message: `Jev could not score ${test.id}: ${failure.code}. ${failure.message}`
+        })
+      )
+    )
     return answers.verdict.confidence >= SCORE_CONFIDENCE ? answers.verdict.value : "review"
   })

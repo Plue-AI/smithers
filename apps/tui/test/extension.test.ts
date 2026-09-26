@@ -1,6 +1,6 @@
+import type { FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import type { FlowDescriptor } from "@smthrs/registry/Descriptor"
 import * as Extension from "../src/extension.ts"
 
 const listed = (overrides: Partial<Extension.Descriptor> = {}): Extension.Descriptor => ({
@@ -42,7 +42,13 @@ describe("contributions", () => {
   test("a global key needs ctrl or alt so typing never triggers it", () => {
     const key = (key: string, context?: "global" | "panel") => ({
       kind: "key",
-      key: { id: "review", key, label: "Review", action: { kind: "flow", flow: "review" }, ...(context ? { context } : {}) }
+      key: {
+        id: "review",
+        key,
+        label: "Review",
+        action: { kind: "flow", flow: "review" },
+        ...(context ? { context } : {})
+      }
     })
     expect(Extension.decode(key("alt+r")).kind).toBe("key")
     expect(() => Extension.decode(key("r"))).toThrow(/ctrl or alt/)
@@ -62,7 +68,9 @@ describe("contributions", () => {
     ) {
       expect(Schema.decodeUnknownSync(Extension.Action)(action)).toEqual(action as never)
     }
-    expect(() => Extension.decode({ kind: "status", status: { id: "x", text: "x", action: { kind: "shell", command: "rm" } } }))
+    expect(() =>
+      Extension.decode({ kind: "status", status: { id: "x", text: "x", action: { kind: "shell", command: "rm" } } })
+    )
       .toThrow()
   })
 })
@@ -80,11 +88,19 @@ describe("descriptors", () => {
     expect(declared.problems).toEqual([])
     expect(declared.owner).toBe("repo:review")
     expect(declared.keys).toEqual([
-      { id: "repo:review/alt+r", key: "alt+r", label: "Review", context: "global", action: { kind: "agent", agent: "review", prompt: "Review" } }
+      {
+        id: "repo:review/alt+r",
+        key: "alt+r",
+        label: "Review",
+        context: "global",
+        action: { kind: "agent", agent: "review", prompt: "Review" }
+      }
     ])
     expect(declared.status).toBe(true)
     expect(declared.card).toBe(true)
-    expect(Extension.declared(listed({ kind: "module", tui: { keys: [{ key: "alt+r", label: "Review" }] } })).keys[0]?.action)
+    expect(
+      Extension.declared(listed({ kind: "module", tui: { keys: [{ key: "alt+r", label: "Review" }] } })).keys[0]?.action
+    )
       .toEqual({ kind: "flow", flow: "review" })
   })
 
@@ -96,11 +112,15 @@ describe("descriptors", () => {
 
   test("reads the registry's YAML failsafe strings: flags as \"true\", and a JSON manifest string", () => {
     // The registry parses frontmatter with YAML's failsafe schema, so every scalar arrives as a string.
-    const flags = Extension.declared(listed({ tui: { keys: [{ key: "alt+r", label: "Review" }], status: "true", card: "false" } }))
+    const flags = Extension.declared(
+      listed({ tui: { keys: [{ key: "alt+r", label: "Review" }], status: "true", card: "false" } })
+    )
     expect(flags.problems).toEqual([])
     expect([flags.status, flags.card]).toEqual([true, false])
     // A string-to-string `metadata` (the Agent Skills rule, and SKILL.md's) carries the manifest as JSON.
-    const json = Extension.declared(listed({ tui: JSON.stringify({ keys: [{ key: "alt+r", label: "Review" }], status: true }) }))
+    const json = Extension.declared(
+      listed({ tui: JSON.stringify({ keys: [{ key: "alt+r", label: "Review" }], status: true }) })
+    )
     expect(json.problems).toEqual([])
     expect(json.keys.map((key) => key.key)).toEqual(["alt+r"])
     expect(json.status).toBe(true)
@@ -109,7 +129,13 @@ describe("descriptors", () => {
   })
 
   test("no manifest contributes nothing", () => {
-    expect(Extension.declared(listed())).toEqual({ owner: "repo:review", keys: [], status: false, card: false, problems: [] })
+    expect(Extension.declared(listed())).toEqual({
+      owner: "repo:review",
+      keys: [],
+      status: false,
+      card: false,
+      problems: []
+    })
   })
 })
 

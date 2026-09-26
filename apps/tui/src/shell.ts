@@ -171,9 +171,11 @@ export const run = (options: {
     cancel: () => {
       if (settled || cancelled) return
       cancelled = true
-      if (child.pid !== undefined) stopping = stopGroup(child.pid, cancelGraceMs).catch((error) => {
-        receive(redactor.write(clean(`Could not stop process group: ${String(error)}\n`)))
-      })
+      if (child.pid !== undefined) {
+        stopping = stopGroup(child.pid, cancelGraceMs).catch((error) => {
+          receive(redactor.write(clean(`Could not stop process group: ${String(error)}\n`)))
+        })
+      }
     }
   }
 }

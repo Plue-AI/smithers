@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { Effect } from "effect"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Effect } from "effect"
 import * as Context from "../src/context.ts"
 import * as Editor from "../src/editor.ts"
 import * as Replay from "../src/replay.ts"
@@ -11,7 +11,9 @@ import * as Shell from "../src/shell.ts"
 import * as Steering from "../src/steering.ts"
 
 let previousSessionDirectory: string | undefined
-beforeEach(() => { previousSessionDirectory = process.env.SMITHERS_TUI_SESSION_DIR })
+beforeEach(() => {
+  previousSessionDirectory = process.env.SMITHERS_TUI_SESSION_DIR
+})
 afterEach(() => {
   if (previousSessionDirectory === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
   else process.env.SMITHERS_TUI_SESSION_DIR = previousSessionDirectory
@@ -37,7 +39,6 @@ describe("History", () => {
 })
 
 describe("commands", () => {
-
   it("parses a command and its argument", () => {
     expect(Editor.parseCommand("/model  gpt 6 ")).toEqual({ name: "model", argument: "gpt 6" })
     expect(Editor.parseCommand("/new")).toEqual({ name: "new", argument: "" })
@@ -78,7 +79,9 @@ describe("shell", () => {
   })
 
   it("writes pi's context template", () => {
-    expect(Shell.contextText({ command: "ls", output: "a\nb", exitCode: 0, cancelled: false })).toBe("Ran `ls`\n```\na\nb\n```")
+    expect(Shell.contextText({ command: "ls", output: "a\nb", exitCode: 0, cancelled: false })).toBe(
+      "Ran `ls`\n```\na\nb\n```"
+    )
     expect(Shell.contextText({ command: "false", output: "", exitCode: 1, cancelled: false })).toBe(
       "Ran `false`\n```\n(no output)\n```\n\nCommand exited with code 1"
     )

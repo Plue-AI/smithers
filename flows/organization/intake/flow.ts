@@ -49,7 +49,12 @@ export default Flow.make("organization/intake", {
               persona: reply.persona
             })))
         )
-        return React.call({ channel: conversation.channel, ts: conversation.message ?? conversation.thread, add: ["eyes"], remove: [] }).pipe(
+        return React.call({
+          channel: conversation.channel,
+          ts: conversation.message ?? conversation.thread,
+          add: ["eyes"],
+          remove: []
+        }).pipe(
           Node.branch({
             if: Node.capture({ implementationVersion }, (seen) => seen.reacted),
             then: () => Node.succeed(null),

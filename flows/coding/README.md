@@ -19,13 +19,15 @@ requests/results in the existing flow. For example, after reading an exact
 resolved revision in a recorded planning step:
 
 ```ts
-ApplyNative.call({ operation: {
-  operation: "create",
-  requestId: requestIdFor(executionId, "create/database"),
-  expectedOperationId: parent.operationId,
-  target: parent,
-  description: "✨ feat(database): add the schema"
-}})
+ApplyNative.call({
+  operation: {
+    operation: "create",
+    requestId: requestIdFor(executionId, "create/database"),
+    expectedOperationId: parent.operationId,
+    target: parent,
+    description: "✨ feat(database): add the schema"
+  }
+})
 ```
 
 `requestIdFor` derives a stable invocation UUID from the existing execution ID

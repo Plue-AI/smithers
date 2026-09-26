@@ -8,7 +8,9 @@ import * as Session from "../src/session.ts"
 import { type Tab, Workspace } from "../src/workspace.ts"
 
 let previousSessionDirectory: string | undefined
-beforeEach(() => { previousSessionDirectory = process.env.SMITHERS_TUI_SESSION_DIR })
+beforeEach(() => {
+  previousSessionDirectory = process.env.SMITHERS_TUI_SESSION_DIR
+})
 afterEach(() => {
   if (previousSessionDirectory === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
   else process.env.SMITHERS_TUI_SESSION_DIR = previousSessionDirectory
@@ -36,11 +38,22 @@ const session = (status: Tab["status"], settled?: string) => {
     outcome: settled === undefined ? { _tag: "done", answer: "fixed" } : { _tag: "failed", message: settled }
   })
   const chat = Session.create(host.cwd)
-  const tab: Tab = { id: "fix", title: "Fix", prompt: "fix", seat: "worker:test", file: worker.file, status, startedAt: 1, depth: 0 }
+  const tab: Tab = {
+    id: "fix",
+    title: "Fix",
+    prompt: "fix",
+    seat: "worker:test",
+    file: worker.file,
+    status,
+    startedAt: 1,
+    depth: 0
+  }
   chat.append({ type: "user", at: 1, text: "delegate" })
   chat.append({ type: "tab", tab })
   chat.append({ type: "user", at: 3, text: "next" })
-  if (settled !== undefined) chat.append({ type: "tab", tab: { ...tab, status: "failed", message: settled, endedAt: 4 } })
+  if (settled !== undefined) {
+    chat.append({ type: "tab", tab: { ...tab, status: "failed", message: settled, endedAt: 4 } })
+  }
   const turn = Session.turns(Session.load(chat.file)).find((each) => each.text === "next")!
   const forked = Session.fork(chat.file, host.cwd, turn)
   if (forked._tag !== "Forked") throw new Error(forked._tag)

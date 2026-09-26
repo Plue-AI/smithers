@@ -4,12 +4,15 @@ import { appendFileSync, chmodSync, mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
-export const path = (): string => join(process.env.SMITHERS_TUI_SESSION_DIR ?? join(homedir(), ".smithers", "tui"), "tui.log")
+export const path = (): string =>
+  join(process.env.SMITHERS_TUI_SESSION_DIR ?? join(homedir(), ".smithers", "tui"), "tui.log")
 const listeners = new Set<(message: string) => void>()
 /** Subscribe to unexpected process failures while the terminal is mounted. */
-export const subscribe = (listener: (message: string) => void): (() => void) => {
+export const subscribe = (listener: (message: string) => void): () => void => {
   listeners.add(listener)
-  return () => { listeners.delete(listener) }
+  return () => {
+    listeners.delete(listener)
+  }
 }
 /** Error.stack omits Error.cause; retain its chain without looping on cycles. */
 const describe = (error: unknown, seen = new Set<unknown>()): string => {
@@ -23,18 +26,23 @@ const describe = (error: unknown, seen = new Set<unknown>()): string => {
 /** Record the full cause, redacting credential-shaped text before writing. */
 export const write = (tag: string, error: unknown): void => {
   const detail = describe(error)
-  const redacted = Redaction.defaultRules.reduce((value, rule) => value.replace(rule.pattern, rule.replace ?? Redaction.placeholder), detail)
+  const redacted = Redaction.defaultRules.reduce(
+    (value, rule) => value.replace(rule.pattern, rule.replace ?? Redaction.placeholder),
+    detail
+  )
   try {
     const file = path()
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
-    appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), tag, detail: redacted }) + "\n", { mode: 0o600 })
+    appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), tag, detail: redacted }) + "\n", {
+      mode: 0o600
+    })
     chmodSync(file, 0o600)
   } catch {
     // A full disk must not replace the original failure with a logging failure.
   }
 }
 /** Observe fatal exceptions without suppressing Node's exit behavior. */
-export const install = (): (() => void) => {
+export const install = (): () => void => {
   const report = (tag: string, error: unknown) => {
     write(tag, error)
     for (const listener of listeners) listener("Terminal service failed")

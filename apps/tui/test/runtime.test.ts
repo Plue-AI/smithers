@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test"
 import * as CellPlugin from "@smthrs/agent/CellPlugin"
 import * as SmithersPlugin from "@smthrs/agent/SmithersPlugin"
+import { describe, expect, it } from "bun:test"
 import { Effect } from "effect"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -61,7 +61,11 @@ it("never summarizes a failed delegation as requested, whatever the answer claim
     { _tag: "cell-produced", cell: { language: "javascript", text: "await ctx.call(\"agent.delegate\", {})" } },
     {
       _tag: "cell-call-started",
-      call: { flowName: "agent.delegate", input: { id: "design", title: "Estimation design", prompt: "design it" }, identity }
+      call: {
+        flowName: "agent.delegate",
+        input: { id: "design", title: "Estimation design", prompt: "design it" },
+        identity
+      }
     },
     {
       _tag: "cell-call-settled",
@@ -128,16 +132,28 @@ it("registers real catalog flows and validates before publishing without invokin
 
 it("publishes a card, a status item and a key through one flow, and refuses a bad key with its reason", async () => {
   const published: Extension.Contribution[] = []
-  const [publish] = await Effect.runPromise(Runtime.source({
-    publish: (value) => {
-      if (value.kind === "key" && value.key.key === "ctrl+c") throw new Error("ctrl+c is the built-in Clear key")
-      published.push(value)
-    }
-  }).bindings())
-  const call = (input: unknown) => Effect.runPromise(publish!.run({ input } as Parameters<NonNullable<typeof publish>["run"]>[0]))
-  const status = { kind: "status", status: { id: "ci", text: "CI ✓", tone: "success", action: { kind: "open", surface: "ui:checks" } } }
-  const key = { kind: "key", key: { id: "rerun", key: "alt+c", label: "Rerun checks", action: { kind: "flow", flow: "checks" } } }
-  expect(await call({ kind: "panel", placement: "card", panel })).toMatchObject({ outcome: "success", value: { id: "checks", status: "published" } })
+  const [publish] = await Effect.runPromise(
+    Runtime.source({
+      publish: (value) => {
+        if (value.kind === "key" && value.key.key === "ctrl+c") throw new Error("ctrl+c is the built-in Clear key")
+        published.push(value)
+      }
+    }).bindings()
+  )
+  const call = (input: unknown) =>
+    Effect.runPromise(publish!.run({ input } as Parameters<NonNullable<typeof publish>["run"]>[0]))
+  const status = {
+    kind: "status",
+    status: { id: "ci", text: "CI ✓", tone: "success", action: { kind: "open", surface: "ui:checks" } }
+  }
+  const key = {
+    kind: "key",
+    key: { id: "rerun", key: "alt+c", label: "Rerun checks", action: { kind: "flow", flow: "checks" } }
+  }
+  expect(await call({ kind: "panel", placement: "card", panel })).toMatchObject({
+    outcome: "success",
+    value: { id: "checks", status: "published" }
+  })
   expect(await call(status)).toMatchObject({ outcome: "success", value: { id: "ci", status: "published" } })
   expect(await call(key)).toMatchObject({ outcome: "success", value: { id: "rerun", status: "published" } })
   // `kind: "panel"` without a placement is a tab, like a bare panel.
@@ -151,7 +167,9 @@ it("publishes a card, a status item and a key through one flow, and refuses a ba
   const bare = await call({ kind: "key", key: { ...key.key, key: "r" } })
   expect(bare).toMatchObject({ outcome: "failure" })
   // `ui.publish` decodes `Extension.Key` itself, so the key's own rule is the first reason given.
-  expect((bare as { message: string }).message).toStartWith("Flow ui.publish rejected its input: Global key r needs ctrl or alt")
+  expect((bare as { message: string }).message).toStartWith(
+    "Flow ui.publish rejected its input: Global key r needs ctrl or alt"
+  )
   const taken = await call({ kind: "key", key: { ...key.key, key: "ctrl+c" } })
   expect(JSON.stringify(taken)).toContain("ctrl+c is the built-in Clear key")
   expect((await call({ kind: "status", status: { id: "long", text: "x".repeat(25) } })).outcome).toBe("failure")
@@ -173,10 +191,17 @@ it("decodes every runtime binding through its declared input, not the placeholde
     list: note("list"),
     retry: note("retry"),
     eta: note("eta"),
-    monitors: { create: note("monitor.create"), list: note("monitor.list"), stop: note("monitor.stop") } as unknown as NonNullable<Runtime.Ports["monitors"]>
+    monitors: {
+      create: note("monitor.create"),
+      list: note("monitor.list"),
+      stop: note("monitor.stop")
+    } as unknown as NonNullable<Runtime.Ports["monitors"]>
   }
   const valid: Record<string, readonly [unknown, string, unknown]> = {
-    "ui.publish": [{ kind: "status", status: { id: "ci", text: "CI ✓" } }, "publish", { kind: "status", status: { id: "ci", text: "CI ✓" } }],
+    "ui.publish": [{ kind: "status", status: { id: "ci", text: "CI ✓" } }, "publish", {
+      kind: "status",
+      status: { id: "ci", text: "CI ✓" }
+    }],
     "monitor.create": [
       { id: "ci", title: "CI", watch: "a failure", source: { kind: "tab", id: "fix" } },
       "monitor.create",
@@ -199,14 +224,18 @@ it("decodes every runtime binding through its declared input, not the placeholde
   for (const binding of bindings) {
     const name = binding.descriptor.name
     const [input, port, received] = valid[name]!
-    const run = (value: unknown) => Effect.runPromise(binding.run({ input: value } as Parameters<typeof binding.run>[0]))
+    const run = (value: unknown) =>
+      Effect.runPromise(binding.run({ input: value } as Parameters<typeof binding.run>[0]))
     calls.length = 0
     expect({ name, outcome: (await run(input)).outcome }).toEqual({ name, outcome: "success" })
     expect(calls).toEqual([[port, received]])
     // An empty struct takes anything; every binding with fields must refuse a non-object.
     if (Object.keys(input as object).length === 0) continue
     calls.length = 0
-    expect({ name, result: await run(42) }).toMatchObject({ name, result: { outcome: "failure", code: "invalid_input" } })
+    expect({ name, result: await run(42) }).toMatchObject({
+      name,
+      result: { outcome: "failure", code: "invalid_input" }
+    })
     expect(calls).toEqual([])
   }
 })
@@ -261,12 +290,17 @@ it("teaches only smthrs verbs the real CLI lists", () => {
 
 it("accepts only named models in the delegate flow", async () => {
   const requests: Array<unknown> = []
-  const bindings = await Effect.runPromise(Runtime.source({
-    publish: () => {},
-    delegate: (value) => { requests.push(value); return { status: "requested" } },
-    read: () => ({}),
-    list: () => []
-  }).bindings())
+  const bindings = await Effect.runPromise(
+    Runtime.source({
+      publish: () => {},
+      delegate: (value) => {
+        requests.push(value)
+        return { status: "requested" }
+      },
+      read: () => ({}),
+      list: () => []
+    }).bindings()
+  )
   const delegate = bindings.find((binding) => binding.descriptor.name === "agent.delegate")!
   // The coordinator's own pick is not a person's choice; an unnamed model is routed by Jev.
   expect(delegate.descriptor.description).toEndWith(" Pass model only when the person names one.")
@@ -281,49 +315,60 @@ it("accepts only named models in the delegate flow", async () => {
 })
 
 it("teaches the coordinator honest receipts and the panel block contract", () => {
-  for (const rule of [
-    "final answer is normally ONE short sentence",
-    "Do not narrate flow names, ids, JSON",
-    "console.log does not end it",
-    "Never wait, retry, or re-check tab.list",
-    "If a request fails, end the turn saying it was not made and why",
-    "You have no filesystem or shell flows in this role",
-    "monitor.create",
-    "A requested or queued receipt means only requested or queued",
-    "This applies to panel details as well as replies",
-    "A running task is never completed",
-    "placement:\"main\" and bind:{tree:rootId}"
-  ]) expect(Runtime.coordinatorTeaching).toContain(rule)
-  for (const rule of ["kind:\"code\"", "kind:\"table\"", "Never invent actions the user did not request"])
+  for (
+    const rule of [
+      "final answer is normally ONE short sentence",
+      "Do not narrate flow names, ids, JSON",
+      "console.log does not end it",
+      "Never wait, retry, or re-check tab.list",
+      "If a request fails, end the turn saying it was not made and why",
+      "You have no filesystem or shell flows in this role",
+      "monitor.create",
+      "A requested or queued receipt means only requested or queued",
+      "This applies to panel details as well as replies",
+      "A running task is never completed",
+      "placement:\"main\" and bind:{tree:rootId}"
+    ]
+  ) expect(Runtime.coordinatorTeaching).toContain(rule)
+  for (const rule of ["kind:\"code\"", "kind:\"table\"", "Never invent actions the user did not request"]) {
     expect(Panels.teaching).toContain(rule)
+  }
 })
 
 it("lets the agent retry a tab and reports why a retry is refused", async () => {
-  const bindings = await Effect.runPromise(Runtime.source({
-    publish: () => {},
-    delegate: () => ({ status: "requested" }),
-    read: () => ({}),
-    list: () => [],
-    retry: (id) => {
-      if (id !== "failed-one") throw new Error(`Only a failed or stopped tab can be retried; ${id} is running`)
-      return { id, status: "requested" }
-    }
-  }).bindings())
+  const bindings = await Effect.runPromise(
+    Runtime.source({
+      publish: () => {},
+      delegate: () => ({ status: "requested" }),
+      read: () => ({}),
+      list: () => [],
+      retry: (id) => {
+        if (id !== "failed-one") throw new Error(`Only a failed or stopped tab can be retried; ${id} is running`)
+        return { id, status: "requested" }
+      }
+    }).bindings()
+  )
   const retry = bindings.find((binding) => binding.descriptor.name === "tab.retry")!
-  const call = (id: string) => Effect.runPromise(retry.run({ input: { id } } as unknown as Parameters<typeof retry.run>[0]))
-  expect(await call("failed-one")).toMatchObject({ outcome: "success", value: { id: "failed-one", status: "requested" } })
+  const call = (id: string) =>
+    Effect.runPromise(retry.run({ input: { id } } as unknown as Parameters<typeof retry.run>[0]))
+  expect(await call("failed-one")).toMatchObject({
+    outcome: "success",
+    value: { id: "failed-one", status: "requested" }
+  })
   expect(await call("busy")).toMatchObject({ outcome: "failure" })
   expect(JSON.stringify(await call("busy"))).toContain("busy is running")
 })
 
 it("lists tabs and flows when the cell omits the input", async () => {
   const bindings = [
-    ...await Effect.runPromise(Runtime.source({
-      publish: () => {},
-      delegate: () => ({ status: "requested" }),
-      read: () => ({}),
-      list: () => [{ id: "w1", status: "running" }]
-    }).bindings()),
+    ...await Effect.runPromise(
+      Runtime.source({
+        publish: () => {},
+        delegate: () => ({ status: "requested" }),
+        read: () => ({}),
+        list: () => [{ id: "w1", status: "running" }]
+      }).bindings()
+    ),
     ...SmithersPlugin.flows({
       list: () => [{ name: "review", description: "Review a change" }],
       run: () => ({}),
@@ -341,20 +386,28 @@ it("lists tabs and flows when the cell omits the input", async () => {
 })
 it("delegates to a custom agent and returns its typed refusals as one line", async () => {
   const requests: Array<unknown> = []
-  const bindings = await Effect.runPromise(Runtime.source({
-    publish: () => {},
-    delegate: (value) => {
-      requests.push(value)
-      if (value.agent === "echo") throw new Agents.AgentError("not_an_agent", "echo is a module flow; run it with smithers.run or /flow")
-      return { id: value.id, status: "requested" }
-    },
-    read: () => ({}),
-    list: () => []
-  }).bindings())
+  const bindings = await Effect.runPromise(
+    Runtime.source({
+      publish: () => {},
+      delegate: (value) => {
+        requests.push(value)
+        if (value.agent === "echo") {
+          throw new Agents.AgentError("not_an_agent", "echo is a module flow; run it with smithers.run or /flow")
+        }
+        return { id: value.id, status: "requested" }
+      },
+      read: () => ({}),
+      list: () => []
+    }).bindings()
+  )
   const delegate = bindings.find((binding) => binding.descriptor.name === "agent.delegate")!
-  const call = (value: unknown) => Effect.runPromise(delegate.run({ input: value } as Parameters<typeof delegate.run>[0]))
+  const call = (value: unknown) =>
+    Effect.runPromise(delegate.run({ input: value } as Parameters<typeof delegate.run>[0]))
   const input = { id: "rev", title: "Review", prompt: "Look at src" }
-  expect(await call({ ...input, agent: "review" })).toMatchObject({ outcome: "success", value: { id: "rev", status: "requested" } })
+  expect(await call({ ...input, agent: "review" })).toMatchObject({
+    outcome: "success",
+    value: { id: "rev", status: "requested" }
+  })
   expect(requests[0]).toEqual({ ...input, agent: "review" })
   const refused = await call({ ...input, agent: "echo" })
   expect(refused.outcome).toBe("failure")
@@ -364,9 +417,33 @@ it("delegates to a custom agent and returns its typed refusals as one line", asy
 it("refuses an unknown, module or person-only agent through a real workspace", async () => {
   const f = setup()
   const listed = [
-    { name: "review", description: "Review", modelInvocable: true, kind: "markdown" as const, flows: [], capabilities: [], path: "a" },
-    { name: "echo", description: "Echo", modelInvocable: true, kind: "module" as const, flows: [], capabilities: [], path: "b" },
-    { name: "manual", description: "Manual", modelInvocable: false, kind: "markdown" as const, flows: [], capabilities: [], path: "c" }
+    {
+      name: "review",
+      description: "Review",
+      modelInvocable: true,
+      kind: "markdown" as const,
+      flows: [],
+      capabilities: [],
+      path: "a"
+    },
+    {
+      name: "echo",
+      description: "Echo",
+      modelInvocable: true,
+      kind: "module" as const,
+      flows: [],
+      capabilities: [],
+      path: "b"
+    },
+    {
+      name: "manual",
+      description: "Manual",
+      modelInvocable: false,
+      kind: "markdown" as const,
+      flows: [],
+      capabilities: [],
+      path: "c"
+    }
   ]
   const workspace = new Workspace({
     host: f.host,
@@ -375,15 +452,21 @@ it("refuses an unknown, module or person-only agent through a real workspace", a
     persist: () => {},
     agents: { listed: () => listed, load: () => new Promise(() => {}) }
   })
-  const bindings = await Effect.runPromise(Runtime.source({
-    publish: () => {},
-    delegate: workspace.request,
-    read: workspace.read,
-    list: () => workspace.snapshot().tabs
-  }).bindings())
+  const bindings = await Effect.runPromise(
+    Runtime.source({
+      publish: () => {},
+      delegate: workspace.request,
+      read: workspace.read,
+      list: () => workspace.snapshot().tabs
+    }).bindings()
+  )
   const delegate = bindings.find((binding) => binding.descriptor.name === "agent.delegate")!
   const call = (agent: string) =>
-    Effect.runPromise(delegate.run({ input: { id: agent, title: agent, prompt: "Go", agent } } as unknown as Parameters<typeof delegate.run>[0]))
+    Effect.runPromise(
+      delegate.run(
+        { input: { id: agent, title: agent, prompt: "Go", agent } } as unknown as Parameters<typeof delegate.run>[0]
+      )
+    )
   for (const [agent, code] of [["missing", "unknown_agent"], ["echo", "not_an_agent"], ["manual", "not_invocable"]]) {
     const result = await call(agent!)
     expect(result.outcome).toBe("failure")
@@ -402,7 +485,8 @@ it("produces contextual hunks, preserves unchanged lines, and captures patch ren
   expect(Changes.patch("same", "same", "same")).toBeUndefined()
   expect(
     Changes.paths("apply_patch", {
-      input: "*** Begin Patch\n*** Update File: a.ts\n*** Move to: b.ts\n@@\n-a\n+b\n*** Delete File: c.ts\n*** End Patch"
+      input:
+        "*** Begin Patch\n*** Update File: a.ts\n*** Move to: b.ts\n@@\n-a\n+b\n*** Delete File: c.ts\n*** End Patch"
     })
   ).toEqual(["a.ts", "b.ts", "c.ts"])
   // A patch apply_patch refuses writes nothing, so it names no file.
@@ -494,7 +578,9 @@ describe("background work", () => {
   it("places a worker's card in its own lane and owns its status items and keys by tab", async () => {
     const contributed: Array<{ owner: string; contribution: Extension.Contribution }> = []
     const f = setup(undefined, (owner, contribution) => {
-      if (contribution.kind === "key" && contribution.key.key === "ctrl+c") throw new Error("ctrl+c is the built-in Clear key")
+      if (contribution.kind === "key" && contribution.key.key === "ctrl+c") {
+        throw new Error("ctrl+c is the built-in Clear key")
+      }
       contributed.push({ owner, contribution })
     })
     f.workspace.request(request)
@@ -509,12 +595,16 @@ describe("background work", () => {
     const cards = f.workspace.transcript("fix").items.filter((item) => item.kind === "card")
     expect(cards).toMatchObject([{ panel: { id: "fix/checks", summary: "One check left." } }])
     expect(f.workspace.snapshot().cards).toEqual(["fix/checks"])
-    expect(contributed).toEqual([{ owner: "runtime:fix", contribution: { kind: "status", status: { id: "fix/ci", text: "CI ◌" } } }])
+    expect(contributed).toEqual([{
+      owner: "runtime:fix",
+      contribution: { kind: "status", status: { id: "fix/ci", text: "CI ◌" } }
+    }])
     // The chat file places the card; the worker's own file draws it, so a reload keeps it in the worker's lane.
     expect(Session.restore(f.records).workspace.cards).toEqual(["fix/checks"])
     expect(Session.restore(f.records).transcript.items.some((item) => item.kind === "card")).toBe(false)
     const tab = f.workspace.snapshot().tabs[0]!
-    expect(Session.restore(Session.load(tab.file)).transcript.items.filter((item) => item.kind === "card")).toHaveLength(1)
+    expect(Session.restore(Session.load(tab.file)).transcript.items.filter((item) => item.kind === "card"))
+      .toHaveLength(1)
     f.complete({ _tag: "done", answer: "Done" })
     await tick()
   })
@@ -524,7 +614,9 @@ describe("background work", () => {
     const calls: Array<{ title: string; prompt: string; seat: string }> = []
     ;(f.host as { describe?: Host.Host["describe"] }).describe = (input) => {
       calls.push(input)
-      return new Promise((resolve) => { finish = resolve })
+      return new Promise((resolve) => {
+        finish = resolve
+      })
     }
     f.workspace.request(request)
     expect(f.workspace.snapshot().tabs[0]?.description).toBeUndefined()
@@ -542,7 +634,9 @@ describe("background work", () => {
     await tick()
 
     const failed = setup()
-    ;(failed.host as { describe?: Host.Host["describe"] }).describe = async () => { throw new Error("Luna unavailable") }
+    ;(failed.host as { describe?: Host.Host["describe"] }).describe = async () => {
+      throw new Error("Luna unavailable")
+    }
     failed.workspace.request(request)
     await tick()
     expect(failed.workspace.snapshot().tabs[0]?.description).toBe(request.title)
@@ -591,7 +685,9 @@ describe("background work", () => {
       await tick()
       await tick()
     }
-    const listed = JSON.parse(f.workspace.context()) as Array<{ id: string; title: string; status: string; answer?: string }>
+    const listed = JSON.parse(f.workspace.context()) as Array<
+      { id: string; title: string; status: string; answer?: string }
+    >
     expect(listed).toHaveLength(8)
     const answered = listed.filter((tab) => tab.answer !== undefined)
     expect(answered).toHaveLength(5)
@@ -673,7 +769,9 @@ describe("background work", () => {
         if (refuse(input.prompt)) throw new Error("Launch refused")
         started.push(input.source!)
         return {
-          done: new Promise<Host.Outcome>((done) => { settle.set(input.source!, done) }),
+          done: new Promise<Host.Outcome>((done) => {
+            settle.set(input.source!, done)
+          }),
           cancel: () => settle.get(input.source!)?.({ _tag: "cancelled" })
         }
       })
@@ -686,7 +784,9 @@ describe("background work", () => {
       await tick()
       expect(f.started).toEqual(["a", "b", "c", "d", "e", "f"])
       expect(f.workspace.request(f.job("g"))).toEqual({ id: "g", status: "queued" })
-      expect(f.records.findLast((record) => record.type === "tab")).toMatchObject({ tab: { id: "g", status: "queued" } })
+      expect(f.records.findLast((record) => record.type === "tab")).toMatchObject({
+        tab: { id: "g", status: "queued" }
+      })
       expect(f.workspace.read("g").status).toBe("queued")
       expect(f.workspace.panel("g").summary).toBe("Queued.")
       expect(f.workspace.busy).toBe(true)
@@ -793,12 +893,14 @@ it("never offers a GPT-5.6 model as a picker, delegate, default or worker seat",
   expect(labels.filter((label) => /5\.6/.test(label))).toEqual([])
   expect(Object.keys(Models.delegateModels).sort()).toEqual(["astra", "cerebras", "luna", "sol"])
 
-  const bindings = await Effect.runPromise(Runtime.source({
-    publish: () => {},
-    delegate: () => ({ status: "requested" }),
-    read: () => ({}),
-    list: () => []
-  }).bindings())
+  const bindings = await Effect.runPromise(
+    Runtime.source({
+      publish: () => {},
+      delegate: () => ({ status: "requested" }),
+      read: () => ({}),
+      list: () => []
+    }).bindings()
+  )
   const delegate = bindings.find((binding) => binding.descriptor.name === "agent.delegate")!
   for (const model of ["quince", "chat", "gpt"]) {
     const call = { input: { id: "t", title: "T", prompt: "P", model } } as unknown as Parameters<typeof delegate.run>[0]
@@ -918,13 +1020,18 @@ it("uses full call identities and replays persisted captions and actual diffs", 
 })
 
 describe("tab flows through the real flow binding", () => {
-  const bindings = async (f: ReturnType<typeof setup>, runs?: { read: (id: string) => unknown; snapshot: () => ReadonlyArray<unknown> }) =>
-    Effect.runPromise(Runtime.source({
-      publish: () => {},
-      delegate: f.workspace.request,
-      read: (id) => (runs !== undefined && id.startsWith("run") ? runs.read(id) : f.workspace.read(id)),
-      list: () => [...f.workspace.snapshot().tabs, ...(runs?.snapshot() ?? [])]
-    }).bindings())
+  const bindings = async (
+    f: ReturnType<typeof setup>,
+    runs?: { read: (id: string) => unknown; snapshot: () => ReadonlyArray<unknown> }
+  ) =>
+    Effect.runPromise(
+      Runtime.source({
+        publish: () => {},
+        delegate: f.workspace.request,
+        read: (id) => (runs !== undefined && id.startsWith("run") ? runs.read(id) : f.workspace.read(id)),
+        list: () => [...f.workspace.snapshot().tabs, ...(runs?.snapshot() ?? [])]
+      }).bindings()
+    )
   // Synchronous, so a requested tab is read before its launch microtask runs.
   const call = (all: ReadonlyArray<Awaited<ReturnType<typeof bindings>>[number]>, name: string, input: unknown) => {
     const binding = all.find((row) => row.descriptor.name === name)!
@@ -963,7 +1070,15 @@ describe("tab flows through the real flow binding", () => {
 
   it("returns plain JSON for a failed flow run with no answer", async () => {
     const f = setup()
-    const run: Run = { id: "run-1", flow: "deploy", by: "agent", input: {}, requested: "{}", status: "requested", startedAt: 1 }
+    const run: Run = {
+      id: "run-1",
+      flow: "deploy",
+      by: "agent",
+      input: {},
+      requested: "{}",
+      status: "requested",
+      startedAt: 1
+    }
     const runs = new FlowRuns({ persist: () => {}, restored: [run] })
     const all = await bindings(f, runs)
     const read = call(all, "tab.read", { id: "run-1" })

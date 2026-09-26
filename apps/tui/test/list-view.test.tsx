@@ -1,20 +1,34 @@
-import { afterEach, expect, it } from "bun:test"
 import { testRender } from "@opentui/react/test-utils"
-import stringWidth from "string-width"
+import { afterEach, expect, it } from "bun:test"
 import { act } from "react"
+import stringWidth from "string-width"
 import * as View from "../src/view.tsx"
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
-afterEach(async () => { await act(async () => { setup?.renderer.destroy(); setup = undefined }) })
+afterEach(async () => {
+  await act(async () => {
+    setup?.renderer.destroy()
+    setup = undefined
+  })
+})
 
 it("keeps long and Unicode picker labels separate from aligned metadata", async () => {
-  setup = await testRender(<View.List rows={[
-    { key: "long", label: "This session has a very long prompt that needs a visible date", detail: "today" },
-    { key: "unicode", label: "中文 🦉 café", detail: "today" },
-    { key: "short", label: "Short", detail: "today" },
-    { key: "emoji", label: "👩🏽‍💻".repeat(30), detail: "today" },
-    { key: "combining", label: "e\u0301".repeat(50), detail: "today" }
-  ]} selected={0} height={5} background="#011627" empty="Empty" />, { width: 72, height: 7 })
+  setup = await testRender(
+    <View.List
+      rows={[
+        { key: "long", label: "This session has a very long prompt that needs a visible date", detail: "today" },
+        { key: "unicode", label: "中文 🦉 café", detail: "today" },
+        { key: "short", label: "Short", detail: "today" },
+        { key: "emoji", label: "👩🏽‍💻".repeat(30), detail: "today" },
+        { key: "combining", label: "e\u0301".repeat(50), detail: "today" }
+      ]}
+      selected={0}
+      height={5}
+      background="#011627"
+      empty="Empty"
+    />,
+    { width: 72, height: 7 }
+  )
   await setup.renderOnce()
   const lines = setup.captureCharFrame().split("\n").filter((line) => line.includes("today"))
   expect(lines).toHaveLength(5)

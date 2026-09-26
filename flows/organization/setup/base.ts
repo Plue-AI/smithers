@@ -74,7 +74,13 @@ export const baseLines = async (check: BaseCheck): Promise<Array<Line>> => {
     )
   const resolved = await within(Effect.flatMap(Workspace.Workspace, (w) => w.resolveBase({ repoPath: repo })))
   if (!resolved.ok) {
-    return [fail("base", `${name}: ${resolved.error.message}`, `git -C ${repo} fetch, or fix repositories.${name}.base in Org/Organization.md`)]
+    return [
+      fail(
+        "base",
+        `${name}: ${resolved.error.message}`,
+        `git -C ${repo} fetch, or fix repositories.${name}.base in Org/Organization.md`
+      )
+    ]
   }
   const { commit, fetched, ref } = resolved.value
   const lines: Array<Line> = [{
@@ -91,7 +97,10 @@ export const baseLines = async (check: BaseCheck): Promise<Array<Line>> => {
     Effect.flatMap(Workspace.Workspace, (w) => w.findTools({ key: check.key, repoPath: repo, commit }))
   )
   if (!found.ok) {
-    return [...lines, fail("tools", `${name}: ${found.error.message}`, `fix repositories.${name}.prepare in Org/Organization.md`)]
+    return [
+      ...lines,
+      fail("tools", `${name}: ${found.error.message}`, `fix repositories.${name}.prepare in Org/Organization.md`)
+    ]
   }
   return [...lines, {
     name: "tools",

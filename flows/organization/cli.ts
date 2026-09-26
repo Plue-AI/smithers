@@ -16,10 +16,10 @@ import { parseArgs } from "node:util"
 import * as Actions from "../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Roster from "../../packages/smithers/agent/organization/src/Roster.ts"
 import { cliKey, credentialFile, operations, readCredential, rpc } from "./client.ts"
-import { defaultPort, environmentOf, resolve } from "./settings.ts"
 import { command as qualify } from "./qualify/cli.ts"
+import { defaultPort, environmentOf, resolve } from "./settings.ts"
 import { glance } from "./setup/glance.ts"
-import { commands as setupCommands, type Command, type Io, processIo } from "./setup/index.ts"
+import { type Command, commands as setupCommands, type Io, processIo } from "./setup/index.ts"
 import { absolute, loadOrganization, nonEmpty, stateDirOf } from "./setup/settings.ts"
 
 export type { Command, Io }
@@ -41,7 +41,10 @@ const connect = (values: ClientFlags, io: Io) => {
   if (credential === undefined) {
     throw new Error(`no host credential at ${credentialFile(stateDir)}; start the host with serve, or pass --state-dir`)
   }
-  return rpc(`http://${values.host ?? "127.0.0.1"}:${values.port ?? io.env.SMITHERS_ORG_PORT ?? defaultPort}`, credential)
+  return rpc(
+    `http://${values.host ?? "127.0.0.1"}:${values.port ?? io.env.SMITHERS_ORG_PORT ?? defaultPort}`,
+    credential
+  )
 }
 
 const clientOptions = { host: { type: "string" }, port: { type: "string" }, "state-dir": { type: "string" } } as const
@@ -81,7 +84,8 @@ export const serve: Command = {
 /** `submit "<task>"`: starts a request and prints its run; `--wait` waits for it to settle. */
 export const submit: Command = {
   name: "submit",
-  usage: "submit \"<task>\" [--repo <name>] [--key <key>] [--wait [--root <dir containing Org/>]] [--port <port>] [--state-dir <dir>]",
+  usage:
+    "submit \"<task>\" [--repo <name>] [--key <key>] [--wait [--root <dir containing Org/>]] [--port <port>] [--state-dir <dir>]",
   run: async (argv, io) => {
     const { positionals, values } = parseArgs({
       args: [...argv],
@@ -158,7 +162,8 @@ const receiptOf = async (root: string, key: string, name: string) => {
   const path = join(organization.loaded.organization.wiki.generatedDir, Actions.runDirectory(key), `${name}.json`)
   const text = await readFile(join(root, path), "utf8").catch(() => undefined)
   if (text === undefined) return undefined
-  const report = (JSON.parse(text) as { readonly report?: { readonly status?: string; readonly summary?: string } }).report
+  const report =
+    (JSON.parse(text) as { readonly report?: { readonly status?: string; readonly summary?: string } }).report
   return { path, status: report?.status ?? "unknown", summary: report?.summary ?? "" }
 }
 
@@ -198,7 +203,9 @@ export const status: Command = {
     const runs = await ops.runs({ runId: values.run })
     for (const run of runs) {
       io.out(`${run.runId}  ${run.flowId}  ${run.status}`)
-      for (const gate of run.gates) io.out(`  gate ${gate.gateId} ${gate.subjectDigest.slice(0, 16)}: ${gate.prompt.split("\n")[0]}`)
+      for (const gate of run.gates) {
+        io.out(`  gate ${gate.gateId} ${gate.subjectDigest.slice(0, 16)}: ${gate.prompt.split("\n")[0]}`)
+      }
     }
     if (runs.length === 0) io.out("no runs")
     return 0
@@ -230,7 +237,6 @@ export const answer: Command = {
     return 0
   }
 }
-
 
 const startOptions = {
   ...clientOptions,
@@ -287,13 +293,20 @@ export const hire: Command = {
       return usageError(hire, io)
     }
     const key = cliKey(values.key)
-    return launch(values, io, "hire", {
+    return launch(
+      values,
+      io,
+      "hire",
+      {
+        key,
+        parent,
+        need,
+        ...(values.task === undefined ? {} : { task: values.task }),
+        ...(values.acceptance === undefined ? {} : { acceptance: values.acceptance })
+      },
       key,
-      parent,
-      need,
-      ...(values.task === undefined ? {} : { task: values.task }),
-      ...(values.acceptance === undefined ? {} : { acceptance: values.acceptance })
-    }, key, { key, name: "hire" })
+      { key, name: "hire" }
+    )
   }
 }
 
@@ -306,20 +319,31 @@ export const delegate: Command = {
     const { positionals, values } = parseArgs({
       args: [...argv],
       allowPositionals: true,
-      options: { ...startOptions, input: { type: "string", multiple: true }, acceptance: { type: "string", multiple: true } }
+      options: {
+        ...startOptions,
+        input: { type: "string", multiple: true },
+        acceptance: { type: "string", multiple: true }
+      }
     })
     const [parent, specialist, ...rest] = positionals
     const objective = rest.join(" ").trim()
     if (parent === undefined || specialist === undefined || objective === "") return usageError(delegate, io)
     const key = cliKey(values.key)
-    return launch(values, io, "delegate", {
+    return launch(
+      values,
+      io,
+      "delegate",
+      {
+        key,
+        parent,
+        specialist,
+        objective,
+        ...(values.input === undefined ? {} : { inputs: values.input }),
+        ...(values.acceptance === undefined ? {} : { acceptance: values.acceptance })
+      },
       key,
-      parent,
-      specialist,
-      objective,
-      ...(values.input === undefined ? {} : { inputs: values.input }),
-      ...(values.acceptance === undefined ? {} : { acceptance: values.acceptance })
-    }, key, { key, name: "delegate" })
+      { key, name: "delegate" }
+    )
   }
 }
 
@@ -343,7 +367,10 @@ export const meetings: Command = {
   run: async (argv, io) => {
     const { positionals, values } = parseArgs({ args: [...argv], allowPositionals: true, options: startOptions })
     if (positionals.length !== 1 || positionals[0] !== "plan") return usageError(meetings, io)
-    return launch(values, io, "meetings-plan", {}, `meetings-plan:${cliKey(values.key)}`, { key: "meetings", name: "plan" })
+    return launch(values, io, "meetings-plan", {}, `meetings-plan:${cliKey(values.key)}`, {
+      key: "meetings",
+      name: "plan"
+    })
   }
 }
 
@@ -367,13 +394,20 @@ export const book: Command = {
       (notBefore !== undefined && Number.isNaN(notBefore))
     ) return usageError(book, io)
     const key = cliKey(values.key)
-    return launch(values, io, "meetings-book", {
+    return launch(
+      values,
+      io,
+      "meetings-book",
+      {
+        key,
+        requestedBy,
+        purpose,
+        minutes,
+        ...(notBefore === undefined ? {} : { notBefore })
+      },
       key,
-      requestedBy,
-      purpose,
-      minutes,
-      ...(notBefore === undefined ? {} : { notBefore })
-    }, key, { key, name: "book" })
+      { key, name: "book" }
+    )
   }
 }
 
@@ -391,7 +425,9 @@ export const specialists: Command = {
     const hired = [...organization.snapshot.roster.profiles.values()].filter(Roster.isHired)
       .sort((left, right) => left.id.localeCompare(right.id))
     for (const profile of hired) {
-      io.out(`${profile.id}  ${profile.status}  ${profile.kind}  ${profile.hiredBy ?? profile.reportsTo}  ${profile.name}`)
+      io.out(
+        `${profile.id}  ${profile.status}  ${profile.kind}  ${profile.hiredBy ?? profile.reportsTo}  ${profile.name}`
+      )
     }
     if (hired.length === 0) io.out("no specialists")
     return 0
@@ -400,7 +436,9 @@ export const specialists: Command = {
 
 /** Every command, by name. */
 export const registry: ReadonlyMap<string, Command> = new Map(
-  [serve, submit, status, answer, qualify, hire, delegate, retire, meetings, book, specialists, ...setupCommands].map((command) => [command.name, command])
+  [serve, submit, status, answer, qualify, hire, delegate, retire, meetings, book, specialists, ...setupCommands].map((
+    command
+  ) => [command.name, command])
 )
 
 /** Runs one command line against the registry and resolves its exit code. */

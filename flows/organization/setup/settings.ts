@@ -81,11 +81,13 @@ export const describeFailure = (error: unknown): Array<string> => {
 
 /** Loads `<root>/Org/Organization.md` and everything it names, through the same parsers the host uses. */
 export const loadOrganization = async (root: string): Promise<Organization> => {
-  const result = await Effect.runPromise(Effect.gen(function*() {
-    const loaded = yield* Config.load(root)
-    const snapshot = yield* Authority.loadSnapshot(root, loaded)
-    return { loaded, snapshot }
-  }).pipe(Effect.provide(NodeServices.layer), Effect.result))
+  const result = await Effect.runPromise(
+    Effect.gen(function*() {
+      const loaded = yield* Config.load(root)
+      const snapshot = yield* Authority.loadSnapshot(root, loaded)
+      return { loaded, snapshot }
+    }).pipe(Effect.provide(NodeServices.layer), Effect.result)
+  )
   // The typed error itself, not a fiber wrapper, so `describeFailure` can read it.
   if (result._tag === "Failure") throw result.failure
   return result.success

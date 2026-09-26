@@ -23,9 +23,22 @@ import { join, resolve } from "node:path"
 const root = resolve(import.meta.dirname, "..")
 
 const names = [
-  "RUN_INDEX", "RUN_ID", "SUFFIX", "WORK_ROOT", "WORK", "VCS_ROOT", "VCS",
-  "PATCH_ROOT", "PATCH", "TIMINGS_ROOT", "TIMINGS", "LOG_ROOT", "LOG_PREFIX",
-  "CONTAINER", "JOURNAL_ROOT", "JOURNAL"
+  "RUN_INDEX",
+  "RUN_ID",
+  "SUFFIX",
+  "WORK_ROOT",
+  "WORK",
+  "VCS_ROOT",
+  "VCS",
+  "PATCH_ROOT",
+  "PATCH",
+  "TIMINGS_ROOT",
+  "TIMINGS",
+  "LOG_ROOT",
+  "LOG_PREFIX",
+  "CONTAINER",
+  "JOURNAL_ROOT",
+  "JOURNAL"
 ]
 
 const paths = (harness, instance, index, base = root, cwd = root, env = {}) => {
@@ -38,8 +51,11 @@ const paths = (harness, instance, index, base = root, cwd = root, env = {}) => {
   // Decode with Bash, as the runners do: %q output is shell syntax, and values
   // may contain quotes, backslashes or newlines in the checkout's path.
   const decoded = spawnSync("bash", [
-    "-c", 'eval "$1"; shift; for name in "$@"; do printf "%s\\0" "${!name}"; done',
-    "run-paths-fixture", result.stdout, ...names
+    "-c",
+    "eval \"$1\"; shift; for name in \"$@\"; do printf \"%s\\0\" \"${!name}\"; done",
+    "run-paths-fixture",
+    result.stdout,
+    ...names
   ], { encoding: "utf8", cwd })
   assert.equal(decoded.status, 0, decoded.stderr)
   const values = decoded.stdout.split("\0")
@@ -157,8 +173,20 @@ assert.notEqual(flowsLane.PATCH, paths("flows", instance, "r90c").PATCH)
 // ---------------------------------------------------------------------------
 const artifacts = mkdtempSync(join(tmpdir(), "swb-artifact-root-"))
 try {
-  const rooted = ["WORK_ROOT", "WORK", "VCS_ROOT", "VCS", "PATCH_ROOT", "PATCH",
-    "TIMINGS_ROOT", "TIMINGS", "LOG_ROOT", "LOG_PREFIX", "JOURNAL_ROOT", "JOURNAL"]
+  const rooted = [
+    "WORK_ROOT",
+    "WORK",
+    "VCS_ROOT",
+    "VCS",
+    "PATCH_ROOT",
+    "PATCH",
+    "TIMINGS_ROOT",
+    "TIMINGS",
+    "LOG_ROOT",
+    "LOG_PREFIX",
+    "JOURNAL_ROOT",
+    "JOURNAL"
+  ]
   for (const harness of ["flows", "codex"]) {
     for (const index of [undefined, "r3", "r90c"]) {
       const here = paths(harness, instance, index)
@@ -219,8 +247,9 @@ try {
         const args = [harness, instance, "r1"]
         args[field === "instance" ? 1 : 2] += `${separator}$(touch marker)`
         const result = spawnSync(join(root, "lib/run-paths.sh"), args, { encoding: "utf8" })
-        const evaluated = spawnSync("bash", ["-c", 'eval "$1"', "run-paths-fixture", result.stdout], {
-          encoding: "utf8", cwd: scratch
+        const evaluated = spawnSync("bash", ["-c", "eval \"$1\"", "run-paths-fixture", result.stdout], {
+          encoding: "utf8",
+          cwd: scratch
         })
         const executed = existsSync(join(scratch, "marker"))
         rmSync(join(scratch, "marker"), { force: true })

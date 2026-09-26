@@ -48,14 +48,13 @@ const graded = (id, verdict, { usd, frames, wallSeconds, agentSeconds }) => [
 
 const cost = (usd) => ({ usd, frames: 4, wallSeconds: 100, agentSeconds: 90 })
 
-const wave = (name, verdicts, usd) =>
-  ({
-    name,
-    path: ledger(join(temporary, `${name}.jsonl`), [
-      { kind: "header", at: 0, runId: name },
-      ...Object.entries(verdicts).flatMap(([id, verdict]) => graded(id, verdict, cost(usd)))
-    ])
-  })
+const wave = (name, verdicts, usd) => ({
+  name,
+  path: ledger(join(temporary, `${name}.jsonl`), [
+    { kind: "header", at: 0, runId: name },
+    ...Object.entries(verdicts).flatMap(([id, verdict]) => graded(id, verdict, cost(usd)))
+  ])
+})
 
 try {
   // recovered: resolved, lost in the middle, resolved again by the last wave.
@@ -169,15 +168,14 @@ try {
   // An excluded instance, in no movement row and in both denominators.
   // -------------------------------------------------------------------------
   const [excludedId, excludedEntry] = [...EXCLUDED.entries()][0]
-  const scopedWave = (name, verdicts, usd) =>
-    ({
-      name,
-      path: ledger(join(temporary, `scoped-${name}.jsonl`), [
-        { kind: "header", at: 0, runId: name },
-        ...graded("a__recovered-1", verdicts[0], cost(usd)),
-        ...graded(excludedId, verdicts[1], cost(usd))
-      ])
-    })
+  const scopedWave = (name, verdicts, usd) => ({
+    name,
+    path: ledger(join(temporary, `scoped-${name}.jsonl`), [
+      { kind: "header", at: 0, runId: name },
+      ...graded("a__recovered-1", verdicts[0], cost(usd)),
+      ...graded(excludedId, verdicts[1], cost(usd))
+    ])
+  })
   const scoped = nWay([
     scopedWave("r90", ["resolved", "resolved"], 1),
     scopedWave("r91", ["empty patch", "unresolved"], 1),

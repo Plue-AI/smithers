@@ -1,10 +1,20 @@
 /** Flow runs over a controllable fake Port: persistence, receipts, and settlement only from the watch. */
 import { describe, expect, it } from "bun:test"
 import { Schema } from "effect"
-import { actions, type Card, FlowError, FlowRuns, interrupted, type Listed, type Port, type Run, type Settled } from "../src/flows.ts"
+import {
+  actions,
+  type Card,
+  FlowError,
+  FlowRuns,
+  interrupted,
+  type Listed,
+  type Port,
+  type Run,
+  type Settled
+} from "../src/flows.ts"
+import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
 import { Workspace } from "../src/workspace.ts"
-import type * as Host from "../src/host.ts"
 
 /** A module flow as discovery lists it. */
 const flow = (name: string, description: string, modelInvocable = true): Listed => ({
@@ -133,14 +143,22 @@ describe("flow runs", () => {
 
   it("persists and acknowledges before any port call and deduplicates", () => {
     const f = setup()
-    expect(f.runs.request({ id: "r1", flow: "review", input: {}, by: "agent" })).toEqual({ id: "r1", status: "requested" })
+    expect(f.runs.request({ id: "r1", flow: "review", input: {}, by: "agent" })).toEqual({
+      id: "r1",
+      status: "requested"
+    })
     expect(f.records).toHaveLength(1)
     expect(f.records[0]).toMatchObject({ type: "flow", run: { id: "r1", flow: "review", status: "requested" } })
     expect(f.calls).toEqual([])
     expect(f.runs.busy).toBe(true)
-    expect(f.runs.request({ id: "r1", flow: "review", input: {}, by: "agent" })).toEqual({ id: "r1", status: "requested" })
+    expect(f.runs.request({ id: "r1", flow: "review", input: {}, by: "agent" })).toEqual({
+      id: "r1",
+      status: "requested"
+    })
     expect(f.records).toHaveLength(1)
-    expect(() => f.runs.request({ id: "r1", flow: "review", input: { title: "x" }, by: "agent" })).toThrow("another task")
+    expect(() => f.runs.request({ id: "r1", flow: "review", input: { title: "x" }, by: "agent" })).toThrow(
+      "another task"
+    )
   })
 
   it("an unresolved input() keeps it busy, and cancel ignores the stale answer", async () => {
@@ -178,7 +196,15 @@ describe("flow runs", () => {
   })
 
   it("restores a run an older build parked for wildcard approval as interrupted", () => {
-    const legacy = { id: "r1", flow: "review", by: "agent", input: {}, requested: "{}", status: "approval", startedAt: 1 } as unknown as Run
+    const legacy = {
+      id: "r1",
+      flow: "review",
+      by: "agent",
+      input: {},
+      requested: "{}",
+      status: "approval",
+      startedAt: 1
+    } as unknown as Run
     const f = setup({ restored: [legacy] })
     expect(f.runs.get("r1")).toMatchObject({ status: "failed", message: interrupted })
   })
@@ -366,7 +392,10 @@ describe("flow runs", () => {
     f.starts[0]!.resolve("run-1")
     await tick()
     expect(f.calls).toContain("cancel:run-1")
-    expect(f.records.at(-1)).toMatchObject({ type: "flow", run: { status: "failed", runId: "run-1", message: "Cancel refused" } })
+    expect(f.records.at(-1)).toMatchObject({
+      type: "flow",
+      run: { status: "failed", runId: "run-1", message: "Cancel refused" }
+    })
     const restored = setup({ restored: f.runs.snapshot() })
     restored.runs.retry("r1")
     await tick()
@@ -382,7 +411,9 @@ describe("flow runs", () => {
     await tick()
     f.runs.cancel("r1")
     let closed = false
-    const disposal = Promise.resolve(f.runs.dispose()).then(() => { closed = true })
+    const disposal = Promise.resolve(f.runs.dispose()).then(() => {
+      closed = true
+    })
     await tick()
     expect(closed).toBe(false)
     f.starts[0]!.resolve("run-1")
@@ -409,7 +440,11 @@ describe("flow runs", () => {
         { ...base, id: "r2", status: "failed", message: "boom" }
       ]
     })
-    expect(f.runs.get("r1")).toMatchObject({ status: "failed", message: "Interrupted; retry to continue.", runId: "run-9" })
+    expect(f.runs.get("r1")).toMatchObject({
+      status: "failed",
+      message: "Interrupted; retry to continue.",
+      runId: "run-9"
+    })
     expect(f.records).toHaveLength(1)
     f.runs.retry("r1")
     await tick()
@@ -433,7 +468,9 @@ describe("flow runs", () => {
     expect(f.runs.get("r1")?.message).toContain("not for a model to start")
     expect(f.calls.some((each) => each.startsWith("plan"))).toBe(false)
     // Once discovery is cached, the binding refuses at once.
-    expect(() => f.runs.request({ id: "r2", flow: "deploy", input: {}, by: "agent" })).toThrow("not for a model to start")
+    expect(() => f.runs.request({ id: "r2", flow: "deploy", input: {}, by: "agent" })).toThrow(
+      "not for a model to start"
+    )
   })
 
   it("keeps the newest discovery failure until a discovery succeeds", async () => {
@@ -447,7 +484,10 @@ describe("flow runs", () => {
     })
     f.runs.refresh()
     await tick()
-    expect(f.runs.failure()).toMatchObject({ _tag: "FlowDiscoveryFailed", cause: new Error("Registry unreadable: flows/x/flow.ts") })
+    expect(f.runs.failure()).toMatchObject({
+      _tag: "FlowDiscoveryFailed",
+      cause: new Error("Registry unreadable: flows/x/flow.ts")
+    })
     fail = false
     f.runs.refresh()
     await tick()
@@ -531,7 +571,11 @@ describe("flow runs", () => {
   })
 
   it("describes a flow's input once its module is imported, and an agent's as its prompt", async () => {
-    const agent: Listed = { ...flow("review-agent", "Reviews"), kind: "markdown", path: "/repo/flows/review-agent/flow.mdx" }
+    const agent: Listed = {
+      ...flow("review-agent", "Reviews"),
+      kind: "markdown",
+      path: "/repo/flows/review-agent/flow.mdx"
+    }
     const f = setup({
       listed: [flow("review", "Review a change"), agent],
       schema: Schema.Struct({ title: Schema.String, draft: Schema.optional(Schema.Boolean), count: Schema.Number })
@@ -541,7 +585,12 @@ describe("flow runs", () => {
     // Describing never imports: no input read before a run did.
     expect(f.runs.describe()).toEqual([
       { name: "review", description: "Review a change", agent: false },
-      { name: "review-agent", description: "Reviews", agent: true, input: [{ name: "args", type: "string", required: false }] }
+      {
+        name: "review-agent",
+        description: "Reviews",
+        agent: true,
+        input: [{ name: "args", type: "string", required: false }]
+      }
     ])
     expect(f.calls.filter((call) => call.startsWith("input:"))).toEqual([])
     f.runs.request({ flow: "review", input: {}, by: "user" })
@@ -560,7 +609,9 @@ describe("flow runs", () => {
   })
 
   it("lists only model-invocable flows to the coordinator, at most 12 fields each", async () => {
-    const wide = Schema.Struct(Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`f${index}`, Schema.String])))
+    const wide = Schema.Struct(
+      Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`f${index}`, Schema.String]))
+    )
     const f = setup({ listed: [flow("wide", "Wide"), flow("deploy", "Deploy", false)], schema: wide })
     f.runs.refresh()
     await tick()
@@ -590,7 +641,12 @@ describe("flow runs", () => {
     // The TUI's own run appears once; the CLI's run is marked by: "cli".
     expect(context.filter((run) => run.id === "mine")).toHaveLength(1)
     expect(context.find((run) => run.id === "run-1")).toBeUndefined()
-    expect(context.find((run) => run.id === "cli-7")).toEqual({ id: "cli-7", flow: "deploy", status: "completed", by: "cli" })
+    expect(context.find((run) => run.id === "cli-7")).toEqual({
+      id: "cli-7",
+      flow: "deploy",
+      status: "completed",
+      by: "cli"
+    })
     expect(f.runs.snapshot().map((run) => run.id)).toEqual(["mine"])
   })
 })
@@ -598,10 +654,16 @@ describe("flow runs", () => {
 it("reports a typed discovery failure and clears it after recovery", async () => {
   const f = fake()
   let broken = true
-  const runs = new FlowRuns({ port: { ...f.port, discover: async () => {
-    if (broken) throw new Error("registry unavailable")
-    return [flow("review", "Review")]
-  } }, persist: () => {} })
+  const runs = new FlowRuns({
+    port: {
+      ...f.port,
+      discover: async () => {
+        if (broken) throw new Error("registry unavailable")
+        return [flow("review", "Review")]
+      }
+    },
+    persist: () => {}
+  })
   runs.refresh()
   await tick()
   expect(runs.failure()).toMatchObject({ _tag: "FlowDiscoveryFailed", message: "Flow discovery unavailable" })
@@ -615,7 +677,16 @@ it("opens the host once in the background and exposes opening until ready", asyn
   const f = fake()
   const opened = pending<void>()
   let calls = 0
-  const runs = new FlowRuns({ port: { ...f.port, warm: () => { calls++; return opened.promise } }, persist: () => {} })
+  const runs = new FlowRuns({
+    port: {
+      ...f.port,
+      warm: () => {
+        calls++
+        return opened.promise
+      }
+    },
+    persist: () => {}
+  })
   runs.warm()
   runs.warm()
   expect(calls).toBe(1)
@@ -628,12 +699,18 @@ it("opens the host once in the background and exposes opening until ready", asyn
   await runs.dispose()
 })
 
-
 it("settles a stopped authorization as cancelled without a failure message", async () => {
   const f = fake()
-  const runs = new FlowRuns({ port: { ...f.port, start: (_card, _source, signal) => new Promise((_resolve, reject) => {
-    signal!.addEventListener("abort", () => reject(new FlowError("refused", "Stopped")), { once: true })
-  }) }, persist: () => {} })
+  const runs = new FlowRuns({
+    port: {
+      ...f.port,
+      start: (_card, _source, signal) =>
+        new Promise((_resolve, reject) => {
+          signal!.addEventListener("abort", () => reject(new FlowError("refused", "Stopped")), { once: true })
+        })
+    },
+    persist: () => {}
+  })
   runs.request({ id: "r", flow: "review", input: {}, by: "user" })
   await tick()
   runs.cancel("r")
@@ -646,11 +723,27 @@ it("reads restored events only when hydrated and retains a retryable failure", a
   const f = fake()
   let broken = true
   let calls = 0
-  const runs = new FlowRuns({ port: { ...f.port, events: async () => {
-    calls++
-    if (broken) throw new Error("control offline")
-    return []
-  } }, persist: () => {}, restored: [{ id: "r", flow: "review", by: "user", input: {}, requested: "{}", status: "done", startedAt: 1, runId: "remote" }] })
+  const runs = new FlowRuns({
+    port: {
+      ...f.port,
+      events: async () => {
+        calls++
+        if (broken) throw new Error("control offline")
+        return []
+      }
+    },
+    persist: () => {},
+    restored: [{
+      id: "r",
+      flow: "review",
+      by: "user",
+      input: {},
+      requested: "{}",
+      status: "done",
+      startedAt: 1,
+      runId: "remote"
+    }]
+  })
   runs.panel("r")
   expect(calls).toBe(0)
   await runs.hydrate("r")
@@ -666,10 +759,22 @@ it("reads restored events only when hydrated and retains a retryable failure", a
 it("refuses cross-registry ids before persisting or launching in either order", async () => {
   const f = fake()
   const records: Session.Record[] = []
-  const runs: FlowRuns = new FlowRuns({ port: f.port, persist: (r) => records.push(r), occupied: (id) => workspace.has(id) })
+  const runs: FlowRuns = new FlowRuns({
+    port: f.port,
+    persist: (r) => records.push(r),
+    occupied: (id) => workspace.has(id)
+  })
   const workspace: Workspace = new Workspace({
-    host: { cwd: "/tmp", run: () => { throw new Error("must not launch") } } as unknown as Host.Host,
-    workerSeat: "test", history: () => [], persist: (r) => records.push(r), occupied: runs.has
+    host: {
+      cwd: "/tmp",
+      run: () => {
+        throw new Error("must not launch")
+      }
+    } as unknown as Host.Host,
+    workerSeat: "test",
+    history: () => [],
+    persist: (r) => records.push(r),
+    occupied: runs.has
   })
   runs.request({ id: "flow-first", flow: "review", input: {}, by: "user" })
   expect(() => workspace.request({ id: "flow-first", title: "Work", prompt: "Work" })).toThrow("already belongs")

@@ -356,7 +356,8 @@ export const PublishChange = Action.make("organization/publish-change", {
   success: PullRef,
   error: IntegrationFailure,
   tier: "irreversible",
-  idempotencyKey: (payload) => `organization/publish-change:${payload.github}:${payload.applied.branch}:${payload.applied.commit}`
+  idempotencyKey: (payload) =>
+    `organization/publish-change:${payload.github}:${payload.applied.branch}:${payload.applied.commit}`
 })
 
 /** The request's route when the host names its role: the role's handoff, as the assistant would have written it. */
@@ -440,7 +441,8 @@ export const React = Action.make("organization/react", {
   },
   success: Schema.Struct({ reacted: Schema.Boolean, reason: Schema.String }),
   tier: "irreversible",
-  idempotencyKey: (payload) => `organization/react:${payload.channel}:${payload.ts}:${payload.remove.join(",")}:${payload.add.join(",")}`
+  idempotencyKey: (payload) =>
+    `organization/react:${payload.channel}:${payload.ts}:${payload.remove.join(",")}:${payload.add.join(",")}`
 })
 
 /** Every failure a delivery step can raise. */

@@ -71,7 +71,10 @@ const journal = (name, events, root = temporary) => {
 }
 
 const opened = ["control.agent.turn-opened", { seat: "openai:gpt-5.6-sol" }]
-const requested = (frame, system) => ["control.agent.model-requested", { scope: "s", frame, attempt: 1, purpose: "frame", system }]
+const requested = (
+  frame,
+  system
+) => ["control.agent.model-requested", { scope: "s", frame, attempt: 1, purpose: "frame", system }]
 const settled = (text) => ["control.agent.model-settled", { text, usage: { inputTokens: 1, outputTokens: 1 } }]
 const produced = (text) => ["control.agent.cell-produced", { language: "js", digest: "d", text }]
 const printed = (text) => ["control.agent.cell-printed", { cell: "d", text }]
@@ -79,14 +82,32 @@ const call = (flowName, input, value = {}, outcome = "success") => [
   ["control.agent.cell-call-started", { flowName, input }],
   ["control.agent.cell-call-settled", { flowName, outcome, value }]
 ]
-const observed = (digest, mutated) => ["control.agent.mutation-observed", { basis: "observed", digest, mutated, paths: 3, declaredWrites: mutated ? 1 : 0 }]
+const observed = (
+  digest,
+  mutated
+) => ["control.agent.mutation-observed", {
+  basis: "observed",
+  digest,
+  mutated,
+  paths: 3,
+  declaredWrites: mutated ? 1 : 0
+}]
 const transition = (tag) => ["control.agent.transition-applied", { transition: { _tag: tag } }]
 
 try {
   const claim = (demanded) => ["control.agent.claim-demanded", {
-    complete: 0.9, overclaims: 0.1, invented: demanded ? 0.9 : 0.1, latencyMs: 300, demanded, currentDigest: "t1", nextFrame: 4
+    complete: 0.9,
+    overclaims: 0.1,
+    invented: demanded ? 0.9 : 0.1,
+    latencyMs: 300,
+    demanded,
+    currentDigest: "t1",
+    nextFrame: 4
   }]
-  const rejected = ["control.agent.cell-settled", { cell: "", outcome: { _tag: "rejected", code: "no_cell", message: "No cell was found" } }]
+  const rejected = ["control.agent.cell-settled", {
+    cell: "",
+    outcome: { _tag: "rejected", code: "no_cell", message: "No cell was found" }
+  }]
   const path = journal("one__one-1", [
     // The arming the first frame journals: the budget and no approval channel.
     ["control.agent.discipline-armed", { maxFrames: 10, approvalChannel: false }],
@@ -96,7 +117,11 @@ try {
     opened,
     // The run's opening measurement, which is what `treeMoved` compares against.
     ["flows.time-travel.effect-boundary", {
-      effect: { kind: "harness/boundary/workspace-open", status: "succeeded", output: { _tag: "Some", value: { digest: "t0", complete: true } } }
+      effect: {
+        kind: "harness/boundary/workspace-open",
+        status: "succeeded",
+        output: { _tag: "Some", value: { digest: "t0", complete: true } }
+      }
     }],
     settled("Looking first.\n\n```cell\nawait ctx.call('grep', {pattern:'add'})\n```"),
     produced("await ctx.call('grep', {pattern:'add'})"),
@@ -159,7 +184,10 @@ try {
   const facts = read(path)
   assert.equal(facts.task, "The task for this run:\n\nFix add().", "the task is the first request's last system text")
   assert.equal(facts.frames.length, 7)
-  assert.equal(facts.frames[1].cell, "await ctx.call('edit', {path:'a.py'}); await ctx.call('bash', {command:'pytest'})")
+  assert.equal(
+    facts.frames[1].cell,
+    "await ctx.call('edit', {path:'a.py'}); await ctx.call('bash', {command:'pytest'})"
+  )
   assert.equal(facts.frames[2].printed, "1 failed")
   assert.equal(facts.armed.maxFrames, 10)
 
@@ -281,13 +309,15 @@ try {
   // The live inequalities, at their thresholds: `judge` crosses at exactly
   // 0.5 on every trigger, so the replay does too, and a context trigger
   // crosses on its own.
-  for (const [at, signal] of [
-    [reading(0.5, 0.9), "thrashing"],
-    [reading(0.1, 0.5), "off_target"],
-    [reading(0.1, 0.9, "none", "none", { suspect: 0.5 }), "suspect"],
-    [reading(0.1, 0.9, "none", "none", { outdatedContext: 0.5 }), "outdated_context"],
-    [reading(0.1, 0.9, "none", "none", { irrelevantContext: 0.5 }), "irrelevant_context"]
-  ]) {
+  for (
+    const [at, signal] of [
+      [reading(0.5, 0.9), "thrashing"],
+      [reading(0.1, 0.5), "off_target"],
+      [reading(0.1, 0.9, "none", "none", { suspect: 0.5 }), "suspect"],
+      [reading(0.1, 0.9, "none", "none", { outdatedContext: 0.5 }), "outdated_context"],
+      [reading(0.1, 0.9, "none", "none", { irrelevantContext: 0.5 }), "irrelevant_context"]
+    ]
+  ) {
     const edge = rowOf(scoreboard([{ id: "g", label: "unresolved", readings: [at] }]))
     assert.equal(edge(signal, "last").tp, 1, `${signal} fires at its threshold`)
     assert.equal(edge("crossed", "last").tp, 1, `${signal} alone crosses`)
@@ -304,21 +334,29 @@ try {
   const gateRoot = join(temporary, "gates")
   const gatePath = journal("gates__gates-1", gateEvents, gateRoot)
   assert.deepEqual(withholdThresholds, [0.8, 0.9, 0.95], "the live withholdAt is the middle threshold")
-  const replayed = spawnSync(process.execPath, [join(here, "..", "lib", "jev-replay.mjs"), gateRoot, "--dry-run", "--suffix", "-1"], {
+  const replayed = spawnSync(process.execPath, [
+    join(here, "..", "lib", "jev-replay.mjs"),
+    gateRoot,
+    "--dry-run",
+    "--suffix",
+    "-1"
+  ], {
     encoding: "utf8",
     timeout: 60_000
   })
   assert.equal(replayed.status, 0, replayed.stderr)
-  for (const line of [
-    "decisions: 2, unreadable: 0",
-    "| flow | 1 | 100% | 100% | 100% |",
-    "| instruction | 1 | 0% | 0% | 0% |",
-    "| memory | 2 | 50% | 50% | 0% |",
-    "| skill | 1 | 100% | 0% | 0% |",
-    "readings checked against Monitor.lint: 3",
-    "| supervisor | 0 | 3 | 67% | 50% | 100% | cooldown:1 |",
-    "| use_jev | 1 | 3 | 67% | 0% | - | streak:2 |"
-  ]) assert.ok(replayed.stdout.includes(line), `the replay prints ${line}\n${replayed.stdout}`)
+  for (
+    const line of [
+      "decisions: 2, unreadable: 0",
+      "| flow | 1 | 100% | 100% | 100% |",
+      "| instruction | 1 | 0% | 0% | 0% |",
+      "| memory | 2 | 50% | 50% | 0% |",
+      "| skill | 1 | 100% | 0% | 0% |",
+      "readings checked against Monitor.lint: 3",
+      "| supervisor | 0 | 3 | 67% | 50% | 100% | cooldown:1 |",
+      "| use_jev | 1 | 3 | 67% | 0% | - | streak:2 |"
+    ]
+  ) assert.ok(replayed.stdout.includes(line), `the replay prints ${line}\n${replayed.stdout}`)
   const gateReport = await replay(parseArguments([gateRoot, "--dry-run"]), {})
   assert.equal(gateReport.gates.lintChecked, 3)
   assert.equal(gateReport.gates.monitors.supervisor.resolved, 1, "frame 1 passed the failing check")
@@ -327,7 +365,14 @@ try {
   const supervisorReadings = gateEvents.filter(([type]) => type === "control.agent.supervisor-settled")
     .map(([, payload]) => payload)
   assert.deepEqual(supervisorReadings.map(lintAgrees), [1, 0, 1])
-  for (const at of [reading(0.5, 0.9), reading(0.1, 0.5), reading(0.49, 0.51), reading(0.1, 0.9, "none", "none", { irrelevantContext: 0.5 })]) {
+  for (
+    const at of [
+      reading(0.5, 0.9),
+      reading(0.1, 0.5),
+      reading(0.49, 0.51),
+      reading(0.1, 0.9, "none", "none", { irrelevantContext: 0.5 })
+    ]
+  ) {
     lintAgrees(at)
   }
 
@@ -337,22 +382,43 @@ try {
   const noChecks = { frames: [0, 1, 2, 3, 4, 5].map(() => ({ frameChecks: [], ledgerBefore: [] })) }
   const turn = ["control.agent.turn-opened", {}]
   const readAt = (frame, onTarget) => ["control.agent.supervisor-settled", {
-    frame, thrashing: 0.1, onTarget, suspect: 0.1, monitors: [{ id: "careful", kind: "mood", p: 1, crossed: true }]
+    frame,
+    thrashing: 0.1,
+    onTarget,
+    suspect: 0.1,
+    monitors: [{ id: "careful", kind: "mood", p: 1, crossed: true }]
   }]
   const deliver = ["control.agent.steering-drained", { messages: [], monitor: "careful" }]
-  const direct = gates(noChecks, rows([
-    turn, readAt(0, 0.6), deliver, turn, readAt(1, 0.7), turn, deliver,
-    ["control.agent.decision-settled", { classifier: "relevance/unnecessary", state: { truncated: true }, answers: [] }],
-    ["control.agent.decision-settled", {
-      classifier: "relevance/unnecessary",
-      state: { items: [] },
-      answers: [{ id: "unnecessary_0", kind: "boolean", p: 0.99 }, { id: "other", kind: "boolean", p: 1 }]
-    }],
-    ["control.agent.decision-settled", { classifier: "supervisor/turn", answers: { truncated: true } }],
-    ["control.agent.decision-settled", { classifier: "seat/route", answers: [] }]
-  ]))
+  const direct = gates(
+    noChecks,
+    rows([
+      turn,
+      readAt(0, 0.6),
+      deliver,
+      turn,
+      readAt(1, 0.7),
+      turn,
+      deliver,
+      ["control.agent.decision-settled", {
+        classifier: "relevance/unnecessary",
+        state: { truncated: true },
+        answers: []
+      }],
+      ["control.agent.decision-settled", {
+        classifier: "relevance/unnecessary",
+        state: { items: [] },
+        answers: [{ id: "unnecessary_0", kind: "boolean", p: 0.99 }, { id: "other", kind: "boolean", p: 1 }]
+      }],
+      ["control.agent.decision-settled", { classifier: "supervisor/turn", answers: { truncated: true } }],
+      ["control.agent.decision-settled", { classifier: "seat/route", answers: [] }]
+    ])
+  )
   assert.equal(direct.monitors.careful.delivered, 2)
-  assert.equal(direct.monitors.careful.resolved, 1, "on_target rose after the first delivery; nothing followed the second")
+  assert.equal(
+    direct.monitors.careful.resolved,
+    1,
+    "on_target rose after the first delivery; nothing followed the second"
+  )
   assert.deepEqual(direct.relevance, {
     decisions: 2,
     unreadable: 1,
@@ -361,10 +427,16 @@ try {
   assert.ok(gatesMarkdown(emptyGates()).includes("decisions: 0, unreadable: 0"))
   // A newly passing check resolves with no reading at all; one already passing does not.
   const passing = (signature) => ({ signature, passing: true })
-  const checked = (before, ran) => gates(
-    { frames: [{ frameChecks: [], ledgerBefore: [] }, { frameChecks: [passing(ran)], ledgerBefore: [passing(before)] }] },
-    rows([turn, deliver])
-  ).monitors.careful.resolved
+  const checked = (before, ran) =>
+    gates(
+      {
+        frames: [{ frameChecks: [], ledgerBefore: [] }, {
+          frameChecks: [passing(ran)],
+          ledgerBefore: [passing(before)]
+        }]
+      },
+      rows([turn, deliver])
+    ).monitors.careful.resolved
   assert.equal(checked("a", "b"), 1)
   assert.equal(checked("a", "a"), 0)
 
@@ -378,13 +450,20 @@ try {
   writeFileSync(join(temporary, "report.json"), JSON.stringify({ resolved_ids: ["gates__gates"] }))
   const scored = spawnSync(process.execPath, [
     join(here, "..", "scorecard.ts"),
-    "--work", join(temporary, "work"),
-    "--patches", join(temporary, "patches"),
-    "--timings", join(temporary, "timings"),
-    "--report", join(temporary, "report.json"),
-    "--subject", join(temporary, "subject.json"),
-    "--out", temporary,
-    "--instances", "gates__gates"
+    "--work",
+    join(temporary, "work"),
+    "--patches",
+    join(temporary, "patches"),
+    "--timings",
+    join(temporary, "timings"),
+    "--report",
+    join(temporary, "report.json"),
+    "--subject",
+    join(temporary, "subject.json"),
+    "--out",
+    temporary,
+    "--instances",
+    "gates__gates"
   ], { encoding: "utf8", timeout: 60_000 })
   assert.equal(scored.status, 0, scored.stderr)
   const card = JSON.parse(readFileSync(join(temporary, "scorecard.json"), "utf8"))
@@ -396,7 +475,9 @@ try {
     compactionRemoved: 2
   })
   assert.ok(
-    readFileSync(join(temporary, "scorecard.md"), "utf8").includes("| gates__gates | flow:1 memory:1 | 1 | supervisor:1 | 1 | 2 |")
+    readFileSync(join(temporary, "scorecard.md"), "utf8").includes(
+      "| gates__gates | flow:1 memory:1 | 1 | supervisor:1 | 1 | 2 |"
+    )
   )
 
   console.log("check-jev-replay: ok")

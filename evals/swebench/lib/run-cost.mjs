@@ -27,8 +27,8 @@
  */
 import { existsSync, statSync } from "node:fs"
 import { jevSources, jevUsageOf } from "../jev-usage.ts"
-import { journalRows } from "./journal-rows.mjs"
 import { jevModel, usd } from "../prices.ts"
+import { journalRows } from "./journal-rows.mjs"
 
 const readJournalCost = (databasePath) => {
   // `control.db` beside the archived `engine.db` holds the `control.*` rows
@@ -82,9 +82,11 @@ const readJournalCost = (databasePath) => {
     }
     modelCalls += 1
     const counters = payload.usage
-    if (!counters || ![counters.inputTokens, counters.outputTokens,
-      counters.cachedInputTokens ?? 0, counters.reasoningTokens ?? 0]
-      .every((value) => Number.isFinite(value) && value >= 0)) {
+    if (
+      !counters ||
+      ![counters.inputTokens, counters.outputTokens, counters.cachedInputTokens ?? 0, counters.reasoningTokens ?? 0]
+        .every((value) => Number.isFinite(value) && value >= 0)
+    ) {
       unknown = true
       priceSource = "unknown: invalid model usage"
       continue
@@ -112,7 +114,11 @@ const readJournalCost = (databasePath) => {
 
   // Jev is priced under its own row so the seat's number keeps meaning the
   // seat. Its tokens are never cached, so the cache counter is zero.
-  const jevPriced = usd(jevModel, { inputTokens: jev.inputTokens, cachedInputTokens: 0, outputTokens: jev.outputTokens })
+  const jevPriced = usd(jevModel, {
+    inputTokens: jev.inputTokens,
+    cachedInputTokens: 0,
+    outputTokens: jev.outputTokens
+  })
   const jevUsd = jevPriced.usd ?? 0
   return {
     seat: seat ?? null,

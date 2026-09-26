@@ -27,7 +27,8 @@ let joined = false
 let server: Server
 let port = ""
 
-const exit = (id: string, value: unknown) => `${JSON.stringify({ _tag: "Exit", requestId: id, exit: { _tag: "Success", value } })}\n`
+const exit = (id: string, value: unknown) =>
+  `${JSON.stringify({ _tag: "Exit", requestId: id, exit: { _tag: "Success", value } })}\n`
 
 before(async () => {
   await init({ dir: root, stateDir, appName: "Smithers Org" })
@@ -39,11 +40,20 @@ before(async () => {
       const message = JSON.parse(body.trim())
       calls.push({ tag: message.tag, payload: message.payload, authorization: request.headers.authorization })
       const value = message.tag === "Plan"
-        ? { planId: "plan-1", digest: "d1", envelope: { flowId: message.payload.flowId }, approval: { planId: "plan-1", digest: "d1" } }
+        ? {
+          planId: "plan-1",
+          digest: "d1",
+          envelope: { flowId: message.payload.flowId },
+          approval: { planId: "plan-1", digest: "d1" }
+        }
         : message.tag === "Run"
         ? { _tag: joined ? "Joined" : "Accepted", runId: "run-1" }
         : message.tag === "List"
-        ? { items: runs.filter((run) => message.payload.filters.runId === undefined || run.runId === message.payload.filters.runId) }
+        ? {
+          items: runs.filter((run) =>
+            message.payload.filters.runId === undefined || run.runId === message.payload.filters.runId
+          )
+        }
         : {}
       response.writeHead(200, { "content-type": "application/ndjson" }).end(exit(message.id, value))
     })
@@ -63,7 +73,12 @@ beforeEach(() => {
 
 const capture = (env: Io["env"] = {}) => {
   const out: Array<string> = [], err: Array<string> = []
-  const io: Io = { out: (line) => out.push(line), err: (line) => err.push(line), env: { SMITHERS_ORG_POLL_MS: "5", ...env }, cwd: scratch }
+  const io: Io = {
+    out: (line) => out.push(line),
+    err: (line) => err.push(line),
+    env: { SMITHERS_ORG_POLL_MS: "5", ...env },
+    cwd: scratch
+  }
   return { io, out, err }
 }
 
@@ -82,15 +97,38 @@ const planned = () => {
   assert.equal(approve!.payload.planId, "plan-1")
   assert.equal(run!.payload.planId, "plan-1")
   assert.equal(run!.payload.idempotencyKey, plan!.payload.idempotencyKey.replace(/^plan:/, "run:"))
-  return { flowId: plan!.payload.flowId as string, input: plan!.payload.input, key: plan!.payload.idempotencyKey as string }
+  return {
+    flowId: plan!.payload.flowId as string,
+    input: plan!.payload.input,
+    key: plan!.payload.idempotencyKey as string
+  }
 }
 
 test("hire plans organization/hire with the parent, need, and first task", async () => {
-  const result = await cli("hire", "lead", "Competitor", "research", "--task", "Compare pricing.", "--acceptance", "dated", "--acceptance", "sourced", "--key", "h1")
+  const result = await cli(
+    "hire",
+    "lead",
+    "Competitor",
+    "research",
+    "--task",
+    "Compare pricing.",
+    "--acceptance",
+    "dated",
+    "--acceptance",
+    "sourced",
+    "--key",
+    "h1"
+  )
   assert.deepEqual(result, { code: 0, out: ["started run-1"], err: [] })
   assert.deepEqual(planned(), {
     flowId: "organization/hire",
-    input: { key: "cli:h1", parent: "lead", need: "Competitor research", task: "Compare pricing.", acceptance: ["dated", "sourced"] },
+    input: {
+      key: "cli:h1",
+      parent: "lead",
+      need: "Competitor research",
+      task: "Compare pricing.",
+      acceptance: ["dated", "sourced"]
+    },
     key: "plan:cli:h1"
   })
 })
@@ -102,7 +140,17 @@ test("a repeated key joins the run it started", async () => {
 })
 
 test("delegate plans organization/delegate with inputs and acceptance", async () => {
-  const result = await cli("delegate", "lead", "lead.researcher", "Compare", "pricing.", "--input", "Org/Plans/a.md", "--acceptance", "dated")
+  const result = await cli(
+    "delegate",
+    "lead",
+    "lead.researcher",
+    "Compare",
+    "pricing.",
+    "--input",
+    "Org/Plans/a.md",
+    "--acceptance",
+    "dated"
+  )
   assert.equal(result.code, 0)
   const { flowId, input } = planned()
   assert.equal(flowId, "organization/delegate")
@@ -126,31 +174,50 @@ test("meetings plan plans organization/meetings-plan with no payload", async () 
 })
 
 test("book plans organization/meetings-book with the role, minutes, purpose, and earliest time", async () => {
-  const result = await cli("book", "builder", "30", "Review", "the", "plan", "--not-before", "2026-10-01T09:00:00Z", "--key", "b1")
+  const result = await cli(
+    "book",
+    "builder",
+    "30",
+    "Review",
+    "the",
+    "plan",
+    "--not-before",
+    "2026-10-01T09:00:00Z",
+    "--key",
+    "b1"
+  )
   assert.equal(result.code, 0)
   assert.deepEqual(planned(), {
     flowId: "organization/meetings-book",
-    input: { key: "cli:b1", requestedBy: "builder", purpose: "Review the plan", minutes: 30, notBefore: Date.parse("2026-10-01T09:00:00Z") },
+    input: {
+      key: "cli:b1",
+      requestedBy: "builder",
+      purpose: "Review the plan",
+      minutes: 30,
+      notBefore: Date.parse("2026-10-01T09:00:00Z")
+    },
     key: "plan:cli:b1"
   })
 })
 
 test("usage errors exit 2 and send nothing", async () => {
-  for (const argv of [
-    ["hire", "lead"],
-    ["hire", "lead", "A need", "--acceptance", "dated"],
-    ["delegate", "lead", "lead.researcher"],
-    ["retire"],
-    ["retire", "a", "b"],
-    ["meetings"],
-    ["meetings", "list"],
-    ["book", "builder", "4", "Too short"],
-    ["book", "builder", "241", "Too long"],
-    ["book", "builder", "30.5", "Fractional"],
-    ["book", "builder", "ten", "Not a number"],
-    ["book", "builder", "30"],
-    ["book", "builder", "30", "Bad time", "--not-before", "someday"]
-  ]) {
+  for (
+    const argv of [
+      ["hire", "lead"],
+      ["hire", "lead", "A need", "--acceptance", "dated"],
+      ["delegate", "lead", "lead.researcher"],
+      ["retire"],
+      ["retire", "a", "b"],
+      ["meetings"],
+      ["meetings", "list"],
+      ["book", "builder", "4", "Too short"],
+      ["book", "builder", "241", "Too long"],
+      ["book", "builder", "30.5", "Fractional"],
+      ["book", "builder", "ten", "Not a number"],
+      ["book", "builder", "30"],
+      ["book", "builder", "30", "Bad time", "--not-before", "someday"]
+    ]
+  ) {
     const result = await cli(...argv)
     assert.equal(result.code, 2, argv.join(" "))
     assert.match(result.err[0]!, new RegExp(`^usage: ${argv[0]} `), argv.join(" "))
@@ -161,10 +228,25 @@ test("usage errors exit 2 and send nothing", async () => {
 test("a refusal from the host exits 1 with its tag", async () => {
   const { io, err } = capture()
   const refusing = createServer((_, response) =>
-    response.end(`${JSON.stringify({ _tag: "Exit", exit: { _tag: "Failure", cause: [{ _tag: "Fail", error: { _tag: "FlowNotFound", message: "no such flow" } }] } })}\n`))
+    response.end(
+      `${
+        JSON.stringify({
+          _tag: "Exit",
+          exit: { _tag: "Failure", cause: [{ _tag: "Fail", error: { _tag: "FlowNotFound", message: "no such flow" } }] }
+        })
+      }\n`
+    )
+  )
   await new Promise<void>((resolve) => refusing.listen(0, "127.0.0.1", resolve))
   try {
-    const code = await main(["retire", "x", "--port", String((refusing.address() as AddressInfo).port), "--state-dir", stateDir], io)
+    const code = await main([
+      "retire",
+      "x",
+      "--port",
+      String((refusing.address() as AddressInfo).port),
+      "--state-dir",
+      stateDir
+    ], io)
     assert.equal(code, 1)
     assert.deepEqual(err, ["Plan refused (FlowNotFound): no such flow"])
   } finally {
@@ -203,7 +285,10 @@ test("status prints the glance; --run prints one run and its gates", async () =>
     { runId: "run-1", flowId: "organization/intake", status: "completed" },
     { runId: "run-2", flowId: "organization/hire", status: "running" }
   ]
-  assert.deepEqual((await cli("status")).out, ["running 1  parked 0  failed 0  done 1", "running run-2  organization/hire"])
+  assert.deepEqual((await cli("status")).out, [
+    "running 1  parked 0  failed 0  done 1",
+    "running run-2  organization/hire"
+  ])
   assert.deepEqual((await cli("status", "--run", "run-1")).out, ["run-1  organization/intake  completed"])
   assert.deepEqual((await cli("status", "--run", "run-9")).out, ["no runs"])
   runs = []
@@ -215,65 +300,72 @@ test("specialists lists hired principals from the roster", async () => {
   assert.equal(await main(["specialists", "--state-dir", stateDir], io), 0)
   assert.deepEqual(out, ["no specialists"])
 
-  writeFileSync(join(root, "Org/Specialists/lead.researcher.md"), [
-    "---",
-    "id: lead.researcher",
-    "name: Researcher",
-    "kind: specialist",
-    "status: active",
-    "version: 1.0.0",
-    "reportsTo: lead",
-    "seat: openai:gpt-6-sol",
-    "grants:",
-    "  tools: [memory, wiki-read]",
-    "  connections: []",
-    "  knowledge: [\"Org/Roles/\"]",
-    "  repositories: []",
-    "  personalAccounts: false",
-    "  contact: via-assistant",
-    "budget: { tokensPerTask: 100000, tasksPerDay: 5, concurrency: 1 }",
-    "memory: { namespace: agent-lead.researcher }",
-    "skills: []",
-    "cases: []",
-    "identities: {}",
-    "hiredBy: lead",
-    "hiredAt: 2026-09-20T16:00:00Z",
-    "---",
-    "",
-    "## Objective",
-    "",
-    "Research.",
-    "",
-    "## Responsibilities",
-    "",
-    "- Compare sources.",
-    "",
-    "## Inputs",
-    "",
-    "- The question.",
-    "",
-    "## Allowed actions",
-    "",
-    "- Read.",
-    "",
-    "## Output",
-    "",
-    "- report — the answer",
-    "",
-    "## Evidence",
-    "",
-    "- A link per claim.",
-    "",
-    "## Escalation",
-    "",
-    "- Private data: tell the lead.",
-    "",
-    "## Success criteria",
-    "",
-    "- Every claim is sourced.",
-    ""
-  ].join("\n"))
+  writeFileSync(
+    join(root, "Org/Specialists/lead.researcher.md"),
+    [
+      "---",
+      "id: lead.researcher",
+      "name: Researcher",
+      "kind: specialist",
+      "status: active",
+      "version: 1.0.0",
+      "reportsTo: lead",
+      "seat: openai:gpt-6-sol",
+      "grants:",
+      "  tools: [memory, wiki-read]",
+      "  connections: []",
+      "  knowledge: [\"Org/Roles/\"]",
+      "  repositories: []",
+      "  personalAccounts: false",
+      "  contact: via-assistant",
+      "budget: { tokensPerTask: 100000, tasksPerDay: 5, concurrency: 1 }",
+      "memory: { namespace: agent-lead.researcher }",
+      "skills: []",
+      "cases: []",
+      "identities: {}",
+      "hiredBy: lead",
+      "hiredAt: 2026-09-20T16:00:00Z",
+      "---",
+      "",
+      "## Objective",
+      "",
+      "Research.",
+      "",
+      "## Responsibilities",
+      "",
+      "- Compare sources.",
+      "",
+      "## Inputs",
+      "",
+      "- The question.",
+      "",
+      "## Allowed actions",
+      "",
+      "- Read.",
+      "",
+      "## Output",
+      "",
+      "- report — the answer",
+      "",
+      "## Evidence",
+      "",
+      "- A link per claim.",
+      "",
+      "## Escalation",
+      "",
+      "- Private data: tell the lead.",
+      "",
+      "## Success criteria",
+      "",
+      "- Every claim is sourced.",
+      ""
+    ].join("\n")
+  )
   const listed = capture()
-  assert.equal(await main(["specialists", "--root", root, "--state-dir", stateDir], listed.io), 0, listed.err.join("\n"))
+  assert.equal(
+    await main(["specialists", "--root", root, "--state-dir", stateDir], listed.io),
+    0,
+    listed.err.join("\n")
+  )
   assert.deepEqual(listed.out, ["lead.researcher  active  specialist  lead  Researcher"])
 })

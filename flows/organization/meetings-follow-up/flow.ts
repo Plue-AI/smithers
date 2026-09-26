@@ -16,15 +16,23 @@ import { Schema } from "effect"
 import * as Actions from "../../../packages/smithers/agent/organization/src/Actions.ts"
 import * as Profile from "../../../packages/smithers/agent/organization/src/Profile.ts"
 import { fieldTurn } from "../field-turn.ts"
-import { CollectNotes, FindOccurrence, FollowUpTask, MeetingFailed, MeetingReport, WriteTasks } from "../meetings.ts"
 import { blocked, finish, report } from "../meetings-shared.ts"
+import { CollectNotes, FindOccurrence, FollowUpTask, MeetingFailed, MeetingReport, WriteTasks } from "../meetings.ts"
 import type { Answer } from "../schema.ts"
 
 const implementationVersion = "organization/meetings-follow-up/v1"
 
 const notHeld: Answer = {
   principal: "owner-absent",
-  result: { status: "declined", summary: "Not held.", fields: {}, evidence: [], handoffs: [], escalations: [], decisions: [] },
+  result: {
+    status: "declined",
+    summary: "Not held.",
+    fields: {},
+    evidence: [],
+    handoffs: [],
+    escalations: [],
+    decisions: []
+  },
   valid: false,
   violations: []
 }
@@ -40,11 +48,21 @@ export default Flow.make("organization/meetings-follow-up", {
   success: MeetingReport,
   error: Schema.Union([MeetingFailed, Actions.ReceiptFailed]),
   body: (payload) =>
-    FindOccurrence.call({ principal: payload.principal, which: "last", ...(payload.at === undefined ? {} : { at: payload.at }) }).pipe(
+    FindOccurrence.call({
+      principal: payload.principal,
+      which: "last",
+      ...(payload.at === undefined ? {} : { at: payload.at })
+    }).pipe(
       Node.bindPlanned(Node.capture({ implementationVersion }, (occurrence) =>
         Node.branch(Node.succeed(occurrence), {
           if: Node.capture({ implementationVersion }, (seen) => seen.found),
-          else: () => report({ key: occurrence.key, status: "not planned", summary: occurrence.reason, principal: payload.principal }),
+          else: () =>
+            report({
+              key: occurrence.key,
+              status: "not planned",
+              summary: occurrence.reason,
+              principal: payload.principal
+            }),
           then: () =>
             CollectNotes.call({ occurrence }).pipe(
               Node.bindPlanned(Node.capture({ implementationVersion }, (notes) =>
@@ -64,7 +82,12 @@ export default Flow.make("organization/meetings-follow-up", {
                     Actions.PinRoster.call({}).pipe(
                       Node.bindPlanned(Node.capture({ implementationVersion }, (pin) =>
                         FollowUpTask.call({ revision: pin.revision, occurrence, transcript: notes.transcript }).pipe(
-                          Node.bindPlanned(Node.capture({ implementationVersion }, (stage) => fieldTurn(pin.revision, stage, ["tasks"])))
+                          Node.bindPlanned(
+                            Node.capture(
+                              { implementationVersion },
+                              (stage) => fieldTurn(pin.revision, stage, ["tasks"])
+                            )
+                          )
                         ))),
                       Node.bindPlanned(Node.capture({ implementationVersion }, (answer) =>
                         Node.all({
@@ -72,20 +95,29 @@ export default Flow.make("organization/meetings-follow-up", {
                           sources: Node.succeed(notes.sources),
                           written: WriteTasks.call({ occurrence, answer, held: true })
                         }))),
-                      Node.map(Node.capture({ implementationVersion }, ({ occurrence: seen, sources, written }): MeetingReport => ({
-                        key: seen.key,
-                        status: "followed-up",
-                        summary: `${written.tasks.length} tasks from ${sources.join(", ")}`,
-                        principal: seen.principal,
-                        paths: [written.path]
-                      })))
+                      Node.map(
+                        Node.capture(
+                          { implementationVersion },
+                          ({ occurrence: seen, sources, written }): MeetingReport => ({
+                            key: seen.key,
+                            status: "followed-up",
+                            summary: `${written.tasks.length} tasks from ${sources.join(", ")}`,
+                            principal: seen.principal,
+                            paths: [written.path]
+                          })
+                        )
+                      )
                     )
                 })))
             )
         }).pipe(
           blocked(occurrence.key, payload.principal),
-          Node.bindPlanned(Node.capture({ implementationVersion }, (outcome) =>
-            finish(occurrence.key, "meeting-follow-up", payload, outcome)))
+          Node.bindPlanned(
+            Node.capture(
+              { implementationVersion },
+              (outcome) => finish(occurrence.key, "meeting-follow-up", payload, outcome)
+            )
+          )
         )))
     )
 })

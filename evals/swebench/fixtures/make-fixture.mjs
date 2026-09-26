@@ -111,17 +111,44 @@ const build = (row) => {
   // the Jev column against these two numbers.
   events.push([
     "control.agent.claim-demanded",
-    { complete: 0.9, overclaims: 0.1, invented: 0.05, latencyMs: 300, usage: { inputTokens: 900, outputTokens: 0 }, demanded: false, refused: false, currentDigest: "", nextFrame: turns },
+    {
+      complete: 0.9,
+      overclaims: 0.1,
+      invented: 0.05,
+      latencyMs: 300,
+      usage: { inputTokens: 900, outputTokens: 0 },
+      demanded: false,
+      refused: false,
+      currentDigest: "",
+      nextFrame: turns
+    },
     at()
   ])
   events.push([
     "control.agent.supervisor-settled",
-    { scope: runId, frame: 0, thrashing: 0.1, onTarget: 0.9, suspect: 0.1, needsHelp: "none", latencyMs: 280, usage: { inputTokens: 600, outputTokens: 0 } },
+    {
+      scope: runId,
+      frame: 0,
+      thrashing: 0.1,
+      onTarget: 0.9,
+      suspect: 0.1,
+      needsHelp: "none",
+      latencyMs: 280,
+      usage: { inputTokens: 600, outputTokens: 0 }
+    },
     at()
   ])
   events.push([
     "control.agent.decision-settled",
-    { scope: runId, frame: 0, classifier: "supervisor/turn", digest: "fixture", latencyMs: 280, acted: false, decidedBy: "jev" },
+    {
+      scope: runId,
+      frame: 0,
+      classifier: "supervisor/turn",
+      digest: "fixture",
+      latencyMs: 280,
+      acted: false,
+      decidedBy: "jev"
+    },
     at()
   ])
   // The supervisor's own faults: a reading the run's end interrupted, which
@@ -147,7 +174,11 @@ const build = (row) => {
       at()
     ])
   }
-  events.push([`control.run.${row.status ?? "completed"}`, row.status === "failed" ? { cause: "fixture cause" } : {}, EPOCH + spanMs])
+  events.push([
+    `control.run.${row.status ?? "completed"}`,
+    row.status === "failed" ? { cause: "fixture cause" } : {},
+    EPOCH + spanMs
+  ])
 
   const workspace = join(here, "work", row.id, ".flows")
   mkdirSync(workspace, { recursive: true })
@@ -206,5 +237,7 @@ writeFileSync(join(here, "flows-cell-harness.mirror.json"), `${JSON.stringify(re
 
 if (!existsSync(join(here, "work"))) process.exit(1)
 console.log(
-  `make-fixture.mjs: ${results.length} instances${withLatency ? " (with per-call latency)" : ""} under ${join(here, "work")}`
+  `make-fixture.mjs: ${results.length} instances${withLatency ? " (with per-call latency)" : ""} under ${
+    join(here, "work")
+  }`
 )

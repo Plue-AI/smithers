@@ -1,10 +1,10 @@
+import { Effect } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
-import { Effect } from "effect"
 import { backup } from "./setup/backup.ts"
 import { exampleRoot } from "./setup/settings.ts"
 import * as Wiki from "./wiki.ts"
@@ -61,7 +61,10 @@ test("commits only what the host wrote, leaves the owner's edits, and never push
   const made = Wiki.commit(root, paths)
 
   assert.ok(made !== undefined)
-  assert.equal(made.message, "organization: record runs cli-readme, meetings; specialists lead.old, lead.research; status")
+  assert.equal(
+    made.message,
+    "organization: record runs cli-readme, meetings; specialists lead.old, lead.research; status"
+  )
   assert.equal(made.revision, git(root, "rev-parse", "HEAD"))
   assert.equal(git(root, "log", "-1", "--format=%s"), made.message)
   assert.deepEqual(git(root, "show", "--name-only", "--format=", "HEAD").split("\n").sort(), [
@@ -180,16 +183,28 @@ test("a backup commits the host's writes first, so its revision holds them", asy
 test("commits the pages roles edited, names the roles, and never writes over the owner's uncommitted work", async () => {
   const { root } = wiki("role-edits")
   const journal = Wiki.journal(root, true)
-  const guard = (path: string) => Effect.runPromise(Effect.flip(journal.guard(path)).pipe(Effect.orElseSucceed(() => "allowed")))
+  const guard = (path: string) =>
+    Effect.runPromise(Effect.flip(journal.guard(path)).pipe(Effect.orElseSucceed(() => "allowed")))
   // The owner's unstaged, staged and untracked pages are refused; a clean or new page is not.
-  assert.equal(await guard("Org/Roles/lead.md"), "has uncommitted changes the host did not make; commit or discard them first")
-  assert.equal(await guard("Org/Roles/docs.md"), "has uncommitted changes the host did not make; commit or discard them first")
-  assert.equal(await guard("Org/Notes.md"), "has uncommitted changes the host did not make; commit or discard them first")
+  assert.equal(
+    await guard("Org/Roles/lead.md"),
+    "has uncommitted changes the host did not make; commit or discard them first"
+  )
+  assert.equal(
+    await guard("Org/Roles/docs.md"),
+    "has uncommitted changes the host did not make; commit or discard them first"
+  )
+  assert.equal(
+    await guard("Org/Notes.md"),
+    "has uncommitted changes the host did not make; commit or discard them first"
+  )
   assert.equal(await guard("Org/Organization.md"), "allowed")
   assert.equal(await guard("Org/Team/docs/Onboarding.md"), "allowed")
   // A role's edit is journaled, so its next edit of the same page is allowed.
   write(root, "Org/Team/docs/Onboarding.md", "# Onboarding\n")
-  await Effect.runPromise(journal.record({ principal: "docs", path: "Org/Team/docs/Onboarding.md", op: "write", bytes: 13 }))
+  await Effect.runPromise(
+    journal.record({ principal: "docs", path: "Org/Team/docs/Onboarding.md", op: "write", bytes: 13 })
+  )
   assert.equal(await guard("Org/Team/docs/Onboarding.md"), "allowed")
   write(root, "Org/Proposals/2026-09-26-support-inbox.md", "proposal\n")
   Wiki.recordWritten(root, [{ path: "Org/Proposals/2026-09-26-support-inbox.md" }])
@@ -224,7 +239,9 @@ test("commits the pages roles edited, names the roles, and never writes over the
   assert.equal(Wiki.commit(root, paths), undefined)
   assert.deepEqual(Wiki.pending(root), [])
   // With wiki.commit off nothing is journaled; outside git nothing is guarded or journaled.
-  await Effect.runPromise(Wiki.journal(root, false).record({ principal: "docs", path: "Org/Team/x.md", op: "write", bytes: 1 }))
+  await Effect.runPromise(
+    Wiki.journal(root, false).record({ principal: "docs", path: "Org/Team/x.md", op: "write", bytes: 1 })
+  )
   assert.deepEqual(Wiki.pending(root), [])
   const plain = join(scratch, "plain-journal")
   write(plain, "Org/Notes.md", "mine\n")
@@ -235,12 +252,20 @@ test("commits the pages roles edited, names the roles, and never writes over the
   // A line cut by a crash is skipped.
   writeFileSync(Wiki.journalFile(root)!, "{\"path\":\"Org/Team/a.md\"}\n{\"pa")
   assert.deepEqual(Wiki.pending(root), [{ path: "Org/Team/a.md" }])
-  assert.deepEqual(Wiki.hostPaths(JSON.parse(JSON.stringify({ rosterDir: "Org/", wiki: { generatedDir: "Org/Runs/", statusFile: "Org/Status.md" } })), ["Org/Team/"]), [
-    "Org/Runs",
-    "Org/Specialists",
-    "Org/Status.md",
-    "Org/Team"
-  ])
+  assert.deepEqual(
+    Wiki.hostPaths(
+      JSON.parse(
+        JSON.stringify({ rosterDir: "Org/", wiki: { generatedDir: "Org/Runs/", statusFile: "Org/Status.md" } })
+      ),
+      ["Org/Team/"]
+    ),
+    [
+      "Org/Runs",
+      "Org/Specialists",
+      "Org/Status.md",
+      "Org/Team"
+    ]
+  )
 })
 
 /** A second clone of a wiki's remote, as another writer: `change` is committed and pushed there. */
@@ -268,7 +293,10 @@ test("sync pushes the host's commits, rebasing over another writer's, and keeps 
   const state = join(scratch, "sync-push-state")
   mkdirSync(state, { recursive: true })
   assert.deepEqual(Wiki.sync(root, state), { status: "skipped", message: "the wiki branch has no upstream" })
-  assert.deepEqual(Wiki.sync(join(scratch, "missing"), state), { status: "skipped", message: "the wiki is not a git work tree" })
+  assert.deepEqual(Wiki.sync(join(scratch, "missing"), state), {
+    status: "skipped",
+    message: "the wiki is not a git work tree"
+  })
   git(root, "branch", "--set-upstream-to=origin/main")
   assert.deepEqual(Wiki.sync(root, state, 1), { status: "synced", message: "level with origin/main" })
   write(root, "Org/Runs/r1/deliver.json", "{}\n")
@@ -280,11 +308,14 @@ test("sync pushes the host's commits, rebasing over another writer's, and keeps 
   assert.equal(git(root, "rev-parse", "HEAD~1"), theirs)
   assert.equal(readFileSync(join(root, "Areas/Theirs.md"), "utf8"), "theirs\n")
   assert.deepEqual(ownerEdits(root), before)
-  assert.deepEqual(execFileSync("git", ["-C", root, "status", "--porcelain"], { encoding: "utf8" }).split("\n").filter(Boolean).sort(), [
-    " M Org/Roles/lead.md",
-    "?? Org/Notes.md",
-    "M  Org/Roles/docs.md"
-  ])
+  assert.deepEqual(
+    execFileSync("git", ["-C", root, "status", "--porcelain"], { encoding: "utf8" }).split("\n").filter(Boolean).sort(),
+    [
+      " M Org/Roles/lead.md",
+      "?? Org/Notes.md",
+      "M  Org/Roles/docs.md"
+    ]
+  )
   assert.deepEqual(Wiki.syncState(state), { syncedAt: 2 })
 })
 
@@ -296,7 +327,11 @@ test("sync never forces or discards: a conflicting writer or overlapping owner e
   write(root, "Org/Runs/r1/deliver.json", "{\"host\":1}\n")
   Wiki.commit(root, paths)
   const local = git(root, "rev-parse", "HEAD")
-  const theirs = otherWriter("sync-conflict", remote, (clone) => write(clone, "Org/Runs/r1/deliver.json", "{\"other\":1}\n"))
+  const theirs = otherWriter(
+    "sync-conflict",
+    remote,
+    (clone) => write(clone, "Org/Runs/r1/deliver.json", "{\"other\":1}\n")
+  )
   const before = ownerEdits(root)
   const first = Wiki.sync(root, state, 10)
   assert.equal(first.status, "conflict")

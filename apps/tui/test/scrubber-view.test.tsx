@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test"
 import { testRender } from "@opentui/react/test-utils"
+import { afterEach, describe, expect, test } from "bun:test"
 import { ActivityView } from "../src/activity-view.tsx"
 import * as Activity from "../src/activity.ts"
 import * as Scrubber from "../src/scrubber.ts"
@@ -24,8 +24,16 @@ const draw = async (width: number, cursor?: number) => {
   const paused: Array<boolean> = []
   setup = await testRender(
     <box style={{ width, flexDirection: "column" }}>
-      <ActivityView activity={activity} width={width} now={Date.now()} title="Worker" cursor={cursor}
-        focused={cursor !== undefined} onSelect={(seq) => selected.push(seq)} onPause={() => paused.push(true)} />
+      <ActivityView
+        activity={activity}
+        width={width}
+        now={Date.now()}
+        title="Worker"
+        cursor={cursor}
+        focused={cursor !== undefined}
+        onSelect={(seq) => selected.push(seq)}
+        onPause={() => paused.push(true)}
+      />
     </box>,
     { width, height: 8 }
   )
@@ -82,20 +90,47 @@ describe("the scrubber on screen", () => {
 
 describe("numbered steps", () => {
   const cell = {
-    kind: "cell" as const, id: "7", index: 13, prose: "Spot-check the two named cases and finish.",
-    source: "await ctx.call(\"bash\", { command: \"pytest -rA -k slash\" })", status: "done" as const,
-    calls: [], printed: "", startedAt: 0, endedAt: 1_200, turn: 0, frame: 1
+    kind: "cell" as const,
+    id: "7",
+    index: 13,
+    prose: "Spot-check the two named cases and finish.",
+    source: "await ctx.call(\"bash\", { command: \"pytest -rA -k slash\" })",
+    status: "done" as const,
+    calls: [],
+    printed: "",
+    startedAt: 0,
+    endedAt: 1_200,
+    turn: 0,
+    frame: 1
   }
-  const line = { spanId: "frame-1", frame: 1, verb: "Ran", subject: "pytest -rA -k slash", result: "3 passed", failed: false, wrote: false }
+  const line = {
+    spanId: "frame-1",
+    frame: 1,
+    verb: "Ran",
+    subject: "pytest -rA -k slash",
+    result: "3 passed",
+    failed: false,
+    wrote: false
+  }
   const notes = [
-    { seq: 4, spanId: "frame-1", tone: "good" as const, title: "sufficiency", body: "bash failed before the change and passed after it.",
-      evidence: ["pytest -rA", "pytest -rA -k slash"] },
+    {
+      seq: 4,
+      spanId: "frame-1",
+      tone: "good" as const,
+      title: "sufficiency",
+      body: "bash failed before the change and passed after it.",
+      evidence: ["pytest -rA", "pytest -rA -k slash"]
+    },
     { seq: 5, spanId: "frame-1", tone: "bad" as const, title: "claim refused", body: "complete 0, overclaims 1." }
   ]
 
   test("a step reads its number, its line, its outcome at the right, the quoted intent, and its callouts", async () => {
-    setup = await testRender(<box style={{ width: 90 }}><View.Entry item={cell} now={0} tick="" expanded={false} step={{ line, notes }} /></box>,
-      { width: 90, height: 24 })
+    setup = await testRender(
+      <box style={{ width: 90 }}>
+        <View.Entry item={cell} now={0} tick="" expanded={false} step={{ line, notes }} />
+      </box>,
+      { width: 90, height: 24 }
+    )
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
     const header = frame.split("\n").find((row) => row.includes("13"))!
@@ -108,10 +143,21 @@ describe("numbered steps", () => {
   })
 
   test("keeps routine tree diagnostics behind expand while retaining their evidence", async () => {
-    const diagnostic = { seq: 6, spanId: "frame-1", tone: "warn" as const, title: "unmoved", body: "The tree did not change.", evidence: ["a".repeat(64)] }
+    const diagnostic = {
+      seq: 6,
+      spanId: "frame-1",
+      tone: "warn" as const,
+      title: "unmoved",
+      body: "The tree did not change.",
+      evidence: ["a".repeat(64)]
+    }
     for (const expanded of [false, true]) {
-      setup = await testRender(<box style={{ width: 90 }}><View.Entry item={cell} now={0} tick="" expanded={expanded} step={{ line, notes: [...notes, diagnostic] }} /></box>,
-        { width: 90, height: 30 })
+      setup = await testRender(
+        <box style={{ width: 90 }}>
+          <View.Entry item={cell} now={0} tick="" expanded={expanded} step={{ line, notes: [...notes, diagnostic] }} />
+        </box>,
+        { width: 90, height: 30 }
+      )
       await setup.renderOnce()
       const frame = setup.captureCharFrame()
       expect(frame.includes("unmoved")).toBe(expanded)
@@ -125,8 +171,12 @@ describe("numbered steps", () => {
   })
 
   test("a click on the header folds the step to one line and keeps its callouts", async () => {
-    setup = await testRender(<box style={{ width: 90 }}><View.Entry item={cell} now={0} tick="" expanded={false} step={{ line, notes }} /></box>,
-      { width: 90, height: 24 })
+    setup = await testRender(
+      <box style={{ width: 90 }}>
+        <View.Entry item={cell} now={0} tick="" expanded={false} step={{ line, notes }} />
+      </box>,
+      { width: 90, height: 24 }
+    )
     await setup.renderOnce()
     await setup.mockMouse.click(4, 0)
     await setup.renderOnce()
@@ -137,11 +187,21 @@ describe("numbered steps", () => {
   })
 })
 
-
 test("approval subjects and keys remain separate across terminal widths", async () => {
   const subject = "node --test test/parser/quoted-arguments-and-unicode-paths-regression.test.mjs"
   for (const width of [40, 60, 80, 120]) {
-    setup = await testRender(<box style={{ width }}><View.Approval width={width} request={{ flow: "bash", subject, always: true }} scope="all bash" armed more={0} /></box>, { width, height: 12 })
+    setup = await testRender(
+      <box style={{ width }}>
+        <View.Approval
+          width={width}
+          request={{ flow: "bash", subject, always: true }}
+          scope="all bash"
+          armed
+          more={0}
+        />
+      </box>,
+      { width, height: 12 }
+    )
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
     const lines = frame.split("\n").map((line) => line.trim())

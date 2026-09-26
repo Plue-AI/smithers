@@ -122,7 +122,12 @@ export interface Autonomy {
   readonly intake?: { readonly cron: string; readonly timezone: string; readonly max: number } | undefined
   readonly digest?: { readonly cron: string; readonly timezone: string } | undefined
   readonly routines: ReadonlyArray<{
-    readonly routine: { readonly id: string; readonly cron?: string | undefined; readonly timezone?: string | undefined; readonly enabled: boolean }
+    readonly routine: {
+      readonly id: string
+      readonly cron?: string | undefined
+      readonly timezone?: string | undefined
+      readonly enabled: boolean
+    }
     readonly input: unknown
     /** When a once or onboarding routine fires; `null` once it ran. */
     readonly at?: number | null | undefined

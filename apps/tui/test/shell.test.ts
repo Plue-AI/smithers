@@ -7,13 +7,17 @@ import * as Transcript from "../src/transcript.ts"
 describe("shell output", () => {
   it("stops a resistant child even when it closed the shell's output pipes", async () => {
     let ready = () => {}
-    const started = new Promise<void>((resolve) => { ready = resolve })
+    const started = new Promise<void>((resolve) => {
+      ready = resolve
+    })
     let child: number | undefined
     let group: number | undefined
     let armed = false
     const run = Shell.run({
-      command: "echo group-ready-$$; (trap '' TERM HUP; echo child-ready >&3; exec 3>&-; exec sleep 30) 3>&1 >/dev/null 2>&1 & echo child-pid-$!; wait",
-      cwd: tmpdir(), env: { PATH: process.env.PATH, SHELL: "/bin/bash" },
+      command:
+        "echo group-ready-$$; (trap '' TERM HUP; echo child-ready >&3; exec 3>&-; exec sleep 30) 3>&1 >/dev/null 2>&1 & echo child-pid-$!; wait",
+      cwd: tmpdir(),
+      env: { PATH: process.env.PATH, SHELL: "/bin/bash" },
       onOutput: (text) => {
         const parent = /group-ready-(\d+)/.exec(text)
         const found = /child-pid-(\d+)/.exec(text)
@@ -29,23 +33,40 @@ describe("shell output", () => {
       expect((await run.done).cancelled).toBe(true)
       const deadline = Date.now() + 1000
       while (Date.now() < deadline) {
-        try { process.kill(child!, 0) } catch { break }
+        try {
+          process.kill(child!, 0)
+        } catch {
+          break
+        }
         await Bun.sleep(20)
       }
       expect(() => process.kill(child!, 0)).toThrow()
     } finally {
-      if (group !== undefined) try { process.kill(-group, "SIGKILL") } catch {}
+      if (group !== undefined) {
+        try {
+          process.kill(-group, "SIGKILL")
+        } catch {}
+      }
     }
   }, 10_000)
 
   it("stops a SIGTERM-resistant process group and settles cancellation once", async () => {
     let started = () => {}
-    const ready = new Promise<void>((resolve) => { started = resolve })
+    const ready = new Promise<void>((resolve) => {
+      started = resolve
+    })
     let pid: number | undefined
     const run = Shell.run({
       command: "trap '' TERM; echo resistant-ready-$$; sleep 30",
-      cwd: tmpdir(), env: { PATH: process.env.PATH, SHELL: "/bin/bash" },
-      onOutput: (text) => { const found = /resistant-ready-(\d+)/.exec(text); if (found !== null) { pid = Number(found[1]); started() } }
+      cwd: tmpdir(),
+      env: { PATH: process.env.PATH, SHELL: "/bin/bash" },
+      onOutput: (text) => {
+        const found = /resistant-ready-(\d+)/.exec(text)
+        if (found !== null) {
+          pid = Number(found[1])
+          started()
+        }
+      }
     })
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
@@ -53,7 +74,12 @@ describe("shell output", () => {
       const start = Date.now()
       run.cancel()
       run.cancel()
-      const outcome = await Promise.race([run.done, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("cancel did not settle")), Shell.cancelGraceMs + 2000) })])
+      const outcome = await Promise.race([
+        run.done,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("cancel did not settle")), Shell.cancelGraceMs + 2000)
+        })
+      ])
       expect(outcome.cancelled).toBe(true)
       expect(outcome.exitCode).toBeNull()
       expect(Date.now() - start).toBeLessThan(Shell.cancelGraceMs + 1500)
@@ -61,7 +87,11 @@ describe("shell output", () => {
       expect(() => process.kill(-pid!, 0)).toThrow()
     } finally {
       if (timeout !== undefined) clearTimeout(timeout)
-      if (pid !== undefined) try { process.kill(-pid, "SIGKILL") } catch {}
+      if (pid !== undefined) {
+        try {
+          process.kill(-pid, "SIGKILL")
+        } catch {}
+      }
       await run.done
     }
   }, 10_000)
@@ -69,7 +99,8 @@ describe("shell output", () => {
   it("decodes and redacts across real subprocess writes before streaming or spilling", async () => {
     const env = { PATH: process.env.PATH, SHELL: "/bin/bash", TEST_API_KEY: "synthetic-boundary-secret-value" }
     const streamed: Array<string> = []
-    const command = `python3 -c 'import os,time; b="中文 👩🏽‍💻".encode(); [(os.write(1,bytes([v])),time.sleep(.005)) for v in b]; os.write(1,b"\\n"); os.write(1,b"synthetic-boundary-"); time.sleep(.1); os.write(1,b"secret-value\\n"); os.write(1,b"\\x1b[3"); time.sleep(.1); os.write(1,b"1mRED\\x1b[0m\\n"); os.write(1,b"x"*60000)'`
+    const command =
+      `python3 -c 'import os,time; b="中文 👩🏽‍💻".encode(); [(os.write(1,bytes([v])),time.sleep(.005)) for v in b]; os.write(1,b"\\n"); os.write(1,b"synthetic-boundary-"); time.sleep(.1); os.write(1,b"secret-value\\n"); os.write(1,b"\\x1b[3"); time.sleep(.1); os.write(1,b"1mRED\\x1b[0m\\n"); os.write(1,b"x"*60000)'`
     const result = await Shell.run({ command, cwd: tmpdir(), env, onOutput: (text) => streamed.push(text) }).done
     const expected = "中文 👩🏽‍💻\n[redacted $TEST_API_KEY]\nRED\n" + "x".repeat(60000)
     expect(result.exitCode).toBe(0)
@@ -81,7 +112,12 @@ describe("shell output", () => {
   it("masks credential-named environment values in the output it shows, saves and sends", async () => {
     const env = { ...process.env, GH_TOKEN: "ghp_supersecretvalue", HARMLESS: "ghp_supersecretvalue_not" }
     const streamed: Array<string> = []
-    const result = await Shell.run({ command: "echo $GH_TOKEN", cwd: tmpdir(), env, onOutput: (text) => streamed.push(text) })
+    const result = await Shell.run({
+      command: "echo $GH_TOKEN",
+      cwd: tmpdir(),
+      env,
+      onOutput: (text) => streamed.push(text)
+    })
       .done
     expect(result.output).toBe("[redacted $GH_TOKEN]")
     expect(streamed.join("")).not.toContain("ghp_supersecretvalue")

@@ -75,7 +75,11 @@ try {
     pin,
     temporary
   )
-  assert.match(partial.subject.agreement, /^partial: 1 of 5 instance\(s\) recorded no subject/, partial.subject.agreement)
+  assert.match(
+    partial.subject.agreement,
+    /^partial: 1 of 5 instance\(s\) recorded no subject/,
+    partial.subject.agreement
+  )
 
   const moved = join(temporary, "moved-pin.json")
   writeFileSync(moved, JSON.stringify({ ...JSON.parse(readFileSync(pin, "utf8")), stamp: "sha256:moved" }))

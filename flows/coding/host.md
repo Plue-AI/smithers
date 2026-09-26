@@ -173,7 +173,6 @@ proof with `node flows/test/coding-host-bundle.mjs` or
 `PLUE_JJ_EXPORT_BINARY` pointing to the actual Plue artifacts. It exercises bundled
 QuickJS, builtin SQLite and contained processes; `--version` alone is insufficient.
 
-
 Explicitly enabled Wiki planning also registers the private `coding/WikiCheck` delegate.
 Projects opt into continuous semantic backpressure by declaring `checks/wiki`
 and including it as a required slow check. Its catalog policy is derived from

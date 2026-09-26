@@ -50,7 +50,11 @@ describe("profile", () => {
     expect(profile.seat).toBe("resolved:sol")
     expect(profile.fallbackSeats).toEqual(["resolved:sol", "resolved:unknown"])
     expect(Agents.profile(agent({ fallbackSeats: [] }), body, seatOf).fallbackSeats).toEqual([])
-    expect(code(() => Agents.profile(agent({ fallbackSeats: ["missing"] }), body, (id) => id === "sol" ? "resolved:sol" : undefined))).toBe("unknown_seat")
+    expect(
+      code(() =>
+        Agents.profile(agent({ fallbackSeats: ["missing"] }), body, (id) => id === "sol" ? "resolved:sol" : undefined)
+      )
+    ).toBe("unknown_seat")
   })
   test("narrows to the file's declared capabilities when the registry widened them for flows", () => {
     const widened = agent({ capabilities: ["*"], flows: ["read", "grep"] })
@@ -71,7 +75,11 @@ describe("profile", () => {
     expect(profile.system).toContain("Base directory: /repo/flows/review")
   })
   test("empty flows and capabilities keep the host defaults", () => {
-    const profile = Agents.profile(agent({ flows: [], capabilities: [], seat: undefined, effort: undefined }), body, seatOf)
+    const profile = Agents.profile(
+      agent({ flows: [], capabilities: [], seat: undefined, effort: undefined }),
+      body,
+      seatOf
+    )
     expect(profile.flows).toEqual([])
     expect(profile.envelope).toEqual([])
     expect(profile.seat).toBeUndefined()

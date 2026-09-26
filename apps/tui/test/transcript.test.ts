@@ -27,7 +27,10 @@ describe("replaying a recorded run", () => {
       { _tag: "model-retried", code: "rate_limited" },
       { _tag: "model-delta", delta: { type: "text-delta", text: "fallback reply" } }
     ]
-    const transcript = events.reduce((state, event, at) => Transcript.apply(state, event as never, at), Transcript.empty)
+    const transcript = events.reduce(
+      (state, event, at) => Transcript.apply(state, event as never, at),
+      Transcript.empty
+    )
     expect(transcript.streaming).toBe("fallback reply")
     expect(cells(transcript).map((cell) => cell.prose)).toEqual(["fallback reply"])
     expect(transcript.items.some((item) => item.kind === "cell" && item.prose.includes("seat one"))).toBe(false)
@@ -38,7 +41,8 @@ describe("replaying a recorded run", () => {
     expect(cells(transcript).map((cell) => cell.source)).toEqual(produced)
     expect(cells(transcript).every((cell) => cell.status === "done" && cell.endedAt !== undefined)).toBe(true)
     expect(transcript.items.at(-1)).toMatchObject({ kind: "answer" })
-    expect(transcript.items.map((item: Transcript.Item) => item.kind).filter((kind: string) => kind !== "cell")).toEqual(["user", "answer"])
+    expect(transcript.items.map((item: Transcript.Item) => item.kind).filter((kind: string) => kind !== "cell"))
+      .toEqual(["user", "answer"])
   })
 
   it("attaches every flow call to the cell that made it, settled", () => {
@@ -65,7 +69,8 @@ describe("replaying a recorded run", () => {
   it("records a command's nonzero exit on its call", () => {
     const calls = cells(replay()).flatMap((cell) => cell.calls)
     const failing = recorded.filter(({ event }) =>
-      event._tag === "cell-call-settled" && typeof event.result.value?.exitCode === "number" && event.result.value.exitCode !== 0
+      event._tag === "cell-call-settled" && typeof event.result.value?.exitCode === "number" &&
+      event.result.value.exitCode !== 0
     )
     expect(failing.length).toBeGreaterThan(0)
     expect(calls.filter((call) => call.exit !== undefined).map((call) => call.exit)).toEqual(
@@ -92,9 +97,14 @@ describe("split", () => {
 })
 
 describe("Jev context assessment", () => {
-  const reading = (scope: string, frame: number, outdatedContext?: number, irrelevantContext?: number) => ({
-    _tag: "supervisor-settled", scope, frame, outdatedContext, irrelevantContext
-  }) as never
+  const reading = (scope: string, frame: number, outdatedContext?: number, irrelevantContext?: number) =>
+    ({
+      _tag: "supervisor-settled",
+      scope,
+      frame,
+      outdatedContext,
+      irrelevantContext
+    }) as never
 
   it("keeps outdated and irrelevant separate across replay and ignores late older frames", () => {
     const outdated = Transcript.apply(Transcript.empty, reading("run", 2, 0.8, 0.1), 0)
@@ -103,7 +113,10 @@ describe("Jev context assessment", () => {
     expect(late).toBe(outdated)
     const irrelevant = Transcript.apply(late, reading("run", 3, 0.1, 0.9), 2)
     expect(irrelevant.contextAssessment).toEqual({ scope: "run", frame: 3, outdated: false, irrelevant: true })
-    expect(Transcript.apply(irrelevant, reading("run", 4, 0.1, 0.1), 3).contextAssessment).toMatchObject({ outdated: false, irrelevant: false })
+    expect(Transcript.apply(irrelevant, reading("run", 4, 0.1, 0.1), 3).contextAssessment).toMatchObject({
+      outdated: false,
+      irrelevant: false
+    })
   })
 })
 
@@ -121,16 +134,17 @@ describe("failures", () => {
 })
 
 describe("a turn that only calls ctx.done", () => {
-  const turn = (code: string, answer: string) => [
-    { _tag: "model-requested" },
-    { _tag: "model-delta", delta: { type: "text-delta", text: `The seat is sol.\n\`\`\`cell\n${code}\n\`\`\`` } },
-    { _tag: "cell-produced", cell: { language: "javascript", text: code } },
-    { _tag: "cell-settled", outcome: { _tag: "settled" } },
-    { _tag: "resolved", message: { role: "assistant", content: [{ type: "text", text: answer }] } }
-  ].reduce(
-    (transcript, event, at) => Transcript.apply(transcript, event as never, at),
-    Transcript.user(Transcript.empty, "which seat?")
-  )
+  const turn = (code: string, answer: string) =>
+    [
+      { _tag: "model-requested" },
+      { _tag: "model-delta", delta: { type: "text-delta", text: `The seat is sol.\n\`\`\`cell\n${code}\n\`\`\`` } },
+      { _tag: "cell-produced", cell: { language: "javascript", text: code } },
+      { _tag: "cell-settled", outcome: { _tag: "settled" } },
+      { _tag: "resolved", message: { role: "assistant", content: [{ type: "text", text: answer }] } }
+    ].reduce(
+      (transcript, event, at) => Transcript.apply(transcript, event as never, at),
+      Transcript.user(Transcript.empty, "which seat?")
+    )
 
   it("shows the answer once, without the cell that restates it", () => {
     const transcript = turn(`ctx.done("The seat is sol.")`, "The seat is sol.")
@@ -146,19 +160,34 @@ describe("a turn that only calls ctx.done", () => {
 describe("a reply the harness re-asks inside its frame", () => {
   // Recorded 2026-09-23 (session bd2275ea, frame 1 of tui-52909-15): a
   // prose-only reply, the in-frame `no_cell` rejection, the re-ask's cell.
-  const rejection = "No cell was found in the response. Emit a fenced ```cell block containing the JavaScript for this transition."
+  const rejection =
+    "No cell was found in the response. Emit a fenced ```cell block containing the JavaScript for this transition."
   const events = [
     { _tag: "model-requested", frame: 1, attempt: 1 },
-    { _tag: "model-delta", delta: { type: "text-delta", text: "\n\nRequested the default-accept permissions change." } },
+    {
+      _tag: "model-delta",
+      delta: { type: "text-delta", text: "\n\nRequested the default-accept permissions change." }
+    },
     { _tag: "model-settled", message: { role: "assistant", content: [] }, usage: {} },
     { _tag: "cell-rejected-in-frame", attempt: 1, code: "no_cell", message: rejection },
     { _tag: "model-requested", frame: 1, attempt: 2 },
     { _tag: "model-delta", delta: { type: "text-delta", text: "\n\n```cell\nctx.done(\"Requested.\")\n```" } },
     { _tag: "model-settled", message: { role: "assistant", content: [] }, usage: {} },
-    { _tag: "cell-produced", cell: { language: "javascript", text: "ctx.done(\"Requested.\")", digest: "b94e" }, blocks: 1 },
+    {
+      _tag: "cell-produced",
+      cell: { language: "javascript", text: "ctx.done(\"Requested.\")", digest: "b94e" },
+      blocks: 1
+    },
     { _tag: "cell-printed", cell: "b94e", text: "" },
-    { _tag: "cell-settled", cell: "b94e", outcome: { _tag: "settled", transition: { _tag: "complete", output: "Requested." } } },
-    { _tag: "resolved", message: { role: "assistant", content: [{ type: "text", text: "Requested." }], stopReason: "stop" } }
+    {
+      _tag: "cell-settled",
+      cell: "b94e",
+      outcome: { _tag: "settled", transition: { _tag: "complete", output: "Requested." } }
+    },
+    {
+      _tag: "resolved",
+      message: { role: "assistant", content: [{ type: "text", text: "Requested." }], stopReason: "stop" }
+    }
   ] as unknown as ReadonlyArray<Parameters<typeof Transcript.apply>[1]>
   const fold = (upTo = events.length) =>
     events.slice(0, upTo).reduce(
@@ -193,7 +222,12 @@ describe("a reply the harness re-asks inside its frame", () => {
 })
 
 describe("cards", () => {
-  const plan = { id: "release", title: "Release plan", summary: "Two steps left.", rows: [{ id: "changelog", label: "Changelog", status: "done" as const, details: [] }] }
+  const plan = {
+    id: "release",
+    title: "Release plan",
+    summary: "Two steps left.",
+    rows: [{ id: "changelog", label: "Changelog", status: "done" as const, details: [] }]
+  }
   it("adds one card per panel id and updates it in place on republish", () => {
     let transcript = Transcript.user(Transcript.empty, "Plan the release", false, 1)
     transcript = Transcript.card(transcript, plan, 2)
