@@ -161,6 +161,13 @@ func (s *RepositoryJobService) enqueueSchedules(ctx context.Context) error {
 		return err
 	}
 	for _, reg := range registrations {
+		paused, err := s.ownerAutonomyPaused(ctx, reg.UserID)
+		if err != nil {
+			return err
+		}
+		if paused {
+			continue
+		}
 		next, err := nextFireTime(reg.Schedule, s.now())
 		if err != nil || next.IsZero() {
 			return fmt.Errorf("invalid stored repository job schedule %s", reg.ID)
@@ -238,6 +245,16 @@ func (s *RepositoryJobService) dispatch(ctx context.Context, claim db.Repository
 	if !reg.Enabled || reg.Revision != claim.Revision || reg.Digest != claim.Digest {
 		_, err := s.settle(ctx, claim, "skipped", "", nil, "Registration was paused or replaced")
 		return err
+	}
+	if claim.Source == "schedule" {
+		paused, err := s.ownerAutonomyPaused(ctx, reg.UserID)
+		if err != nil {
+			return err
+		}
+		if paused {
+			_, err = s.q.SettleRepositoryJobDispatch(ctx, db.SettleRepositoryJobDispatchParams{ID: claim.ID, ClaimToken: claim.ClaimToken, Status: "queued", NextAttemptAt: s.now().Add(5 * time.Minute), Error: "Scheduled work paused at 60% subscription usage"})
+			return err
+		}
 	}
 	// Revalidate repository writer and workspace authority before admitting a
 	// common Flow operation. Admission persists first and returns without

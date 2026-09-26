@@ -821,6 +821,7 @@ func (q *Queries) LatestRepositoryJobIssueRun(ctx context.Context, arg LatestRep
 const listDueRepositoryJobSchedules = `-- name: ListDueRepositoryJobSchedules :many
 SELECT id, repository_id, workspace_id, user_id, job, mode, revision, digest, source_revision, flow_id, configuration, enabled, trial_issue_number, trial_source, schedule, next_fire_at, activated_at, created_at, updated_at FROM repository_job_registrations
 WHERE enabled AND mode='enabled' AND schedule<>'' AND next_fire_at<=now()
+AND NOT EXISTS (SELECT 1 FROM provider_connections p WHERE p.user_id=repository_job_registrations.user_id AND p.owner_type='user' AND p.state='active' AND p.used_percent>=60)
 ORDER BY next_fire_at,id LIMIT $1
 `
 

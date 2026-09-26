@@ -294,6 +294,15 @@ func (h *ProviderPoolHandler) servePool(w http.ResponseWriter, r *http.Request, 
 			}
 			continue
 		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if meter, ok := h.Pool.(interface {
+				RecordUsage(context.Context, string, http.Header) error
+			}); ok {
+				if err := meter.RecordUsage(ctx, conn.ConnectionID, resp.Header); err != nil {
+					slog.Error("record provider usage failed", "connection_id", conn.ConnectionID, "error", err)
+				}
+			}
+		}
 		h.recordUse(ctx, conn, resp.StatusCode, body)
 		h.relayPooled(ctx, w, resp, conn)
 		return

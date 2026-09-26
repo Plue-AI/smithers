@@ -99,11 +99,13 @@ type GitHubMainPullStatus struct {
 }
 
 type GitHubMainPullService struct {
-	store       GitHubMainPullStore
-	host        gitHubMainPullRepoHost
-	tokens      GitHubMainPullTokens
-	connections RepoSyncConnectionChecker
-	logger      *slog.Logger
+	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
+	readFactory      func(context.Context, string, string, string, string) ([]byte, error)
+	store            GitHubMainPullStore
+	host             gitHubMainPullRepoHost
+	tokens           GitHubMainPullTokens
+	connections      RepoSyncConnectionChecker
+	logger           *slog.Logger
 
 	gitHubGitBaseURL func() string
 	lsRemote         func(ctx context.Context, remote, ref string) (string, error)
@@ -118,6 +120,12 @@ type GitHubMainPullService struct {
 	synced func(ctx context.Context, repositoryID int64, githubRepository, branch string)
 	// syncing holds the repositories whose synced listener is running.
 	syncing sync.Map
+}
+
+// SetFactoryReconciler registers owner-main declaration reconciliation. Failures
+// are pull failures and retry through the existing durable pull queue.
+func (s *GitHubMainPullService) SetFactoryReconciler(reconcile func(context.Context, int64, string, FactoryProjection) error) {
+	s.reconcileFactory = reconcile
 }
 
 // SetSynced registers the listener for every synced pull.
@@ -148,6 +156,9 @@ func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepo
 				return base
 			}
 			return defaultGitHubGitBaseURL
+		},
+		readFactory: func(ctx context.Context, token, owner, repo, commit string) ([]byte, error) {
+			return readGitHubFactory(ctx, client, githubAPIBaseURL(), defaultGitHubRawBaseURL, token, owner, repo, commit)
 		},
 		lsRemote: defaultLsRemoteRef,
 		readPolicy: func(ctx context.Context, token, owner, repo, commit string) (string, error) {
@@ -472,7 +483,26 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 		out.state = gitHubMainPullStateSkipped
 		return out
 	}
+	reconcile := func(revision string) error {
+		if s.reconcileFactory == nil {
+			return nil
+		}
+		raw, err := s.readFactory(ctx, token, githubOwner, githubRepo, revision)
+		if err != nil {
+			return err
+		}
+		var projection FactoryProjection
+		if len(raw) > 0 {
+			if err = json.Unmarshal(raw, &projection); err != nil {
+				return errors.New("invalid factory projection")
+			}
+		}
+		return s.reconcileFactory(ctx, repository.ID, revision, projection)
+	}
 	if githubHead == smithersHead {
+		if err := reconcile(githubHead); err != nil {
+			return fail("reconcile factory: " + err.Error())
+		}
 		out.state = gitHubMainPullStateSynced
 		return out
 	}
@@ -540,6 +570,9 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	out.smithersHead = after
 	if after != tip {
 		return fail("Smithers " + branch + " did not reach GitHub's tip")
+	}
+	if err := reconcile(after); err != nil {
+		return fail("reconcile factory: " + err.Error())
 	}
 	out.state = gitHubMainPullStateSynced
 	return out
@@ -707,7 +740,7 @@ func (g cliGitHubMainPullGit) Push(ctx context.Context, dir, smithersURL, commit
 // the exact commit being pulled: with the installation token through the API,
 // else anonymously from raw content (a private repository answers 404 and is
 // never read without a token). An absent file or field is "undeclared".
-func readGitHubMirrorPolicy(ctx context.Context, client *http.Client, apiBase, rawBase, token, owner, repo, commit string) (string, error) {
+func readGitHubFactory(ctx context.Context, client *http.Client, apiBase, rawBase, token, owner, repo, commit string) ([]byte, error) {
 	var endpoint string
 	if token != "" {
 		endpoint = strings.TrimRight(apiBase, "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) +
@@ -718,7 +751,7 @@ func readGitHubMirrorPolicy(ctx context.Context, client *http.Client, apiBase, r
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "smithers-server")
 	if token != "" {
@@ -728,21 +761,32 @@ func readGitHubMirrorPolicy(ctx context.Context, client *http.Client, apiBase, r
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", errors.New("GitHub did not answer")
+		return nil, errors.New("GitHub did not answer")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
-		return gitHubMainPullPolicyUndeclared, nil
+		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub answered HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("GitHub answered HTTP %d", resp.StatusCode)
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, gitHubMainPullFactoryLimit+1))
 	if err != nil {
-		return "", errors.New("GitHub response could not be read")
+		return nil, errors.New("GitHub response could not be read")
 	}
 	if len(raw) > gitHubMainPullFactoryLimit {
-		return "", errors.New(gitHubMainPullFactoryPath + " exceeds its size bound")
+		return nil, errors.New(gitHubMainPullFactoryPath + " exceeds its size bound")
+	}
+	return raw, nil
+}
+
+func readGitHubMirrorPolicy(ctx context.Context, client *http.Client, apiBase, rawBase, token, owner, repo, commit string) (string, error) {
+	raw, err := readGitHubFactory(ctx, client, apiBase, rawBase, token, owner, repo, commit)
+	if err != nil {
+		return "", err
+	}
+	if len(raw) == 0 {
+		return gitHubMainPullPolicyUndeclared, nil
 	}
 	var projection struct {
 		GitHub *struct {

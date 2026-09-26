@@ -98,7 +98,7 @@ func TestRepositoryJobApprovalRefusesAnythingButAReviewedFlowPlan(t *testing.T) 
 		"short digest": {"flow:nightly-lint", func(i *RepositoryJobApprovalInput) { i.PlanDigest = "plan-digest" }, "a flow trigger must name the plan a person approved"},
 		"no envelope":  {"flow:nightly-lint", func(i *RepositoryJobApprovalInput) { i.Envelope = json.RawMessage(`{}`) }, "automatic work needs the reviewed envelope"},
 		"unbounded run": {"flow:nightly-lint", func(i *RepositoryJobApprovalInput) {
-			i.Envelope = json.RawMessage(`{"capabilities":[],"flows":[],"budget":{"tokens":1,"milliseconds":7200001}}`)
+			i.Envelope = json.RawMessage(`{"capabilities":[],"flows":[],"budget":{"tokens":1,"milliseconds":21600001}}`)
 		}, "automatic work needs the reviewed envelope"},
 	} {
 		t.Run(name, func(t *testing.T) {

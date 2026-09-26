@@ -1152,6 +1152,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		repositoryJobGateway = repoGatewayService
 	}
 	repositoryJobService := services.NewRepositoryJobService(queries, repositoryJobGateway, pool)
+	gitHubMainPullService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
 	repositoryJobService.SetGitHubReadAccess(gitHubUserReposService)
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, repositorySetupService)

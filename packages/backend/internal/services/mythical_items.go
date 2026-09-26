@@ -717,9 +717,12 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			busy++
 		}
 	}
-	// Oldest issue first; chat items after issues in arrival order.
+	// Direct chat work first; preserve issue order and lane accounting.
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
+		if (a.Source == "chat") != (b.Source == "chat") {
+			return a.Source == "chat"
+		}
 		if a.IssueNumber.Valid != b.IssueNumber.Valid {
 			return a.IssueNumber.Valid
 		}
@@ -742,7 +745,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
 			continue
 		}
-		if (item.State == "queued" || item.State == "retrying") && (busy >= int(r.row.MaxParallel) || step.launches >= mythicalLaunchesPerRun) {
+		if (item.State == "queued" || item.State == "retrying") && (!mythicalLaunchSlot(item.Source, busy, int(r.row.MaxParallel)) || step.launches >= mythicalLaunchesPerRun) {
 			continue
 		}
 		next, saved, err := step.advance(ctx, item)
@@ -1695,4 +1698,13 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 		}
 	}
 	return nil
+}
+
+// One lane stays available to direct work when the stack has multiple lanes.
+// A single-lane stack still makes progress, with chat sorted ahead of issues.
+func mythicalLaunchSlot(source string, busy, maximum int) bool {
+	if source != "chat" && maximum > 1 {
+		maximum--
+	}
+	return busy < maximum
 }

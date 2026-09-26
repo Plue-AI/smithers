@@ -71,6 +71,7 @@ var migrationRegistry = []migrationSpec{
 	{35, "migrations/0035_landing_github_merges.sql"},
 	{36, "migrations/0036_mythical_wikis.sql"},
 	{37, "migrations/0037_retire_source_index_wiki_pages.sql"},
+	{38, "migrations/0038_provider_usage_guard.sql"},
 }
 
 type migration struct {

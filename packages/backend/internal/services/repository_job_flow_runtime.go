@@ -100,7 +100,9 @@ func repositoryJobProjection(mode string, registration db.RepositoryJobRegistrat
 
 func repositoryJobLaunchPayload(registration db.RepositoryJobRegistration, dispatch db.RepositoryJobDispatch, config RegisterRepositoryJobInput, connection RepoGatewayConnectionInput) (json.RawMessage, error) {
 	var input any
-	if repositoryFlowJobKey.MatchString(registration.Job) {
+	if config.FactoryRevision != "" {
+		input = map[string]any{"args": string(dispatch.Payload), "event": repositoryJobDispatchEvent(registration, dispatch)}
+	} else if repositoryFlowJobKey.MatchString(registration.Job) {
 		input = json.RawMessage(config.Input)
 	} else {
 		input = map[string]any{
@@ -274,11 +276,11 @@ func (s *RepositoryJobService) projectRepositoryJobDispatch(ctx context.Context,
 }
 
 func repositoryJobPlanAuthorized(registration db.RepositoryJobRegistration, config RegisterRepositoryJobInput, checkpoint flowdispatch.RuntimeCheckpoint) bool {
-	if checkpoint.PlanID == "" || checkpoint.PlanDigest == "" || checkpoint.ExecutionDigest != config.ExecutionDigest ||
+	if checkpoint.PlanID == "" || checkpoint.PlanDigest == "" || (config.FactoryRevision == "" && checkpoint.ExecutionDigest != config.ExecutionDigest) ||
 		!sameRepositoryJobJSON(checkpoint.Envelope, config.Envelope) || len(checkpoint.Approval) == 0 {
 		return false
 	}
-	if repositoryFlowJobKey.MatchString(registration.Job) && checkpoint.PlanDigest != config.ApprovedPlanDigest {
+	if config.FactoryRevision == "" && repositoryFlowJobKey.MatchString(registration.Job) && checkpoint.PlanDigest != config.ApprovedPlanDigest {
 		return false
 	}
 	var approval map[string]json.RawMessage

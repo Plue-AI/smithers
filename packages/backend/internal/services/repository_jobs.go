@@ -124,6 +124,7 @@ type RepositoryJobEventRule struct {
 // The browser cannot supply a claimed test result or another actor's identity.
 // The input is repository policy, not another executable workflow format.
 type RegisterRepositoryJobInput struct {
+	FactoryRevision  string                   `json:"factory_revision,omitempty"`
 	Repo             string                   `json:"repo"`
 	WorkspaceID      string                   `json:"workspace_id"`
 	FlowID           string                   `json:"flow_id"`
@@ -181,10 +182,13 @@ func validateRepositoryJob(job string, input RegisterRepositoryJobInput, now tim
 		return bad("invalid repository job or registered flow")
 	}
 	flowTrigger := repositoryFlowJobKey.MatchString(job)
+	if input.FactoryRevision != "" && (!flowTrigger || input.FactoryRevision != input.SourceRevision || input.Mode != "enabled" || (input.Schedule != "") == (len(input.Events) != 0)) {
+		return bad("factory registration requires one trigger and the exact owner main revision")
+	}
 	if _, err := uuid.Parse(input.WorkspaceID); err != nil {
 		return bad("workspace_id must identify the owning workspace")
 	}
-	if input.Revision <= 0 || !repositoryJobDigest.MatchString(input.Digest) || !repositoryJobDigest.MatchString(input.ExecutionDigest) || !isImmutableGitObjectID(input.SourceRevision) {
+	if input.Revision <= 0 || !repositoryJobDigest.MatchString(input.Digest) || (input.FactoryRevision == "" && !repositoryJobDigest.MatchString(input.ExecutionDigest)) || !isImmutableGitObjectID(input.SourceRevision) {
 		return bad("registration requires an exact candidate, executable digest and source revision")
 	}
 	if input.Mode != "enabled" && input.Mode != "trial" {
@@ -196,7 +200,7 @@ func validateRepositoryJob(job string, input RegisterRepositoryJobInput, now tim
 	if input.Mode == "enabled" && (input.TrialIssueNumber != 0 || input.TrialSource != "") {
 		return bad("an enabled registration cannot retain trial-only scope")
 	}
-	if flowTrigger && (input.Mode != "enabled" || len(input.Events) != 0 || input.Label != "" || input.Schedule == "") {
+	if flowTrigger && input.FactoryRevision == "" && (input.Mode != "enabled" || len(input.Events) != 0 || input.Label != "" || input.Schedule == "") {
 		return bad("a flow trigger registers one enabled UTC cron schedule and no event rules")
 	}
 	if validateRepositoryJobEnvelope(input.Envelope) != nil {
@@ -205,7 +209,7 @@ func validateRepositoryJob(job string, input RegisterRepositoryJobInput, now tim
 	if len(input.Input) == 0 || !json.Valid(input.Input) || string(input.Input) == "null" {
 		return bad("input must contain the reviewed repository configuration")
 	}
-	if flowTrigger && (input.ApprovedPlanID == "" || len(input.ApprovedPlanID) > 200 || !repositoryJobDigest.MatchString(input.ApprovedPlanDigest)) {
+	if flowTrigger && input.FactoryRevision == "" && (input.ApprovedPlanID == "" || len(input.ApprovedPlanID) > 200 || !repositoryJobDigest.MatchString(input.ApprovedPlanDigest)) {
 		return bad("a flow trigger must name the plan a person approved")
 	}
 	if !flowTrigger && (input.ApprovedPlanID != "" || input.ApprovedPlanDigest != "") {
@@ -296,6 +300,9 @@ func (s *RepositoryJobService) authorizeJobGateway(ctx context.Context, gatewayI
 
 func (s *RepositoryJobService) Register(ctx context.Context, gatewayID, bearer, job string, input RegisterRepositoryJobInput) (db.RegisterRepositoryJobRow, error) {
 	var empty db.RegisterRepositoryJobRow
+	if input.FactoryRevision != "" {
+		return empty, pkgerrors.Forbidden("factory registrations are reconciled from owner main only")
+	}
 	repo, target, err := s.authorizeJobGateway(ctx, gatewayID, bearer, input.Repo, input.WorkspaceID)
 	if err != nil {
 		return empty, err

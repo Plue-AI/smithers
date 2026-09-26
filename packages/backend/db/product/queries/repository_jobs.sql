@@ -156,6 +156,7 @@ ORDER BY d.created_at DESC,d.id DESC LIMIT 50;
 -- name: ListDueRepositoryJobSchedules :many
 SELECT * FROM repository_job_registrations
 WHERE enabled AND mode='enabled' AND schedule<>'' AND next_fire_at<=now()
+AND NOT EXISTS (SELECT 1 FROM provider_connections p WHERE p.user_id=repository_job_registrations.user_id AND p.owner_type='user' AND p.state='active' AND p.used_percent>=60)
 ORDER BY next_fire_at,id LIMIT $1;
 
 -- name: AdvanceRepositoryJobSchedule :execrows
