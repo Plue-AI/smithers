@@ -34,7 +34,8 @@ import { readEnvironment } from "./EnvironmentSeam"
 import type { SecretMetadata } from "./EnvironmentSeam"
 import { readHistory } from "./HistorySeam"
 import type { HistoryPayload } from "./HistorySeam"
-import type { SeamContext } from "./SeamContext"
+import { captureCloudOwner, type SeamContext } from "./SeamContext"
+import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import { readFactoryProjection } from "./TriggersSeam"
 
 /** The registry the seam reads: the flows it can act with and the state the scope rules read. */
@@ -479,7 +480,10 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
   }
 
   const search: SearchSeam["search"] = async (flow, mode, args) => {
+    const current = captureCloudOwner(ctx, false)
+    if (!current()) return SIGN_OUT_REFUSAL
     const live = await liveIndexes(mode, args)
+    if (!current()) return SIGN_OUT_REFUSAL
     if (typeof live === "string") return live
     // The flow's query reads in its own mode's grammar, so `section:tried` is a qualifier for search.history too.
     const parsed = parseQuery(`${prefixRow(mode).prefix}${args.query}`)
@@ -487,6 +491,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     const base = itemsOf(mode, parsed, live)
     if (typeof base === "string") return base
     const extra = mode === "targets" ? await projectionFlows(args) : []
+    if (!current()) return SIGN_OUT_REFUSAL
     if (typeof extra === "string") return extra
     const { entries, state } = deps.registry()
     const snapshot = state()

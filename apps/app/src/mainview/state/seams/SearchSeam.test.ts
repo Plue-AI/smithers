@@ -547,3 +547,126 @@ test("workspace files retain distinct explicit targets and orphan tree rows are 
     ])
   } finally {await controller.dispose?.();await store.dispose?.()}
 })
+
+for (const mode of ["secrets", "targets"] as const) {
+  test(`a retired account's ${mode} search cannot return or persist its private results`, async () => {
+    const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
+    const suffix = mode === "secrets" ? "/agent-environment" : "/contents/.smithers/factory.json"
+    const { store, controller } = await ready({ fetchImpl: async input => {
+      if (String(input).endsWith(`/api/repos/search/private${suffix}`)) { entered.resolve(); return reply.promise }
+      return json(404, {})
+    } }, "signed-in")
+    try {
+      const pending = controller.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
+      await entered.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      const payload = mode === "secrets"
+        ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
+        : { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
+      reply.resolve(json(200, payload))
+      const result = await pending
+      expect(JSON.stringify(result)).not.toContain("PRIVATE_TOKEN")
+      expect(JSON.stringify(result)).not.toContain("private-flow")
+      expect(store.collections.cards.get(`search-search.${mode}`)).toBeUndefined()
+    } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+  })
+}
+
+for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
+  for (const actor of ["user", "smithers"] as const) {
+    test.each(["account", "provider", "sign-out-return", "cloud", "dispose", "refresh"] as Array<"account" | "provider" | "sign-out-return" | "cloud" | "dispose" | "refresh">)(`${actor} ${mode} search keeps its owner through %s`, async change => {
+      const { createSearchSeam } = await import("./SearchSeam")
+      const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
+      const { store, controller } = await ready(backend({}), "signed-in")
+      const gate = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
+      let disposed = false, reads = 0
+      const sha = "e100000000000000000000000000000000000001"
+      const answer = () => mode === "secrets"
+        ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
+        : mode === "targets"
+          ? { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
+          : { items: [{ change_id: "private-change", commit_id: sha, description: "Private commit", author_name: "will", author_email: "will@example.test", timestamp: "2026-09-07T00:00:00Z", has_conflict: false, is_empty: false, parent_change_ids: [] }], next_cursor: "" }
+      const wait = async () => { reads++; entered.resolve(); await gate.promise }
+      try {
+        await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+        const seam = createSearchSeam({ store, baseUrl: "", dispatch: store.dispatch, actor: () => actor, nextOrdinal: store.nextOrdinal, isDisposed: () => disposed,
+          http: async input => {
+            if (mode === "history") {
+              if (String(input).endsWith("/git/refs")) return json(200, [{ ref: "refs/heads/main", object: { sha } }, { ref: "refs/heads/mythical", object: { sha } }])
+              if (String(input).endsWith("/api/repos/search/private")) return json(200, { default_bookmark: "main" })
+              if (!String(input).includes("/changes?")) return json(404, {})
+            }
+            await wait(); return json(200, answer())
+          }
+        }, { registry: () => controller.commands, refreshWorkspaces: wait })
+        const pending = seam.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
+        await entered.promise
+        const loaded = (login: string | null, provider: "github" | "local" = "github") => store.dispatch({ type: "identity.session.loaded", actor: "system",
+          state: login === null ? "signed-out" : "signed-in", login, provider, allowlisted: login !== null, admin: false, scopesPlain: null }).isPersisted.promise
+        if (change === "account") await loaded("second")
+        if (change === "provider") await loaded("will", "local")
+        if (change === "sign-out-return") { await loaded(null); await loaded("will") }
+        if (change === "cloud") await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "second", expiresAt: null, scopes: null }).isPersisted.promise
+        if (change === "dispose") disposed = true
+        if (change === "refresh") {
+          await loaded("will")
+          await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: "2099-01-01T00:00:00Z", scopes: null }).isPersisted.promise
+        }
+        const before = await store.eventHistory()
+        gate.resolve()
+        const result = await pending
+        if (change === "refresh") {
+          expect(typeof result).toBe("object")
+          if (mode !== "boxes") expect(JSON.stringify(result).toLowerCase()).toContain(mode === "secrets" ? "private_token" : mode === "targets" ? "private-flow" : "private commit")
+          expect(store.collections.cards.has(`search-search.${mode}`)).toBe(actor === "user")
+        } else {
+          expect(result).toBe(SIGN_OUT_REFUSAL)
+          expect((await store.eventHistory()).head).toEqual(before.head)
+          if (change !== "dispose") {
+            const fresh = await seam.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
+            expect(typeof fresh).toBe("object")
+          }
+        }
+        expect(reads).toBe(change === "refresh" || change === "dispose" ? 1 : 2)
+      } finally { gate.resolve(); await controller.dispose(); await store.dispose?.() }
+    })
+  }
+}
+
+for (const mode of ["secrets", "targets"] as const) {
+  test(`a retired ${mode} search cannot return an old refusal`, async () => {
+    const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
+    const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
+    const { store, controller } = await ready({ fetchImpl: async input => {
+      if (String(input).includes("/api/repos/search/private/")) { entered.resolve(); return reply.promise }
+      return json(404, {})
+    } }, "signed-in")
+    try {
+      const pending = controller.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
+      await entered.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      reply.resolve(json(503, { message: "Private account failure" }))
+      expect(await pending).toBe(SIGN_OUT_REFUSAL)
+      expect(store.collections.cards.has(`search-search.${mode}`)).toBe(false)
+    } finally { reply.resolve(json(404, {})); await controller.dispose(); await store.dispose?.() }
+  })
+}
+
+test("retirement between search stages starts no factory read, and disposal starts no read", async () => {
+  const { createSearchSeam } = await import("./SearchSeam")
+  const { SIGN_OUT_REFUSAL } = await import("./CloudSignIn")
+  const { store, controller } = await ready(backend({}), "signed-in")
+  let reads = 0, disposed = false
+  const seam = createSearchSeam({ store, baseUrl: "", actor: () => "user", dispatch: store.dispatch, nextOrdinal: store.nextOrdinal,
+    isDisposed: () => disposed, http: async () => { reads++; return json(404, {}) }
+  }, { registry: () => controller.commands })
+  try {
+    const pending = seam.search("search.targets", "targets", { query: "private", repo: "search/private" })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    expect(await pending).toBe(SIGN_OUT_REFUSAL)
+    disposed = true
+    expect(await seam.search("search.secrets", "secrets", { query: "private", repo: "search/private" })).toBe(SIGN_OUT_REFUSAL)
+    expect(reads).toBe(0)
+  } finally { await controller.dispose(); await store.dispose?.() }
+})
