@@ -98,6 +98,8 @@ subpaths are blocked, so the migrations are reachable only through the root
 | `ScorerError`   | The eight stable failure codes and the tagged error that carries them.                                |
 | `ScoreGate`     | Pure sample validation, threshold gates, verdict composition, CI grades, and the typed grading error. |
 | `Migrations`    | The score-store schema migrations, applied by `SqlScoreStore` or on their own.                        |
+| `Checks`        | Pure text and action checks, and a scorer over a list of them.                                        |
+| `Rubric`        | A model-agnostic LLM rubric judge declared as a scorer, and judge calibration.                        |
 
 Every export, with signatures and bounds, is in the
 [API reference](https://scorers.smithers.sh/reference/api/).

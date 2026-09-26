@@ -7,7 +7,7 @@ Every categorized member reachable through the root namespaces, in source
 order. Signatures, bounds, and the reasoning behind each rule are on the
 [API reference](./api.md).
 
-10 namespaces, 61 documented members.
+12 namespaces, 101 documented members.
 
 | Export                               | Kind      | Category     | Summary                                                                                       |
 | ------------------------------------ | --------- | ------------ | --------------------------------------------------------------------------------------------- |
@@ -72,3 +72,43 @@ order. Signatures, bounds, and the reasoning behind each rule are on the
 | `ScoreGate.grade`                    | const     | grading      | Map a verdict to exit code 0, 1, or 5 and its full summary.                                   |
 | `ScoreGate.ScoreExpectation`         | interface | constructors | Mean, minimum, and per-case threshold gates.                                                  |
 | `ScoreGate.expectScores`             | const     | constructors | Build gates over caller-owned fixed samples.                                                  |
+| `Checks.Check`                       | interface | models       | `{ id, pass, detail }`; `detail` names what was found, at most 200 characters.                |
+| `Checks.Link`                        | interface | models       | A found link: `url` and an optional `label`.                                                  |
+| `Checks.Reference`                   | interface | models       | A reference `pattern` and the `url` template, with `$1`, it must link to.                     |
+| `Checks.Action`                      | interface | models       | One recorded tool call: `tool` and `input`.                                                   |
+| `Checks.CountSpec`                   | interface | models       | Tool, `where` field filter, bounds, and id for `count`.                                       |
+| `Checks.Emission`                    | interface | models       | Text written to one named sink.                                                               |
+| `Checks.Summary`                     | interface | models       | Fraction passing, whether all passed, and the failed checks.                                  |
+| `Checks.ScorerOptions`               | interface | models       | Scorer id, version, name, config, and the checks function.                                    |
+| `Checks.words`                       | const     | measuring    | Counts words, reading link labels and skipping link URLs.                                     |
+| `Checks.length`                      | const     | checks       | Word count within inclusive `min` and `max`.                                                  |
+| `Checks.includes`                    | const     | checks       | Every entry present, case-insensitively; an array is any-of.                                  |
+| `Checks.excludes`                    | const     | checks       | No forbidden whole word, phrase, or `/regex/flags` match.                                     |
+| `Checks.opener`                      | const     | checks       | The message does not open with a listed phrase.                                               |
+| `Checks.truncated`                   | const     | checks       | No cut-off word, trailing ellipsis, or unclosed code fence.                                   |
+| `Checks.links`                       | const     | extracting   | Slack, markdown, and bare links, deduplicated by URL.                                         |
+| `Checks.requiredLinks`               | const     | checks       | Every required URL or any-of group linked.                                                    |
+| `Checks.linkedReferences`            | const     | checks       | Every reference in the prose linked to its template URL.                                      |
+| `Checks.pathExtensions`              | const     | models       | File extensions `barePaths` treats as naming a file.                                          |
+| `Checks.barePaths`                   | const     | checks       | No file-system path outside link syntax.                                                      |
+| `Checks.questions`                   | const     | measuring    | Counts sentences ending in `?`.                                                               |
+| `Checks.count`                       | const     | checks       | Matching tool calls within inclusive bounds.                                                  |
+| `Checks.leakage`                     | const     | checks       | No marker in any sink; names sink and marker only.                                            |
+| `Checks.all`                         | const     | combinators  | Folds checks into a score and a pass flag.                                                    |
+| `Checks.scorer`                      | const     | constructors | Declares a scorer over a list of checks.                                                      |
+| `Rubric.Request`                     | interface | models       | One judge request: `system` and `prompt`.                                                     |
+| `Rubric.Judge`                       | type      | models       | The caller-supplied model call: a request in, the raw reply out.                              |
+| `Rubric.Criterion`                   | interface | models       | A criterion id, question, and the anchors for 1 and 5.                                        |
+| `Rubric.Example`                     | interface | models       | A labelled calibration transcript and why it passes or fails.                                 |
+| `Rubric.Judgement`                   | interface | models       | Parsed scores per criterion and the judge's reason.                                           |
+| `Rubric.Verdict`                     | interface | models       | A judgement and whether it passes the rule.                                                   |
+| `Rubric.Rule`                        | interface | models       | `minEach` and `minMean` pass thresholds.                                                      |
+| `Rubric.defaultRule`                 | const     | models       | `{ minEach: 3, minMean: 3.8 }`.                                                               |
+| `Rubric.RenderOptions`               | interface | models       | Criteria, examples, context, focus, output, and instructions.                                 |
+| `Rubric.MakeOptions`                 | interface | models       | Scorer identity, rubric, rule, instructions, and the judge.                                   |
+| `Rubric.Agreement`                   | interface | models       | Judge-versus-human agreement counts and accuracy.                                             |
+| `Rubric.render`                      | const     | rendering    | Builds the judge request with fenced, inert content.                                          |
+| `Rubric.parse`                       | const     | parsing      | Reads the first JSON object of a reply into a `Judgement`.                                    |
+| `Rubric.decide`                      | const     | predicates   | Applies a `Rule` to scores.                                                                   |
+| `Rubric.make`                        | const     | constructors | Declares a rubric scorer over a caller-supplied judge.                                        |
+| `Rubric.agreement`                   | const     | calibration  | Counts judge agreement with human labels.                                                     |

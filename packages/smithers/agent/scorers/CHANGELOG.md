@@ -10,6 +10,13 @@ are history, not the release that carries it.
 
 ### Added
 
+- `Checks`: pure text and action checks (length, wording, openers,
+  truncation, links, linked references, bare paths, tool-call counts, and
+  leakage) and `Checks.scorer`, which declares a scorer over them.
+
+- `Rubric`: a rubric judge declared as a scorer over a caller-supplied model
+  call, with `render`, `parse`, `decide`, and `agreement` for calibration.
+
 - `ScoreStore.Service.prune({ olderThan })` deletes observations and job
   claims older than a cutoff and answers `ScoreStore.Pruned`. Neither table
   was pruned before, so a host scoring live runs grew both forever.

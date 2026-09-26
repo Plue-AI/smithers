@@ -33,3 +33,9 @@ export * as Migrations from "./Migrations.ts"
 
 /** @category grading @since 0.1.0 */
 export * as ScoreGate from "./ScoreGate.ts"
+
+/** @category checks @since 0.1.0 */
+export * as Checks from "./Checks.ts"
+
+/** @category judges @since 0.1.0 */
+export * as Rubric from "./Rubric.ts"

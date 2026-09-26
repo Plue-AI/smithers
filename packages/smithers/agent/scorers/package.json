@@ -39,6 +39,8 @@
     "./migrations/*": null,
     "./*/index": null,
     "./Binding": "./src/Binding.ts",
+    "./Checks": "./src/Checks.ts",
+    "./Rubric": "./src/Rubric.ts",
     "./Runner": "./src/Runner.ts",
     "./RunnerLive": "./src/RunnerLive.ts",
     "./Sampling": "./src/Sampling.ts",
@@ -87,6 +89,26 @@
         "require": {
           "types": "./dist/cjs/Binding.d.ts",
           "default": "./dist/cjs/Binding.js"
+        }
+      },
+      "./Checks": {
+        "import": {
+          "types": "./dist/esm/Checks.d.ts",
+          "default": "./dist/esm/Checks.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Checks.d.ts",
+          "default": "./dist/cjs/Checks.js"
+        }
+      },
+      "./Rubric": {
+        "import": {
+          "types": "./dist/esm/Rubric.d.ts",
+          "default": "./dist/esm/Rubric.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Rubric.d.ts",
+          "default": "./dist/cjs/Rubric.js"
         }
       },
       "./Runner": {

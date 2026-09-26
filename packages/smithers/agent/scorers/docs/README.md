@@ -141,6 +141,8 @@ also importable from `@smthrs/scorers/<Module>`:
 | `ScorerError`   | The eight stable failure codes and the tagged error that carries them.                                |
 | `ScoreGate`     | Pure sample validation, threshold gates, verdict composition, CI grades, and the typed grading error. |
 | `Migrations`    | The score-store schema migrations, applied by `SqlScoreStore` or on their own.                        |
+| `Checks`        | Pure text and action checks, and a scorer over a list of them.                                        |
+| `Rubric`        | A model-agnostic LLM rubric judge declared as a scorer, and judge calibration.                        |
 
 Every export of every namespace, with signatures and bounds, is on the
 [API reference](./api.md). The one-line member index is in
