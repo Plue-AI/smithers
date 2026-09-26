@@ -1,6 +1,6 @@
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
-import { runSourceCommand } from "../flows/RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 import type { Card } from "../state/AppState"
 import { codingPocOf } from "./CodingPoc"
 import type { RunCommand } from "./CardFamily"

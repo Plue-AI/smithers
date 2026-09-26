@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Plan } from "../../../../../../flows/coding/schema"
 import { decodeChangeReceipt,receiptMatchesPlan,validateTutorialPlan } from "../../cards/tutorial2-agent_change-contract"
-import { flag,line,text } from "../../flows/FlowForms"
+import { flag,line,text } from "@smthrs/ui/flow-form"
 import type { Card } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
 import type { ControllerContext } from "./context"

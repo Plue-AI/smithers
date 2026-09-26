@@ -8,7 +8,7 @@
 import type { Card } from "@smthrs/rpc/Cards"
 import type { StorageApi } from "@tanstack/db"
 import { describe,expect,test } from "bun:test"
-import { runSearchRef } from "../../flows/RunCommand"
+import { runSearchRef } from "@smthrs/ui/run-command"
 
 import type { AgentPort } from "../../runtime/AgentPort"
 import type { AppServices } from "../AppController"

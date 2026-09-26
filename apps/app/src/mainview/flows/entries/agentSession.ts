@@ -14,7 +14,7 @@
  */
 import { Schema } from "effect"
 import { AGENT_PROVIDERS } from "../../state/seams/AgentSessionSeam"
-import { line, text } from "../FlowForms"
+import { line, text } from "@smthrs/ui/flow-form"
 import { flow, RepoTarget } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { CommandActions } from "./Declare"

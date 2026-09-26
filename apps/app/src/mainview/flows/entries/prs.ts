@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { payloadFor } from "../SlashPayload"
-import { line, text } from "../FlowForms"
+import { line, text } from "@smthrs/ui/flow-form"
 import { flow, RepoTarget, NumberedTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"

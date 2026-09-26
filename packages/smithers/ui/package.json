@@ -63,6 +63,26 @@
       "types": "./src/vault/index.ts",
       "import": "./src/vault/index.ts",
       "default": "./src/vault/index.ts"
+    },
+    "./flow-form": {
+      "types": "./src/flow-form.ts",
+      "import": "./src/flow-form.ts",
+      "default": "./src/flow-form.ts"
+    },
+    "./flow-arguments": {
+      "types": "./src/flow-arguments.ts",
+      "import": "./src/flow-arguments.ts",
+      "default": "./src/flow-arguments.ts"
+    },
+    "./command-line": {
+      "types": "./src/command-line.ts",
+      "import": "./src/command-line.ts",
+      "default": "./src/command-line.ts"
+    },
+    "./run-command": {
+      "types": "./src/run-command.ts",
+      "import": "./src/run-command.ts",
+      "default": "./src/run-command.ts"
     }
   },
   "files": [
@@ -84,7 +104,8 @@
     "clsx": "^2.1.1",
     "d3-force": "3.0.0",
     "radix-ui": "^1.6.7",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "effect": "4.0.0-rc.115"
   },
   "peerDependencies": {
     "react": "^19.2.8",

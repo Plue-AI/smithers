@@ -5,7 +5,7 @@ import { PhaseStrip } from "./cards/RunTracePhaseStrip"
 import { RunTraceSummary } from "./cards/RunTraceSummary"
 import { durationWords } from "./cards/RunTrace"
 import { flowAction } from "./flows/FlowAction"
-import { runSourceCommand } from "./flows/RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
 

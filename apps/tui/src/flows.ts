@@ -9,9 +9,9 @@ import * as Log from "./log.ts"
  */
 import * as NodeOutput from "@smthrs/cli/NodeOutput"
 import type { ControlSchema } from "@smthrs/control"
-import type { Schema } from "effect"
+import * as Form from "@smthrs/ui/flow-form"
+import { Schema } from "effect"
 import * as Extension from "./extension.ts"
-import * as Form from "./form.ts"
 import * as Lifecycle from "./lifecycle.ts"
 import type * as Panels from "./panels.ts"
 import type * as Session from "./session.ts"
@@ -267,7 +267,7 @@ export class FlowRuns {
         ? undefined
         : schema === undefined
         ? []
-        : Form.fields(schema).slice(0, 12).map((field) => ({
+        : Form.formFieldsFor(schema).slice(0, 12).map((field) => ({
           name: field.name,
           type: field.kind,
           required: field.required
@@ -364,10 +364,10 @@ export class FlowRuns {
       const schema = await port.input(run.flow)
       this.inputs.set(run.flow, schema)
       if (this.attempts.get(id) !== attempt || this.closed) return
-      if (schema !== undefined && !Form.valid(schema, run.input)) {
+      if (schema !== undefined && !Schema.is(schema)(run.input)) {
         this.schemas.set(id, schema)
-        const fields = Form.fields(schema)
-        const missing = Form.missing(fields, Form.draft(fields, run.input))
+        const fields = Form.formFieldsFor(schema)
+        const missing = Form.missingLabels(fields, Form.draftFrom(fields, run.input, "json"))
         this.update(id, attempt, {
           message: missing.length === 0 ? "Invalid input" : `Needs: ${missing.join(", ")}`
         }, "input")

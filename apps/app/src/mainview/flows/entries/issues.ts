@@ -6,7 +6,7 @@
 import { Schema } from "effect"
 import { issueFlows } from "./issue"
 import { issueViewParts, payloadFor } from "../SlashPayload"
-import { flag, line, text } from "../FlowForms"
+import { flag, line, text } from "@smthrs/ui/flow-form"
 import { flow, NumberedTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"

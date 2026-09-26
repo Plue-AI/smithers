@@ -19,7 +19,7 @@ import type { KnownRepositories } from "../state/RepoContext"
 import { REPO_TOKEN,splitTrailingRepo } from "../state/RepoContext"
 import { isAgentProvider } from "../state/seams/AgentSessionSeam"
 import { parseFileArgs } from "./FileArgs"
-import { splitRunSource,takesRunSource } from "./RunCommand"
+import { splitRunSource,takesRunSource } from "@smthrs/ui/run-command"
 
 /** A parsed invocation, or the honest refusal that names what is missing. */
 export type Parsed =

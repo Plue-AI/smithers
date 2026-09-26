@@ -6,8 +6,8 @@ import { roleMenuEntries } from "../../AgentRoleMenu"
 import type { AgentInvocation } from "../../flows/AgentInvocation"
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { CommandOutcome } from "../../flows/Commands"
-import type { FieldOption,FieldValue,FormDraft,FormField,FormHints,OptionProvider } from "../../flows/FlowForms"
-import { assembleArgs,declaredInput,draftFrom,formFieldsFor,missingFields,positionalRead,publicFormPayload,submissionPayload } from "../../flows/FlowForms"
+import type { FieldOption,FieldValue,FormDraft,FormField,FormHints,OptionProvider } from "@smthrs/ui/flow-form"
+import { assembleArgs,declaredInput,draftFrom,formFieldsFor,missingFields,positionalRead,publicFormPayload,submissionPayload } from "@smthrs/ui/flow-form"
 import { payloadFor } from "../../flows/SlashPayload"
 import { manifests } from "../../plugins/catalog"
 import { actorSharedState } from "../ActorBindings"
@@ -368,7 +368,8 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     const nested = request.payloadField === undefined ? undefined : given[request.payloadField]
     const draft = draftFrom(fields, request.payloadField === undefined
       ? given
-      : nested !== null && typeof nested === "object" ? nested as Record<string, unknown> : {})
+      : nested !== null && typeof nested === "object" ? nested as Record<string, unknown> : {},
+      request.payloadField === undefined ? "words" : "json")
     const nestedPayload = request.payloadField === undefined ? {} : {
       payloadField: request.payloadField, inputSchema: Schema.toJsonSchemaDocument(input)
     }
@@ -524,7 +525,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     if (input === undefined) return "This form's input declaration is unavailable. Reopen the flow to refresh it."
     const nestedGiven = nestedField === undefined ? card.payload.given : card.payload.given[nestedField]
     const submission = submissionPayload(input, card.payload.fields,
-      nestedGiven !== null && typeof nestedGiven === "object" ? nestedGiven as Record<string, unknown> : {}, card.payload.draft)
+      nestedGiven !== null && typeof nestedGiven === "object" ? nestedGiven as Record<string, unknown> : {}, card.payload.draft, nestedField === undefined ? "words" : "json")
     if ("error" in submission) {
       await patch(card, { ...card.payload, error: submission.error }, "error")
       return submission.error

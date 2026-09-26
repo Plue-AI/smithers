@@ -8,7 +8,7 @@ import { workflowLaunchOf } from "../state/WorkflowLaunch"
  * exported because the Flows pane and the runs tests mount them directly: one
  * list with two mounts, never a second implementation of the same listing.
  */
-import { runSourceCommand } from "../flows/RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 import { Button, Input, Markdown } from "@smthrs/ui"
 import { useId, useState } from "react"
 import type { KeyboardEvent } from "react"

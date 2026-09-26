@@ -1,7 +1,7 @@
 import type { Card } from "../state/AppState"
 import type { RunCommand } from "./CardFamily"
 import { flowAction } from "../flows/FlowAction"
-import { runSourceCommand } from "../flows/RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 import type { TraceModel } from "./RunTrace"
 import { latestNeedsHelp, NEEDS_HELP_LABELS } from "./RunNeedsHelp"
 import { traceStatus } from "./RunTraceStatus"

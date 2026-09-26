@@ -5,7 +5,7 @@
  */
 import { MODEL_FIELD_KINDS, MODEL_PROTOCOL_DEFAULTS, MODEL_PROTOCOLS, MODEL_QUESTION_TYPES } from "@smthrs/rpc/ConfiguredModel"
 import { Schema } from "effect"
-import { flag, line } from "../FlowForms"
+import { flag, line } from "@smthrs/ui/flow-form"
 import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"

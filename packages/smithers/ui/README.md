@@ -122,3 +122,17 @@ Four suites hold the invariants the docs promise:
 `bunfig.toml` preloads `tests/happy-dom-preload.ts`. Radix resolves its
 SSR-safe `useLayoutEffect` shim at module load, so happy-dom has to be
 registered before any test file imports `radix-ui`.
+
+## Shared client logic
+
+DOM and OpenTUI clients import renderer-neutral logic through explicit subpaths:
+
+- `@smthrs/ui/flow-form`: schema fields, hints, drafts, required inputs, and typed submission.
+- `@smthrs/ui/flow-arguments`: file-flow JSON and quoted `key=value` arguments.
+- `@smthrs/ui/command-line`: repository command tokens.
+- `@smthrs/ui/run-command`: opaque run references and source-card routing.
+
+These entrypoints do not import the DOM component barrel. Forms retain one
+schema-derived model; each client owns its controls and persistence. File-flow
+arrays use JSON to preserve spaces and structured values. Positional command
+lists retain their space-separated grammar.

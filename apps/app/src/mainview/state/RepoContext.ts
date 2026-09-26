@@ -13,7 +13,8 @@ import type { AppStore } from "./AppStore"
 import { cardContainsRun, runScopeFromCard, sameRunScope, type RunScope } from "./RunReference"
 
 /** The `owner/repo` shape; exported for the grammars that take a LEADING repo token (agent.session.new). */
-export const REPO_TOKEN = /^[\w.-]+\/[\w.-]+$/
+export { REPO_TOKEN } from "@smthrs/ui/command-line"
+import { REPO_TOKEN } from "@smthrs/ui/command-line"
 
 /**
  * The repositories a trailing token may name in argument text: every

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
-import { assembleArgs, draftFrom, formFieldsFor, publicFormPayload, submissionPayload } from "./FlowForms"
+import { assembleArgs, draftFrom, formFieldsFor, publicFormPayload, submissionPayload } from "@smthrs/ui/flow-form"
 import { writeOnlyGesture } from "./CommandGesture"
 
 const input = Schema.Struct({ name: Schema.String, value: Schema.optional(Schema.String) })

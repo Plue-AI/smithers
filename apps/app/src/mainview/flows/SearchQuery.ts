@@ -6,8 +6,8 @@
  * state/seams/SearchSeam.ts and the overlay in SearchPalette.tsx.
  */
 import type { SearchAction, SearchItem, SearchItemKind } from "@smthrs/rpc/Cards"
-import { assembleArgs, formFieldsFor } from "./FlowForms"
-import { runSearchPayload } from "./RunCommand"
+import { assembleArgs, formFieldsFor } from "@smthrs/ui/flow-form"
+import { runSearchPayload } from "@smthrs/ui/run-command"
 import type { FlowEntry } from "./registry"
 import { nameOf, namespaceOf } from "./registry"
 

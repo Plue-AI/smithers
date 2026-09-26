@@ -1,5 +1,5 @@
 import { flowAction } from "../flows/FlowAction"
-import { runSourceCommand } from "../flows/RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 import type { Card } from "../state/AppState"
 import { codingEvidenceOf } from "./CodingPlan"
 import { traceFromJournal, type TraceModel } from "./RunTrace"

@@ -300,7 +300,7 @@ default export) with their descriptions; Enter runs one. `/flow <name>` takes a
 JSON object or `key=value` arguments. A run starts in its
 own tab and runs through the same native control host as `smthrs flow start`: plan,
 approve for this run, run, watch. Missing required input opens a form built
-from the payload schema once the composer is empty and no approval is pending;
+from the payload schema by `@smthrs/ui/flow-form`, shared with the GUI, once the composer is empty and no approval is pending;
 Esc, Ctrl+K, Ctrl+S and the tab keys close it and leave the run parked. A
 parked run never blocks `/new`, `/resume`, `/fork` or undo. Flows whose envelope grants every capability (`*`) use the same y/n/a approval row. Its status settles
 only from the control plane's watch; **x** asks the control plane to cancel.

@@ -3,7 +3,7 @@ import type { Card } from "./state/AppState"
 import { workerToastActions } from "./WorkerToastActions"
 import { runsFlows } from "./flows/entries/runs"
 import type { CommandActions } from "./flows/entries/Declare"
-import { draftFrom, formFieldsFor, partialPayload, missingFields } from "./flows/FlowForms"
+import { draftFrom, formFieldsFor, partialPayload, missingFields } from "@smthrs/ui/flow-form"
 import { nameOf } from "./flows/registry"
 
 const run = (phase: Extract<Card, { kind: "run-trace" }>["payload"]["phase"], waiting?: string): Extract<Card, { kind: "run-trace" }> => ({

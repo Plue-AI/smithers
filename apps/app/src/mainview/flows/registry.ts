@@ -72,7 +72,7 @@ import * as tab from "./entries/tab"
 import * as toast from "./entries/toast"
 import * as wiki from "./entries/wiki"
 import * as workspace from "./entries/workspace"
-import type { FormHints } from "./FlowForms"
+import type { FormHints } from "@smthrs/ui/flow-form"
 
 /**
  * The UI-catalog concerns wrapped around one registered flow.

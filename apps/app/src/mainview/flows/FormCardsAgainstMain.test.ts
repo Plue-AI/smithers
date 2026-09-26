@@ -138,7 +138,7 @@ const formOf = (store: AppStore, flow: string): Extract<Card, { kind: "flow-form
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { formFieldsFor } from "./FlowForms"
+import { formFieldsFor } from "@smthrs/ui/flow-form"
 import { nameOf } from "./registry"
 
 /** What a person can see after typing one line: the door's answer and the card it opened. */

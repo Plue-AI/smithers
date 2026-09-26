@@ -1,4 +1,5 @@
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
+import { parseArgs } from "@smthrs/ui/flow-arguments"
 import * as Log from "./log.ts"
 import * as TabCommand from "./tab-command.ts"
 /**
@@ -9,6 +10,7 @@ import * as TabCommand from "./tab-command.ts"
  */
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core"
 import { flushSync, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
+import * as Form from "@smthrs/ui/flow-form"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename, join } from "node:path"
@@ -30,7 +32,6 @@ import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
 import * as Files from "./files.ts"
 import { actions as flowActions, FlowRuns, type Port as FlowPort } from "./flows.ts"
-import * as Form from "./form.ts"
 import type * as Host from "./host.ts"
 import * as Improve from "./improve.ts"
 import * as Dispatch from "./key-dispatch.ts"
@@ -353,9 +354,9 @@ export function App(props: AppProps) {
     const run = runs.get(id)
     if (run?.status !== "input") return
     const schema = runs.schema(id)
-    const fields = schema === undefined ? [] : Form.fields(schema)
+    const fields = schema === undefined ? [] : Form.formFieldsFor(schema)
     setPanelFocus(false)
-    changeForm({ id, flow: run.flow, fields, draft: Form.draft(fields, run.input), focus: 0 })
+    changeForm({ id, flow: run.flow, fields, draft: Form.draftFrom(fields, run.input, "json"), focus: 0 })
   }, [runs, changeForm])
   useEffect(() => {
     const open = liveForm.current
@@ -1082,7 +1083,7 @@ export function App(props: AppProps) {
           setPicker({ kind: "flows", query: "", selected: 0 })
           return true
         }
-        const parsed = Form.parseArgs(space < 0 ? "" : argument.slice(space + 1))
+        const parsed = parseArgs(space < 0 ? "" : argument.slice(space + 1))
         if ("error" in parsed) {
           setStatus(parsed.error, "warning")
           return true

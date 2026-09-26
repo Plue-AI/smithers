@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { FORM_OPTION_PROVIDERS } from "@smthrs/rpc/Cards"
 import { Schema } from "effect"
-import { assembleArgs, draftFrom, formFieldsFor, missingFields, OPTION_PROVIDERS, partialPayload, positionalRead } from "./FlowForms"
-import type { FormHints } from "./FlowForms"
+import { assembleArgs, draftFrom, formFieldsFor, missingFields, OPTION_PROVIDERS, partialPayload, positionalRead } from "@smthrs/ui/flow-form"
+import type { FormHints } from "@smthrs/ui/flow-form"
 
 /*
  * THE FORM LAW (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md): the
@@ -183,4 +183,12 @@ describe("the option providers", () => {
     // Cards.ts validates `optionsFrom` on the wire: a provider named here and not there renders a card the store refuses.
     expect([...OPTION_PROVIDERS]).toEqual([...FORM_OPTION_PROVIDERS])
   })
+})
+
+test("numeric literal options submit as schema values in the GUI", async () => {
+  const { submissionPayload } = await import("@smthrs/ui/flow-form")
+  const input = Schema.Struct({ attempts: Schema.Literals([1, 2]) })
+  const fields = formFieldsFor(input)
+  expect(submissionPayload(input, fields, {}, { attempts: fields[0]!.options![1]!.value }))
+    .toEqual({ payload: { attempts: 2 } })
 })

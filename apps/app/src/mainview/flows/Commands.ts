@@ -48,7 +48,7 @@ import {
 } from "./registry"
 import type { Parsed } from "./SlashPayload"
 import { payloadFor, unknownFlag } from "./SlashPayload"
-import { assembleArgs, formFieldsFor, publicFormPayload } from "./FlowForms"
+import { assembleArgs, formFieldsFor, publicFormPayload } from "@smthrs/ui/flow-form"
 
 export type { CommandActions, CommandResult } from "./Flows"
 

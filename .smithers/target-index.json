@@ -9793,10 +9793,6 @@
       },
       {
         "kind": "file",
-        "path": "apps/tui/src/form.ts"
-      },
-      {
-        "kind": "file",
         "path": "apps/tui/src/fuzzy.ts"
       },
       {
@@ -15886,6 +15882,686 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/suggest/SuggestFlow.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/chart.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/code-view/CodeFileView.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/code-view/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/code-view/workerPool.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/knowledge-graph.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/markdown-editor/MarkdownEditor.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/markdown-editor/crepeTheme.generated.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/markdown-editor/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/pierre-diff-view.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/terminal.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/adapters/xtermCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/ActivityTimeline.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/AgentOutput.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/AgentTask.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/ChainOfThought.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/CodeBlock.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/InlineCitation.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/MessageResponse.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/OpenInChat.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/Plan.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/Queue.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/Reasoning.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/Sources.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/Suggestion.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/TaskItem.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/ToolCall.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/formatJsonSafe.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/formatPartialJson.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/parseAgentOutput.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/plansTasksQueuesCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/reasoningToolsCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agentic/sourcesCitationsCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agents/AgentCard.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agents/AgentDefinition.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agents/ContextUsage.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agents/ModelSelector.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agents/agentsCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/agents/badges.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/alert.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/approvals/ApprovalCard.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/approvals/Checkpoint.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/approvals/Confirmation.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/approvals/approvalsCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/Artifact.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/ChangeSummary.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/Commit.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/EnvironmentVariables.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/PackageInfo.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/SchemaDisplay.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/SecretField.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/Snippet.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/StackTrace.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/TestResults.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/artifacts/artifactsCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/badge.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/button.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/calendar/Calendar.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/calendar/calendarCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/calendar/dateUtils.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/calendar/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/calendar/types.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/canvas/WorkflowCanvas.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/canvas/canvasCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/card.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/Attachment.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/Bubble.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/ChatComposer.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/ChatMessage.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/ChatTranscript.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/CompactGroup.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/ConversationCheckpoint.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/Marker.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/Message.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/MessageBranch.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/MessageScroller.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/Shimmer.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/conversationFoundationCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/transcriptScroll.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/chat/visibilitySubscriptionRegistry.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/cn.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/collapsible-panel.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/command-line.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/data-attributes.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/dialog.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/diff-hunks.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/diff-paginate.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/diff.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/empty-state.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/file-tree.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/flow-arguments.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/flow-form.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/input.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/composeRefs.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/copyToClipboard.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/resolvePalette.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/resolveTheme.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/safeHref.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/useCopyFeedback.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/useDialogFocusTrap.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/useResolvedPalette.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/internal/useResolvedTheme.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/kpi-stat.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/label.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/primitives/CodeBlock.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/primitives/markdown.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/progress.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/prompt/PromptInput.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/prompt/promptAttachmentsCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/row-button.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/run-command.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/sandbox/AgentSandbox.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/sandbox/JSXPreview.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/sandbox/WebPreview.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/sandbox/sandboxCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/section-header.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/select.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/separator.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/skeleton.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/spinner.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/stage-strip.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/status-pill.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/status.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/styles.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/table.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/tabs.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/time/RelativeTime.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/time/dateFromMs.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/time/formatRelativeTime.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/time/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/tokens.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/tooltip.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/uiCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/BacklinksPanel.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/KnowledgeGraph.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/OutlineView.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/autosaveMachine.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/fence.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/graphModel.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/settleSimulation.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/types.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/useAutosaveDoc.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/useVaultCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/vaultCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/src/vault/wikilinks.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/README.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/SmithersTheme.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/TerminalPalette.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/ThemeSyntaxId.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/ThemeVariantTokens.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/contrastRatio.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/mixColors.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/paletteThemeCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/rgbChannels.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/serializeThemeVariant.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/standaloneThemeCss.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themeRegistry.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themeTokens.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/catppuccin.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/fucory.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/github.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/gruvbox.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/nightOwl.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/one.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/rosePine.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/src/themes/solarized.ts"
       },
       {
         "kind": "glob",

@@ -74,7 +74,7 @@ export class Tui {
   private readonly pending = new Map<number, Pending>()
   private next = 1
   private buffered = ""
-  private paneId = ""
+  private sessionId = ""
   exited: { readonly code: number | null } | undefined
 
   private constructor(
@@ -141,8 +141,8 @@ export class Tui {
       cwd: options.cwd,
       command: options.command,
       env: { TERM: "xterm-256color", COLORTERM: "truecolor", ...passthrough(), ...options.env }
-    }) as { paneId?: string; id?: string }
-    tui.paneId = created.paneId ?? created.id ?? "tui"
+    }) as { sessionId?: string; id?: string }
+    tui.sessionId = created.sessionId ?? created.id ?? "tui"
     return tui
   }
 
@@ -187,12 +187,12 @@ export class Tui {
     this.cols = cols
     this.rows = rows
     this.terminal.resize(cols, rows)
-    await this.call("session.resize", { sessionId: "tui", cols, rows })
+    await this.call("session.resize", { sessionId: this.sessionId, cols, rows })
   }
 
   /** Sends raw bytes to the PTY. */
   async press(bytes: string): Promise<void> {
-    await this.call("session.send", { sessionId: "tui", dataBase64: Buffer.from(bytes).toString("base64") })
+    await this.call("session.send", { sessionId: this.sessionId, dataBase64: Buffer.from(bytes).toString("base64") })
     await sleep(150)
   }
 
@@ -208,7 +208,7 @@ export class Tui {
   /** Types text one character at a time, as a person does. */
   async type(text: string): Promise<void> {
     for (const character of text) {
-      await this.call("session.send", { sessionId: "tui", dataBase64: Buffer.from(character).toString("base64") })
+      await this.call("session.send", { sessionId: this.sessionId, dataBase64: Buffer.from(character).toString("base64") })
     }
     await sleep(150)
   }

@@ -1,4 +1,4 @@
-import { formFieldsFor } from "../../flows/FlowForms"
+import { formFieldsFor } from "@smthrs/ui/flow-form"
 import { GitHubInstallationForm,GitHubInstallationInput } from "../../flows/entries/github"
 import { actorSharedState } from "../ActorBindings"
 import { refuseCloudSignIn, SIGN_OUT_REFUSAL } from "./CloudSignIn"

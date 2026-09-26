@@ -5,12 +5,12 @@
  * in `keys.ts` (see `test/keys.test.ts`).
  */
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core"
+import * as Form from "@smthrs/ui/flow-form"
 import type { Schema } from "effect"
 import type * as Activity from "./activity.ts"
 import type * as Complete from "./complete.ts"
 import type * as Editor from "./editor.ts"
 import type * as Extension from "./extension.ts"
-import * as Form from "./form.ts"
 import * as Keys from "./keys.ts"
 import * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
@@ -21,8 +21,8 @@ import type { Tab } from "./workspace.ts"
 export interface FlowForm {
   readonly id: string
   readonly flow: string
-  readonly fields: ReadonlyArray<Form.Field>
-  readonly draft: Record<string, Form.Value>
+  readonly fields: ReadonlyArray<Form.FormField>
+  readonly draft: Record<string, Form.FieldValue>
   readonly focus: number
   readonly error?: string
 }
@@ -177,8 +177,9 @@ export const formKey = (key: KeyEvent, open: FlowForm, act: {
   }
   if ((key.name === "left" || key.name === "right") && field?.kind === "select" && field.options !== undefined) {
     key.preventDefault()
-    const options = field.options
-    const at = options.indexOf(open.draft[field.name] ?? "")
+    const options = field.options.filter((option) => !option.disabled).map((option) => option.value)
+    if (options.length === 0) return
+    const at = options.indexOf(String(open.draft[field.name] ?? ""))
     const next = options[(at + (key.name === "left" ? -1 : 1) + options.length) % options.length]!
     return act.change({ ...open, draft: { ...open.draft, [field.name]: next }, error: undefined })
   }
@@ -187,7 +188,7 @@ export const formKey = (key: KeyEvent, open: FlowForm, act: {
     const schema = act.schema(open.id)
     const input = act.input(open.id)
     if (schema === undefined || input === undefined) return act.change(undefined)
-    const result = Form.payload(schema, open.fields, input, open.draft)
+    const result = Form.fileSubmission(schema, open.fields, input, open.draft)
     if ("error" in result) return act.change({ ...open, error: result.error })
     act.change(undefined)
     act.fill(open.id, result.payload)

@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { text } from "../FlowForms"
+import { text } from "@smthrs/ui/flow-form"
 import { flow, RepoTarget } from "./Declare"
 import type { FlowEntry, FlowRequirement, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"

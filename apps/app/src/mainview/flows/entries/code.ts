@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { fileArgs } from "../FileArgs"
-import { text } from "../FlowForms"
+import { text } from "@smthrs/ui/flow-form"
 import { flow, CodePosition } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { CommandActions } from "./Declare"

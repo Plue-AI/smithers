@@ -7,7 +7,7 @@ import { Schema } from "effect"
 import { flow, NoPayload, CardTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import { flowPlanParts, flowRunParts, payloadFor } from "../SlashPayload"
-import { line, text } from "../FlowForms"
+import { line, text } from "@smthrs/ui/flow-form"
 import type { RepositoryFlow } from "../../state/AppState"
 import type { CommandActions } from "./Declare"
 

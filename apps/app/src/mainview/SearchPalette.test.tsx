@@ -14,7 +14,7 @@ import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import App from "./App"
 import { ControllerTestProvider } from "./ControllerContext"
-import { runSearchRef } from "./flows/RunCommand"
+import { runSearchRef } from "@smthrs/ui/run-command"
 
 import type { AgentPort } from "./runtime/AgentPort"
 import type { AppController as AppControllerType, AppServices } from "./state/AppController"

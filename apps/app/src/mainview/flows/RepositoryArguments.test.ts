@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { flowArgs } from "./FlowArgs"
 import { payloadFor } from "./SlashPayload"
-import { runSourceCommand } from "./RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 import { createAppStore } from "../state/AppStore"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { memoryStorage, unavailableAgent } from "../state/TestFixtures"

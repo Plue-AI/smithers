@@ -3,7 +3,7 @@ import type { Card } from "./state/AppState"
 import type { ToastAction } from "./ToastAction"
 import { workflowLaunchOf } from "./state/WorkflowLaunch"
 import { flowArgs } from "./flows/FlowArgs"
-import { runSourceCommand } from "./flows/RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 
 /** A toast carries a card identity; controls always read that card's latest state. */
 export const workerToastActions = (card: Card | undefined, cards: ReadonlyArray<Card> = []): ReadonlyArray<ToastAction> => {
@@ -37,7 +37,7 @@ export const workerToastActions = (card: Card | undefined, cards: ReadonlyArray<
     : waiting ? "parked" : "running"
   const add = (control: Action, label: string, flow: ToastAction["flow"], args: string) => {
     if (!allowed(control, { status, liveModelSwitch: true })) return
-    runSourceCommand(card.id, (flow, args) => actions.push({ label, flow, args }))(flow, args)
+    runSourceCommand<ToastAction["flow"]>(card.id, (flow, args) => actions.push({ label, flow, args }))(flow, args)
   }
   add("stop", "Stop", "flow.run.stop", card.id)
   add("steer", "Steer", "runs.steer", flowArgs("runs.steer", { runId, body: "" }))

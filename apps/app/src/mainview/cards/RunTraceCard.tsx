@@ -5,7 +5,7 @@ import { flowAction } from "../flows/FlowAction"
  * selection opens its code and evidence. The timeline view adds the debugger.
  * Every view choice enters an existing runs.trace flow; this card owns no state.
  */
-import { runSourceCommand } from "../flows/RunCommand"
+import { runSourceCommand } from "@smthrs/ui/run-command"
 import { Markdown, StatusPill } from "@smthrs/ui"
 import { PhaseStrip } from "./RunTracePhaseStrip"
 export { phasePins } from "./RunTracePhaseStrip"

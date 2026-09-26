@@ -1706,6 +1706,9 @@ importers:
       '@smthrs/std':
         specifier: workspace:*
         version: link:../../packages/smithers/agent/std
+      '@smthrs/ui':
+        specifier: workspace:*
+        version: link:../../packages/smithers/ui
       diff:
         specifier: 9.0.0
         version: 9.0.0
@@ -6373,6 +6376,9 @@ importers:
       d3-force:
         specifier: 3.0.0
         version: 3.0.0
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
       radix-ui:
         specifier: ^1.6.7
         version: 1.6.7(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
