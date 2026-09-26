@@ -29,7 +29,8 @@ for (const relative of entries) {
   authored.set(relative, text)
   for (const match of text.matchAll(clausePattern)) {
     const moduleId = moduleIdOf(relative, match[2])
-    for (const clause of match[1].split(',').map(value => value.trim()).filter(Boolean)) {
+    // An inline `type` clause names no runtime export; esbuild erases it.
+    for (const clause of match[1].split(',').map(value => value.trim()).filter(value => value !== '' && !value.startsWith('type '))) {
       const origin = clause.split(/\s+as\s+/)[0]
       const claimed = owner.get(origin)
       if (claimed !== undefined && claimed !== moduleId) throw Error(`Two modules export ${origin}: ${claimed} and ${moduleId}`)
@@ -53,7 +54,7 @@ const files = {}
 for (const relative of entries) {
   const text = authored.get(relative)
   const bindings = [...text.matchAll(clausePattern)].flatMap(match =>
-    match[1].split(',').map(value => value.trim()).filter(Boolean).map(clause => {
+    match[1].split(',').map(value => value.trim()).filter(value => value !== '' && !value.startsWith('type ')).map(clause => {
       const [origin, alias] = clause.split(/\s+as\s+/)
       return alias === undefined ? origin : origin + ':' + alias
     })
