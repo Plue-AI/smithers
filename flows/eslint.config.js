@@ -16,8 +16,7 @@ export default tseslint.config(
     extends: [tseslint.configs.recommended],
     languageOptions: {
       parserOptions: {
-        // Two flows sit outside the tsconfig `include`.
-        projectService: { allowDefaultProject: ["tutorial-change/*.ts", "checks/wiki/*.ts"] },
+        projectService: true,
         tsconfigRootDir: import.meta.dirname
       }
     },

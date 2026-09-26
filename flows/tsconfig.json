@@ -23,15 +23,10 @@
     ]
   },
   "include": [
-    "release/**/*.ts",
-    "release-content/**/*.ts",
-    "release-support/**/*.ts",
-    "test/**/*.ts",
-    "PACKAGE.ts",
-    "wiki/**/*.ts",
-    "librarian/**/*.ts",
-    "coding/**/*.ts",
-    "organization/**/*.ts",
-    "repository/**/*.ts"
+    "**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "migrate-smithers-v1/test/fixtures"
   ]
 }
