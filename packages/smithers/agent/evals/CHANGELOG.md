@@ -4,6 +4,11 @@
 
 ### Added
 
+- `Trials`: repeated-run statistics for live evaluations. `passAtK` is the
+  unbiased pass@k estimator, `passHatK` the pass^k consistency measure, and
+  `summarize` and `aggregate` report both per case and across cases. Bad
+  counts throw the new `EvalError` code `invalid_trials`.
+
 - `Runner.run` executes under the `Eval.run` span and each case under
   `Eval.case`.
 

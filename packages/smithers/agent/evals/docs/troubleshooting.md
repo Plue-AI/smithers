@@ -72,6 +72,13 @@ A comparison tolerance is not a finite non-negative number, at
 `tolerances.absolute` or `tolerances.relative`. Fix the call, not the
 baseline.
 
+## invalid_trials
+
+A `Trials` call received counts outside their bounds: a run count that is not
+a positive integer, a pass count outside `0..n`, or a `k` outside `1..n`. The
+`path` names the argument (`n`, `c`, `k`, or `cases['<name>']` for a case with
+no runs). Fix the call; `Trials.aggregate` already clamps `k` for a short case.
+
 ## executor
 
 The target flow failed for a case, or no executor was available.

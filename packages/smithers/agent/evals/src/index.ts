@@ -67,3 +67,10 @@ export * as Report from "./Report.ts"
  * @category gates
  */
 export * as Gate from "./Gate.ts"
+/**
+ * Repeated-run statistics for live evaluations: pass@k and pass^k.
+ *
+ * @since 0.1.0
+ * @category statistics
+ */
+export * as Trials from "./Trials.ts"

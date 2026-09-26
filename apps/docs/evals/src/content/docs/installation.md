@@ -38,8 +38,9 @@ Then depend on it through the workspace protocol in your package's
 
 ## Entry points
 
-- `@smthrs/evals` exports the eight namespaces: `EvalError`, `Suite`,
-  `CaseExecutor`, `Runner`, `Baseline`, `Regression`, `Report`, and `Gate`.
+- `@smthrs/evals` exports the nine namespaces: `EvalError`, `Suite`,
+  `CaseExecutor`, `Runner`, `Baseline`, `Regression`, `Report`, `Gate`, and
+  `Trials`.
 - `@smthrs/evals/<Module>` imports one namespace directly, for example
   `@smthrs/evals/Suite`.
 - `@smthrs/evals/package.json` is exported. The `internal/*` modules and

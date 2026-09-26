@@ -18,6 +18,8 @@ import * as Schema from "effect/Schema"
  *   another suite, or holds a record the schema rejects. Regenerate it.
  * - `invalid_tolerance`: the caller passed a tolerance that is not a finite
  *   non-negative number. Fix the call, not the baseline.
+ * - `invalid_trials`: the caller passed run, pass, or `k` counts to `Trials`
+ *   outside their bounds. Fix the call.
  * - `executor`: the target flow failed for a case.
  * - `ambiguous_score_job`: two score jobs shared a step key and a scorer, so
  *   an order-only batch runner's results cannot be attributed to a case. Give
@@ -36,6 +38,7 @@ export const EvalErrorCode = Schema.Literals([
   "invalid_run_options",
   "invalid_baseline",
   "invalid_tolerance",
+  "invalid_trials",
   "executor",
   "ambiguous_score_job",
   "scorer_protocol",

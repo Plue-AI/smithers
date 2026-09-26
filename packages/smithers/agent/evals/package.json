@@ -45,6 +45,7 @@
     "./Report": "./src/Report.ts",
     "./Runner": "./src/Runner.ts",
     "./Suite": "./src/Suite.ts",
+    "./Trials": "./src/Trials.ts",
     "./index": "./src/index.ts"
   },
   "files": [
@@ -154,6 +155,16 @@
         "require": {
           "types": "./dist/cjs/Suite.d.ts",
           "default": "./dist/cjs/Suite.js"
+        }
+      },
+      "./Trials": {
+        "import": {
+          "types": "./dist/esm/Trials.d.ts",
+          "default": "./dist/esm/Trials.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Trials.d.ts",
+          "default": "./dist/cjs/Trials.js"
         }
       },
       "./index": {
