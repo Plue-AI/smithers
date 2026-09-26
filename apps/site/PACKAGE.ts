@@ -22,7 +22,6 @@ import { Package as harnessPackage } from "../../packages/smithers/agent/harness
 import { Package as integrationsPackage } from "../../packages/smithers/agent/integrations/PACKAGE.ts"
 import { Package as memoryPackage } from "../../packages/smithers/agent/memory/PACKAGE.ts"
 import { Package as modelPackage } from "../../packages/smithers/agent/model/PACKAGE.ts"
-import { Package as organizationPackage } from "../../packages/smithers/agent/organization/PACKAGE.ts"
 import { Package as agentPackage } from "../../packages/smithers/agent/PACKAGE.ts"
 import { Package as pluginPackage } from "../../packages/smithers/agent/plugin/PACKAGE.ts"
 import { Package as registryPackage } from "../../packages/smithers/agent/registry/PACKAGE.ts"
@@ -67,9 +66,9 @@ import { Package as notificationsPackage } from "../../packages/smithers/notific
 import { Package as cliPackage } from "../../packages/smithers/PACKAGE.ts"
 import { Package as testingPackage } from "../../packages/testing/PACKAGE.ts"
 import { workspacePackages } from "../../scripts/workspace-packages.mjs"
+import { Package as uiPackage } from "../app/PACKAGE.ts"
 import { sites as docsSites } from "../docs/shared/manifest.mjs"
 import { Package as docsSharedPackage } from "../docs/shared/PACKAGE.ts"
-import { Package as uiPackage } from "../app/PACKAGE.ts"
 
 const cwd = "apps/site"
 
@@ -227,7 +226,6 @@ const apiPackages = {
   model: modelPackage,
   notifications: notificationsPackage,
   observability: observabilityPackage,
-  organization: organizationPackage,
   patterns: patternsPackage,
   plan: planPackage,
   "plan-store": planStorePackage,

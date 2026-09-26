@@ -4714,118 +4714,6 @@
     }
   },
   {
-    "label": "//apps/docs/organization:build",
-    "package": "apps/docs/organization",
-    "name": "build",
-    "rule": "ToolBuild",
-    "kinds": [
-      "build"
-    ],
-    "cacheable": true,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "apps/docs/organization/src/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/docs/organization/public/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/astro.config.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/tsconfig.json"
-      }
-    ],
-    "outputs": [
-      "apps/docs/organization/dist"
-    ],
-    "dependencies": [
-      "//apps/docs/shared:sources"
-    ],
-    "source": {
-      "file": "apps/docs/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//apps/docs/organization:check",
-    "package": "apps/docs/organization",
-    "name": "check",
-    "rule": "ToolRun",
-    "kinds": [
-      "run"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "apps/docs/organization/src/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/docs/organization/public/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/astro.config.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/tsconfig.json"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [
-      "//apps/docs/shared:sources"
-    ],
-    "source": {
-      "file": "apps/docs/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//apps/docs/organization:contentSync",
-    "package": "apps/docs/organization",
-    "name": "contentSync",
-    "rule": "Generate",
-    "kinds": [
-      "run",
-      "lint"
-    ],
-    "summary": "Sync @smthrs/organization's colocated docs into the site content tree; check drift under lint.",
-    "mode": "write",
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "apps/docs/shared/sync-content.mjs"
-      }
-    ],
-    "outputs": [
-      "apps/docs/organization/src/content/docs/**"
-    ],
-    "dependencies": [
-      "//packages/smithers/agent/organization:docsFiles"
-    ],
-    "source": {
-      "file": "apps/docs/organization/PACKAGE.ts"
-    }
-  },
-  {
     "label": "//apps/docs/plan-store:build",
     "package": "apps/docs/plan-store",
     "name": "build",
@@ -7319,7 +7207,6 @@
       "apps/site/src/content/docs/docs/reference/api/model.mdx",
       "apps/site/src/content/docs/docs/reference/api/notifications.mdx",
       "apps/site/src/content/docs/docs/reference/api/observability.mdx",
-      "apps/site/src/content/docs/docs/reference/api/organization.mdx",
       "apps/site/src/content/docs/docs/reference/api/patterns.mdx",
       "apps/site/src/content/docs/docs/reference/api/plan-store.mdx",
       "apps/site/src/content/docs/docs/reference/api/plan.mdx",
@@ -7347,7 +7234,6 @@
       "//packages/smithers/agent/integrations:docsFiles",
       "//packages/smithers/agent/memory:docsFiles",
       "//packages/smithers/agent/model:docsFiles",
-      "//packages/smithers/agent/organization:docsFiles",
       "//packages/smithers/agent/plugin:docsFiles",
       "//packages/smithers/agent/registry:docsFiles",
       "//packages/smithers/agent/scorers:docsFiles",
@@ -7616,10 +7502,6 @@
       },
       {
         "kind": "file",
-        "path": "apps/docs/organization/package.json"
-      },
-      {
-        "kind": "file",
         "path": "apps/docs/plan/package.json"
       },
       {
@@ -7801,10 +7683,6 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/model-host/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/package.json"
       },
       {
         "kind": "file",
@@ -8268,14 +8146,6 @@
       {
         "kind": "file",
         "path": "apps/docs/model/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/alchemy.run.ts"
-      },
-      {
-        "kind": "file",
-        "path": "apps/docs/organization/package.json"
       },
       {
         "kind": "file",
@@ -9123,10 +8993,6 @@
       },
       {
         "kind": "file",
-        "path": "apps/docs/organization/package.json"
-      },
-      {
-        "kind": "file",
         "path": "apps/docs/plan/package.json"
       },
       {
@@ -9308,10 +9174,6 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/model-host/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/package.json"
       },
       {
         "kind": "file",
@@ -20346,194 +20208,6 @@
     }
   },
   {
-    "label": "//flows:organizationHost",
-    "package": "flows",
-    "name": "organizationHost",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "flows/test/organization-host.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-host-slack.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-host-document.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-host-relocate.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-hiring.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-meetings.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-host-qualify.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-autonomy.test.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/organization-team-channel.test.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/coding/**/*.md",
-        "exclude": []
-      },
-      {
-        "kind": "pnpm-workspace",
-        "path": "pnpm-workspace.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "flows/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//flows:organizationSetup",
-    "package": "flows",
-    "name": "organizationSetup",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/init.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/doctor.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/probe.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/service.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/backup.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/hygiene.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/subscriptions.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/environment-doctor.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/cli.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/wiki-commit.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/node.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/notify.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/qualify/cases.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/setup/github-doctor.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/team-channel.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/organization/links.test.ts"
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/coding/**/*.md",
-        "exclude": []
-      },
-      {
-        "kind": "pnpm-workspace",
-        "path": "pnpm-workspace.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "flows/PACKAGE.ts"
-    }
-  },
-  {
     "label": "//flows:pack",
     "package": "flows",
     "name": "pack",
@@ -23746,267 +23420,6 @@
     ],
     "source": {
       "file": "packages/smithers/agent/model/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:check",
-    "package": "packages/smithers/agent/organization",
-    "name": "check",
-    "rule": "Typecheck",
-    "kinds": [
-      "build"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/test/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/tsconfig.test.json"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [
-      "//packages/smithers/agent/organization:lib"
-    ],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:circular",
-    "package": "packages/smithers/agent/organization",
-    "name": "circular",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/scripts/circular.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/tsconfig.json"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:docs",
-    "package": "packages/smithers/agent/organization",
-    "name": "docs",
-    "rule": "DocsParity",
-    "kinds": [
-      "docs"
-    ],
-    "cacheable": true,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/README.md"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:docsFiles",
-    "package": "packages/smithers/agent/organization",
-    "name": "docsFiles",
-    "rule": "Filegroup",
-    "kinds": [],
-    "cacheable": true,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/docs/**/*.md",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/README.md"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/package.json"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:fmt",
-    "package": "packages/smithers/agent/organization",
-    "name": "fmt",
-    "rule": "Dprint",
-    "kinds": [
-      "lint"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/test/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/dprint.json"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:lib",
-    "package": "packages/smithers/agent/organization",
-    "name": "lib",
-    "rule": "TsBuild",
-    "kinds": [
-      "build"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/repo-targets/scripts/build-library.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/scripts/compile-commonjs.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/src/index.ts"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/tsconfig.json"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/scripts/build.mjs"
-      }
-    ],
-    "outputs": [
-      "packages/smithers/agent/organization/dist/cjs",
-      "packages/smithers/agent/organization/dist/esm"
-    ],
-    "dependencies": [],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:lint",
-    "package": "packages/smithers/agent/organization",
-    "name": "lint",
-    "rule": "EsLint",
-    "kinds": [
-      "lint"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/eslint.config.js"
-      },
-      {
-        "kind": "file",
-        "path": "eslint.jsdoc.js"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers/agent/organization:test",
-    "package": "packages/smithers/agent/organization",
-    "name": "test",
-    "rule": "Vitest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/test/**/*.test.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/organization/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/organization/vitest.config.ts"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [
-      "//packages/smithers/agent/organization:lib"
-    ],
-    "source": {
-      "file": "packages/smithers/agent/organization/PACKAGE.ts"
     }
   },
   {

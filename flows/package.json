@@ -5,7 +5,7 @@
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts test/canary-coding-setup.test.mjs organization/setup/*.test.ts organization/qualify/*.test.ts",
+    "test": "node --experimental-strip-types --test test/*.test.ts test/canary-coding-setup.test.mjs",
     "lint": "eslint '**/*.ts' --max-warnings=0 && dprint check"
   },
   "dependencies": {

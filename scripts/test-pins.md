@@ -162,7 +162,6 @@ only.
 | `smithers/build/build-cli` | `answers the envelope contract through a real codex session` | `it.skipIf(SMTHRS_CODEX_SMOKE !== "1")` |
 | `smithers/agent/std` | `streams a file larger than available memory (skipped: a hermetic test cannot exhaust its runner)` | `it.skip` |
 | `testing` | `registers a skipped layered Effect body` | `test.skip` |
-| `smithers/agent/organization` | `survives ${cycles} sequential and ${cycles} two-way concurrent workspace cycles` | `it.skipIf(SMITHERS_VM_STRESS` unset or `0)` |
 
 **`migrate`: apply against a real model.** The three cases in
 `packages/smithers/migrate/test/flow/MigrateFlow.live.e2e.test.ts` drive the migration
@@ -289,19 +288,6 @@ of the skip form itself, so it can never execute. What breaks if it regresses:
 a `.skip` on the wrapper runs the body, and a suite that parked a live case
 starts paying for it. It stays a pin because vitest reports a skipped test
 only by skipping it.
-
-**`organization`: the microVM workspace stress run.** `WorkspaceMicrovm.test.ts`
-gates one case on `SMITHERS_VM_STRESS=<cycles>`: it prepares a workspace, runs
-two sessions of commands in it, collects and disposes it, `<cycles>` times one
-after another and again two at a time, and counts the failures. The other cases
-in that file boot real microVMs on every gate that can boot them and prove each
-behavior once; only repetition measures the failure rate a machine that dies
-under load produces, and the workspace qualification's rates came from this
-case. The case allows an hour of VM time, so it is off by default.
-What breaks if it regresses: a workspace that fails an occasional cycle passes
-every single-cycle case and fails a user's long task. Run it with
-`SMITHERS_VM_STRESS=50 pnpm --filter @smthrs/organization test` on a host that
-boots microVMs.
 
 ### Resolved: the database open-retry pin
 

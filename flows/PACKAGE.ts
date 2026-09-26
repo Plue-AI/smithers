@@ -84,7 +84,6 @@ const codingPackages = [
   "packages/smithers/agent/memory",
   "packages/smithers/agent/model",
   "packages/smithers/agent/model-host",
-  "packages/smithers/agent/organization",
   "packages/smithers/agent/plugin",
   "packages/smithers/agent/registry",
   "packages/smithers/agent/scorers",
@@ -387,75 +386,6 @@ const productHost = Smithers.NodeTest({
   timeout: "20m"
 })
 
-// The organization host end to end: a separate host process over its
-// loopback control RPC, the public example organization, a fixture repository,
-// the durable SQLite engine, scripted seats (no model is reached), and real
-// local microVMs, which is why the host needs a hypervisor; the suites name
-// their skip where none is present. The Slack suite drives the host's one
-// Slack app against the integrations package's Slack fixture server.
-const organizationPackages = ["packages/smithers/agent/organization"].map((cwd) =>
-  Smithers.Filegroup({
-    cwd,
-    srcs: [
-      Smithers.glob("src/**"),
-      Smithers.glob("example/**"),
-      Smithers.file("package.json"),
-      Smithers.file("tsconfig.json")
-    ]
-  })
-)
-const organizationFixture = Smithers.Filegroup({
-  cwd: "packages/smithers/agent/integrations",
-  srcs: [Smithers.file("test/SlackFixture.ts")]
-})
-const organizationHost = Smithers.NodeTest({
-  runtime: node,
-  runner: Smithers.testRunner([
-    fixture("organization-host.test.mjs"),
-    fixture("organization-host-slack.test.mjs"),
-    fixture("organization-host-document.test.mjs"),
-    fixture("organization-host-relocate.test.mjs"),
-    fixture("organization-hiring.test.mjs"),
-    fixture("organization-meetings.test.mjs"),
-    fixture("organization-host-qualify.test.mjs"),
-    fixture("organization-autonomy.test.mjs"),
-    fixture("organization-team-channel.test.mjs")
-  ]),
-  srcs: codingSources,
-  deps: [...codingDependencies, ...organizationPackages, organizationFixture],
-  cwd,
-  timeout: "20m"
-})
-// The organization's local commands: setup (`init`, `doctor`, subscriptions,
-// the service, backups, hygiene), the client commands against a stand-in control RPC,
-// the team channel, and the links posts carry;
-// the probe case boots one real microVM and names its skip where none can boot.
-const organizationSetup = Smithers.NodeTest({
-  runtime: node,
-  runner: Smithers.testRunner([
-    Smithers.file("//flows/organization/setup/init.test.ts"),
-    Smithers.file("//flows/organization/setup/doctor.test.ts"),
-    Smithers.file("//flows/organization/setup/probe.test.ts"),
-    Smithers.file("//flows/organization/setup/service.test.ts"),
-    Smithers.file("//flows/organization/setup/backup.test.ts"),
-    Smithers.file("//flows/organization/setup/hygiene.test.ts"),
-    Smithers.file("//flows/organization/setup/subscriptions.test.ts"),
-    Smithers.file("//flows/organization/setup/environment-doctor.test.ts"),
-    Smithers.file("//flows/organization/cli.test.ts"),
-    Smithers.file("//flows/organization/wiki-commit.test.ts"),
-    Smithers.file("//flows/organization/setup/node.test.ts"),
-    Smithers.file("//flows/organization/notify.test.ts"),
-    Smithers.file("//flows/organization/qualify/cases.test.ts"),
-    Smithers.file("//flows/organization/setup/github-doctor.test.ts"),
-    Smithers.file("//flows/organization/team-channel.test.ts"),
-    Smithers.file("//flows/organization/links.test.ts")
-  ]),
-  srcs: codingSources,
-  deps: [...codingDependencies, ...organizationPackages],
-  cwd,
-  timeout: "20m"
-})
-
 export const Package = Smithers.Package({
   targets: {
     coding,
@@ -468,8 +398,6 @@ export const Package = Smithers.Package({
     codingBundleBun,
     egress,
     fixtures,
-    organizationHost,
-    organizationSetup,
     pack,
     check,
     lint,

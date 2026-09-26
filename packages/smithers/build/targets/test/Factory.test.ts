@@ -154,6 +154,9 @@ describe("Smithers.Factory", () => {
     expect(() => Factory.Factory({ summary: "S.", on: { "issue.opened": { flow: "issue", description: "<i>x</i>" } } }))
       .toThrow(/must not contain HTML/)
     expect(() => Factory.Factory({ summary: "S.", on: ["issue.opened"] as never })).toThrow(/record of event keys/)
+    expect(() =>
+      Factory.Factory({ summary: "S.", on: { "issue_comment": "assistant", "pull_request.opened": "review" } })
+    ).not.toThrow()
     expect(() => Factory.Factory({ summary: "S.", on: { "schedule:*/15 * * * *": "repo.mirror-pull" } })).not.toThrow()
   })
 

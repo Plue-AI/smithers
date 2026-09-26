@@ -28,7 +28,7 @@ A delegated plan generates work its author never named, so the memory settings t
 
 | Field       | Values                     | Meaning                                       |
 | ----------- | -------------------------- | --------------------------------------------- |
-| `namespace` | a `Namespace`              | where memory this tree reads and writes lives |
+| `banks`     | nonempty `BankName[]`      | where memory this tree reads and writes lives |
 | `recall`    | `"none"`, or absent        | `"none"` refuses recall                       |
 | `maxTokens` | integer                    | the budget recall answers within              |
 | `retain`    | `"on-complete"`, `"never"` | whether writes are kept                       |
@@ -43,8 +43,8 @@ A policy is an annotation, and an annotation takes no part in flow identity. App
 
 `Flows.runRecallFor(flow, input)` and `Flows.runRememberFor(flow, input)` read the policy, and `Flows.handlersFor(flow)` is the pair a host binds. The policy namespace is the only namespace these scoped handlers may read or write:
 
-- `runRecallFor` fills an empty `banks` list with the policy bank. Every explicit bank must resolve to the policy namespace, matching both `kind` and `id`. A foreign bank fails the whole request with `invalid_namespace` before the recall service runs, including requests that mix allowed and foreign banks.
-- `runRememberFor` resolves an empty bank to the policy namespace. An explicit foreign bank fails with `invalid_namespace` before the store runs.
+- `runRecallFor` fills an empty `banks` list with all policy banks. Every explicit bank must resolve to a policy bank, matching both `kind` and `id`. A foreign bank fails the whole request with `invalid_namespace` before the recall service runs, including requests that mix allowed and foreign banks.
+- `runRememberFor` resolves an empty bank to the first policy bank. An explicit foreign bank fails with `invalid_namespace` before the store runs.
 - Equivalent spellings are allowed: `release-notes` and `flow-release-notes` both resolve to `{ kind: "flow", id: "release-notes" }`. There is no additional readable-bank list.
 - `maxTokens` remains a default: the policy budget applies only when the caller omits it.
 
@@ -60,7 +60,7 @@ import { Flows, WithMemory } from "@smthrs/memory"
 import { Effect } from "effect"
 
 const scoped = WithMemory.withMemory(Flows.recall, {
-  namespace: { kind: "flow", id: "release-notes" },
+  banks: ["flow-release-notes"],
   maxTokens: 2048,
   retain: "on-complete"
 })
@@ -101,7 +101,7 @@ const trellis = MemoryTrellis.make({
   leaf: worker,
   envelope: { fuel: 6, depth: 3, fanout: 3 },
   memory: {
-    namespace: { kind: "flow", id: "release-notes" },
+    banks: ["flow-release-notes"],
     maxTokens: 2048,
     retain: "on-complete"
   }

@@ -540,7 +540,7 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "librarian/history", "organization/assignment", "organization/delegate", "organization/deliver", "organization/digest", "organization/hire", "organization/intake", "organization/meetings-book", "organization/meetings-follow-up", "organization/meetings-open", "organization/meetings-plan", "organization/meetings-prepare", "organization/meetings-reply", "organization/qualify", "organization/retire", "organization/routine", "organization/status", "organization/team-reply", "organization/work", "organization/work-item", "release", "release-content", "tutorial-change", "wiki"];
+    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "librarian/history", "release", "release-content", "tutorial-change", "wiki"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
@@ -550,9 +550,7 @@ describe("discovery over the project flows directory", () => {
     // The product flow is discoverable like every other module flow and
     // declares `modelInvocable: false`, because only the librarian product host
     // implements `librarian/create-history`.
-    // The organization flows likewise run only on the organization host,
-    // which implements their steps (`flows/organization/host.ts`).
-    const hiddenModules = ["librarian/history", "organization/assignment", "organization/delegate", "organization/deliver", "organization/digest", "organization/hire", "organization/intake", "organization/meetings-book", "organization/meetings-follow-up", "organization/meetings-open", "organization/meetings-plan", "organization/meetings-prepare", "organization/meetings-reply", "organization/qualify", "organization/retire", "organization/routine", "organization/status", "organization/team-reply", "organization/work", "organization/work-item"];
+    const hiddenModules = ["librarian/history", ];
     const [code, message] = DELEGATED.split(": ");
     assert.deepEqual(
       scan.warnings.map((warning) => `${warning.code} at ${relative(flowsRoot, warning.path).split("\\").join("/")}: ${warning.message}`).sort(),

@@ -33,7 +33,6 @@ const entries = [
   ["integrations", "@smthrs/integrations", "packages/smithers/agent/integrations"],
   ["memory", "@smthrs/memory", "packages/smithers/agent/memory"],
   ["model", "@smthrs/model", "packages/smithers/agent/model"],
-  ["organization", "@smthrs/organization", "packages/smithers/agent/organization"],
   ["plugin", "@smthrs/plugin", "packages/smithers/agent/plugin"],
   ["registry", "@smthrs/registry", "packages/smithers/agent/registry"],
   ["scorers", "@smthrs/scorers", "packages/smithers/agent/scorers"],

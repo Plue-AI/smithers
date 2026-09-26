@@ -107,7 +107,7 @@ export const Summary = Schema.NonEmptyString.check(
  * @category constants
  * @since 1.0.0
  */
-export const eventPattern = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*(?::[^\r\n]+)?$/
+export const eventPattern = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*(?::[^\r\n]+)?$/
 
 /**
  * One `on` key.

@@ -192,17 +192,16 @@ test("importing the release scripts reads no workspace tree", async () => {
   }
 })
 
-test("the packed set is exactly the 51 names the RC contract publishes", () => {
+test("the packed set is exactly the 50 names the RC contract publishes", () => {
   // `publishedPackages` is the release decision; group membership is
   // only how it is enforced. Restating the roster here means a package that
   // joins or leaves the release has to change both files in one diff.
   const manifests = readWorkspaceManifests()
   const packed = packedWorkspaces.map((directory) => manifests.get(directory).name)
 
-  assert.equal(publishedPackages.length, 51)
+  assert.equal(publishedPackages.length, 50)
   assert.deepEqual([...packed].sort(), [...publishedPackages].sort())
   assert.ok(publishedPackages.includes("smthrs"), "the unscoped deprecation notice publishes with the RC")
-  assert.ok(publishedPackages.includes("@smthrs/organization"), "the organization package publishes with the RC")
 })
 
 test("every packed manifest carries the candidate version and the safe default dist-tag", () => {

@@ -85,6 +85,13 @@ export const discoverFlows = (
         kind,
         path: posix(NodePath.relative(workspaceRoot, descriptor.body.path)),
         capabilities: descriptor.capabilities,
+        flows: descriptor.flows,
+        ...(descriptor.budget === undefined ? {} : {
+          budget: {
+            ...(descriptor.budget.tokens === undefined ? {} : { tokens: descriptor.budget.tokens }),
+            ...(descriptor.budget.milliseconds === undefined ? {} : { milliseconds: descriptor.budget.milliseconds })
+          }
+        }),
         model: Option.getOrNull(descriptor.model),
         modelInvocable: descriptor.modelInvocable,
         ...(inputDocument(descriptor.input) === undefined ? {} : { inputSchema: inputDocument(descriptor.input)! })
