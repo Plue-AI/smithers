@@ -14,7 +14,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -43,7 +43,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -76,7 +76,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -109,3 +109,21 @@ SELECT wp.*, u.username AS author_username
 FROM wiki_pages wp JOIN users u ON u.id = wp.author_id
 WHERE wp.repository_id = $1 AND wp.visibility = sqlc.arg(visibility)
 ORDER BY wp.id;
+
+-- name: CreateWikiAttachment :one
+INSERT INTO wiki_pages(repository_id,visibility,slug,path,title,body,author_id,attachment)
+VALUES($1,$2,$3,$4,$5,'',$6,$7) RETURNING *;
+
+-- name: UpdateWikiAttachment :one
+UPDATE wiki_pages SET attachment=sqlc.arg(attachment), path=sqlc.arg(path),title=sqlc.arg(title),author_id=sqlc.arg(author_id),updated_at=now(),last_update_id=NULL,last_update=NULL
+WHERE id=sqlc.arg(page_id) AND repository_id=sqlc.arg(repository_id) AND revision=sqlc.arg(expected_revision) AND attachment IS NOT NULL
+RETURNING *;
+
+-- name: ListWikiEvents :many
+SELECT * FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND sequence>$3 ORDER BY sequence LIMIT $4;
+
+-- name: GetWikiRevisionByNumber :one
+SELECT * FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 AND revision=$4;
+
+-- name: GetWikiLatestRevision :one
+SELECT * FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1;

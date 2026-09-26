@@ -57,7 +57,7 @@ func TestWiki_Cov_RevisionsPermissionsAndSlugging(t *testing.T) {
 		}
 
 		history := &wikiHistoryFixture{rows: []db.WikiPageRevision{{PageID: 99, RepositoryID: 42, Revision: 1, Slug: "home-page", AuthorID: pgtype.Int8{Int64: 3, Valid: true}, AuthorUsername: "alice", CreatedAt: now}}}
-		revisions, total, err := NewWikiService(q, nil, WithWikiCollaboration(history, nil)).ListWikiRevisions(ctx, viewer, "Acme", "Demo", " Home Page! ", -4, 0)
+		revisions, total, err := newTestWikiService(q, nil, WithWikiCollaboration(history, nil)).ListWikiRevisions(ctx, viewer, "Acme", "Demo", " Home Page! ", -4, 0)
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), total)
 		require.Len(t, revisions, 1)
@@ -77,7 +77,7 @@ func TestWiki_Cov_RevisionsPermissionsAndSlugging(t *testing.T) {
 			},
 		}
 
-		_, _, err := NewWikiService(q, nil).ListWikiPages(ctx, nil, "alice", "demo", ListWikiPagesInput{})
+		_, _, err := newTestWikiService(q, nil).ListWikiPages(ctx, nil, "alice", "demo", ListWikiPagesInput{})
 		assert.Equal(t, 403, apiStatus(t, err))
 	})
 
@@ -99,7 +99,7 @@ func TestWiki_Cov_RevisionsPermissionsAndSlugging(t *testing.T) {
 			},
 		}
 
-		err := NewWikiService(q, nil).DeleteWikiPage(ctx, &db.User{ID: 7, Username: "owner"}, "acme", "demo", "home")
+		err := newTestWikiService(q, nil).DeleteWikiPage(ctx, &db.User{ID: 7, Username: "owner"}, "acme", "demo", "home")
 		require.NoError(t, err)
 		assert.Equal(t, int64(7), deletedID)
 	})
@@ -120,7 +120,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 	}
 
 	t.Run("list count and page failures", func(t *testing.T) {
-		svc := NewWikiService(&mockWikiQuerier{
+		svc := newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -131,7 +131,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 		_, _, err := svc.ListWikiPages(ctx, nil, "alice", "demo", ListWikiPagesInput{})
 		assert.Equal(t, 500, apiStatus(t, err))
 
-		svc = NewWikiService(&mockWikiQuerier{
+		svc = newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -144,7 +144,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 	})
 
 	t.Run("search count and page failures", func(t *testing.T) {
-		svc := NewWikiService(&mockWikiQuerier{
+		svc := newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -155,7 +155,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 		_, _, err := svc.ListWikiPages(ctx, nil, "alice", "demo", ListWikiPagesInput{Query: "run"})
 		assert.Equal(t, 500, apiStatus(t, err))
 
-		svc = NewWikiService(&mockWikiQuerier{
+		svc = newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -168,7 +168,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 	})
 
 	t.Run("get update delete error mapping", func(t *testing.T) {
-		svc := NewWikiService(&mockWikiQuerier{
+		svc := newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -179,7 +179,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 		_, err := svc.GetWikiPage(ctx, nil, "alice", "demo", "home")
 		assert.Equal(t, 500, apiStatus(t, err))
 
-		svc = NewWikiService(&mockWikiQuerier{
+		svc = newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -191,7 +191,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 		assert.Equal(t, 400, apiStatus(t, err))
 
 		nextTitle := "Runbook"
-		svc = NewWikiService(&mockWikiQuerier{
+		svc = newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -205,7 +205,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 		_, err = svc.UpdateWikiPage(ctx, actor, "alice", "demo", "home", UpdateWikiPageInput{Title: &nextTitle})
 		assert.Equal(t, 409, apiStatus(t, err))
 
-		svc = NewWikiService(&mockWikiQuerier{
+		svc = newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -219,7 +219,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 		err = svc.DeleteWikiPage(ctx, actor, "alice", "demo", "home")
 		assert.Equal(t, 500, apiStatus(t, err))
 
-		svc = NewWikiService(&mockWikiQuerier{
+		svc = newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -233,7 +233,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 
 	t.Run("dispatcher failure does not fail create", func(t *testing.T) {
 		dispatcher := &wikiCovFailDispatcher{err: errors.New("webhook down")}
-		svc := NewWikiService(&mockWikiQuerier{
+		svc := newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},
@@ -250,7 +250,7 @@ func TestWiki_Cov_ErrorBranches(t *testing.T) {
 	})
 
 	t.Run("revision load errors are mapped", func(t *testing.T) {
-		svc := NewWikiService(&mockWikiQuerier{
+		svc := newTestWikiService(&mockWikiQuerier{
 			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 				return publicRepo(), nil
 			},

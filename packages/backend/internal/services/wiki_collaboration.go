@@ -105,6 +105,9 @@ func (s *WikiService) initializedWikiDocument(ctx context.Context, owner, repo s
 		if err != nil {
 			return row, pkgerrors.Internal("failed to read wiki document").WithCause(err)
 		}
+		if len(row.Attachment) > 0 {
+			return row, pkgerrors.BadRequest("attachments have no collaborative document")
+		}
 		if row.CrdtState != nil {
 			return row, nil
 		}
@@ -191,6 +194,12 @@ func (s *WikiService) ApplyWikiUpdate(ctx context.Context, actor *db.User, owner
 			return WikiUpdateResponse{}, pkgerrors.Conflict("repository was replaced")
 		}
 		if err = s.requireWriteAccess(ctx, currentRepo, actor); err != nil {
+			return WikiUpdateResponse{}, err
+		}
+		if _, err = s.putWikiContent(ctx, repository.ID, []byte(args.Body)); err != nil {
+			return WikiUpdateResponse{}, err
+		}
+		if err = s.wikiWriteStillAuthorized(ctx, actor, owner, repo, repository.ID); err != nil {
 			return WikiUpdateResponse{}, err
 		}
 		written, err := s.documents.WriteWikiDocument(ctx, args)
@@ -283,6 +292,12 @@ func (s *WikiService) replaceCollaborativeWikiPage(ctx context.Context, actor *d
 		return WikiPageResponse{}, true, pkgerrors.Conflict("repository was replaced")
 	}
 	if err = s.requireWriteAccess(ctx, currentRepo, actor); err != nil {
+		return WikiPageResponse{}, true, err
+	}
+	if _, err = s.putWikiContent(ctx, repoID, []byte(args.Body)); err != nil {
+		return WikiPageResponse{}, true, err
+	}
+	if err = s.wikiWriteStillAuthorized(ctx, actor, owner, repo, repoID); err != nil {
 		return WikiPageResponse{}, true, err
 	}
 	written, err := s.documents.WriteWikiDocument(ctx, args)

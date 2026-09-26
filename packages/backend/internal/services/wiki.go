@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhooks"
@@ -25,6 +26,7 @@ type WikiAuthorSummary struct {
 }
 
 type WikiPageResponse struct {
+	Attachment    *WikiAttachment   `json:"attachment,omitempty"`
 	Visibility    string            `json:"visibility"`
 	Path          string            `json:"path"`
 	ContentDigest string            `json:"content_digest"`
@@ -40,6 +42,8 @@ type WikiPageResponse struct {
 
 // WikiRevisionResponse represents a single historical revision of a wiki page.
 type WikiRevisionResponse struct {
+	Attachment      *WikiAttachment   `json:"attachment,omitempty"`
+	PageID          int64             `json:"page_id"`
 	Visibility      string            `json:"visibility"`
 	Path            string            `json:"path"`
 	ContentDigest   string            `json:"content_digest"`
@@ -96,6 +100,7 @@ type WikiDispatcher interface {
 }
 
 type WikiService struct {
+	content      blob.Store
 	queries      WikiQuerier
 	dispatcher   WikiDispatcher
 	documents    WikiCollaborationStore
@@ -183,6 +188,14 @@ func (s *WikiService) GetWikiPage(ctx context.Context, viewer *db.User, owner, r
 		}
 		return WikiPageResponse{}, pkgerrors.Internal("failed to load wiki page").WithCause(err)
 	}
+	if len(page.Attachment) == 0 {
+		if err = s.materializeWikiMarkdown(ctx, repository.ID, page.Body, page.ContentDigest); err != nil {
+			return WikiPageResponse{}, err
+		}
+	}
+	if err = s.wikiReadStillAuthorized(ctx, viewer, owner, repo, repository.ID); err != nil {
+		return WikiPageResponse{}, err
+	}
 	return mapWikiPage(page), nil
 }
 
@@ -218,6 +231,15 @@ func (s *WikiService) CreateWikiPage(ctx context.Context, actor *db.User, owner,
 
 	pagePath, err := normalizeWikiPath(input.Path, slug)
 	if err != nil {
+		return WikiPageResponse{}, err
+	}
+	if err = validWikiBody(input.Body); err != nil {
+		return WikiPageResponse{}, err
+	}
+	if _, err = s.putWikiContent(ctx, repository.ID, []byte(input.Body)); err != nil {
+		return WikiPageResponse{}, err
+	}
+	if err = s.wikiWriteStillAuthorized(ctx, actor, owner, repo, repository.ID); err != nil {
 		return WikiPageResponse{}, err
 	}
 	created, err := s.queries.CreateWikiPage(ctx, db.CreateWikiPageParams{
@@ -289,7 +311,11 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 
 	nextPath := existing.Path
 	if input.Path != nil {
-		nextPath, err = normalizeWikiPath(*input.Path, nextSlug)
+		if len(existing.Attachment) > 0 {
+			nextPath, err = normalizeWikiAttachmentPath(*input.Path)
+		} else {
+			nextPath, err = normalizeWikiPath(*input.Path, nextSlug)
+		}
 		if err != nil {
 			return WikiPageResponse{}, err
 		}
@@ -303,6 +329,12 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 				Code:     "too_large",
 			})
 		}
+		if len(existing.Attachment) > 0 {
+			return WikiPageResponse{}, pkgerrors.BadRequest("replace attachment bytes through the attachment endpoint")
+		}
+		if err = validWikiBody(*input.Body); err != nil {
+			return WikiPageResponse{}, err
+		}
 		nextBody = *input.Body
 	}
 
@@ -314,6 +346,14 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 			}
 			return response, err
 		}
+	}
+	if len(existing.Attachment) == 0 {
+		if _, err = s.putWikiContent(ctx, repository.ID, []byte(nextBody)); err != nil {
+			return WikiPageResponse{}, err
+		}
+	}
+	if err = s.wikiWriteStillAuthorized(ctx, actor, owner, repo, repository.ID); err != nil {
+		return WikiPageResponse{}, err
 	}
 	updated, err := s.queries.UpdateWikiPage(ctx, db.UpdateWikiPageParams{
 		ID:               existing.ID,
@@ -405,7 +445,7 @@ func mapListedWikiPages(rows []db.ListWikiPagesByRepoRow) []WikiPageResponse {
 	items := make([]WikiPageResponse, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, WikiPageResponse{
-			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest,
+			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment),
 			Revision: row.Revision,
 			Slug:     row.Slug,
 			Title:    row.Title,
@@ -424,7 +464,7 @@ func mapSearchedWikiPages(rows []db.SearchWikiPagesByRepoRow) []WikiPageResponse
 	items := make([]WikiPageResponse, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, WikiPageResponse{
-			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest,
+			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment),
 			Revision: row.Revision,
 			Slug:     row.Slug,
 			Title:    row.Title,
@@ -441,7 +481,7 @@ func mapSearchedWikiPages(rows []db.SearchWikiPagesByRepoRow) []WikiPageResponse
 
 func mapWikiPage(row db.GetWikiPageBySlugRow) WikiPageResponse {
 	return WikiPageResponse{
-		ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest,
+		ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment),
 		Revision: row.Revision,
 		Slug:     row.Slug,
 		Title:    row.Title,
@@ -457,7 +497,7 @@ func mapWikiPage(row db.GetWikiPageBySlugRow) WikiPageResponse {
 
 func mapWikiPageRecord(page db.WikiPage, authorUsername string) WikiPageResponse {
 	return WikiPageResponse{
-		ID: page.ID, Visibility: page.Visibility, Path: page.Path, ContentDigest: page.ContentDigest,
+		ID: page.ID, Visibility: page.Visibility, Path: page.Path, ContentDigest: page.ContentDigest, Attachment: wikiAttachment(page.Attachment),
 		Revision: page.Revision,
 		Slug:     page.Slug,
 		Title:    page.Title,
@@ -659,22 +699,7 @@ func (s *WikiService) ListWikiRevisions(ctx context.Context, viewer *db.User, ow
 	if s.documents == nil {
 		return nil, 0, wikiUnavailable("wiki history is unavailable")
 	}
-	size, offset, _, _ := normalizePage(page, perPage)
-	total, err := s.documents.CountWikiRevisions(ctx, db.CountWikiRevisionsParams{RepositoryID: repository.ID, PageID: current.ID})
-	if err != nil {
-		return nil, 0, pkgerrors.Internal("failed to count wiki revisions").WithCause(err)
-	}
-	rows, err := s.documents.ListWikiRevisions(ctx, db.ListWikiRevisionsParams{RepositoryID: repository.ID, PageID: current.ID, Limit: size, Offset: offset})
-	if err != nil {
-		return nil, 0, pkgerrors.Internal("failed to list wiki revisions").WithCause(err)
-	}
-	revisions := make([]WikiRevisionResponse, 0, len(rows))
-	for _, row := range rows {
-		revisions = append(revisions, WikiRevisionResponse{ID: row.ID, Revision: row.Revision, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Slug: row.Slug, Title: row.Title,
-			Body: row.Body, Deleted: row.Deleted, HistoryCommitID: row.HistoryCommitID,
-			Author: WikiAuthorSummary{ID: row.AuthorID.Int64, Login: row.AuthorUsername}, UpdatedAt: row.CreatedAt})
-	}
-	return revisions, total, nil
+	return s.wikiHistory(ctx, repository.ID, current.ID, page, perPage)
 }
 
 func slugifyWikiTitle(value string) string {

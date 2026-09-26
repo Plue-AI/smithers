@@ -48,7 +48,7 @@ SELECT wr.*, ns.lower_slug AS owner_name, r.name AS repo_name
 FROM wiki_page_revisions wr JOIN repositories r ON r.id = wr.repository_id
 JOIN owner_namespaces ns ON (ns.owner_type = 'user' AND ns.user_id = r.user_id)
  OR (ns.owner_type = 'org' AND ns.org_id = r.org_id)
-WHERE wr.visibility = 'public' AND wr.history_commit_id = '' AND NOT EXISTS (
+WHERE wr.visibility = 'public' AND wr.attachment IS NULL AND wr.history_commit_id = '' AND NOT EXISTS (
  SELECT 1 FROM wiki_page_revisions prior
  WHERE prior.page_id = wr.page_id AND prior.revision < wr.revision AND prior.history_commit_id = ''
 )

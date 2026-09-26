@@ -892,6 +892,27 @@ func buildRouter(
 	r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/api/auth/github/cli/consent", authHandler.GetAdminCLIConsent)
 	r.With(apiCSRFMiddleware, middleware.InteractiveAuthRateLimit(queries)).Post("/api/auth/github/cli/consent", authHandler.PostAdminCLIConsent)
 
+	// Binary wiki uploads retain the API auth/CSRF/quota gates, with their own
+	// bounded body instead of the JSON group's media type and 1 MiB limit.
+	if content, ok := wikiService.(routes.WikiContentService); ok {
+		handler := &routes.WikiContentHandler{Service: content}
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JSONTimeout(apiJSONTimeout))
+			r.Use(cors.Handler(apiCORS))
+			r.Use(authLoader(queries, cfg.Auth))
+			r.Use(apiCSRFMiddleware)
+			r.Use(middleware.GlobalAPIRateLimit(queries))
+			if queries != nil {
+				r.Use(middleware.LoadRepoContext(queries))
+			}
+			gates := []func(http.Handler) http.Handler{middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), repoAPIQuota, gateWiki}
+			if queries != nil {
+				gates = append(gates, middleware.RequireRepoPermission(middleware.PermissionWrite))
+			}
+			r.With(gates...).Put("/api/repos/{owner}/{repo}/wiki/attachments/{slug}", handler.PutAttachment)
+		})
+	}
+
 	r.Route("/api", func(r chi.Router) {
 		r.Use(middleware.JSONTimeout(apiJSONTimeout))
 		r.Use(cors.Handler(apiCORS))
@@ -1737,8 +1758,14 @@ func buildRouter(
 			if wikiService != nil {
 				// Legacy Gitea-style /wiki/pages and /wiki/page/{pageName} aliases are intentionally
 				// not mounted so slugs like "pages" and "new" remain valid page names.
+				if content, ok := wikiService.(routes.WikiContentService); ok {
+					h := &routes.WikiContentHandler{Service: content}
+					r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/history/events", h.Events)
+					r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/history/{pageID}", h.History)
+					r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/history/{pageID}/{revision}/content", h.Content)
+				}
 				if indexed, ok := wikiService.(routes.WikiIndexService); ok {
-					r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/index", routes.WikiIndex(indexed))
+					r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/navigation/index", routes.WikiIndex(indexed))
 				}
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki", routes.ListWikiPages(wikiService))
 				r.With(append(readRepo, gateWiki)...).Get("/repos/{owner}/{repo}/wiki/search", routes.SearchWikiPages(wikiService))

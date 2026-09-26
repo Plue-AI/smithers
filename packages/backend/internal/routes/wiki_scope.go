@@ -2,11 +2,12 @@ package routes
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
-	"net/http"
 )
 
 func wikiScopeRequest(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
@@ -15,6 +16,7 @@ func wikiScopeRequest(w http.ResponseWriter, r *http.Request) (*http.Request, bo
 		writeRouteError(w, r, err)
 		return r, false
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	return r.WithContext(ctx), true
 }
 

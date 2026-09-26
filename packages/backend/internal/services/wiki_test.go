@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhooks"
@@ -159,11 +160,11 @@ func sampleWikiRepository() db.Repository {
 func sampleWikiPageRow() db.GetWikiPageBySlugRow {
 	now := time.Now().UTC().Truncate(time.Second)
 	return db.GetWikiPageBySlugRow{
-		ID:             7,
-		RepositoryID:   42,
-		Slug:           "home",
-		Title:          "Home",
-		Body:           "# Welcome",
+		ID:           7,
+		RepositoryID: 42,
+		Slug:         "home",
+		Title:        "Home",
+		Body:         "# Welcome", ContentDigest: wikiDigest([]byte("# Welcome")),
 		AuthorID:       1,
 		AuthorUsername: "alice",
 		CreatedAt:      now,
@@ -193,7 +194,7 @@ func TestWikiService_ListWikiPages_ListAndSearch(t *testing.T) {
 			},
 		}
 
-		svc := NewWikiService(mockQ, nil)
+		svc := newTestWikiService(mockQ, nil)
 		items, total, err := svc.ListWikiPages(context.Background(), nil, "alice", "demo", ListWikiPagesInput{
 			Page:    2,
 			PerPage: 10,
@@ -224,7 +225,7 @@ func TestWikiService_ListWikiPages_ListAndSearch(t *testing.T) {
 			},
 		}
 
-		svc := NewWikiService(mockQ, nil)
+		svc := newTestWikiService(mockQ, nil)
 		items, total, err := svc.ListWikiPages(context.Background(), nil, "alice", "demo", ListWikiPagesInput{
 			Query:   "run",
 			Page:    1,
@@ -249,7 +250,7 @@ func TestWikiService_GetWikiPage_RequiresReadAccessForPrivateRepos(t *testing.T)
 		},
 	}
 
-	svc := NewWikiService(mockQ, nil)
+	svc := newTestWikiService(mockQ, nil)
 	_, err := svc.GetWikiPage(context.Background(), nil, "alice", "demo", "home")
 	require.Error(t, err)
 	apiErr := &pkgerrors.APIError{}
@@ -279,7 +280,7 @@ func TestWikiService_CreateWikiPage_CreatesPageAndDispatches(t *testing.T) {
 		},
 	}
 
-	svc := NewWikiService(mockQ, dispatcher)
+	svc := newTestWikiService(mockQ, dispatcher)
 	created, err := svc.CreateWikiPage(context.Background(), actor, "alice", "demo", CreateWikiPageInput{
 		Title: "Getting Started",
 		Body:  "# Welcome",
@@ -304,7 +305,7 @@ func TestWikiService_CreateWikiPage_MapsUniqueViolationToConflict(t *testing.T) 
 		},
 	}
 
-	svc := NewWikiService(mockQ, nil)
+	svc := newTestWikiService(mockQ, nil)
 	_, err := svc.CreateWikiPage(context.Background(), actor, "alice", "demo", CreateWikiPageInput{
 		Title: "Home",
 		Body:  "",
@@ -341,7 +342,7 @@ func TestWikiService_UpdateWikiPage_UpdatesRequestedFields(t *testing.T) {
 		},
 	}
 
-	svc := NewWikiService(mockQ, nil)
+	svc := newTestWikiService(mockQ, nil)
 	newTitle := "Start Here"
 	newBody := "Updated body"
 	updated, err := svc.UpdateWikiPage(context.Background(), actor, "alice", "demo", "home", UpdateWikiPageInput{
@@ -366,7 +367,7 @@ func TestWikiService_CreateWikiPage_RejectsOversizedBody(t *testing.T) {
 		},
 	}
 
-	svc := NewWikiService(mockQ, nil)
+	svc := newTestWikiService(mockQ, nil)
 	bigBody := strings.Repeat("x", 1<<20+1) // 1 MB + 1 byte
 	_, err := svc.CreateWikiPage(context.Background(), actor, "alice", "demo", CreateWikiPageInput{
 		Title: "Big Page",
@@ -390,7 +391,7 @@ func TestWikiService_UpdateWikiPage_RejectsOversizedBody(t *testing.T) {
 		},
 	}
 
-	svc := NewWikiService(mockQ, nil)
+	svc := newTestWikiService(mockQ, nil)
 	bigBody := strings.Repeat("x", 1<<20+1) // 1 MB + 1 byte
 	_, err := svc.UpdateWikiPage(context.Background(), actor, "alice", "demo", "home", UpdateWikiPageInput{
 		Body: &bigBody,
@@ -453,7 +454,7 @@ func TestWikiService_CreateWikiPage_AtomicityOnDBFailure(t *testing.T) {
 		},
 	}
 
-	svc := NewWikiService(mockQ, dispatcher)
+	svc := newTestWikiService(mockQ, dispatcher)
 	_, err := svc.CreateWikiPage(context.Background(), actor, "alice", "demo", CreateWikiPageInput{
 		Title: "Atomic Test",
 		Body:  "content",
@@ -478,8 +479,13 @@ func TestWikiService_DeleteWikiPage_DeletesExistingPage(t *testing.T) {
 		},
 	}
 
-	svc := NewWikiService(mockQ, nil)
+	svc := newTestWikiService(mockQ, nil)
 	err := svc.DeleteWikiPage(context.Background(), actor, "alice", "demo", "home")
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), deletedID)
+}
+
+func newTestWikiService(q WikiQuerier, d WikiDispatcher, options ...WikiServiceOption) *WikiService {
+	options = append([]WikiServiceOption{WithWikiContent(blob.NewMemoryStore())}, options...)
+	return NewWikiService(q, d, options...)
 }

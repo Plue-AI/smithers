@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -67,7 +68,7 @@ func TestWikiCollaboration_PostgresNativeLifecycle(t *testing.T) {
 	server := httptest.NewServer(backend.Handler())
 	defer server.Close()
 	host := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: server.URL}, "wiki-test-secret")
-	service := NewWikiService(q, nil, WithWikiCollaboration(q, host))
+	service := newTestWikiService(q, nil, WithWikiCollaboration(q, host))
 	page, err := service.CreateWikiPage(ctx, &actor, actor.Username, repository.Name, CreateWikiPageInput{Title: "Home", Body: "Hello 🌎"})
 	require.NoError(t, err)
 	doc, err := service.GetWikiDocument(ctx, &actor, actor.Username, repository.Name, page.Slug)
@@ -79,6 +80,8 @@ func TestWikiCollaboration_PostgresNativeLifecycle(t *testing.T) {
 	require.Equal(t, int64(1), count)
 	_, err = service.ApplyWikiUpdate(ctx, &actor, actor.Username, repository.Name, page.Slug, WikiUpdateInput{PageID: page.ID, UpdateID: uuid.NewString(), Update: "AA=="})
 	require.Equal(t, 400, apiStatus(t, err), "native HTTP decode failure must remain a client error")
+	// Rebuilding the derived SQL state retains the initialized causal seed.
+	require.NoError(t, q.RebuildWikiProjection(ctx, repoID, "public"))
 	// CAS initialization is stable for all readers and never duplicates seed text.
 	again, err := service.GetWikiDocument(ctx, &actor, actor.Username, repository.Name, page.Slug)
 	require.NoError(t, err)
@@ -122,7 +125,7 @@ func TestWikiCollaboration_PostgresNativeLifecycle(t *testing.T) {
 		_, err := pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repoID, collaboratorID)
 		require.NoError(t, err)
 	}}
-	revokedService := NewWikiService(q, nil, WithWikiCollaboration(q, revoking))
+	revokedService := newTestWikiService(q, nil, WithWikiCollaboration(q, revoking))
 	_, err = revokedService.ApplyWikiUpdate(ctx, &collaborator, actor.Username, repository.Name, page.Slug, WikiUpdateInput{PageID: page.ID, UpdateID: uuid.NewString(), Update: merged.State})
 	require.Equal(t, 403, apiStatus(t, err), "write permission must be rechecked after remote merge")
 	changedSlug := "renamed"
@@ -165,7 +168,18 @@ func TestWikiCollaboration_PostgresNativeLifecycle(t *testing.T) {
 	_, err = service.ApplyWikiUpdate(ctx, nil, actor.Username, repository.Name, changedSlug, input)
 	require.Equal(t, 401, apiStatus(t, err))
 	// Parent deletion must cascade both pages and immutable revision rows cleanly.
-	require.NoError(t, q.DeleteRepo(ctx, repoID))
+	// The repository deletion fixture must honor the existing storage journal fence.
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer tx.Rollback(ctx)
+	token := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
+	_, err = tx.Exec(ctx, `INSERT INTO repository_storage_operations(repository_id,operation_type,token,storage_route_key,source_owner,source_repo,source_user_id)
+ SELECT r.id,'delete',$2,'static',u.username,r.name,r.user_id FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, repoID, token)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SELECT set_config('smithers.repository_storage_operation_token',$1,true)`, token)
+	require.NoError(t, err)
+	require.NoError(t, db.New(tx).DeleteRepo(ctx, repoID))
+	require.NoError(t, tx.Commit(ctx))
 	_, err = q.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Slug: changedSlug})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

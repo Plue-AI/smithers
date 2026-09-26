@@ -2197,6 +2197,7 @@ type WikiPage struct {
 	Visibility    string      `json:"visibility"`
 	Path          string      `json:"path"`
 	ContentDigest string      `json:"content_digest"`
+	Attachment    []byte      `json:"attachment"`
 }
 
 type WikiPageRevision struct {
@@ -2217,6 +2218,10 @@ type WikiPageRevision struct {
 	Visibility      string      `json:"visibility"`
 	Path            string      `json:"path"`
 	ContentDigest   string      `json:"content_digest"`
+	Attachment      []byte      `json:"attachment"`
+	Sequence        int64       `json:"sequence"`
+	CrdtState       []byte      `json:"crdt_state"`
+	CrdtVector      []byte      `json:"crdt_vector"`
 }
 
 type WorkflowArtifact struct {

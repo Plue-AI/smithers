@@ -22,7 +22,8 @@ func TestWikiProduct_PostgresScopesAndGraph(t *testing.T) {
 	outsiderID, _ := setupTestUserAndRepo(t, pool)
 	outsider, err := q.GetUserByID(ctx, outsiderID)
 	require.NoError(t, err)
-	s := NewWikiService(q, nil, WithWikiCollaboration(q, nil))
+	dispatcher := &mockWikiDispatcher{}
+	s := newTestWikiService(q, dispatcher, WithWikiCollaboration(q, nil))
 	private, err := WithWikiVisibility(ctx, "private")
 	require.NoError(t, err)
 	markdown := "---\naliases: [Start]\ntags: [guide]\ncustom: preserved\n---\n# Welcome\n[[Target#Details|read]] ![[Target]] #hello\n`[[Ignored]]`\n```md\n[[Ignored]]\n```\n"
@@ -31,6 +32,7 @@ func TestWikiProduct_PostgresScopesAndGraph(t *testing.T) {
 	secret, err := s.CreateWikiPage(private, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Home", Path: "Guides/Home.md", Body: "secret private text"})
 	require.NoError(t, err)
 	require.NotEqual(t, public.ID, secret.ID)
+	require.Len(t, dispatcher.calls, 1, "private creation must not dispatch repository webhooks")
 	target, err := s.CreateWikiPage(ctx, &actor, actor.Username, repo.Name, CreateWikiPageInput{Title: "Target", Path: "Guides/Target.md", Body: "# Details"})
 	require.NoError(t, err)
 	for _, viewer := range []*db.User{nil, &outsider} {
@@ -79,7 +81,9 @@ func TestWikiProduct_PostgresScopesAndGraph(t *testing.T) {
 	require.Equal(t, int64(2), total)
 	require.Equal(t, "Guides/Target.md", history[1].Path)
 	require.Equal(t, moved, history[0].Path)
+	publicDispatches := len(dispatcher.calls)
 	require.NoError(t, s.DeleteWikiPage(private, &actor, actor.Username, repo.Name, secret.Slug))
+	require.Len(t, dispatcher.calls, publicDispatches, "private deletion must not dispatch repository webhooks")
 	events, err := s.ListWikiUpdates(private, &actor, actor.Username, repo.Name, secret.Slug, secret.ID, 0)
 	require.NoError(t, err)
 	require.Len(t, events, 2)

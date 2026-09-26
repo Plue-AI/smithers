@@ -569,7 +569,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	webhookService := services.NewWebhookService(queries, webhookSecretCodec, services.WithWebhookOwnershipGuard(repoOwnershipFence))
 	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	variableService := services.NewVariableService(queries, services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
-	wikiService := services.NewWikiService(queries, webhookDispatcher, services.WithWikiCollaboration(queries, repoHostClient))
 
 	workflowAPIService := services.NewWorkflowAPIService(queries, workflowRunService, services.WithWorkflowAPIBillingPolicy(billingPolicy))
 
@@ -584,6 +583,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		defer func() { _ = blobCloser.Close() }()
 	}
 	transferStore := blobStore
+	wikiService := services.NewWikiService(queries, webhookDispatcher, services.WithWikiCollaboration(queries, repoHostClient), services.WithWikiContent(blobStore))
 
 	lfsVerifyTokenManager, err := lfsauth.NewManager(cfg.Auth.LFSSigningSecret)
 	if err != nil {

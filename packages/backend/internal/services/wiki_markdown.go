@@ -1,9 +1,11 @@
 package services
 
 import (
+	"math"
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -32,7 +34,7 @@ var wikiTagPattern = regexp.MustCompile(`(?:^|\s)#([\pL\pN_][\pL\pN_/-]*)`)
 // byte-for-byte authoritative; no generated HTML is trusted by this API.
 func ParseWikiMarkdown(body string) WikiMetadata {
 	result := WikiMetadata{Frontmatter: map[string]any{}, Aliases: []string{}, Tags: []string{}, Headings: []string{}, Links: []WikiLink{}}
-	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	lines := strings.Split(strings.ReplaceAll(strings.TrimPrefix(body, "\ufeff"), "\r\n", "\n"), "\n")
 	if len(lines) > 0 && lines[0] == "---" {
 		for i := 1; i < len(lines); i++ {
 			if lines[i] == "---" || lines[i] == "..." {
@@ -48,6 +50,7 @@ func ParseWikiMarkdown(body string) WikiMetadata {
 			}
 		}
 	}
+	var inComment bool
 	var fence byte
 	var width int
 	for _, line := range lines {
@@ -74,6 +77,7 @@ func ParseWikiMarkdown(body string) WikiMetadata {
 			continue
 		}
 		line = wikiWithoutCode(line)
+		line = wikiWithoutComments(line, &inComment)
 		trimmed = strings.TrimSpace(line)
 		n := 0
 		for n < len(trimmed) && trimmed[n] == '#' {
@@ -161,6 +165,11 @@ func wikiJSONMap(in map[string]any) map[string]any {
 }
 func wikiJSONValue(value any) any {
 	switch v := value.(type) {
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return strconv.FormatFloat(v, 'g', -1, 64)
+		}
+		return v
 	case map[string]any:
 		return wikiJSONMap(v)
 	case map[any]any:
@@ -194,7 +203,7 @@ func wikiUnique(in []string) []string {
 	return out
 }
 func wikiPathKey(value string) string {
-	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), ".md"))
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".md")
 }
 
 func resolveWikiLinks(pages []WikiIndexPage) {
@@ -245,4 +254,29 @@ func resolveWikiLinks(pages []WikiIndexPage) {
 			}
 		}
 	}
+}
+
+func wikiWithoutComments(line string, inComment *bool) string {
+	bytes := []byte(line)
+	for i := 0; i < len(line); {
+		if !*inComment {
+			start := strings.Index(line[i:], "<!--")
+			if start < 0 {
+				break
+			}
+			i += start
+			*inComment = true
+		}
+		end := strings.Index(line[i:], "-->")
+		stop := len(line)
+		if end >= 0 {
+			stop = i + end + 3
+			*inComment = false
+		}
+		for j := i; j < stop; j++ {
+			bytes[j] = ' '
+		}
+		i = stop
+	}
+	return string(bytes)
 }
