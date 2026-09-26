@@ -745,7 +745,7 @@ describe("an invocation that never runs a command answers before the control pla
       expect(result.status).toBe(1)
       expect(result.stdout).toContain("VALIDATION_ERROR")
       expect(JSON.parse(result.stdout).fieldErrors).toContainEqual(
-        expect.objectContaining({ path: "pattern", missing: true })
+        expect.objectContaining({ path: "patterns", missing: true })
       )
       expect(readdirSync(cwd)).toEqual([])
     })

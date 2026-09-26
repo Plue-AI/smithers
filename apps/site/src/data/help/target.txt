@@ -1,9 +1,9 @@
-smthrs target — Execute one PACKAGE.ts label with its flavor-implied verb (the bare-label form)
+smthrs target — Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)
 
-Usage: smthrs target <pattern> [options]
+Usage: smthrs target <patterns...> [options]
 
 Arguments:
-  pattern  Bazel label or recursive pattern
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

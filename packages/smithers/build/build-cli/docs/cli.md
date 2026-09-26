@@ -103,19 +103,19 @@ rest on every command: `--help`, `--version`, `--json`,
 
 ## Execution commands
 
-Each of these takes a pattern argument, the workspace options, and the
-execution options.
+Each of these takes one or more patterns, the workspace options, and the
+execution options. Several patterns run their union in one plan.
 
-| Command  | Argument    | Own options                                                   |
-| -------- | ----------- | ------------------------------------------------------------- |
-| `build`  | `<pattern>` |                                                               |
-| `test`   | `<pattern>` |                                                               |
-| `lint`   | `<pattern>` | `--fix`                                                       |
-| `docs`   | `<pattern>` | `--write`                                                     |
-| `review` | `<pattern>` |                                                               |
-| `ci`     | `<pattern>` |                                                               |
-| `run`    | `<pattern>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`       |
-| `target` | `<label>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i` |
+| Command  | Argument        | Own options                                                   |
+| -------- | --------------- | ------------------------------------------------------------- |
+| `build`  | `<patterns...>` |                                                               |
+| `test`   | `<patterns...>` |                                                               |
+| `lint`   | `<patterns...>` | `--fix`                                                       |
+| `docs`   | `<patterns...>` | `--write`                                                     |
+| `review` | `<patterns...>` |                                                               |
+| `ci`     | `<patterns...>` |                                                               |
+| `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`       |
+| `target` | `<labels...>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i` |
 
 ### build, test, lint
 

@@ -462,7 +462,7 @@ describe.runIf(hasGo)("Go toolchain environment", () => {
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
     const planned = await PackageExec.plan({
       index: PackageIndex.make(loaded),
-      pattern: "//:test",
+      patterns: ["//:test"],
       cacheDirectory: ".flows",
       verb: "auto"
     })

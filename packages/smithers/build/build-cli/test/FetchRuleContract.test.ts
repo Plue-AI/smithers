@@ -67,7 +67,7 @@ const planned = async (url: string, digest: string, out = "download.bin") => {
     }),
     packages: [{ file: "data/PACKAGE.ts", packagePath: "data", value: S.Package({ targets: { download: target } }) }]
   })
-  const plan = await PackageExec.plan({ index, cacheDirectory: ".flows", verb: "auto", pattern: "//data:download" })
+  const plan = await PackageExec.plan({ index, cacheDirectory: ".flows", verb: "auto", patterns: ["//data:download"] })
   const node = plan.nodes.get("//data:download")!
   expect(node.refusal).toBeUndefined()
   if (node.family !== "fetch") throw new Error("expected the complete Fetch variant")

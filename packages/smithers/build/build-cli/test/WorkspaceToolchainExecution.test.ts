@@ -145,7 +145,7 @@ describe("manifest toolchain execution", () => {
       PackageExec.plan({
         index,
         cacheDirectory: ".flows",
-        pattern: "//:check",
+        patterns: ["//:check"],
         verb: "build"
       })
     const before = (await plan()).nodes.get("//:check")!
@@ -450,7 +450,7 @@ describe.skipIf(process.platform === "win32")("one-shot workspace runtime refere
   it("probes Node and its launcher independently while sharing identical probes across targets", async () => {
     const root = await oneShotFixture("node")
     const index = PackageIndex.make(await PackageLoader.load(await PackageDiscovery.discover(root)))
-    const plan = await PackageExec.plan({ index, cacheDirectory: ".flows", pattern: "//...", verb: "run" })
+    const plan = await PackageExec.plan({ index, cacheDirectory: ".flows", patterns: ["//..."], verb: "run" })
     for (const target of ["//:generate", "//:run"]) {
       expect(plan.nodes.get(target)?.refusal).toBeUndefined()
       expect(plan.nodes.get(target)?.keyPreview).toBeTypeOf("string")
@@ -520,8 +520,9 @@ export const Package = S.Package({targets: {
     const stableBytes = await Promise.all(stablePaths.map((path) => Fs.readFile(Path.join(root, path), "utf8")))
     const index = PackageIndex.make(await PackageLoader.load(await PackageDiscovery.discover(root)))
     const plan = async () => {
-      const target = (await PackageExec.plan({ index, cacheDirectory: ".flows", pattern: "//:build", verb: "build" }))
-        .nodes.get("//:build")!
+      const target =
+        (await PackageExec.plan({ index, cacheDirectory: ".flows", patterns: ["//:build"], verb: "build" }))
+          .nodes.get("//:build")!
       expect(target.refusal).toBeUndefined()
       expect(target.cacheable).toBe(true)
       return target.keyPreview
@@ -560,7 +561,7 @@ export const Package = S.Package({targets: {
     const original = await Fs.readFile(launcher, "utf8")
     const index = PackageIndex.make(await PackageLoader.load(await PackageDiscovery.discover(root)))
     const plan = async () => {
-      const node = (await PackageExec.plan({ index, cacheDirectory: ".flows", pattern: "//:generate", verb: "run" }))
+      const node = (await PackageExec.plan({ index, cacheDirectory: ".flows", patterns: ["//:generate"], verb: "run" }))
         .nodes.get("//:generate")!
       expect(node.refusal).toBeUndefined()
       return node.keyPreview

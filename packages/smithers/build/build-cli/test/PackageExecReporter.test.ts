@@ -115,7 +115,7 @@ describe("PackageExec reporter hooks", () => {
       index: await openIndex(root),
       cacheDirectory: ".flows",
       verb: "auto",
-      pattern: "//:good",
+      patterns: ["//:good"],
       readCache: false,
       reporter,
       environment: { ...process.env, API_TOKEN: "private-value" }
@@ -143,7 +143,7 @@ describe("PackageExec reporter hooks", () => {
       index: await openIndex(root),
       cacheDirectory: ".flows",
       verb: "auto",
-      pattern: "//:good",
+      patterns: ["//:good"],
       readCache: false,
       reporter,
       environment: { ...process.env, API_TOKEN: "private-value", SMTHRS_REPO_CHILD: "1" }
@@ -166,7 +166,7 @@ describe("PackageExec reporter hooks", () => {
       index: await openIndex(root),
       cacheDirectory: ".flows",
       verb: "auto",
-      pattern: "//:good",
+      patterns: ["//:good"],
       readCache: false,
       reporter,
       environment: { ...process.env, SMTHRS_REPO_CHILD: "1" }
@@ -188,7 +188,7 @@ describe("PackageExec reporter hooks", () => {
       index: await openIndex(root),
       cacheDirectory: ".flows",
       verb: "auto",
-      pattern: "//:good",
+      patterns: ["//:good"],
       readCache: false,
       reporter,
       environment: { ...ambient, API_TOKEN: "private-value" }
@@ -205,7 +205,7 @@ describe("PackageExec reporter hooks", () => {
       index: await openIndex(root),
       cacheDirectory: ".flows",
       verb: "auto",
-      pattern: "//:all",
+      patterns: ["//:all"],
       readCache: false,
       jobs: 1,
       reporter
@@ -234,7 +234,7 @@ describe("PackageExec reporter hooks", () => {
       index: await openIndex(root),
       cacheDirectory: ".flows",
       verb: "test",
-      pattern: "//:good",
+      patterns: ["//:good"],
       readCache: false,
       log: (line) => lines.push(line)
     })
@@ -247,9 +247,9 @@ describe("PackageExec reporter hooks", () => {
     const root = await fixture()
     const index = await openIndex(root)
     const first = recorder()
-    await PackageExec.run({ index, cacheDirectory: ".flows", verb: "test", pattern: "//:good", reporter: first })
+    await PackageExec.run({ index, cacheDirectory: ".flows", verb: "test", patterns: ["//:good"], reporter: first })
     const second = recorder()
-    await PackageExec.run({ index, cacheDirectory: ".flows", verb: "test", pattern: "//:good", reporter: second })
+    await PackageExec.run({ index, cacheDirectory: ".flows", verb: "test", patterns: ["//:good"], reporter: second })
     expect(first.events).toContain("finished //:good ran")
     expect(second.events).toContain("started //:good")
     expect(second.events).toContain("finished //:good hit")

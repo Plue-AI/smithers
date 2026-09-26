@@ -67,7 +67,7 @@ it("plans an explicit Filegroup cwd without crossing nested packages or changing
         }
       ]
     })
-    const inspect = () => plan({ index, cacheDirectory: ".flows", verb: "auto", pattern: "//flows:consumer" })
+    const inspect = () => plan({ index, cacheDirectory: ".flows", verb: "auto", patterns: ["//flows:consumer"] })
     const first = await inspect()
     const group = first.nodes.get("//flows:external")!
     expect(group.declaredInputs.flatMap((input) => input.files.map((file) => file.path))).toEqual(["lib/src/value.ts"])

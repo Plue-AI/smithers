@@ -115,7 +115,7 @@ export const Package = S.Package({ targets: { artifacts, srcs } })
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
     const plan = await PackageExec.plan({
       index: PackageIndex.make(loaded),
-      pattern: "//:artifacts",
+      patterns: ["//:artifacts"],
       cacheDirectory: ".flows",
       verb: "build",
       plan: true,

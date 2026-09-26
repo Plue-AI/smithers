@@ -106,7 +106,8 @@ export interface RunOptions {
    */
   readonly remoteCache?: Workspace.RemoteCacheAccess | undefined
   readonly verb: PackageVerb
-  readonly pattern: string
+  /** The target patterns whose union this invocation selects; at least one. */
+  readonly patterns: ReadonlyArray<string>
   /** Opts wildcard test and CI selections into the exclusive tier. */
   readonly includeExclusive?: boolean | undefined
   /**

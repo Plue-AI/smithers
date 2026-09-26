@@ -1,9 +1,9 @@
 smthrs ci — Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set
 
-Usage: smthrs ci <pattern> [options]
+Usage: smthrs ci <patterns...> [options]
 
 Arguments:
-  pattern  Bazel label or recursive pattern
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

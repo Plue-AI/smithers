@@ -94,7 +94,7 @@ const keysOf = async (root: string): Promise<Record<string, string>> => {
   const index = indexOf(root)
   const keys: Record<string, string> = {}
   for (const label of labels) {
-    const planned = await plan({ index, cacheDirectory: ".flows", verb: "auto", pattern: label })
+    const planned = await plan({ index, cacheDirectory: ".flows", verb: "auto", patterns: [label] })
     const node = planned.nodes.get(label)!
     expect(node.cacheable, label).toBe(true)
     keys[label] = node.keyPreview
@@ -139,12 +139,12 @@ it("replays a verdict from a cache carried into a fresh checkout at another path
   // Each check export plans and executes its own tree.
   const executeAt = async (root: string) => {
     const index = indexOf(root)
-    const planned = await plan({ index, cacheDirectory: ".flows", verb: "test", pattern: "//c:c" })
+    const planned = await plan({ index, cacheDirectory: ".flows", verb: "test", patterns: ["//c:c"] })
     const summary = await execute(planned, {
       index,
       cacheDirectory: ".flows",
       verb: "test",
-      pattern: "//c:c",
+      patterns: ["//c:c"],
       log: () => {}
     })
     return summary.results.find((row) => row.label === "//c:c")!

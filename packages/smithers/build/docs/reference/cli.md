@@ -242,18 +242,24 @@ Failure: error code `create_app_failed`, exit code 1.
 
 ## build
 
-Executes the build targets a pattern selects.
+Executes the build targets one or more patterns select.
 
 ```sh
 smithers-build build //...
 smithers-build build //packages/greeter:lib
+smithers-build build //packages/greeter/... //packages/api/...
 smithers-build build //packages/... --jobs 4
 smithers-build build //... --plan
 ```
 
-| Argument  | Description                        |
-| --------- | ---------------------------------- |
-| `pattern` | A Bazel label or recursive pattern |
+| Argument      | Description                                    |
+| ------------- | ---------------------------------------------- |
+| `patterns...` | One or more Bazel labels or recursive patterns |
+
+Several patterns run their union in one plan: a target two patterns select runs
+once, and every pattern must select on its own terms, so a named label that does
+not declare the verb fails the whole invocation. The result's `pattern` field
+is the patterns joined by spaces.
 
 Options: the [common options](#common-options) plus the execution options.
 
@@ -381,9 +387,9 @@ irreversible-exec layer reports a target failure with `unresolved_action`.
 
 ## target
 
-Executes one build-system label under the verb its definition implies. This is
+Executes build-system labels under the verb each definition implies. This is
 the bare-label form. An argv whose first token starts with `//` or `:` is rewritten
-to `target <label>`, so `smithers-build //packages/greeter:lint` is the same
+to `target <labels...>`, so `smithers-build //packages/greeter:lint` is the same
 invocation. It requires a `WORKSPACE.ts` workspace and refuses a `PACKAGE.ts`
 workspace.
 
@@ -392,9 +398,9 @@ smithers-build target //packages/greeter:lint
 smithers-build //packages/greeter:lint
 ```
 
-| Argument | Description          |
-| -------- | -------------------- |
-| `label`  | A build-system label |
+| Argument    | Description                     |
+| ----------- | ------------------------------- |
+| `labels...` | One or more build-system labels |
 
 In addition to the common execution options, `target` accepts:
 
@@ -480,7 +486,7 @@ at all. See [Ownership](../concepts/ownership.md).
 
 ## ci
 
-Plans `lint`, `build`, `test`, and `docs` over one pattern and executes the
+Plans `lint`, `build`, `test`, and `docs` over the patterns' union and executes the
 merged graph once. `run` and `review` are excluded: a run target may mutate the
 tree or hold a process open, and a review target expands a git diff at plan time
 and then calls a model, neither of which an unattended pipeline can do. See

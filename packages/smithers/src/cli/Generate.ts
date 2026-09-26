@@ -142,7 +142,7 @@ const generateTarget = async (
   }
   const outcome = await runPackageVerb(
     "auto",
-    selected[0]!.label,
+    [selected[0]!.label],
     {
       workspace: options.workspace,
       plan: options.plan,

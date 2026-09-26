@@ -1,9 +1,9 @@
 smthrs build — Execute the build targets selected by a pattern
 
-Usage: smthrs build <pattern> [options]
+Usage: smthrs build <patterns...> [options]
 
 Arguments:
-  pattern  Bazel label or recursive pattern
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

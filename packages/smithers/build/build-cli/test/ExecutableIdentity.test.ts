@@ -120,7 +120,7 @@ if (process.argv.includes("--version")) { console.log("1.0.0"); } else {
       const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
       const planned = await PackageExec.plan({
         index: PackageIndex.make(loaded),
-        pattern: "//:dist",
+        patterns: ["//:dist"],
         cacheDirectory: ".flows",
         verb: "auto"
       })
@@ -157,7 +157,7 @@ if printf changed > '${installed}/value' 2>/dev/null; then exit 1; fi
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
     const planned = await PackageExec.plan({
       index: PackageIndex.make(loaded),
-      pattern: "//:dist",
+      patterns: ["//:dist"],
       cacheDirectory: ".flows",
       verb: "auto"
     })
@@ -179,7 +179,7 @@ if printf changed > '${installed}/value' 2>/dev/null; then exit 1; fi
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
     const planned = await PackageExec.plan({
       index: PackageIndex.make(loaded),
-      pattern: "//:dist",
+      patterns: ["//:dist"],
       cacheDirectory: ".flows",
       verb: "auto"
     })
@@ -218,7 +218,7 @@ export const Package = S.Package({ targets: { dist: S.Shell.Build({ shell: "${bi
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
     const planned = await PackageExec.plan({
       index: PackageIndex.make(loaded),
-      pattern: "//:dist",
+      patterns: ["//:dist"],
       cacheDirectory: ".flows",
       verb: "auto"
     })
@@ -399,7 +399,7 @@ export const Package = S.Package({ targets: { producer, dist: ${target} } })`
       const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
       const options = {
         index: PackageIndex.make(loaded),
-        pattern: "//:dist",
+        patterns: ["//:dist"],
         cacheDirectory: ".flows",
         verb: "auto" as const
       }
@@ -417,7 +417,7 @@ export const Package = S.Package({ targets: { producer, dist: ${target} } })`
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
     const options = {
       index: PackageIndex.make(loaded),
-      pattern: "//:dist",
+      patterns: ["//:dist"],
       cacheDirectory: ".flows",
       verb: "auto" as const
     }
@@ -440,7 +440,7 @@ export const Package = S.Package({ targets: { producer, dist: ${target} } })`
     const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
     const options = {
       index: PackageIndex.make(loaded),
-      pattern: "//:dist",
+      patterns: ["//:dist"],
       cacheDirectory: ".flows",
       verb: "auto" as const
     }

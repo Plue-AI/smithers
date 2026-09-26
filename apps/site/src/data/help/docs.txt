@@ -1,9 +1,9 @@
 smthrs docs — Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
 
-Usage: smthrs docs <pattern> [options]
+Usage: smthrs docs <patterns...> [options]
 
 Arguments:
-  pattern  Bazel label or recursive pattern
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

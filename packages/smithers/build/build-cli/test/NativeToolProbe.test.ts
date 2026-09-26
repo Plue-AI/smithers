@@ -82,7 +82,7 @@ export const Package = S.Package({ targets: {
       const loaded = await PackageLoader.load(await PackageDiscovery.discover(root))
       const plan = await PackageExec.plan({
         index: PackageIndex.make(loaded),
-        pattern: "//...",
+        patterns: ["//..."],
         cacheDirectory: ".flows",
         verb: "build"
       })

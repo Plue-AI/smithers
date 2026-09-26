@@ -1,9 +1,9 @@
 smthrs review — Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)
 
-Usage: smthrs review <pattern> [options]
+Usage: smthrs review <patterns...> [options]
 
 Arguments:
-  pattern  Bazel label or recursive pattern
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

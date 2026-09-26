@@ -1,9 +1,9 @@
 smthrs lint — Execute the lint targets selected by a pattern
 
-Usage: smthrs lint <pattern> [options]
+Usage: smthrs lint <patterns...> [options]
 
 Arguments:
-  pattern  Bazel label or recursive pattern
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

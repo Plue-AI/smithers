@@ -44,7 +44,7 @@ const fixture = async (url: string, sha256 = digest, out = "nested/payload.bin")
     index,
     cacheDirectory: ".flows",
     verb: "auto",
-    pattern: "//data:pinned",
+    patterns: ["//data:pinned"],
     log: (s: string) => notes.push(s)
   } as const
   const planned = await PackageExec.plan(options)

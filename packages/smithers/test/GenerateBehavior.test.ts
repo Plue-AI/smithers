@@ -313,7 +313,7 @@ describe("generator command behavior", () => {
     expect(ports.openPackageIndex).toHaveBeenCalledExactlyOnceWith({ workspace: "/fixture", plan: true }, result.config)
     expect(ports.runPackageVerb).toHaveBeenCalledExactlyOnceWith(
       "auto",
-      "//:new-package",
+      ["//:new-package"],
       {
         workspace: "/fixture",
         plan: true,
@@ -334,7 +334,7 @@ describe("generator command behavior", () => {
     expect(result.codes).not.toContain(1)
     expect(ports.runPackageVerb).toHaveBeenCalledExactlyOnceWith(
       "auto",
-      "//:ci",
+      ["//:ci"],
       {
         workspace: process.cwd(),
         plan: false,
@@ -352,7 +352,7 @@ describe("generator command behavior", () => {
     })
     const result = await invoke(["package", "chosen", "--target", "//:two", "--workspace", "/fixture"])
     expect(result.codes).not.toContain(1)
-    expect(ports.runPackageVerb.mock.calls[0]?.slice(0, 3)).toEqual(["auto", "//:two", {
+    expect(ports.runPackageVerb.mock.calls[0]?.slice(0, 3)).toEqual(["auto", ["//:two"], {
       workspace: "/fixture",
       plan: false,
       cache: false,

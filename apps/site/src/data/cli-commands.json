@@ -329,13 +329,17 @@
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -498,13 +502,17 @@
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -832,13 +840,17 @@
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -1914,13 +1926,17 @@
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -3116,13 +3132,17 @@
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -3187,13 +3207,17 @@
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -4189,18 +4213,22 @@
     },
     {
       "name": "target",
-      "description": "Execute one PACKAGE.ts label with its flavor-implied verb (the bare-label form)",
+      "description": "Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)",
       "schema": {
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },
@@ -4332,13 +4360,17 @@
         "args": {
           "type": "object",
           "properties": {
-            "pattern": {
-              "type": "string",
-              "description": "Bazel label or recursive pattern"
+            "patterns": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Bazel labels or recursive patterns; the verb runs their union"
             }
           },
           "required": [
-            "pattern"
+            "patterns"
           ],
           "additionalProperties": false
         },

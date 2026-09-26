@@ -2889,7 +2889,7 @@ export const executeEffect = (
 
     reporter.begin({
       verb: options.verb,
-      pattern: options.pattern,
+      pattern: options.patterns.join(" "),
       jobs,
       targets: planned.workList.map((node) => ({ label: node.label, target: node.rule }))
     })
@@ -2925,7 +2925,7 @@ export const executeEffect = (
     const durationMs = performance.now() - startedAt
     const summary: Executor.Summary = {
       verb: options.verb,
-      pattern: options.pattern,
+      pattern: options.patterns.join(" "),
       jobs,
       durationMs,
       counts,

@@ -84,6 +84,10 @@ const patternArgument = z.object({
   pattern: z.string().describe("Bazel label or recursive pattern")
 })
 
+const patternsArgument = z.object({
+  patterns: z.array(z.string()).min(1).describe("Bazel labels or recursive patterns; the verb runs their union")
+})
+
 /** The options every command accepts, parsed before the command is resolved. */
 const globalOptions = z.object({
   audience: z.enum(["auto", "human", "agent"]).default("auto").describe(
@@ -556,7 +560,7 @@ const parseInputs = (entries: ReadonlyArray<string> | undefined): Readonly<Recor
  */
 export const runPackageVerb = async (
   verb: PackageExec.PackageVerb,
-  pattern: string,
+  patterns: ReadonlyArray<string>,
   flags: ExecutionFlags & ModeFlags,
   config: RuntimeConfig,
   reporter: Reporter.Reporter
@@ -576,7 +580,7 @@ export const runPackageVerb = async (
     cacheDirectory,
     ...(remoteCache === undefined ? {} : { remoteCache }),
     verb,
-    pattern,
+    patterns,
     write: flags.write,
     fix: flags.fix,
     plan: flags.plan,
@@ -622,12 +626,12 @@ const runGitHooks = async (
  */
 export const runVerb = async (
   verb: "build" | "test" | "lint" | "run" | "docs" | "review",
-  pattern: string,
+  patterns: ReadonlyArray<string>,
   flags: ExecutionFlags & ModeFlags,
   config: RuntimeConfig,
   reporter: Reporter.Reporter
 ): Promise<Planner.Plan | Executor.Summary | PackageExec.PlanReport> => {
-  return runPackageVerb(verb, pattern, flags, config, reporter)
+  return runPackageVerb(verb, patterns, flags, config, reporter)
 }
 
 /**
@@ -646,14 +650,15 @@ export const runVerb = async (
  */
 const ciKinds = ["lint", "build", "test", "docs"] as const
 
-/** Plans every CI-safe verb over one pattern and executes the merged graph. */
+/** Plans every CI-safe verb over the patterns' union and executes the merged graph. */
 const runCi = async (
-  pattern: string,
+  patterns: ReadonlyArray<string>,
   flags: ExecutionFlags,
   config: RuntimeConfig,
   reporter: Reporter.Reporter
 ): Promise<CiPlan | Executor.Summary> => {
   const index = await openPackageIndex(flags, config)
+  const pattern = patterns.join(" ")
   {
     const cacheDirectory = flags.cacheDir === undefined
       ? index.workspace.cache.directory
@@ -673,7 +678,7 @@ const runCi = async (
             cacheDirectory,
             ...(remoteCache === undefined ? {} : { remoteCache }),
             verb: kind,
-            pattern,
+            patterns,
             plan: flags.plan,
             includeExclusive: flags.includeExclusive,
             jobs: flags.jobs,
@@ -717,7 +722,7 @@ const runCi = async (
         cacheDirectory,
         ...(remoteCache === undefined ? {} : { remoteCache }),
         verb: "ci",
-        pattern,
+        patterns,
         jobs: flags.jobs,
         readCache: flags.cache,
         signal: config.signal,
@@ -894,7 +899,7 @@ const runSelected = async (
       : eligible.filter((entry) => selectedLabels.has(entry.row.label)).map((entry) => entry.row.label)
     for (const label of patterns) {
       try {
-        plans.push(await PackageExec.plan({ ...options, verb: kind, pattern: label, unattended: verb === "ci" }))
+        plans.push(await PackageExec.plan({ ...options, verb: kind, patterns: [label], unattended: verb === "ci" }))
       } catch (cause) {
         if (!(cause instanceof Planner.UnsupportedVerbError)) throw cause
       }
@@ -926,7 +931,7 @@ const runSelected = async (
       }))
     }
   }
-  return PackageExec.execute(combined, { ...options, verb, pattern })
+  return PackageExec.execute(combined, { ...options, verb, patterns: [pattern] })
 }
 
 const showTarget = async (
@@ -941,7 +946,7 @@ const showTarget = async (
   const metadata = Target.metadata(row.target)
   const planned = await PackageExec.plan({
     index,
-    pattern: row.label,
+    patterns: [row.label],
     verb: flags.verb ?? "auto",
     cacheDirectory: cacheDirectoryOf(index, flags),
     plan: true,
@@ -1297,7 +1302,7 @@ export const makeCli = (config: RuntimeConfig = {}) =>
             cacheDirectory,
             ...(remoteCache === undefined ? {} : { remoteCache }),
             verb: "run",
-            pattern: installs[0]!.label,
+            patterns: [installs[0]!.label],
             environment: config.environment,
             signal: config.signal,
             reporter
@@ -1342,7 +1347,7 @@ export const makeCli = (config: RuntimeConfig = {}) =>
     .command("build", {
       description: "Execute the build targets selected by a pattern",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: executionOptions,
       alias: executionAlias,
       run: (context) =>
@@ -1350,13 +1355,13 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           context,
           config,
           "build_failed",
-          (reporter) => runVerb("build", context.args.pattern, context.options, config, reporter)
+          (reporter) => runVerb("build", context.args.patterns, context.options, config, reporter)
         )
     })
     .command("test", {
       description: "Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: executionOptions,
       alias: executionAlias,
       run: (context) =>
@@ -1364,13 +1369,13 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           context,
           config,
           "test_failed",
-          (reporter) => runVerb("test", context.args.pattern, context.options, config, reporter)
+          (reporter) => runVerb("test", context.args.patterns, context.options, config, reporter)
         )
     })
     .command("lint", {
       description: "Execute the lint targets selected by a pattern",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: executionOptions.extend({
         fix: z.boolean().default(false).describe("Apply agent lint fixes inside the declared fixes write-set")
       }),
@@ -1380,14 +1385,14 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           context,
           config,
           "lint_failed",
-          (reporter) => runVerb("lint", context.args.pattern, context.options, config, reporter)
+          (reporter) => runVerb("lint", context.args.patterns, context.options, config, reporter)
         )
     })
     .command("docs", {
       description:
         "Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: executionOptions.extend({
         write: z.boolean().default(false).describe(
           "Refresh the Docs.Check stamps of the selected pages instead of checking them"
@@ -1399,14 +1404,14 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           context,
           config,
           "docs_failed",
-          (reporter) => runVerb("docs", context.args.pattern, context.options, config, reporter)
+          (reporter) => runVerb("docs", context.args.patterns, context.options, config, reporter)
         )
     })
     .command("review", {
       description:
         "Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: executionOptions,
       alias: executionAlias,
       run: (context) =>
@@ -1414,13 +1419,13 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           context,
           config,
           "review_failed",
-          (reporter) => runVerb("review", context.args.pattern, context.options, config, reporter)
+          (reporter) => runVerb("review", context.args.patterns, context.options, config, reporter)
         )
     })
     .command("run", {
       description: "Execute run targets selected by a pattern",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: runOptions,
       alias: { ...executionAlias, ...invocationAlias, name: "n" },
       run: (context) =>
@@ -1428,13 +1433,13 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           context,
           config,
           "run_failed",
-          (reporter) => runVerb("run", context.args.pattern, context.options, config, reporter)
+          (reporter) => runVerb("run", context.args.patterns, context.options, config, reporter)
         )
     })
     .command("target", {
-      description: "Execute one PACKAGE.ts label with its flavor-implied verb (the bare-label form)",
+      description: "Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: executionOptions.extend({
         write: z.boolean().default(false).describe("Apply Diff/Generate/CiGen targets instead of checking drift"),
         fix: z.boolean().default(false).describe("Apply agent lint fixes inside the declared fixes write-set"),
@@ -1443,7 +1448,7 @@ export const makeCli = (config: RuntimeConfig = {}) =>
       alias: { ...executionAlias, ...invocationAlias },
       run: (context) =>
         executeCommand(context, config, "target_failed", async (reporter) => {
-          const outcome = await runPackageVerb("auto", context.args.pattern, context.options, config, reporter)
+          const outcome = await runPackageVerb("auto", context.args.patterns, context.options, config, reporter)
           return outcome
         })
     })
@@ -1482,7 +1487,7 @@ export const makeCli = (config: RuntimeConfig = {}) =>
       description:
         "Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set",
       mcp: { annotations: { readOnlyHint: false } },
-      args: patternArgument,
+      args: patternsArgument,
       options: executionOptions,
       alias: executionAlias,
       run: (context) =>
@@ -1490,7 +1495,7 @@ export const makeCli = (config: RuntimeConfig = {}) =>
           context,
           config,
           "ci_failed",
-          (reporter) => runCi(context.args.pattern, context.options, config, reporter)
+          (reporter) => runCi(context.args.patterns, context.options, config, reporter)
         )
     })
     .command("query", {

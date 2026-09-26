@@ -109,7 +109,7 @@ export const Package = S.Package({ targets: {\n${targets.join(",\n")}\n} })\n`
       // Anvil forks are services (`run` kind), so they plan under their own
       // verb; each plan is one invocation with its own probe cache.
       for (const verb of ["build", "run"] as const) {
-        const plan = await PackageExec.plan({ index, pattern: "//...", cacheDirectory: ".flows", verb })
+        const plan = await PackageExec.plan({ index, patterns: ["//..."], cacheDirectory: ".flows", verb })
         const expected = targets.map((entry) => `//:${entry.split(":")[0]}`).filter((label) =>
           label.startsWith("//:anvil") === (verb === "run")
         )

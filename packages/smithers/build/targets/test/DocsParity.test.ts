@@ -245,7 +245,7 @@ describe("DocsParity execution", () => {
         index: PackageIndex.make(loaded, root),
         cacheDirectory: ".flows",
         verb: "docs",
-        pattern: "//...",
+        patterns: ["//..."],
         jobs: 2,
         readCache: false,
         log: () => {}

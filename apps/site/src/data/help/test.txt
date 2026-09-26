@@ -1,9 +1,9 @@
 smthrs test — Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set
 
-Usage: smthrs test <pattern> [options]
+Usage: smthrs test <patterns...> [options]
 
 Arguments:
-  pattern  Bazel label or recursive pattern
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)

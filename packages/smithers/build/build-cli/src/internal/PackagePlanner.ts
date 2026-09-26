@@ -3120,36 +3120,51 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
   const reporter = Reporter.of(options)
   const log = reporter.note
   const verb = options.verb
-  const parsedPattern = Label.parse(options.pattern, index.currentPackage ?? "")
-  const omitExclusive = (verb === "test" || options.unattended === true) &&
-    parsedPattern._tag === "Subtree" && parsedPattern.target === undefined && options.includeExclusive !== true
-  const rows = index.resolve(options.pattern).filter((row) =>
-    !omitExclusive || !Target.isExclusive(Target.metadata(row.target).attrs)
-  )
   const repoResolutions = RepoResolution.resolver(index, options.environment ?? process.env)
-  const eligible = verb === "auto"
-    ? rows
-    : (await Promise.all(rows.map(async (row) => ({
-      row,
-      kinds: await RepoResolution.effectiveKinds(repoResolutions, row.target, options.signal)
-    })))).filter((entry) => entry.kinds.includes(verb)).map((entry) => entry.row)
-  // `ci` plans each kind it aggregates with the bare verb, so a rule that
-  // spawns an agent under `docs` would be selected by the aggregate's `docs`
-  // pass exactly as by `smithers-build docs`. CI never spawns an agent: the
-  // unattended plan drops those roots before anything is walked or keyed.
-  const selected = options.unattended === true
-    ? eligible.filter((row) => !RulePolicy.of(Target.metadata(row.target).target).attended)
-    : eligible
-  // A named pattern — `//pkg:name` or `//pkg/...:name` — resolved to at least
-  // one row, so an empty selection means those rows do not participate in the
-  // verb. A bare subtree is the only pattern allowed to select nothing.
-  const namedPattern = parsedPattern._tag === "Exact" || parsedPattern.target !== undefined
-  if (verb !== "auto" && namedPattern && selected.length === 0) {
-    throw new Planner.UnsupportedVerbError(options.pattern, verb)
+  if (options.patterns.length === 0) throw new Error("no target pattern given")
+  // Each pattern selects on its own terms; the plan roots are their union,
+  // first selection first, so a target two patterns name is planned once.
+  const selectedByLabel = new Map<string, PackageIndexModule.IndexedTarget>()
+  // Roots a wildcard selected under the exclusive-tier omission. Only their
+  // closure must stay clear of exclusive targets; a root a pattern named keeps
+  // its exclusive dependencies.
+  const wildcardRoots = new Set<string>()
+  for (const pattern of options.patterns) {
+    const parsedPattern = Label.parse(pattern, index.currentPackage ?? "")
+    const omitExclusive = (verb === "test" || options.unattended === true) &&
+      parsedPattern._tag === "Subtree" && parsedPattern.target === undefined && options.includeExclusive !== true
+    const rows = index.resolve(pattern).filter((row) =>
+      !omitExclusive || !Target.isExclusive(Target.metadata(row.target).attrs)
+    )
+    const eligible = verb === "auto"
+      ? rows
+      : (await Promise.all(rows.map(async (row) => ({
+        row,
+        kinds: await RepoResolution.effectiveKinds(repoResolutions, row.target, options.signal)
+      })))).filter((entry) => entry.kinds.includes(verb)).map((entry) => entry.row)
+    // `ci` plans each kind it aggregates with the bare verb, so a rule that
+    // spawns an agent under `docs` would be selected by the aggregate's `docs`
+    // pass exactly as by `smithers-build docs`. CI never spawns an agent: the
+    // unattended plan drops those roots before anything is walked or keyed.
+    const selected = options.unattended === true
+      ? eligible.filter((row) => !RulePolicy.of(Target.metadata(row.target).target).attended)
+      : eligible
+    // A named pattern — `//pkg:name` or `//pkg/...:name` — resolved to at least
+    // one row, so an empty selection means those rows do not participate in the
+    // verb. A bare subtree is the only pattern allowed to select nothing.
+    const namedPattern = parsedPattern._tag === "Exact" || parsedPattern.target !== undefined
+    if (verb !== "auto" && namedPattern && selected.length === 0) {
+      throw new Planner.UnsupportedVerbError(pattern, verb)
+    }
+    if (verb === "auto" && selected.length === 0) {
+      throw new Error(`no targets selected by ${pattern} for the ${verb} verb`)
+    }
+    for (const row of selected) {
+      if (!selectedByLabel.has(row.label)) selectedByLabel.set(row.label, row)
+      if (omitExclusive) wildcardRoots.add(row.label)
+    }
   }
-  if (verb === "auto" && selected.length === 0) {
-    throw new Error(`no targets selected by ${options.pattern} for the ${verb} verb`)
-  }
+  const selected = [...selectedByLabel.values()]
   // The mode each selected root is planned under. Computed before the walk so a
   // target reached first as a dependency still adopts its root mode. A label
   // appears at most once in `selected`, so this maps each root to one mode.
@@ -3246,21 +3261,27 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
   // The work list is the closure of the roots over execution edges only;
   // key-only dependencies (a Clean's targets, a refused rule's attrs) stay
   // planned but unscheduled.
-  const workLabels = new Set<string>()
-  const queue = [...roots]
-  while (queue.length > 0) {
-    const label = queue.pop()!
-    if (workLabels.has(label)) continue
-    workLabels.add(label)
-    const node = context.nodes.get(label)
-    if (node === undefined) throw new Error(`planned execution edge names an unplanned node: ${label}`)
-    if (omitExclusive && Target.isExclusive(node.attrs)) {
+  const closureOf = (starts: Iterable<string>): Set<string> => {
+    const labels = new Set<string>()
+    const queue = [...starts]
+    while (queue.length > 0) {
+      const label = queue.pop()!
+      if (labels.has(label)) continue
+      labels.add(label)
+      const node = context.nodes.get(label)
+      if (node === undefined) throw new Error(`planned execution edge names an unplanned node: ${label}`)
+      for (const dependency of node.dependencies) queue.push(dependency)
+      // A refused consumer never acts, so its gates are not scheduled: running
+      // them would be work in the name of a check nothing will consume.
+      if (node.refusal === undefined) { for (const gate of node.gateDeps) queue.push(gate) }
+    }
+    return labels
+  }
+  const workLabels = closureOf(roots)
+  for (const label of closureOf(wildcardRoots)) {
+    if (!selectedByLabel.has(label) && Target.isExclusive(context.nodes.get(label)!.attrs)) {
       throw new Error(`wildcard selection reaches exclusive dependency ${label}; use --include-exclusive to run it`)
     }
-    for (const dependency of node.dependencies) queue.push(dependency)
-    // A refused consumer never acts, so its gates are not scheduled: running
-    // them would be work in the name of a check nothing will consume.
-    if (node.refusal === undefined) { for (const gate of node.gateDeps) queue.push(gate) }
   }
   const workList = [...workLabels].map((label) => context.nodes.get(label)!)
   return { roots, workList, nodes: context.nodes, closures: context.closureResults }

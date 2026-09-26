@@ -62,7 +62,7 @@ afterAll(async () => {
 })
 
 const plan = (pattern: string): Promise<PackageExec.PackagePlan> =>
-  PackageExec.plan({ index, cacheDirectory: ".flows", verb: "test", pattern, plan: true })
+  PackageExec.plan({ index, cacheDirectory: ".flows", verb: "test", patterns: [pattern], plan: true })
 
 const cliPlan = async (verb: string, pattern: string, ...flags: ReadonlyArray<string>) => {
   let output = ""
@@ -161,7 +161,7 @@ export const Package = S.Package({ targets: { all: S.Suite({ tests: [faults] }) 
         index: withDependency,
         cacheDirectory: ".flows",
         verb: "test" as const,
-        pattern: "//packages/...",
+        patterns: ["//packages/..."],
         plan: true
       }
       await expect(PackageExec.plan(options)).rejects.toThrow(/exclusive.*--include-exclusive/)

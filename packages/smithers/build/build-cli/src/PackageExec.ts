@@ -51,7 +51,7 @@ export async function run(options: RunOptions): Promise<Executor.Summary | PlanR
   if (options.plan === true) {
     return {
       verb: options.verb,
-      pattern: options.pattern,
+      pattern: options.patterns.join(" "),
       roots: planned.roots,
       targets: planned.workList.map((node) => ({
         label: node.label,

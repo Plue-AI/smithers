@@ -12,8 +12,8 @@ run-kind targets; `flow start` starts durable flows.
 
 | Command | Purpose |
 | --- | --- |
-| `build/test/lint/docs/review/ci/run <pattern>` | Execute selected target kinds; `ci` combines build, test, lint, and docs. |
-| `target <label>` or `//package:target` | Execute one exact declaration using its own kind. |
+| `build/test/lint/docs/review/ci/run <patterns...>` | Execute the union of the selected target kinds; `ci` combines build, test, lint, and docs. |
+| `target <labels...>` or `//package:target` | Execute exact declarations using their own kinds. |
 | `targets [pattern]` | List target labels and summaries. |
 | `show target <label>`, `show workspace`, `info` | Inspect inputs, outputs, dependencies, toolchains, and configuration. |
 | `query <expression>`, `graph [pattern]`, `owners <paths...>` | Query dependencies and ownership or render a target graph. |

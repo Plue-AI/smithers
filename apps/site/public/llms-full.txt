@@ -49710,7 +49710,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | `serve` | Host the control gateway and durable trigger scheduler |
 | `show` | Inspect targets and workspace configuration |
 | `suggest` | Discover ways Smithers can help; interactively choose one to implement |
-| `target` | Execute one PACKAGE.ts label with its flavor-implied verb (the bare-label form) |
+| `target` | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
 | `targets` | List available targets with their kinds and summaries |
 | `test` | Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set |
 | `triggers` | Manage durable schedules and manually queued occurrences |

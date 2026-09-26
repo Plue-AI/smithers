@@ -196,7 +196,7 @@ describe("S.Fetch in a PACKAGE.ts workspace", () => {
       index,
       cacheDirectory: ".flows",
       verb: "auto",
-      pattern: "//data:schemaPinned"
+      patterns: ["//data:schemaPinned"]
     })
     const node = plan.nodes.get("//data:schemaPinned")!
     expect(node.refusal).toBeUndefined()

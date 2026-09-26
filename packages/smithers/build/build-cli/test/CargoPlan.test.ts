@@ -125,7 +125,7 @@ const planOf = async (root: string, pattern: string): Promise<PackageExec.Packag
     index: PackageIndex.make(loaded),
     cacheDirectory: ".flows",
     verb: "auto",
-    pattern,
+    patterns: [pattern],
     plan: true
   })
 }
