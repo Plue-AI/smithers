@@ -90,6 +90,18 @@ const evidenceFinalizer = (step: WorkflowStep): boolean =>
         /^actions\/upload-artifact@/.test(step.uses ?? "") && step.with?.name === name
   )
 
+/**
+ * The guard GithubCiGen puts on every target step so a red gate does not skip
+ * the independent gates after it. It skips only when the job's unconditional
+ * `setup` step (the last setup step) did not succeed, and the job is red then.
+ */
+const independentGate = "${{ !cancelled() && steps.setup.conclusion == 'success' }}"
+
+const guardedBySetup = (steps: ReadonlyArray<WorkflowStep>, index: number): boolean => {
+  const setup = steps.findIndex((step) => step.id === "setup")
+  return steps[index]!.if === independentGate && setup !== -1 && setup < index && steps[setup]!.if === undefined
+}
+
 /** Conditional evidence retention cannot make a validation job or step disappear. */
 const conditionalEnforcement = (source: string): ReadonlyArray<string> => {
   const workflow = Bun.YAML.parse(source) as CiWorkflow
@@ -98,8 +110,9 @@ const conditionalEnforcement = (source: string): ReadonlyArray<string> => {
   for (const [name, job] of Object.entries(workflow.jobs)) {
     const publisher = guard !== undefined && job.if === guard && holdsCacheWriteCredential(job)
     if (job.if !== undefined && !publisher) violations.push(`${name}: conditional job`)
-    for (const [index, step] of (job.steps ?? []).entries()) {
-      if (step.if !== undefined && !evidenceFinalizer(step)) {
+    const steps = job.steps ?? []
+    for (const [index, step] of steps.entries()) {
+      if (step.if !== undefined && !evidenceFinalizer(step) && !guardedBySetup(steps, index)) {
         violations.push(`${name}: ${step.name ?? `step ${index + 1}`}`)
       }
     }
@@ -301,6 +314,54 @@ jobs:
       "checks: Collect ci-test-tier-evidence",
       "checks: Upload apps-e2e-artifacts",
       "skipped: conditional job"
+    ])
+  })
+
+  it("admits the setup guard only after an unconditional setup step", () => {
+    const gate = `        if: \${{ !cancelled() && steps.setup.conclusion == 'success' }}`
+    expect(conditionalEnforcement(`
+jobs:
+  checks:
+    steps:
+      - name: Install
+        id: setup
+        run: pnpm install
+      - name: Unit tests
+${gate}
+        run: pnpm test
+`)).toEqual([])
+    expect(conditionalEnforcement(`
+jobs:
+  early:
+    steps:
+      - name: Unit tests
+${gate}
+        run: pnpm test
+      - name: Install
+        id: setup
+        run: pnpm install
+  skippable:
+    steps:
+      - name: Install
+        id: setup
+        if: false
+        run: pnpm install
+      - name: Unit tests
+${gate}
+        run: pnpm test
+  widened:
+    steps:
+      - name: Install
+        id: setup
+        run: pnpm install
+      - name: Unit tests
+        if: \${{ steps.setup.conclusion == 'success' || github.event_name == 'push' }}
+        run: pnpm test
+`)).toEqual([
+      "early: Unit tests",
+      "skippable: Install",
+      "skippable: Unit tests",
+      "widened: Unit tests"
     ])
   })
 
