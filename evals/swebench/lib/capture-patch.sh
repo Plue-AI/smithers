@@ -52,5 +52,9 @@ CAPTURE="$(capture_git rev-parse --verify --quiet "$REF^{commit}")" || {
     ':(exclude)*.pyc' ':(exclude)**/__pycache__/**' ':(exclude).git' "$@" \
 ) > "$OUT" 2>/dev/null
 
-node "$S/lib/strip-modes.mjs" "$OUT" >/dev/null
+# `SWB_CAPTURE_STRIP=host`: this ran inside a plue guest, which has no node;
+# `lib/plue.py capture` strips the patch on the host once it is downloaded.
+if [ "${SWB_CAPTURE_STRIP:-here}" != "host" ]; then
+  node "$S/lib/strip-modes.mjs" "$OUT" >/dev/null
+fi
 echo "$(wc -c < "$OUT" | tr -d ' ') $(wc -l < "$OUT.untracked" | tr -d ' ')"

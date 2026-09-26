@@ -11,6 +11,9 @@
 # time. `lib/lock.sh` clears either one when the pid inside it is gone.
 /.extract-lock/
 /.grade-lock/
+# `lib/lock.sh`'s persistent sibling guard files.
+/.extract-lock.guard
+/.grade-lock.guard
 
 # Wave artifacts: workspaces, patches, timings, logs, predictions, scorecards,
 # and the evaluator's own output (<model>.<run-id>.json, next to the

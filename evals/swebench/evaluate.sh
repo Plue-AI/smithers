@@ -68,6 +68,12 @@
 #   SWB_NO_HTTPBIN=1   skip the check entirely and let the suite use its own
 #                      default, as r90 did — including when it is down
 #
+# SWB_TRANSPORT=plue grades on Smithers Cloud: `lib/grade.py` boots each
+# instance's official image as a `--network none` workspace instead of a local
+# container, and the evaluator's own code applies, runs and grades as ever.
+# Nothing is pulled here, the grade lock is not taken, and psf/requests (whose
+# graded tests need an httpbin) is refused unless SWB_NO_HTTPBIN=1.
+#
 # SWB_CACHE_LEVEL is the evaluator's `--cache_level`. It defaults to `env`,
 # which deletes each official instance image once that instance is graded — a
 # 3 GB re-pull for the next wave. Set it to `instance` for a supplementary
@@ -98,6 +104,9 @@ case "$CACHE_LEVEL" in
   none|base|env|instance) ;;
   *) echo "SWB_CACHE_LEVEL must be none, base, env or instance"; exit 2 ;;
 esac
+
+TRANSPORT="$("$S/lib/transport.sh")" || exit 2
+export SWB_TRANSPORT="$TRANSPORT"
 
 case "$HARNESS" in
   codex) MODEL="codex-cli" ;;
@@ -150,6 +159,12 @@ NEEDS_HTTPBIN="$(node -e '
   const preds = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
   process.stdout.write(Object.keys(preds).some((id) => id.startsWith("psf__requests-")) ? "1" : "")
 ' "$S/preds-$RUN_ID.json")"
+if [ -n "$NEEDS_HTTPBIN" ] && [ "${SWB_NO_HTTPBIN:-0}" != "1" ] && [ "$TRANSPORT" = "plue" ]; then
+  # A plue grading workspace is sealed, so no httpbin is reachable from it.
+  echo "evaluate.sh: psf/requests' graded tests need an httpbin, and a --network none grading"
+  echo "  workspace has none. Grade them with SWB_TRANSPORT=docker, or pass SWB_NO_HTTPBIN=1."
+  exit 1
+fi
 if [ -n "$NEEDS_HTTPBIN" ] && [ "${SWB_NO_HTTPBIN:-0}" != "1" ]; then
   HTTPBIN_ENDPOINT="$("$S/lib/httpbin.sh" resolve)" || {
     echo "evaluate.sh: no httpbin is answering, and psf/requests cannot be graded against"
@@ -162,8 +177,10 @@ if [ -n "$NEEDS_HTTPBIN" ] && [ "${SWB_NO_HTTPBIN:-0}" != "1" ]; then
   echo "evaluate.sh: psf/requests instances grade against $HTTPBIN_ENDPOINT"
 fi
 
+# The lock serializes image cleanup on one docker daemon. Under plue no image is
+# local and each grading has its own workspace, so there is nothing to race.
 HELD=0
-if [ "${SWB_GRADE_LOCK_HELD:-0}" != "1" ]; then
+if [ "${SWB_GRADE_LOCK_HELD:-0}" != "1" ] && [ "$TRANSPORT" = "docker" ]; then
   "$S/lib/lock.sh" acquire "$S/.grade-lock" --owner $$ --label "evaluate.sh $RUN_ID" \
     --timeout "${SWB_GRADE_LOCK_TIMEOUT:-7200}" || {
     echo "evaluate.sh: another evaluator still holds $S/.grade-lock"; exit 1; }

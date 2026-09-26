@@ -63,7 +63,13 @@ node "$S/lib/sample.mjs" "$DATASET" "$SAMPLE" "$SIZE" || {
 }
 
 echo "== 4/4 docker"
-if ! command -v docker >/dev/null 2>&1; then
+if [ "${SWB_TRANSPORT:-docker}" = "plue" ]; then
+  echo "   SWB_TRANSPORT=plue: testbeds and gradings are Smithers Cloud workspaces;"
+  echo "   this host needs SMITHERS_CLI, PLUE_REPO and SMITHERS_TOKEN, not docker"
+  echo
+  echo "Bootstrap complete. Nothing above spent model tokens."
+  exit 0
+elif ! command -v docker >/dev/null 2>&1; then
   echo "   docker is not on PATH — the run scripts cannot work without it"
   exit 1
 elif ! docker info >/dev/null 2>&1; then

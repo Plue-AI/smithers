@@ -19,7 +19,8 @@ neither lost nor run twice. An exec with stdin stays one connection. Without
 verb is refused with exit 125: nothing but exec is expected here.
 
 Configuration comes from `plue-docker.json` beside the invoked `docker` link,
-written per trial by `smithers_agent.shim_config`: `repo` (owner/name), `cli`
+written per run by `shim_config` / `shim_directory` below (Harbor's
+`smithers_agent.py` and the SWE-bench rig's `lib/plue.py shim`): `repo` (owner/name), `cli`
 (absolute path of the plue CLI) and `env` (what that CLI needs, such as
 SMITHERS_TOKEN and XDG_CONFIG_HOME). Never from the ambient environment: the
 harness spawns this shim with a least-authority environment (PATH, HOME, USER,
@@ -34,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -45,11 +47,54 @@ import outcome  # noqa: E402
 import plue_env  # noqa: E402
 
 CONFIG_NAME = "plue-docker.json"
+SHIM = Path(__file__).resolve()
 
 # plue_env.EGRESS_PREFIX: the SSH session does not carry the sandbox's egress
 # proxy, so the command sources it first, plus the guest defaults.
 EGRESS_ENV = plue_env.EGRESS_ENV
 EGRESS_PREFIX = plue_env.EGRESS_PREFIX
+
+
+# What the plue CLI itself needs from the harness host's environment.
+SHIM_ENV_NAMES = ("SMITHERS_TOKEN", "XDG_CONFIG_HOME", "HOME")
+
+
+def shim_config(base: dict[str, str], workdir: str | None = None) -> dict:
+    """Everything `plue_docker.py` needs, taken from the harness host's
+    environment now, because the harness spawns the shim with a
+    least-authority environment that drops PLUE_REPO, SMITHERS_CLI and the
+    token (`flows/kernel/src/ChildProcessEnvironment.ts`). The CLI is resolved
+    to an absolute path the same way `plue_env` runs it."""
+    repo = base.get("PLUE_REPO", "").strip()
+    if "/" not in repo:
+        raise RuntimeError("PLUE_REPO must be owner/name for a plue run")
+    name = base.get("SMITHERS_CLI", "smithers")
+    cli = shutil.which(name, path=base.get("PATH"))
+    if cli is None:
+        raise RuntimeError(f"SMITHERS_CLI {name!r} does not resolve to an executable")
+    env = {key: base[key] for key in SHIM_ENV_NAMES if base.get(key)}
+    config: dict = {"repo": repo, "cli": os.path.abspath(cli), "env": env}
+    if workdir:
+        config["workdir"] = workdir  # the image's WORKDIR: `docker exec` without -w runs there
+    return config
+
+
+def shim_directory(directory: Path, config: dict) -> Path:
+    """A directory whose `docker` is `plue_docker.py`, to go first on PATH,
+    with the shim's configuration beside it (owner-only: it holds the token).
+    Keep it outside the trial's kept workspace and delete it afterwards."""
+    directory = directory / "bin"
+    directory.mkdir(parents=True, exist_ok=True)
+    link = directory / "docker"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(SHIM)
+    SHIM.chmod(SHIM.stat().st_mode | 0o111)
+    target = directory / CONFIG_NAME
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(config, handle)
+    return directory
 
 
 def load_config(invoked: str) -> dict:

@@ -32,10 +32,16 @@
 #   SWB_SEAT, SWB_FULLBENCH_BUDGET, SWB_MODEL_NAME
 #   SWB_FLOWS_OPENAI_AUTH         api-key (default) or chatgpt; run-instance.sh
 #                                 reads it from the environment directly
-#   SWB_FLOWS_HOST_SHELL          must be `allowed`; run-instance.sh refuses to
-#                                 start an agent otherwise, because the flows
-#                                 bash flow runs container-less calls on the
-#                                 host unconfined. Recorded as `hostShell`
+#   SWB_FLOWS_HOST_SHELL          must be `allowed` on docker; run-instance.sh
+#                                 refuses to start an agent otherwise, because
+#                                 the flows bash flow runs container-less calls
+#                                 on the host unconfined. Recorded as
+#                                 `hostShell` (`sealed` on plue)
+#   SWB_TRANSPORT                 docker (default) or plue (lib/transport.sh).
+#                                 On plue the testbed and the grading are
+#                                 Smithers Cloud workspaces: no pull, no disk
+#                                 gate, no image to delete, no grade lock, and
+#                                 the ledger's image state is `remote`
 #
 # Two stubs exist for the rig's own dry run, and they are the same convention
 # `run-matrix.sh` already uses for `SWB_RUN_CMD`:
@@ -69,6 +75,7 @@ DATASET="${SWB_DATASET:-$S/swb-verified.json}"
 EVAL_LOG_ROOT="${SWB_EVAL_LOG_ROOT:-$S/logs/run_evaluation}"
 
 if [ -z "$ID" ]; then echo "usage: lib/fullbench-instance.sh <instance_id>" >&2; exit 2; fi
+TRANSPORT="$("$S/lib/transport.sh")" || exit 2
 
 MANIFEST="$FB/manifest.jsonl"
 WAITS="$FB/waits.jsonl"
@@ -142,8 +149,11 @@ trap 'exit 143' TERM
 discard_image() {
   # `run-paths.sh` may not have run yet — the first `fail` is the one that says
   # it refused this instance — so neither name is assumed to exist.
-  if [ -n "${CONTAINER:-}" ]; then docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; fi
   if [ -n "${WORK:-}" ]; then rm -rf -- "$WORK"; fi
+  # On plue the image never reached this machine, and the workspace went with
+  # the run that created it.
+  if [ "$TRANSPORT" = "plue" ]; then printf 'remote'; return 0; fi
+  if [ -n "${CONTAINER:-}" ]; then docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; fi
   if [ "$KEEP_IMAGE" = "1" ]; then printf 'kept'; return 0; fi
   # An instance that failed before its pull never had one, and a ledger that
   # says `deleted` for it reads as if a pull had happened.
@@ -254,7 +264,7 @@ eval "$RUN_PATHS"
 if [ -f "$PATCH" ]; then
   archive_evidence "$FB/archives/$ID.recovered-$(now_ms)-$$" || fail "archive-failed"
 fi
-docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+if [ "$TRANSPORT" = "docker" ]; then docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; fi
 rm -rf -- "$WORK" "$JOURNAL"
 rm -f -- "$PATCH" "$PATCH.untracked" "$TIMINGS" "$LOG_PREFIX".*
 rm -rf -- "$FB/journals/$ID"
@@ -276,7 +286,10 @@ mkdir -p "$FB/patches" "$FB/journals" "$FB/timings" "$FB/logs" "$FB/reports"
 # other one on its way out.
 # ---------------------------------------------------------------------------
 STARTED_AT="$(now_ms)"
-if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+if [ "$TRANSPORT" = "plue" ]; then
+  log "image $IMAGE boots as a Smithers Cloud workspace; nothing to pull"
+  PULLED=remote
+elif docker image inspect "$IMAGE" >/dev/null 2>&1; then
   log "image $IMAGE already local"
   PULLED=cached
 else
@@ -288,7 +301,7 @@ else
   PULLED=pulled
 fi
 append "$MANIFEST" "$(row --kind instance --id "$ID" --state pulled --at "$(now_ms)" \
-  --image "$IMAGE" --pull "$PULLED" --startedAt "$STARTED_AT" --index "$INDEX")"
+  --image "$IMAGE" --pull "$PULLED" --startedAt "$STARTED_AT" --index "$INDEX" --transport "$TRANSPORT")"
 
 # ---------------------------------------------------------------------------
 # Run. One attempt, no retries: the whole point of the full benchmark is what
@@ -297,7 +310,9 @@ append "$MANIFEST" "$(row --kind instance --id "$ID" --state pulled --at "$(now_
 # `.extract-lock`, so however many workers are in flight only one multi-gigabyte
 # `docker cp` runs at a time.
 # ---------------------------------------------------------------------------
-disk_gate extract || fail "disk gate timed out before the run"
+if [ "$TRANSPORT" = "docker" ]; then
+  disk_gate extract || fail "disk gate timed out before the run"
+fi
 RUN_STARTED="$(now_ms)"
 if [ -n "${SWB_RUN_CMD:-}" ]; then
   "$SWB_RUN_CMD" "$ID" "$BUDGET" "" "$INDEX"
@@ -362,7 +377,7 @@ HOST_SHELL="$(node -e '
   const fs = require("fs")
   try {
     const shell = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).hostShell
-    process.stdout.write(shell === "allowed" ? shell : "")
+    process.stdout.write(shell === "allowed" || shell === "sealed" ? shell : "")
   } catch { process.stdout.write("") }
 ' "$FB/timings/$ID.json" 2>/dev/null || printf '')"
 if [ -n "$HOST_SHELL" ]; then
@@ -398,8 +413,11 @@ else
   # lock under fullbench/ instead: the rig's lock is about real evaluator
   # processes on one docker daemon, and a dry run that queued behind a wave's
   # real grading would be measuring that wave's clock rather than its own.
+  #
+  # On plue each grading boots its own workspace and no image is local, so
+  # there is no cleanup to race and no lock is taken.
   if [ -n "${SWB_GRADE_CMD:-}" ]; then GRADE_LOCK="$FB/.grade-lock"; else GRADE_LOCK="$S/.grade-lock"; fi
-  if ! "$S/lib/lock.sh" acquire "$GRADE_LOCK" --owner $$ --label "fullbench $ID" \
+  if [ "$TRANSPORT" = "docker" ] && ! "$S/lib/lock.sh" acquire "$GRADE_LOCK" --owner $$ --label "fullbench $ID" \
     --timeout "${SWB_GRADE_LOCK_TIMEOUT:-7200}"; then
     fail "another evaluator held $GRADE_LOCK for too long"
   fi
@@ -448,7 +466,7 @@ log "verdict: $VERDICT"
 # because that wave needs them warm and re-pulling one costs 3 GB.
 # ---------------------------------------------------------------------------
 REMOVED="$(discard_image)"
-if [ "$KEEP_IMAGE" = "1" ]; then log "image kept: $ID is one of the pinned five"; fi
+if [ "$KEEP_IMAGE" = "1" ] && [ "$TRANSPORT" = "docker" ]; then log "image kept: $ID is one of the pinned five"; fi
 
 append "$MANIFEST" "$(row --kind instance --id "$ID" --state cleaned --at "$(now_ms)" \
   --image "$IMAGE" --image-state "$REMOVED" --freeMiB "$("$S/lib/disk-free.sh")")"

@@ -18,7 +18,8 @@
 # `regen-patch.sh` and the scorecard's default `--work work` read. See README,
 # "Best-of-n".
 #
-# This spends real API tokens and needs docker. See README.md.
+# This spends real API tokens and needs docker, or, with SWB_TRANSPORT=plue, a
+# Smithers Cloud account instead (lib/plue.py; README, "On Smithers Cloud").
 #
 # `./preflight.sh` must have pinned the subject first: every flows.sh call in
 # here re-checks the pin, and the stamp is copied into the timings record so a
@@ -63,8 +64,14 @@ esac
 # socket in reach. Nothing here can confine it, so no agent starts until the
 # lane opts in with SWB_FLOWS_HOST_SHELL=allowed, and the value is stamped into
 # the timings beside the testbed network. See README, "The flows host shell".
+#
+# On plue the host shell is sealed instead: SMITHERS_BASH_CONTAINER names the
+# workspace, the CLI refuses every `bash` call naming anything else, and it
+# offers no host file flow. That is stamped as `sealed` and needs no opt-in.
+TRANSPORT="$("$S/lib/transport.sh")" || exit 2
 HOST_SHELL="${SWB_FLOWS_HOST_SHELL:-}"
-if [ "${SWB_SKIP_AGENT:-0}" != "1" ] && [ "$HOST_SHELL" != "allowed" ]; then
+if [ "$TRANSPORT" = "plue" ]; then HOST_SHELL=sealed; fi
+if [ "${SWB_SKIP_AGENT:-0}" != "1" ] && [ "$HOST_SHELL" != "allowed" ] && [ "$HOST_SHELL" != "sealed" ]; then
   echo "[$INSTANCE] SWB_FLOWS_HOST_SHELL must be 'allowed', got '$HOST_SHELL': the flows bash flow runs container-less calls on this host unconfined"
   exit 2
 fi
@@ -125,7 +132,16 @@ fi
 # used to hand another lane's live extraction to a third one.
 LOCK="$S/.extract-lock"
 TMPC=""
+WS=""
+WS_KEY=""
+SHIM_HOME=""
 cleanup() {
+  if [ "$TRANSPORT" = "plue" ]; then
+    # The workspace goes however the run ends; its ledger slot with it.
+    if [ -n "$WS" ]; then "$S/lib/plue.py" down "$WS" --key "$WS_KEY" || true; fi
+    if [ -n "$SHIM_HOME" ]; then rm -rf -- "$SHIM_HOME"; fi
+    return 0
+  fi
   if [ -n "$TMPC" ]; then docker rm -f "$TMPC" >/dev/null 2>&1 || true; fi
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   "$S/lib/lock.sh" release "$LOCK" --owner $$ --quiet || true
@@ -141,7 +157,29 @@ trap 'on_signal INT' INT
 trap 'on_signal TERM' TERM
 
 echo "[$RUN_ID] image $IMAGE"
-if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+TESTBED_NETWORK="$("$S/lib/testbed-network.sh" resolve)" || exit 2
+if [ "$TRANSPORT" = "plue" ]; then
+  # The testbed is a workspace booted from the official image: nothing is
+  # pulled or extracted here. `up` waits for a slot in the ledger every
+  # harness process on this host shares, holds it in this script's name, and
+  # creates the workspace `--network none`. The host keeps only the flow file
+  # and the journal; the checkout the agent edits is the guest's /testbed.
+  UP="$("$S/lib/plue.py" up "$RUN_ID" "$IMAGE" --holder $$)" || {
+    echo "[$RUN_ID] WORKSPACE START FAILED"; exit 1; }
+  WS="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).id)' "$UP")"
+  WS_KEY="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).key)' "$UP")"
+  CONTAINER="$WS"
+  echo "[$RUN_ID] workspace $WS"
+  rm -rf -- "$WORK"; mkdir -p "$WORK"
+  CAPTURE_BASE="$("$S/lib/plue.py" snapshot "$WS")" || {
+    echo "[$RUN_ID] CAPTURE BASE FAILED"; exit 1; }
+  echo "[$RUN_ID] capture base $CAPTURE_BASE (base commit $BASE)"
+  # The harness's `docker exec` (and lib/interpreter.sh's) reaches the
+  # workspace through the Harbor adapter's shim, first on PATH.
+  SHIM_HOME="$(mktemp -d "${TMPDIR:-/tmp}/swb-shim.XXXXXX")"
+  SHIM_BIN="$("$S/lib/plue.py" shim "$SHIM_HOME")" || { echo "[$RUN_ID] SHIM FAILED"; exit 1; }
+  export PATH="$SHIM_BIN:$PATH"
+elif ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   docker pull --platform linux/amd64 "$IMAGE" >"$LOG_PREFIX.pull.log" 2>&1 || {
     echo "[$RUN_ID] PULL FAILED"; exit 1; }
 fi
@@ -158,38 +196,38 @@ fi
 # takes it back the moment that pid is gone rather than spinning for ever on a
 # lock a `kill -9` left behind, and the wait is bounded so a wedged lane fails
 # this run instead of hanging it.
-"$S/lib/lock.sh" acquire "$LOCK" --owner $$ --label "$RUN_ID extraction" || {
-  echo "[$RUN_ID] EXTRACTION LOCK TIMED OUT"; exit 1; }
-rm -rf -- "$WORK"; mkdir -p "$WORK"
-# Name it before acquisition so interruption during docker create is covered.
-TMPC="${CONTAINER}-extract-$$"
-docker create --platform linux/amd64 --name "$TMPC" "$IMAGE" >/dev/null
-docker cp "$TMPC:/testbed/." "$WORK/" >/dev/null 2>&1
-docker rm -f "$TMPC" >/dev/null 2>&1
-TMPC=""
-"$S/lib/lock.sh" release "$LOCK" --owner $$
+if [ "$TRANSPORT" = "docker" ]; then
+  "$S/lib/lock.sh" acquire "$LOCK" --owner $$ --label "$RUN_ID extraction" || {
+    echo "[$RUN_ID] EXTRACTION LOCK TIMED OUT"; exit 1; }
+  rm -rf -- "$WORK"; mkdir -p "$WORK"
+  # Name it before acquisition so interruption during docker create is covered.
+  TMPC="${CONTAINER}-extract-$$"
+  docker create --platform linux/amd64 --name "$TMPC" "$IMAGE" >/dev/null
+  docker cp "$TMPC:/testbed/." "$WORK/" >/dev/null 2>&1
+  docker rm -f "$TMPC" >/dev/null 2>&1
+  TMPC=""
+  "$S/lib/lock.sh" release "$LOCK" --owner $$
 
-# Anchor the patch capture to the tree as extracted, before anything of ours
-# touches it. Everything the official image already changed relative to the base
-# commit is in this commit, so it cannot reappear as if the agent had written
-# it. See lib/snapshot-base.sh.
-CAPTURE_BASE="$("$S/lib/snapshot-base.sh" "$WORK")"
-echo "[$RUN_ID] capture base $CAPTURE_BASE (base commit $BASE)"
+  # Anchor the patch capture to the tree as extracted, before anything of ours
+  # touches it. Everything the official image already changed relative to the base
+  # commit is in this commit, so it cannot reappear as if the agent had written
+  # it. See lib/snapshot-base.sh.
+  CAPTURE_BASE="$("$S/lib/snapshot-base.sh" "$WORK")"
+  echo "[$RUN_ID] capture base $CAPTURE_BASE (base commit $BASE)"
 
-# The testbed container's network is a benchmark condition, and since 2026-08-24
-# the default is that it has none. `lib/testbed-network.sh` owns the rule and
-# documents why; the short version is that the codex arm's environment seal was
-# a seal on the tools an agent reaches for, and two `r90s` runs got round it with
-# a `docker exec <container> curl …` because the container kept its network. A
-# `--network none` testbed makes that impossible in the kernel rather than
-# improbable in an environment variable, and `docker exec` — which is how both
-# arms run the project's tests — is unaffected by it.
-TESTBED_NETWORK="$("$S/lib/testbed-network.sh" resolve)" || exit 2
-
-docker rm -f "$CONTAINER" >/dev/null 2>&1
-docker run -d --platform linux/amd64 --name "$CONTAINER" --network "$TESTBED_NETWORK" \
-  -v "$WORK:/testbed" -w /testbed "$IMAGE" sleep infinity >/dev/null 2>&1 || {
-  echo "[$RUN_ID] CONTAINER START FAILED"; exit 1; }
+  # The testbed container's network is a benchmark condition, and since 2026-08-24
+  # the default is that it has none. `lib/testbed-network.sh` owns the rule and
+  # documents why; the short version is that the codex arm's environment seal was
+  # a seal on the tools an agent reaches for, and two `r90s` runs got round it with
+  # a `docker exec <container> curl …` because the container kept its network. A
+  # `--network none` testbed makes that impossible in the kernel rather than
+  # improbable in an environment variable, and `docker exec` — which is how both
+  # arms run the project's tests — is unaffected by it.
+  docker rm -f "$CONTAINER" >/dev/null 2>&1
+  docker run -d --platform linux/amd64 --name "$CONTAINER" --network "$TESTBED_NETWORK" \
+    -v "$WORK:/testbed" -w /testbed "$IMAGE" sleep infinity >/dev/null 2>&1 || {
+    echo "[$RUN_ID] CONTAINER START FAILED"; exit 1; }
+fi
 
 # What docker says the container is actually on, read back off the live
 # container. A lane's claim about its testbed is worth what this line says and
@@ -211,7 +249,9 @@ echo "[$RUN_ID] testbed network $TESTBED_OBSERVED"
 # at its wall-clock budget is killed between those two points often enough to
 # matter, and a leftover second checkout of the whole repository is exactly what
 # the prompt promises the agent `git status` will not show it.
-printf 'flows/\n.flows/\n.jj/\nagent-run.log\n.flows-test-base/\n.flows-checkpoints/\n' >> "$WORK/.git/info/exclude"
+if [ "$TRANSPORT" = "docker" ]; then
+  printf 'flows/\n.flows/\n.jj/\nagent-run.log\n.flows-test-base/\n.flows-checkpoints/\n' >> "$WORK/.git/info/exclude"
+fi
 
 # The repository's own test runner, from the pinned evaluator's spec map. The
 # rig used to prescribe `python -m pytest` for every repo; Django ships no
@@ -234,7 +274,7 @@ else
 fi
 
 mkdir -p "$WORK/flows/fix"
-node "$S/lib/write-flow.mjs" "$DATASET" "$INSTANCE" "$SEAT" "$CONTAINER" "$TEST_CMD" "$INTERPRETER" \
+SWB_TRANSPORT="$TRANSPORT" node "$S/lib/write-flow.mjs" "$DATASET" "$INSTANCE" "$SEAT" "$CONTAINER" "$TEST_CMD" "$INTERPRETER" \
   > "$WORK/flows/fix/flow.mdx"
 
 # Version control for the harness, kept out of the task repository entirely.
@@ -262,6 +302,11 @@ node "$S/lib/write-flow.mjs" "$DATASET" "$INSTANCE" "$SEAT" "$CONTAINER" "$TEST_
 # out of `$WORK/.git/info/exclude`; a non-colocated one has no reason to look
 # there, and without this it would re-hash the growing journal database on every
 # action snapshot.
+#
+# On plue the host directory holds only the flow and the journal, and it needs
+# the repository all the same: it is what makes the directory the CLI's project
+# root. Without one the CLI walks up to the nearest ancestor that has one (the
+# operator's home, when the artifact root is under it) and finds no flow.
 rm -rf -- "$VCS"
 git init --bare --quiet "$VCS"
 printf 'flows/\n.flows/\nagent-run.log\n.flows-test-base/\n.flows-checkpoints/\n' > "$VCS/flows-excludes"
@@ -294,9 +339,18 @@ else
     # exported `FLOWS_*` from 2026-08 until 2026-09-22, so the `test` flow was
     # never bound and the chatgpt seat fell back to the API key without a word.
     # `fixtures/check-env-names.mjs` refuses any export the CLI does not read.
-    export SMITHERS_TEST_COMMAND="$TEST_CMD"
-    export SMITHERS_TEST_CONTAINER="$CONTAINER"
-    export SMITHERS_TEST_CWD="/testbed"
+    #
+    # On plue the `test` flow is not declared: its baseline worktree is checked
+    # out beside a host checkout, and there is none. The run is sealed to the
+    # workspace instead, and the prompt states the test command.
+    if [ "$TRANSPORT" = "plue" ]; then
+      unset SMITHERS_TEST_COMMAND SMITHERS_TEST_CONTAINER SMITHERS_TEST_CWD
+      export SMITHERS_BASH_CONTAINER="$WS"
+    else
+      export SMITHERS_TEST_COMMAND="$TEST_CMD"
+      export SMITHERS_TEST_CONTAINER="$CONTAINER"
+      export SMITHERS_TEST_CWD="/testbed"
+    fi
     export SMITHERS_OPENAI_AUTH="$OPENAI_AUTH"
     # Conditional, and on a line of its own so fixtures/check-env-names.mjs
     # sees the name and holds it against the CLI's list.
@@ -326,8 +380,8 @@ else
   # is the condition declared above; a report that pools a memory-on run with
   # the independent-instance score reads it. Whether the supervisor delivered
   # is the run's own `discipline-armed.judged`.
-  printf '{\n  "instance_id": "%s",\n  "run_id": "%s",\n  "runIndex": "%s",\n  "seat": "%s",\n  "openaiAuth": "%s",\n  "subject": "%s",\n  "budgetSeconds": %s,\n  "testbedNetwork": "%s",\n  "testbedNetworkObserved": "%s",\n  "hostShell": "%s",\n  "memory": "%s",\n  "startedAt": %s,\n  "endedAt": %s,\n  "wallClockSeconds": %s,\n  "exitStatus": %s,\n  "timedOut": %s\n}\n' \
-    "$INSTANCE" "$RUN_ID" "$RUN_INDEX" "$SEAT" "$OPENAI_AUTH" "$SUBJECT" "$BUDGET" \
+  printf '{\n  "instance_id": "%s",\n  "run_id": "%s",\n  "runIndex": "%s",\n  "seat": "%s",\n  "openaiAuth": "%s",\n  "subject": "%s",\n  "budgetSeconds": %s,\n  "transport": "%s",\n  "testbedNetwork": "%s",\n  "testbedNetworkObserved": "%s",\n  "hostShell": "%s",\n  "memory": "%s",\n  "startedAt": %s,\n  "endedAt": %s,\n  "wallClockSeconds": %s,\n  "exitStatus": %s,\n  "timedOut": %s\n}\n' \
+    "$INSTANCE" "$RUN_ID" "$RUN_INDEX" "$SEAT" "$OPENAI_AUTH" "$SUBJECT" "$BUDGET" "$TRANSPORT" \
     "$TESTBED_NETWORK" "$TESTBED_OBSERVED" "$HOST_SHELL" "$MEMORY" "$((START*1000))" "$((END*1000))" "$((END-START))" \
     "$RUN_STATUS" "$([ "$RUN_STATUS" -eq 124 ] && printf true || printf false)" \
     > "$TIMINGS"
@@ -335,9 +389,13 @@ fi
 
 # The model patch: the working tree against the capture base recorded before the
 # agent started, with the harness scaffolding and build noise excluded.
-"$S/lib/capture-patch.sh" "$WORK" "$PATCH" \
-  ':(exclude)flows' ':(exclude).flows' ':(exclude).jj' ':(exclude)agent-run.log' \
-  ':(exclude).flows-test-base' ':(exclude).flows-checkpoints' >/dev/null
+if [ "$TRANSPORT" = "plue" ]; then
+  "$S/lib/plue.py" capture "$WS" "$PATCH" || { echo "[$RUN_ID] PATCH CAPTURE FAILED"; exit 1; }
+else
+  "$S/lib/capture-patch.sh" "$WORK" "$PATCH" \
+    ':(exclude)flows' ':(exclude).flows' ':(exclude).jj' ':(exclude)agent-run.log' \
+    ':(exclude).flows-test-base' ':(exclude).flows-checkpoints' >/dev/null
+fi
 
 echo "[$RUN_ID] patch bytes: $(wc -c < "$PATCH" | tr -d ' ')"
 echo "[$RUN_ID] untracked files left out of the patch: $(wc -l < "$PATCH.untracked" | tr -d ' ')"
@@ -376,7 +434,7 @@ if [ -n "$INDEX" ]; then DELETE_WORKSPACE=1; fi
 if [ "${SWB_KEEP_WORKSPACE:-0}" = "1" ]; then DELETE_WORKSPACE=0; fi
 if [ "${SWB_DELETE_WORKSPACE:-0}" = "1" ]; then DELETE_WORKSPACE=1; fi
 if [ "$DELETE_WORKSPACE" = "1" ]; then
-  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  if [ "$TRANSPORT" = "docker" ]; then docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; fi
   rm -rf -- "$WORK" "$VCS"
   echo "[$RUN_ID] testbed deleted"
 fi

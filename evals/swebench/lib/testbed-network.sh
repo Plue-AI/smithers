@@ -46,8 +46,20 @@
 #   docker exec <c> wget -T3 http://93.184.216.34/  exit 1, no route
 #   docker inspect -f '{{.HostConfig.NetworkMode}}'  none
 #
-# Spends nothing. `resolve` needs no docker; `observe` and `assert` do.
+# ## On Smithers Cloud
+#
+# Under `SWB_TRANSPORT=plue` the testbed is a workspace, `<container>` is its
+# id, and `none` is the only value: `lib/plue.py` creates every workspace with
+# `--network none`, and plue has no bridge to offer. `observe` reads the guest's
+# own interface list (`lib/plue.py network`), so the recorded value is still a
+# fact about the live testbed: `none` when `lo` is all it has, else `unsealed`.
+#
+# Spends nothing. `resolve` needs no docker; `observe` and `assert` do (or the
+# plue CLI).
 set -euo pipefail
+S="$(cd "$(dirname "$0")/.." && pwd)"
+# Validated by the run script that calls this, through lib/transport.sh.
+TRANSPORT="${SWB_TRANSPORT:-docker}"
 
 usage() {
   echo "usage: testbed-network.sh resolve | observe <container> | assert <container> <mode>" >&2
@@ -59,6 +71,10 @@ usage() {
 # `SWB_TESTBED_NETWORK=nonee` falling through to "whatever docker defaults to"
 # would be a lane that believes it is sealed and is not.
 validate() {
+  if [ "$TRANSPORT" = "plue" ] && [ "${1:-}" != "none" ]; then
+    echo "testbed-network.sh: a plue testbed is --network none, got '${1:-}'" >&2
+    exit 2
+  fi
   case "${1:-}" in
     none|bridge) printf '%s\n' "$1" ;;
     *)
@@ -76,6 +92,11 @@ validate() {
 observe() {
   CONTAINER="${1:-}"
   if [ -z "$CONTAINER" ]; then usage; fi
+  if [ "$TRANSPORT" = "plue" ]; then
+    "$S/lib/plue.py" network "$CONTAINER" || {
+      echo "testbed-network.sh: no workspace '$CONTAINER'" >&2; exit 1; }
+    return 0
+  fi
   MODE="$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$CONTAINER" 2>/dev/null)" || {
     echo "testbed-network.sh: no container named '$CONTAINER'" >&2; exit 1; }
   ATTACHED="$(docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' \

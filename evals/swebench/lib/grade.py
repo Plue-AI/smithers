@@ -85,6 +85,7 @@ import platform
 import runpy
 import shlex
 import sys
+import types
 
 _REAL_MACHINE = platform.machine
 
@@ -216,6 +217,41 @@ def _install_scoped_image_cleanup() -> None:
     docker_utils.clean_images = clean_images  # type: ignore[assignment]
 
 
+def _install_plue_transport() -> None:
+    """Every container the evaluator starts is a Smithers Cloud workspace.
+
+    `SWB_TRANSPORT=plue` replaces the evaluator's docker calls, and nothing
+    else, with `lib/plue.py`'s: `build_container` boots a workspace from the
+    same `swebench/sweb.eval.x86_64.*` image with `--network none`, and
+    `copy_to_container`, `exec_run_with_timeout` and `cleanup_container`
+    reach it through the public CLI. The evaluator's own `run_instance`
+    applies the patch with its three commands, runs its `eval.sh`, and grades
+    the log with its own parser, so a verdict means what it means locally.
+    No image is local, so listing, cleaning and removing images are no-ops and
+    the scoped cleanup above has nothing to scope.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import plue  # noqa: E402  lib/plue.py
+    import docker
+    import swebench.harness.docker_build as docker_build
+    import swebench.harness.docker_utils as docker_utils
+    import swebench.harness.reporting as reporting
+
+    no_images = types.SimpleNamespace(images=types.SimpleNamespace(list=lambda **_: []))
+    docker.from_env = lambda *_, **__: no_images  # type: ignore[assignment]
+    docker_build.build_container = plue.evaluator_container  # type: ignore[assignment]
+    docker_utils.copy_to_container = plue.evaluator_copy  # type: ignore[assignment]
+    docker_utils.exec_run_with_timeout = plue.evaluator_exec_with_timeout  # type: ignore[assignment]
+    docker_utils.cleanup_container = plue.evaluator_cleanup  # type: ignore[assignment]
+    docker_utils.remove_image = lambda *_, **__: None  # type: ignore[assignment]
+    docker_utils.list_images = lambda *_, **__: set()  # type: ignore[assignment]
+    docker_utils.clean_images = lambda *_, **__: None  # type: ignore[assignment]
+    report = reporting.make_run_report
+    reporting.make_run_report = lambda predictions, dataset, run_id, client=None: report(  # type: ignore[assignment]
+        predictions, dataset, run_id, None)
+    print("grade.py: SWB_TRANSPORT=plue; every evaluator container is a Smithers Cloud workspace", file=sys.stderr)
+
+
 def main() -> None:
     # Only the evaluator's image selection reads this; the containers it starts
     # report their own architecture from inside, unaffected.
@@ -228,7 +264,10 @@ def main() -> None:
         print(f"grade.py: host is {_REAL_MACHINE()}; selecting x86_64 images to match the rig's --platform linux/amd64", file=sys.stderr)
 
     _install_eval_exports()
-    _install_scoped_image_cleanup()
+    if os.environ.get("SWB_TRANSPORT", "docker") == "plue":
+        _install_plue_transport()
+    else:
+        _install_scoped_image_cleanup()
 
     sys.argv[0] = "swebench.harness.run_evaluation"
     runpy.run_module("swebench.harness.run_evaluation", run_name="__main__")

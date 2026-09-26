@@ -45,7 +45,8 @@ for (
     "check-run-paths.mjs",
     "check-lock.sh",
     "check-compare-codex-lanes.mjs",
-    "check-cli-path.mjs"
+    "check-cli-path.mjs",
+    "check-plue-transport.py"
   ]
 ) {
   assert.ok(suite.includes(fixture), `the offline suite runs ${fixture}`)

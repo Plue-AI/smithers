@@ -31,6 +31,11 @@
 # preflight tells an egress-dependent suite from a pre-existing failure, is
 # `./network-dryrun.sh`.
 #
+# The plue transport (`SWB_TRANSPORT=plue`) is checked here against a fake
+# `smithers` CLI whose guest is a temporary directory: the workspace lifecycle
+# and its ledger slot, the sealed-network readback, the in-guest patch capture,
+# the evaluator's container, and `lib/grade.py`'s wiring of it.
+#
 # The codex arm's lanes are checked here too, because a lane is a claim about
 # how a number may be quoted: each one reads its own ledger, no two share an
 # archive, an index or an evaluator run id, and the table in the script is the
@@ -76,7 +81,8 @@
 # flows.sh, run-instance.sh, lib/subject.mjs, lib/check-liveness.mjs, lib/write-flow.mjs,
 # lib/write-prompt-codex.mjs, lib/run-paths.sh, lib/make-preds.mjs, evaluate.sh, lib/lock.sh,
 # lib/journal-facts.mjs, select-candidate.mjs, run-matrix.sh, matrix-report.mjs,
-# fullbench.sh, fullbench-report.mjs, lib/grade.py, lib/httpbin.sh,
+# fullbench.sh, fullbench-report.mjs, lib/grade.py, lib/httpbin.sh, lib/plue.py,
+# lib/transport.sh, ../harbor/plue_env.py, ../harbor/plue_docker.py,
 # lib/rerun-queue.mjs, run-45.sh, compare-runs.mjs, three-way.mjs, regrade.sh,
 # lib/program-evidence.mjs, lib/surgery-evidence.mjs, lib/round3-evidence.mjs,
 # lib/repl-evidence.mjs, lib/excluded.mjs or
@@ -212,6 +218,9 @@ node "$S/fixtures/check-compare-codex-lanes.mjs"
 
 echo "== the sealed testbed"
 node "$S/fixtures/check-testbed-network.mjs"
+
+echo "== the plue transport: Smithers Cloud workspaces as testbed and grader"
+python3 "$S/fixtures/check-plue-transport.py"
 
 echo "== one lane's seal, either arm"
 node "$S/fixtures/check-breach-scan.mjs"

@@ -61,6 +61,8 @@ CLI wrapper, and the evaluator environment with it.
 | `baseline/`                | The committed codex numbers and patches to compare against           |
 | `fixtures/`                | The recorded numbers `verify.sh` replays                             |
 | `lib/testbed-network.sh`   | The testbed container's network condition, resolved, observed and asserted |
+| `lib/transport.sh`         | `SWB_TRANSPORT`, validated: `docker` (default) or `plue`               |
+| `lib/plue.py`              | The plue transport: testbed workspaces, in-guest capture, the evaluator's container |
 | `lib/`                     | Sampler, prompt writers, prediction builder, patch capture, subject fingerprint, per-run naming, the lock every lane shares, journal reader, full-benchmark ledger and pipeline, codex-backfill queue and token footer, analysis bundle |
 
 Everything else the rig writes — `swb-verified.json`, `sample.json`,
@@ -517,6 +519,97 @@ refusal can excuse it; unresolved shell expressions never share evidence.
 
 Anywhere the container was not observed `none`, the old rule stands untouched, so
 no `bridge` or unrecorded lane's report moves.
+
+## On Smithers Cloud
+
+`SWB_TRANSPORT=plue` runs the same rig with every testbed on a Smithers Cloud
+workspace instead of this machine's docker daemon. The agent's run and its
+grading each boot a workspace from the official
+`swebench/sweb.eval.x86_64.*` image with `--network none`, so this host pulls no
+image, extracts no testbed, and has no disk gate to wait at. It is the seam
+`evals/harbor` already runs TB4 and DeepSWE on (`plue_env.py`,
+`plue_docker.py`), through the public `smithers` CLI; `lib/plue.py` adds only
+what a SWE-bench testbed needs beyond a Harbor trial. `docker` stays the
+default and remains the transport for a self-hoster without Smithers Cloud.
+
+```sh
+. ~/smithers-bench-env/env.sh   # SMITHERS_CLI, PLUE_REPO, SMITHERS_TOKEN, PLUE_SLOTS, …
+export SWB_TRANSPORT=plue SWB_ARTIFACT_ROOT=/path/outside/the/repo
+./preflight.sh
+SWB_FLOWS_OPENAI_AUTH=chatgpt ./run-instance.sh django__django-16612 openai:gpt-6-luna 1200
+SWB_MODEL_NAME=luna-plue ./evaluate.sh luna-plue django__django-16612
+```
+
+A full wave is the same launch line with the transport exported
+(`FB_DIR` outside the repository, `SWB_FULLBENCH_JOBS` workspaces in flight):
+
+```sh
+export SWB_TRANSPORT=plue SWB_SEAT=openai:gpt-6-luna SWB_FLOWS_OPENAI_AUTH=chatgpt \
+  SWB_FULLBENCH_RUN_ID=luna-plue SWB_MODEL_NAME=luna-plue FB_DIR=/path/outside/fb
+mkdir -p "$FB_DIR" && nohup ./fullbench.sh --resume >> "$FB_DIR/launch.log" 2>&1 < /dev/null &
+```
+
+What changes, and what does not:
+
+| | `docker` | `plue` |
+| --- | --- | --- |
+| testbed | image pulled, `/testbed` extracted to `work/<id>` and bind-mounted back | workspace booted from the image; `/testbed` exists only in the guest |
+| seal | `--network none`, read back off `docker inspect` | `--network none`, read back off `workspace view` **and** a guest probe that must fail to connect to `1.1.1.1:80` and `example.com:80` |
+| agent's `bash` | host shell unconfined (`SWB_FLOWS_HOST_SHELL=allowed`) | sealed to the workspace (`SMITHERS_BASH_CONTAINER`), no host file flows; `hostShell: sealed` |
+| file edits | host `read`/`edit`/`write` on the bind mount | `bash` in the workspace; the prompt's environment section says so |
+| `test` flow | bound (`SMITHERS_TEST_*`) | not bound: its baseline worktree needs a host checkout. The prompt still names the runner |
+| capture base, patch | `snapshot-base.sh` / `capture-patch.sh` on the host tree | the same scripts, uploaded to the guest and run against its `/testbed`; `strip-modes.mjs` on the host |
+| grading | the official evaluator, local containers, `.grade-lock` | the official evaluator's own `run_instance` with `lib/plue.py` as its container: a second `--network none` workspace per instance, no lock |
+| disk, images | 8 GiB gate, pull, `docker rmi` | none; the ledger records the image as `remote` |
+| slots | `SWB_FULLBENCH_JOBS` | the same, and every workspace also holds a slot in `PLUE_SLOT_LEDGER`, shared with every Harbor run on this host |
+
+Everything else is unchanged: the subject pin, the manifest and its resume
+boundary, the per-instance archive, the verdict the driver reads out of the
+evaluator's `report.json`, the scorecard, and the journal, which the CLI still
+writes on the host. `timings/<id>.json` and the ledger's `pulled` row carry
+`transport`.
+
+Four rules the transport keeps:
+
+- **A slot is held in the run's name.** `plue.py up --holder $$` queues in the
+  shared ledger and holds the slot under `run-instance.sh`'s pid, so a run
+  killed with -9 frees its slot. Its workspace is named
+  `swb-<host>-<pid>-<run>` (`swbg-…` for a grading), and `fullbench.sh`
+  starts every plue wave with `plue.py reap`, which deletes the ones this host
+  made whose owner is gone. Every delete passes `--yes`.
+- **The seal is measured, not assumed.** A plue guest keeps an `eth0` for its
+  SSH transport and resolves public names, so "only `lo`" is not the test; a
+  refused connection is. Measured 2026-09-26 in a `none` workspace: `eth0`,
+  `dummy0` and `lo` present, `example.com` resolves, every connect refused.
+  A workspace whose record or probe says otherwise stops the run (and the
+  grading) before a token is spent.
+- **psf/requests is not graded on plue.** Its graded tests need an httpbin, and
+  a sealed grading workspace has none; `evaluate.sh` refuses it unless
+  `SWB_NO_HTTPBIN=1`. Both instances are already excluded by name.
+- **The codex arm stays on docker.** It edits the bind-mounted host checkout
+  with codex's own file tools, and a workspace has no host checkout; running
+  codex inside the workspace would be a different arm. `run-instance-codex.sh`
+  refuses `SWB_TRANSPORT=plue`, so a plue flows lane compared with a codex lane
+  compares two transports as well as two harnesses, and says so.
+
+First measured 2026-09-26 (issue #2088), with `openai:gpt-6-luna` on the
+ChatGPT seat, two jobs, sharing the ledger with a live Harbor run:
+
+| check | astropy__astropy-8707 | django__django-16612 |
+| --- | --- | --- |
+| gold patch graded on plue | resolved (tests 10 s) | resolved (tests 36 s) |
+| Luna run on plue: patch, seal, host shell | 837 B, `none`, `sealed` | 643 B, `none`, `sealed` |
+| graded on plue | resolved | resolved |
+| driver wall, including the slot wait | 273 s | 578 s |
+
+`regen-patch.sh` re-derives a patch from a surviving host workspace and has
+none to read on plue: the workspace is deleted the moment its patch is
+captured.
+
+Knobs: `SWB_PLUE_CPUS` (default 2, one ledger slot), `SWB_PLUE_MEMORY_MB` and
+`SWB_PLUE_DISK_MB` (plue's defaults, 4096 and 2048 on 2026-09-26, when unset).
+`fixtures/check-plue-transport.py` pins all of the above against a fake CLI
+whose guest is a temporary directory, and `./verify.sh` runs it.
 
 ## The prompts
 
@@ -1664,6 +1757,7 @@ quoted from the evaluator's own file rather than from `fullbench/report.md`.
 | `SWB_LOCK_TIMEOUT` | 3600 | how long a lane waits for `.extract-lock` before failing its run |
 | `SWB_LOCK_STALE` | 1800 | when a lock with no owner recorded may be taken |
 | `SWB_GRADE_LOCK_TIMEOUT` | 7200 | how long a grading waits for another evaluator |
+| `SWB_TRANSPORT` | `docker` | `plue` runs every testbed and grading on Smithers Cloud; see [On Smithers Cloud](#on-smithers-cloud) |
 
 `SWB_FULLBENCH_LIMIT` is how an operator spends one night's worth and reads the
 checkpoint before committing the rest; it is also how the dry run holds a queue

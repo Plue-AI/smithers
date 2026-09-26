@@ -41,6 +41,11 @@
 # from the top, cleanly. A crash mid-instance therefore costs that instance and
 # nothing else.
 #
+# `SWB_TRANSPORT=plue` runs the same pipeline on Smithers Cloud workspaces:
+# each instance boots its official image as a `--network none` workspace for
+# the agent and a second one for grading, so nothing is pulled here, there is no
+# disk gate, and no image outlives anything. See README.md, "On Smithers Cloud".
+#
 # This spends real API tokens. See README.md, "The full benchmark".
 set -u
 S="$(cd "$(dirname "$0")" && pwd)"
@@ -88,6 +93,7 @@ case "$OPENAI_AUTH" in
   api-key|chatgpt) ;;
   *) echo "fullbench.sh: SWB_FLOWS_OPENAI_AUTH must be 'api-key' or 'chatgpt', got '$OPENAI_AUTH'"; exit 2 ;;
 esac
+TRANSPORT="$("$S/lib/transport.sh")" || exit 2
 if [ -n "$SESSION_LIMIT" ]; then
   case "$SESSION_LIMIT" in
     ''|*[!0-9]*) echo "fullbench.sh: SWB_FULLBENCH_LIMIT must be a non-negative integer, got '$SESSION_LIMIT'"; exit 2 ;;
@@ -293,13 +299,18 @@ HEAD_AT_START="$(cd "$S" && git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 
 append "$MANIFEST" "$(row --kind header --at "$(now_ms)" --runId "$RUN_ID" --index "$INDEX" \
   --subject "$SUBJECT" --subjectSource "$SUBJECT_SOURCE" --head "$HEAD_AT_START" \
-  --seat "$SEAT" --openaiAuth "$OPENAI_AUTH" --jobs "$JOBS" --instanceBudgetSeconds "$INSTANCE_BUDGET" \
+  --seat "$SEAT" --openaiAuth "$OPENAI_AUTH" --transport "$TRANSPORT" --jobs "$JOBS" --instanceBudgetSeconds "$INSTANCE_BUDGET" \
   --budgetUsd "$BUDGET_USD" --minFreeMiB "$MIN_FREE_MIB" --checkpointEvery "$CHECKPOINT_EVERY" \
   --pinnedImages "$PINNED" --dataset "$DATASET")"
 
 log "subject $SUBJECT ($SUBJECT_SOURCE), HEAD $HEAD_AT_START"
-log "jobs $JOBS, budget \$$BUDGET_USD, disk gate ${MIN_FREE_MIB} MiB, checkpoint every $CHECKPOINT_EVERY"
-log "images never deleted: $PINNED"
+log "transport $TRANSPORT"
+if [ "$TRANSPORT" = "plue" ]; then
+  log "jobs $JOBS, budget \$$BUDGET_USD, no disk gate (plue), checkpoint every $CHECKPOINT_EVERY"
+else
+  log "jobs $JOBS, budget \$$BUDGET_USD, disk gate ${MIN_FREE_MIB} MiB, checkpoint every $CHECKPOINT_EVERY"
+  log "images never deleted: $PINNED"
+fi
 
 # ---------------------------------------------------------------------------
 # Images an interrupted instance left behind.
@@ -314,7 +325,18 @@ log "images never deleted: $PINNED"
 # The image ref comes out of the ledger rather than being re-derived, so a run
 # that mapped its images (the dry run does) reconciles the ones it really used.
 # ---------------------------------------------------------------------------
-UNCLEAN="$(node "$S/lib/fullbench-queue.mjs" "$DATASET" "$MANIFEST" --unclean 2>/dev/null || printf '')"
+#
+# On plue there is no local image; what a killed worker leaves is a running
+# workspace, and `lib/plue.py reap` deletes every one this host made whose
+# owning process is gone.
+UNCLEAN=""
+if [ "$TRANSPORT" = "plue" ]; then
+  for REAPED in $("$S/lib/plue.py" reap 2>>"$FB/driver.log"); do
+    log "reaped orphaned workspace $REAPED"
+  done
+else
+  UNCLEAN="$(node "$S/lib/fullbench-queue.mjs" "$DATASET" "$MANIFEST" --unclean 2>/dev/null || printf '')"
+fi
 if [ -n "$UNCLEAN" ]; then
   printf '%s\n' "$UNCLEAN" | while read -r STALE_ID STALE_IMAGE; do
     if [ -z "$STALE_ID" ] || [ -z "$STALE_IMAGE" ]; then continue; fi
@@ -351,6 +373,7 @@ export SWB_FULLBENCH_PINNED="$PINNED"
 export SWB_FULLBENCH_BUDGET="$INSTANCE_BUDGET"
 export SWB_SEAT="$SEAT"
 export SWB_FLOWS_OPENAI_AUTH="$OPENAI_AUTH"
+export SWB_TRANSPORT="$TRANSPORT"
 
 QUEUE="$(node "$S/lib/fullbench-queue.mjs" "$DATASET" "$MANIFEST" --remaining)" || {
   log "could not build the queue"; exit 1; }

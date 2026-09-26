@@ -20,6 +20,14 @@
 # This spends real API tokens and needs docker. See README.md.
 set -euo pipefail
 S="$(cd "$(dirname "$0")" && pwd)"
+# The codex arm stays on local docker. It edits the bind-mounted host checkout
+# with its own file tools, and a plue workspace has no host checkout; porting
+# it means running codex inside the workspace, which is a different arm.
+TRANSPORT="$("$S/lib/transport.sh")" || exit 2
+if [ "$TRANSPORT" != "docker" ]; then
+  echo "run-instance-codex.sh: the codex arm runs on SWB_TRANSPORT=docker only, got '$TRANSPORT'" >&2
+  exit 2
+fi
 INSTANCE="$1"
 BUDGET="${2:-1500}"
 MODEL="${3:-gpt-6-sol}"

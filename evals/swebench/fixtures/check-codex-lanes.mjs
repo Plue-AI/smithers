@@ -232,7 +232,7 @@ function runnerFixture(harness, scenario, check, overrideEnvironment = {}) {
       mkdirSync(join(dir, path), { recursive: true })
     }
     const script = harness === "codex" ? "run-instance-codex.sh" : "run-instance.sh"
-    for (const path of [script, "lib/run-paths.sh", "lib/lock.sh", "lib/codex-auth.sh"]) {
+    for (const path of [script, "lib/run-paths.sh", "lib/lock.sh", "lib/codex-auth.sh", "lib/transport.sh"]) {
       copyFileSync(join(root, path), join(dir, path))
     }
     put("swb-verified.json", "[]")

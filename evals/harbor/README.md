@@ -81,6 +81,9 @@ TMPDIR, SHELL), so the adapter writes the repository, the CLI's absolute path,
 `SMITHERS_TOKEN` and `XDG_CONFIG_HOME` into an owner-only `plue-docker.json`
 beside the shim in a per-attempt temporary directory, deleted when the attempt
 ends.
+`plue_docker.shim_config` and `shim_directory` write both; the SWE-bench rig's
+plue transport (`evals/swebench/lib/plue.py`, `SWB_TRANSPORT=plue`) runs its
+agent through the same shim and its workspaces through `plue_env`.
 
 Waiting for capacity is not building the environment, so it happens before
 Harbor's environment-start timer: importing `PlueEnvironment` makes Harbor

@@ -115,7 +115,7 @@ except ImportError:
 
 HERE = Path(__file__).resolve().parent
 PROMPT_PATH = HERE / "prompt.md"
-PLUE_SHIM = HERE / "plue_docker.py"
+PLUE_SHIM = plue_docker.SHIM
 CLI_RELATIVE = Path("packages/smithers/bin/smithers.mjs")
 BUILT_RELATIVE = Path("packages/smithers/dist/esm/bin.js")
 SUBJECT_RELATIVE = Path("evals/swebench/lib/subject.mjs")
@@ -190,46 +190,11 @@ def helper_binary(root: Path, base: dict[str, str]) -> Path | None:
     return None
 
 
-# What the plue CLI itself needs from the harness host's environment.
-SHIM_ENV_NAMES = ("SMITHERS_TOKEN", "XDG_CONFIG_HOME", "HOME")
-
-
-def shim_config(base: dict[str, str], workdir: str | None = None) -> dict[str, Any]:
-    """Everything `plue_docker.py` needs, taken from the harness host's
-    environment now, because the harness spawns the shim with a
-    least-authority environment that drops PLUE_REPO, SMITHERS_CLI and the
-    token (`flows/kernel/src/ChildProcessEnvironment.ts`). The CLI is resolved
-    to an absolute path the same way `plue_env` runs it."""
-    repo = base.get("PLUE_REPO", "").strip()
-    if "/" not in repo:
-        raise RuntimeError("PLUE_REPO must be owner/name for a plue trial")
-    name = base.get("SMITHERS_CLI", "smithers")
-    cli = shutil.which(name, path=base.get("PATH"))
-    if cli is None:
-        raise RuntimeError(f"SMITHERS_CLI {name!r} does not resolve to an executable")
-    env = {key: base[key] for key in SHIM_ENV_NAMES if base.get(key)}
-    config: dict[str, Any] = {"repo": repo, "cli": os.path.abspath(cli), "env": env}
-    if workdir:
-        config["workdir"] = workdir  # the image's WORKDIR: `docker exec` without -w runs there
-    return config
-
-
-def shim_directory(directory: Path, config: dict[str, Any]) -> Path:
-    """A directory whose `docker` is `plue_docker.py`, to go first on PATH,
-    with the shim's configuration beside it (owner-only: it holds the token).
-    Keep it outside the trial's kept workspace and delete it afterwards."""
-    directory = directory / "bin"
-    directory.mkdir(parents=True, exist_ok=True)
-    link = directory / "docker"
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    link.symlink_to(PLUE_SHIM)
-    PLUE_SHIM.chmod(PLUE_SHIM.stat().st_mode | 0o111)
-    target = directory / plue_docker.CONFIG_NAME
-    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        json.dump(config, handle)
-    return directory
+# The shim's configuration and directory belong to the shim (`plue_docker.py`),
+# which the SWE-bench rig's plue transport writes the same way.
+SHIM_ENV_NAMES = plue_docker.SHIM_ENV_NAMES
+shim_config = plue_docker.shim_config
+shim_directory = plue_docker.shim_directory
 
 
 def container_commands(events: list[dict[str, Any]], container: str) -> dict[str, int]:
