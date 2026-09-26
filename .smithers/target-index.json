@@ -7140,6 +7140,14 @@
       },
       {
         "kind": "file",
+        "path": "apps/review/CONTRIBUTING.md"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/ci.yml"
+      },
+      {
+        "kind": "file",
         "path": "apps/review/tsconfig.test.json"
       }
     ],
@@ -7187,6 +7195,14 @@
         "kind": "glob",
         "pattern": "apps/review/tests/**/fixtures/*",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/review/CONTRIBUTING.md"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/ci.yml"
       }
     ],
     "outputs": [],

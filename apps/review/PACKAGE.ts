@@ -28,7 +28,9 @@ const sources = [
 /** The suite, and the fixtures it spawns. */
 const suiteSources = [
   Smithers.glob("//apps/review/tests/**/*.ts"),
-  Smithers.glob("//apps/review/tests/**/fixtures/*")
+  Smithers.glob("//apps/review/tests/**/fixtures/*"),
+  Smithers.file("//apps/review/CONTRIBUTING.md"),
+  Smithers.file("//.github/workflows/ci.yml")
 ]
 
 /**

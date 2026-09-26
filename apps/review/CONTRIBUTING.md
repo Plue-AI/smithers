@@ -128,6 +128,9 @@ jobs:
         with:
           node-version: 26.4.0
       - run: pnpm -C .smithers-review-tool --filter @smthrs/review... install --frozen-lockfile
+      - uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2
+        with:
+          tool: jj-cli@0.39.0
       - name: Review the PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

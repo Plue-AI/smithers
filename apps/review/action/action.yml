@@ -46,6 +46,24 @@ runs:
       with:
         node-version: 26.4.0
 
+    # The review host resolves jj while it is built. Keep a caller's supported
+    # jj (0.39.0 or newer); otherwise install the release CI pins.
+    - name: Find jj
+      id: jj
+      if: steps.gate.outputs.should-run == 'true'
+      shell: bash
+      run: |
+        found="$(jj --version 2>/dev/null | awk '{print $2}' || true)"
+        if [ -n "$found" ] && [ "$(printf '%s\n' 0.39.0 "$found" | sort -V | head -n 1)" = 0.39.0 ]; then
+          echo "supported=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Install jj
+      if: steps.gate.outputs.should-run == 'true' && steps.jj.outputs.supported != 'true'
+      uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2
+      with:
+        tool: jj-cli@0.39.0
+
     # Check out before installing: when this action runs from the caller's own
     # checkout (`uses: ./apps/review/action`), the install lands in that
     # checkout, and checkout's clean would delete its ignored node_modules.
