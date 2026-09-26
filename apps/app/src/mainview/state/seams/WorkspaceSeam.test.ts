@@ -2564,13 +2564,16 @@ describe("the one-command desktop open", () => {
       /* One read per attempt, and not one more: the loop stops, it does not slow down. */
       expect(requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1")).toHaveLength(desktopBoxWait.maxAttempts)
       expect(requests.filter((key) => key.endsWith("/desktop/session"))).toEqual([])
-      /* One "Booting" line per attempt plus the first; the 2 s elapsed heartbeat may add more on a slow runner, never fewer. */
-      expect(dispatched.filter(row => row.type === "toast.progressed" && (row.toast as { detail: string }).detail.startsWith("Booting the box")).length).toBeGreaterThanOrEqual(desktopBoxWait.maxAttempts + 1)
+      /* Progress records actual elapsed changes, not one identical line per read. */
+      const booting = dispatched.filter(row => row.type === "toast.progressed" && (row.toast as { detail: string }).detail.startsWith("Booting the box"))
+        .map(row => (row.toast as { detail: string }).detail)
+      expect(booting.length).toBeGreaterThan(0)
+      expect(new Set(booting).size).toBe(booting.length)
       expect(payloadOf(store)?.desktopStage).toBeUndefined()
     } finally {
       seam.dispose()
     }
-  // All 60 real state commits must finish before checking the attempt bound.
+  // All 60 reads must finish before checking the attempt bound.
   // This runner budget does not change the production wait or its assertions.
   }, 30_000)
 

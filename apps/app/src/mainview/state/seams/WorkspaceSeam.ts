@@ -43,6 +43,7 @@ import { actorSharedState } from "../ActorBindings"
  * the repository's list.
  */
 import {
+  CardSchema,
   CloudWorkspaceRowSchema,
   parseRepoSelection,
   WORKSPACE_STATUSES
@@ -1777,6 +1778,18 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       title: `Starting the desktop box on ${target.repo}`,
       action: { flow: "workspace.view", args: box.id, label: "Open details" } })
     let stage: DesktopStage = "creating"
+    const pendingProgress = new Map<string, { value: string }>()
+    // Only this opening's accepted receipt can stand in for committed evidence.
+    // Comparing the visible value too preserves intervening edits. A rejected
+    // receipt removes the pending evidence, so it cannot suppress a later retry.
+    const observeProgress = (id: string, value: string, visible: string | undefined, committed: string | undefined,
+      write: () => ReturnType<SeamContext["dispatch"]>): void => {
+      if (visible === value && (committed === value || pendingProgress.get(id)?.value === value)) return
+      const receipt = write(), pending = { value }
+      pendingProgress.set(id, pending)
+      const clear = () => { if (pendingProgress.get(id) === pending) pendingProgress.delete(id) }
+      void receipt.isPersisted.promise.then(clear, clear)
+    }
     const progress = (next: DesktopStage): void => {
       if (!current()) return
       stage = next
@@ -1791,10 +1804,17 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       const estimate = stage === "starting" || stage === "resuming"
         ? `usually about ${desktopBootEstimateSeconds}s` : `usually under ${desktopReadyEstimateSeconds}s`
       const detail = `${sentence} · ${elapsed}s elapsed · ${estimate}`
-      ctx.dispatch({ type: "toast.progressed", actor: "system", key, detail })
+      const toastId = `toast-${key}`, toast = ctx.store.collections.toasts.get(toastId)
+      const committedToast = ctx.store.committedToast(toastId)
+      if (toast?.status === "running") observeProgress("toast", detail, toast.detail,
+        committedToast?.status === "running" ? committedToast.detail : undefined,
+        () => ctx.dispatch({ type: "toast.progressed", actor: "system", key, detail }))
       const card = ctx.store.collections.cards.get(cardIdOf(box.id))
-      renderWorkspace(box, { facet: "desktop", desktopStage: stage, desktopProgress: detail,
+      const nextCard = workspaceCard(box, { facet: "desktop", desktopStage: stage, desktopProgress: detail,
         desktopRefusal: card?.kind === "workspace" ? card.payload.desktopRefusal ?? undefined : undefined })
+      const value = (row: Card | undefined) => row === undefined ? undefined : canonicalStoredJsonValue(CardSchema.parse(row))
+      observeProgress("card", value(nextCard)!, value(card), value(ctx.store.committedCard(nextCard.id)),
+        () => ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: nextCard }))
     }
     const finish = (detail: string, status: "ok" | "failed"): void => {
       if (!current()) return
