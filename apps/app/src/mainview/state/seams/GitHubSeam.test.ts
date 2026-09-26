@@ -89,7 +89,7 @@ type Route = () => Response | Promise<Response>
 
 const harness = async (
   routes: Record<string, Route>,
-  options: { readonly signedIn?: boolean } & GitHubSeamDeps = {}
+  options: { readonly signedIn?: boolean; readonly isDisposed?: () => boolean } & GitHubSeamDeps = {}
 ) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<string> = []
@@ -106,6 +106,7 @@ const harness = async (
       return route()
     },
     baseUrl: "",
+    isDisposed: options.isDisposed,
     store,
     dispatch: store.dispatch,
     resolveToast: (key, outcome) => {
@@ -138,7 +139,7 @@ const harness = async (
       }
     ]
   })
-  const { signedIn: _signedIn, ...deps } = options
+  const { signedIn: _signedIn, isDisposed: _isDisposed, ...deps } = options
   return { store, seam: createGitHubSeam(ctx, deps), requests, resolved }
 }
 
@@ -778,6 +779,81 @@ describe("the mirror run poll's fences", () => {
     } finally {
       Object.assign(mirrorSyncPolling, previous)
     }
+  })
+
+  const identity = (login: string | null, provider: "github" | "local" = "github") => ({
+    type: "identity.session.loaded" as const, actor: "system" as const,
+    state: login === null ? "signed-out" as const : "signed-in" as const,
+    login, provider, allowlisted: login !== null, admin: false, scopesPlain: null
+  })
+
+  for (const change of ["account", "sign-out", "provider", "away-and-back", "cloud-account", "dispose", "refresh"] as const) {
+    test.each(["success", "refusal", "drop"] as const)(`pending mirror %s respects ${change}`, async result => {
+      const previous = { ...mirrorSyncPolling }
+      mirrorSyncPolling.delayMs = 1
+      const read = Promise.withResolvers<Response>()
+      let disposed = false
+      try {
+        const { store, seam, requests } = await harness({
+          [REPO_PATH]: json(200, repoDto("behind")),
+          [`POST ${MIRROR_PATH}`]: json(202, { run_id: 88 }),
+          [`${MIRROR_PATH}/88`]: () => read.promise
+        }, { isDisposed: () => disposed })
+        await store.dispatch(identity("will")).isPersisted.promise
+        await seam.mirrorSync("will/smithers")
+        await waitUntil(() => requests.includes(`GET ${MIRROR_PATH}/88`))
+        if (change === "dispose") disposed = true
+        else if (change === "cloud-account") await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "other", expiresAt: null, scopes: null }).isPersisted.promise
+        else {
+          await store.dispatch(identity(change === "sign-out" || change === "away-and-back" ? null : change === "account" ? "other" : "will", change === "provider" ? "local" : "github")).isPersisted.promise
+          if (change === "away-and-back") await store.dispatch(identity("will")).isPersisted.promise
+        }
+        const before = structuredClone(mirrorPayloadOf(store)), count = requests.length
+        const head = (await store.eventHistory()).head
+        if (result === "drop") read.reject(new Error("Old account's socket failure"))
+        else read.resolve(result === "refusal" ? json(403, { message: "Old account's private refusal" })() : json(200, mirrorRun("failed", [
+          { name: "refs/heads/private", from: "aa", to: "bb", status: "failed", error: "Old account's private failure" }
+        ]))())
+        if (change === "refresh") {
+          await waitUntil(() => result === "success" ? mirrorPayloadOf(store)?.runState === "failed" : result === "refusal" ? mirrorPayloadOf(store)?.error !== undefined : mirrorPayloadOf(store)?.trigger === MIRROR_LOST_STREAM_TRIGGER)
+        } else {
+          await settleTicks()
+          await store.settled?.()
+          expect(mirrorPayloadOf(store)).toEqual(before)
+          expect((await store.eventHistory()).head).toEqual(head)
+          expect(requests).toHaveLength(count)
+        }
+      } finally {
+        read.resolve(json(200, mirrorRun("failed"))())
+        Object.assign(mirrorSyncPolling, previous)
+      }
+    })
+  }
+
+  test.each([
+    ["sync", "preflight"], ["sync", "launch"], ["retry", "preflight"], ["retry", "launch"],
+    ["reconcile", "launch"], ["reconcile", "status"], ["reconcile", "mirror"]
+  ] as const)("%s retires across the %s account boundary", async (action, phase) => {
+    const held = parked()
+    const post = action === "reconcile" ? RECONCILE_PATH : action === "retry" ? REF_RETRY_PATH : MIRROR_PATH
+    const heldKey = phase === "launch" ? `POST ${post}` : phase === "status" ? STATUS_PATH : REPO_PATH
+    const { store, seam, requests } = await harness({
+      [REPO_PATH]: json(200, repoDto("behind")), [STATUS_PATH]: json(200, INSTALLED),
+      [`POST ${post}`]: json(202, { run_id: 88 }), [heldKey]: held.route
+    })
+    await store.dispatch(identity("will")).isPersisted.promise
+    const pending = action === "reconcile" ? seam.reconcile("will/smithers") : action === "retry" ? seam.retryMirrorRef("refs/heads/wip", "will/smithers") : seam.mirrorSync("will/smithers")
+    await waitUntil(() => requests.includes(heldKey.startsWith("POST") ? heldKey : `GET ${heldKey}`))
+    await store.dispatch(identity("other")).isPersisted.promise
+    const count = requests.length, head = (await store.eventHistory()).head
+    held.release(json(200, phase === "launch" ? { run_id: 88 } : phase === "status" ? INSTALLED : repoDto("behind"))())
+    expect(await pending).toBe(SIGN_OUT_REFUSAL)
+    await settleTicks()
+    expect(requests).toHaveLength(count)
+    expect(requests.filter(request => request.startsWith("POST"))).toHaveLength(phase === "preflight" ? 0 : 1)
+    expect(mirrorPayloadOf(store)).toBeUndefined()
+    expect(cardOf(store)).toBeUndefined()
+    expect((await store.eventHistory()).head).toEqual(head)
   })
 
   test("one dropped run read is retried and the run still settles", async () => {

@@ -1,7 +1,7 @@
 import { formFieldsFor } from "../../flows/FlowForms"
 import { GitHubInstallationForm,GitHubInstallationInput } from "../../flows/entries/github"
 import { actorSharedState } from "../ActorBindings"
-import { refuseCloudSignIn } from "./CloudSignIn"
+import { refuseCloudSignIn, SIGN_OUT_REFUSAL } from "./CloudSignIn"
 /*
  * The GitHub seam (lane sync, ADR 0005; lane L5 against the live routes),
  * behind the `/api/cloud/*` proxy. Every path was read off plue's own router
@@ -50,7 +50,7 @@ import { canonicalStoredJsonValue } from "../EventValue"
 import { resolveTargetRepo } from "../RepoContext"
 import { createRunEpochs } from "./RunEpochs"
 import type { GitHubRefusal,SeamContext } from "./SeamContext"
-import { readGitHubRefusal,trustedHttpsUrl,unreachableSentence } from "./SeamContext"
+import { captureCloudOwner,readGitHubRefusal,trustedHttpsUrl,unreachableSentence } from "./SeamContext"
 
 export { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 
@@ -527,23 +527,30 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     if (refusal !== undefined) return refusal
     const target = resolveTargetRepo(ctx.store, explicit)
     if ("error" in target) return target.error
+    const current = captureCloudOwner(ctx)
     let response: Response
     try {
       response = await ctx.http(cloud(repoPath(target.repo, "github/reconcile")), { method: "POST" })
     } catch (error) {
+      if (!current()) return SIGN_OUT_REFUSAL
       return unreachableSentence("Smithers Cloud", error)
     }
+    if (!current()) return SIGN_OUT_REFUSAL
     if (!response.ok) {
       /* plue gates this on repository write (plue#490): a refusal is its own sentence, verbatim. */
       const refusal2 = await readGitHubRefusal(response, `The reconcile failed (${response.status})`)
+      if (!current()) return SIGN_OUT_REFUSAL
       const answer = await readStatus(target.repo)
+      if (!current()) return SIGN_OUT_REFUSAL
       if ("status" in answer) dispatchStatus(target.repo, answer.status)
       renderCard(target.repo, answer, refusal2)
       return refusal2.message
     }
     const body = await response.json().catch(() => null)
+    if (!current()) return SIGN_OUT_REFUSAL
     const runId = isRecord(body) ? intOrNull(body.run_id) : null
     const answer = await readStatus(target.repo)
+    if (!current()) return SIGN_OUT_REFUSAL
     if ("status" in answer) dispatchStatus(target.repo, answer.status)
     renderCard(target.repo, answer)
     /*
@@ -553,7 +560,9 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
      */
     const id = runId === null ? null : String(runId)
     if (id !== null) {
-      beginRun(target.repo, id, body, mirrorPatch(await readMirrorStatus(target.repo)), `reconcile started · run ${id}`)
+      const mirror = mirrorPatch(await readMirrorStatus(target.repo))
+      if (!current()) return SIGN_OUT_REFUSAL
+      beginRun(target.repo, id, body, mirror, `reconcile started · run ${id}`, current)
     }
     if ("refusal" in answer) return answer.refusal.message
     /* A server that names no run id reconciled all the same; nothing more is claimed for it. */
@@ -621,12 +630,13 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
    * rows out, until the run settles (`succeeded`/`failed`), a newer run
    * supersedes it, or the budget runs out.
    */
-  const trackMirrorRun = async (repo: string, runId: string, epoch: number): Promise<void> => {
+  const trackMirrorRun = async (repo: string, runId: string, epoch: number, owner: () => boolean): Promise<void> => {
+    const current = (): boolean => owner() && epochs.isLive(repo, epoch)
     const settle = (): void => epochs.settle(repo, epoch)
     let drops = 0
     for (let attempt = 0; attempt < mirrorSyncPolling.maxAttempts; attempt += 1) {
       await wait(mirrorSyncPolling.delayMs)
-      if (!epochs.isLive(repo, epoch)) return
+      if (!current()) return
       let response: Response
       try {
         response = await ctx.http(cloud(`${repoPath(repo, "mirror-sync")}/${encodeURIComponent(runId)}`))
@@ -637,7 +647,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
          * never reads as one (review finding 3). Only a refusal below is
          * terminal.
          */
-        if (!epochs.isLive(repo, epoch)) return
+        if (!current()) return
         drops += 1
         if (drops <= mirrorSyncPolling.networkRetries) continue
         upsertMirrorCard(repo, { trigger: MIRROR_LOST_STREAM_TRIGGER })
@@ -645,9 +655,10 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         return
       }
       drops = 0
-      if (!epochs.isLive(repo, epoch)) return
+      if (!current()) return
       if (!response.ok) {
         const refusal = await readGitHubRefusal(response, `Reading the mirror run failed (${response.status})`)
+        if (!current()) return
         upsertMirrorCard(repo, {
           error: refusal.message,
           ...(refusal.rateLimit !== undefined ? { rateLimit: refusal.rateLimit } : {})
@@ -656,17 +667,18 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         return
       }
       const run = parseMirrorRun(await response.json().catch(() => null))
+      if (!current()) return
       if (run === null) {
         upsertMirrorCard(repo, { error: `The mirror run answer for ${repo} was malformed.` })
         settle()
         return
       }
       await upsertMirrorCard(repo, { runState: run.state, ops: [...run.refs] }, true)?.isPersisted.promise
-      if (!epochs.isLive(repo, epoch)) return
+      if (!current()) return
       if (RUN_SETTLED.has(run.state)) {
         /* The run moved the mirror: re-read the repository's own words and counts for it. */
         const mirror = await readMirrorStatus(repo)
-        if (mirror !== null && epochs.isLive(repo, epoch)) await upsertMirrorCard(repo, mirrorPatch(mirror), true)?.isPersisted.promise
+        if (mirror !== null && current()) await upsertMirrorCard(repo, mirrorPatch(mirror), true)?.isPersisted.promise
         settle()
         return
       }
@@ -681,7 +693,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
    * `{ run_id }`); the card states whatever the answer stated, and the poll
    * fills the rest.
    */
-  const beginRun = (repo: string, runId: string, body: unknown, mirror: Partial<SyncPayload>, trigger: string): void => {
+  const beginRun = (repo: string, runId: string, body: unknown, mirror: Partial<SyncPayload>, trigger: string, current: () => boolean): void => {
     const run = parseMirrorRun(body)
     upsertMirrorCard(repo, {
       runId,
@@ -693,7 +705,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     })
     const epoch = epochs.start(repo)
     // The store surfaces failed writes; this observer must stop reading.
-    void trackMirrorRun(repo, runId, epoch).catch(() => epochs.settle(repo, epoch))
+    void trackMirrorRun(repo, runId, epoch, current).catch(() => epochs.settle(repo, epoch))
   }
 
   const mirrorSync: GitHubSeam["mirrorSync"] = async (explicit) => {
@@ -724,18 +736,23 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       readonly unnamed: (repo: string) => string
     }
   ): Promise<string | { readonly value: string }> => {
+    const current = captureCloudOwner(ctx)
     /* The repository's own mirror facts, before the run says anything. */
     const mirror = mirrorPatch(await readMirrorStatus(repo))
+    if (!current()) return SIGN_OUT_REFUSAL
     let response: Response
     try {
       response = await ctx.http(cloud(path), { method: "POST" })
     } catch (error) {
+      if (!current()) return SIGN_OUT_REFUSAL
       const message = unreachableSentence("Smithers Cloud", error)
       upsertMirrorCard(repo, { error: message, ...mirror })
       return message
     }
+    if (!current()) return SIGN_OUT_REFUSAL
     if (!response.ok) {
       const refusal = await readGitHubRefusal(response, `${words.failed} (${response.status})`)
+      if (!current()) return SIGN_OUT_REFUSAL
       upsertMirrorCard(repo, {
         error: refusal.message,
         ...mirror,
@@ -744,6 +761,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       return refusal.message
     }
     const body = await response.json().catch(() => null)
+    if (!current()) return SIGN_OUT_REFUSAL
     const runId = isRecord(body) ? intOrNull(body.run_id) : null
     if (runId === null) {
       const message = words.unnamed(repo)
@@ -751,7 +769,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       return message
     }
     const id = String(runId)
-    beginRun(repo, id, body, mirror, words.started(id))
+    beginRun(repo, id, body, mirror, words.started(id), current)
     return { value: words.value(id, repo) }
   }
 
