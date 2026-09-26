@@ -15,7 +15,7 @@ import { Action } from "./Action.ts"
  * @slop
  */
 export const PatternAction = Schema.Literals(
-  [...Action.literals, "fs:*", "net:*", "model:*", "proc:*", "jj:*", "*"] as const
+  [...Action.literals, "fs:*", "net:*", "model:*", "memory:*", "proc:*", "jj:*", "*"] as const
 )
 
 /**

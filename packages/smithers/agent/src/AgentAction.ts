@@ -103,6 +103,8 @@ export interface Host {
   readonly registry: Registry.Registry
   /** The explicit sandbox budget every cell runs under. Never unlimited. */
   readonly limits: Sandbox.Limits
+  /** Wall-clock limit for one model call, supplied by the host. */
+  readonly modelCallMs?: number | undefined
   /** Host executable-flow sources composed into every run's catalog. */
   readonly flows?: ReadonlyArray<FlowBinding.Source> | undefined
   /** Host implementations for module-backed flows, keyed by flow name. */
@@ -794,6 +796,7 @@ export const make = <
               modelRetryPolicy: host.modelRetryPolicy,
               capabilityEnvelope: host.capabilityEnvelope,
               limits: host.limits,
+              modelCallMs: host.modelCallMs,
               maxFrames: options.maxFrames ?? host.maxFrames,
               readOnlyCap: options.readOnlyCap,
               claimCap: host.claimCap,

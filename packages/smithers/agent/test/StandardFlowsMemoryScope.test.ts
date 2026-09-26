@@ -23,6 +23,7 @@ import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { HarnessError } from "@smthrs/harness/HarnessError"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import { MemoryError } from "@smthrs/memory/MemoryError"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
@@ -48,7 +49,7 @@ type MemoryServices = MemoryStore.MemoryStore | Recall.Recall
 
 /** A role's policy in the generic shape a host derives from its roster. */
 const policyFor = (id: string, overrides: Partial<WithMemory.Policy> = {}): WithMemory.Policy => ({
-  namespace: { kind: "agent", id },
+  banks: [`agent-${id}`],
   maxTokens: 2048,
   retain: "on-complete",
   ...overrides
@@ -537,7 +538,7 @@ describe("StandardFlows.memory scope identity", () => {
     for (
       const policy of [
         policyFor("builder", { maxTokens: -1 }),
-        { ...policyFor("builder"), namespace: { kind: "agent" as const, id: "" } },
+        { ...policyFor("builder"), banks: [""] },
         { ...policyFor("builder"), recall: "sometimes" as unknown as "none" }
       ]
     ) {
@@ -548,5 +549,29 @@ describe("StandardFlows.memory scope identity", () => {
       expect(error.code).toBe("assembly_failed")
       expect(error.message).toBe("The memory scope's policy is invalid, so no memory flows were bound.")
     }
+  })
+})
+
+describe("StandardFlows.memory capabilities", () => {
+  it("allows granted reads while refusing writes and private reads before I/O", async () => {
+    const reached: Array<string> = []
+    const services = Context.make(MemoryStore.MemoryStore, MemoryStore.makeNoop()).pipe(
+      Context.add(Recall.Recall, Recall.makeNoop())
+    )
+    const catalog = await Effect.runPromise(FlowBinding.catalog([StandardFlows.memory(observed(services, reached))]))
+    const read = catalog.bindings.get("recall")!
+    const write = catalog.bindings.get("remember")!
+    const ceiling = [new Capability.CapabilityPattern({ action: "memory:read", resource: "global-team" })]
+    const dispatch = (binding: FlowBinding.Binding, input: Schema.Json) =>
+      Effect.runPromise(
+        binding.run(callOf(binding, input)).pipe(CapabilitySet.attenuate(ceiling))
+      )
+    await dispatch(read, { banks: ["global-team"], query: "plan" })
+    expect(reached).toEqual(["recall global-team"])
+    expect(await dispatch(write, { bank: "global-team", key: "x", text: "private" })).toMatchObject({
+      outcome: "failure"
+    })
+    expect(await dispatch(read, { banks: ["user-will"], query: "plan" })).toMatchObject({ outcome: "failure" })
+    expect(reached).toEqual(["recall global-team"])
   })
 })

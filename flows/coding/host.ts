@@ -56,6 +56,7 @@ import { declineLayer, DraftPlan, planningPolicy, PreparePlan, ReviewRequest } f
 import { pocSource } from "./poc-source.ts"
 import { pocModels, pocPolicy } from "./poc.ts"
 import { preparationLayers } from "./preparation.ts"
+import type { ProjectConfig } from "./project-config.ts"
 import { prototypeRegistration } from "./prototype.ts"
 import { registration } from "./registration.ts"
 import { requestRegistration } from "./request.ts"
@@ -92,6 +93,7 @@ export interface Options extends NativeOptions {
     | (Omit<MemoryOptions, "repositoryPath"> & {
       readonly reviewer?: string
       readonly seats?: Readonly<Record<string, string>>
+      readonly limits?: ProjectConfig["limits"]
     })
     | undefined
   readonly planningModel?: string | undefined
@@ -289,6 +291,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
   const native = NativeControl.make(
     {
       ...platform,
+      agentLimits: options.planning?.limits,
       evaluator,
       jj: (root) => Snapshots.layerAt({ ...options, repositoryPath: root }),
       filesystem: (root, fs, spawner) =>

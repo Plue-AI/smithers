@@ -1,4 +1,5 @@
 /** Private operator input, loaded once before the configured host is constructed. */
+import { TokenWeights } from "@smthrs/agent/Budget"
 import { Effect, FileSystem, Path, Schema, Stream } from "effect"
 import { seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import { PageSpec } from "../wiki/schema.ts"
@@ -8,7 +9,15 @@ import { separateWikiOutput } from "./wiki-output.ts"
 
 const { flowDigest: _flowDigest, ...checkFields } = Check.fields
 const text = Schema.NonEmptyString
+const positiveMs = Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(6 * 60 * 60 * 1000))
+export const ProjectLimits = Schema.Struct({
+  modelCallMs: positiveMs,
+  toolMs: positiveMs,
+  taskMs: positiveMs,
+  weights: Schema.optionalKey(Schema.Record(Schema.NonEmptyString, TokenWeights))
+})
 const Project = Schema.Struct({
+  limits: Schema.optionalKey(ProjectLimits),
   wiki: Schema.optionalKey(Schema.Boolean),
   wikiOutput: Schema.optionalKey(text),
   pages: Schema.optionalKey(Schema.Array(PageSpec).check(Schema.isMinLength(1), Schema.isMaxLength(30))),
@@ -23,6 +32,7 @@ const Project = Schema.Struct({
   seats: Schema.optionalKey(Schema.Record(Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9/_-]{0,63}$/)), text))
 })
 export type ProjectConfig = Omit<MemoryOptions, "repositoryPath"> & {
+  readonly limits?: typeof ProjectLimits.Type
   readonly reviewer?: string
   readonly seats?: Readonly<Record<string, string>>
 }

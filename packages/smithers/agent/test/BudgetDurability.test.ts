@@ -17,6 +17,30 @@ const records = (journal: Journal.Service, runId: string) =>
   )
 
 describe("budget usage durability", () => {
+  it("records weighted usage once and recovers the charge without repricing", async () => {
+    await run(inRun(
+      "weighted",
+      Effect.gen(function*() {
+        const weights = { "gpt-6-astra": { input: 1, cachedInput: 0.1, output: 4.5 } }
+        const budget = yield* Budget.make({ weights })
+        const usage = {
+          inputTokens: 1000,
+          cachedInputTokens: 800,
+          outputTokens: 100,
+          reasoningTokens: 50,
+          totalTokens: 1100
+        }
+        yield* budget.record("paid", usage, "gpt-6-astra")
+        yield* budget.record("paid", usage, "gpt-6-astra")
+        expect((yield* budget.usage).tokens).toBe(730)
+        const restarted = yield* Budget.make({})
+        expect(yield* restarted.usage).toEqual(yield* budget.usage)
+        expect(yield* records(yield* Journal.Journal, "weighted")).toHaveLength(1)
+        expect(Number.isNaN(Budget.tokensOf({ totalTokens: 100 }, weights["gpt-6-astra"]))).toBe(true)
+      })
+    ))
+  })
+
   it("keeps paid usage pending when its first recovery fails", async () => {
     await run(inRun(
       "failed-first-recovery",

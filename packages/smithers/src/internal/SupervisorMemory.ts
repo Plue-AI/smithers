@@ -10,12 +10,15 @@
  * @since 1.0.0
  * @private
  */
+import * as Capability from "@smthrs/capability/Capability"
 import type * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import * as Maintenance from "@smthrs/memory/Maintenance"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import type * as Recall from "@smthrs/memory/Recall"
 import * as RecallKeyword from "@smthrs/memory/RecallKeyword"
-import { Context, Effect, Layer, Schema } from "effect"
+import * as Source from "@smthrs/memory/Source"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { createHash } from "node:crypto"
@@ -38,7 +41,7 @@ export const busyTimeoutMs = 10_000
  * What the supervisor may do with memory on this host, in `Agent.Options`
  * form.
  *
- * `namespace` names the bank: the memory database when `SMITHERS_MEMORY_DB`
+ * `banks` names the shared project bank: the memory database when `SMITHERS_MEMORY_DB`
  * names one, because an operator who points every workspace of a repository
  * at one file has said which runs share a memory; the workspace root
  * otherwise. Never one bank for every repository on the host.
@@ -57,14 +60,14 @@ export const options = (
   workspaceRoot: string
 ): {
   readonly remember: boolean
-  readonly namespace: string
+  readonly banks: ReadonlyArray<string>
   readonly stance: "careful" | "paranoid"
 } => {
   const database = Environment.read(environment, "SMITHERS_MEMORY_DB")
   const identity = resolve(database ?? workspaceRoot)
   return {
     remember: database !== undefined,
-    namespace: `project-${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`,
+    banks: [`project-${createHash("sha256").update(identity).digest("hex").slice(0, 16)}`],
     stance: stance(environment)
   }
 }
@@ -120,3 +123,38 @@ export const layer = (input: {
   const store = MemoryStore.layer.pipe(Layer.provide(database), Layer.provide(input.crypto), Layer.orDie)
   return Layer.provideMerge(Maintenance.layerTtlGc(), Layer.provideMerge(RecallKeyword.layer, store))
 }
+
+/**
+ * Read only explicitly named, granted banks; wildcard resources never enumerate
+ * a host's private banks. AgentSession seals the returned snapshot for replay.
+ * @since 0.1.0
+ * @private
+ */
+export const opening = (launch: {
+  readonly runId: string
+  readonly prompt: string
+  readonly history: ReadonlyArray<string>
+  readonly capabilities: ReadonlyArray<string>
+}) =>
+  Effect.gen(function*() {
+    const patterns = launch.capabilities.flatMap((value) => Option.toArray(Capability.parsePattern(value)))
+    const ceiling = CapabilitySet.intersect(yield* CapabilitySet.current, CapabilitySet.fromPatterns(patterns))
+    const banks = [
+      ...new Set(
+        patterns.filter((pattern) =>
+          pattern.action.startsWith("memory:") && !/[?*]/.test(pattern.resource) &&
+          CapabilitySet.allows(ceiling, Capability.make("memory:read", pattern.resource))
+        ).map((pattern) => pattern.resource)
+      )
+    ]
+    if (banks.length === 0) return { rows: [], digest: createHash("sha256").update("").digest("hex") }
+    return yield* Source.declared(Source.make(), {
+      lineageId: launch.runId,
+      iteration: 0,
+      banks,
+      primerBanks: [],
+      query: [launch.prompt, ...launch.history.slice(-6)].join("\n").slice(-16_384),
+      maxTokens: 16 * 1024,
+      maxBytes: 16 * 1024
+    })
+  })

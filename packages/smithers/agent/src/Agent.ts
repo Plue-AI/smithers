@@ -55,6 +55,8 @@ import type * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
 import * as Supervisor from "@smthrs/harness/Supervisor"
 import * as Redaction from "@smthrs/journal/Redaction"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
+import * as Bank from "@smthrs/memory/Bank"
 import * as MemoryError from "@smthrs/memory/MemoryError"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
@@ -281,7 +283,7 @@ export interface Options {
    */
   readonly supervisor?: {
     readonly remember?: boolean | undefined
-    readonly namespace?: string | undefined
+    readonly banks?: ReadonlyArray<string> | undefined
     readonly monitors?: ReadonlyArray<Monitor.Monitor> | undefined
     readonly stance?: "careful" | "paranoid" | undefined
   } | undefined
@@ -335,13 +337,23 @@ const supervisorMemory = (options: Options): Effect.Effect<Supervisor.Memory> =>
   Effect.gen(function*() {
     const store = yield* Effect.serviceOption(MemoryStore.MemoryStore)
     const recall = yield* Effect.serviceOption(Recall.Recall)
-    const namespace = options.supervisor?.namespace
-    if (Option.isNone(store) || namespace === undefined) return Supervisor.memoryNone
+    const declared = options.supervisor?.banks ?? []
+    const ambient = yield* CapabilitySet.current
+    const ceiling = options.capabilityEnvelope === undefined
+      ? ambient
+      : CapabilitySet.intersect(ambient, CapabilitySet.fromPatterns(options.capabilityEnvelope))
+    const explicit = (options.capabilityEnvelope ?? []).filter((pattern) =>
+      pattern.action.startsWith("memory:") && !/[?*]/.test(pattern.resource)
+    ).map((pattern) => pattern.resource)
+    const candidates = [...new Set([...declared, ...explicit])]
+    const banks = candidates.filter((bank) => CapabilitySet.allows(ceiling, Capability.make("memory:read", bank)))
+    const writeBank = candidates.find((bank) => CapabilitySet.allows(ceiling, Capability.make("memory:write", bank)))
+    if (Option.isNone(store) || (banks.length === 0 && writeBank === undefined)) return Supervisor.memoryNone
     return {
       bound: true,
       recall: (query, limit) =>
         Option.isNone(recall) ? Effect.succeed([]) : recall.value.recall({
-          banks: [`agent-${namespace}`],
+          banks,
           query,
           maxTokens: limit * 256
         }).pipe(
@@ -354,15 +366,18 @@ const supervisorMemory = (options: Options): Effect.Effect<Supervisor.Memory> =>
           )
         ),
       remember: (text) => {
+        if (writeBank === undefined) return Effect.void
         const redacted = String(Redaction.redact(text))
-        return store.value.putNote({
-          namespace: { kind: "agent", id: namespace },
-          id: Digest.digest(redacted),
-          text: redacted,
-          tags: ["source:supervisor"],
-          provenance: { runId: options.session },
-          status: "accepted"
-        }).pipe(
+        return Bank.parse(writeBank).pipe(Effect.flatMap((namespace) =>
+          store.value.putNote({
+            namespace,
+            id: Digest.digest(`${writeBank}\0${redacted}`),
+            text: redacted,
+            tags: ["source:supervisor"],
+            provenance: { runId: options.session },
+            status: "accepted"
+          })
+        )).pipe(
           Effect.asVoid,
           Effect.catchCause((cause) =>
             Effect.andThen(

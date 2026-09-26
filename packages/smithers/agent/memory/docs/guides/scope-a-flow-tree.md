@@ -16,13 +16,13 @@ import * as Flows from "@smthrs/memory/Flows"
 import * as WithMemory from "@smthrs/memory/WithMemory"
 
 const scoped = WithMemory.withMemory(Flows.recall, {
-  namespace: { kind: "flow", id: "release-notes" },
+  banks: ["flow-release-notes"],
   maxTokens: 2048,
   retain: "on-complete"
 })
 ```
 
-The policy is decoded and deeply frozen at this call, so an invalid policy (an empty namespace id, a `maxTokens` above 65,536) throws a typed `MemoryError` here rather than failing later at a SQL constraint.
+The policy is decoded and deeply frozen at this call, so an invalid policy (an empty bank name or list, a `maxTokens` above 65,536) throws a typed `MemoryError` here rather than failing later at a SQL constraint.
 
 ## Bind the policy-carrying declaration
 
@@ -52,7 +52,7 @@ Every fact the returned `remember` handler writes records that provenance. A pro
 
 ## Call the scoped handlers directly
 
-Outside a host, `Flows.runRecallFor` and `Flows.runRememberFor` apply a flow's policy to one call. The policy namespace is an allowlist. Empty banks use it; explicit banks must resolve to the same `kind` and `id`. A foreign bank fails with `invalid_namespace` before the recall service or store runs. A mixed recall request also fails in full. Equivalent spellings such as `release-notes` and `flow-release-notes` are allowed. The policy has no extra readable-bank list. An explicit `maxTokens` still overrides the budget default:
+Outside a host, `Flows.runRecallFor` and `Flows.runRememberFor` apply a flow's policy to one call. The policy namespace is an allowlist. Empty banks use it; explicit banks must resolve to the same `kind` and `id`. A foreign bank fails with `invalid_namespace` before the recall service or store runs. A mixed recall request also fails in full. Equivalent spellings such as `release-notes` and `flow-release-notes` are allowed. Every declared bank is readable and writable. An explicit `maxTokens` still overrides the budget default:
 
 ```ts
 import * as Flows from "@smthrs/memory/Flows"
@@ -87,7 +87,7 @@ const trellis = MemoryTrellis.make({
   leaf: worker,
   envelope: { fuel: 6, depth: 3, fanout: 3 },
   memory: {
-    namespace: { kind: "flow", id: "release-notes" },
+    banks: ["flow-release-notes"],
     maxTokens: 2048,
     retain: "on-complete"
   }

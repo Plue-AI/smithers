@@ -948,7 +948,7 @@ export const make = (
                   // a failed write remains pending and blocks fresh admission.
                   Effect.onExit((exit) =>
                     Exit.isFailure(exit) && reported !== undefined
-                      ? budget.record(`unsealed-model/${key}/${receipt}`, reported).pipe(
+                      ? budget.record(`unsealed-model/${key}/${receipt}`, reported, step.request.modelId).pipe(
                         Effect.mapError(accountingFailed)
                       )
                       : Effect.void
@@ -962,9 +962,10 @@ export const make = (
           // step key, so a step whose body really did re-run counts once, and
           // a resumed run folds back what it recorded before the restart from
           // the budget's own durable usage records.
-          yield* budget.record(key, ModelEvent.ModelEvent.settledMessage(normalized.events).usage).pipe(
-            Effect.mapError(accountingFailed)
-          )
+          yield* budget.record(key, ModelEvent.ModelEvent.settledMessage(normalized.events).usage, step.request.modelId)
+            .pipe(
+              Effect.mapError(accountingFailed)
+            )
           const replay = Stream.fromIterable(normalized.events)
           return normalized.error === undefined
             ? replay

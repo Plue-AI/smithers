@@ -13,7 +13,7 @@ A delegated plan generates work its author never named, so the memory settings t
 
 | Field       | Values                     | Meaning                                       |
 | ----------- | -------------------------- | --------------------------------------------- |
-| `namespace` | a `Namespace`              | where memory this tree reads and writes lives |
+| `banks`     | nonempty `BankName[]`      | where memory this tree reads and writes lives |
 | `recall`    | `"none"`, or absent        | `"none"` refuses recall                       |
 | `maxTokens` | integer                    | the byte budget recall answers within         |
 | `retain`    | `"on-complete"`, `"never"` | whether writes are kept                       |
@@ -28,11 +28,11 @@ Only a flow whose collaborators are data, one declared with `flows: [...]` and n
 
 ## Namespace boundary, defaults, and refusals
 
-The runtime bindings `Flows.runRecallFor` and `Flows.runRememberFor` read the policy back, and `Flows.handlersFor(flow)` is the pair a host binds. The policy namespace is the only namespace these scoped handlers may read or write:
+The runtime bindings `Flows.runRecallFor` and `Flows.runRememberFor` read the policy back, and `Flows.handlersFor(flow)` is the pair a host binds. The policy banks are the only namespaces these scoped handlers may read or write:
 
-- `runRecallFor` fills an empty `banks` list with the policy bank. Every explicit bank must resolve to the policy namespace, matching both `kind` and `id`. A foreign bank fails the whole request with `invalid_namespace` before the recall service runs, including requests that mix allowed and foreign banks.
-- `runRememberFor` resolves an empty bank to the policy namespace. An explicit foreign bank fails with `invalid_namespace` before the store runs.
-- Equivalent spellings are allowed: `release-notes` and `flow-release-notes` both resolve to `{ kind: "flow", id: "release-notes" }`. There is no additional readable-bank list.
+- `runRecallFor` fills an empty `banks` list with all policy banks. Every explicit bank must resolve to a policy bank, matching both `kind` and `id`. A foreign bank fails the whole request with `invalid_namespace` before the recall service runs, including requests that mix allowed and foreign banks.
+- `runRememberFor` resolves an empty bank to the first policy bank. An explicit foreign bank fails with `invalid_namespace` before the store runs.
+- Equivalent spellings are allowed: `release-notes` and `flow-release-notes` both resolve to `{ kind: "flow", id: "release-notes" }`. Every bank in the policy is readable and writable; use a narrower policy for delegated work.
 - `maxTokens` remains a default: the policy budget applies only when the caller omits it.
 
 Two policy values short-circuit before bank validation or I/O:

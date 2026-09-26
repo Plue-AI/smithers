@@ -20,8 +20,7 @@ import * as Context from "effect/Context"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { MemoryError } from "./MemoryError.ts"
-import * as Namespace from "./Namespace.ts"
-import { MaxTokens } from "./Recall.ts"
+import { BankName, MaxTokens } from "./Recall.ts"
 
 /**
  * The memory policy a flow tree inherits: which namespace its memory lives in,
@@ -33,7 +32,7 @@ import { MaxTokens } from "./Recall.ts"
  * @since 0.1.0
  */
 export const Policy = Schema.Struct({
-  namespace: Namespace.Namespace,
+  banks: Schema.Array(BankName).check(Schema.isMinLength(1)),
   recall: Schema.optionalKey(Schema.Literal("none")),
   maxTokens: MaxTokens,
   retain: Schema.Literals(["on-complete", "never"])
@@ -151,7 +150,7 @@ const snapshot = (input: Policy): Policy => {
   }
   return Object.freeze({
     ...decoded,
-    namespace: Object.freeze({ ...decoded.namespace })
+    banks: Object.freeze([...decoded.banks])
   })
 }
 

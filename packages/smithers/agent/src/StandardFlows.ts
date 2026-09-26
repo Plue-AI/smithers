@@ -33,6 +33,7 @@
  *
  * @since 0.1.0
  */
+import * as Capability from "@smthrs/capability/Capability"
 import * as Digest from "@smthrs/core/Digest"
 import * as Flow from "@smthrs/core/Flow"
 import { DurableClock } from "@smthrs/flow"
@@ -43,10 +44,11 @@ import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Judgement from "@smthrs/harness/Judgement"
 import * as Relevance from "@smthrs/harness/Relevance"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import type * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import type * as Path from "@smthrs/kernel/Path"
 import * as MemoryFlows from "@smthrs/memory/Flows"
-import type { MemoryError } from "@smthrs/memory/MemoryError"
+import { MemoryError } from "@smthrs/memory/MemoryError"
 import type * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
 import * as WithMemory from "@smthrs/memory/WithMemory"
@@ -386,18 +388,51 @@ const judgedRows = (
     }
   })
 
+// The approved capability ceiling applies even to bindings without a policy.
+// Check the whole request before any bank is read or written.
+const memoryAuthority = (operation: "read" | "write", banks: ReadonlyArray<string>) =>
+  Effect.gen(function*() {
+    const ceiling = yield* CapabilitySet.current
+    for (const bank of banks) {
+      const canonical = Recall.bankForNamespace(Recall.namespaceForBank(bank))
+      if (
+        !CapabilitySet.allows(ceiling, Capability.make(`memory:${operation}`, bank)) &&
+        !CapabilitySet.allows(ceiling, Capability.make(`memory:${operation}`, canonical))
+      ) {
+        return yield* Effect.fail(
+          new MemoryError({ code: "invalid_namespace", message: "memory bank is outside the approved capabilities" })
+        )
+      }
+    }
+  })
+
+const guardedRemember =
+  (handler: ReturnType<typeof MemoryFlows.handlersFor>["remember"]) => (input: typeof MemoryFlows.RememberInput.Type) =>
+    memoryAuthority("write", [input.bank]).pipe(Effect.andThen(handler(input)))
+const guardedRecall =
+  (handler: ReturnType<typeof MemoryFlows.handlersFor>["recall"]) => (input: typeof MemoryFlows.RecallInput.Type) =>
+    memoryAuthority("read", input.banks).pipe(Effect.andThen(handler(input)))
+
 const unscopedMemory = (
   services: Context.Context<MemoryStore.MemoryStore | Recall.Recall>,
   judge: Context.Context<Evaluator.Evaluator> | undefined
 ): FlowBinding.Source =>
   FlowBinding.source(memorySource, [
     FlowBinding.provide(
-      FlowBinding.make({ flow: MemoryFlows.remember, handler: MemoryFlows.runRemember, publicError: publicRefusal }),
+      FlowBinding.make({
+        flow: MemoryFlows.remember,
+        handler: guardedRemember(MemoryFlows.runRemember),
+        publicError: publicRefusal
+      }),
       services
     ),
     judge === undefined
       ? FlowBinding.provide(
-        FlowBinding.make({ flow: MemoryFlows.recall, handler: MemoryFlows.runRecall, publicError: publicRefusal }),
+        FlowBinding.make({
+          flow: MemoryFlows.recall,
+          handler: guardedRecall(MemoryFlows.runRecall),
+          publicError: publicRefusal
+        }),
         services
       )
       : FlowBinding.provide(
@@ -405,7 +440,9 @@ const unscopedMemory = (
           flow: recallFlow,
           publicError: publicRefusal,
           handler: (input, call) =>
-            MemoryFlows.runRecall(input).pipe(Effect.flatMap((rows) => judgedRows(input, call, rows, judge)))
+            guardedRecall(MemoryFlows.runRecall)(input).pipe(
+              Effect.flatMap((rows) => judgedRows(input, call, rows, judge))
+            )
         }),
         services
       )
@@ -462,8 +499,10 @@ const scopedMemory = (
   const policy = decoded.success
   const provenance = scope.provenance ?? {}
   const remember = WithMemory.withMemory(MemoryFlows.remember, policy)
-  const rememberHandler = MemoryFlows.handlersFor(remember, provenance).remember
-  const publicError = scopedRefusal(Recall.bankForNamespace(policy.namespace))
+  const scopedRememberHandler = MemoryFlows.handlersFor(remember, provenance).remember
+  const rememberHandler = (input: typeof MemoryFlows.RememberInput.Type) =>
+    guardedRemember(scopedRememberHandler)({ ...input, bank: input.bank || policy.banks[0]! })
+  const publicError = scopedRefusal(policy.banks.join(", "))
   const rememberBinding = FlowBinding.provide(
     FlowBinding.make({
       flow: remember,
@@ -475,7 +514,9 @@ const scopedMemory = (
   )
   if (judge === undefined) {
     const recall = WithMemory.withMemory(MemoryFlows.recall, policy)
-    const recallHandler = MemoryFlows.handlersFor(recall).recall
+    const scopedRecallHandler = MemoryFlows.handlersFor(recall).recall
+    const recallHandler = (input: typeof MemoryFlows.RecallInput.Type) =>
+      guardedRecall(scopedRecallHandler)({ ...input, banks: input.banks.length ? input.banks : policy.banks })
     return FlowBinding.source(memorySource, [
       rememberBinding,
       FlowBinding.provide(
@@ -493,7 +534,10 @@ const scopedMemory = (
   // unscoped `recall` takes.
   const recall = WithMemory.withMemory(recallFlow, policy)
   const recallHandler = (input: typeof MemoryFlows.RecallInput.Type, call: Cell.Call) =>
-    MemoryFlows.runRecallFor(recall, input).pipe(Effect.flatMap((rows) => judgedRows(input, call, rows, judge)))
+    guardedRecall((value) => MemoryFlows.runRecallFor(recall, value))({
+      ...input,
+      banks: input.banks.length ? input.banks : policy.banks
+    }).pipe(Effect.flatMap((rows) => judgedRows(input, call, rows, judge)))
   return FlowBinding.source(memorySource, [
     rememberBinding,
     FlowBinding.provide(

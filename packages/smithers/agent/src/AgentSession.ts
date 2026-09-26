@@ -58,7 +58,7 @@ import type { Envelope, PlanCard, RunStatus } from "@smthrs/control/ControlSchem
 import * as Digest from "@smthrs/core/Digest"
 import { ExecutionFacts } from "@smthrs/engine-store"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
-import { DurableDeferred, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import type * as CellCalls from "@smthrs/harness/CellCalls"
@@ -73,6 +73,8 @@ import * as Steering from "@smthrs/harness/Steering"
 import * as Transcript from "@smthrs/harness/Transcript"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
+import * as MemorySnapshot from "@smthrs/memory/SnapshotRecorder"
+import type * as MemorySource from "@smthrs/memory/Source"
 import * as CanonicalJson from "@smthrs/model/CanonicalJson"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
@@ -123,6 +125,15 @@ import * as StandardFlows from "./StandardFlows.ts"
  * @since 0.1.0
  */
 export interface Options {
+  /** Host-selected opening context, frozen in this run before the first model call. */
+  readonly memory?:
+    | ((launch: {
+      readonly runId: string
+      readonly prompt: string
+      readonly history: ReadonlyArray<string>
+      readonly capabilities: ReadonlyArray<string>
+    }) => Effect.Effect<MemorySource.Declared, unknown>)
+    | undefined
   /** Native host callback commits intent and facts to its captured engine journal.
    * Standalone legacy compositions without it retain row-only cancellation.
    */
@@ -2673,7 +2684,21 @@ export const make = (
         const pump = yield* Effect.forkChild(
           Effect.forever(Effect.andThen(Effect.sleep(Duration.millis(250)), flush))
         )
+        const memory = options.memory === undefined ? undefined : yield* Action.make({
+          name: "agent/opening-memory",
+          tier: "sealed",
+          idempotencyKey: `${payload.runId}:opening-memory`,
+          success: Schema.Struct({ rows: MemorySnapshot.Snapshot.fields.rows, digest: Schema.String }),
+          error: Schema.Unknown,
+          execute: options.memory({
+            runId: payload.runId,
+            prompt: rendered.text,
+            history: [],
+            capabilities: card.envelope.capabilities
+          })
+        })
         const outcome = yield* agent.run({
+          memory,
           contextWindowTokensFor: contextWindowResolver(seats),
           session: payload.runId,
           seat,

@@ -187,6 +187,12 @@ export interface ExecutorOptions {
  * @private
  */
 export interface Platform {
+  readonly agentLimits?: {
+    readonly modelCallMs: number
+    readonly toolMs: number
+    readonly taskMs: number
+    readonly weights?: Budget.Weights | undefined
+  } | undefined
   readonly host: Layer.Layer<NodeServices.NodeServices>
   readonly crypto: Layer.Layer<Crypto.Crypto>
   readonly database: (filename: string) => Layer.Layer<DurableWriter.DurableWriter | SqlClient>
@@ -985,7 +991,10 @@ export const make = (
         const supervisorOptions = SupervisorMemory.options(environment, workspaceRoot)
         const actionHost = AgentAction.makeHost({
           registry: yield* Registry.Registry,
-          limits: cellLimits,
+          limits: native.agentLimits === undefined
+            ? cellLimits
+            : { ...cellLimits, callMs: native.agentLimits.toolMs, totalMs: native.agentLimits.taskMs },
+          modelCallMs: native.agentLimits?.modelCallMs,
           flows: sources,
           // A host that starts runs holds a real judge: `evaluatorFor`
           // refuses to boot one without it.
@@ -996,7 +1005,7 @@ export const make = (
         const catalogReady = yield* Deferred.make<Executable.Catalog>()
         const authority = modules === undefined
           ? undefined
-          : yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost)
+          : yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost, native.agentLimits?.weights)
         const registrations = modules === undefined ? undefined : (
           yield* Layer.build(modules.pipe(
             // No approved card exists at registration. ModuleAuthority installs
@@ -1157,10 +1166,14 @@ export const make = (
           requestNativeCancel,
           canExecute,
           flows: sources,
-          limits: cellLimits,
+          limits: native.agentLimits === undefined
+            ? cellLimits
+            : { ...cellLimits, callMs: native.agentLimits.toolMs, totalMs: native.agentLimits.taskMs },
+          modelCallMs: native.agentLimits?.modelCallMs,
           quotaPolicy,
           capacity: options.capacity,
-          budget: Budget.layerFromEnvelope,
+          budget: (envelope) => Budget.layerFromEnvelope(envelope, { weights: native.agentLimits?.weights }),
+          memory: (launch) => SupervisorMemory.opening(launch).pipe(Effect.provideContext(memoryServices)),
           orderTerminalStatus: supervisor.awaitSettled,
           approvalChannel: options.approvalChannel,
           asks: askPolicy(environment),

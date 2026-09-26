@@ -18,7 +18,7 @@ import * as TestMemory from "../src/test/TestMemory.ts"
 import * as WithMemory from "../src/WithMemory.ts"
 
 const policy: WithMemory.Policy = {
-  namespace: { kind: "flow", id: "trellis" },
+  banks: ["flow-trellis"],
   maxTokens: 2048,
   retain: "on-complete"
 }
@@ -55,10 +55,38 @@ const remembered = (bank: string, key: string, text: string) =>
     }))
 
 describe("WithMemory", () => {
+  it("shares declared banks and refuses a mixed private-bank request before IO", async () => {
+    const shared = { ...policy, banks: ["global-team", "project-demo"] }
+    let reads = 0
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const remember = Flows.handlersFor(WithMemory.withMemory(Flows.remember, shared)).remember
+        yield* remember({ bank: "global-team", key: "team", text: "shared fact" })
+        yield* remember({ bank: "project-demo", key: "project", text: "project fact" })
+        const recall = Flows.handlersFor(WithMemory.withMemory(Flows.recall, shared)).recall
+        const failure = yield* Effect.flip(recall({ banks: ["global-team", "user-will"], query: "fact" }))
+        const rows = yield* recall({ banks: [], query: "fact" })
+        return { failure, rows }
+      }).pipe(
+        Effect.provideService(Recall.Recall, {
+          recall: (input) =>
+            Effect.sync(() => {
+              reads++
+              return input.banks.map((bank) => ({ bank, key: bank, text: "fact", score: 1 }))
+            })
+        }),
+        Effect.provide(TestMemory.layer)
+      )
+    )
+    expect(result.failure.code).toBe("invalid_namespace")
+    expect(reads).toBe(1)
+    expect(result.rows.map((row) => row.bank)).toEqual(shared.banks)
+  })
+
   it("rejects an invalid namespace and out-of-range budget at annotation time", () => {
     for (
       const invalid of [
-        { ...policy, namespace: { kind: "flow" as const, id: "" } },
+        { ...policy, banks: [""] },
         { ...policy, maxTokens: -1 },
         { ...policy, maxTokens: Recall.MAX_RECALL_TOKENS + 1 }
       ]
@@ -69,7 +97,7 @@ describe("WithMemory", () => {
 
   it("detaches and deep-freezes policy refusals before handlers run", async () => {
     const original = {
-      namespace: { kind: "flow" as const, id: "frozen" },
+      banks: ["flow-frozen"],
       recall: "none" as const,
       maxTokens: 128,
       retain: "never" as const
@@ -78,11 +106,11 @@ describe("WithMemory", () => {
     const scopedRemember = WithMemory.withMemory(Flows.remember, original)
     const attached = WithMemory.policyOf(scopedRecall)!
 
-    original.namespace.id = "mutated"
+    original.banks[0] = "mutated"
     delete (original as { recall?: "none" }).recall
     original.retain = "on-complete" as never
     expect(Reflect.deleteProperty(attached as object, "recall")).toBe(false)
-    expect(Reflect.set(attached.namespace as object, "id", "mutated-again")).toBe(false)
+    expect(Reflect.set(attached.banks as object, "0", "mutated-again")).toBe(false)
 
     const result = await Effect.runPromise(
       Effect.sync(() => {
@@ -97,8 +125,8 @@ describe("WithMemory", () => {
       )
     )
     expect(Object.isFrozen(attached)).toBe(true)
-    expect(Object.isFrozen(attached.namespace)).toBe(true)
-    expect(attached.namespace.id).toBe("frozen")
+    expect(Object.isFrozen(attached.banks)).toBe(true)
+    expect(attached.banks).toEqual(["flow-frozen"])
     expect(result).toEqual({ recalled: [], remembered: { key: "key" } })
   })
 
@@ -268,7 +296,10 @@ describe("WithMemory", () => {
           text: "written through the bound handler"
         })
         const store = yield* MemoryStore.MemoryStore
-        return { rows, written: yield* store.getFact({ namespace: policy.namespace, key: "written" }) }
+        return {
+          rows,
+          written: yield* store.getFact({ namespace: Recall.namespaceForBank(policy.banks[0]!), key: "written" })
+        }
       }).pipe(
         Effect.provide(RecallKeyword.layer),
         Effect.provide(TestMemory.layer)
@@ -352,7 +383,7 @@ describe("WithMemory", () => {
   it.each(["flow", "agent", "user", "global"] as const)(
     "rejects foreign reads and overwrites under a %s policy over the real store",
     async (kind) => {
-      const scopedPolicy = { ...policy, namespace: { kind, id: "trellis" } }
+      const scopedPolicy = { ...policy, banks: [`${kind}-trellis`] }
       const result = await Effect.runPromise(
         Effect.gen(function*() {
           yield* remembered("user-other", "private", "durable private text")
@@ -363,7 +394,7 @@ describe("WithMemory", () => {
           const remember = Flows.handlersFor(WithMemory.withMemory(Flows.remember, scopedPolicy)).remember
           const writeErrors = yield* Effect.forEach(
             ["user-other", "flow-elsewhere", "agent-trellis"].filter(
-              (bank) => bank !== Recall.bankForNamespace(scopedPolicy.namespace)
+              (bank) => bank !== scopedPolicy.banks[0]
             ),
             (bank) => Effect.flip(remember({ bank, key: "private", text: "overwritten" }))
           )
@@ -384,7 +415,7 @@ describe("WithMemory", () => {
   it.each(["flow", "agent", "user", "global"] as const)(
     "accepts explicit banks resolving to the %s policy namespace",
     async (kind) => {
-      const scopedPolicy = { ...policy, namespace: { kind, id: "trellis" } }
+      const scopedPolicy = { ...policy, banks: [`${kind}-trellis`] }
       const banks = kind === "flow" ? ["trellis", "flow-trellis"] : [`${kind}-trellis`]
       const rows = await Effect.runPromise(
         Effect.gen(function*() {
@@ -450,8 +481,8 @@ describe("WithMemory", () => {
         return {
           kept,
           dropped,
-          keptFact: yield* store.getFact({ namespace: policy.namespace, key: "kept" }),
-          droppedFact: yield* store.getFact({ namespace: policy.namespace, key: "dropped" })
+          keptFact: yield* store.getFact({ namespace: Recall.namespaceForBank(policy.banks[0]!), key: "kept" }),
+          droppedFact: yield* store.getFact({ namespace: Recall.namespaceForBank(policy.banks[0]!), key: "dropped" })
         }
       }).pipe(Effect.provide(TestMemory.layer))
     )

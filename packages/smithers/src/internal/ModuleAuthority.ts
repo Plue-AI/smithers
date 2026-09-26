@@ -30,7 +30,11 @@ import { ModuleOwner } from "./ModuleOwner.ts"
  * @since 1.0.0
  * @private
  */
-export const make = (catalog: Effect.Effect<Executable.Catalog>, actionHost: AgentAction.Host) =>
+export const make = (
+  catalog: Effect.Effect<Executable.Catalog>,
+  actionHost: AgentAction.Host,
+  weights?: Budget.Weights
+) =>
   Effect.gen(function*() {
     const engine = yield* FlowRuntime.FlowRuntime
     const state = yield* DurableEngineState.DurableEngineState
@@ -130,7 +134,7 @@ export const make = (catalog: Effect.Effect<Executable.Catalog>, actionHost: Age
       lookup: (rootId: string) =>
         Effect.gen(function*() {
           const { envelope } = yield* owner(rootId)
-          return yield* Budget.make(Budget.policyFromEnvelope(envelope)).pipe(Effect.orDie)
+          return yield* Budget.make(Budget.policyFromEnvelope(envelope, { weights })).pipe(Effect.orDie)
         })
     })
 
@@ -176,7 +180,7 @@ export const make = (catalog: Effect.Effect<Executable.Catalog>, actionHost: Age
             const shared: Budget.Service = {
               check: (step) => account(budget.check(step === undefined ? undefined : key(step))),
               reserve: (step) => account(budget.reserve(key(step))),
-              record: (step, usage) => account(budget.record(key(step), usage)),
+              record: (step, usage, modelId) => account(budget.record(key(step), usage, modelId)),
               usage: account(budget.usage),
               usageOf: (id) => account(budget.usageOf(id))
             }

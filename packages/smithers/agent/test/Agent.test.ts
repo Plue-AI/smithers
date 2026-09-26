@@ -1051,14 +1051,14 @@ describe("capacity seat chain", () => {
 describe("supervisor memory through Agent.run", () => {
   it.each(
     [
-      { mode: "recall", options: { namespace: "repository", remember: true } },
-      { mode: "absent", options: { namespace: "repository", remember: true } },
-      { mode: "failed", options: { namespace: "repository", remember: true } },
-      { mode: "typed-failed", options: { namespace: "repository", remember: true } },
+      { mode: "recall", options: { banks: ["agent-repository"], remember: true } },
+      { mode: "absent", options: { banks: ["agent-repository"], remember: true } },
+      { mode: "failed", options: { banks: ["agent-repository"], remember: true } },
+      { mode: "typed-failed", options: { banks: ["agent-repository"], remember: true } },
       // No namespace: no bank is read or written, never one global bank.
       { mode: "unnamed", options: { remember: true } },
       // A namespace but no opt-in: recalled, never written.
-      { mode: "unopted", options: { namespace: "repository" } }
+      { mode: "unopted", options: { banks: ["agent-repository"] } }
     ] as const
   )("binds the host memory port when recall is $mode", async ({ mode, options }) => {
     const settled = Deferred.makeUnsafe<void>()
@@ -1185,7 +1185,7 @@ describe("supervisor memory through Agent.run", () => {
     expect(recalls).toEqual(
       mode === "absent" || mode === "unnamed" ? [] : [{
         banks: [`agent-${namespace}`],
-        query: "The task for this run:\n\nwrite the first file",
+        query: `The task for this run:\n\nwrite the first file\n${sentence}`,
         maxTokens: Supervisor.recalledLimit * 256
       }]
     )

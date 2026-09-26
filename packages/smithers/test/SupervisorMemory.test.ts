@@ -19,6 +19,8 @@ import { Flow, FlowRuntime } from "@smthrs/flow"
 import type * as Relevance from "@smthrs/harness/Relevance"
 import * as Supervisor from "@smthrs/harness/Supervisor"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
+import * as Recall from "@smthrs/memory/Recall"
+import * as Source from "@smthrs/memory/Source"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
@@ -175,6 +177,35 @@ const agentRun = (input: {
   )
 
 describe("SupervisorMemory", () => {
+  it("opening memory reads only exact granted banks and stays within 16 KiB", async () => {
+    const requests: Array<Recall.Input> = []
+    const read = (capabilities: ReadonlyArray<string>) =>
+      SupervisorMemory.opening({
+        runId: "opening",
+        prompt: "release plan",
+        history: ["last thread message"],
+        capabilities
+      }).pipe(
+        Effect.provideService(MemoryStore.MemoryStore, MemoryStore.makeNoop()),
+        Effect.provideService(Recall.Recall, {
+          recall: (input) =>
+            Effect.sync(() => {
+              requests.push(input)
+              return input.banks.map((bank) => ({ bank, key: bank, score: 1, text: "release plan ".repeat(2000) }))
+            })
+        }),
+        Effect.runPromise
+      )
+    const team = await read(["memory:read:global-team", "memory:write:user-will"])
+    expect(requests[0]?.banks).toEqual(["global-team"])
+    expect(requests[0]?.query).toContain("last thread message")
+    expect(new TextEncoder().encode(Source.render(team.rows)).length).toBeLessThanOrEqual(16 * 1024)
+    await read(["memory:*:user-will", "memory:read:global-team"])
+    expect(requests[1]?.banks).toEqual(["user-will", "global-team"])
+    expect((await read(["fs:read:**", "memory:read:*"])).rows).toEqual([])
+    expect(requests).toHaveLength(2)
+  })
+
   it("recalls a note run 1 remembered into run 2's snapshot, through the host's memory composition", async () => {
     const root = scratch()
     const environment = { SMITHERS_MEMORY_DB: join(root, "memory", "django.db") }
@@ -209,10 +240,10 @@ describe("SupervisorMemory", () => {
     const root = scratch()
     const one = SupervisorMemory.options({}, join(root, "a"))
     const other = SupervisorMemory.options({}, join(root, "b"))
-    expect(one.namespace).not.toEqual(other.namespace)
-    expect(one.namespace).not.toBe("supervisor")
-    expect(one.namespace).toMatch(/^project-[0-9a-f]{16}$/)
-    expect(one).toEqual({ remember: false, namespace: one.namespace, stance: "careful" })
+    expect(one.banks[0]).not.toEqual(other.banks[0])
+    expect(one.banks[0]).not.toBe("supervisor")
+    expect(one.banks[0]).toMatch(/^project-[0-9a-f]{16}$/)
+    expect(one).toEqual({ remember: false, banks: one.banks, stance: "careful" })
     const opted = SupervisorMemory.options({ SMITHERS_MEMORY_DB: join(root, "m.db") }, join(root, "a"))
     expect(opted.remember).toBe(true)
   })

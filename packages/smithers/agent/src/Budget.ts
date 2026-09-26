@@ -127,6 +127,23 @@ export interface LatencyBudget {
 }
 
 /**
+ * Relative charges for uncached input, cached input and output tokens.
+ * @category schemas
+ * @since 0.1.0
+ */
+export const TokenWeights = Schema.Struct({
+  input: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  cachedInput: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  output: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
+})
+
+/** Per-model token charges keyed by canonical model ID.
+ * @category models
+ * @since 0.1.0
+ */
+export type Weights = Readonly<Record<string, typeof TokenWeights.Type>>
+
+/**
  * Everything one composition declares about spending.
  *
  * An empty policy is a real policy: it accumulates usage and refuses nothing,
@@ -136,6 +153,7 @@ export interface LatencyBudget {
  * @since 0.1.0
  */
 export interface Policy {
+  readonly weights?: Weights | undefined
   readonly tokens?: TokenBudget | undefined
   readonly latency?: LatencyBudget | undefined
 }
@@ -360,7 +378,11 @@ export interface Service {
    * failed/uncommitted write remains pending and retryable; new uncounted
    * steps fail closed until it commits. Retries must supply the same cost.
    */
-  readonly record: (stepKey: string, usage: ModelEvent.Usage) => Effect.Effect<void, AccountingUnavailable>
+  readonly record: (
+    stepKey: string,
+    usage: ModelEvent.Usage,
+    modelId?: string
+  ) => Effect.Effect<void, AccountingUnavailable>
   /** What the CURRENT run has spent. Outside a run, what the caller recorded. */
   readonly usage: Effect.Effect<Usage, AccountingUnavailable>
   /**
@@ -508,7 +530,7 @@ const recordSource = JournalEvent.SourceId.make("/agent/budget")
  * @category accounting
  * @since 0.1.0
  */
-export const tokensOf = (usage: ModelEvent.Usage): number => {
+export const tokensOf = (usage: ModelEvent.Usage, weights?: typeof TokenWeights.Type): number => {
   const counters = [
     usage.totalTokens,
     usage.inputTokens,
@@ -518,6 +540,17 @@ export const tokensOf = (usage: ModelEvent.Usage): number => {
     usage.cacheWriteTokens
   ]
   if (counters.some((value) => value !== undefined && (!Number.isFinite(value) || value < 0))) return Number.NaN
+  if (weights !== undefined) {
+    // Normalized input/output counters already include cached input/reasoning.
+    // Missing parts cannot safely be inferred from a provider total.
+    if (
+      usage.inputTokens === undefined || usage.outputTokens === undefined ||
+      (usage.cachedInputTokens ?? 0) > usage.inputTokens
+    ) return Number.NaN
+    const cached = usage.cachedInputTokens ?? 0
+    return (usage.inputTokens - cached) * weights.input + cached * weights.cachedInput +
+      usage.outputTokens * weights.output
+  }
   return usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) +
       (usage.reasoningTokens ?? 0)
 }
@@ -887,6 +920,7 @@ const NonNegativeInteger = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const PositiveInteger = Schema.Int.check(Schema.isGreaterThan(0))
 const Configuration = Schema.Struct({
   policy: Schema.Struct({
+    weights: Schema.optional(Schema.Record(Schema.String, TokenWeights)),
     tokens: Schema.optional(Schema.Struct({
       max: NonNegativeInteger,
       onExceeded: Schema.optional(OnExceeded)
@@ -1266,10 +1300,10 @@ export const make = (
     return Budget.of({
       check,
       reserve,
-      record: (stepKey, usage) =>
+      record: (stepKey, usage, modelId) =>
         withRecovered((run, runId) =>
           Effect.gen(function*() {
-            const spent = tokensOf(usage)
+            const spent = tokensOf(usage, modelId === undefined ? undefined : policy.weights?.[modelId])
             // A malformed cost must not poison the numeric accumulator. Keep the
             // ledger unavailable until that step supplies a valid record.
             const payload = yield* Schema.encodeEffect(UsageRecord)({ stepKey, spent }).pipe(
@@ -1426,10 +1460,11 @@ export const current: Effect.Effect<Service, never, Budget> = Budget
  */
 export const policyFromEnvelope = (
   envelope: ControlSchema.Envelope,
-  options: { readonly onExceeded?: OnExceeded | undefined } = {}
+  options: { readonly onExceeded?: OnExceeded | undefined; readonly weights?: Weights | undefined } = {}
 ): Policy => {
   const onExceeded = options.onExceeded ?? "fail"
   return {
+    ...(options.weights === undefined ? {} : { weights: options.weights }),
     ...(envelope.budget.tokens === undefined
       ? {}
       : { tokens: { max: envelope.budget.tokens, onExceeded } }),
@@ -1447,5 +1482,5 @@ export const policyFromEnvelope = (
  */
 export const layerFromEnvelope = (
   envelope: ControlSchema.Envelope,
-  options: { readonly onExceeded?: OnExceeded | undefined } = {}
+  options: { readonly onExceeded?: OnExceeded | undefined; readonly weights?: Weights | undefined } = {}
 ): Layer.Layer<Budget, ConfigurationError> => layer(policyFromEnvelope(envelope, options))

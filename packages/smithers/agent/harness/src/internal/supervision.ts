@@ -334,7 +334,10 @@ export const open = (input: {
             // same rows first each time: it is asked past every row already
             // shown, and a row shown once is never asked about again.
             const recalled = memory.bound
-              ? yield* memory.recall(offer.snapshot.task, Supervisor.recalledLimit + offer.shown.length).pipe(
+              ? yield* memory.recall(
+                [offer.snapshot.task, offer.recent].filter(Boolean).join("\n").slice(-16_384),
+                Supervisor.recalledLimit + offer.shown.length
+              ).pipe(
                 Effect.catch((failure) => Effect.as(memoryFailed(offer.frame, "recall", failure), []))
               )
               : []

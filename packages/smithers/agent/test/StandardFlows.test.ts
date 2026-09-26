@@ -620,7 +620,7 @@ describe("the recall flow", () => {
     )
     const bindings = await Effect.runPromise(
       StandardFlows.memory(scoped, judge, {
-        policy: { namespace: { kind: "agent", id: "builder" }, maxTokens: 2048, retain: "on-complete" }
+        policy: { banks: ["agent-builder"], maxTokens: 2048, retain: "on-complete" }
       }).bindings()
     )
     const binding = bindings.find((entry) => entry.descriptor.name === "recall")!

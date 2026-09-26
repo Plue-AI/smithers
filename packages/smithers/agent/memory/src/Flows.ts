@@ -252,7 +252,8 @@ export const runRecall = (
 const validatePolicyBank = (bank: string, policy: WithMemory.Policy): Effect.Effect<void, MemoryError> =>
   Effect.gen(function*() {
     const { namespace } = yield* resolveNamespace(bank)
-    if (namespace.kind !== policy.namespace.kind || namespace.id !== policy.namespace.id) {
+    const allowed = yield* Effect.forEach(policy.banks, resolveNamespace)
+    if (!allowed.some((entry) => entry.namespace.kind === namespace.kind && entry.namespace.id === namespace.id)) {
       return yield* Effect.fail(
         new MemoryError({
           code: "invalid_namespace",
@@ -281,7 +282,7 @@ export const runRecallFor = (
   if (policy === undefined) return runRecall(input)
   if (policy.recall === "none") return Effect.succeed([])
   return Effect.gen(function*() {
-    const banks = input.banks.length > 0 ? input.banks : [Recall.bankForNamespace(policy.namespace)]
+    const banks = input.banks.length > 0 ? input.banks : policy.banks
     for (const bank of banks) yield* validatePolicyBank(bank, policy)
     return yield* runRecall({
       ...input,
@@ -314,7 +315,7 @@ export const runRememberFor = (
   if (policy === undefined) return runRememberWith(provenance)(input)
   if (policy.retain === "never") return Effect.succeed({ key: input.key })
   return Effect.gen(function*() {
-    const bank = input.bank.length > 0 ? input.bank : Recall.bankForNamespace(policy.namespace)
+    const bank = input.bank.length > 0 ? input.bank : policy.banks[0]!
     yield* validatePolicyBank(bank, policy)
     return yield* runRememberWith(provenance)({ ...input, bank })
   })
