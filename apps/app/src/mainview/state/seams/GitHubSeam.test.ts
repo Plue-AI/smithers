@@ -916,3 +916,92 @@ describe("the mirror run poll's fences", () => {
     }
   })
 })
+
+
+describe("GitHub setup account ownership", () => {
+  const identity = (login: string | null, provider: "github" | "local" = "github") => ({ type: "identity.session.loaded" as const, actor: "system" as const,
+    state: login === null ? "signed-out" as const : "signed-in" as const, login, provider, allowlisted: login !== null, admin: false, scopesPlain: null })
+  const inventory = { repos: [{ fullName: "will/private", installationId: 5511 }] }
+  for (const action of ["status", "installation"] as const) for (const change of ["account", "provider", "away-and-back", "dispose", "cloud-sign-out", "refresh"] as const) {
+    test.each(["success", "refusal", "drop"] as const)(`${action} %s respects ${change}`, async result => {
+      const read = Promise.withResolvers<Response>()
+      let disposed = false
+      const path = action === "status" ? STATUS_PATH : "api/user/github-app/installations/5511"
+      const { store, seam } = await harness({ [path]: () => read.promise }, { isDisposed: () => disposed })
+      await store.dispatch(identity("will")).isPersisted.promise
+      const pending = action === "status" ? seam.app("will/smithers") : seam.chooseInstallation("5511")
+      if (change === "dispose") disposed = true
+      else if (change === "cloud-sign-out") await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null }).isPersisted.promise
+      else {
+        await store.dispatch(identity(change === "account" ? "other" : change === "away-and-back" ? null : "will", change === "provider" ? "local" : "github")).isPersisted.promise
+        if (change === "away-and-back") await store.dispatch(identity("will")).isPersisted.promise
+        if (change === "refresh") await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+      }
+      const head = (await store.eventHistory()).head
+      if (result === "drop") read.reject(new Error("Private setup error"))
+      else read.resolve(json(result === "refusal" ? 403 : 200, result === "refusal" ? { message: "Private setup refusal" } : action === "status" ? INSTALLED : inventory)())
+      const answer = await pending
+      await store.settled?.()
+      if (change === "refresh") {
+        if (result === "success") {
+          expect(store.collections.githubAppStatuses.get(action === "status" ? "will/smithers" : "will/private")?.installationId).toBe(5511)
+          if (action === "installation") expect(store.session().activeRepoKey).toBe("will/private")
+        } else expect(textOf(answer)).toContain(result === "refusal" ? "Private setup refusal" : "Private setup error")
+      } else {
+        expect(answer).toBe(SIGN_OUT_REFUSAL)
+        expect((await store.eventHistory()).head).toEqual(head)
+        expect(cardOf(store)).toBeUndefined()
+        expect(store.collections.githubAppStatuses.has("will/private")).toBe(false)
+        expect(store.collections.repositories.has("will/private")).toBe(false)
+      }
+    })
+  }
+
+  test("an empty selected installation remains a retryable refusal", async () => {
+    const { store, seam } = await harness({ "api/user/github-app/installations/5511": json(200, { repos: [] }) })
+    await store.dispatch(identity("will")).isPersisted.promise
+    expect(await seam.chooseInstallation("5511")).toContain("No installed repository is visible yet")
+    expect(store.collections.toasts.get("toast-github.install")?.status).toBe("failed")
+  })
+
+  test("a new owner's chooser never joins the old check, whose completion cannot clear the new check", async () => {
+    const reads: Array<ReturnType<typeof Promise.withResolvers<Response>>> = [], opened: string[] = []
+    const { store, seam } = await harness({ "api/user/github-app/installations": () => {
+      const read = Promise.withResolvers<Response>(); reads.push(read); return read.promise
+    } }, { openExternal: async url => { opened.push(url); return true } })
+    await store.dispatch(identity("will")).isPersisted.promise
+    await store.dispatch(identity("first")).isPersisted.promise
+    const first = seam.openInstall()
+    await waitUntil(() => reads.length === 1)
+    await store.dispatch(identity("second")).isPersisted.promise
+    const second = seam.openInstall()
+    await waitUntil(() => reads.length === 2)
+    reads[0]!.resolve(json(200, { repos: [] })())
+    expect(await first).toBe(SIGN_OUT_REFUSAL)
+    const joined = seam.openInstall()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(reads).toHaveLength(2)
+    reads[1]!.resolve(json(200, { repos: [{ fullName: "second/private", installationId: 99 }] })())
+    expect(await second).toBeUndefined()
+    expect(await joined).toBeUndefined()
+    expect(store.session().activeRepoKey).toBe("second/private")
+    expect(opened).toEqual([])
+  })
+
+  test("multiple installations render the chooser, while one installation adopts its newest repository", async () => {
+    let rows = [{ fullName: "one/old", installationId: 1, pushedAt: "2026-01-01" }, { fullName: "two/new", installationId: 2, pushedAt: "2026-02-01" }]
+    const { store, seam } = await harness({
+      "api/user/github-app/installations": () => json(200, { repos: rows })(),
+      "api/user/github-app/installations/2": () => json(200, { repos: rows })()
+    }, { openExternal: async () => { throw new Error("No install page for an existing installation") } })
+    await store.dispatch(identity("will")).isPersisted.promise
+    await store.dispatch(identity("other")).isPersisted.promise
+    await seam.openInstall()
+    const form = store.collections.cards.get("form-github.app.choose")
+    expect(form?.kind === "flow-form" ? form.payload.fields[0]?.options : undefined).toEqual([{ value: "1", label: "one" }, { value: "2", label: "two" }])
+    rows = [{ fullName: "two/old", installationId: 2, pushedAt: "2026-01-01" }, { fullName: "two/new", installationId: 2, pushedAt: "2026-02-01" }]
+    expect(await seam.chooseInstallation("2")).toBeUndefined()
+    expect(store.session().activeRepoKey).toBe("two/new")
+    expect(store.collections.repositories.has("two/old")).toBe(true)
+  })
+})

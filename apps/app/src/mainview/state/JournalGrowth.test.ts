@@ -712,3 +712,34 @@ test.each(["commit", "reject"] as const)("unchanged mirror polls do not grow SQL
     Object.assign(mirrorSyncPolling, previous)
   }
 })
+
+
+test.each(["adopt", "notice", "open"] as const)("GitHub installation %s stops across a held write and account replacement", async phase => {
+  const { createGitHubSeam } = await import("./seams/GitHubSeam")
+  const fixture = await open(), { store } = fixture
+  const identity = (login: string) => ({ type: "identity.session.loaded" as const, actor: "system" as const, state: "signed-in" as const,
+    login, allowlisted: true, admin: false, scopesPlain: null })
+  await store.dispatch(identity("owner")).isPersisted.promise
+  const dispatched: string[] = [], opened: string[] = []
+  const seam = createGitHubSeam({ store, baseUrl: "", actor: () => "user", nextOrdinal: () => 1,
+    dispatch: input => { dispatched.push(input.type); return store.dispatch(input) },
+    http: async () => phase === "notice" ? Response.json({ message: "Private install refusal" }, { status: 403 }) :
+      Response.json({ repos: phase === "open" ? [] : [{ fullName: "owner/private", installationId: 1 }] })
+  }, { openExternal: async url => { opened.push(url); return true } })
+  const held = fixture.pauseNextWrite()
+  const pending = phase === "open" ? seam.openInstall() : seam.chooseInstallation("1")
+  await held.entered
+  const replacement = store.dispatch(identity("other"))
+  held.release()
+  await replacement.isPersisted.promise
+  await pending
+  await store.settled?.()
+  expect(dispatched).not.toContain("repo.selected")
+  expect(dispatched).not.toContain("toast.resolved")
+  expect(opened).toEqual([])
+  const reopened = await open(fixture.path)
+  expect(reopened.store.collections.repositories.has("owner/private")).toBe(false)
+  expect(reopened.store.collections.githubAppStatuses.has("owner/private")).toBe(false)
+  expect(reopened.store.session().activeRepoKey).not.toBe("owner/private")
+  expect((await reopened.store.verifyState()).valid).toBe(true)
+})

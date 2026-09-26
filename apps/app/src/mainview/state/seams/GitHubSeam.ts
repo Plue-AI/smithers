@@ -357,7 +357,9 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     if (refusal !== undefined) return refusal
     const target = resolveTargetRepo(ctx.store, explicit)
     if ("error" in target) return target.error
+    const current = captureCloudOwner(ctx)
     const answer = await readStatus(target.repo)
+    if (!current()) return SIGN_OUT_REFUSAL
     if ("status" in answer) dispatchStatus(target.repo, answer.status)
     renderCard(target.repo, answer)
     if ("refusal" in answer) return answer.refusal.message
@@ -368,18 +370,19 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     }
   }
 
-  let installFailure: string | undefined
-  const installNotice = async (text: string | undefined, status: "ok" | "failed" = "failed"): Promise<void> => {
-    installFailure = status === "failed" ? text : undefined
+  const installNotice = async (text: string | undefined, status: "ok" | "failed" = "failed", current = captureCloudOwner(ctx, false)): Promise<void> => {
+    if (!current()) return
     if (text) {
       await ctx.dispatch({ type: "toast.shown", actor: "system", key: "github.install", title: text }).isPersisted.promise
+      if (!current()) return
       // An ok toast draws no dismiss control, so it leaves only through the
       // controller's door (failures.ts). A failed one keeps its own X and stands.
       if (status === "ok" && ctx.resolveToast) ctx.resolveToast("github.install", { status, detail: "" })
       else await ctx.dispatch({ type: "toast.resolved", actor: "system", key: "github.install", status, detail: "" }).isPersisted.promise
     }
   }
-  const adoptInstalled = async (repo: string, repos: ReadonlyArray<{ fullName: string }>): Promise<void> => {
+  const adoptInstalled = async (repo: string, repos: ReadonlyArray<{ fullName: string }>, current: () => boolean): Promise<void> => {
+    if (!current()) return
     const missing = repos.filter(row => !ctx.store.collections.repositories.has(row.fullName))
     if (missing.length) await ctx.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
       ...ctx.store.collections.repositories.values(), ...missing.map(row => {
@@ -387,19 +390,21 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         return { id: row.fullName, org, name, ownerKind: "user" as const, head: null }
       })
     ] }).isPersisted.promise
+    if (!current()) return
     await ctx.dispatch({ type: "repo.selected", actor: "system", id: repo }).isPersisted.promise
   }
-  const verifyInstall = async (installationId?: string): Promise<"empty" | void> => {
-    installFailure = undefined
-    const login = ctx.store.collections.identitySessions.get("identity")?.login
-    const stillCurrent = () =>
-      ctx.store.collections.identitySessions.get("identity")?.login === login
+  const verifyInstall = async (installationId?: string, stillCurrent = captureCloudOwner(ctx, false)): Promise<{ readonly error: string; readonly empty?: boolean } | void> => {
+    if (!stillCurrent()) return
+    const notice = async (error: string): Promise<{ readonly error: string }> => {
+      await installNotice(error, "failed", stillCurrent)
+      return { error }
+    }
     let response: Response
     try {
       response = await ctx.http(`${ctx.baseUrl}${INSTALL_VERIFY_PATH}${installationId === undefined ? "" : `/${encodeURIComponent(installationId)}`}`)
     } catch (error) {
       if (!stillCurrent()) return
-      return installNotice(`Nothing came back from GitHub that I could confirm (${error instanceof Error ? error.message : String(error)}). Try again?`)
+      return notice(`Nothing came back from GitHub that I could confirm (${error instanceof Error ? error.message : String(error)}). Try again?`)
     }
     if (!stillCurrent()) { await response.body?.cancel(); return }
     if (!response.ok) {
@@ -407,19 +412,19 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         ? "GitHub sent you back, but this Smithers server can't confirm installs yet, so I won't guess which repository you chose. Try again later, or choose Later."
         : `GitHub sent you back, but Smithers couldn't confirm the install (${response.status}). Try again?`
       const refusal = await readGitHubRefusal(response, fallback)
-      if (stillCurrent()) return installNotice(refusal.message)
+      if (stillCurrent()) return notice(refusal.message)
       return
     }
     const body: unknown = await response.json().catch(() => null)
     if (!stillCurrent()) return
-    if (!isRecord(body) || (!Array.isArray(body.repos) && typeof body.repo !== "string")) return installNotice("Smithers Cloud returned an unreadable installation list. Try again.")
+    if (!isRecord(body) || (!Array.isArray(body.repos) && typeof body.repo !== "string")) return notice("Smithers Cloud returned an unreadable installation list. Try again.")
     const rows = isRecord(body) && Array.isArray(body.repos) ? body.repos : isRecord(body) && typeof body.repo === "string" ? [{ fullName: body.repo }] : []
     const repos = rows.flatMap((row) => {
       if (!isRecord(row)) return []
       const fullName = str(row.fullName) ?? str(row.full_name)
       return fullName === null || !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(fullName) ? [] : [{ fullName, installationId: intOrNull(row.installationId) ?? intOrNull(row.installation_id), pushedAt: str(row.pushedAt) ?? str(row.pushed_at) ?? "" }]
     })
-    if (repos.length !== rows.length) return installNotice("Smithers Cloud returned an unreadable installation list. Try again.")
+    if (repos.length !== rows.length) return notice("Smithers Cloud returned an unreadable installation list. Try again.")
     const installations = new Map<number, string>()
     for (const repo of repos) if (repo.installationId !== null) installations.set(repo.installationId, repo.fullName.split("/")[0]!)
     for (const repo of repos) {
@@ -430,7 +435,6 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     if (installationId === undefined && installations.size > 1) {
       const id = "form-github.app.choose"
       const existing = ctx.store.collections.cards.get(id)
-      await installNotice(undefined)
       await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: {
         id, kind: "flow-form", title: "Choose a GitHub App installation", status: "active",
         createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? ctx.nextOrdinal(),
@@ -443,16 +447,17 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     // Several repositories in ONE installation: newest active, the rest in the chip menu.
     const chosen = [...repos].sort((a, b) => b.pushedAt.localeCompare(a.pushedAt))[0]
     if (chosen === undefined) {
-      await installNotice("No installed repository is visible yet. Select a repository on GitHub, then return here to check again.")
-      return "empty"
+      return { ...await notice("No installed repository is visible yet. Select a repository on GitHub, then return here to check again."), empty: true }
     }
-    if (stillCurrent()) await adoptInstalled(chosen.fullName, repos)
+    if (stillCurrent()) await adoptInstalled(chosen.fullName, repos, stillCurrent)
   }
   const chooseInstallation: GitHubSeam["chooseInstallation"] = async installationId => {
     if (!/^\d+$/.test(installationId)) return "Choose a GitHub App installation from the list."
-    await verifyInstall(installationId)
+    const current = captureCloudOwner(ctx, false)
+    const result = await verifyInstall(installationId, current)
+    if (!current()) return SIGN_OUT_REFUSAL
     // A failed verification must keep the shared form retryable, not mark it submitted.
-    return installFailure
+    return typeof result === "object" ? result.error : undefined
   }
   const handleInstallReturn: GitHubSeam["handleInstallReturn"] = (search) => {
     const answer = readInstallReturn(search)
@@ -463,11 +468,13 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     return true
   }
   /* The install pill's check, one at a time: a second press joins it instead of paging the inventory again. */
-  const installCheck = actorSharedState(ctx, "install-check", () => ({ current: undefined as Promise<string | void> | undefined }))
+  const installCheck = actorSharedState(ctx, "install-check", () => ({ current: undefined as { readonly owner: () => boolean; readonly run: Promise<string | void> } | undefined }))
   /** GitHub's chooser for an account without a repository yet. */
   const openChooser = (): Promise<string | void> => {
     if (ctx.store.collections.identitySessions.get("identity")?.state !== "signed-in") return Promise.resolve("Log in to GitHub first; the install page asks as you.")
-    if (installCheck.current !== undefined) return installCheck.current
+    if (installCheck.current?.owner()) return installCheck.current.run
+    const current = captureCloudOwner(ctx, false)
+    if (!current()) return Promise.resolve(SIGN_OUT_REFUSAL)
     /*
      * A browser opens a popup only within the click's user activation (about
      * five seconds in Chromium), and verifying a real inventory takes longer.
@@ -476,34 +483,40 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
      */
     const popup = deps.openExternal === undefined && typeof window !== "undefined" ? window.open("about:blank", "_blank") : null
     if (popup) popup.opener = null
-    const run = checkThenOpen(popup).finally(() => { installCheck.current = undefined })
-    installCheck.current = run
-    return run
+    const check = { owner: current, run: checkThenOpen(popup, current).finally(() => {
+      if (installCheck.current === check) installCheck.current = undefined
+    }) }
+    installCheck.current = check
+    return check.run
   }
-  const checkThenOpen = async (popup: Window | null): Promise<string | void> => {
-    let url: string | undefined
+  const checkThenOpen = async (popup: Window | null, current: () => boolean): Promise<string | void> => {
+    let opened = false
     try {
-      if (await verifyInstall() !== "empty") return
-      url = GITHUB_APP_INSTALL_URL
+      const result = await verifyInstall(undefined, current)
+      if (!current()) return SIGN_OUT_REFUSAL
+      if (!result?.empty) return result?.error
+      // Flush before either browser door; the native host may navigate away too.
+      await ctx.store.settled?.()
+      if (!current()) return SIGN_OUT_REFUSAL
+      // The return callback belongs to this check, even if the page switches accounts.
+      if (typeof window !== "undefined") window.addEventListener("focus", () => {
+        if (current()) void verifyInstall(undefined, current)
+      }, { once: true })
+      if (deps.openExternal !== undefined) {
+        const didOpen = await deps.openExternal(GITHUB_APP_INSTALL_URL)
+        if (!current()) return SIGN_OUT_REFUSAL
+        if (!didOpen) return "The GitHub install page could not open. Try again."
+        return
+      }
+      if (typeof window === "undefined") return
+      if (popup === null) return "Your browser blocked the GitHub install page. Allow pop-ups for this site, then try again."
+      if (popup.closed) return "The GitHub install page was closed before it loaded. Try again."
+      popup.location.href = GITHUB_APP_INSTALL_URL
+      opened = true
     } finally {
-      // An adopted installation, a refusal, or an account change: nothing to install, so no blank tab stays behind.
-      if (url === undefined) popup?.close()
+      // An adopted installation, refusal, or retired owner leaves no blank tab.
+      if (!opened) popup?.close()
     }
-    // Recheck the verified inventory when the person returns to this tab,
-    // even if GitHub's configured setup URL belongs to another app host.
-    if (typeof window !== "undefined") window.addEventListener("focus", () => { void verifyInstall() }, { once: true })
-    // Flush before either browser door; the native host may navigate away too.
-    await ctx.store.settled?.()
-    if (deps.openExternal !== undefined) {
-      if (!await deps.openExternal(url)) return "The GitHub install page could not open. Try again."
-      return
-    }
-    // GitHub owns the App's configured setup URL. Keep this app tab and
-    // its origin intact even when that callback lands on another Smithers host.
-    if (typeof window === "undefined") return
-    if (popup === null) return "Your browser blocked the GitHub install page. Allow pop-ups for this site, then try again."
-    if (popup.closed) return "The GitHub install page was closed before it loaded. Try again."
-    popup.location.href = url
   }
 
   const openInstall: GitHubSeam["openInstall"] = async (explicit) => {
