@@ -467,6 +467,7 @@ impl RepoHandle {
         }
 
         let commit_id = resolve_change_or_commit_id(&self.repo, target_change_id)?;
+        self.ensure_bookmark_moves_forward(trimmed_name, Some(&commit_id))?;
 
         let mut tx = self.repo.start_transaction();
         tx.repo_mut().set_local_bookmark_target(
@@ -502,6 +503,7 @@ impl RepoHandle {
         if self.repo.view().get_local_bookmark(ref_name).is_absent() {
             return Err(JjError::NotFound("bookmark not found".to_string()));
         }
+        self.ensure_bookmark_moves_forward(trimmed_name, None)?;
 
         let mut tx = self.repo.start_transaction();
         tx.repo_mut()
@@ -628,22 +630,32 @@ impl RepoHandle {
         Ok(change_from_commit(&self.repo, &commit))
     }
 
-    /// The append-only bookmark whose history contains `commit`: the jj revset
-    /// `::(default | mythical)` membership. Main is never rewritten, and only
-    /// the stack service rewrites mythical, by pushing it.
-    fn append_only_history_containing(&self, commit: &CommitId) -> Result<Option<String>, JjError> {
-        use jj_lib::revset::ResolvedRevsetExpression;
-        // Fail closed: without a known default, main cannot be told apart.
+    /// The append-only bookmarks: the default bookmark and `mythical`. Main
+    /// is never rewritten, and only the stack service rewrites mythical, by
+    /// pushing it. Fails closed: without a known default, main cannot be told
+    /// apart.
+    fn append_only_bookmarks(&self) -> Result<[String; 2], JjError> {
         let default = default_git_bookmark(&self.repo_path)?
             .ok_or_else(|| JjError::Conflict("the default bookmark cannot be read".to_string()))?;
-        for name in [default.as_str(), MYTHICAL_BOOKMARK] {
-            let target = self.repo.view().get_local_bookmark(RefName::new(name));
-            // A conflicted bookmark protects every side.
-            let heads: Vec<CommitId> = target
-                .added_ids()
-                .chain(target.removed_ids())
-                .cloned()
-                .collect();
+        Ok([default, MYTHICAL_BOOKMARK.to_owned()])
+    }
+
+    /// Every commit a bookmark names; a conflicted bookmark names each side.
+    fn bookmark_heads(&self, name: &str) -> Vec<CommitId> {
+        let target = self.repo.view().get_local_bookmark(RefName::new(name));
+        target
+            .added_ids()
+            .chain(target.removed_ids())
+            .cloned()
+            .collect()
+    }
+
+    /// The append-only bookmark whose history contains `commit`: the jj revset
+    /// `::(default | mythical)` membership.
+    fn append_only_history_containing(&self, commit: &CommitId) -> Result<Option<String>, JjError> {
+        use jj_lib::revset::ResolvedRevsetExpression;
+        for name in self.append_only_bookmarks()? {
+            let heads = self.bookmark_heads(&name);
             if heads.is_empty() {
                 continue;
             }
@@ -655,7 +667,7 @@ impl RepoHandle {
                 .block_on()
                 .map_err(|err| JjError::Internal(err.to_string()))?
             {
-                return Ok(Some(name.to_owned()));
+                return Ok(Some(name));
             }
         }
         Ok(None)
@@ -669,6 +681,43 @@ impl RepoHandle {
             ))),
             None => Ok(()),
         }
+    }
+
+    /// Every operation that sets or deletes a bookmark calls this first: an
+    /// existing append-only bookmark moves only to a descendant (`target`
+    /// None deletes it, which is refused).
+    fn ensure_bookmark_moves_forward(
+        &self,
+        name: &str,
+        target: Option<&CommitId>,
+    ) -> Result<(), JjError> {
+        let heads = self.bookmark_heads(name);
+        if heads.is_empty()
+            || !self
+                .append_only_bookmarks()?
+                .iter()
+                .any(|kept| kept == name)
+        {
+            return Ok(());
+        }
+        let refused = || {
+            JjError::Conflict(format!(
+                "{name} only moves forward; its history is never rewritten"
+            ))
+        };
+        let target = target.ok_or_else(refused)?;
+        for head in &heads {
+            if !self
+                .repo
+                .index()
+                .is_ancestor(head, target)
+                .block_on()
+                .map_err(|err| JjError::Internal(err.to_string()))?
+            {
+                return Err(refused());
+            }
+        }
+        Ok(())
     }
 
     /// Move the selected paths' diff into a new parent change while preserving
@@ -5209,6 +5258,54 @@ mod tests {
     }
 
     #[test]
+    fn ffi_append_only_bookmarks_only_move_forward() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_path = repo_path(&tmp);
+        let repo_path_c = c_path(&repo_path);
+        let _ = unsafe { take_json(smithers_init_repo(repo_path_c.as_ptr())) };
+        persist_default_git_bookmark(&repo_path, "trunk").expect("save default bookmark");
+        let base = create_commit_with_files(&repo_path, "Base", &[("a.txt", "a\n")]);
+        let tip = create_commit_with_files(&repo_path, "Tip", &[("b.txt", "b\n")]);
+        let set = |name: &str, change: &str| {
+            let (name, change) = (c_string(name), c_string(change));
+            unsafe {
+                take_json(smithers_create_bookmark(
+                    repo_path_c.as_ptr(),
+                    name.as_ptr(),
+                    change.as_ptr(),
+                ))
+            }
+        };
+        let delete = |name: &str| {
+            let name = c_string(name);
+            unsafe {
+                take_json(smithers_delete_bookmark(
+                    repo_path_c.as_ptr(),
+                    name.as_ptr(),
+                ))
+            }
+        };
+        for name in ["trunk", "mythical", "topic"] {
+            assert!(set(name, &base).get("code").is_none(), "create {name}");
+            assert!(set(name, &tip).get("code").is_none(), "forward {name}");
+        }
+        for name in ["trunk", "mythical"] {
+            let rewound = set(name, &base);
+            assert_eq!(rewound["code"], "conflict", "{rewound}");
+            assert_eq!(
+                rewound["error"],
+                format!("{name} only moves forward; its history is never rewritten")
+            );
+            assert_eq!(delete(name)["code"], "conflict", "delete {name}");
+        }
+        assert!(
+            set("topic", &base).get("code").is_none(),
+            "other bookmarks move freely"
+        );
+        assert!(delete("topic").get("code").is_none());
+    }
+
+    #[test]
     fn backout_description_ignores_non_trailer_final_paragraph() {
         assert_eq!(description_trailer_block("Summary\n\nordinary prose"), None);
         assert_eq!(
@@ -5441,7 +5538,7 @@ mod tests {
 
         let store_path = repo_path.join(".jj").join("repo").join("store");
         let store_path_c = c_path(&store_path);
-        let name = c_string("main");
+        let name = c_string("topic");
         let change_id_c = c_string(&change_id);
 
         let created = unsafe {
@@ -5451,7 +5548,7 @@ mod tests {
                 change_id_c.as_ptr(),
             ))
         };
-        assert_eq!(created["name"], "main");
+        assert_eq!(created["name"], "topic");
         assert_eq!(created["target_change_id"], change_id);
 
         let missing_change_id = c_string("change-that-does-not-exist");
@@ -5462,12 +5559,12 @@ mod tests {
                 missing_change_id.as_ptr(),
             ))
         };
-        assert_eq!(existing["name"], "main");
+        assert_eq!(existing["name"], "topic");
         assert_eq!(existing["target_change_id"], change_id);
 
         let listed = unsafe { take_json(smithers_list_bookmarks(store_path_c.as_ptr(), 1, 30)) };
         assert_eq!(listed["total_count"], 1);
-        assert_eq!(listed["items"][0]["name"], "main");
+        assert_eq!(listed["items"][0]["name"], "topic");
 
         let deleted = unsafe {
             take_json(smithers_delete_bookmark(
@@ -6489,10 +6586,15 @@ mod tests {
         assert_ne!(result.target_commit_id, source);
         create_commit_with_files(&path, "other writer", &[("c", "c")]);
         let later = current_commit_id(&path);
-        RepoHandle::open(&path)
-            .unwrap()
-            .create_bookmark("main", &later)
-            .unwrap();
+        // Another writer (a sync push) moves main; bookmark API moves of main
+        // only go forward.
+        let handle = RepoHandle::open(&path).unwrap();
+        let mut tx = handle.repo.start_transaction();
+        tx.repo_mut().set_local_bookmark_target(
+            RefName::new("main"),
+            RefTarget::normal(CommitId::try_from_hex(&later).unwrap()),
+        );
+        tx.commit("other writer moves main").block_on().unwrap();
         let mut lookup = request.clone();
         lookup.lookup_only = true;
         assert_eq!(

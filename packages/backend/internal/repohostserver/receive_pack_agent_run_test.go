@@ -61,3 +61,40 @@ func TestPushHookPayloadsCarryPusherCredential(t *testing.T) {
 	require.Len(t, payloads, 1)
 	assert.Equal(t, middleware.CredentialSync, payloads[0].PusherCredential)
 }
+
+// Main is append-only: no pusher rewinds, rewrites or deletes the default
+// bookmark. Only the GitHub sync credential copies GitHub's refs as they are.
+func TestReceivePackRefusesDefaultBookmarkRewrite(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	require.NoError(t, setGitDefaultBookmark(context.Background(), f.repo.gitDir, "main"))
+	tip := f.commit("landed", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "landed.txt"), []byte("landed\n"), 0o644))
+	})
+	rec := postReceivePack(t, f, f.pushBody(f.base, tip, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialPerson))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	f.git("reset", "-q", "--hard", f.base)
+	rewrite := f.commit("rewritten", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "landed.txt"), []byte("rewritten\n"), 0o644))
+	})
+
+	rec = postReceivePack(t, f, f.pushBody(tip, rewrite, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialPerson))
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()["refs/heads/main"])
+	// Git refuses to delete the branch HEAD names; jj export can detach
+	// HEAD, and then only the persisted default protects it.
+	require.NoError(t, os.WriteFile(filepath.Join(f.repo.gitDir, "HEAD"), []byte(tip+"\n"), 0o644))
+	rec = postReceivePack(t, f, f.pushBody(tip, laneZeroOID, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialPerson))
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()["refs/heads/main"])
+
+	create := f.pushBody(f.base, rewrite, "refs/heads/topic")
+	copy(create[4:44], laneZeroOID)
+	rec = postReceivePack(t, f, create, repohost.PusherCredentialHeader, string(middleware.CredentialPerson))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rec = postReceivePack(t, f, f.pushBody(rewrite, tip, "refs/heads/topic"), repohost.PusherCredentialHeader, string(middleware.CredentialPerson))
+	require.Equal(t, http.StatusOK, rec.Code, "another bookmark may be force-moved: %s", rec.Body.String())
+
+	rec = postReceivePack(t, f, f.pushBody(tip, rewrite, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialSync))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, rewrite, f.repo.refs()["refs/heads/main"], "the sync credential copies GitHub's default branch")
+}

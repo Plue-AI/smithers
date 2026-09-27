@@ -940,6 +940,11 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	if gitErr != nil {
 		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, gitErr)
 	}
+	if sender.PusherCredential != jjmiddleware.CredentialSync {
+		if err := refuseDefaultBookmarkRewind(enforceCtx, gitDir, beforeRefs, afterRefs); err != nil {
+			return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, err)
+		}
+	}
 	if pathRestricted {
 		if err := enforcePushPathAllowlist(enforceCtx, gitDir, beforeRefs, afterRefs, allowedPaths); err != nil {
 			return err

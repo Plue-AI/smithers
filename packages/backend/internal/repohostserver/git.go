@@ -290,6 +290,37 @@ func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands 
 	return nil
 }
 
+// refuseDefaultBookmarkRewind refuses a published push that deleted the
+// default bookmark or moved it to a commit that does not descend from its old
+// one: main is append-only. It runs after git applied the refs, when the new
+// objects exist, and fails closed on a default it cannot read. The GitHub
+// sync credential is exempt: it copies GitHub's refs as they are.
+func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, after map[string]string) error {
+	defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
+	if err != nil {
+		return forbidden("the push is refused: the default bookmark cannot be read")
+	}
+	ref := "refs/heads/" + defaultBookmark
+	old, existed := before[ref]
+	current := after[ref]
+	if !existed || current == old {
+		return nil
+	}
+	if current == "" {
+		return forbidden("the default bookmark cannot be deleted")
+	}
+	err = exec.CommandContext(ctx, "git", "--git-dir", gitDir, "merge-base", "--is-ancestor", old, current).Run()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &exit) && exit.ExitCode() == 1:
+		return forbidden("the default bookmark only moves forward; its history is never rewritten")
+	default:
+		return internalError("failed to compare default bookmark history", err)
+	}
+}
+
 // setGitDefaultBookmark updates the bare repository's HEAD symref. Git permits
 // an unborn target, which is useful while configuring an empty repository; as
 // soon as refs/heads/<bookmark> exists, upload-pack advertises both HEAD and
