@@ -191,6 +191,7 @@ export const FLOW_NAMES = [
   "issues.reopen",
   "issues.setup",
   "issues.verify",
+  "issues.sync.resolve",
   "issues.view",
   "model",
   "model.ask",

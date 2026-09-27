@@ -70,3 +70,11 @@ describe("the issue list carries conversations and issues", () => {
     expect(html).toContain('aria-pressed="true"')
   })
 })
+
+test("an unknown delivery offers owner resolution and shows its evidence", () => {
+  const card = issue()
+  card.payload.sync = { ...card.payload.sync!, state: "outcome_unknown", error: "connection lost", deliveryId: 41 }
+  const html = renderToStaticMarkup(<IssueCardBody card={card} onRunCommand={noop} />)
+  expect(html).toContain('data-flow="issues.sync.resolve"')
+  expect(html).toContain("connection lost")
+})

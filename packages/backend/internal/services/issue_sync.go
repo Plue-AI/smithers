@@ -404,11 +404,13 @@ func (s *IssueService) IssueSyncDeliveries(ctx context.Context, actor *db.User, 
 }
 
 type IssueSyncReceipt struct {
-	Provider  string `json:"provider,omitempty"`
-	State     string `json:"state"`
-	Token     string `json:"token"`
-	MessageID string `json:"message_id"`
-	Error     string `json:"error"`
+	Resolution    string `json:"resolution,omitempty"`
+	ExpectedToken string `json:"expected_token,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	State         string `json:"state"`
+	Token         string `json:"token"`
+	MessageID     string `json:"message_id"`
+	Error         string `json:"error"`
 }
 
 func (s *IssueService) ClaimIssueSync(ctx context.Context, actor *db.User, owner, repo string, id int64) (IssueSyncReceipt, error) {
@@ -469,6 +471,35 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Owner resolution is an explicit, single-delivery compare-and-set. Keep its
+	// evidence in the existing issue event log, including the uncertain receipt.
+	resolving := in.Resolution != ""
+	if resolving {
+		expected := map[string]string{"sent": "sent", "skip": "unsupported", "retry": "pending"}[in.Resolution]
+		if expected == "" || in.State != expected || in.Token != "" || in.ExpectedToken == "" || strings.TrimSpace(in.Error) == "" || len(in.Error) > 4096 {
+			return api.BadRequest("resolution requires an action and evidence (retry accepts duplicate risk)")
+		}
+		var previous []byte
+		var issueID int64
+		err = tx.QueryRow(ctx, `SELECT d.issue_id,to_jsonb(d)-'claim_token' FROM issue_sync_deliveries d JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE d.id=$1 AND t.owner_id=$2 AND i.repository_id=$3 AND d.state='outcome_unknown' AND ($4='' OR t.provider=$4) AND d.claim_token=$5 FOR UPDATE OF d`, id, actor.ID, r.ID, in.Provider, in.ExpectedToken).Scan(&issueID, &previous)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return api.Conflict("delivery is no longer unknown")
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO issue_events(issue_id,actor_id,event_type,payload) VALUES($1,$2,'sync.resolved',jsonb_build_object('delivery_id',$3::bigint,'resolution',$4::text,'evidence',$5::text,'message_id',$6::text,'previous',$7::jsonb))`, issueID, actor.ID, id, in.Resolution, in.Error, in.MessageID, previous)
+		if err != nil {
+			return err
+		}
+		if in.State != "sent" {
+			_, err = tx.Exec(ctx, `UPDATE issue_sync_deliveries SET state=$2,claim_token='',error=$3,updated_at=now() WHERE id=$1`, id, in.State, "Owner "+in.Resolution+": "+in.Error)
+			if err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
+		}
+	}
 	if in.State == "pending" {
 		tag, e := tx.Exec(ctx, `UPDATE issue_sync_deliveries d SET state='pending',claim_token='',error='',updated_at=now() FROM issues i,issue_sync_threads t WHERE d.id=$1 AND d.issue_id=i.id AND t.issue_id=i.id AND t.owner_id=$2 AND i.repository_id=$3 AND d.state='failed' AND ($4='' OR t.provider=$4)`, id, actor.ID, r.ID, in.Provider)
 		if e != nil {
@@ -481,7 +512,7 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 	}
 	var issueID, commentID int64
 	var event, root, provider string
-	err = tx.QueryRow(ctx, `SELECT d.issue_id,(e.payload->'comment'->>'id')::bigint,e.event_type,t.thread_id,t.provider FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE d.id=$1 AND t.owner_id=$2 AND i.repository_id=$3 AND d.state IN ('dispatching','outcome_unknown') AND (d.claim_token=$4 OR ($4='' AND $5='sent' AND d.state='outcome_unknown')) FOR UPDATE OF d,t`, id, actor.ID, r.ID, in.Token, in.State).Scan(&issueID, &commentID, &event, &root, &provider)
+	err = tx.QueryRow(ctx, `SELECT d.issue_id,(e.payload->'comment'->>'id')::bigint,e.event_type,t.thread_id,t.provider FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE d.id=$1 AND t.owner_id=$2 AND i.repository_id=$3 AND d.state IN ('dispatching','outcome_unknown') AND (($4<>'' AND d.claim_token=$4) OR ($4='' AND $5='sent' AND d.state='outcome_unknown')) FOR UPDATE OF d,t`, id, actor.ID, r.ID, in.Token, in.State).Scan(&issueID, &commentID, &event, &root, &provider)
 	if err != nil {
 		return api.Conflict("delivery claim changed")
 	}

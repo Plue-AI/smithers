@@ -58,6 +58,7 @@ export interface FlowInput {
   readonly "repository.register": { readonly link: string }
   readonly "issues.verify": { readonly number: number; readonly repo: string }
   readonly "issues.comment.react": { readonly number: number; readonly repo?: string; readonly commentId: number; readonly name: string; readonly active: boolean }
+  readonly "issues.sync.resolve": { readonly cardId: string; readonly deliveryId: number }
   readonly "issues.comment.retry": { readonly cardId: string; readonly requestId: string }
   readonly "integrations.list": { readonly repo: string }
   readonly "issues.reopen": { readonly number: number; readonly repo: string }
@@ -230,6 +231,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "repository.register": payload => String(payload.link).trim(),
   "issues.verify": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.comment.react": payload => JSON.stringify(payload),
+  "issues.sync.resolve": payload => JSON.stringify(payload),
   "issues.comment.retry": payload => JSON.stringify(payload),
   "integrations.list": payload => line(token(payload, "repo")),
   "issues.reopen": payload => line(token(payload, "number"), token(payload, "repo")),

@@ -26,6 +26,7 @@ export interface IssuesSeam {
   readonly reactToIssueComment: (number: number, commentId: number, name: string, active: boolean, repo?: string) => Promise<string | void>
 
   readonly subscribe: (onDispose: (release: () => void) => void) => void
+  readonly resolveIssueSync: (cardId: string, deliveryId: number, action: "sent" | "skip" | "retry", evidence: string, messageId: string) => Promise<string | void>
   readonly mapIssueSync: (number: number, mapping: Omit<NonNullable<IssuePayload["sync"]>, "state" | "error">, repo?: string) => Promise<string | void>
   /** Renders the list card and answers the rows as text (the model reads the value, never the card). */
   readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string, kind?: IssueKindFilter]>
@@ -506,6 +507,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         if (isRecord(wire) && (wire.provider === "slack" || wire.provider === "telegram") && typeof wire.connection_id === "string" && typeof wire.scope_id === "string" && typeof wire.conversation_id === "string") {
           payload.sync = { provider: wire.provider, connectionId: wire.connection_id, scopeId: wire.scope_id, conversationId: wire.conversation_id, ...(typeof wire.thread_id === "string" && wire.thread_id ? { threadId: wire.thread_id } : {}), ...(typeof wire.external_user_id === "string" && wire.external_user_id ? { externalUserId: wire.external_user_id } : {}) }
           if (wire.state === "synced" || wire.state === "pending" || wire.state === "dispatching" || wire.state === "outcome_unknown" || wire.state === "failed" || wire.state === "unsupported") payload.sync.state = wire.state
+          if (typeof wire.resolution_token === "string") payload.sync.resolutionToken = wire.resolution_token
+          if (typeof wire.delivery_id === "number" && wire.delivery_id > 0) payload.sync.deliveryId = wire.delivery_id
           if (typeof wire.error === "string" || wire.error === null) payload.sync.error = wire.error
         }
       } else if (mapping.status !== 404) return readErrorMessage(mapping, `Loading sync settings failed (${mapping.status})`)
@@ -760,6 +763,32 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     }).finally(() => { active!.delete(cardId); if (currentOwner()) drainComments(cardId) })
   }
 
+  const resolvingSync = new Set<string>()
+  const drainResolution = (cardId: string) => {
+    const card = ctx.store.collections.cards.get(cardId)
+    const request = card?.kind === "issue" ? card.payload.sync?.resolution : undefined
+    if (card?.kind !== "issue" || request?.status !== "requested" || request.owner !== signedInOwner() || resolvingSync.has(cardId)) return
+    resolvingSync.add(cardId)
+    const valid = captureCloudOwner(ctx, false)
+    const work = async () => {
+      let failure: string | undefined
+      try {
+        const response = await ctx.http(`${issuesPath(card.payload.repo)}/sync/deliveries/${request.deliveryId}`, {
+          method: "PUT", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ resolution: request.action, expected_token: request.expectedToken, state: { sent: "sent", skip: "unsupported", retry: "pending" }[request.action], error: request.evidence, message_id: request.messageId })
+        })
+        if (!response.ok) failure = await readErrorMessage(response, `Resolution failed (${response.status})`)
+        else await response.body?.cancel().catch(() => {})
+      } catch (error) { failure = `Resolution unconfirmed: ${errorText(error)}` }
+      if (!valid()) return
+      await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: failure ? { ...request, status: "failed", error: failure } : undefined } }), "system")
+      if (!failure) await refreshDetail("Delivery resolved", card.payload.repo, card.payload.number)
+      return failure
+    }
+    void (ctx.withToast ? ctx.withToast(`issue.resolve:${cardId}`, "Resolving delivery", "Delivery resolved", work, false, valid, cardId) : work())
+      .finally(() => resolvingSync.delete(cardId))
+  }
+
   // Remote issue comments are authoritative. Restored cards reconnect through
   // the same read path; a poll is only a projection refresh, never a chat store.
   const subscribe: IssuesSeam["subscribe"] = onDispose => {
@@ -781,7 +810,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         if (ctx.withToast && delivery?.state && deliveryStatuses.get(card.id) !== deliveryKey) {
           deliveryStatuses.set(card.id, deliveryKey)
           const pending = delivery?.state === "pending" || delivery?.state === "dispatching"
-          const failure = delivery?.state === "outcome_unknown" ? "Message delivery is unconfirmed. Reconciliation is required."
+          const failure = delivery?.state === "outcome_unknown" ? "Delivery unconfirmed. Resolve to continue."
             : delivery?.state === "failed" || delivery?.state === "unsupported" ? delivery.error || "Message delivery failed." : undefined
           if (!pending) {
             const settle = deliveryWork.get(card.id)
@@ -810,6 +839,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
           }
         }
         drainComments(card.id)
+        drainResolution(card.id)
         if (card.payload.number === 0) continue
         if (watches.has(card.id)) continue
         let stopped = false
@@ -829,7 +859,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
             if (typeof result === "string") return result
             const previous = ctx.store.collections.cards.get(card.id)
             if (previous?.kind !== "issue" || result.card.kind !== "issue" || previous.payload.number !== card.payload.number || previous.payload.repo !== card.payload.repo || JSON.stringify(previous.payload) !== startedPayload) return
-            const payload = { ...result.card.payload, conversation: previous.payload.conversation, commentDraft: previous.payload.commentDraft, pendingComments: previous.payload.pendingComments }
+            const payload = { ...result.card.payload, sync: result.card.payload.sync && { ...result.card.payload.sync, resolution: previous.payload.sync?.resolution }, conversation: previous.payload.conversation, commentDraft: previous.payload.commentDraft, pendingComments: previous.payload.pendingComments }
             if (JSON.stringify(previous.payload) === JSON.stringify(payload)) return
             await ctx.dispatch({ type: "card.view.loaded", actor: "system", card: { ...previous, title: result.card.title, payload } }).isPersisted.promise
           }
@@ -899,6 +929,18 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       if (!response.ok) return readErrorMessage(response, `Saving the reaction failed (${response.status})`)
       await response.body?.cancel().catch(() => {})
       return refreshDetail("Reaction saved", target.repo, number)
+    },
+    resolveIssueSync: async (cardId, deliveryId, action, evidence, messageId) => {
+      const card = ctx.store.collections.cards.get(cardId)
+      const owner = signedInOwner()
+      if (!owner || card?.kind !== "issue" || card.payload.sync?.state !== "outcome_unknown" || card.payload.sync.deliveryId !== deliveryId) return "Delivery is no longer unknown."
+      if (!card.payload.sync.resolutionToken) return "Refresh the delivery before resolving."
+      const expectedToken = card.payload.sync.resolutionToken
+      if (!evidence.trim() || evidence.length > 4096 || (action === "sent" && !messageId.trim())) return "Add evidence and a message ID for sent."
+      if (card.payload.sync.resolution?.status === "requested") return "Resolution requested."
+      await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: { deliveryId, expectedToken, action, evidence, messageId, owner, status: "requested" } } }))
+      drainResolution(cardId)
+      return "Resolution requested."
     },
     mapIssueSync: async (number, mapping, explicitRepo) => {
       const { provider, connectionId, scopeId, conversationId, threadId, externalUserId } = mapping

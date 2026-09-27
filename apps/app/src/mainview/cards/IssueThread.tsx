@@ -193,6 +193,9 @@ export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { reado
           {sync === undefined ? null : (
             <span className="thread-slack-state" data-state={sync.state}>
               {syncState === undefined ? null : <span className="thread-slack">{syncState}</span>}
+              {sync.error ? <span role="status">{sync.error}</span> : null}
+              {sync.resolution?.error ? <span role="alert">{sync.resolution.error}</span> : null}
+              {sync.state === "outcome_unknown" && sync.deliveryId !== undefined ? <Button {...flowAction(onRunCommand, "issues.sync.resolve", flowArgs("issues.sync.resolve", { cardId: card.id, deliveryId: sync.deliveryId }))}>Resolve</Button> : null}
               {syncLink === undefined ? <span className="thread-slack">{sync.provider}</span>
                 : <a className="thread-slack thread-slack-link" href={syncLink} target="_blank" rel="noreferrer">{sync.provider} ↗</a>}
             </span>

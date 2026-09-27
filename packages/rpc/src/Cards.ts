@@ -1528,6 +1528,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       })).optional(),
       sync: z.object({
         provider: z.enum(["slack", "telegram"]),
+        deliveryId: z.number().optional(),
+        resolutionToken: z.string().optional(),
+        resolution: z.object({ deliveryId: z.number(), expectedToken: z.string(), action: z.enum(["sent", "skip", "retry"]), evidence: z.string(), messageId: z.string(), owner: z.string(), status: z.enum(["requested", "failed"]), error: z.string().optional() }).optional(),
         connectionId: z.string(),
         scopeId: z.string(),
         conversationId: z.string(),

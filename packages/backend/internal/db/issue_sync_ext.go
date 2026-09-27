@@ -6,16 +6,17 @@ import (
 )
 
 type IssueSyncMapping struct {
-	Provider       string `json:"provider"`
-	DeliveryID     int64  `json:"delivery_id,omitempty"`
-	State          string `json:"state,omitempty"`
-	Error          string `json:"error,omitempty"`
-	IssueID        int64  `json:"issue_id"`
-	OwnerID        int64  `json:"-"`
-	ConnectionID   string `json:"connection_id"`
-	ScopeID        string `json:"scope_id"`
-	ConversationID string `json:"conversation_id"`
-	ThreadID       string `json:"thread_id"`
+	Provider        string `json:"provider"`
+	DeliveryID      int64  `json:"delivery_id,omitempty"`
+	State           string `json:"state,omitempty"`
+	ResolutionToken string `json:"resolution_token,omitempty"`
+	Error           string `json:"error,omitempty"`
+	IssueID         int64  `json:"issue_id"`
+	OwnerID         int64  `json:"-"`
+	ConnectionID    string `json:"connection_id"`
+	ScopeID         string `json:"scope_id"`
+	ConversationID  string `json:"conversation_id"`
+	ThreadID        string `json:"thread_id"`
 }
 
 func (q *Queries) PutIssueSyncMapping(ctx context.Context, m IssueSyncMapping) error {
@@ -30,10 +31,11 @@ INSERT INTO issue_sync_deliveries(issue_id,event_id) SELECT issue_id,id FROM rec
 }
 func (q *Queries) GetIssueSyncMapping(ctx context.Context, issueID int64) (m IssueSyncMapping, err error) {
 	err = q.db.QueryRow(ctx, `SELECT issue_id,owner_id,connection_id,scope_id,conversation_id,thread_id,provider,
- COALESCE((SELECT state FROM issue_sync_deliveries WHERE issue_id=$1 AND state<>'sent' ORDER BY id LIMIT 1),'synced'),
- COALESCE((SELECT error FROM issue_sync_deliveries WHERE issue_id=$1 AND state<>'sent' ORDER BY id LIMIT 1),''),
- COALESCE((SELECT id FROM issue_sync_deliveries WHERE issue_id=$1 AND state<>'sent' ORDER BY id LIMIT 1),0)
- FROM issue_sync_threads WHERE issue_id=$1`, issueID).Scan(&m.IssueID, &m.OwnerID, &m.ConnectionID, &m.ScopeID, &m.ConversationID, &m.ThreadID, &m.Provider, &m.State, &m.Error, &m.DeliveryID)
+ COALESCE((SELECT state FROM issue_sync_deliveries WHERE issue_id=$1 AND state<>'sent' ORDER BY (state='unsupported'),id LIMIT 1),'synced'),
+ COALESCE((SELECT error FROM issue_sync_deliveries WHERE issue_id=$1 AND state<>'sent' ORDER BY (state='unsupported'),id LIMIT 1),''),
+ COALESCE((SELECT id FROM issue_sync_deliveries WHERE issue_id=$1 AND state<>'sent' ORDER BY (state='unsupported'),id LIMIT 1),0),
+ COALESCE((SELECT claim_token FROM issue_sync_deliveries WHERE issue_id=$1 AND state='outcome_unknown' ORDER BY id LIMIT 1),'')
+ FROM issue_sync_threads WHERE issue_id=$1`, issueID).Scan(&m.IssueID, &m.OwnerID, &m.ConnectionID, &m.ScopeID, &m.ConversationID, &m.ThreadID, &m.Provider, &m.State, &m.Error, &m.DeliveryID, &m.ResolutionToken)
 	return
 }
 
