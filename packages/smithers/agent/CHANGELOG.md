@@ -7,6 +7,12 @@
 - `AgentAction.Host.serverTools` and `Agent.Options.serverTools`: provider-run
   tools, such as the provider's web search, forwarded to every frame.
 
+### Changed
+
+- The sealed model step key moved to `key1_71b2f391…` because
+  `@smthrs/capability`'s `Action` union gained `memory:read` and
+  `memory:write`. Runs recorded under the old key re-dispatch their model calls.
+
 ### Fixed
 
 - Workspace observation can omit exact host-owned paths without hiding other

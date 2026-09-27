@@ -320,6 +320,7 @@ const collect = (options: {
   readonly judged?: boolean | undefined
   readonly instructions?: Agent.Options["instructions"]
   readonly pinnedSources?: Agent.Options["pinnedSources"]
+  readonly capabilityEnvelope?: Agent.Options["capabilityEnvelope"]
 }) =>
   Effect.gen(function*() {
     const agent = yield* Agent.Agent
@@ -349,7 +350,8 @@ const collect = (options: {
       flows: options.flows,
       judged: options.judged,
       instructions: options.instructions,
-      pinnedSources: options.pinnedSources
+      pinnedSources: options.pinnedSources,
+      ...(options.capabilityEnvelope === undefined ? {} : { capabilityEnvelope: options.capabilityEnvelope })
     }).pipe(
       Stream.runForEach((event) =>
         Effect.sync(() => {
@@ -1058,9 +1060,21 @@ describe("supervisor memory through Agent.run", () => {
       // No namespace: no bank is read or written, never one global bank.
       { mode: "unnamed", options: { remember: true } },
       // A namespace but no opt-in: recalled, never written.
-      { mode: "unopted", options: { banks: ["agent-repository"] } }
+      { mode: "unopted", options: { banks: ["agent-repository"] } },
+      // No declared bank: the envelope's exact memory grant names it, a glob
+      // grant names none, and a read-only grant writes nothing even opted in.
+      {
+        mode: "enveloped",
+        options: { remember: true },
+        envelope: [
+          new Capability.CapabilityPattern({ action: "memory:read", resource: "agent-repository" }),
+          new Capability.CapabilityPattern({ action: "memory:read", resource: "agent-*" })
+        ]
+      }
     ] as const
-  )("binds the host memory port when recall is $mode", async ({ mode, options }) => {
+  )("binds the host memory port when recall is $mode", async (row) => {
+    const { mode, options } = row
+    const envelope = "envelope" in row ? row.envelope : undefined
     const settled = Deferred.makeUnsafe<void>()
     const notes: Array<MemoryStore.PutNoteInput> = []
     const recalls: Array<Recall.Input> = []
@@ -1144,6 +1158,7 @@ describe("supervisor memory through Agent.run", () => {
         model,
         evaluator,
         supervisor: options,
+        capabilityEnvelope: envelope,
         observe: (event) =>
           Effect.suspend(() => {
             if (event._tag === "supervisor-memory-failed") failures.push(event)
@@ -1163,7 +1178,7 @@ describe("supervisor memory through Agent.run", () => {
     expect(snapshots[0]?.candidates).toEqual([sentence])
     // The recalled rows go through relevance, capped, as memory items keyed by row.
     expect(judged[0] ?? []).toEqual(
-      mode === "recall" || mode === "unopted"
+      mode === "recall" || mode === "unopted" || mode === "enveloped"
         ? Array.from(
           { length: Supervisor.recalledLimit },
           (_, index) => ({ kind: "memory", id: `note-${index}`, text: `Fact ${index}` })
@@ -1173,7 +1188,7 @@ describe("supervisor memory through Agent.run", () => {
     // Written only when a namespace names the bank and the host opted in, and
     // then through the journal's secret redaction.
     expect(notes).toEqual(
-      mode === "unnamed" || mode === "unopted" ? [] : [{
+      mode === "unnamed" || mode === "unopted" || mode === "enveloped" ? [] : [{
         namespace: { kind: "agent", id: namespace },
         id: expect.stringMatching(/^[0-9a-f]{64}$/),
         text: stored,

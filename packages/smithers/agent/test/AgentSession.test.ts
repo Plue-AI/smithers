@@ -292,6 +292,8 @@ interface StackOptions {
   readonly wrapRuntime?: ((runtime: ControlRuntime.Service) => ControlRuntime.Service) | undefined
   /** What an in-run ask does on this host. */
   readonly asks?: "park" | "refuse" | undefined
+  /** The host's opening-memory selection. */
+  readonly memory?: AgentSession.Options["memory"]
 }
 
 /**
@@ -344,7 +346,8 @@ const stack = (options: StackOptions) => {
     reasoningEffort: options.reasoningEffort,
     judged: options.judged,
     system: options.system,
-    asks: options.asks
+    asks: options.asks,
+    memory: options.memory
   }).pipe(
     Layer.provideMerge(Action.layerImplementations),
     Layer.provide(
@@ -2142,6 +2145,66 @@ describe("AgentSession", () => {
 
     expect(entries.length).toBe(1)
     expect(entries[0]!.payload).toMatchObject({ fields: ["args"], arguments: "## args\n\ns16-marker" })
+  })
+
+  it("seals the host's opening memory into the run before the first model call", async () => {
+    const requests: Array<ModelRequest.ModelRequest> = []
+    const recording = Model.make({
+      stream: (request) =>
+        Stream.suspend(() => {
+          requests.push(request)
+          return Stream.fail(new ModelError.ModelError({ code: "authentication", message: "no credential" }))
+        })
+    })
+    const launches: Array<Parameters<NonNullable<AgentSession.Options["memory"]>>[0]> = []
+    const rows = [{ origin: "primer" as const, bank: "global-team", key: "tooling", text: "use pnpm for installs" }]
+
+    const card = await Effect.runPromise(
+      Effect.gen(function*() {
+        const gate = yield* Deferred.make<void>()
+        return yield* Effect.gen(function*() {
+          const control = yield* Control.Control
+          const card = yield* control.plan({ flowId: "agents/notes", input: { args: "memory" } })
+          yield* control.approve(card.approval)
+          const receipt = yield* control.run({
+            _tag: "Plan",
+            planId: card.planId,
+            digest: card.digest,
+            envelope: card.envelope,
+            idempotencyKey: `run:memory:${card.planId}`
+          })
+          if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+            return yield* Effect.die("expected an accepted run")
+          }
+          yield* control.watch({ runId: receipt.runId }).pipe(
+            Stream.filter((event) => event.kind === "control.run.failed"),
+            Stream.take(1),
+            Stream.runDrain
+          )
+          return { runId: receipt.runId, capabilities: card.envelope.capabilities }
+        }).pipe(Effect.provide(stack({
+          resolve: seat(recording),
+          notes: [],
+          gate,
+          bare: true,
+          memory: (launch) =>
+            Effect.sync(() => {
+              launches.push(launch)
+              return { rows, digest: "opening-digest" }
+            })
+        })))
+      }).pipe(Effect.scoped) as Effect.Effect<
+        { readonly runId: string; readonly capabilities: ReadonlyArray<string> },
+        unknown
+      >
+    )
+
+    expect(launches).toHaveLength(1)
+    expect(launches[0]).toMatchObject({ runId: card.runId, history: [], capabilities: card.capabilities })
+    expect(launches[0]!.prompt).toContain("## args\n\nmemory")
+    expect(requests.length).toBeGreaterThan(0)
+    const prose = requests.flatMap((request) => [...request.system.map((part) => part.text), textOf(request)])
+    expect(prose.join("\n")).toContain("use pnpm for installs")
   })
 
   it("refuses a launch whose seat cannot be resolved", async () => {

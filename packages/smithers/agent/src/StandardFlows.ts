@@ -499,9 +499,8 @@ const scopedMemory = (
   const policy = decoded.success
   const provenance = scope.provenance ?? {}
   const remember = WithMemory.withMemory(MemoryFlows.remember, policy)
-  const scopedRememberHandler = MemoryFlows.handlersFor(remember, provenance).remember
-  const rememberHandler = (input: typeof MemoryFlows.RememberInput.Type) =>
-    guardedRemember(scopedRememberHandler)({ ...input, bank: input.bank || policy.banks[0]! })
+  // `RememberInput.bank` is a non-empty bank name, so every write names its bank.
+  const rememberHandler = guardedRemember(MemoryFlows.handlersFor(remember, provenance).remember)
   const publicError = scopedRefusal(policy.banks.join(", "))
   const rememberBinding = FlowBinding.provide(
     FlowBinding.make({

@@ -247,6 +247,14 @@ describe("the accumulator", () => {
     expect(Budget.tokensOf({ totalTokens: 10, inputTokens: 3, outputTokens: 4 })).toBe(10)
   })
 
+  it("prices weighted usage from its parts and refuses parts it cannot price", () => {
+    const weights = { input: 1, cachedInput: 0.5, output: 3 }
+    expect(Budget.tokensOf({ inputTokens: 10, cachedInputTokens: 4, outputTokens: 2 }, weights)).toBe(14)
+    expect(Budget.tokensOf({ inputTokens: 10, outputTokens: 2 }, weights)).toBe(16)
+    expect(Budget.tokensOf({ inputTokens: 10 }, weights)).toBeNaN()
+    expect(Budget.tokensOf({ inputTokens: 3, cachedInputTokens: 4, outputTokens: 2 }, weights)).toBeNaN()
+  })
+
   it("keeps the durable usage payload wire-compatible", () => {
     const encoded = Schema.encodeSync(Budget.UsageRecord)({ stepKey: "step-a", spent: 640 })
 
@@ -1755,6 +1763,10 @@ describe("the envelope", () => {
     expect(
       Budget.policyFromEnvelope({ capabilities: [], flows: [], budget: {} }, { onExceeded: "warn" })
     ).toEqual({})
+    const weights = { "test-model": { input: 1, cachedInput: 0.1, output: 4 } }
+    expect(
+      Budget.policyFromEnvelope({ capabilities: [], flows: [], budget: { tokens: 10 } }, { weights })
+    ).toEqual({ weights, tokens: { max: 10, onExceeded: "fail" } })
   })
 })
 
