@@ -93,6 +93,11 @@ retains its admission receipt. Repeating the same key returns `AlreadyApplied`
 for that run. An explicit retry uses a new key. A failed admission commit never
 reaches the executor.
 
+If the admitting process dies after the commit and before the executor takes
+the run, the run stays `accepted` under that process. Repeating the same key
+once the process's heartbeat lease has lapsed claims the run and launches it,
+then answers `AlreadyApplied` as usual. A live admitter keeps its run.
+
 ## A parked receipt is not recorded
 
 `run` against an undecided plan answers `Parked` and records nothing. That is

@@ -104,13 +104,18 @@ export const controlPlane = (
   options: {
     readonly executor?: ControlExecutor.Service | undefined
     readonly owner?: Ownership.OwnerId | undefined
+    readonly isAlive?: Ownership.LivenessCheck | undefined
     readonly approvalAuthority?: ApprovalAuthority.Service | undefined
   } = {}
 ): Layer.Layer<Exclude<DurableStack, DurableStackDependencies>, never, DurableStackDependencies> =>
   Layer.provideMerge(
     ControlLive.layer,
     Layer.mergeAll(
-      SqlControlRuntime.layer({ owner: options.owner, approvalAuthority: options.approvalAuthority }).pipe(Layer.orDie),
+      SqlControlRuntime.layer({
+        owner: options.owner,
+        isAlive: options.isAlive,
+        approvalAuthority: options.approvalAuthority
+      }).pipe(Layer.orDie),
       NotificationQueue.layer,
       ControlExecutor.layer(options.executor ?? ControlExecutor.makeNoop()),
       Registry.layerNoop()
@@ -126,6 +131,7 @@ export const durable = (
   options: {
     readonly executor?: ControlExecutor.Service | undefined
     readonly owner?: Ownership.OwnerId | undefined
+    readonly isAlive?: Ownership.LivenessCheck | undefined
     readonly approvalAuthority?: ApprovalAuthority.Service | undefined
     readonly database?: Layer.Layer<DurableWriter | SqlClient.SqlClient | RunStore.RunStore, unknown> | undefined
   } = {}
