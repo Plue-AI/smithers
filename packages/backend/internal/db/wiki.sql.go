@@ -8,6 +8,8 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countSearchWikiPagesByRepo = `-- name: CountSearchWikiPagesByRepo :one
@@ -87,14 +89,24 @@ func (q *Queries) CreateWikiPage(ctx context.Context, arg CreateWikiPageParams) 
 	return i, err
 }
 
-const deleteWikiPage = `-- name: DeleteWikiPage :exec
+const deleteWikiPage = `-- name: DeleteWikiPage :execrows
 DELETE FROM wiki_pages
 WHERE id = $1
+  AND ($2::bigint IS NULL OR revision = $2)
 `
 
-func (q *Queries) DeleteWikiPage(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, deleteWikiPage, id)
-	return err
+type DeleteWikiPageParams struct {
+	ID               int64       `json:"id"`
+	ExpectedRevision pgtype.Int8 `json:"expected_revision"`
+}
+
+// A null expected_revision deletes whatever the page holds.
+func (q *Queries) DeleteWikiPage(ctx context.Context, arg DeleteWikiPageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteWikiPage, arg.ID, arg.ExpectedRevision)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getWikiPageBySlug = `-- name: GetWikiPageBySlug :one

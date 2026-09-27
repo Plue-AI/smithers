@@ -25,11 +25,21 @@ type fakeWikiStore struct {
 	pages   map[string]WikiPageResponse
 	writes  []string
 	actorID int64
+	// afterRead runs once after the next read of a slug, as a person saving
+	// between the service's read and its write would.
+	afterRead map[string]func()
 }
 
 func (w *fakeWikiStore) GetWikiPage(_ context.Context, viewer *db.User, _, _, slug string) (WikiPageResponse, error) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
+	hook := w.afterRead[slug]
+	delete(w.afterRead, slug)
+	defer func() {
+		w.mu.Unlock()
+		if hook != nil {
+			hook()
+		}
+	}()
 	w.actorID = viewer.ID
 	page, ok := w.pages[slug]
 	if !ok {
@@ -72,9 +82,12 @@ func (w *fakeWikiStore) UpdateWikiPage(_ context.Context, _ *db.User, _, _, slug
 	return page, nil
 }
 
-func (w *fakeWikiStore) DeleteWikiPage(_ context.Context, _ *db.User, _, _, slug string) error {
+func (w *fakeWikiStore) DeleteWikiPageAtRevision(_ context.Context, _ *db.User, _, _, slug string, revision int64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if page, ok := w.pages[slug]; ok && page.Revision != revision {
+		return pkgerrors.Conflict("wiki changed")
+	}
 	delete(w.pages, slug)
 	w.writes = append(w.writes, "delete "+slug)
 	return nil
@@ -375,4 +388,33 @@ func TestMythicalWikiRequestIsRefreshingAndAnUnsavedPublishIsStillOurs(t *testin
 	assert.Equal(t, 1, view.Pages)
 	assert.Zero(t, view.Edited, "the page this service already wrote is still its own")
 	assert.Empty(t, store.takeWrites())
+}
+
+// A person's save between the prune's read and its delete is kept: the
+// delete is conditioned on the revision the prune read
+// (smithersai/smithers#2175).
+func TestMythicalWikiPruneKeepsAConcurrentEdit(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+	o.service.SetWiki(store)
+	o.declareWiki()
+	stack := o.wake()
+	first := o.launcher.last(mythicalWikiFlow)
+	o.project(first, jobs.StateCompleted, "wiki-run-1", wikiResult(stack.TipCommit, `{"policyDigest":"p","policySources":[],"candidates":{}}`,
+		"runtime", "Runtime v1", "flows", "Flows v1"))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	store.takeWrites()
+
+	o.commit("✨ feat: three", "c.txt", "c\n")
+	o.publish()
+	stack = o.wake()
+	second := o.launcher.last(mythicalWikiFlow)
+	store.afterRead = map[string]func(){"generated-runtime": func() { store.personEdits("generated-runtime", "Runtime, as a person wrote it") }}
+	o.project(second, jobs.StateCompleted, "wiki-run-2", wikiResult(stack.TipCommit, `{"policyDigest":"p","policySources":[],"candidates":{}}`,
+		"flows", "Flows v2"))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	assert.Equal(t, "Runtime, as a person wrote it", store.body("generated-runtime"), "the concurrent edit survives the prune")
+	assert.Equal(t, "Flows v2", store.body("generated-flows"))
 }

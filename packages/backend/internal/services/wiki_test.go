@@ -137,11 +137,13 @@ func (m *mockWikiQuerier) UpdateWikiPage(ctx context.Context, arg db.UpdateWikiP
 	return db.WikiPage{}, nil
 }
 
-func (m *mockWikiQuerier) DeleteWikiPage(ctx context.Context, id int64) error {
+func (m *mockWikiQuerier) DeleteWikiPage(ctx context.Context, arg db.DeleteWikiPageParams) (int64, error) {
 	if m.deleteWikiPageFn != nil {
-		return m.deleteWikiPageFn(ctx, id)
+		if err := m.deleteWikiPageFn(ctx, arg.ID); err != nil {
+			return 0, err
+		}
 	}
-	return nil
+	return 1, nil
 }
 
 func sampleWikiRepository() db.Repository {

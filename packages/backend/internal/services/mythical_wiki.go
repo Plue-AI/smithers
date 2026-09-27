@@ -53,7 +53,7 @@ type mythicalWikiStore interface {
 	GetWikiPage(ctx context.Context, viewer *db.User, owner, repo, slug string) (WikiPageResponse, error)
 	CreateWikiPage(ctx context.Context, actor *db.User, owner, repo string, input CreateWikiPageInput) (WikiPageResponse, error)
 	UpdateWikiPage(ctx context.Context, actor *db.User, owner, repo, slug string, input UpdateWikiPageInput) (WikiPageResponse, error)
-	DeleteWikiPage(ctx context.Context, actor *db.User, owner, repo, slug string) error
+	DeleteWikiPageAtRevision(ctx context.Context, actor *db.User, owner, repo, slug string, revision int64) error
 }
 
 // SetWiki connects the wiki store the refresh publishes to.
@@ -440,6 +440,11 @@ func mythicalWikiNotFound(err error) bool {
 	return errors.As(err, &api) && api.Status == 404
 }
 
+func mythicalWikiConflict(err error) bool {
+	var api *pkgerrors.APIError
+	return errors.As(err, &api) && api.Status == 409
+}
+
 // publishWiki writes the refresh's pages as generated-<id>. A page a person
 // edited, renamed or deleted since this service last wrote it is kept as it
 // is and counted as edited; pages the catalog no longer declares are removed
@@ -513,7 +518,10 @@ func (s *MythicalService) publishWiki(ctx context.Context, r *mythicalRun, row d
 			return nil, err
 		}
 		if mythicalWikiDigest(existing.Body) == prev.BodyDigest {
-			if err := s.wikiStore.DeleteWikiPage(ctx, &actor, r.owner, r.repo, prev.Slug); err != nil && !mythicalWikiNotFound(err) {
+			// Only the revision just read is deleted: a person's save in
+			// between is kept as theirs.
+			err := s.wikiStore.DeleteWikiPageAtRevision(ctx, &actor, r.owner, r.repo, prev.Slug, existing.Revision)
+			if err != nil && !mythicalWikiNotFound(err) && !mythicalWikiConflict(err) {
 				return nil, err
 			}
 		}

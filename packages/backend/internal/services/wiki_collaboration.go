@@ -18,7 +18,7 @@ import (
 )
 
 type WikiCollaborationStore interface {
-	DeleteWikiPageAsActor(context.Context, db.DeleteWikiPageAsActorParams) error
+	DeleteWikiPageAsActor(context.Context, db.DeleteWikiPageAsActorParams) (int64, error)
 	InitializeWikiDocument(context.Context, db.InitializeWikiDocumentParams) (int64, error)
 	GetWikiPageIdentity(context.Context, db.GetWikiPageIdentityParams) (db.GetWikiPageIdentityRow, error)
 	GetWikiDocument(context.Context, db.GetWikiDocumentParams) (db.GetWikiDocumentRow, error)

@@ -28,22 +28,27 @@ func (q *Queries) CountWikiRevisions(ctx context.Context, arg CountWikiRevisions
 	return count, err
 }
 
-const deleteWikiPageAsActor = `-- name: DeleteWikiPageAsActor :exec
+const deleteWikiPageAsActor = `-- name: DeleteWikiPageAsActor :execrows
 WITH actor AS MATERIALIZED (
- SELECT set_config('smithers.wiki_actor_id', $2::bigint::text, true) AS configured
+ SELECT set_config('smithers.wiki_actor_id', $3::bigint::text, true) AS configured
 )
 DELETE FROM wiki_pages WHERE id = $1
+AND ($2::bigint IS NULL OR revision = $2)
 AND (SELECT configured FROM actor) IS NOT NULL
 `
 
 type DeleteWikiPageAsActorParams struct {
-	PageID  int64 `json:"page_id"`
-	ActorID int64 `json:"actor_id"`
+	PageID           int64       `json:"page_id"`
+	ExpectedRevision pgtype.Int8 `json:"expected_revision"`
+	ActorID          int64       `json:"actor_id"`
 }
 
-func (q *Queries) DeleteWikiPageAsActor(ctx context.Context, arg DeleteWikiPageAsActorParams) error {
-	_, err := q.db.Exec(ctx, deleteWikiPageAsActor, arg.PageID, arg.ActorID)
-	return err
+func (q *Queries) DeleteWikiPageAsActor(ctx context.Context, arg DeleteWikiPageAsActorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteWikiPageAsActor, arg.PageID, arg.ExpectedRevision, arg.ActorID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getWikiDocument = `-- name: GetWikiDocument :one

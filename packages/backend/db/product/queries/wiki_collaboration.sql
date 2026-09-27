@@ -61,9 +61,10 @@ FROM repositories r JOIN owner_namespaces ns
  OR (ns.owner_type = 'org' AND ns.org_id = r.org_id)
 WHERE r.id = $1 FOR SHARE OF r;
 
--- name: DeleteWikiPageAsActor :exec
+-- name: DeleteWikiPageAsActor :execrows
 WITH actor AS MATERIALIZED (
  SELECT set_config('smithers.wiki_actor_id', sqlc.arg(actor_id)::bigint::text, true) AS configured
 )
 DELETE FROM wiki_pages WHERE id = sqlc.arg(page_id)
+AND (sqlc.narg(expected_revision)::bigint IS NULL OR revision = sqlc.narg(expected_revision))
 AND (SELECT configured FROM actor) IS NOT NULL;

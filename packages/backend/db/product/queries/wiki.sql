@@ -95,6 +95,8 @@ SET slug = $2,
 WHERE id = $1 AND crdt_state IS NULL AND revision = sqlc.arg(expected_revision)
 RETURNING *;
 
--- name: DeleteWikiPage :exec
+-- name: DeleteWikiPage :execrows
+-- A null expected_revision deletes whatever the page holds.
 DELETE FROM wiki_pages
-WHERE id = $1;
+WHERE id = sqlc.arg(id)
+  AND (sqlc.narg(expected_revision)::bigint IS NULL OR revision = sqlc.narg(expected_revision));

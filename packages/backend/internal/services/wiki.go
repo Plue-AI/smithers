@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -79,7 +80,7 @@ type WikiQuerier interface {
 	GetWikiPageBySlug(ctx context.Context, arg db.GetWikiPageBySlugParams) (db.GetWikiPageBySlugRow, error)
 	CreateWikiPage(ctx context.Context, arg db.CreateWikiPageParams) (db.WikiPage, error)
 	UpdateWikiPage(ctx context.Context, arg db.UpdateWikiPageParams) (db.WikiPage, error)
-	DeleteWikiPage(ctx context.Context, id int64) error
+	DeleteWikiPage(ctx context.Context, arg db.DeleteWikiPageParams) (int64, error)
 }
 
 type WikiDispatcher interface {
@@ -319,6 +320,17 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 }
 
 func (s *WikiService) DeleteWikiPage(ctx context.Context, actor *db.User, owner, repo, slug string) error {
+	return s.deleteWikiPage(ctx, actor, owner, repo, slug, nil)
+}
+
+// DeleteWikiPageAtRevision deletes the page only while it is still at
+// revision, atomically in storage; a page saved since is kept and the call
+// returns Conflict.
+func (s *WikiService) DeleteWikiPageAtRevision(ctx context.Context, actor *db.User, owner, repo, slug string, revision int64) error {
+	return s.deleteWikiPage(ctx, actor, owner, repo, slug, &revision)
+}
+
+func (s *WikiService) deleteWikiPage(ctx context.Context, actor *db.User, owner, repo, slug string, expectedRevision *int64) error {
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
 		return err
@@ -343,13 +355,27 @@ func (s *WikiService) DeleteWikiPage(ctx context.Context, actor *db.User, owner,
 		return pkgerrors.Internal("failed to load wiki page").WithCause(err)
 	}
 
+	var expected pgtype.Int8
+	if expectedRevision != nil {
+		if *expectedRevision != existing.Revision {
+			return pkgerrors.Conflict("wiki changed; expected_revision does not match")
+		}
+		expected = pgtype.Int8{Int64: *expectedRevision, Valid: true}
+	}
+	var deleted int64
 	if s.documents != nil {
-		err = s.documents.DeleteWikiPageAsActor(ctx, db.DeleteWikiPageAsActorParams{PageID: existing.ID, ActorID: actor.ID})
+		deleted, err = s.documents.DeleteWikiPageAsActor(ctx, db.DeleteWikiPageAsActorParams{PageID: existing.ID, ExpectedRevision: expected, ActorID: actor.ID})
 	} else {
-		err = s.queries.DeleteWikiPage(ctx, existing.ID)
+		deleted, err = s.queries.DeleteWikiPage(ctx, db.DeleteWikiPageParams{ID: existing.ID, ExpectedRevision: expected})
 	}
 	if err != nil {
 		return pkgerrors.Internal("failed to delete wiki page").WithCause(err)
+	}
+	if deleted == 0 {
+		if expectedRevision != nil {
+			return pkgerrors.Conflict("wiki changed; expected_revision does not match")
+		}
+		return pkgerrors.NotFound("wiki page not found")
 	}
 
 	s.dispatchWikiEvent(ctx, repository, actor, "deleted", mapWikiPage(existing))
