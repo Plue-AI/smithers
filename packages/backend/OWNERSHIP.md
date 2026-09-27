@@ -101,6 +101,7 @@ needed by adapters without copying product queries or schemas.
 - `packages/backend/internal/smitherscli`
 - `packages/backend/internal/sse`
 - `packages/backend/internal/ssh`
+- `packages/backend/internal/subscriptiontoken`
 - `packages/backend/internal/webhook`
 - `packages/backend/internal/webhooks`
 

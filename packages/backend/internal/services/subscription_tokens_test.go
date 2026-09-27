@@ -22,57 +22,6 @@ func chatGPTAccessTokenForTest(t *testing.T) string {
 	return enc([]byte(`{"alg":"RS256"}`)) + "." + enc(claims) + "." + enc([]byte("sig"))
 }
 
-func TestIsSubscriptionToken(t *testing.T) {
-	t.Parallel()
-	chatgpt := chatGPTAccessTokenForTest(t)
-	for _, tc := range []struct {
-		name, value string
-		want        bool
-	}{
-		{"ANTHROPIC_AUTH_TOKEN", "sk-ant-oat01-abcdef", true},
-		{"CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-abcdef", true},
-		{"ANYTHING", "  sk-ant-oat01-abcdef\n", true},
-		{"CLAUDE_REFRESH", "sk-ant-ort01-abcdef", true},
-		{"CLAUDE_CODE_OAUTH_TOKEN", "whatever", true},
-		{"OPENAI_CODEX_ACCESS_TOKEN", "whatever", true},
-		{"CODEX_TOKEN", chatgpt, true},
-		{"CODEX_AUTH", `{"auth_mode":"chatgpt","tokens":{"access_token":"a","refresh_token":"r"}}`, true},
-		{"ANTHROPIC_API_KEY", "sk-ant-api03-abcdef", false},
-		{"ANTHROPIC_AUTH_TOKEN", "gateway-bearer-token", false},
-		{"OPENAI_API_KEY", "sk-proj-abcdef", false},
-		{"GITHUB_TOKEN", "a.b.c", false},
-		{"CONFIG", `{"auth_mode":"apikey"}`, false},
-		// Setup scripts: a subscription variable assigned a literal, or a
-		// Codex auth.json written inline, is a token; a reference is not.
-		{"", "export CLAUDE_CODE_OAUTH_TOKEN=\"plain-literal\"\nnpm ci", true},
-		{"", "echo ok\nOPENAI_CODEX_ACCESS_TOKEN=abc123 codex exec", true},
-		{"", "cat > ~/.codex/auth.json <<'EOF'\n{\n  \"auth_mode\": \"chatgpt\",\n  \"tokens\": {}\n}\nEOF", true},
-		{"", "claude --print hi # uses $CLAUDE_CODE_OAUTH_TOKEN", false},
-		{"", "export CLAUDE_CODE_OAUTH_TOKEN=\"$FROM_PROXY\"", false},
-		{"", "npm ci && npm test", false},
-		{"", "echo -n " + chatgpt + ">/root/.codex/tok", true},
-		{"", "curl https://h.example.com/" + chatgpt, true},
-		{"", "x.y." + chatgpt, true},
-		{"", `cat > ~/.codex/auth.json <<EOF
-{"tokens":{"refresh_token":"rt_live"}}
-EOF`, true},
-		{"", `{"CLAUDE_CODE_OAUTH_TOKEN": "literal"}`, true},
-		// Not tokens: blanking, references, commands and prose.
-		{"", "CLAUDE_CODE_OAUTH_TOKEN= claude -p hi", false},
-		{"", "export CLAUDE_CODE_OAUTH_TOKEN=\nnpm ci", false},
-		{"", `echo "CLAUDE_CODE_OAUTH_TOKEN: missing"`, false},
-		{"", `[ "$CLAUDE_CODE_OAUTH_TOKEN" = "unset" ]`, false},
-		{"", "CLAUDE_CODE_OAUTH_TOKEN=`cat /run/tok`", false},
-		{"", `{"CLAUDE_CODE_OAUTH_TOKEN": null}`, false},
-		{"", "export CLAUDE_CODE_OAUTH_TOKEN=CLAUDE_CODE_OAUTH_TOKEN", false},
-		{"", "export claude_code_oauth_token=x", false},
-		{"", `{"CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN"}`, false},
-		{"", `{"tokens":{"access_token":"gho_other_service"}}`, false},
-	} {
-		assert.Equal(t, tc.want, isSubscriptionToken(tc.name, tc.value), "%s=%s", tc.name, tc.value)
-	}
-}
-
 func requireSubscriptionTokenRefused(t *testing.T, err error) {
 	t.Helper()
 	require.Error(t, err)
@@ -217,25 +166,6 @@ func TestStoredSubscriptionTokenInAgentEnvironmentIsRefusedAndRedacted(t *testin
 	config, err := svc.LoadForProvisioning(ctx, 42)
 	require.NoError(t, err)
 	assert.Contains(t, config.SetupScript, token)
-}
-
-func TestRedactSubscriptionTokens(t *testing.T) {
-	t.Parallel()
-	chatgpt := chatGPTAccessTokenForTest(t)
-	for _, tc := range []struct{ script, want string }{
-		{"export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-abc\nnpm ci", "export CLAUDE_CODE_OAUTH_TOKEN=[redacted]\nnpm ci"},
-		{"export CLAUDE_CODE_OAUTH_TOKEN='literal'", "export CLAUDE_CODE_OAUTH_TOKEN='[redacted]'"},
-		{"curl -H 'Authorization: Bearer " + chatgpt + "' x", "curl -H 'Authorization: Bearer [redacted]' x"},
-		{`echo '{"auth_mode":"chatgpt","tokens":{"access_token":"a1","refresh_token":"r1"}}' > auth.json`, `echo '{"auth_mode":"[redacted]","tokens":{"access_token":"[redacted]","refresh_token":"[redacted]"}}' > auth.json`},
-		{"npm ci # ${CLAUDE_CODE_OAUTH_TOKEN:-unset}", "npm ci # ${CLAUDE_CODE_OAUTH_TOKEN:-unset}"},
-		{"echo -n " + chatgpt + ">/root/.codex/tok", "echo -n [redacted]>/root/.codex/tok"},
-		{`{"tokens":{"id_token":"` + chatgpt + `","refresh_token":"rt_live"}}`, `{"tokens":{"id_token":"[redacted]","refresh_token":"[redacted]"}}`},
-		{`{"CLAUDE_CODE_OAUTH_TOKEN": "literal", "x": 1}`, `{"CLAUDE_CODE_OAUTH_TOKEN": "[redacted]", "x": 1}`},
-	} {
-		got := redactSubscriptionTokens(tc.script)
-		assert.Equal(t, tc.want, got)
-		assert.False(t, isSubscriptionToken("", got), got)
-	}
 }
 
 func TestAgentEnvironmentLoadErrorKeepsTheStoredTokenRefusal(t *testing.T) {

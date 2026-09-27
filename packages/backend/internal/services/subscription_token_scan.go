@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
@@ -64,7 +65,7 @@ func ScanStoredSubscriptionTokens(ctx context.Context, pool interface {
 			counts.Unreadable++
 			return false
 		}
-		return value != "" && isSubscriptionToken(name, value)
+		return value != "" && subscriptiontoken.Holds(name, value)
 	}
 
 	for after := int64(0); ; {
@@ -96,7 +97,7 @@ func ScanStoredSubscriptionTokens(ctx context.Context, pool interface {
 		}
 		for _, row := range rows {
 			after = row.ID
-			if row.Value != "" && isSubscriptionToken(row.Name, row.Value) {
+			if row.Value != "" && subscriptiontoken.Holds(row.Name, row.Value) {
 				counts.Variables++
 				repositories[row.RepositoryID] = struct{}{}
 			}
@@ -114,7 +115,7 @@ func ScanStoredSubscriptionTokens(ctx context.Context, pool interface {
 		}
 		for _, row := range rows {
 			after = row.ID
-			if row.Value != "" && isSubscriptionToken(row.Name, row.Value) {
+			if row.Value != "" && subscriptiontoken.Holds(row.Name, row.Value) {
 				counts.Variables++
 				organizations[row.OrganizationID] = struct{}{}
 			}

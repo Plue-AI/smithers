@@ -14,6 +14,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
@@ -504,15 +505,15 @@ func (s *AgentEnvironmentService) loadAgentEnvironmentRow(ctx context.Context, r
 // variable holding a Claude or ChatGPT subscription token. Variables that do
 // not decode are checked as one document.
 func agentEnvironmentHoldsSubscriptionToken(row db.RepositoryAgentEnvironment) bool {
-	if isSubscriptionToken("", row.SetupScript) {
+	if subscriptiontoken.Holds("", row.SetupScript) {
 		return true
 	}
 	var variables []AgentEnvironmentVariable
 	if json.Unmarshal(row.EnvironmentVariables, &variables) != nil {
-		return isSubscriptionToken("", string(row.EnvironmentVariables))
+		return subscriptiontoken.Holds("", string(row.EnvironmentVariables))
 	}
 	for _, variable := range variables {
-		if isSubscriptionToken(variable.Name, variable.Value) {
+		if subscriptiontoken.Holds(variable.Name, variable.Value) {
 			return true
 		}
 	}
@@ -550,10 +551,10 @@ func (s *AgentEnvironmentService) agentEnvironmentResponse(ctx context.Context, 
 		// Never hand a refused token back. Saving this answer as-is drops the
 		// token variables and keeps the redacted script.
 		response.ReconnectRequired = true
-		response.SetupScript = redactSubscriptionTokens(config.SetupScript)
+		response.SetupScript = subscriptiontoken.Redact(config.SetupScript)
 		response.Env = make([]AgentEnvironmentVariable, 0, len(config.Env))
 		for _, variable := range config.Env {
-			if !isSubscriptionToken(variable.Name, variable.Value) {
+			if !subscriptiontoken.Holds(variable.Name, variable.Value) {
 				response.Env = append(response.Env, variable)
 			}
 		}
