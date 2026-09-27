@@ -597,7 +597,9 @@ export const sentences = (claim: string): ReadonlyArray<string> => {
   let start = 0
   for (let index = 0; index < claim.length; index++) {
     const char = claim[index]!
-    if (char === "`") code = !code
+    // A backtick opens inline code only when a closing one follows, as in
+    // Markdown; a stray one otherwise hid every later sentence end.
+    if (char === "`" && (code || claim.includes("`", index + 1))) code = !code
     // A sentence never ends inside inline code: `go test . ./ast` is one
     // command, and splitting it read its halves as two unrecorded claims.
     if (!code && (char === "." || char === "!" || char === "?") && /\s/.test(claim[index + 1] ?? "")) {
