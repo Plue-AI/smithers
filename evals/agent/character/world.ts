@@ -621,9 +621,19 @@ export const grantedTo = (world: World, role: string): ReadonlyArray<string> =>
  * Binds the role's granted tools as executable flows. Each call appends to
  * `actions` before it answers.
  */
-export const sources = (world: World, role: string, actions: Array<Action>): Array<FlowBinding.Source> => {
+export const sources = (
+  world: World,
+  role: string,
+  actions: Array<Action>,
+  /** Ids the tools mint (drafts, events, tasks) start after this, so turns of one conversation never reuse an id. */
+  idBase = 0
+): Array<FlowBinding.Source> => {
   const granted = new Set(grantedTo(world, role))
-  const state: State = { counter: 0, drafts: new Map(), events: world.data.calendar.map((event) => ({ ...event })) }
+  const state: State = {
+    counter: idBase,
+    drafts: new Map(),
+    events: world.data.calendar.map((event) => ({ ...event }))
+  }
   const bindings = tools.filter((tool) => granted.has(tool.name)).map((tool) => {
     const flow = CoreFlow.make({
       name: tool.name,

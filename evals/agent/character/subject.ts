@@ -219,6 +219,8 @@ export interface TurnOptions {
   readonly prompt: string
   readonly maxFrames?: number | undefined
   readonly session?: string | undefined
+  /** Where the ids this turn's tools mint start (see `World.sources`). */
+  readonly idBase?: number | undefined
   /** Sees every agent event as it happens, e.g. to trace a run. */
   readonly onEvent?: ((event: AgentEvent.AgentEvent) => void) | undefined
 }
@@ -242,7 +244,7 @@ export const runTurn = (options: TurnOptions): Effect.Effect<Turn> =>
         registry: emptyRegistry,
         capabilityEnvelope: [],
         maxFrames: options.maxFrames ?? 8,
-        flows: World.sources(options.world, options.composed.role, actions),
+        flows: World.sources(options.world, options.composed.role, actions, options.idBase ?? 0),
         ...(options.composed.effort === undefined
           ? {}
           : { modelParams: ModelRequest.GenerationParams.make({ reasoningEffort: options.composed.effort }) }),

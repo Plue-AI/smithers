@@ -191,7 +191,7 @@ const converse = (suiteCase: CharacterSuite.Case, variant: Variant, trial: numbe
       // reuse the first one's cached prefix. Runs stay independent (each turn
       // gets a fresh engine and world); only the provider's cache is shared.
       const run = (seat: Seat.Seat) =>
-        Subject.runTurn({ composed, seat, world, prompt, session: `${suiteCase.id}-${index}` })
+        Subject.runTurn({ composed, seat, world, prompt, idBase: index * 100, session: `${suiteCase.id}-${index}` })
       // A transport failure is the network's, not the profile's: it is retried
       // twice on a fresh connection, and a turn that still fails is scored as failed.
       const liveTurn = Effect.scoped(Effect.flatMap(Subject.resolveLive(seatId, process.cwd()), run)).pipe(Effect.orDie)
