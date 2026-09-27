@@ -14,20 +14,23 @@ For the hosted application, start with the [app quickstart](/docs/quickstart/).
 
 {/* generated:project-quickstart start. Edit apps/site/src/data/project.json; do not edit. */}
 
-The 1.0 release candidate is not on npm yet. Follow the [source-checkout installation](/docs/installation/#use-the-source-checkout-before-publication), then scaffold and run your first flow. The npm command below applies after publication.
+The 1.0 release candidate is not on npm. Install it from the source checkout.
 
 <LinkButton href="/docs/installation/" variant="primary">Install the CLI</LinkButton>
 <LinkButton href="/docs/cli-quickstart/" variant="secondary">Read the CLI quickstart</LinkButton>
 
 ```bash
-npm install --global @smthrs/cli@next
+git clone https://github.com/smithersai/smithers.git
+cd smithers
+pnpm install
+export PATH="$PWD/node_modules/.bin:$PATH"
 ```
 
 From your project directory, scaffold a flow, edit its instructions, and configure the credential its `model:` field requires before running it:
 
 ```bash
 smthrs init change
-smthrs up change
+smthrs flow start change
 ```
 
 That creates `flows/change/flow.mdx`, a flow that lives with your code, and runs it. The [CLI quickstart](/docs/cli-quickstart/) walks through the same steps with what to expect at each one.

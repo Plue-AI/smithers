@@ -10,17 +10,7 @@ Exercise a flow in a test runner the way the shipped examples do: on the in-memo
 ## Before you start
 
 - Node.js 26.4.0 or later. The durable engine runs on Node only.
-- The library dependencies, with Effect pinned exactly:
-
-```bash
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/platform-node@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
-
-- The testing library and a runner as dev dependencies:
-
-```bash
-pnpm add --save-dev @smthrs/testing@next vitest@5.0.0 @effect/vitest@4.0.0-rc.115
-```
+- `@smthrs/flow`, `@smthrs/engine`, `@smthrs/platform-node`, `@smthrs/testing`, `vitest`, and `@effect/vitest` ([Installation](/docs/installation/#use-the-libraries)).
 
 `@smthrs/testing/Vitest` is ESM-only and deliberately absent from the root barrel, so import the adapter from its subpath.
 

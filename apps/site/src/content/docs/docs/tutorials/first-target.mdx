@@ -9,7 +9,7 @@ import { Steps } from "@astrojs/starlight/components"
 
 Build a small target graph and observe its cache behavior. You will run a JavaScript program, reuse its result, and then change a declared input to make it run again. This tutorial does not call a model.
 
-You need the [Smithers CLI](/docs/installation/), a supported Node.js version (`>=26.4.0`), pnpm, and Git.
+You need the [Smithers CLI](/docs/installation/#install-the-cli) and Git.
 
 ## Create the workspace
 
@@ -22,13 +22,10 @@ You need the [Smithers CLI](/docs/installation/), a supported Node.js version (`
    cd cache-demo
    git init
    smthrs init cache-demo
-   pnpm add --save-dev @smthrs/cli@next @smthrs/targets@next
    mkdir src
    ```
 
    `init` creates workspace and package declarations, plus a starter flow. This tutorial uses the target declarations; the starter flow does not run.
-
-   The global or source-checkout CLI is sufficient for `init`. After installing the workspace dependencies, use `pnpm exec smthrs` from this directory. Target declarations and the CLI must resolve the same physical copies of Effect and the Smithers declaration packages. A separately installed global CLI can fail with `declaration_dependency_mismatch` even when its versions match. Installing the CLI and targets together and selecting the local binary keeps that runtime shared.
 
 2. **Create an input file.**
 
@@ -59,7 +56,7 @@ You need the [Smithers CLI](/docs/installation/), a supported Node.js version (`
 Plan the test without executing its command:
 
 ```bash
-pnpm exec smthrs test '//:greeting' --plan
+smthrs test '//:greeting' --plan
 ```
 
 The plan includes the selected target, its dependencies, and cache information. If the target is missing, check that the root `PACKAGE.ts` exports `Package` and includes `greeting` in `targets`.
@@ -69,13 +66,13 @@ The plan includes the selected target, its dependencies, and cache information. 
 Run the test:
 
 ```bash
-pnpm exec smthrs test '//:greeting'
+smthrs test '//:greeting'
 ```
 
 The first run executes `node src/message.js` and records a successful result. Run the same command again:
 
 ```bash
-pnpm exec smthrs test '//:greeting'
+smthrs test '//:greeting'
 ```
 
 The second run reports a cache hit. The command does not need to execute because its declared inputs and execution environment have not changed.
@@ -91,8 +88,8 @@ console.log("Hello after an input change.")
 Run the target again. It executes because `sources` includes that file and `greeting` consumes `sources`. The changed file produces a different key for the work.
 
 ```bash
-pnpm exec smthrs test '//:greeting'
-pnpm exec smthrs explain '//:greeting'
+smthrs test '//:greeting'
+smthrs explain '//:greeting'
 ```
 
 `explain` shows the planned key and local cache decision. Use it when a hit or miss is unexpected.

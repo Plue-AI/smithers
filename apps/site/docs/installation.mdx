@@ -1,73 +1,48 @@
 ---
 title: "Installation"
-description: "Install the Smithers CLI or library, keep Effect pinned, and verify the install."
+description: "Install the Smithers CLI and libraries from the source checkout and verify the install."
 ---
 
-import { CardGrid, Code, LinkCard } from "@astrojs/starlight/components"
+import { CardGrid, LinkCard } from "@astrojs/starlight/components"
 import versions from "../../../data/versions.json"
 
 ## Requirements
 
-- Node.js 26.4.0 or later. The CLI declares the supported range as <code>{versions.nodeRange}</code>. The durable engine runs on Node only.
-- No database server. Storage is local SQLite, and run state lives in the project's `.flows/` directory.
+- Node.js <code>{versions.nodeRange}</code>. The durable engine runs on Node only.
+- pnpm 11.25.0 and Git.
+- No database server. Run state is local SQLite in the project's `.flows/` directory.
 
-See the [RC support matrix](/docs/reference/support-matrix/) for exact engine ranges, tested versions, advisory platforms, and hosting limits.
+See the [RC support matrix](/docs/reference/support-matrix/) for engine ranges, platforms, and hosting limits.
 
 ## Install the CLI
 
-The CLI installs the `smthrs` command, with `smithers` as an alias of the same executable.
-
-### Use the source checkout before publication
-
-These pages describe `1.0.0-rc.0`. As checked on September 4, 2026, it is not yet on npm: `@smthrs/cli` has only `latest` at `0.35.0`, and no `next` dist-tag. Use the checkout to try the version documented here.
-
-With pnpm 11.25.0 installed:
+These docs describe <code>{versions.cli}</code>. It is not published to npm: npm's `@smthrs/cli` is the 0.x line. Install it from the source checkout:
 
 ```bash
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-pnpm exec smthrs --version
 export PATH="$PWD/node_modules/.bin:$PATH"
+smthrs --version
 ```
 
-The PATH setting makes this checkout's CLI available in the current shell. Change to your own project directory before running `smthrs init`. The source launcher uses Node's TypeScript support, so it needs no CLI build step. See [CONTRIBUTING.md](https://github.com/smithersai/smithers/blob/main/CONTRIBUTING.md) for repository checks.
+`smthrs --version` prints <code>{versions.cli}</code>. The PATH line puts this checkout's `smthrs` (and its alias `smithers`) on the current shell. It needs no build step. Change to your own project directory before running `smthrs init`. Target commands such as `smthrs build` and `smthrs test` run with this CLI in any directory; they load `WORKSPACE.ts` and `PACKAGE.ts` against the checkout's own Effect and Smithers packages.
 
-### Install from npm after publication
-
-Once the release candidate is published:
-
-```bash
-npm install --global @smthrs/cli@next
-```
-
-Release candidates publish to `next`, rather than `latest`. Check `smthrs --version` before following 1.0 instructions.
-
-### Install the CLI in a target workspace
-
-Global or source-checkout commands can initialize a project and operate its flows. Target commands load `WORKSPACE.ts` and `PACKAGE.ts`, whose imports must share the loader's physical Effect and Smithers packages. After publication, add the CLI and declarations to the project and use its local binary:
-
-```bash
-smthrs init hello
-pnpm add --save-dev @smthrs/cli@next @smthrs/targets@next
-pnpm exec smthrs targets
-```
-
-Matching versions in an independent global installation do not establish that shared runtime and can cause `declaration_dependency_mismatch`. Before publication, use the checkout's workspace dependencies. See [Run a target and hit the cache](/docs/tutorials/first-target/) for the complete example.
-
-## Install the library
-
-The npm command below applies after publication. Until then, use the packages through the checkout workspace, as the programs under `examples/` do.
-
-A Node flow program depends on the engine packages, the Node host, and one pinned Effect:
-
-<Code lang="bash" code={`pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/platform-node@next`} />
-
-:::caution[Effect must stay at exactly the pinned version]
-A project with two Effect instances is unsupported, because schema internals are not interoperable between them.
-
-Published Smithers libraries declare `effect` as an exact `4.0.0-rc.115` peer. Node host packages, including `@smthrs/platform-node`, also declare `@effect/platform-node` and `@effect/platform-node-shared` as exact peers at that version. Executable packages own their exact runtime dependencies. npm, Bun, and pnpm therefore install one compatible runtime without requiring an application to pin transitive implementation packages.
+:::caution[declaration_dependency_mismatch]
+Target declarations and the CLI must resolve the same physical Effect and Smithers packages. A second, separately installed CLI fails with `declaration_dependency_mismatch` even when its versions match. Use one CLI.
 :::
+
+## Use the libraries
+
+The `@smthrs/*` libraries are not on npm either. Link a project directory to the checkout's `examples` workspace, which carries the packages the tutorials and guides import, and the one pinned Effect (<code>{versions.effect}</code>):
+
+```bash
+mkdir my-flows && cd my-flows
+echo '{ "type": "module" }' > package.json
+ln -s /path/to/smithers/examples/node_modules node_modules
+```
+
+Run programs with `node <file>.ts`. A package that workspace lacks, such as `@smthrs/artifacts`, resolves only inside the checkout.
 
 ## Verify the install
 
@@ -75,33 +50,22 @@ Published Smithers libraries declare `effect` as an exact `4.0.0-rc.115` peer. N
 smthrs doctor
 ```
 
-`doctor` runs its checks without running any flow and prints one line per check. A healthy report covers:
+`doctor` prints one line per check without running a flow, and exits 1 when any check fails:
 
-- registry: the flows discovered under the project's `flows/` directory.
-- state and databases: the `.flows/` state directory and the migrations applied to `control.db` and `engine.db` (both report "not created yet" before the first command that needs them).
-- runtime: the Node.js version against the CLI's supported range.
+- registry: the flows discovered under `flows/`.
+- state and databases: `.flows/` and the migrations applied to `control.db` and `engine.db` ("not created yet" before first use).
+- runtime: the Node.js version against the supported range.
 - jj: whether the configured Jujutsu executable is available.
 - providers: which provider credentials are set, and which are exported but empty.
-
-The command exits 1 when any check reports a failure.
 
 ## Stay current
 
 ```bash
-smthrs update
+git pull
+pnpm install
 ```
 
-`update` reads npm's dist-tags for `@smthrs/cli` and reports whether the installed version is current. It never installs anything. A release candidate is compared against the `next` tag first, so it is never told to downgrade to a 0.x `latest`. When a later version exists, the command prints it with the install command to run:
-
-```text
-npm install -g @smthrs/cli@<version>
-```
-
-When the install is current, it says so:
-
-```text
-@smthrs/cli 1.0.0-rc.0 is current.
-```
+`smthrs update` reads npm's dist-tags for `@smthrs/cli` and never installs anything.
 
 ## Next steps
 

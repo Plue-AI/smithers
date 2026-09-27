@@ -31,12 +31,14 @@ Offline Chromium tests cover the included web UI. Packaged desktop and hosted de
 
 ## Install
 
-The 1.0 release candidate is not on npm yet. Use the
-[source-checkout installation](https://smithers.sh/docs/installation/#use-the-source-checkout-before-publication)
-until publication. After publication, install it with:
+The 1.0 release candidate is not on npm. Install it from the source checkout
+([Installation](https://smithers.sh/docs/installation/#install-the-cli)):
 
 ```bash
-npm install --global @smthrs/cli@next
+git clone https://github.com/smithersai/smithers.git
+cd smithers
+pnpm install
+export PATH="$PWD/node_modules/.bin:$PATH"
 ```
 
 ## Get started
@@ -47,7 +49,7 @@ The [CLI quickstart](https://smithers.sh/docs/cli-quickstart/) covers each step.
 
 ```bash
 smthrs init change
-smthrs up change
+smthrs flow start change
 ```
 
 > [!TIP]

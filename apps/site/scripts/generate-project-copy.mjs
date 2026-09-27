@@ -80,9 +80,8 @@ ${supportSection}
 
 ## Install
 
-The 1.0 release candidate is not on npm yet. Use the
-[source-checkout installation](https://smithers.sh/docs/installation/#use-the-source-checkout-before-publication)
-until publication. After publication, install it with:
+The 1.0 release candidate is not on npm. Install it from the source checkout
+([Installation](https://smithers.sh/docs/installation/#install-the-cli)):
 
 \`\`\`bash
 ${cliInstall}
@@ -156,7 +155,7 @@ developers = replaceRegion(
 developers = replaceRegion(
   developers,
   "project-quickstart",
-  `The 1.0 release candidate is not on npm yet. Follow the [source-checkout installation](/docs/installation/#use-the-source-checkout-before-publication), then scaffold and run your first flow. The npm command below applies after publication.\n\n` +
+  `The 1.0 release candidate is not on npm. Install it from the source checkout.\n\n` +
     `<LinkButton href="/docs/installation/" variant="primary">Install the CLI</LinkButton>\n` +
     `<LinkButton href="/docs/cli-quickstart/" variant="secondary">Read the CLI quickstart</LinkButton>\n\n` +
     `\`\`\`bash\n${cliInstall}\n\`\`\`\n\n` +

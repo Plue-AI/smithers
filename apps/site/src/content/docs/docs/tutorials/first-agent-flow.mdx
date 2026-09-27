@@ -12,7 +12,7 @@ In this tutorial you'll build an agent flow two ways. First, a markdown flow tha
 
 ## Before you begin
 
-- The Smithers CLI: `npm install --global @smthrs/cli@next`. The `@next` suffix is required while 1.0 is a release candidate.
+- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
 - A provider credential in the environment: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. [Configure model seats](/docs/guides/model-seats/) explains how a seat resolves from environment keys.
 - `AI_GATEWAY_API_KEY` for Jev, the completion judge. The CLI refuses to boot without it. The offline module below deliberately binds a scripted judge instead.
 - A git repository to work in. Part 2 reviews its uncommitted change.
@@ -93,11 +93,7 @@ by at most five findings.
 
 A markdown flow hands the whole task to one agent. A module flow declares each step in TypeScript: what the author declares is the seat, the system teaching, the prompt built from the step payload, and the output schema. The model answers with a fenced `cell` block, the block is evaluated inside a QuickJS sandbox with an explicit budget and no ambient host access, and the only way out is a call to a declared flow through `ctx.call`. [Agent runtime](/docs/concepts/agent-runtime/) explains the cell loop this runs in.
 
-Install the libraries:
-
-```bash
-pnpm add @smthrs/agent@next @smthrs/flow@next @smthrs/engine@next @smthrs/capability@next @smthrs/model@next @smthrs/registry@next @smthrs/platform-node@next @smthrs/jj@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Link the libraries into the project as described in [Installation](/docs/installation/#use-the-libraries).
 
 This part also needs Jujutsu (`jj`) on your PATH. Initialize a separate repository for the files the tools will edit:
 

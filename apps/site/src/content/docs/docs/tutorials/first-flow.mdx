@@ -19,17 +19,7 @@ Time: about 20 minutes. You need Node.js and pnpm.
 
 ## 1. Set up the project
 
-Create a directory and install the flow and engine packages:
-
-```bash
-mkdir first-flow && cd first-flow
-pnpm init
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/engine-store@next @smthrs/flows@next @smthrs/journal@next @smthrs/kernel@next @smthrs/run-store@next @smthrs/platform-node@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
-
-The `@next` suffix is required while 1.0 is a release candidate: `latest` still resolves the Smithers 0.x line. Effect is pinned to exactly `4.0.0-rc.115`.
-
-Add `"type": "module"` to the generated `package.json`, so the files in this tutorial run as ES modules. Every program here runs with `node <file>.ts`; Node 26.4.0 and later execute the TypeScript directly.
+Create a `first-flow` directory and link the libraries into it as described in [Installation](/docs/installation/#use-the-libraries). Every program here runs with `node <file>.ts`.
 
 ```text
 You should see: pnpm writes a package.json and a lockfile and installs the

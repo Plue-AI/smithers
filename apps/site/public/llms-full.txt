@@ -138,20 +138,23 @@ For the hosted application, start with the [app quickstart](/docs/quickstart/).
 
 ## Get started from the terminal
 
-The 1.0 release candidate is not on npm yet. Follow the [source-checkout installation](/docs/installation/#use-the-source-checkout-before-publication), then scaffold and run your first flow. The npm command below applies after publication.
+The 1.0 release candidate is not on npm. Install it from the source checkout.
 
 [Install the CLI](/docs/installation/)
 [Read the CLI quickstart](/docs/cli-quickstart/)
 
 ```bash
-npm install --global @smthrs/cli@next
+git clone https://github.com/smithersai/smithers.git
+cd smithers
+pnpm install
+export PATH="$PWD/node_modules/.bin:$PATH"
 ```
 
 From your project directory, scaffold a flow, edit its instructions, and configure the credential its `model:` field requires before running it:
 
 ```bash
 smthrs init change
-smthrs up change
+smthrs flow start change
 ```
 
 That creates `flows/change/flow.mdx`, a flow that lives with your code, and runs it. The [CLI quickstart](/docs/cli-quickstart/) walks through the same steps with what to expect at each one.
@@ -184,68 +187,41 @@ https://smithers.sh/docs/installation/
 
 ## Requirements
 
-- Node.js 26.4.0 or later. The CLI declares the supported range as <code>>=26.4.0</code>. The durable engine runs on Node only.
-- No database server. Storage is local SQLite, and run state lives in the project's `.flows/` directory.
+- Node.js <code>>=26.4.0</code>. The durable engine runs on Node only.
+- pnpm 11.25.0 and Git.
+- No database server. Run state is local SQLite in the project's `.flows/` directory.
 
-See the [RC support matrix](/docs/reference/support-matrix/) for exact engine ranges, tested versions, advisory platforms, and hosting limits.
+See the [RC support matrix](/docs/reference/support-matrix/) for engine ranges, platforms, and hosting limits.
 
 ## Install the CLI
 
-The CLI installs the `smthrs` command, with `smithers` as an alias of the same executable.
-
-### Use the source checkout before publication
-
-These pages describe `1.0.0-rc.0`. As checked on September 4, 2026, it is not yet on npm: `@smthrs/cli` has only `latest` at `0.35.0`, and no `next` dist-tag. Use the checkout to try the version documented here.
-
-With pnpm 11.25.0 installed:
+These docs describe <code>1.0.0-rc.1</code>. It is not published to npm: npm's `@smthrs/cli` is the 0.x line. Install it from the source checkout:
 
 ```bash
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-pnpm exec smthrs --version
 export PATH="$PWD/node_modules/.bin:$PATH"
+smthrs --version
 ```
 
-The PATH setting makes this checkout's CLI available in the current shell. Change to your own project directory before running `smthrs init`. The source launcher uses Node's TypeScript support, so it needs no CLI build step. See [CONTRIBUTING.md](https://github.com/smithersai/smithers/blob/main/CONTRIBUTING.md) for repository checks.
+`smthrs --version` prints <code>1.0.0-rc.1</code>. The PATH line puts this checkout's `smthrs` (and its alias `smithers`) on the current shell. It needs no build step. Change to your own project directory before running `smthrs init`. Target commands such as `smthrs build` and `smthrs test` run with this CLI in any directory; they load `WORKSPACE.ts` and `PACKAGE.ts` against the checkout's own Effect and Smithers packages.
 
-### Install from npm after publication
-
-Once the release candidate is published:
-
-```bash
-npm install --global @smthrs/cli@next
-```
-
-Release candidates publish to `next`, rather than `latest`. Check `smthrs --version` before following 1.0 instructions.
-
-### Install the CLI in a target workspace
-
-Global or source-checkout commands can initialize a project and operate its flows. Target commands load `WORKSPACE.ts` and `PACKAGE.ts`, whose imports must share the loader's physical Effect and Smithers packages. After publication, add the CLI and declarations to the project and use its local binary:
-
-```bash
-smthrs init hello
-pnpm add --save-dev @smthrs/cli@next @smthrs/targets@next
-pnpm exec smthrs targets
-```
-
-Matching versions in an independent global installation do not establish that shared runtime and can cause `declaration_dependency_mismatch`. Before publication, use the checkout's workspace dependencies. See [Run a target and hit the cache](/docs/tutorials/first-target/) for the complete example.
-
-## Install the library
-
-The npm command below applies after publication. Until then, use the packages through the checkout workspace, as the programs under `examples/` do.
-
-A Node flow program depends on the engine packages, the Node host, and one pinned Effect:
-
-```bash
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/platform-node@next
-```
-
-:::caution[Effect must stay at exactly the pinned version]
-A project with two Effect instances is unsupported, because schema internals are not interoperable between them.
-
-Published Smithers libraries declare `effect` as an exact `4.0.0-rc.115` peer. Node host packages, including `@smthrs/platform-node`, also declare `@effect/platform-node` and `@effect/platform-node-shared` as exact peers at that version. Executable packages own their exact runtime dependencies. npm, Bun, and pnpm therefore install one compatible runtime without requiring an application to pin transitive implementation packages.
+:::caution[declaration_dependency_mismatch]
+Target declarations and the CLI must resolve the same physical Effect and Smithers packages. A second, separately installed CLI fails with `declaration_dependency_mismatch` even when its versions match. Use one CLI.
 :::
+
+## Use the libraries
+
+The `@smthrs/*` libraries are not on npm either. Link a project directory to the checkout's `examples` workspace, which carries the packages the tutorials and guides import, and the one pinned Effect (<code>4.0.0-rc.115</code>):
+
+```bash
+mkdir my-flows && cd my-flows
+echo '{ "type": "module" }' > package.json
+ln -s /path/to/smithers/examples/node_modules node_modules
+```
+
+Run programs with `node <file>.ts`. A package that workspace lacks, such as `@smthrs/artifacts`, resolves only inside the checkout.
 
 ## Verify the install
 
@@ -253,33 +229,22 @@ Published Smithers libraries declare `effect` as an exact `4.0.0-rc.115` peer. N
 smthrs doctor
 ```
 
-`doctor` runs its checks without running any flow and prints one line per check. A healthy report covers:
+`doctor` prints one line per check without running a flow, and exits 1 when any check fails:
 
-- registry: the flows discovered under the project's `flows/` directory.
-- state and databases: the `.flows/` state directory and the migrations applied to `control.db` and `engine.db` (both report "not created yet" before the first command that needs them).
-- runtime: the Node.js version against the CLI's supported range.
+- registry: the flows discovered under `flows/`.
+- state and databases: `.flows/` and the migrations applied to `control.db` and `engine.db` ("not created yet" before first use).
+- runtime: the Node.js version against the supported range.
 - jj: whether the configured Jujutsu executable is available.
 - providers: which provider credentials are set, and which are exported but empty.
-
-The command exits 1 when any check reports a failure.
 
 ## Stay current
 
 ```bash
-smthrs update
+git pull
+pnpm install
 ```
 
-`update` reads npm's dist-tags for `@smthrs/cli` and reports whether the installed version is current. It never installs anything. A release candidate is compared against the `next` tag first, so it is never told to downgrade to a 0.x `latest`. When a later version exists, the command prints it with the install command to run:
-
-```text
-npm install -g @smthrs/cli@<version>
-```
-
-When the install is current, it says so:
-
-```text
-@smthrs/cli 1.0.0-rc.0 is current.
-```
+`smthrs update` reads npm's dist-tags for `@smthrs/cli` and never installs anything.
 
 ## Next steps
 
@@ -297,13 +262,13 @@ Create a flow that lives with your code, give it a small task, and inspect the r
 
 Use Node.js 26.4.0 or later. The durable engine runs on Node. You also need a provider credential for the model that will perform the task.
 
-The 1.0 release candidate is not published to npm yet. Follow the [source-checkout installation](/docs/installation/#use-the-source-checkout-before-publication), including its PATH setting, then verify:
+The 1.0 release candidate is not published to npm yet. Follow the [source-checkout installation](/docs/installation/#install-the-cli), including its PATH setting, then verify:
 
 ```bash
 smthrs --version
 ```
 
-The version should start with `1.0.`. After publication, `npm install --global @smthrs/cli@next` will install the release candidate directly.
+The version should start with `1.0.`.
 
 ## 2. Scaffold a flow
 
@@ -1047,7 +1012,7 @@ https://smithers.sh/docs/tutorials/first-target/
 
 Build a small target graph and observe its cache behavior. You will run a JavaScript program, reuse its result, and then change a declared input to make it run again. This tutorial does not call a model.
 
-You need the [Smithers CLI](/docs/installation/), a supported Node.js version (`>=26.4.0`), pnpm, and Git.
+You need the [Smithers CLI](/docs/installation/#install-the-cli) and Git.
 
 ## Create the workspace
 
@@ -1058,13 +1023,10 @@ You need the [Smithers CLI](/docs/installation/), a supported Node.js version (`
    cd cache-demo
    git init
    smthrs init cache-demo
-   pnpm add --save-dev @smthrs/cli@next @smthrs/targets@next
    mkdir src
    ```
 
    `init` creates workspace and package declarations, plus a starter flow. This tutorial uses the target declarations; the starter flow does not run.
-
-   The global or source-checkout CLI is sufficient for `init`. After installing the workspace dependencies, use `pnpm exec smthrs` from this directory. Target declarations and the CLI must resolve the same physical copies of Effect and the Smithers declaration packages. A separately installed global CLI can fail with `declaration_dependency_mismatch` even when its versions match. Installing the CLI and targets together and selecting the local binary keeps that runtime shared.
 
 2. **Create an input file.**
 
@@ -1093,7 +1055,7 @@ You need the [Smithers CLI](/docs/installation/), a supported Node.js version (`
 Plan the test without executing its command:
 
 ```bash
-pnpm exec smthrs test '//:greeting' --plan
+smthrs test '//:greeting' --plan
 ```
 
 The plan includes the selected target, its dependencies, and cache information. If the target is missing, check that the root `PACKAGE.ts` exports `Package` and includes `greeting` in `targets`.
@@ -1103,13 +1065,13 @@ The plan includes the selected target, its dependencies, and cache information. 
 Run the test:
 
 ```bash
-pnpm exec smthrs test '//:greeting'
+smthrs test '//:greeting'
 ```
 
 The first run executes `node src/message.js` and records a successful result. Run the same command again:
 
 ```bash
-pnpm exec smthrs test '//:greeting'
+smthrs test '//:greeting'
 ```
 
 The second run reports a cache hit. The command does not need to execute because its declared inputs and execution environment have not changed.
@@ -1125,8 +1087,8 @@ console.log("Hello after an input change.")
 Run the target again. It executes because `sources` includes that file and `greeting` consumes `sources`. The changed file produces a different key for the work.
 
 ```bash
-pnpm exec smthrs test '//:greeting'
-pnpm exec smthrs explain '//:greeting'
+smthrs test '//:greeting'
+smthrs explain '//:greeting'
 ```
 
 `explain` shows the planned key and local cache decision. Use it when a hit or miss is unexpected.
@@ -1164,17 +1126,7 @@ Time: about 20 minutes. You need Node.js and pnpm.
 
 ## 1. Set up the project
 
-Create a directory and install the flow and engine packages:
-
-```bash
-mkdir first-flow && cd first-flow
-pnpm init
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/engine-store@next @smthrs/flows@next @smthrs/journal@next @smthrs/kernel@next @smthrs/run-store@next @smthrs/platform-node@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
-
-The `@next` suffix is required while 1.0 is a release candidate: `latest` still resolves the Smithers 0.x line. Effect is pinned to exactly `4.0.0-rc.115`.
-
-Add `"type": "module"` to the generated `package.json`, so the files in this tutorial run as ES modules. Every program here runs with `node <file>.ts`; Node 26.4.0 and later execute the TypeScript directly.
+Create a `first-flow` directory and link the libraries into it as described in [Installation](/docs/installation/#use-the-libraries). Every program here runs with `node <file>.ts`.
 
 ```text
 You should see: pnpm writes a package.json and a lockfile and installs the
@@ -1875,11 +1827,7 @@ Fork copies a run's history up to one frame so the copy can diverge from its par
 
 - Node.js 26.4.0 or later.
 - A fresh directory for the tutorial files.
-- The libraries, installed in that directory:
-
-```bash
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/engine-store@next @smthrs/journal@next @smthrs/time-travel@next @smthrs/flows@next @smthrs/kernel@next @smthrs/run-store@next @smthrs/plan@next @smthrs/platform-node@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+- The libraries, linked into that directory as described in [Installation](/docs/installation/#use-the-libraries).
 
 You need no provider key: every step here is a plain action, and no model is called.
 
@@ -2282,7 +2230,7 @@ In this tutorial you'll build an agent flow two ways. First, a markdown flow tha
 
 ## Before you begin
 
-- The Smithers CLI: `npm install --global @smthrs/cli@next`. The `@next` suffix is required while 1.0 is a release candidate.
+- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
 - A provider credential in the environment: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. [Configure model seats](/docs/guides/model-seats/) explains how a seat resolves from environment keys.
 - `AI_GATEWAY_API_KEY` for Jev, the completion judge. The CLI refuses to boot without it. The offline module below deliberately binds a scripted judge instead.
 - A git repository to work in. Part 2 reviews its uncommitted change.
@@ -2363,11 +2311,7 @@ by at most five findings.
 
 A markdown flow hands the whole task to one agent. A module flow declares each step in TypeScript: what the author declares is the seat, the system teaching, the prompt built from the step payload, and the output schema. The model answers with a fenced `cell` block, the block is evaluated inside a QuickJS sandbox with an explicit budget and no ambient host access, and the only way out is a call to a declared flow through `ctx.call`. [Agent runtime](/docs/concepts/agent-runtime/) explains the cell loop this runs in.
 
-Install the libraries:
-
-```bash
-pnpm add @smthrs/agent@next @smthrs/flow@next @smthrs/engine@next @smthrs/capability@next @smthrs/model@next @smthrs/registry@next @smthrs/platform-node@next @smthrs/jj@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Link the libraries into the project as described in [Installation](/docs/installation/#use-the-libraries).
 
 This part also needs Jujutsu (`jj`) on your PATH. Initialize a separate repository for the files the tools will edit:
 
@@ -2600,11 +2544,7 @@ The offline host explicitly binds `ScriptedJudge.layer`, which reads completion 
 
 ## Before you begin
 
-Use the project from [Build your first agent flow](/docs/tutorials/first-agent-flow/), with its library install, and a supported Node.js version (`>=26.4.0`). Add the durable engine dependencies:
-
-```bash
-pnpm add @smthrs/plan@next @smthrs/engine-store@next @smthrs/flows@next @smthrs/kernel@next @smthrs/run-store@next @effect/sql-sqlite-node@4.0.0-rc.115
-```
+Use the project from [Build your first agent flow](/docs/tutorials/first-agent-flow/), with its linked libraries.
 
 ## 1. Declare the research step's output schema
 
@@ -2942,11 +2882,7 @@ The offline host explicitly binds `ScriptedJudge.layer`, which reads completion 
 
 - The Smithers CLI and a project: run `smthrs init notes` in a fresh directory. The project gives you the `.flows/` state directory this tutorial's facts live in.
 - Node.js 26.4.0 or later.
-- The libraries:
-
-```bash
-pnpm add @smthrs/agent@next @smthrs/flow@next @smthrs/engine@next @smthrs/memory@next @smthrs/harness@next @smthrs/model@next @smthrs/registry@next @smthrs/database@next @smthrs/platform-node@next @smthrs/control@next @smthrs/time-travel@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+- The libraries, linked as described in [Installation](/docs/installation/#use-the-libraries).
 
 You need no provider key: both the model and the completion judge are scripted, so the runs are deterministic. A live host must choose its own seat and completion judge before opening resources.
 
@@ -3380,7 +3316,7 @@ A markdown flow is one `flows/<name>/flow.mdx` file: frontmatter declares the ru
 
 ## Before you start
 
-- Install the CLI with `npm install --global @smthrs/cli@next`. Node 26.4.0 or later is required.
+- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
 - Set a provider credential. `smthrs doctor` lists the keys it reads: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `CEREBRAS_API_KEY`.
 
 ## 1. Scaffold the flow
@@ -3560,13 +3496,7 @@ For a prompt-driven agent run, use [Markdown flows](/docs/guides/markdown-flows/
 
 ## Install the dependencies
 
-You need Node.js 26.4.0 or later and a package with `"type": "module"` in its `package.json`:
-
-```bash
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/platform-node@next
-```
-
-The platform package declares the compatible Effect peers. Keep the resolved Effect version aligned across the project, as described in [Installation](/docs/installation/).
+Link `@smthrs/flow`, `@smthrs/engine`, and `@smthrs/platform-node` into the project as described in [Installation](/docs/installation/#use-the-libraries).
 
 ## Define and run the flow
 
@@ -3657,7 +3587,7 @@ A Smithers project is `flows/**` sources plus `.flows/` run state. This guide or
 
 ## Before you start
 
-- Install the CLI with `npm install --global @smthrs/cli@next`.
+- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
 - Scaffold once with [`smthrs init`](/docs/reference/cli/init/), which writes the first flow and ignores `.flows/`.
 
 ## 1. Lay out the project
@@ -3988,7 +3918,7 @@ A seat is one `provider:model` string that decides which model serves a flow's a
 
 ## Before you start
 
-- The Smithers CLI: `npm install --global @smthrs/cli@next`.
+- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
 - A Smithers project. `smthrs init` scaffolds one.
 - An API key for the selected provider, or a supported subscription session for an OpenAI seat.
 
@@ -4215,13 +4145,9 @@ A tool in Smithers is an ordinary flow: a declaration carrying a name, schemas, 
 
 ## Before you start
 
-- The Smithers CLI: `npm install --global @smthrs/cli@next`.
+- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
 - A Smithers project. `smthrs init` scaffolds one.
-- For step 1, the library packages:
-
-```bash
-pnpm add @smthrs/std@next @smthrs/flow@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+- For step 1, `@smthrs/std` and `@smthrs/flow` ([Installation](/docs/installation/#use-the-libraries)).
 
 ## 1. Call the std tools from a module flow
 
@@ -4536,7 +4462,7 @@ Place an action body, or a whole child flow, on a provisioned machine while the 
 
 ## Before you start
 
-- The library packages: `pnpm add @smthrs/sandbox@next @smthrs/flow@next effect@4.0.0-rc.115`.
+- `@smthrs/sandbox` and `@smthrs/flow` ([Installation](/docs/installation/#use-the-libraries)).
 - A durable engine composition to provide the sandbox layers into. The examples below compose one over a local SQLite file.
 - Node.js 26.4.0 or later.
 
@@ -4677,7 +4603,7 @@ Wait inside a flow without holding a process open: the wait is recorded, the run
 
 ## Before you start
 
-- The flow package: `pnpm add @smthrs/flow@next effect@4.0.0-rc.115`.
+- `@smthrs/flow` ([Installation](/docs/installation/#use-the-libraries)).
 - You know the journal is what makes a wait survive a crash. [Durable execution](/docs/concepts/durable-execution/) covers the mechanism; this page covers choosing and composing the primitives.
 
 ## 1. Pick the primitive
@@ -4795,7 +4721,7 @@ Run one flow from inside another as a separate durable run, join the results, an
 
 ## Before you start
 
-- The packages: `pnpm add @smthrs/flow@next @smthrs/plan@next effect@4.0.0-rc.115`. The detached-children half also uses `@smthrs/agent@next`.
+- `@smthrs/flow` and `@smthrs/plan`; the detached-children half also uses `@smthrs/agent` ([Installation](/docs/installation/#use-the-libraries)).
 - The `durable-layer.ts` composition from [the first-flow tutorial](/docs/tutorials/first-flow/). The examples below use a local SQLite file.
 
 ## 1. Choose the boundary
@@ -4997,7 +4923,7 @@ Undo work a run already did when the run later fails: inside one execution with 
 
 ## Before you start
 
-- The packages: `pnpm add @smthrs/flow@next effect@4.0.0-rc.115`. Rewind-time handlers come from `@smthrs/time-travel@next`.
+- `@smthrs/flow`; rewind-time handlers come from `@smthrs/time-travel` ([Installation](/docs/installation/#use-the-libraries)).
 - A `Jj` implementation in the composition for compensable actions. The engine calls `snapshot` before each attempt and `restore` before a retry; if neither does anything, nothing is compensated.
 - The tier vocabulary in one clause: reads are `sealed`, undoable writes are `compensable`, and the rest are `irreversible`. [Time travel](/docs/concepts/time-travel/) defines compensation as a protocol over the journal a run wrote.
 
@@ -5104,11 +5030,7 @@ A step's large outputs belong in the content-addressed artifact store, and a sea
 
 ## Before you start
 
-- The library packages:
-
-```bash
-pnpm add @smthrs/artifacts@next @smthrs/step-cache@next @smthrs/engine-store@next @smthrs/flow@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+- `@smthrs/artifacts`, `@smthrs/step-cache`, `@smthrs/engine-store`, and `@smthrs/flow` ([Installation](/docs/installation/#use-the-libraries)).
 
 - You know what a content address buys: [Content addressing](/docs/concepts/content-addressing/) covers key derivation, and this page only composes stores.
 - For the shared tiers, an HTTP cache endpoint. The step-cache tier requires HTTPS unless the endpoint is loopback, so plain HTTP on localhost works for a trial; the artifact tier refuses a non-HTTPS endpoint everywhere.
@@ -5256,7 +5178,7 @@ Serve this project's control plane with `smthrs serve` so other terminals can pl
 ## Before you start
 
 - You have a Smithers project: `flows/**` sources plus a `.flows/` state directory. [Project layout](/docs/reference/project-layout/) names every file in it.
-- You have the `smthrs` CLI, installed with `npm install --global @smthrs/cli@next`.
+- You have the `smthrs` CLI ([Installation](/docs/installation/#install-the-cli)).
 
 ## 1. Serve the project
 
@@ -5385,7 +5307,7 @@ A follower is a process that replicates journal entries over the read-only sync 
 ## Before you start
 
 - You have a source to follow: a control plane serving `/sync` (see [Operate the control plane](/docs/guides/control-plane/)), or an in-process `SyncServer` over the project's journal.
-- You have the packages: `pnpm add @smthrs/sync@next @smthrs/journal@next effect@4.0.0-rc.115`.
+- You have `@smthrs/sync` and `@smthrs/journal` ([Installation](/docs/installation/#use-the-libraries)).
 - You have a run id to follow. `smthrs runs list` lists the project's runs.
 
 ## 1. Follow one run's journal
@@ -5495,7 +5417,7 @@ Attach the OTLP exporter to a durable run so its spans, logs, and metric series 
 
 - You have a program that runs flows on the durable engine (`@smthrs/engine-store`).
 - You have an OTLP collector that accepts HTTP at a base URL, for example `http://localhost:4318`.
-- You have the package: `pnpm add @smthrs/observability@next`.
+- You have `@smthrs/observability` ([Installation](/docs/installation/#use-the-libraries)).
 
 ## 1. Attach the OTLP layer
 
@@ -5597,7 +5519,7 @@ Back up a project's state without corrupting it, and bound how much run history 
 ## Before you start
 
 - You have a project with a `.flows/` directory. [Project layout](/docs/reference/project-layout/) names every file in it.
-- You have the `smthrs` CLI for the gc pass, and `@smthrs/engine-store@next` plus `@smthrs/artifacts@next` for the programmatic knobs.
+- You have the `smthrs` CLI for the gc pass, and `@smthrs/engine-store` plus `@smthrs/artifacts` for the programmatic knobs ([Installation](/docs/installation/#use-the-libraries)).
 
 ## 1. Know what lives in `.flows/`
 
@@ -5680,7 +5602,7 @@ The store itself (facts, threads, notes, and recall) is a concept; [Memory](/doc
 ## Before you start
 
 - You have a project with a `.flows/control.db`, the control database the memory store lives in.
-- You have facts to inspect, for example written by a flow that ran `Flows.remember`. For the maintenance step, `pnpm add @smthrs/memory@next effect@4.0.0-rc.115`.
+- You have facts to inspect, for example written by a flow that ran `Flows.remember`. For the maintenance step, `@smthrs/memory` ([Installation](/docs/installation/#use-the-libraries)).
 
 ## 1. Inspect facts
 
@@ -5860,17 +5782,7 @@ Exercise a flow in a test runner the way the shipped examples do: on the in-memo
 ## Before you start
 
 - Node.js 26.4.0 or later. The durable engine runs on Node only.
-- The library dependencies, with Effect pinned exactly:
-
-```bash
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/platform-node@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
-
-- The testing library and a runner as dev dependencies:
-
-```bash
-pnpm add --save-dev @smthrs/testing@next vitest@5.0.0 @effect/vitest@4.0.0-rc.115
-```
+- `@smthrs/flow`, `@smthrs/engine`, `@smthrs/platform-node`, `@smthrs/testing`, `vitest`, and `@effect/vitest` ([Installation](/docs/installation/#use-the-libraries)).
 
 `@smthrs/testing/Vitest` is ESM-only and deliberately absent from the root barrel, so import the adapter from its subpath.
 
@@ -7152,13 +7064,7 @@ The Smithers library is a roster of `@smthrs/*` packages, each with one referenc
 
 ## Install
 
-The pinned install line for a library project:
-
-```bash
-pnpm add @smthrs/flow@next @smthrs/engine@next @smthrs/platform-node@next
-```
-
-The `@next` suffix is required: release candidates publish to the `next` dist-tag, and `latest` still resolves the Smithers 0.x line. Effect is pinned to exactly `4.0.0-rc.115`. For the `smthrs` command, install `npm install --global @smthrs/cli@next`.
+The packages are not on npm yet. See [Installation](/docs/installation/#use-the-libraries).
 
 ## Reading these pages
 
@@ -49927,7 +49833,7 @@ Flows written for 1.0 run on:
 
 - Node.js 26.4.0 or later.
 - Effect exactly `4.0.0-rc.115`. The pin is exact, not a range; the platform package enforces it through peer dependencies.
-- The `@smthrs/flow`, `@smthrs/engine`, and `@smthrs/control` packages, installed at the `@next` dist-tag. `latest` still resolves 0.x; see [Installation](/docs/installation/).
+- The `@smthrs/flow`, `@smthrs/engine`, and `@smthrs/control` packages; see [Installation](/docs/installation/#use-the-libraries).
 
 ## See also
 
@@ -49950,7 +49856,7 @@ Smithers 1.0.0-rc.0 is a source migration, not a compatible upgrade. A 0.x proje
 | `createSmithers` and `runWorkflow` | `Flow.make(tag, { payload, success, error, body })` and `flow.execute(payload, { executionId })`, run by a host that provides its action implementations and engine. `smthrs up` executes a module flow's own body, and a markdown agent flow's prompt, directly. |
 | `.smithers/workflows/` | `flows/`. A workflow keeps its position: `.smithers/workflows/pipelines/ci-fast.tsx` becomes `flows/pipelines/ci-fast/flow.ts`. |
 | `smithers.config.ts` | No 1.0 equivalent. `repoCommands.test` seeds the migration's test command (override it with `--verify-test`), `backend` is recorded in the report, and the file is deleted after the final unit. |
-| `smithers` binary | Both spellings still work. `@smthrs/cli@next` installs `smthrs`, with `smithers` as an alias of the same executable. |
+| `smithers` binary | Both spellings still work. `@smthrs/cli` installs `smthrs`, with `smithers` as an alias of the same executable. |
 
 The construct-level mapping the tool applies, hundreds of rows covering every export of the 0.x facade, ships inside `@smthrs/migrate` and is recorded row by row in the migration report.
 

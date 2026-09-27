@@ -24,7 +24,7 @@ Smithers 1.0.0-rc.0 is a source migration, not a compatible upgrade. A 0.x proje
 | `createSmithers` and `runWorkflow` | `Flow.make(tag, { payload, success, error, body })` and `flow.execute(payload, { executionId })`, run by a host that provides its action implementations and engine. `smthrs up` executes a module flow's own body, and a markdown agent flow's prompt, directly. |
 | `.smithers/workflows/` | `flows/`. A workflow keeps its position: `.smithers/workflows/pipelines/ci-fast.tsx` becomes `flows/pipelines/ci-fast/flow.ts`. |
 | `smithers.config.ts` | No 1.0 equivalent. `repoCommands.test` seeds the migration's test command (override it with `--verify-test`), `backend` is recorded in the report, and the file is deleted after the final unit. |
-| `smithers` binary | Both spellings still work. `@smthrs/cli@next` installs `smthrs`, with `smithers` as an alias of the same executable. |
+| `smithers` binary | Both spellings still work. `@smthrs/cli` installs `smthrs`, with `smithers` as an alias of the same executable. |
 
 The construct-level mapping the tool applies, hundreds of rows covering every export of the 0.x facade, ships inside `@smthrs/migrate` and is recorded row by row in the migration report.
 

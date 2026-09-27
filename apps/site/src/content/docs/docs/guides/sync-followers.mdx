@@ -12,7 +12,7 @@ A follower is a process that replicates journal entries over the read-only sync 
 ## Before you start
 
 - You have a source to follow: a control plane serving `/sync` (see [Operate the control plane](/docs/guides/control-plane/)), or an in-process `SyncServer` over the project's journal.
-- You have the packages: `pnpm add @smthrs/sync@next @smthrs/journal@next effect@4.0.0-rc.115`.
+- You have `@smthrs/sync` and `@smthrs/journal` ([Installation](/docs/installation/#use-the-libraries)).
 - You have a run id to follow. `smthrs runs list` lists the project's runs.
 
 ## 1. Follow one run's journal
