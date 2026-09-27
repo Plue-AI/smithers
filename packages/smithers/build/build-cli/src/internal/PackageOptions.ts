@@ -111,6 +111,11 @@ export interface RunOptions {
   /** Opts wildcard test and CI selections into the exclusive tier. */
   readonly includeExclusive?: boolean | undefined
   /**
+   * The host platform a target's declared `hosts` is checked against.
+   * Defaults to `process.platform`; tests inject one.
+   */
+  readonly platform?: NodeJS.Platform | undefined
+  /**
    * The plan runs with nobody attending it: the aggregate `ci` verb. Roots
    * whose rule spawns an agent under a verb `ci` aggregates (`Docs.Page`
    * under `docs`) are not selected. The same pattern under the verb itself

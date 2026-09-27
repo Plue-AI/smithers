@@ -3129,13 +3129,19 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
   // closure must stay clear of exclusive targets; a root a pattern named keeps
   // its exclusive dependencies.
   const wildcardRoots = new Set<string>()
+  const platform = options.platform ?? process.platform
   for (const pattern of options.patterns) {
     const parsedPattern = Label.parse(pattern, index.currentPackage ?? "")
-    const omitExclusive = (verb === "test" || options.unattended === true) &&
-      parsedPattern._tag === "Subtree" && parsedPattern.target === undefined && options.includeExclusive !== true
-    const rows = index.resolve(pattern).filter((row) =>
-      !omitExclusive || !Target.isExclusive(Target.metadata(row.target).attrs)
-    )
+    const wildcard = parsedPattern._tag === "Subtree" && parsedPattern.target === undefined
+    const omitExclusive = (verb === "test" || options.unattended === true) && wildcard &&
+      options.includeExclusive !== true
+    // A wildcard omits a target declared for other hosts; a pattern that names
+    // it keeps it, and the closure check below refuses it.
+    const rows = index.resolve(pattern).filter((row) => {
+      const metadata = Target.metadata(row.target)
+      return (!omitExclusive || !Target.isExclusive(metadata.attrs)) &&
+        (!wildcard || (metadata.hosts?.includes(platform) ?? true))
+    })
     const eligible = verb === "auto"
       ? rows
       : (await Promise.all(rows.map(async (row) => ({
@@ -3226,7 +3232,7 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
     nixEnvironment,
     ambient: {
       node: process.version,
-      platform: process.platform,
+      platform,
       arch: process.arch,
       lockfile: lockfileDigest ?? null,
       ...(workspaceToolchain.manifestDigests.length === 0
@@ -3278,6 +3284,12 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
     return labels
   }
   const workLabels = closureOf(roots)
+  for (const label of workLabels) {
+    const hosts = Target.metadata(context.nodes.get(label)!.declaration).hosts
+    if (hosts !== undefined && !hosts.includes(platform)) {
+      throw new Error(`${label} runs only on ${hosts.join(", ")}; this host is ${platform}`)
+    }
+  }
   for (const label of closureOf(wildcardRoots)) {
     if (!selectedByLabel.has(label) && Target.isExclusive(context.nodes.get(label)!.attrs)) {
       throw new Error(`wildcard selection reaches exclusive dependency ${label}; use --include-exclusive to run it`)

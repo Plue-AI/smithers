@@ -92,7 +92,8 @@ export type RowInput = typeof RowInput.Type
  * Paths are workspace-relative with no `//` prefix. `inputs` carries the
  * declared inputs as {@link RowInput} records with their paths resolved from
  * the declaring package. `mode` is present for the generator rules that
- * declare a `write` or `check` posture. `source` names the PACKAGE.ts that
+ * declare a `write` or `check` posture. `hosts` is present for a target
+ * whose declaration restricts the hosts it runs on. `source` names the PACKAGE.ts that
  * declared the target and is absent for a synthesized target with no file.
  *
  * @category schemas
@@ -113,6 +114,8 @@ export const Row = Schema.Struct({
   inputs: Schema.Array(RowInput),
   outputs: Schema.Array(Schema.String),
   dependencies: Schema.Array(Schema.String),
+  /** The host platforms the target runs on, when its declaration restricts them. */
+  hosts: Schema.optional(Schema.Array(Schema.String)),
   source: Schema.optional(Schema.Struct({ file: Schema.NonEmptyString })),
   /** Why a `Repo.Target` row resolved to nothing, when it did. */
   refusal: Schema.optional(Schema.String)

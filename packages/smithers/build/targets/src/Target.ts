@@ -346,6 +346,8 @@ export interface Metadata {
   readonly cacheable: boolean
   readonly outputs: DeclaredOutputs | undefined
   readonly verbGate: ReadonlyArray<Kind> | undefined
+  /** The host platforms the target runs on, or undefined for every host. */
+  readonly hosts: ReadonlyArray<string> | undefined
   readonly sourceFile: string | undefined
   /** The declaration's one-line summary, when it carries one; see {@link Presentation}. */
   readonly summary: string | undefined
@@ -842,6 +844,13 @@ export interface MakeOptions<
    */
   readonly cache?: boolean | ((attrs: Attrs["Type"]) => boolean) | undefined
   readonly attrsForKind?: ((kind: Kind, attrs: Attrs["Type"]) => Attrs["Type"]) | undefined
+  /**
+   * The host platforms, as `process.platform` names them, a declaration may
+   * run on; undefined, or no option, means every host. The package planner
+   * omits a restricted target from wildcard selections on other hosts and
+   * refuses it by name there.
+   */
+  readonly hosts?: ((attrs: Attrs["Type"]) => ReadonlyArray<string> | undefined) | undefined
   readonly verbGate?:
     | ReadonlyArray<Kind>
     | ((attrs: Attrs["Type"]) => ReadonlyArray<Kind> | undefined)
@@ -1384,6 +1393,7 @@ export const make = <
       : ["constant", options.cache ?? false],
     inputs: functionIdentity(options.inputs),
     outputs: functionIdentity(options.outputs),
+    hosts: functionIdentity(options.hosts),
     verbGate: typeof options.verbGate === "function"
       ? sourceIdentity(options.verbGate)
       : options.verbGate ?? null,
@@ -1417,6 +1427,7 @@ export const make = <
       typeof options.cache === "function" ? options.cache(value) : options.cache ?? false
     const resolvedVerbGate = typeof options.verbGate === "function" ? options.verbGate(attrs) : options.verbGate
     const verbGate = resolvedVerbGate === undefined ? undefined : [...new Set(resolvedVerbGate)]
+    const hosts = options.hosts?.(attrs)
     const outputsFor = (value: Attrs["Type"]): DeclaredOutputs | undefined =>
       options.outputs === undefined ? undefined : declaredOutputs(id, options.outputs(value))
     const baseView: KindView = freezeView({
@@ -1482,6 +1493,7 @@ export const make = <
       cacheable: baseView.cacheable,
       outputs: baseView.outputs,
       verbGate: verbGate === undefined ? undefined : Object.freeze(verbGate),
+      hosts: hosts === undefined ? undefined : Object.freeze([...hosts]),
       sourceFile: declarationSourceFile,
       summary: presentation.summary,
       featured: presentation.featured,

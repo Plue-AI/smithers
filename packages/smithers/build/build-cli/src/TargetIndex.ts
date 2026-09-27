@@ -6,10 +6,10 @@
  * (`@smthrs/targets/TargetIndex`) commits it as `.smithers/target-index.json`,
  * the file smithers.sh reads from the public mirror to show targets beside
  * files. A row carries only what a declaration states: the rule, the kinds,
- * the summary, the declared inputs and outputs, the labeled dependencies, and
- * the declaring file. It carries no cache key, no content digest, no line
- * number, and no host fact, so the committed file changes only when a
- * declaration changes.
+ * the summary, the declared inputs and outputs, the labeled dependencies, the
+ * declared hosts, and the declaring file. It carries no cache key, no
+ * content digest, no line number, and no host fact, so the committed file
+ * changes only when a declaration changes.
  *
  * @since 0.1.0
  */
@@ -161,6 +161,7 @@ export const build = async (
       inputs: metadata.inputs.map((declared) => inputOf(inputPackage(metadata, row.packagePath), declared)),
       outputs: outputsOf(row.packagePath, metadata),
       dependencies: [...(dependencies.get(row.label) ?? [])].sort(byCodeUnit),
+      ...(metadata.hosts === undefined ? {} : { hosts: [...metadata.hosts] }),
       ...(source === undefined ? {} : { source }),
       ...(resolution?.refusal === undefined ? {} : { refusal: resolution.refusal })
     }

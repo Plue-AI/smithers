@@ -50,6 +50,8 @@ in the workspace declaration, then `.flows`. See
 Exclusive targets run alone after ready ordinary work drains, regardless of
 `--jobs`. Dependencies keep their ordering. Explicit labels, including
 `//packages/...:faults`, select exclusive targets without an opt-in flag.
+Wildcards also omit targets whose `hosts` excludes the host; naming one
+there refuses the plan.
 `--plan` applies the same selection rules and skips target bodies. It still
 evaluates trusted declarations, reads the workspace, and may run tool probes
 or resolve and build declared environments. See

@@ -2,7 +2,7 @@
  * Cross-cutting attr schemas shared by the PACKAGE.ts target constructors.
  *
  * One module owns the shapes every flavor reuses — `data`, `gates`,
- * `services`, `sandbox`, `approval`, `env`, `secrets`, `using`, and the
+ * `services`, `hosts`, `sandbox`, `approval`, `env`, `secrets`, `using`, and the
  * Serve probe contract — so two flavors can never drift apart on what one of
  * these attrs means. Targets inside these attrs become dependency edges and
  * declared inputs become key material through `Target.make`'s attr walk;
@@ -62,6 +62,20 @@ export const Gates = Schema.Array(Target.Target)
  * @since 0.1.0
  */
 export const Services = Schema.Array(Target.Target)
+
+/**
+ * Schema for a list of host platforms, as Node's `process.platform` names
+ * them.
+ *
+ * A Shell target's `hosts` attr uses it to name the hosts the target runs
+ * on. The declaration is the same on every host, so the target index records
+ * it rather than the host's answer. The package planner answers per host: a
+ * wildcard selection omits the target elsewhere, and naming it refuses.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const HostPlatforms = Schema.NonEmptyArray(Schema.Literals(["linux", "darwin", "win32"]))
 
 /**
  * Schema for the sandbox policy: the default confinement, a loopback-only

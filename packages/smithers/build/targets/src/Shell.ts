@@ -62,6 +62,7 @@ const sharedFields = {
   data: Schema.optional(Attr.Data),
   secrets: Schema.optional(Attr.Secrets),
   sandbox: Schema.optional(Attr.Sandbox),
+  hosts: Schema.optional(Attr.HostPlatforms),
   runtime: Schema.optional(Schema.Union([Runtime.Runtime, Runtime.NodeDeclaration, Runtime.BunDeclaration])),
   timeout: Schema.optional(Duration)
 } as const
@@ -356,6 +357,7 @@ const planExec = (attrs: ExecAttrs) =>
 
 const buildDefinition = Target.make("Shell.Build", {
   attrs: BuildAttrs,
+  hosts: (attrs) => attrs.hosts,
   success: Exec.Result,
   error: Exec.ExecError,
   kinds: ["build"],
@@ -364,6 +366,7 @@ const buildDefinition = Target.make("Shell.Build", {
 
 const testDefinition = Target.make("Shell.Test", {
   attrs: TestAttrs,
+  hosts: (attrs) => attrs.hosts,
   success: Exec.Result,
   error: Exec.ExecError,
   kinds: ["test"],
@@ -372,6 +375,7 @@ const testDefinition = Target.make("Shell.Test", {
 
 const runDefinition = Target.make("Shell.Run", {
   attrs: RunAttrs,
+  hosts: (attrs) => attrs.hosts,
   success: Exec.Result,
   error: Exec.ExecError,
   kinds: ["run"],
@@ -380,12 +384,14 @@ const runDefinition = Target.make("Shell.Run", {
 
 const serveDefinition = Target.make("Shell.Serve", {
   attrs: ServeAttrs,
+  hosts: (attrs) => attrs.hosts,
   kinds: ["run"],
   implementation: () => Target.notImplemented("Shell.Serve")
 })
 
 const diffDefinition = Target.make("Shell.Diff", {
   attrs: DiffAttrs,
+  hosts: (attrs) => attrs.hosts,
   success: Exec.Result,
   error: Exec.ExecError,
   kinds: ["run", "lint"],

@@ -20,7 +20,7 @@ import * as Target from "@smthrs/targets/Target"
 import type * as Vitest from "@smthrs/targets/Vitest"
 import * as Fs from "node:fs"
 import * as NodePath from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { Package } from "../PACKAGE.ts"
 
 const packageRoot = NodePath.join(import.meta.dirname, "..")
@@ -62,6 +62,44 @@ const literalReads = (): ReadonlyArray<string> => {
   }
   return [...found].sort()
 }
+
+/**
+ * What the target index reads from each declaration: the rule, the attrs,
+ * and the rules of its dependency edges. A target inside the attrs
+ * serializes as its rule tag, so a dropped service edge changes the text.
+ */
+const declarationShape = (module: { readonly Package: Record<string, unknown> }) =>
+  Object.fromEntries(
+    Object.entries(module.Package).filter((entry): entry is [string, Target.AnyTarget] => Target.isTarget(entry[1]))
+      .map(([name, target]) => {
+        const metadata = Target.metadata(target)
+        return [name, {
+          rule: metadata.target,
+          attrs: JSON.stringify(metadata.attrs),
+          dependencies: metadata.dependencies.map((dependency) => Target.metadata(dependency).target)
+        }]
+      })
+  )
+
+/** Evaluates PACKAGE.ts afresh while `process.platform` reports `platform`. */
+const declaredOn = async (platform: NodeJS.Platform) => {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!
+  Object.defineProperty(process, "platform", { ...original, value: platform })
+  try {
+    vi.resetModules()
+    return declarationShape(await import("../PACKAGE.ts"))
+  } finally {
+    Object.defineProperty(process, "platform", original)
+  }
+}
+
+describe("host independence", () => {
+  it("declares the same targets and edges on every host, so the checked-in index does not depend on who wrote it", async () => {
+    const linux = await declaredOn("linux")
+    expect(linux.cacheServicePostgres?.dependencies).toContain("Docker.Service")
+    expect(await declaredOn("darwin")).toEqual(linux)
+  })
+})
 
 describe("umbrella lint target", () => {
   const lint = attrsOf<EsLint.Attrs>(Package.lint)
@@ -119,12 +157,7 @@ describe("self-hosted cache service targets", () => {
       "test",
       "packages/smithers/build/terraform/modules/cache/service/test/postgres_test.js"
     ])
-    if (process.platform !== "linux") {
-      expect(attrs.services).toHaveLength(0)
-      expect(attrs.env).toEqual({})
-      expect(attrs.sandbox).toBe("none")
-      return
-    }
+    expect(attrs.hosts).toEqual(["linux"])
     expect(attrs.sandbox).toEqual({ network: "loopback" })
     expect(attrs.services).toHaveLength(1)
     const service = attrs.services![0]!
