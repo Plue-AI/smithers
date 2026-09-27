@@ -67,8 +67,8 @@ the ordinary claim, steal, and activate path:
 1. Parked runs whose cancellation was durably requested.
 2. Runs parked with reason `released`, left by a shutdown that interrupted them.
 3. Stale `running` rows left by a hard-killed owner.
-   `staleRunningRuns(staleBeforeMs, limit?)` lists run ids whose heartbeat froze
-   before the horizon, oldest heartbeat first, so a capped sweep drains a mass
+   `staleRunningRuns(staleBeforeMs, limit?)` lists runs whose heartbeat froze
+   before the horizon, with that heartbeat, oldest first, so a capped sweep drains a mass
    owner death across ticks rather than waking every stale run in every driver
    on every tick.
 

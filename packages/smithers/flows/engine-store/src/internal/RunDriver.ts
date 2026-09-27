@@ -2193,15 +2193,18 @@ export const make = (
       // read covers. A run that was stolen, released, or settled leaves the
       // stale set, and its entry leaves with it, so the map cannot outgrow the
       // backlog it describes.
-      const visible = new Set(stale)
+      const visible = new Set(stale.map((row) => row.runId))
       for (const runId of stealRefusals.keys()) {
         if (!visible.has(runId)) stealRefusals.delete(runId)
       }
       let woken = 0
-      for (const runId of stale) {
+      for (const { heartbeatAtMs, runId } of stale) {
         if (woken >= staleRunningSweepBatch) break
+        // A refusal defers only the lease it was refused against. An owner
+        // that pulsed and stalled again between two ticks never left this
+        // read's window, so the lease is what says the stall is a new one.
         const refusal = stealRefusals.get(runId)
-        if (refusal !== undefined && refusal.nextProbeAtMs > nowMs) continue
+        if (refusal !== undefined && refusal.heartbeatAtMs === heartbeatAtMs && refusal.nextProbeAtMs > nowMs) continue
         woken = woken + 1
         yield* coordinator.wake(runId)
       }

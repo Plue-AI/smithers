@@ -247,6 +247,20 @@ export const WaitingRow = Schema.Struct({
 export type WaitingRow = typeof WaitingRow.Type
 
 /**
+ * A `running` row whose owner stopped heartbeating, and the lease it froze on.
+ *
+ * The heartbeat identifies the lease: a sweep that remembers a refusal against
+ * one heartbeat must not apply it to a later stall of the same run.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface StaleRunningRow {
+  readonly runId: string
+  readonly heartbeatAtMs: number
+}
+
+/**
  * A predicate over `waitingRuns` — omitted fields are unconstrained.
  *
  * @since 0.1.0
@@ -494,8 +508,8 @@ export interface Service {
     filter?: WaitingRunsFilter
   ) => Effect.Effect<ReadonlyArray<WaitingRow>>
   /**
-   * Lists run ids whose row is `running` with a heartbeat strictly older
-   * than `staleBeforeMs` — an owner that stopped heartbeating without
+   * Lists the runs whose row is `running` with a heartbeat strictly older
+   * than `staleBeforeMs`, each with that heartbeat — an owner that stopped heartbeating without
    * releasing the run (SIGKILL, OOM, power loss). Nothing else ever
    * revisits such a run: it has no waiting row for the parked-run sweep,
    * no pending clock, and no future deferred completion. A periodic
@@ -509,7 +523,7 @@ export interface Service {
   readonly staleRunningRuns: (
     staleBeforeMs: number,
     limit?: number | undefined
-  ) => Effect.Effect<ReadonlyArray<string>>
+  ) => Effect.Effect<ReadonlyArray<StaleRunningRow>>
   /**
    * The surviving attempt rows for an action key, in one range read: the
    * earliest surviving row's start time (the durable retry origin when
@@ -1496,8 +1510,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     // `LIMIT -1` is SQLite's explicit "no limit"; the partial index created
     // in `make` serves the predicate, so the per-tick sweep is an index
     // range read instead of a full table scan (issue #79).
-    sql<{ runId: string }>`
-      SELECT run_id AS "runId"
+    sql<{ runId: string; heartbeatAtMs: number | bigint | string }>`
+      SELECT run_id AS "runId", heartbeat_at_ms AS "heartbeatAtMs"
       FROM flows_runs
       WHERE status = 'running'
         AND heartbeat_at_ms IS NOT NULL
@@ -1506,7 +1520,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
       LIMIT ${limit ?? (Dialect.isPostgres(sql) ? null : -1)}
     `.pipe(
       Effect.orDie,
-      Effect.map((rows) => rows.map((row) => String(row.runId)))
+      Effect.map((rows) => rows.map((row) => ({ runId: String(row.runId), heartbeatAtMs: Number(row.heartbeatAtMs) })))
     )
   )
 
@@ -2161,7 +2175,7 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
         // Mirrors the SQL scan of `flows_runs`: without an enumerator there
         // is nothing to scan, so no stale rows exist.
         if (options.listRuns === undefined) return []
-        const stale: Array<{ runId: string; heartbeatAtMs: number }> = []
+        const stale: Array<StaleRunningRow> = []
         for (const [runId, view] of options.listRuns()) {
           const heartbeatAtMs = view.heartbeatAtMs
           if (
@@ -2172,12 +2186,10 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
             stale.push({ runId, heartbeatAtMs })
           }
         }
-        const ordered = stale
-          .sort((left, right) =>
-            left.heartbeatAtMs - right.heartbeatAtMs ||
-            compareText(left.runId, right.runId)
-          )
-          .map((row) => row.runId)
+        const ordered = stale.sort((left, right) =>
+          left.heartbeatAtMs - right.heartbeatAtMs ||
+          compareText(left.runId, right.runId)
+        )
         // Mirrors the SQL LIMIT: oldest heartbeats first, capped per sweep
         // (issue #79).
         return limit === undefined ? ordered : ordered.slice(0, limit)

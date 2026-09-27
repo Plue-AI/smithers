@@ -301,9 +301,10 @@ export const describeContract = (harness: Harness): void => {
           })
         )
 
-        expect(result.beforeOne).toEqual(["stale-old", "stale-old-b"])
-        expect(result.beforeBoth).toEqual(["stale-old", "stale-old-b", "stale-newer"])
-        expect(result.capped).toEqual(["stale-old", "stale-old-b"])
+        const oldest = [{ runId: "stale-old", heartbeatAtMs: 0 }, { runId: "stale-old-b", heartbeatAtMs: 0 }]
+        expect(result.beforeOne).toEqual(oldest)
+        expect(result.beforeBoth).toEqual([...oldest, { runId: "stale-newer", heartbeatAtMs: 5_000 }])
+        expect(result.capped).toEqual(oldest)
       }))
 
     it.effect("excludes terminally closed runs from waitingRuns (issue #28)", () =>

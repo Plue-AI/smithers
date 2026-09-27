@@ -282,6 +282,45 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
       expect(result.afterNewLease).toBe(4)
     }))
 
+  it.effect("probes a new stall at once even when no tick saw the owner pulse between them", () =>
+    Effect.gen(function*() {
+      const probed = yield* run(Effect.gen(function*() {
+        const sql = yield* Effect.service(SqlClient.SqlClient)
+        const writer = yield* DurableWriter.DurableWriter
+        const probed: Array<number> = []
+        const driver = yield* RunDriver.make({
+          owner: { hostId: "sweep-host", pid: 1, nonce: "sweeper" },
+          journalSource: "stale-sweep-backoff",
+          isAlive: (_expectedOwner, context) =>
+            Effect.sync(() => {
+              probed.push(context.nowMs)
+              return true
+            }),
+          engine: Effect.succeed(fakeEngine)
+        })
+        yield* driver.register(TestFlow, () => Effect.succeed("never reached"))
+        yield* insertStaleRun(1)
+
+        yield* TestClock.adjust(staleAfterMs + heartbeatMs)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 1))
+        yield* TestDatabase.until(refusalsOf(runIdOf(1)).pipe(Effect.map((rows) => rows.length === 1)))
+
+        // The owner pulses and stalls again before the next tick, so no read
+        // ever finds the row outside the stale window. Its lease still moved.
+        const nowMs = yield* Clock.currentTimeMillis
+        yield* writer.write(sql`
+          UPDATE flows_runs SET heartbeat_at_ms = ${nowMs - staleAfterMs - 1} WHERE run_id = ${runIdOf(1)}
+        `).pipe(Effect.orDie)
+        yield* TestClock.adjust(heartbeatMs)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 2))
+        return probed
+      }))
+
+      // The second probe lands on the first tick after the new stall, not
+      // after the backoff the first lease earned.
+      expect(probed[1]! - probed[0]!).toBe(heartbeatMs)
+    }))
+
   /**
    * One lease can be refused for two different reasons, and both have to be
    * sayable.

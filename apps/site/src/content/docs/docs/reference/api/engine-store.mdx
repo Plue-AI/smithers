@@ -194,7 +194,7 @@ permit deadlocks against a fiber doing the opposite.
 | `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                     |
 | `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                              |
 | `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                          |
-| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<string>>`                   |
+| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`          |
 | `attemptSurvivors`       | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)    |
 | `recordRunParent`        | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>` |
 | `removeRunParentsForRun` | `(runId: string) => Effect<void>`                                                            |
@@ -273,6 +273,7 @@ protected execution snapshot reader, independently of its redacted event view.
 | `ClockRow`                | the address plus `deferredName`, an absolute due time, and `completedAtMs: number \| null`           |
 | `Waiting`                 | `{ reason, wakeAt?, token?, request?: string }`                                                      |
 | `WaitingRow`              | `{ runId, reason, wakeAt: number \| null, token: string \| null, request?: Json }`                   |
+| `StaleRunningRow`         | `{ runId, heartbeatAtMs }`: a stale `running` row and the lease heartbeat it froze on                |
 | `WaitingReason`           | a non-empty string; the open taxonomy the driver writes (`timer`, `event`, `released`, `quarantine`) |
 | `WaitingRunsFilter`       | `{ reason?, dueBeforeMs?, cancelRequested? }`                                                        |
 | `RunParentEdge`           | `{ childId, parentId, seq }`, where `seq` is ordering only                                           |

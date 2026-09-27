@@ -111,8 +111,8 @@ const stalled = (staleBeforeMs: number) =>
   })
 ```
 
-`staleRunningRuns` returns run ids still `running` whose heartbeat froze before
-the horizon. `waitingRuns(filter)` returns parked runs matching a reason, a
+`staleRunningRuns` returns runs still `running` whose heartbeat froze before
+the horizon, each with that heartbeat. `waitingRuns(filter)` returns parked runs matching a reason, a
 `dueBeforeMs` bound, or a `cancelRequested` predicate. Results sort by ascending
 `wakeAt`, with untimed waits (`wakeAt: null`) after every timed wait and ties
 broken by `runId`. A `dueBeforeMs` bound includes matching deadlines and excludes
