@@ -164,9 +164,17 @@ func (s *Server) maintainRepository(ctx context.Context, repoPath string, locked
 	if s.locks.Held(repoPath) {
 		return
 	}
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, maintenanceTimeout)
 	defer cancel()
-	unlock := s.locks.Lock(repoPath)
+	unlock, err := s.locks.Lock(ctx, repoPath)
+	if err != nil {
+		// Timed out waiting behind writers: try again next pass.
+		if parent.Err() == nil {
+			s.markMaintenanceDue(repoPath)
+		}
+		return
+	}
 	if _, err := os.Stat(gitDir); err != nil {
 		unlock()
 		return
@@ -175,17 +183,19 @@ func (s *Server) maintainRepository(ctx context.Context, repoPath string, locked
 		locked(gitDir)
 	}
 	s.recoverStaleGitLocks(gitDir)
-	err := disableAutoMaintenance(ctx, gitDir)
+	err = disableAutoMaintenance(ctx, gitDir)
 	if err == nil {
 		err = runMaintenanceGit(ctx, gitDir, packRefsArgs)
 	}
 	unlock()
 	if err == nil {
-		unlockRead := s.locks.RLock(repoPath)
-		if _, statErr := os.Stat(gitDir); statErr == nil {
-			err = runMaintenanceGit(ctx, gitDir, gcArgs)
+		var unlockRead func()
+		if unlockRead, err = s.locks.RLock(ctx, repoPath); err == nil {
+			if _, statErr := os.Stat(gitDir); statErr == nil {
+				err = runMaintenanceGit(ctx, gitDir, gcArgs)
+			}
+			unlockRead()
 		}
-		unlockRead()
 	}
 	if err != nil && ctx.Err() == nil && s.logger != nil {
 		s.logger.Error("repository maintenance failed", "git_dir", gitDir, "error", err)

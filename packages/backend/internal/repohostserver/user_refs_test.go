@@ -113,7 +113,7 @@ func TestUserRefPushPackIsCapped(t *testing.T) {
 	ref := repohost.UserRef(42, "head")
 	rec := pushAs(t, f, "42", f.userRefPush(laneZeroOID, tip, ref))
 	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), "user_ref_push_too_large")
+	assert.Equal(t, "user_ref_push_too_large", rec.Header().Get("X-Smithers-Error-Code"))
 	assert.NotContains(t, f.repo.refs(), ref)
 
 	// The cap is for user refs only: the same pack to a branch lands.

@@ -76,14 +76,20 @@ func (s *Server) stageMoveRepo(w http.ResponseWriter, r *http.Request) error {
 	}
 	stageDir := s.moveStageDir(token)
 	paths := s.stagedMovePaths(metadata)
-	unlockStage := s.locks.Lock(stageDir)
+	unlockStage, err := s.locks.Lock(r.Context(), stageDir)
+	if err != nil {
+		return err
+	}
 	defer unlockStage()
 	if _, decided, err := readTerminalStageDecision(s.moveDecisionRoot(), token); err != nil {
 		return internalError("failed to read repository move completion decision", err)
 	} else if decided {
 		return conflict("repository move stage token is already completed")
 	}
-	unlockPaths := s.locks.LockAll(stagedMoveLockKeys(paths)...)
+	unlockPaths, err := s.locks.LockAll(r.Context(), stagedMoveLockKeys(paths)...)
+	if err != nil {
+		return err
+	}
 	defer unlockPaths()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -182,7 +188,10 @@ func (s *Server) completeStagedMove(w http.ResponseWriter, r *http.Request, fina
 	stageDir := s.moveStageDir(token)
 	// Serialize by token before reading metadata. A rollback issued after a
 	// lost stage response must wait for the in-flight stage handler.
-	unlockStage := s.locks.Lock(stageDir)
+	unlockStage, err := s.locks.Lock(r.Context(), stageDir)
+	if err != nil {
+		return err
+	}
 	defer unlockStage()
 	action := "rollback"
 	if finalize {
@@ -214,7 +223,10 @@ func (s *Server) completeStagedMove(w http.ResponseWriter, r *http.Request, fina
 		return nil
 	}
 	paths := s.stagedMovePaths(metadata)
-	unlockPaths := s.locks.LockAll(stagedMoveLockKeys(paths)...)
+	unlockPaths, err := s.locks.LockAll(r.Context(), stagedMoveLockKeys(paths)...)
+	if err != nil {
+		return err
+	}
 	defer unlockPaths()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err

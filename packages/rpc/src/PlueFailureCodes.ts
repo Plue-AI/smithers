@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:2ada69ed7494fa56c501eec2a80a065d941409787ee631d4ef012f5a494d886f"
+export const PLUE_FAILURE_DIGEST = "sha256:9d87db4762a480592fcb05d80f540b4354f0b791147c65043d95b5fb4a89d3a6"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -155,6 +155,7 @@ export const PLUE_FAILURE_CODES = [
   "rate_limit_exceeded",
   "rate_limiter_unavailable",
   "repository_ci_run_unverified",
+  "repository_held",
   "repository_provisioning_rollout",
   "repository_workspace_pending",
   "request_entity_too_large",
@@ -404,6 +405,8 @@ export const PLUE_FAILURES = {
   "rate_limiter_unavailable": { fault: "infra", status: 503, retryAfter: 1 },
   /** The CI check receipt names a run this repository and workspace retain no usable dispatch for. */
   "repository_ci_run_unverified": { fault: "user", status: 403, retryAfter: 0 },
+  /** The repository refuses writes until maintenance a restarted repository host found running there has finished; reads still work. */
+  "repository_held": { fault: "wait", status: 503, retryAfter: 5 },
   /** Repository provisioning is mid-rollout on this deployment and is not accepting new work. */
   "repository_provisioning_rollout": { fault: "infra", status: 503, retryAfter: 0 },
   /** The repository workspace or gateway is still starting. Poll the same request; an unverified primary is not an authoritative workspace selection. */

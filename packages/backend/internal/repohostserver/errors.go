@@ -3,8 +3,10 @@ package repohostserver
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 )
@@ -14,6 +16,8 @@ type appError struct {
 	Code       string
 	Message    string
 	Cause      error
+	// RetryAfter, when > 0, is written as the Retry-After header, in seconds.
+	RetryAfter int
 }
 
 type errorEnvelope struct {
@@ -99,5 +103,32 @@ func writeAppError(w http.ResponseWriter, err error, logger *slog.Logger) {
 	if appErr.StatusCode >= http.StatusInternalServerError && logger != nil && appErr.Cause != nil {
 		logger.Error("repo-host handler failed", "error", appErr.Cause)
 	}
+	setErrorHeaders(w, appErr)
 	_ = writeJSON(w, appErr.StatusCode, errorEnvelope{Code: appErr.Code, Message: appErr.Message})
+}
+
+// writeGitAppError answers a git smart-HTTP request with err as plain text,
+// which git shows the user ("remote: ..."); its code is in
+// X-Smithers-Error-Code.
+func writeGitAppError(w http.ResponseWriter, err error, logger *slog.Logger) {
+	appErr := mapFFIError(err)
+	if appErr == nil {
+		return
+	}
+	if appErr.StatusCode >= http.StatusInternalServerError && logger != nil && appErr.Cause != nil {
+		logger.Error("repo-host handler failed", "error", appErr.Cause)
+	}
+	setErrorHeaders(w, appErr)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(appErr.StatusCode)
+	_, _ = io.WriteString(w, appErr.Message+"\n")
+}
+
+func setErrorHeaders(w http.ResponseWriter, appErr *appError) {
+	if appErr.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(appErr.RetryAfter))
+	}
+	if appErr.Code != "" {
+		w.Header().Set("X-Smithers-Error-Code", appErr.Code)
+	}
 }

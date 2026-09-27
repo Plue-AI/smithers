@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -555,4 +556,27 @@ func TestGitSmartHandler_NilMetrics_DoesNotPanic(t *testing.T) {
 	// Must not panic
 	handler.InfoRefs(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// A push to a held repository is a 503 git shows, with a Retry-After.
+func TestGitSmartHandler_ReceivePack_HeldRepository(t *testing.T) {
+	t.Parallel()
+	held := errors.New(errors.CodeRepositoryHeld, "repository maintenance is finishing; retry in 5s")
+	handler := &GitSmartHandler{
+		Service: &mockGitSmartRouteService{
+			proxyReceivePackFn: func(ctx context.Context, owner, repo, token string, stdin io.Reader, stdout io.Writer) error {
+				return held
+			},
+		},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/alice/demo.git/git-receive-pack", bytes.NewBufferString("receive-request"))
+	req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo.git"})
+	rec := httptest.NewRecorder()
+
+	handler.ReceivePack(rec, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "5", rec.Header().Get("Retry-After"))
+	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "repository maintenance is finishing; retry in 5s\n", rec.Body.String())
 }

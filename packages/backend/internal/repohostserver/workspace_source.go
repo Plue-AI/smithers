@@ -36,7 +36,10 @@ func (s *Server) readWorkspaceSource(w http.ResponseWriter, r *http.Request) err
 	if !ok {
 		return &appError{StatusCode: http.StatusServiceUnavailable, Code: "workspace_source_unavailable", Message: "native source verification unavailable"}
 	}
-	unlock := s.locks.RLock(path)
+	unlock, err := s.locks.RLock(r.Context(), path)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	result, err := ffi.ReadWorkspaceSource(path, req.WorkspaceID, req.Source)
 	if err != nil {

@@ -73,7 +73,10 @@ func (s *Server) stageDeleteRepo(w http.ResponseWriter, r *http.Request) error {
 	}
 	stageDir := s.deleteStageDir(token)
 	paths := s.deleteStagePaths(req.Owner, req.Repo, stageDir)
-	unlockStage := s.locks.Lock(stageDir)
+	unlockStage, err := s.locks.Lock(r.Context(), stageDir)
+	if err != nil {
+		return err
+	}
 	defer unlockStage()
 	if _, decided, err := readTerminalStageDecision(s.deleteDecisionRoot(), token); err != nil {
 		return internalError("failed to read repository delete completion decision", err)
@@ -84,7 +87,10 @@ func (s *Server) stageDeleteRepo(w http.ResponseWriter, r *http.Request) error {
 	for _, path := range paths {
 		lockKeys = append(lockKeys, path.live, path.staged)
 	}
-	unlock := s.locks.LockAll(lockKeys...)
+	unlock, err := s.locks.LockAll(r.Context(), lockKeys...)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -215,7 +221,10 @@ func (s *Server) completeStagedDelete(w http.ResponseWriter, r *http.Request, re
 	// stage response is lost while the stage handler is still moving paths, a
 	// compensating restore waits for that handler and cannot incorrectly return
 	// 204 just before storage becomes tombstoned.
-	unlockStage := s.locks.Lock(stageDir)
+	unlockStage, err := s.locks.Lock(r.Context(), stageDir)
+	if err != nil {
+		return err
+	}
 	defer unlockStage()
 	action := "finalize"
 	if restore {
@@ -251,7 +260,10 @@ func (s *Server) completeStagedDelete(w http.ResponseWriter, r *http.Request, re
 	for _, path := range paths {
 		lockKeys = append(lockKeys, path.live, path.staged)
 	}
-	unlock := s.locks.LockAll(lockKeys...)
+	unlock, err := s.locks.LockAll(r.Context(), lockKeys...)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err

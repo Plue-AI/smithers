@@ -1,10 +1,16 @@
 package repohostserver
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestLocks_Cov_LockAllWithNoKeysReturnsUsableUnlock(t *testing.T) {
 	locker := newRepoLocker()
-	unlock := locker.LockAll()
+	unlock, err := locker.LockAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	unlock()
 
 	if len(locker.locks) != 0 {

@@ -826,6 +826,14 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 			return
 		}
 
+		if status, ok := repohost.IsStatusError(err); ok && status.Held() {
+			slog.Warn("ssh git write refused: repository held",
+				"session_id", sessionID, "git_command", gitCmd, "owner", owner, "repo", repo)
+			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: %s\n", status.Message)
+			_ = sess.Exit(1)
+			return
+		}
+
 		slog.Error("ssh git proxy failed",
 			"session_id", sessionID,
 			"git_command", gitCmd,

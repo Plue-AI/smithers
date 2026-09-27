@@ -38,8 +38,14 @@ func repoGitDir(repoPath string) string {
 // A default bookmark that any write created, a push, a landing, an import or
 // the bookmark API, is therefore born before its lock is released: a push can
 // never recreate it (refuseDefaultBookmarkRewind).
-func (s *Server) lockRepo(repoPath string) func() {
-	unlock := s.locks.Lock(repoPath)
+//
+// Like the lock it takes, it fails at once while the repository is held and
+// when ctx ends first.
+func (s *Server) lockRepo(ctx context.Context, repoPath string) (func(), error) {
+	unlock, err := s.locks.Lock(ctx, repoPath)
+	if err != nil {
+		return nil, err
+	}
 	gitDir := repoGitDir(repoPath)
 	s.recoverStaleGitLocks(gitDir)
 	s.recordDefaultBookmarkBorn(gitDir)
@@ -50,7 +56,7 @@ func (s *Server) lockRepo(repoPath string) func() {
 			s.recordDefaultBookmarkBorn(gitDir)
 			s.markMaintenanceDue(repoPath)
 		}
-	}
+	}, nil
 }
 
 // recordDefaultBookmarkBorn marks the default bookmark born when git holds it.

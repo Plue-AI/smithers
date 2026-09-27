@@ -30,7 +30,10 @@ func (s *Server) prepareLandAppend(w http.ResponseWriter, r *http.Request) error
 	if !ok {
 		return &appError{StatusCode: 503, Code: "append_prepare_unavailable", Message: "native append preparation is unavailable"}
 	}
-	unlock := s.locks.RLock(path)
+	unlock, err := s.locks.RLock(r.Context(), path)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	result, err := ffi.PrepareLandAppend(path, req)
 	if err != nil {

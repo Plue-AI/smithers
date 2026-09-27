@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:2ada69ed7494fa56c501eec2a80a065d941409787ee631d4ef012f5a494d886f",
+  "digest": "sha256:9d87db4762a480592fcb05d80f540b4354f0b791147c65043d95b5fb4a89d3a6",
   "faults": [
     "user",
     "wait",
@@ -624,6 +624,13 @@
       "status": 403,
       "retry_after": 0,
       "doc": "The CI check receipt names a run this repository and workspace retain no usable dispatch for."
+    },
+    {
+      "code": "repository_held",
+      "fault": "wait",
+      "status": 503,
+      "retry_after": 5,
+      "doc": "The repository refuses writes until maintenance a restarted repository host found running there has finished; reads still work."
     },
     {
       "code": "repository_provisioning_rollout",

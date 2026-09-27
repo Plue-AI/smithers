@@ -38,7 +38,10 @@ func (s *Server) projectWikiRevision(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	path := s.config.WikiRepoPath(owner, repo)
-	unlock := s.locks.LockAll(s.config.RepoPath(owner, repo), path)
+	unlock, err := s.locks.LockAll(r.Context(), s.config.RepoPath(owner, repo), path)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	defer s.markMaintenanceDue(path)
 	if err = checkMutationDeadline(r.Context()); err != nil {

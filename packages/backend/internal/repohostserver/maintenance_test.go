@@ -220,8 +220,10 @@ func TestStaleLockRecoveryNeverRemovesMaintenanceLocks(t *testing.T) {
 	<-started
 	written := make(chan struct{})
 	go func() {
-		unlock := srv.lockRepo(repoPath)
-		unlock()
+		unlock, err := srv.lockRepo(context.Background(), repoPath)
+		if err == nil {
+			unlock()
+		}
 		close(written)
 	}()
 	select {
@@ -301,7 +303,8 @@ func TestStartupTerminatesOrphanedMaintenanceBeforeWrites(t *testing.T) {
 	require.Error(t, <-orphan)
 	require.NoFileExists(t, lock)
 
-	unlock := srv.lockRepo(cfg.RepoPath("alice", "demo"))
+	unlock, err := srv.lockRepo(context.Background(), cfg.RepoPath("alice", "demo"))
+	require.NoError(t, err)
 	gitOut(t, gitDir, "pack-refs", "--all")
 	unlock()
 }
@@ -482,50 +485,33 @@ func TestCancelledMaintenanceRemovesGCPid(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
 }
 
-// requireHeld checks that writes to repoPath wait, and returns a channel that
-// closes once one gets through.
-func requireHeld(t *testing.T, srv *Server, repoPath string) <-chan struct{} {
+// requireHeld checks that a write to repoPath fails at once with 503.
+func requireHeld(t *testing.T, srv *Server, repoPath string) {
 	t.Helper()
 	require.True(t, srv.locks.Held(repoPath))
-	written := make(chan struct{})
-	go func() {
-		unlock := srv.locks.Lock(repoPath)
-		close(written)
-		unlock()
-	}()
-	select {
-	case <-written:
-		t.Fatalf("a write to held %s went through", repoPath)
-	case <-time.After(300 * time.Millisecond):
-	}
-	return written
+	start := time.Now()
+	_, err := srv.locks.Lock(context.Background(), repoPath)
+	require.Less(t, time.Since(start), time.Second)
+	var appErr *appError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, http.StatusServiceUnavailable, appErr.StatusCode)
+	require.Equal(t, repositoryHeldCode, appErr.Code)
 }
 
 // requireWritable checks that a write to repoPath goes through.
 func requireWritable(t *testing.T, srv *Server, repoPath string) {
 	t.Helper()
 	require.False(t, srv.locks.Held(repoPath))
-	written := make(chan struct{})
-	go func() {
-		unlock := srv.locks.Lock(repoPath)
-		close(written)
-		unlock()
-	}()
-	select {
-	case <-written:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("a write to %s waited", repoPath)
-	}
+	unlock, err := srv.locks.Lock(context.Background(), repoPath)
+	require.NoError(t, err)
+	unlock()
 }
 
-// requireReleased waits for a write to a held repository to go through.
-func requireReleased(t *testing.T, written <-chan struct{}) {
+// requireReleased waits for writes to a held repository to go through.
+func requireReleased(t *testing.T, srv *Server, repoPath string) {
 	t.Helper()
-	select {
-	case <-written:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the held repository was never released")
-	}
+	require.Eventually(t, func() bool { return !srv.locks.Held(repoPath) }, 5*time.Second, 10*time.Millisecond, "the held repository was never released")
+	requireWritable(t, srv, repoPath)
 }
 
 // holdFixture is storage with a repository to hold and one to write.
@@ -564,21 +550,27 @@ func TestStartupHoldsARepositoryWhoseMaintenanceSurvives(t *testing.T) {
 	require.NoError(t, syscall.Flock(int(survivor.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
 
 	srv := newHoldServer(t, cfg)
-	written := requireHeld(t, srv, held)
+	requireHeld(t, srv, held)
 	requireWritable(t, srv, free)
 	require.FileExists(t, lock)
 	// Reads proceed, a writer waiting or not.
 	read := make(chan struct{})
-	go func() { srv.locks.RLock(held)(); close(read) }()
+	go func() {
+		unlock, err := srv.locks.RLock(context.Background(), held)
+		if err == nil {
+			unlock()
+			close(read)
+		}
+	}()
 	select {
 	case <-read:
 	case <-time.After(5 * time.Second):
 		t.Fatal("a read of the held repository waited")
 	}
-	require.NoError(t, srv.syncGitRefs(held, gitDir))
+	require.NoError(t, srv.syncGitRefs(context.Background(), held, gitDir))
 
 	require.NoError(t, survivor.Close())
-	requireReleased(t, written)
+	requireReleased(t, srv, held)
 	require.NoFileExists(t, lock)
 	require.False(t, srv.locks.Held(held))
 }
@@ -595,14 +587,14 @@ func TestStartupHoldsARepositoryWhoseGCCannotBeIdentified(t *testing.T) {
 	require.NoError(t, os.Chtimes(filepath.Join(gitDir, "gc.pid"), old, old))
 
 	srv := newHoldServer(t, cfg)
-	written := requireHeld(t, srv, held)
+	requireHeld(t, srv, held)
 	requireWritable(t, srv, free)
 	require.NoError(t, syscall.Kill(gc.Process.Pid, 0), "startup signalled an unidentified process")
 	require.FileExists(t, filepath.Join(gitDir, "gc.pid"))
 
 	require.NoError(t, syscall.Kill(-gc.Process.Pid, syscall.SIGKILL))
 	<-gcExited
-	requireReleased(t, written)
+	requireReleased(t, srv, held)
 	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
 }
 
@@ -623,14 +615,14 @@ func TestStartupHoldsARepositoryWhoseGCArgumentsCannotBeRead(t *testing.T) {
 	t.Cleanup(func() { lookupProcessArgs = processArgs })
 
 	srv := newHoldServer(t, cfg)
-	written := requireHeld(t, srv, held)
+	requireHeld(t, srv, held)
 	requireWritable(t, srv, free)
 	require.NoError(t, syscall.Kill(gc.Process.Pid, 0), "startup signalled an unidentified process")
 	require.FileExists(t, filepath.Join(gitDir, "gc.pid"))
 
 	// Once it can be identified, the gc is terminated and the hold released.
 	unreadable.Store(false)
-	requireReleased(t, written)
+	requireReleased(t, srv, held)
 	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
 }
 

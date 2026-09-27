@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -343,6 +344,9 @@ func writeGitHTTPError(w http.ResponseWriter, r *http.Request, err error) {
 
 	if status == http.StatusUnauthorized {
 		w.Header().Set("WWW-Authenticate", `Basic realm="Smithers Git"`)
+	}
+	if apiErr != nil && apiErr.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(apiErr.RetryAfter))
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

@@ -103,9 +103,15 @@ func (s *Server) stageProvisionRepo(w http.ResponseWriter, r *http.Request) erro
 	// Every provision endpoint takes the token lock first, then the same sorted
 	// path-lock set. Mixing LockAll(stage,path) with stage-then-path permits an
 	// ABBA deadlock for destinations that sort before the staging root.
-	unlockStage := s.locks.Lock(stageDir)
+	unlockStage, err := s.locks.Lock(r.Context(), stageDir)
+	if err != nil {
+		return err
+	}
 	defer unlockStage()
-	unlockPaths := s.locks.LockAll(lockKeys...)
+	unlockPaths, err := s.locks.LockAll(r.Context(), lockKeys...)
+	if err != nil {
+		return err
+	}
 	defer unlockPaths()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -256,7 +262,10 @@ func (s *Server) completeStagedProvision(w http.ResponseWriter, r *http.Request,
 		return badRequest("invalid repository provisioning token")
 	}
 	stageDir := s.provisionStageDir(token)
-	unlockStage := s.locks.Lock(stageDir)
+	unlockStage, err := s.locks.Lock(r.Context(), stageDir)
+	if err != nil {
+		return err
+	}
 	defer unlockStage()
 	metadata, exists, err := readStagedProvisionMetadata(stageDir, token)
 	if err != nil {
@@ -280,7 +289,10 @@ func (s *Server) completeStagedProvision(w http.ResponseWriter, r *http.Request,
 	if err := s.validateProvisionPaths(stageDir, stagedPath, livePath); err != nil {
 		return err
 	}
-	unlockPaths := s.locks.LockAll(stagedPath, livePath)
+	unlockPaths, err := s.locks.LockAll(r.Context(), stagedPath, livePath)
+	if err != nil {
+		return err
+	}
 	defer unlockPaths()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -406,13 +418,16 @@ func (s *Server) completeStagedProvision(w http.ResponseWriter, r *http.Request,
 // lockStagedImportRepository resolves an unguessable provisioning token to its
 // hidden repository while holding the exact token→path lock order used by
 // publish/finalize. The returned release function must always be called.
-func (s *Server) lockStagedImportRepository(r *http.Request) (string, string, func(), error) {
+func (s *Server) lockStagedImportRepository(ctx context.Context, r *http.Request) (string, string, func(), error) {
 	token := strings.TrimSpace(chi.URLParam(r, "token"))
 	if !validDeleteStageToken(token) {
 		return "", "", nil, badRequest("invalid repository provisioning token")
 	}
 	stageDir := s.provisionStageDir(token)
-	unlockStage := s.locks.Lock(stageDir)
+	unlockStage, err := s.locks.Lock(ctx, stageDir)
+	if err != nil {
+		return "", "", nil, err
+	}
 	releaseStage := true
 	defer func() {
 		if releaseStage {
@@ -434,7 +449,10 @@ func (s *Server) lockStagedImportRepository(r *http.Request) (string, string, fu
 	if err := s.validateProvisionPaths(stageDir, stagedPath, livePath); err != nil {
 		return "", "", nil, err
 	}
-	unlockPaths := s.locks.LockAll(stagedPath, livePath)
+	unlockPaths, err := s.locks.LockAll(ctx, stagedPath, livePath)
+	if err != nil {
+		return "", "", nil, err
+	}
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		unlockPaths()
 		return "", "", nil, err
@@ -468,7 +486,7 @@ func (s *Server) lockStagedImportRepository(r *http.Request) (string, string, fu
 func (s *Server) stagedProvisionInfoRefs(w http.ResponseWriter, r *http.Request) error {
 	done := s.metrics.StartOperation("StagedProvisionInfoRefs")
 	defer done()
-	repoPath, gitDir, release, err := s.lockStagedImportRepository(r)
+	repoPath, gitDir, release, err := s.lockStagedImportRepository(r.Context(), r)
 	if err != nil {
 		return err
 	}
@@ -527,7 +545,7 @@ func (s *Server) stagedProvisionInfoRefs(w http.ResponseWriter, r *http.Request)
 func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Request) error {
 	done := s.metrics.StartOperation("StagedProvisionReceivePack")
 	defer done()
-	repoPath, gitDir, release, err := s.lockStagedImportRepository(r)
+	repoPath, gitDir, release, err := s.lockStagedImportRepository(r.Context(), r)
 	if err != nil {
 		return err
 	}

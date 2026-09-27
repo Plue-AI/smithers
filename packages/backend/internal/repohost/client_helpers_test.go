@@ -53,26 +53,26 @@ func TestRepoClientErrorBodyHelpers(t *testing.T) {
 	})
 
 	t.Run("read_error_message_nil", func(t *testing.T) {
-		assert.Equal(t, "", readErrorMessage(nil))
+		assert.Equal(t, "", readErrorResponse(nil).Message)
 	})
 
 	t.Run("read_error_message_prefers_message_field", func(t *testing.T) {
 		body := strings.NewReader(`{"message":"upstream failure","error":"ignored"}`)
-		assert.Equal(t, "upstream failure", readErrorMessage(body))
+		assert.Equal(t, "upstream failure", readErrorResponse(body).Message)
 	})
 
 	t.Run("read_error_message_falls_back_to_error_field", func(t *testing.T) {
 		body := strings.NewReader(`{"error":"backend exploded"}`)
-		assert.Equal(t, "backend exploded", readErrorMessage(body))
+		assert.Equal(t, "backend exploded", readErrorResponse(body).Message)
 	})
 
 	t.Run("read_error_message_falls_back_to_trimmed_text", func(t *testing.T) {
 		body := strings.NewReader("  plain text error  ")
-		assert.Equal(t, "plain text error", readErrorMessage(body))
+		assert.Equal(t, "plain text error", readErrorResponse(body).Message)
 	})
 
 	t.Run("read_error_message_empty_body", func(t *testing.T) {
 		body := strings.NewReader("")
-		assert.Equal(t, "", readErrorMessage(body))
+		assert.Equal(t, "", readErrorResponse(body).Message)
 	})
 }

@@ -1,6 +1,7 @@
 package repohostserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func stageDeleteForTest(t *testing.T, srv *Server, owner, repo, token string) {
@@ -148,7 +151,8 @@ func TestRestoreWaitsForInFlightStageBeforeCheckingMetadata(t *testing.T) {
 	// Model the stage handler owning the client token while the response is
 	// lost. The compensating restore must queue behind this lock instead of
 	// observing temporarily absent metadata and returning a premature 204.
-	unlockStage := srv.locks.Lock(stageDir)
+	unlockStage, err := srv.locks.Lock(context.Background(), stageDir)
+	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/repos/delete-stages/"+token+"/restore", nil)
 	req.Header.Set("Authorization", validAuth())
 	rec := httptest.NewRecorder()

@@ -1706,8 +1706,8 @@ func TestReceivePackFailsWhenImportRefsFails(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d; body=%s", w.Code, w.Body.String())
 	}
-	if got := w.Header().Get("Content-Type"); got != "application/json" {
-		t.Fatalf("expected JSON error content type, got %q", got)
+	if got := w.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("expected a plain-text error git shows, got %q", got)
 	}
 	if strings.Contains(w.Body.String(), "receive-pack-response") {
 		t.Fatalf("unexpected git receive-pack success response in error body: %q", w.Body.String())

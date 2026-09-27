@@ -73,7 +73,8 @@ func (s *Server) settleMaintenance(gitDir string) (clear, reaped bool, reason st
 }
 
 // holdRepository holds writes to the repository at gitDir (repoLocker.Hold):
-// writers wait while readers proceed, as they do beside repo-host's own gc.
+// every write fails at once with 503 and a Retry-After of holdPollInterval,
+// over the JSON API and git alike, while reads proceed.
 // The hold lasts until settleMaintenance clears the repository; the git locks
 // the process may have held are then removed and the repository is queued
 // for maintenance. Shutdown stops the checks but keeps the hold: nothing

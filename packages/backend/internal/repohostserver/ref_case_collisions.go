@@ -39,7 +39,10 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 	}
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err

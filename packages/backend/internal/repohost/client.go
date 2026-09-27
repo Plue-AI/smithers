@@ -434,6 +434,41 @@ type StatusError struct {
 	StatusCode int
 	Code       string
 	Message    string
+	// RetryAfter is repo-host's Retry-After, in seconds, when it sent one.
+	RetryAfter int
+}
+
+// RepositoryHeldCode is repo-host's error code for a write to a repository
+// it holds while maintenance outside it may still run: retry after
+// RetryAfter.
+const RepositoryHeldCode = "repository_held"
+
+// Held reports whether e refuses a write to a held repository.
+func (e *StatusError) Held() bool {
+	return e.StatusCode == http.StatusServiceUnavailable && e.Code == RepositoryHeldCode
+}
+
+// gitStatusError is statusError for a git route: only a hold's message is
+// repo-host's to show, and any other body stays out of the error.
+func gitStatusError(resp *http.Response) *StatusError {
+	status := statusError(resp)
+	if !status.Held() {
+		status.Message = ""
+	}
+	return status
+}
+
+// statusError reads repo-host's error response: its code from the JSON body
+// or the X-Smithers-Error-Code header (git routes answer in plain text), and
+// its Retry-After.
+func statusError(resp *http.Response) *StatusError {
+	upstream := readErrorResponse(resp.Body)
+	code := upstream.Code
+	if code == "" {
+		code = resp.Header.Get("X-Smithers-Error-Code")
+	}
+	retryAfter, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+	return &StatusError{StatusCode: resp.StatusCode, Code: code, Message: upstream.Message, RetryAfter: max(retryAfter, 0)}
 }
 
 func (e *StatusError) Error() string {
@@ -443,13 +478,13 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("repo-host returned status %d", e.StatusCode)
 }
 
-// IsStatusError returns the *StatusError and true if err is a *StatusError.
+// IsStatusError returns the *StatusError in err's chain, if any.
 func IsStatusError(err error) (*StatusError, bool) {
-	if err == nil {
+	var se *StatusError
+	if !errors.As(err, &se) {
 		return nil, false
 	}
-	se, ok := err.(*StatusError)
-	return se, ok
+	return se, true
 }
 
 // errorMessage is a minimal JSON error body from repo-host.
@@ -1074,8 +1109,7 @@ func (c *Client) InitWikiRepo(ctx context.Context, owner, repo string) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		msg := readErrorMessage(resp.Body)
-		return &StatusError{StatusCode: resp.StatusCode, Message: msg}
+		return statusError(resp)
 	}
 
 	return nil
@@ -1108,8 +1142,7 @@ func (c *Client) InitDocsRepo(ctx context.Context, owner, repo string) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		msg := readErrorMessage(resp.Body)
-		return &StatusError{StatusCode: resp.StatusCode, Message: msg}
+		return statusError(resp)
 	}
 
 	return nil
@@ -1941,8 +1974,7 @@ func (c *Client) proxyGitRPCWithMeta(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		discardErrorBody(resp.Body)
-		return fmt.Errorf("git proxy returned status %d", resp.StatusCode)
+		return gitStatusError(resp)
 	}
 
 	if _, err := io.Copy(stdout, resp.Body); err != nil {
@@ -1987,8 +2019,7 @@ func (c *Client) proxyGitInfoRefs(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		discardErrorBody(resp.Body)
-		return "", fmt.Errorf("git info-refs returned status %d", resp.StatusCode)
+		return "", gitStatusError(resp)
 	}
 
 	if _, err := io.Copy(stdout, resp.Body); err != nil {
@@ -2030,8 +2061,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != expectedStatus {
-		upstreamError := readErrorResponse(resp.Body)
-		return &StatusError{StatusCode: resp.StatusCode, Code: upstreamError.Code, Message: upstreamError.Message}
+		return statusError(resp)
 	}
 
 	if responseBody == nil || resp.ContentLength == 0 {
@@ -2069,8 +2099,7 @@ func doJSONPaginated[T any](ctx context.Context, c *Client, method, endpoint str
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != expectedStatus {
-		msg := readErrorMessage(resp.Body)
-		return nil, "", &StatusError{StatusCode: resp.StatusCode, Message: msg}
+		return nil, "", statusError(resp)
 	}
 
 	raw, err := io.ReadAll(resp.Body)
@@ -2151,12 +2180,8 @@ func discardErrorBody(body io.Reader) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxErrorBodyDiscardBytes))
 }
 
-// readErrorMessage reads up to maxErrorBodyDiscardBytes from the response body
-// and attempts to extract a human-readable message from a JSON error response.
-func readErrorMessage(body io.Reader) string {
-	return readErrorResponse(body).Message
-}
-
+// readErrorResponse reads up to maxErrorBodyDiscardBytes of an error response
+// body: a JSON error, or plain text as its message.
 func readErrorResponse(body io.Reader) errorMessage {
 	if body == nil {
 		return errorMessage{}

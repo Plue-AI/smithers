@@ -1,20 +1,31 @@
 package repohostserver
 
 import (
+	"context"
+	"net/http"
 	"sort"
+	"strconv"
 	"sync"
+	"time"
+
+	"golang.org/x/sync/semaphore"
 )
 
+// repoLocker is repo-host's per-repository reader/writer lock. Every wait on
+// it follows its caller's context, so a request whose client went away stops
+// waiting, and a write to a held repository (Hold) fails at once.
 type repoLocker struct {
 	mu    sync.Mutex
 	locks map[string]*repoLockEntry
-	// held gates the write lock of held keys (Hold); each channel closes
-	// when its hold is released.
-	held map[string]chan struct{}
+	// held names the keys whose writes fail (Hold).
+	held map[string]struct{}
 }
 
+// writerWeight is a writer's share of a lock: all of it. A reader takes one.
+const writerWeight = 1 << 40
+
 type repoLockEntry struct {
-	mu   sync.RWMutex
+	sem  *semaphore.Weighted
 	refs int
 }
 
@@ -22,39 +33,15 @@ func newRepoLocker() *repoLocker {
 	return &repoLocker{locks: map[string]*repoLockEntry{}}
 }
 
-// Lock takes key's write lock, once key is not held (Hold).
-func (l *repoLocker) Lock(key string) func() {
-	l.awaitUnheld(key)
-	return l.lock(key)
+// Lock takes key's write lock. It fails at once while key is held, and when
+// ctx ends first.
+func (l *repoLocker) Lock(ctx context.Context, key string) (func(), error) {
+	return l.LockAll(ctx, key)
 }
 
-// awaitUnheld waits until none of keys is held. Holds are only taken before
-// any lock is (Hold), so none returns once this does.
-func (l *repoLocker) awaitUnheld(keys ...string) {
-	for _, key := range keys {
-		l.mu.Lock()
-		gate := l.held[key]
-		l.mu.Unlock()
-		if gate != nil {
-			<-gate
-		}
-	}
-}
-
-func (l *repoLocker) lock(key string) func() {
-	entry := l.acquire(key)
-	entry.mu.Lock()
-	return func() {
-		entry.mu.Unlock()
-		l.release(key, entry)
-	}
-}
-
-func (l *repoLocker) LockAll(keys ...string) func() {
-	if len(keys) == 0 {
-		return func() {}
-	}
-
+// LockAll takes the write locks of keys, in a fixed order. It fails at once,
+// taking none, while any of them is held, and when ctx ends first.
+func (l *repoLocker) LockAll(ctx context.Context, keys ...string) (func(), error) {
 	ordered := append([]string(nil), keys...)
 	sort.Strings(ordered)
 	deduped := ordered[:0]
@@ -63,40 +50,50 @@ func (l *repoLocker) LockAll(keys ...string) func() {
 			deduped = append(deduped, key)
 		}
 	}
-
-	// Waiting for every hold first keeps a held key from pinning the write
-	// lock of one taken before it.
-	l.awaitUnheld(deduped...)
-	unlocks := make([]func(), 0, len(deduped))
 	for _, key := range deduped {
-		unlocks = append(unlocks, l.lock(key))
+		if l.Held(key) {
+			return nil, errRepositoryHeld()
+		}
 	}
-	return func() {
+	unlocks := make([]func(), 0, len(deduped))
+	unlockAll := func() {
 		for i := len(unlocks) - 1; i >= 0; i-- {
 			unlocks[i]()
 		}
 	}
-}
-
-func (l *repoLocker) RLock(key string) func() {
-	entry := l.acquire(key)
-	entry.mu.RLock()
-	return func() {
-		entry.mu.RUnlock()
-		l.release(key, entry)
+	for _, key := range deduped {
+		unlock, err := l.acquireWeight(ctx, key, writerWeight)
+		if err != nil {
+			unlockAll()
+			return nil, err
+		}
+		unlocks = append(unlocks, unlock)
 	}
+	return unlockAll, nil
 }
 
-func (l *repoLocker) acquire(key string) *repoLockEntry {
+// RLock takes key's read lock, held or not. It fails when ctx ends first.
+func (l *repoLocker) RLock(ctx context.Context, key string) (func(), error) {
+	return l.acquireWeight(ctx, key, 1)
+}
+
+func (l *repoLocker) acquireWeight(ctx context.Context, key string, weight int64) (func(), error) {
 	l.mu.Lock()
 	entry := l.locks[key]
 	if entry == nil {
-		entry = &repoLockEntry{}
+		entry = &repoLockEntry{sem: semaphore.NewWeighted(writerWeight)}
 		l.locks[key] = entry
 	}
 	entry.refs++
 	l.mu.Unlock()
-	return entry
+	if err := entry.sem.Acquire(ctx, weight); err != nil {
+		l.release(key, entry)
+		return nil, &appError{StatusCode: http.StatusGatewayTimeout, Message: "request ended while waiting for the repository", Cause: err}
+	}
+	return func() {
+		entry.sem.Release(weight)
+		l.release(key, entry)
+	}, nil
 }
 
 func (l *repoLocker) release(key string, entry *repoLockEntry) {
@@ -108,22 +105,19 @@ func (l *repoLocker) release(key string, entry *repoLockEntry) {
 	l.mu.Unlock()
 }
 
-// Hold holds key's write lock off, without taking the lock itself: writers
-// wait in Lock until the returned release is called, while readers proceed.
-// Unlike a held read lock, a waiting writer does not queue ahead of readers.
+// Hold fails every write to key (Lock, LockAll) until the returned release is
+// called; reads proceed.
 func (l *repoLocker) Hold(key string) (release func()) {
-	gate := make(chan struct{})
 	l.mu.Lock()
 	if l.held == nil {
-		l.held = map[string]chan struct{}{}
+		l.held = map[string]struct{}{}
 	}
-	l.held[key] = gate
+	l.held[key] = struct{}{}
 	l.mu.Unlock()
 	return func() {
 		l.mu.Lock()
 		delete(l.held, key)
 		l.mu.Unlock()
-		close(gate)
 	}
 }
 
@@ -131,5 +125,24 @@ func (l *repoLocker) Hold(key string) (release func()) {
 func (l *repoLocker) Held(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.held[key] != nil
+	_, held := l.held[key]
+	return held
+}
+
+// repositoryHeldCode is the error code of a write to a held repository.
+const repositoryHeldCode = "repository_held"
+
+// errRepositoryHeld is the answer to a write to a held repository: 503, to
+// be retried once the hold is checked again (holdPollInterval).
+func errRepositoryHeld() *appError {
+	return &appError{
+		StatusCode: http.StatusServiceUnavailable,
+		Code:       repositoryHeldCode,
+		Message:    "repository maintenance is finishing; retry in " + strconv.Itoa(retryAfterSeconds()) + "s",
+		RetryAfter: retryAfterSeconds(),
+	}
+}
+
+func retryAfterSeconds() int {
+	return max(1, int((holdPollInterval+time.Second-1)/time.Second))
 }

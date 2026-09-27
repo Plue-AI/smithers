@@ -1,6 +1,7 @@
 package repohostserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func stageMoveForTest(t *testing.T, srv *Server, request moveRepoRequest) {
@@ -150,7 +153,8 @@ func TestStagedMoveRollbackWaitsForInFlightStageBeforeCheckingMetadata(t *testin
 	// Model a stage handler that owns the token while its response is being
 	// lost. Rollback must wait until the journal and rename are both visible,
 	// rather than observing absent metadata and returning a premature 204.
-	unlockStage := srv.locks.Lock(stageDir)
+	unlockStage, err := srv.locks.Lock(context.Background(), stageDir)
+	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/repos/move-stages/"+token+"/rollback", nil)
 	req.Header.Set("Authorization", validAuth())
 	rec := httptest.NewRecorder()

@@ -1,6 +1,7 @@
 package repohostserver
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -101,7 +102,7 @@ func jjOperationHead(repoPath string) string {
 // straight from the git backend instead of serializing behind a per-request jj
 // export. Only when the jj operation head has moved does this take the
 // repository write lock and run the export, and only one waiter does the work.
-func (s *Server) syncGitRefs(repoPath, gitDir string) error {
+func (s *Server) syncGitRefs(ctx context.Context, repoPath, gitDir string) error {
 	if _, err := os.Stat(gitDir); err != nil {
 		return notFound("repository not found")
 	}
@@ -116,7 +117,10 @@ func (s *Server) syncGitRefs(repoPath, gitDir string) error {
 		return nil
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(ctx, repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	// Re-check under the lock: a concurrent request may have exported while we

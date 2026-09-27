@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -1809,3 +1810,44 @@ func (c *testNetConn) RemoteAddr() net.Addr {
 func (c *testNetConn) SetDeadline(t time.Time) error      { _ = t; return nil }
 func (c *testNetConn) SetReadDeadline(t time.Time) error  { _ = t; return nil }
 func (c *testNetConn) SetWriteDeadline(t time.Time) error { _ = t; return nil }
+
+// A push to a repository repo-host holds fails at once with repo-host's
+// message, which git shows the user: at discovery, or at the push itself.
+func TestSessionHandler_ReceivePack_HeldRepository(t *testing.T) {
+	t.Parallel()
+	for _, atDiscovery := range []bool{true, false} {
+		assertHeldPushRefused(t, atDiscovery)
+	}
+}
+
+func assertHeldPushRefused(t *testing.T, atDiscovery bool) {
+	held := &repohost.StatusError{StatusCode: http.StatusServiceUnavailable, Code: repohost.RepositoryHeldCode,
+		Message: "repository maintenance is finishing; retry in 5s", RetryAfter: 5}
+
+	server := &Server{
+		Authorizer: &mockSSHAuthorizer{
+			authorizeFn: func(ctx context.Context, userID int64, owner, repo string, mode services.AccessMode) error {
+				return nil
+			},
+		},
+		RepoHostClient: &mockRepoHostGitProxy{
+			infoRefsReceivePackFn: func(ctx context.Context, owner, repo string) ([]byte, error) {
+				if atDiscovery {
+					return nil, held
+				}
+				return []byte("0000"), nil
+			},
+			proxyReceivePackFn: func(ctx context.Context, owner, repo string, stdin io.Reader, stdout io.Writer, meta ...repohost.ReceivePackMetadata) error {
+				return held
+			},
+		},
+	}
+
+	sess := newTestSession("git-receive-pack 'alice/demo.git'", "0000receive-pack-request")
+	sess.ctx.SetValue(principalKey, sshPrincipal{UserID: 1, Username: "alice"})
+
+	server.sessionHandler(sess)
+
+	assert.Equal(t, 1, sess.exitCode)
+	assert.Contains(t, sess.stderr.String(), "ERROR: repository maintenance is finishing; retry in 5s")
+}

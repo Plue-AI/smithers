@@ -255,9 +255,9 @@ func (s *Server) Handler() http.Handler {
 			r.Method(http.MethodPost, "/repos/{id}/snapshot", s.withAppError(s.createSnapshot))
 		})
 
-		r.Method(http.MethodGet, "/repos/{owner}/{repo}/git/info-refs", s.withAppError(s.infoRefs))
-		r.Method(http.MethodPost, "/repos/{owner}/{repo}/git/receive-pack", s.withAppError(s.receivePack))
-		r.Method(http.MethodPost, "/repos/{owner}/{repo}/git/upload-pack", s.withAppError(s.uploadPack))
+		r.Method(http.MethodGet, "/repos/{owner}/{repo}/git/info-refs", s.withGitError(s.infoRefs))
+		r.Method(http.MethodPost, "/repos/{owner}/{repo}/git/receive-pack", s.withGitError(s.receivePack))
+		r.Method(http.MethodPost, "/repos/{owner}/{repo}/git/upload-pack", s.withGitError(s.uploadPack))
 	})
 
 	// Hidden import smart-HTTP uses an HMAC derived from the unguessable journal
@@ -266,8 +266,8 @@ func (s *Server) Handler() http.Handler {
 	// nor the broad repo-host control token is exposed as a bearer to git.
 	r.Group(func(r chi.Router) {
 		r.Use(s.stagedProvisionAuthMiddleware)
-		r.Method(http.MethodGet, "/repos/provision-stages/{token}/git/info/refs", s.withAppError(s.stagedProvisionInfoRefs))
-		r.Method(http.MethodPost, "/repos/provision-stages/{token}/git/git-receive-pack", s.withAppError(s.stagedProvisionReceivePack))
+		r.Method(http.MethodGet, "/repos/provision-stages/{token}/git/info/refs", s.withGitError(s.stagedProvisionInfoRefs))
+		r.Method(http.MethodPost, "/repos/provision-stages/{token}/git/git-receive-pack", s.withGitError(s.stagedProvisionReceivePack))
 	})
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
@@ -320,6 +320,16 @@ func (s *Server) withAppError(fn func(http.ResponseWriter, *http.Request) error)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := fn(w, r); err != nil {
 			writeAppError(w, err, s.logger)
+		}
+	}
+}
+
+// withGitError is withAppError for git smart-HTTP routes: errors are plain
+// text git shows its user.
+func (s *Server) withGitError(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := fn(w, r); err != nil {
+			writeGitAppError(w, err, s.logger)
 		}
 	}
 }
@@ -391,16 +401,16 @@ func (s *Server) initRepo(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	repoPath := s.config.RepoPath(req.Owner, req.Repo)
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
 
-	var (
-		result repohostffi.InitRepoResult
-		err    error
-	)
+	var result repohostffi.InitRepoResult
 	if req.AutoInit {
 		defaultBookmark := strings.TrimSpace(req.DefaultBookmark)
 		if defaultBookmark == "" {
@@ -454,7 +464,10 @@ func (s *Server) deleteRepo(w http.ResponseWriter, r *http.Request) error {
 	repoPath := s.config.RepoPath(owner, repo)
 	wikiPath := s.config.WikiRepoPath(owner, repo)
 	docsPath := s.config.DocsRepoPath(owner, repo)
-	unlock := s.locks.LockAll(repoPath, wikiPath, docsPath)
+	unlock, err := s.locks.LockAll(r.Context(), repoPath, wikiPath, docsPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -509,7 +522,10 @@ func (s *Server) forkRepo(w http.ResponseWriter, r *http.Request) error {
 	srcPath := s.config.RepoPath(req.SrcOwner, req.SrcRepo)
 	dstPath := s.config.RepoPath(req.DstOwner, req.DstRepo)
 
-	unlock := s.locks.LockAll(srcPath, dstPath)
+	unlock, err := s.locks.LockAll(r.Context(), srcPath, dstPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -594,7 +610,10 @@ func (s *Server) moveRepo(w http.ResponseWriter, r *http.Request) error {
 	for _, r := range renames {
 		lockKeys = append(lockKeys, r.src, r.dst)
 	}
-	unlock := s.locks.LockAll(lockKeys...)
+	unlock, err := s.locks.LockAll(r.Context(), lockKeys...)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -723,7 +742,10 @@ func (s *Server) importRefs(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	repoPath := s.config.RepoPath(owner, repo)
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -752,16 +774,24 @@ func (s *Server) infoRefs(w http.ResponseWriter, r *http.Request) error {
 
 	gitDir := s.config.GitBackendPath(owner, repo)
 	repoPath := s.config.RepoPath(owner, repo)
+	// A push to a held repository is refused at discovery, before its pack is
+	// sent, and git shows the discovery's error text to the user.
+	if service == "git-receive-pack" && s.locks.Held(repoPath) {
+		return errRepositoryHeld()
+	}
 
 	// Bring the git backend up to date with the jj view only when the jj
 	// operation head has moved; the advertisement itself is served by git.
-	if err := s.syncGitRefs(repoPath, gitDir); err != nil {
+	if err := s.syncGitRefs(r.Context(), repoPath, gitDir); err != nil {
 		return err
 	}
 
 	// The advertisement only reads the git backend, so a read lock is enough:
 	// parallel clones of the same repository no longer serialize.
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	if _, err := os.Stat(gitDir); err != nil {
@@ -856,7 +886,10 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	if _, err := os.Stat(gitDir); err != nil {
@@ -869,7 +902,6 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 
 	var (
 		beforeRefs              map[string]string
-		err                     error
 		shouldDispatchPushHooks bool
 	)
 	beforeRefs, err = listGitRefs(r.Context(), gitDir)
@@ -1033,11 +1065,14 @@ func (s *Server) uploadPack(w http.ResponseWriter, r *http.Request) error {
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
 
-	if err := s.syncGitRefs(repoPath, gitDir); err != nil {
+	if err := s.syncGitRefs(r.Context(), repoPath, gitDir); err != nil {
 		return err
 	}
 
-	unlockRead := s.locks.RLock(repoPath)
+	unlockRead, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlockRead()
 
 	if _, err := os.Stat(gitDir); err != nil {
@@ -1086,7 +1121,10 @@ func (s *Server) initWikiRepo(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
-	unlock := s.locks.Lock(wikiRepoPath)
+	unlock, err := s.locks.Lock(r.Context(), wikiRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	defer s.markMaintenanceDue(wikiRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
@@ -1116,7 +1154,10 @@ func (s *Server) initDocsRepo(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
-	unlock := s.locks.Lock(docsRepoPath)
+	unlock, err := s.locks.Lock(r.Context(), docsRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	defer s.markMaintenanceDue(docsRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
@@ -1151,7 +1192,10 @@ func (s *Server) commitWikiPage(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
-	unlock := s.locks.Lock(wikiRepoPath)
+	unlock, err := s.locks.Lock(r.Context(), wikiRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	defer s.markMaintenanceDue(wikiRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
@@ -1191,7 +1235,10 @@ func (s *Server) commitDoc(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
-	unlock := s.locks.Lock(docsRepoPath)
+	unlock, err := s.locks.Lock(r.Context(), docsRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	defer s.markMaintenanceDue(docsRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
@@ -1221,7 +1268,10 @@ func (s *Server) getWikiPageContent(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
-	unlock := s.locks.RLock(wikiRepoPath)
+	unlock, err := s.locks.RLock(r.Context(), wikiRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	content, commitSHA, err := s.ffi.GetWikiPageContent(
@@ -1251,7 +1301,10 @@ func (s *Server) getDocContent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
-	unlock := s.locks.RLock(docsRepoPath)
+	unlock, err := s.locks.RLock(r.Context(), docsRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	content, commitSHA, err := s.ffi.GetDocContent(
@@ -1286,7 +1339,10 @@ func (s *Server) listWikiPageHistory(w http.ResponseWriter, r *http.Request) err
 	}
 
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
-	unlock := s.locks.RLock(wikiRepoPath)
+	unlock, err := s.locks.RLock(r.Context(), wikiRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.ListWikiPageHistory(wikiRepoPath, chi.URLParam(r, "page_name"), limit)
@@ -1319,7 +1375,10 @@ func (s *Server) listDocHistory(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
-	unlock := s.locks.RLock(docsRepoPath)
+	unlock, err := s.locks.RLock(r.Context(), docsRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.ListDocHistory(docsRepoPath, filePath, limit)
@@ -1343,7 +1402,10 @@ func (s *Server) deleteWikiPage(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
-	unlock := s.locks.Lock(wikiRepoPath)
+	unlock, err := s.locks.Lock(r.Context(), wikiRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	defer s.markMaintenanceDue(wikiRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
@@ -1381,7 +1443,10 @@ func (s *Server) deleteDoc(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
-	unlock := s.locks.Lock(docsRepoPath)
+	unlock, err := s.locks.Lock(r.Context(), docsRepoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	defer s.markMaintenanceDue(docsRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
@@ -1408,7 +1473,10 @@ func (s *Server) listBookmarks(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.ListBookmarks(repoPath, page.Page, page.PerPage)
@@ -1442,7 +1510,10 @@ func (s *Server) getBookmark(w http.ResponseWriter, r *http.Request) error {
 		return badRequest("bookmark name is required")
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	bookmark, found, err := s.findBookmark(repoPath, name)
@@ -1503,7 +1574,10 @@ func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) error {
 		return badRequest("invalid bookmark name: " + err.Error())
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1563,7 +1637,10 @@ func (s *Server) setDefaultBookmark(w http.ResponseWriter, r *http.Request) erro
 
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1593,7 +1670,10 @@ func (s *Server) deleteBookmark(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1619,7 +1699,10 @@ func (s *Server) listChanges(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.ListChanges(repoPath, page.Page, page.PerPage)
@@ -1638,7 +1721,10 @@ func (s *Server) getChange(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.GetChange(repoPath, chi.URLParam(r, "change_id"))
@@ -1667,7 +1753,10 @@ func (s *Server) backoutChange(w http.ResponseWriter, r *http.Request) error {
 		return badRequest("invalid target bookmark name: " + err.Error())
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1706,7 +1795,10 @@ func (s *Server) splitChange(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1732,7 +1824,10 @@ func (s *Server) getChangeDiff(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	fromCommitID := strings.TrimSpace(r.URL.Query().Get("from"))
@@ -1762,7 +1857,10 @@ func (s *Server) getChangeFiles(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.GetFiles(repoPath, chi.URLParam(r, "change_id"))
@@ -1781,7 +1879,10 @@ func (s *Server) listFilesAtChange(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if r.URL.Query().Get("depth") == "1" {
 		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -1811,7 +1912,10 @@ func (s *Server) getChangeConflicts(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.GetConflicts(repoPath, chi.URLParam(r, "change_id"))
@@ -1835,7 +1939,10 @@ func (s *Server) getFileAtChange(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.GetFileContent(repoPath, chi.URLParam(r, "change_id"), filePath)
@@ -1874,7 +1981,10 @@ func (s *Server) composeSuperproject(w http.ResponseWriter, r *http.Request) err
 		return badRequest("invalid superproject request")
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1896,7 +2006,10 @@ func (s *Server) getSuperproject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.ReadSuperproject(repoPath, chi.URLParam(r, "revision"))
@@ -1941,7 +2054,10 @@ func (s *Server) land(w http.ResponseWriter, r *http.Request, appendOnly bool) e
 		}
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1986,7 +2102,10 @@ func (s *Server) listOperations(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.RLock(repoPath)
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.ListOperations(repoPath, page.Page, page.PerPage)
@@ -2005,7 +2124,10 @@ func (s *Server) getWorkingTreeStatus(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 
 	result, err := s.ffi.GetWorkingTreeStatus(repoPath)
@@ -2029,7 +2151,10 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.lockRepo(repoPath)
+	unlock, err := s.lockRepo(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
