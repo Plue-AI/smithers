@@ -259,15 +259,16 @@ const contract = (name: string, layer: Layer.Layer<SourceStore>) => {
       expect(found.none).toEqual([])
     })
 
-    it("filters by kind and by a case-insensitive text query, orders undated records last, and honors the limit", async () => {
+    it("filters by kind and by a case-insensitive text query, dates a record without a change time by its creation, orders undated records last, and honors the limit", async () => {
       const found = await run(Effect.gen(function*() {
         const s = yield* store
         yield* s.apply([
           record({ externalId: "a", kind: "message", text: "Deploy the Release", updatedAtMs: 2_000 }),
           record({ externalId: "b", kind: "file", text: "release notes", updatedAtMs: 3_000 }),
           record({ externalId: "c", kind: "message", text: "lunch", updatedAtMs: 1_000 }),
-          record({ externalId: "d", kind: "message", text: "undated release", updatedAtMs: null }),
-          record({ externalId: "e", kind: "message", text: "same time", updatedAtMs: 1_000 })
+          record({ externalId: "d", kind: "message", text: "undated release", createdAtMs: null, updatedAtMs: null }),
+          record({ externalId: "e", kind: "message", text: "same time", updatedAtMs: 1_000 }),
+          record({ externalId: "f", kind: "message", text: "received release", createdAtMs: 2_500, updatedAtMs: null })
         ])
         const ids = (records: ReadonlyArray<SourceRecord>) => records.map((found) => found.externalId)
         return {
@@ -278,11 +279,11 @@ const contract = (name: string, layer: Layer.Layer<SourceStore>) => {
           limited: ids(yield* s.retrieve({ allowed: general, limit: 2 }))
         }
       }))
-      expect(found.messages).toEqual(["a", "c", "e", "d"])
+      expect(found.messages).toEqual(["f", "a", "c", "e", "d"])
       expect(found.noKinds).toEqual([])
-      expect(found.release).toEqual(["b", "a", "d"])
-      expect(found.blank).toEqual(["b", "a", "c", "e", "d"])
-      expect(found.limited).toEqual(["b", "a"])
+      expect(found.release).toEqual(["b", "f", "a", "d"])
+      expect(found.blank).toEqual(["b", "f", "a", "c", "e", "d"])
+      expect(found.limited).toEqual(["b", "f"])
     })
 
     it("refuses a limit outside 1 to the maximum", async () => {

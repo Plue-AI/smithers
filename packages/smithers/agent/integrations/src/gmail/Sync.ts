@@ -209,7 +209,7 @@ const reader = (
           : client.getMessage(ref.id, { format: "metadata", metadataHeaders: Records.HEADERS }).pipe(
             Effect.map((message) =>
               Records.isGone(message, labelId)
-                ? Records.tombstone(message, message.historyId, context)
+                ? Records.tombstone(message, message.historyId ?? ref.historyId, context)
                 : Records.fromMessage(message, context)
             ),
             // Deleted between the listing and the read.

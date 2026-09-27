@@ -181,8 +181,12 @@ export const compareVersion = (left: string | null, right: string | null): numbe
  * The provider's change time decides first, and a copy with no change time is
  * older than any copy that has one. At the same time a deletion follows the
  * live copy, because a provider stamps a delete with the time of the version it
- * removed. Then the version token decides. Because this is a total order over
- * the three fields, applying copies in any order converges on the same winner.
+ * removed. Then the version token decides. Between two copies with no change
+ * time, the version is the only change order, so it decides before deletion:
+ * a provider without change times (Gmail) versions every copy, deletions and
+ * restorations included, from one sequence. Each time class is ordered
+ * lexicographically, so this is a total order and applying copies in any
+ * order converges on the same winner.
  *
  * @category ordering
  * @since 1.0.0
@@ -192,6 +196,10 @@ export const compare = (current: Ordering, candidate: Ordering): number => {
     if (current.updatedAtMs === null) return 1
     if (candidate.updatedAtMs === null) return -1
     return candidate.updatedAtMs > current.updatedAtMs ? 1 : -1
+  }
+  if (current.updatedAtMs === null) {
+    const version = compareVersion(candidate.version, current.version)
+    if (version !== 0) return version
   }
   if (current.deleted !== candidate.deleted) return candidate.deleted ? 1 : -1
   return compareVersion(candidate.version, current.version)

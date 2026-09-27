@@ -227,7 +227,7 @@ describe("Gmail records", () => {
       url: null,
       author: { id: "ada@example.test", label: "Ada Lovelace" },
       createdAtMs: 1_790_000_000_000,
-      updatedAtMs: 1_790_000_000_000,
+      updatedAtMs: null,
       version: "00000000000000004242",
       retrievedAtMs: 1_790_000_100_000,
       access: { scope: "private", containerId: "me" },

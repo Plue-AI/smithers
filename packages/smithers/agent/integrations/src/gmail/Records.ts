@@ -165,7 +165,9 @@ export const fromMessage = (message: Message, context: Context): SourceRecord =>
     url: null,
     author: sender === null ? null : { id: sender.address, label: sender.name },
     createdAtMs: at,
-    updatedAtMs: at,
+    // Gmail has no change time: internalDate is when the message arrived. The
+    // history id orders every copy, deletions and restorations included.
+    updatedAtMs: null,
     version: version(message.historyId),
     retrievedAtMs: context.retrievedAtMs,
     access: { scope: "private", containerId: context.container },

@@ -39,5 +39,8 @@ needs approval first is host policy.
 `Gmail.Sync.mailbox({ … })` builds a `Core.Sync` adapter that lists messages, then follows
 `users.history.list` from the history id it started at. A history id Google
 no longer holds starts a fresh listing marked `reset`. Trash, spam, and
-messages that lost the watched label become tombstones. `Gmail.Sync.search`
+messages that lost the watched label become tombstones. Gmail has no change
+time, so records carry `updatedAtMs: null` and the history id orders every
+copy: a deletion hides the stored message and a later restore brings it back.
+`Gmail.Sync.search`
 pages a query without a cursor.

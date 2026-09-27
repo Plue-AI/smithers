@@ -130,7 +130,10 @@ export interface Query {
   readonly query?: string | undefined
   /** Only these kinds. An empty list selects nothing. */
   readonly kinds?: ReadonlyArray<string> | undefined
-  /** At most this many records, newest change first; 1 to {@link MAX_RETRIEVE_LIMIT}. */
+  /**
+   * At most this many records, newest first by change time, or creation time
+   * for a provider without one; 1 to {@link MAX_RETRIEVE_LIMIT}.
+   */
   readonly limit: number
 }
 
@@ -490,10 +493,12 @@ const asciiLower = (text: string): string => text.replace(/[A-Z]/g, (letter) => 
 const now = Effect.clockWith((clock) => clock.currentTimeMillis)
 
 const newestFirst = (left: SourceRecord.SourceRecord, right: SourceRecord.SourceRecord): number => {
-  if (left.updatedAtMs !== right.updatedAtMs) {
-    if (left.updatedAtMs === null) return 1
-    if (right.updatedAtMs === null) return -1
-    return right.updatedAtMs - left.updatedAtMs
+  const leftAt = left.updatedAtMs ?? left.createdAtMs
+  const rightAt = right.updatedAtMs ?? right.createdAtMs
+  if (leftAt !== rightAt) {
+    if (leftAt === null) return 1
+    if (rightAt === null) return -1
+    return rightAt - leftAt
   }
   if (left.connectionId !== right.connectionId) return left.connectionId < right.connectionId ? -1 : 1
   // Keys are unique, so two records never tie on both.
@@ -892,7 +897,8 @@ export const makeSql: Effect.Effect<SourceStore, never, SqlClient.SqlClient | Du
           }))
         }
         const rows = yield* sql<Row>`SELECT r.* FROM smithers_integration_records r WHERE ${sql.and(conditions)}
-          ORDER BY (r.updated_at_ms IS NULL), r.updated_at_ms DESC, r.connection_id, r.external_id
+          ORDER BY (COALESCE(r.updated_at_ms, r.created_at_ms) IS NULL),
+            COALESCE(r.updated_at_ms, r.created_at_ms) DESC, r.connection_id, r.external_id
           LIMIT ${limit}`.pipe(failAs("retrieve"))
         return yield* Effect.forEach(rows, (row) => Effect.map(fromRow(row), (stored) => stored.record))
       }),

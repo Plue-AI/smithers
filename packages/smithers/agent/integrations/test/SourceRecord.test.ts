@@ -79,6 +79,15 @@ describe("compare and supersedes", () => {
     expect(compare(gone, live)).toBe(-1)
   })
 
+  it("orders copies without a change time by version before deletion (#2175)", () => {
+    const live = (version: string) => record({ updatedAtMs: null, version })
+    const gone = (version: string) => record({ updatedAtMs: null, version, deleted: true, text: "", payload: null })
+    expect(supersedes(live("10"), gone("11"))).toBe(true)
+    expect(supersedes(gone("11"), live("12"))).toBe(true)
+    expect(supersedes(gone("11"), live("10"))).toBe(false)
+    expect(supersedes(live("11"), gone("11"))).toBe(true)
+  })
+
   it("orders equal times and deletion by version, and a duplicate never supersedes", () => {
     expect(supersedes(record({ version: "1.1" }), record({ version: "1.2" }))).toBe(true)
     expect(supersedes(record({ version: "1.2" }), record({ version: "1.1" }))).toBe(false)

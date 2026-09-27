@@ -25,6 +25,7 @@ import * as Capabilities from "../src/gmail/Capabilities.ts"
 import * as GmailClient from "../src/gmail/GmailClient.ts"
 import { KEY_HEADER, messageIdFor } from "../src/gmail/Mime.ts"
 import { findByKey, queryFor } from "../src/gmail/Reconcile.ts"
+import * as Records from "../src/gmail/Records.ts"
 import { decodeCursor, encodeCursor, mailbox, search } from "../src/gmail/Sync.ts"
 import { type Fixture, json, type Recorded, startFixture } from "./Fixture.ts"
 
@@ -61,6 +62,7 @@ class FakeMailbox {
   loseNextWrite: "500" | "drop" | undefined
   /** Answer reads without labels and writes with the id alone, as Gmail may. */
   bare = false
+  historyless = false
   private sequence = 0
 
   private nextId(): string {
@@ -190,7 +192,7 @@ class FakeMailbox {
         threadId: stored.threadId,
         ...(this.bare ? {} : { labelIds: stored.labelIds }),
         snippet: stored.snippet,
-        historyId: String(stored.historyId),
+        ...(this.historyless ? {} : { historyId: String(stored.historyId) }),
         internalDate: String(stored.internalDate),
         payload: {
           mimeType: "text/plain",
@@ -368,6 +370,18 @@ describe("Gmail mailbox sync", () => {
     // Nothing new: the same cursor comes back, done, with no records.
     const [idle] = await drain(adapter, page!.cursor)
     expect(idle).toMatchObject({ records: [], cursor: page!.cursor, done: true, reset: false })
+  })
+
+  it("versions a trashed message by its history record when the read omits a history id (#2175)", async () => {
+    await start()
+    const trashed = box.add("trashed")
+    const adapter = await run(mailbox({ client: client() }))
+    const cursor = (await drain(adapter, null)).at(-1)!.cursor
+    box.relabel(trashed.id, ["TRASH"], ["INBOX"])
+    box.historyless = true
+    const [page] = await drain(adapter, cursor)
+    const record = page!.records.find((record) => record.externalId === trashed.id)
+    expect(record).toMatchObject({ deleted: true, version: Records.version(String(box.historyId)) })
   })
 
   it("pages history without moving the start, and resumes the same page after a crash", async () => {
