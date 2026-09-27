@@ -1061,6 +1061,105 @@
         "require": "./dist/cjs/Stall.js"
       },
       "reason": "The stall breaker Loop, ReviewLoop and Supervisor share to end a round loop whose signals stopped moving (b58bf93b8, #1692)."
+    },
+    {
+      "name": "@smthrs/evals",
+      "subpath": "./Trials",
+      "development": "./src/Trials.ts",
+      "published": {
+        "types": "./dist/esm/Trials.d.ts",
+        "import": "./dist/esm/Trials.js",
+        "require": "./dist/cjs/Trials.js"
+      },
+      "reason": "pass@k and pass^k statistics over repeated live runs of one case (cfcbf1e56, #1850). A pure module over recorded trial outcomes; it adds no runner, store or model call."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./core/IssueSync",
+      "development": "./src/core/IssueSync.ts",
+      "published": {
+        "types": "./dist/esm/core/IssueSync.d.ts",
+        "import": "./dist/esm/core/IssueSync.js",
+        "require": "./dist/cjs/core/IssueSync.js"
+      },
+      "reason": "Shared issue/comment mirror contract the Slack and Telegram adapters implement against the backend's issue API (b662d687b). The backend owns identities, mappings, claims and receipts; this module owns no store or worker."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/IssueSync",
+      "development": "./src/slack/IssueSync.ts",
+      "published": {
+        "types": "./dist/esm/slack/IssueSync.d.ts",
+        "import": "./dist/esm/slack/IssueSync.js",
+        "require": "./dist/cjs/slack/IssueSync.js"
+      },
+      "reason": "Slack transport for mirroring issue conversations through core/IssueSync: a host schedules drain() and feeds its existing SocketSource to ingest() (b662d687b)."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/IssueSync",
+      "development": "./src/telegram/IssueSync.ts",
+      "published": {
+        "types": "./dist/esm/telegram/IssueSync.d.ts",
+        "import": "./dist/esm/telegram/IssueSync.js",
+        "require": "./dist/cjs/telegram/IssueSync.js"
+      },
+      "reason": "Telegram transport for mirroring issue conversations through core/IssueSync, with the same host-scheduled drain() and ingest() shape as Slack (b662d687b)."
+    },
+    {
+      "name": "@smthrs/scorers",
+      "subpath": "./Checks",
+      "development": "./src/Checks.ts",
+      "published": {
+        "types": "./dist/esm/Checks.d.ts",
+        "import": "./dist/esm/Checks.js",
+        "require": "./dist/cjs/Checks.js"
+      },
+      "reason": "Pure, deterministic text and action checks for agent output and a scorer over them, so a suite grades length, wording, links, truncation, routing and leakage without a model (abf5d626e, #1849)."
+    },
+    {
+      "name": "@smthrs/scorers",
+      "subpath": "./Rubric",
+      "development": "./src/Rubric.ts",
+      "published": {
+        "types": "./dist/esm/Rubric.d.ts",
+        "import": "./dist/esm/Rubric.js",
+        "require": "./dist/cjs/Rubric.js"
+      },
+      "reason": "Model-agnostic rubric judge: a scorer that asks a caller-supplied judge to grade output against named criteria (abf5d626e, #1849)."
+    },
+    {
+      "name": "@smthrs/build-cli",
+      "subpath": "./Positionals",
+      "development": "./src/Positionals.ts",
+      "published": {
+        "types": "./dist/esm/Positionals.d.ts",
+        "import": "./dist/esm/Positionals.js",
+        "require": "./dist/cjs/Positionals.js"
+      },
+      "reason": "Refuses positional arguments no command argument consumes, shared by the smthrs and smithers-build CLIs because incur silently drops extras (711503d58, #2109)."
+    },
+    {
+      "name": "@smthrs/database",
+      "subpath": "./Dialect",
+      "development": "./src/Dialect.ts",
+      "published": {
+        "types": "./dist/esm/Dialect.d.ts",
+        "import": "./dist/esm/Dialect.js",
+        "require": "./dist/cjs/Dialect.js"
+      },
+      "reason": "SQL dialect primitives that let the durable stores target SQLite or PostgreSQL through one injectable seam (866fccee5)."
+    },
+    {
+      "name": "@smthrs/database",
+      "subpath": "./postgres/PostgresDatabase",
+      "development": "./src/postgres/PostgresDatabase.ts",
+      "published": {
+        "types": "./dist/esm/postgres/PostgresDatabase.d.ts",
+        "import": "./dist/esm/postgres/PostgresDatabase.js",
+        "require": "./dist/cjs/postgres/PostgresDatabase.js"
+      },
+      "reason": "Injectable PostgreSQL storage layer over @effect/sql-pg, an optional peer (866fccee5); its integration cases wait on a CI database (#2154)."
     }
   ],
   "removed": [
