@@ -335,11 +335,11 @@ func TestBilling_Cov_WebhookErrorsCheckoutEntitlementsAndAudits(t *testing.T) {
 	assert.Equal(t, 400, httpStatus(err))
 	err = svc.HandleStripeWebhook(ctx, []byte(`{}`), "bad")
 	assert.Equal(t, 400, httpStatus(err))
-	assert.NoError(t, svc.handleStripeEvent(ctx, "evt_ignored", "unhandled.event", json.RawMessage(`{}`)))
-	assert.Equal(t, 400, httpStatus(svc.handleStripeEvent(ctx, "evt_bad_sub", "customer.subscription.updated", json.RawMessage(`{`))))
+	assert.NoError(t, svc.handleStripeEvent(ctx, "evt_ignored", "unhandled.event", time.Time{}, json.RawMessage(`{}`)))
+	assert.Equal(t, 400, httpStatus(svc.handleStripeEvent(ctx, "evt_bad_sub", "customer.subscription.updated", time.Time{}, json.RawMessage(`{`))))
 
-	assert.NoError(t, svc.handleStripeEvent(ctx, "evt_unknown_checkout", "checkout.session.completed", json.RawMessage(`{"customer":"cus_missing"}`)))
-	err = svc.handleStripeEvent(ctx, "evt_checkout", "checkout.session.completed", json.RawMessage(`{
+	assert.NoError(t, svc.handleStripeEvent(ctx, "evt_unknown_checkout", "checkout.session.completed", time.Time{}, json.RawMessage(`{"customer":"cus_missing"}`)))
+	err = svc.handleStripeEvent(ctx, "evt_checkout", "checkout.session.completed", time.Time{}, json.RawMessage(`{
 		"id":"cs_1",
 		"customer":"cus_webhook",
 		"subscription":"sub_from_checkout",
@@ -350,7 +350,7 @@ func TestBilling_Cov_WebhookErrorsCheckoutEntitlementsAndAudits(t *testing.T) {
 	assert.Equal(t, "sub_from_checkout", gotSubscription.StripeSubscriptionID)
 	assert.Equal(t, BillingPlanPersonal, gotSubscription.PlanKey)
 
-	err = svc.handleStripeEvent(ctx, "evt_entitlements", "entitlements.active_entitlement_summary.updated", json.RawMessage(`{
+	err = svc.handleStripeEvent(ctx, "evt_entitlements", "entitlements.active_entitlement_summary.updated", time.Time{}, json.RawMessage(`{
 		"customer":"cus_webhook",
 		"active_entitlements":[
 			{"lookup_key":"beta"},
@@ -364,7 +364,7 @@ func TestBilling_Cov_WebhookErrorsCheckoutEntitlementsAndAudits(t *testing.T) {
 	require.Len(t, queries.entitlementUpserts, 2)
 	assert.Equal(t, []string{"beta", "priority"}, []string{queries.entitlementUpserts[0].FeatureKey, queries.entitlementUpserts[1].FeatureKey})
 
-	err = svc.handleStripeEvent(ctx, "evt_refund_refresh", "charge.refunded", json.RawMessage(`{"id":"ch_needs_refresh"}`))
+	err = svc.handleStripeEvent(ctx, "evt_refund_refresh", "charge.refunded", time.Time{}, json.RawMessage(`{"id":"ch_needs_refresh"}`))
 	require.NoError(t, err)
 	require.Len(t, queries.creditEntries, 1)
 	assert.Contains(t, queries.creditEntries[0].Reason, "3.33 EUR")

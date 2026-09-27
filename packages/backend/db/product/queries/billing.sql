@@ -305,7 +305,7 @@ WHERE billing_account_id = sqlc.arg(billing_account_id)
 
 
 -- name: ListAllActiveBillingAccounts :many
-SELECT id, owner_type, owner_id, stripe_customer_id, stripe_customer_email, stripe_customer_name, created_at, updated_at
+SELECT id, owner_type, owner_id, stripe_customer_id, stripe_customer_email, stripe_customer_name, created_at, updated_at, last_payment_reversed_at
 FROM billing_accounts
 ORDER BY id ASC;
 
@@ -471,13 +471,28 @@ SELECT (
 
 
 -- name: MarkBillingSubscriptionsPaymentReversed :execrows
+-- A reversal suspends only live subscriptions whose latest settled payment
+-- does not postdate it; the latest reversal wins.
 UPDATE billing_subscriptions
-SET payment_reversed_at = sqlc.arg(reversed_at)
+SET payment_reversed_at = GREATEST(payment_reversed_at, sqlc.arg(reversed_at))
 WHERE billing_account_id = sqlc.arg(billing_account_id)
-  AND status IN ('trialing', 'active', 'past_due');
+  AND status IN ('trialing', 'active', 'past_due')
+  AND (payment_settled_at IS NULL OR payment_settled_at <= sqlc.arg(reversed_at));
 
--- name: ClearBillingSubscriptionPaymentReversed :exec
+-- name: RecordBillingAccountPaymentReversal :exec
+UPDATE billing_accounts
+SET last_payment_reversed_at = GREATEST(last_payment_reversed_at, sqlc.arg(reversed_at))
+WHERE id = sqlc.arg(billing_account_id);
+
+-- name: SettleBillingSubscriptionPayment :one
+-- A payment restores a suspended subscription only when it settled after the
+-- reversal.
 UPDATE billing_subscriptions
-SET payment_reversed_at = NULL
+SET payment_settled_at = GREATEST(payment_settled_at, sqlc.arg(settled_at)),
+    payment_reversed_at = CASE
+        WHEN payment_reversed_at < sqlc.arg(settled_at) THEN NULL
+        ELSE payment_reversed_at
+    END
 WHERE billing_account_id = sqlc.arg(billing_account_id)
-  AND stripe_subscription_id = sqlc.arg(stripe_subscription_id);
+  AND stripe_subscription_id = sqlc.arg(stripe_subscription_id)
+RETURNING *;

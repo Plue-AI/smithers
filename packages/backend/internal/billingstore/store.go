@@ -26,7 +26,8 @@ type Querier interface {
 	ListBillingSubscriptionsByAccount(ctx context.Context, billingAccountID int64) ([]db.BillingSubscription, error)
 	UpsertBillingSubscription(ctx context.Context, arg db.UpsertBillingSubscriptionParams) (db.BillingSubscription, error)
 	MarkBillingSubscriptionsPaymentReversed(ctx context.Context, arg db.MarkBillingSubscriptionsPaymentReversedParams) (int64, error)
-	ClearBillingSubscriptionPaymentReversed(ctx context.Context, arg db.ClearBillingSubscriptionPaymentReversedParams) error
+	RecordBillingAccountPaymentReversal(ctx context.Context, arg db.RecordBillingAccountPaymentReversalParams) error
+	SettleBillingSubscriptionPayment(ctx context.Context, arg db.SettleBillingSubscriptionPaymentParams) (db.BillingSubscription, error)
 	DeactivateBillingEntitlementsByAccount(ctx context.Context, billingAccountID int64) error
 	UpsertBillingEntitlement(ctx context.Context, arg db.UpsertBillingEntitlementParams) (db.BillingEntitlement, error)
 	ListBillingEntitlementsByAccount(ctx context.Context, billingAccountID int64) ([]db.BillingEntitlement, error)

@@ -208,14 +208,15 @@ type AuthSession struct {
 }
 
 type BillingAccount struct {
-	ID                  int64     `json:"id"`
-	OwnerType           string    `json:"owner_type"`
-	OwnerID             int64     `json:"owner_id"`
-	StripeCustomerID    string    `json:"stripe_customer_id"`
-	StripeCustomerEmail string    `json:"stripe_customer_email"`
-	StripeCustomerName  string    `json:"stripe_customer_name"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	ID                    int64              `json:"id"`
+	OwnerType             string             `json:"owner_type"`
+	OwnerID               int64              `json:"owner_id"`
+	StripeCustomerID      string             `json:"stripe_customer_id"`
+	StripeCustomerEmail   string             `json:"stripe_customer_email"`
+	StripeCustomerName    string             `json:"stripe_customer_name"`
+	CreatedAt             time.Time          `json:"created_at"`
+	UpdatedAt             time.Time          `json:"updated_at"`
+	LastPaymentReversedAt pgtype.Timestamptz `json:"last_payment_reversed_at"`
 }
 
 type BillingCreditLedger struct {
@@ -259,6 +260,7 @@ type BillingSubscription struct {
 	CreatedAt            time.Time          `json:"created_at"`
 	UpdatedAt            time.Time          `json:"updated_at"`
 	PaymentReversedAt    pgtype.Timestamptz `json:"payment_reversed_at"`
+	PaymentSettledAt     pgtype.Timestamptz `json:"payment_settled_at"`
 }
 
 type BillingUsageCounter struct {

@@ -24,7 +24,6 @@ import (
 
 type billingQuerierMock struct {
 	paymentReversals          []int64
-	paymentRestores           []string
 	countActiveSandboxesFn    func(context.Context, int64) (int, error)
 	countOtherSandboxResumeFn func(context.Context, db.CountOtherActiveSandboxesForWorkspaceResumeParams) (db.CountOtherActiveSandboxesForWorkspaceResumeRow, error)
 	countActiveAgentsFn       func(context.Context, int64) (int64, error)
@@ -202,9 +201,25 @@ func (m *billingQuerierMock) MarkBillingSubscriptionsPaymentReversed(_ context.C
 	return 1, nil
 }
 
-func (m *billingQuerierMock) ClearBillingSubscriptionPaymentReversed(_ context.Context, arg db.ClearBillingSubscriptionPaymentReversedParams) error {
-	m.paymentRestores = append(m.paymentRestores, arg.StripeSubscriptionID)
+func (m *billingQuerierMock) RecordBillingAccountPaymentReversal(context.Context, db.RecordBillingAccountPaymentReversalParams) error {
 	return nil
+}
+
+func (m *billingQuerierMock) SettleBillingSubscriptionPayment(ctx context.Context, arg db.SettleBillingSubscriptionPaymentParams) (db.BillingSubscription, error) {
+	rows, err := m.ListBillingSubscriptionsByAccount(ctx, arg.BillingAccountID)
+	if err != nil {
+		return db.BillingSubscription{}, err
+	}
+	for _, row := range rows {
+		if row.StripeSubscriptionID == arg.StripeSubscriptionID {
+			row.PaymentSettledAt = arg.SettledAt
+			if row.PaymentReversedAt.Valid && row.PaymentReversedAt.Time.Before(arg.SettledAt.Time) {
+				row.PaymentReversedAt = pgtype.Timestamptz{}
+			}
+			return row, nil
+		}
+	}
+	return db.BillingSubscription{}, pgx.ErrNoRows
 }
 
 func (m *billingQuerierMock) DeactivateBillingEntitlementsByAccount(context.Context, int64) error {
@@ -1638,8 +1653,8 @@ func (m *billingQuerierMock) SumSandboxAwakeSecondsForUserSince(ctx context.Cont
 func TestStripeWebhookEventsAreHandled(t *testing.T) {
 	svc := NewBillingService(newBillingQuerierMock(), nil, BillingServiceConfig{})
 	for _, event := range StripeWebhookEvents {
-		err := svc.handleStripeEvent(context.Background(), "evt_1", event, json.RawMessage(`"not an object"`))
+		err := svc.handleStripeEvent(context.Background(), "evt_1", event, time.Time{}, json.RawMessage(`"not an object"`))
 		assert.Equal(t, 400, httpStatus(err), event)
 	}
-	assert.NoError(t, svc.handleStripeEvent(context.Background(), "evt_1", "invoice.created", json.RawMessage(`"x"`)))
+	assert.NoError(t, svc.handleStripeEvent(context.Background(), "evt_1", "invoice.created", time.Time{}, json.RawMessage(`"x"`)))
 }

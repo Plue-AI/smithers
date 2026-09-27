@@ -26,8 +26,8 @@ import (
 //   - Unspent plan credit is forfeited when the account has no active or
 //     trialing subscription, and on a refund or dispute. A refund or dispute
 //     also suspends the account's paid entitlements
-//     (billing_subscriptions.payment_reversed_at) until a later invoice is
-//     paid (plue 0511eb46e).
+//     (billing_subscriptions.payment_reversed_at) until an invoice settled
+//     after it is paid (plue 0511eb46e, smithersai/smithers#2175).
 //
 // Calendar-month grants (monthly_grant:YYYY-MM) issued before this rule are
 // left as they are.
@@ -106,7 +106,11 @@ type stripeInvoicePaidPayload struct {
 	AmountPaid   int64  `json:"amount_paid"`
 	Currency     string `json:"currency"`
 	Subscription string `json:"subscription"`
-	Parent       struct {
+	// StatusTransitions.PaidAt is when the invoice settled.
+	StatusTransitions struct {
+		PaidAt int64 `json:"paid_at"`
+	} `json:"status_transitions"`
+	Parent struct {
 		SubscriptionDetails struct {
 			Subscription string `json:"subscription"`
 		} `json:"subscription_details"`
@@ -139,10 +143,10 @@ func (p stripeInvoicePaidPayload) periodEnd() time.Time {
 	return end
 }
 
-// handleInvoicePaid grants the plan credit a paid subscription invoice buys.
-// A failure returns an error so Stripe redelivers; the grant is idempotent
-// per invoice id.
-func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeInvoicePaidPayload) error {
+// handleInvoicePaid records the settled payment and grants the plan credit a
+// paid subscription invoice buys. A failure returns an error so Stripe
+// redelivers; the grant is idempotent per invoice id.
+func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeInvoicePaidPayload, occurred time.Time) error {
 	subscriptionID := invoice.subscriptionID()
 	invoiceID := strings.TrimSpace(invoice.ID)
 	if subscriptionID == "" || invoiceID == "" || invoice.AmountPaid <= 0 {
@@ -192,32 +196,64 @@ func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeIn
 		// Not projected yet; fail so Stripe retries after the subscription event.
 		return pkgerrors.Internal("paid invoice " + invoiceID + " references unknown subscription " + subscriptionID)
 	}
-	if subscription.PaymentReversedAt.Valid {
-		// A later paid invoice restores the subscription a refund or dispute
-		// suspended.
-		if err := s.queries.ClearBillingSubscriptionPaymentReversed(ctx, db.ClearBillingSubscriptionPaymentReversedParams{
-			BillingAccountID: account.ID, StripeSubscriptionID: subscriptionID,
-		}); err != nil {
-			return pkgerrors.Internal("failed to restore paid subscription").WithCause(err)
-		}
-		subscription.PaymentReversedAt = pgtype.Timestamptz{}
+	// Only a payment settled after a refund or dispute restores the
+	// subscription it suspended; a late retry of an earlier (possibly the
+	// refunded) invoice leaves it suspended and grants nothing.
+	// A payment with no settlement time is recorded as settled at no known
+	// time: it restores nothing and grants nothing after a reversal.
+	settledAt := unixToTime(invoice.StatusTransitions.PaidAt)
+	if settledAt.IsZero() {
+		settledAt = occurred
 	}
-	return s.grantInvoiceCredit(ctx, *account, subscription, invoice)
+	settled, err := s.queries.SettleBillingSubscriptionPayment(ctx, db.SettleBillingSubscriptionPaymentParams{
+		SettledAt:        pgtype.Timestamptz{Time: settledAt, Valid: !settledAt.IsZero()},
+		BillingAccountID: account.ID, StripeSubscriptionID: subscriptionID,
+	})
+	if err != nil {
+		return pkgerrors.Internal("failed to record settled subscription payment").WithCause(err)
+	}
+	if reversed := account.LastPaymentReversedAt; reversed.Valid && !settledAt.After(reversed.Time) {
+		// Settled before a refund or dispute (possibly the refunded invoice
+		// itself, retried after a later invoice restored the plan).
+		slog.Info("paid invoice settled before a payment reversal; no plan credit granted", "invoice_id", invoiceID, "billing_account_id", account.ID)
+		return nil
+	}
+	return s.grantInvoiceCredit(ctx, *account, &settled, invoice)
 }
 
 // reversePayment handles a refund or dispute: the unspent plan credit is
 // forfeited and the account's live subscriptions lose paid entitlements until
-// a later invoice is paid.
-func (s *BillingService) reversePayment(ctx context.Context, account db.BillingAccount, reason string) error {
-	if err := s.forfeitPlanCredit(ctx, account, reason); err != nil {
-		return err
-	}
-	if _, err := s.queries.MarkBillingSubscriptionsPaymentReversed(ctx, db.MarkBillingSubscriptionsPaymentReversedParams{
-		ReversedAt: pgtype.Timestamptz{Time: s.now(), Valid: true}, BillingAccountID: account.ID,
+// an invoice settled after the reversal is paid. A reversal older than a
+// subscription's latest settled payment does not suspend it.
+func (s *BillingService) reversePayment(ctx context.Context, account db.BillingAccount, reason string, occurred time.Time) error {
+	reversedAt := pgtype.Timestamptz{Time: s.eventTime(occurred), Valid: true}
+	if err := s.queries.RecordBillingAccountPaymentReversal(ctx, db.RecordBillingAccountPaymentReversalParams{
+		ReversedAt: reversedAt, BillingAccountID: account.ID,
 	}); err != nil {
+		return pkgerrors.Internal("failed to record payment reversal").WithCause(err)
+	}
+	suspended, err := s.queries.MarkBillingSubscriptionsPaymentReversed(ctx, db.MarkBillingSubscriptionsPaymentReversedParams{
+		ReversedAt: reversedAt, BillingAccountID: account.ID,
+	})
+	if err != nil {
 		return pkgerrors.Internal("failed to suspend reversed subscription").WithCause(err)
 	}
-	return nil
+	if suspended == 0 {
+		// No live subscription, or a later payment settled: the credit that
+		// payment bought stays. A lapsed subscription's credit was forfeited
+		// when it lapsed.
+		return nil
+	}
+	return s.forfeitPlanCredit(ctx, account, reason)
+}
+
+// eventTime is when a Stripe event happened, or now when the payload has no
+// creation time.
+func (s *BillingService) eventTime(occurred time.Time) time.Time {
+	if occurred.IsZero() {
+		return s.now()
+	}
+	return occurred
 }
 
 // OwnerHasPaidPlan reports whether an owner's latest live subscription grants

@@ -41,8 +41,12 @@ func TestPlanCreditFollowsPaidInvoices(t *testing.T) {
 	api, err := commerce.New(pool, transport, commerce.Config{Usage: admission.ProductUsage, Prices: admission.Prices{ProMonthly: "price_pro"},
 		WebhookSecret: secret, MonthlyCreditGrantCents: 5000, SignupCreditGrantCents: 1000})
 	require.NoError(t, err)
+	// Stripe stamps every event with its creation time; each delivery here
+	// happens a minute after the previous one.
+	clock := time.Now().Add(-time.Hour)
 	deliver := func(event, kind, object string) {
-		payload := []byte(fmt.Sprintf(`{"id":%q,"type":%q,"data":{"object":%s}}`, event, kind, object))
+		clock = clock.Add(time.Minute)
+		payload := []byte(fmt.Sprintf(`{"id":%q,"type":%q,"created":%d,"data":{"object":%s}}`, event, kind, clock.Unix(), object))
 		now := time.Now().Unix()
 		mac := hmac.New(sha256.New, []byte(secret))
 		fmt.Fprintf(mac, "%d.%s", now, payload)
@@ -114,5 +118,82 @@ func TestPlanCreditFollowsPaidInvoices(t *testing.T) {
 	// Cancellation forfeits that credit too.
 	transport.status = "canceled"
 	deliver("evt_canceled", "customer.subscription.updated", `{"id":"sub_plan","customer":"cus_plan"}`)
+	require.Equal(t, int64(1000), balance())
+}
+
+// Stripe delivers events out of order and retries failed ones for days, so a
+// refund or dispute only suspends payments settled before it, and only a
+// payment settled after it restores the plan, in either arrival order
+// (smithersai/smithers#2175).
+func TestPaymentReversalFollowsSettlementOrder(t *testing.T) {
+	pool := database(t)
+	ctx := context.Background()
+	owner := user(t, pool)
+	end := time.Now().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	transport := &subscriptionTransport{owner: owner, status: "active", end: end}
+	const secret = "test-only-plan-credit-secret"
+	api, err := commerce.New(pool, transport, commerce.Config{Usage: admission.ProductUsage, Prices: admission.Prices{ProMonthly: "price_pro"},
+		WebhookSecret: secret, MonthlyCreditGrantCents: 5000, SignupCreditGrantCents: 1000})
+	require.NoError(t, err)
+	deliver := func(event, kind string, created time.Time, object string) {
+		payload := []byte(fmt.Sprintf(`{"id":%q,"type":%q,"created":%d,"data":{"object":%s}}`, event, kind, created.Unix(), object))
+		now := time.Now().Unix()
+		mac := hmac.New(sha256.New, []byte(secret))
+		fmt.Fprintf(mac, "%d.%s", now, payload)
+		require.NoError(t, api.HandleStripeWebhook(ctx, payload, fmt.Sprintf("t=%d,v1=%x", now, mac.Sum(nil))))
+	}
+	invoice := func(event, id string, paidAt time.Time) {
+		deliver(event, "invoice.paid", paidAt, fmt.Sprintf(`{"id":%q,"customer":"cus_plan","amount_paid":5000,"currency":"usd",
+			"status_transitions":{"paid_at":%d},"parent":{"subscription_details":{"subscription":"sub_plan"}},
+			"lines":{"data":[{"period":{"start":%d,"end":%d}}]}}`, id, paidAt.Unix(), paidAt.Unix(), end.Unix()))
+	}
+	refund := func(event string, at time.Time) {
+		deliver(event, "charge.refunded", at, `{"id":"ch_1","customer":"cus_plan","amount_refunded":5000,"currency":"usd"}`)
+	}
+	balance := func() int64 {
+		n, err := api.CreditLedger().OwnerBalance(ctx, "user", owner)
+		require.NoError(t, err)
+		return n / credits.NanosPerCent
+	}
+	paid := func() bool {
+		ok, err := api.OwnerHasPaidPlan(ctx, "user", owner)
+		require.NoError(t, err)
+		return ok
+	}
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
+
+	invoice("evt_in1", "in_1", base)
+	require.Equal(t, int64(6000), balance())
+
+	// in_2 was paid, its first delivery failed, and it was refunded before
+	// Stripe's retry arrived: the retry neither restores nor grants.
+	refund("evt_refund_in2", base.Add(20*time.Minute))
+	require.False(t, paid())
+	invoice("evt_in2_retry", "in_2", base.Add(10*time.Minute))
+	require.False(t, paid(), "a payment settled before the refund does not restore the plan")
+	require.Equal(t, int64(1000), balance(), "a refunded invoice grants no credit")
+
+	// A payment settled after the refund restores the plan and grants.
+	invoice("evt_in3", "in_3", base.Add(30*time.Minute))
+	require.True(t, paid())
+	require.Equal(t, int64(6000), balance())
+
+	// A refund issued before in_3 settled but delivered after it does not
+	// suspend the plan in_3 paid for.
+	refund("evt_refund_late", base.Add(25*time.Minute))
+	require.True(t, paid(), "a reversal older than the latest settled payment does not suspend")
+	require.Equal(t, int64(6000), balance(), "nor forfeit the credit that payment bought")
+
+	// An invoice settled before a reversal grants nothing even after a later
+	// payment restored the plan.
+	invoice("evt_in2b_retry", "in_2b", base.Add(15*time.Minute))
+	require.Equal(t, int64(6000), balance())
+
+	// A payment with no settlement time restores nothing.
+	refund("evt_refund_in3", base.Add(40*time.Minute))
+	require.False(t, paid())
+	deliver("evt_untimed", "invoice.paid", time.Time{}, fmt.Sprintf(`{"id":"in_untimed","customer":"cus_plan","amount_paid":5000,
+		"currency":"usd","parent":{"subscription_details":{"subscription":"sub_plan"}},"lines":{"data":[{"period":{"end":%d}}]}}`, end.Unix()))
+	require.False(t, paid())
 	require.Equal(t, int64(1000), balance())
 }

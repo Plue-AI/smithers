@@ -35,7 +35,8 @@ func TestIssueChatSyncUpgradeFromMain(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(f) ORDER BY sequence)::text FROM issue_state_facts f`).Scan(&before))
 	pending, err := Status(ctx, pool)
 	require.NoError(t, err)
-	require.Equal(t, []int{39, 40}, pending)
+	require.GreaterOrEqual(t, len(pending), 2)
+	require.Equal(t, []int{39, 40}, pending[:2], "later migrations may follow")
 	require.NoError(t, Apply(ctx, pool))
 	require.NoError(t, Apply(ctx, pool)) // Restart reuses the same migration ledger.
 	var after, kind, body, persona, key string

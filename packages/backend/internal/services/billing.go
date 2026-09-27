@@ -675,9 +675,10 @@ func (s *BillingService) HandleStripeWebhook(ctx context.Context, payload []byte
 		return pkgerrors.BadRequest("stripe billing webhooks are not configured")
 	}
 	var event struct {
-		ID   string `json:"id"`
-		Type string `json:"type"`
-		Data struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Created int64  `json:"created"`
+		Data    struct {
 			Raw json.RawMessage `json:"object"`
 		} `json:"data"`
 	}
@@ -689,8 +690,9 @@ func (s *BillingService) HandleStripeWebhook(ctx context.Context, payload []byte
 	if eventID == "" {
 		return pkgerrors.BadRequest("stripe webhook event id is required")
 	}
+	occurred := unixToTime(event.Created)
 	if txq, ok := s.queries.(billingTxQuerier); ok {
-		return s.processStripeEventTx(ctx, txq, eventID, event.Type, event.Data.Raw)
+		return s.processStripeEventTx(ctx, txq, eventID, event.Type, occurred, event.Data.Raw)
 	}
 	// Non-transactional querier (test fakes): claim first, then release the
 	// claim if processing fails so Stripe's retry can reprocess the event.
@@ -701,7 +703,7 @@ func (s *BillingService) HandleStripeWebhook(ctx context.Context, payload []byte
 	if !claimed {
 		return nil
 	}
-	if err := s.handleStripeEvent(ctx, eventID, event.Type, event.Data.Raw); err != nil {
+	if err := s.handleStripeEvent(ctx, eventID, event.Type, occurred, event.Data.Raw); err != nil {
 		_ = s.queries.DeleteStripeProcessedEvent(context.Background(), eventID)
 		return err
 	}
@@ -749,7 +751,7 @@ func (s *BillingService) inTransaction(conn db.DBTX) (*BillingService, error) {
 // together, or none do. A concurrent duplicate delivery blocks on the claim
 // row insert and observes this transaction's outcome — skip after commit,
 // reprocess after rollback.
-func (s *BillingService) processStripeEventTx(ctx context.Context, txq billingTxQuerier, eventID, eventType string, raw json.RawMessage) error {
+func (s *BillingService) processStripeEventTx(ctx context.Context, txq billingTxQuerier, eventID, eventType string, occurred time.Time, raw json.RawMessage) error {
 	tx, err := txq.BeginTx(ctx)
 	if err != nil {
 		return pkgerrors.Internal("failed to begin stripe webhook transaction").WithCause(err)
@@ -766,7 +768,7 @@ func (s *BillingService) processStripeEventTx(ctx context.Context, txq billingTx
 	if !claimed {
 		return nil
 	}
-	if err := txService.handleStripeEvent(ctx, eventID, eventType, raw); err != nil {
+	if err := txService.handleStripeEvent(ctx, eventID, eventType, occurred, raw); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -775,7 +777,10 @@ func (s *BillingService) processStripeEventTx(ctx context.Context, txq billingTx
 	return nil
 }
 
-func (s *BillingService) handleStripeEvent(ctx context.Context, eventID string, eventType string, raw json.RawMessage) error {
+// handleStripeEvent applies one event. occurred is when Stripe created it
+// (zero when unknown); settlement ordering relies on it because Stripe
+// delivers events out of order.
+func (s *BillingService) handleStripeEvent(ctx context.Context, eventID string, eventType string, occurred time.Time, raw json.RawMessage) error {
 	switch eventType {
 	case "checkout.session.completed":
 		var session stripeCheckoutSessionPayload
@@ -800,7 +805,7 @@ func (s *BillingService) handleStripeEvent(ctx context.Context, eventID string, 
 		if err := json.Unmarshal(raw, &invoice); err != nil {
 			return pkgerrors.BadRequest("invalid invoice.paid payload")
 		}
-		return s.handleInvoicePaid(ctx, invoice)
+		return s.handleInvoicePaid(ctx, invoice, occurred)
 	case "invoice.payment_failed":
 		var invoice stripeInvoicePaymentFailedPayload
 		if err := json.Unmarshal(raw, &invoice); err != nil {
@@ -818,13 +823,13 @@ func (s *BillingService) handleStripeEvent(ctx context.Context, eventID string, 
 		if err := json.Unmarshal(raw, &charge); err != nil {
 			return pkgerrors.BadRequest("invalid charge.refunded payload")
 		}
-		return s.handleChargeRefunded(ctx, eventID, charge)
+		return s.handleChargeRefunded(ctx, eventID, occurred, charge)
 	case "charge.dispute.created":
 		var dispute stripeDisputePayload
 		if err := json.Unmarshal(raw, &dispute); err != nil {
 			return pkgerrors.BadRequest("invalid charge.dispute.created payload")
 		}
-		return s.handleChargeDisputeCreated(ctx, eventID, dispute)
+		return s.handleChargeDisputeCreated(ctx, eventID, occurred, dispute)
 	case "entitlements.active_entitlement_summary.updated":
 		var summary stripeEntitlementSummaryPayload
 		if err := json.Unmarshal(raw, &summary); err != nil {
@@ -1976,7 +1981,7 @@ func (s *BillingService) handleCustomerUpdated(ctx context.Context, payload stri
 	return err
 }
 
-func (s *BillingService) handleChargeRefunded(ctx context.Context, eventID string, payload stripeChargePayload) error {
+func (s *BillingService) handleChargeRefunded(ctx context.Context, eventID string, occurred time.Time, payload stripeChargePayload) error {
 	customerID := strings.TrimSpace(payload.Customer)
 	if customerID == "" && s.stripe != nil && strings.TrimSpace(payload.ID) != "" {
 		charge, err := s.stripe.GetCharge(ctx, payload.ID)
@@ -1996,13 +2001,13 @@ func (s *BillingService) handleChargeRefunded(ctx context.Context, eventID strin
 		return err
 	}
 	reason := fmt.Sprintf("Stripe charge refunded: %s (%s)", strings.TrimSpace(payload.ID), formatMoneyCents(payload.AmountRefunded, payload.Currency))
-	if err := s.reversePayment(ctx, *account, reason); err != nil {
+	if err := s.reversePayment(ctx, *account, reason, occurred); err != nil {
 		return err
 	}
 	return s.recordStripeCreditAudit(ctx, *account, eventID, "refund", "stripe_charge", reason)
 }
 
-func (s *BillingService) handleChargeDisputeCreated(ctx context.Context, eventID string, payload stripeDisputePayload) error {
+func (s *BillingService) handleChargeDisputeCreated(ctx context.Context, eventID string, occurred time.Time, payload stripeDisputePayload) error {
 	customerID := ""
 	if s.stripe != nil && strings.TrimSpace(payload.Charge) != "" {
 		charge, err := s.stripe.GetCharge(ctx, payload.Charge)
@@ -2023,7 +2028,7 @@ func (s *BillingService) handleChargeDisputeCreated(ctx context.Context, eventID
 		strings.TrimSpace(payload.Status),
 		formatMoneyCents(payload.Amount, payload.Currency),
 	)
-	if err := s.reversePayment(ctx, *account, reason); err != nil {
+	if err := s.reversePayment(ctx, *account, reason, occurred); err != nil {
 		return err
 	}
 	return s.recordStripeCreditAudit(ctx, *account, eventID, "adjustment", "stripe_dispute", reason)

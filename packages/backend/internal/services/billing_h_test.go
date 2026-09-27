@@ -498,7 +498,7 @@ func TestBilling_H_WebhookDispatchInvalidPayloadsAndClaims(t *testing.T) {
 		"entitlements.active_entitlement_summary.updated",
 	} {
 		t.Run(strings.ReplaceAll(eventType, ".", "_"), func(t *testing.T) {
-			err := svc.handleStripeEvent(ctx, "evt_invalid_h", eventType, json.RawMessage(`{`))
+			err := svc.handleStripeEvent(ctx, "evt_invalid_h", eventType, time.Time{}, json.RawMessage(`{`))
 			assert.Equal(t, 400, httpStatus(err))
 		})
 	}
@@ -627,17 +627,17 @@ func TestBilling_H_WebhookHandlerErrorBranches(t *testing.T) {
 	refundStripeErrClient.getChargeFn = func(context.Context, string) (StripeChargeSnapshot, error) {
 		return StripeChargeSnapshot{}, errors.New("stripe charge failed")
 	}
-	err = billingHService(billingHNewQuerier(), refundStripeErrClient).handleChargeRefunded(ctx, "evt_refund_h", stripeChargePayload{ID: "ch_h"})
+	err = billingHService(billingHNewQuerier(), refundStripeErrClient).handleChargeRefunded(ctx, "evt_refund_h", time.Time{}, stripeChargePayload{ID: "ch_h"})
 	assert.Equal(t, 500, httpStatus(err))
-	require.NoError(t, billingHService(billingHNewQuerier(), nil).handleChargeRefunded(ctx, "evt_refund_missing_h", stripeChargePayload{Customer: "cus_missing"}))
+	require.NoError(t, billingHService(billingHNewQuerier(), nil).handleChargeRefunded(ctx, "evt_refund_missing_h", time.Time{}, stripeChargePayload{Customer: "cus_missing"}))
 
 	disputeStripeErrClient := billingHStripeClient()
 	disputeStripeErrClient.getChargeFn = func(context.Context, string) (StripeChargeSnapshot, error) {
 		return StripeChargeSnapshot{}, errors.New("stripe charge failed")
 	}
-	err = billingHService(billingHNewQuerier(), disputeStripeErrClient).handleChargeDisputeCreated(ctx, "evt_dispute_h", stripeDisputePayload{Charge: "ch_h"})
+	err = billingHService(billingHNewQuerier(), disputeStripeErrClient).handleChargeDisputeCreated(ctx, "evt_dispute_h", time.Time{}, stripeDisputePayload{Charge: "ch_h"})
 	assert.Equal(t, 500, httpStatus(err))
-	require.NoError(t, billingHService(billingHNewQuerier(), nil).handleChargeDisputeCreated(ctx, "evt_dispute_missing_h", stripeDisputePayload{}))
+	require.NoError(t, billingHService(billingHNewQuerier(), nil).handleChargeDisputeCreated(ctx, "evt_dispute_missing_h", time.Time{}, stripeDisputePayload{}))
 
 	entitlementFindErrQueries := billingHNewQuerier()
 	entitlementFindErrQueries.getBillingAccountByStripeCustomerFn = func(context.Context, string) (db.BillingAccount, error) {
