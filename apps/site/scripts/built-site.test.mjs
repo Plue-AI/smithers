@@ -278,7 +278,7 @@ test("coming-soon sign-in must start OAuth and return to that repository page", 
 })
 
 test("registration prose opens the app or starts sign-in instead of the marketing page", () => {
-  for (const path of ["docs/pricing.mdx", "docs/app/repositories.mdx"]) {
+  for (const path of ["docs/pricing.mdx", "docs/learn/open-a-repository.mdx"]) {
     const source = readFileSync(new URL(`../src/content/docs/${path}`, import.meta.url), "utf8")
     const registration = source.split("\n").find(line => /sign in (?:with GitHub on|to) \[/i.test(line))
     assert.ok(registration, path)

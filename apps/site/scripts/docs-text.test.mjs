@@ -3,18 +3,18 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { docsText } from "./docs-text.mjs"
 
-test("Dispatcher documents reviewed registration and keeps the local scheduler distinct", () => {
-  const source = readFileSync(new URL("../src/content/docs/docs/app/dispatcher.mdx", import.meta.url), "utf8")
+test("the schedule tutorial documents reviewed registration and keeps the local scheduler distinct", () => {
+  const source = readFileSync(new URL("../src/content/docs/docs/learn/agent-and-trigger.mdx", import.meta.url), "utf8")
   const flows = readFileSync(new URL("../../app/src/mainview/flows/entries/triggers.ts", import.meta.url), "utf8")
   assert.match(flows, /name: "triggers\.approve"[\s\S]*?userOnly: true/)
   assert.doesNotMatch(source, /always refuses registration|cannot be registered.*from here yet/)
-  assert.match(source, /Only the human can approve/)
-  assert.match(source, /token and time limits/)
+  assert.match(source, /Read the plan and approve it/)
+  assert.match(source, /token and time budget/)
   assert.match(source, /Run now/)
   assert.match(source, /Pause/)
-  assert.match(source, /accepting the request does not mean the schedule is registered/)
+  assert.match(source, /until it is live/)
   assert.ok(source.includes('"schedule:0 9 * * 1-5"'))
-  assert.ok(source.includes('smthrs triggers register nightly-lint --flow lint --cron "0 9 * * 1-5"'))
+  assert.ok(source.includes('smthrs triggers register weekday-review --flow reviewer --cron "0 9 * * 1-5"'))
   assert.ok(source.includes("/docs/guides/triggers/"))
 })
 
