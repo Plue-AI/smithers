@@ -10113,6 +10113,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/rpc/src/SubagentCard.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/rpc/src/TargetGraph.ts"
       },
       {
