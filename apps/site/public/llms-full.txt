@@ -503,7 +503,7 @@ When a change lands, Smithers regenerates the pages it affects, reviews each aga
 # Agents
 https://smithers.sh/docs/how-it-works/agents/
 
-An **agent** is a file in your repository: `flows/<id>/flow.mdx`, or `flows/<id>/SKILL.md`. An agent profile is a flow, so everything that runs flows runs agents. The front matter sets the model, what the agent may do, and its budget. The body is its instructions.
+An **agent** is a file in your repository: `flows/<id>/flow.mdx`, or `flows/<id>/SKILL.md`. An agent is a flow, so everything that runs flows runs agents. The front matter sets the model, what the agent may do, and its budget. The body is its instructions.
 
 ## Write one
 
@@ -1413,7 +1413,7 @@ smthrs tui -p "Explain this repository." --model openai:gpt-6-sol
 
 **Available now.** Set `effort:` in the agent's file.
 
-Support varies by provider. See [Model seats](/docs/guides/model-seats/) for providers and keys.
+Support varies by provider. See [Configure models and providers](/docs/guides/model-seats/) for providers and keys.
 
 ---
 
@@ -1866,7 +1866,7 @@ Not applicable: start the TUI in any checkout.
 # Work in a box
 https://smithers.sh/docs/learn/boxes/
 
-A box is where Smithers works on a repository in the cloud: the working copy, terminals, agent sessions, and services.
+A box is where Smithers works on a repository in the cloud: the working copy, terminals, agents at work, and services.
 
 ## Open a box
 
