@@ -423,7 +423,7 @@ export const test = selectedBase.extend<RealFixtures>({
     const request = page.context().request
     const rendererBaseURL = new URL(testInfo.project.use.baseURL ?? page.url())
     const baseURL = new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? rendererBaseURL)
-    const html = await request.get(new URL(appEntryPath(), rendererBaseURL).toString())
+    const html = await request.get(new URL(appEntryPath(), rendererBaseURL).toString(), { headers: { Accept: "text/html" } })
     if (!html.ok()) throw new Error(`Real host document preflight failed: HTTP ${html.status()}`)
     const token = /<meta\s+name=["']smithers-local-session["']\s+content=["']([^"']+)["']/i.exec(await html.text())?.[1]
     const authorization = applicationAuthorization()
