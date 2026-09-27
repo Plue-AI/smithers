@@ -26,6 +26,8 @@ export const workerToastActions = (card: Card | undefined, cards: ReadonlyArray<
     return actions
   }
   if (card.kind !== "run-trace") return actions
+  // A registration's one action is its card: the review belongs to the Smithers admin, not the registrant.
+  if (card.payload.workflow === "register-repository") return actions
   const { phase, runId } = card.payload
   const request = workflowLaunchOf(card)
   if (request && request.runId === undefined) {
