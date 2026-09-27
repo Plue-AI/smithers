@@ -200,6 +200,17 @@
       "reason": "Retains main's declared child-process environment policy."
     },
     {
+      "name": "@smthrs/kernel",
+      "subpath": "./Rooted",
+      "development": "./src/Rooted.ts",
+      "published": {
+        "types": "./dist/esm/Rooted.d.ts",
+        "import": "./dist/esm/Rooted.js",
+        "require": "./dist/cjs/Rooted.js"
+      },
+      "reason": "Binds filesystem, path and process services to one root so hosts serve a directory other than the process cwd; apps/tui/src/host.ts imports it (#2201)."
+    },
+    {
       "name": "@smthrs/std",
       "subpath": "./Relocate",
       "development": "./src/Relocate.ts",
