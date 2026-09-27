@@ -8,12 +8,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 // A person's current request-changes review blocks landing for everyone,
 // the landing's author and its runs included, until the same person later
-// approves, or someone allowed to dismiss it does (D-21, as on GitHub). An agent's
+// approves, or it is dismissed by that person or by a repository admin who
+// is not the landing's author (D-21, as on GitHub). An agent's
 // request-changes review (a run credential's) blocks no one.
 func TestChangesRequestedBlocksLandingPostgres(t *testing.T) {
 	commits := map[string]string{
@@ -21,6 +23,7 @@ func TestChangesRequestedBlocksLandingPostgres(t *testing.T) {
 		"approvedbbbbbbbb": "2222222222222222222222222222222222222222",
 		"commentedccccccc": "3333333333333333333333333333333333333333",
 		"dismissedddddddd": "4444444444444444444444444444444444444444",
+		"selfdismisseeeee": "5555555555555555555555555555555555555555",
 	}
 	f := newLandingGateFixture(t, commits)
 	write := string(middleware.ScopeWriteRepository)
@@ -28,6 +31,19 @@ func TestChangesRequestedBlocksLandingPostgres(t *testing.T) {
 	authorRun := f.token(f.owner, "cr-author-run", write, true)
 	reviewer := f.token(f.other, "cr-reviewer", write, false)
 	reviewerRun := f.token(f.other, "cr-reviewer-run", write, true)
+	collaborator := func(name, permission string) string {
+		t.Helper()
+		user, err := f.q.CreateUser(f.ctx, db.CreateUserParams{Username: name, LowerUsername: name, DisplayName: name})
+		require.NoError(t, err)
+		_, err = f.pool.Exec(f.ctx, `INSERT INTO collaborators (repository_id, user_id, permission) VALUES ($1, $2, $3)`, f.repoID, user.ID, permission)
+		require.NoError(t, err)
+		return f.token(user, name+"-token", write, false)
+	}
+	admin := collaborator("gate-admin", "admin")
+	writer := collaborator("gate-writer", "write")
+	bot := collaborator("gate-bot", "admin")
+	_, err := f.pool.Exec(f.ctx, `UPDATE users SET user_type = 'bot' WHERE lower_username = 'gate-bot'`)
+	require.NoError(t, err)
 
 	path := func(changeID string) (string, string) {
 		landing := f.landing(changeID, f.owner.ID, changeID)
@@ -84,15 +100,27 @@ func TestChangesRequestedBlocksLandingPostgres(t *testing.T) {
 	code, body = land(author, landing, commit)
 	assert.Equal(t, http.StatusAccepted, code, body)
 
-	// A person may dismiss it; a run credential may not.
+	// Only a repository admin other than the landing's author dismisses
+	// someone else's request: not the author (an admin here), not the
+	// author's run, not a writer, not the reviewer's run, not a bot admin.
 	landing, commit = path("dismissedddddddd")
 	id := review(reviewer, landing, "request_changes", commit)
 	dismiss := fmt.Sprintf("%s/reviews/%d", landing, id)
-	rec = f.serve(authorRun, http.MethodPatch, dismiss, `{"message":"done"}`)
-	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	for _, bearer := range []string{authorRun, author, writer, reviewerRun, bot} {
+		rec = f.serve(bearer, http.MethodPatch, dismiss, `{"message":"done"}`)
+		assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	}
 	code, body = land(author, landing, commit)
 	require.Equal(t, http.StatusUnprocessableEntity, code, body)
-	rec = f.serve(author, http.MethodPatch, dismiss, `{"message":"done"}`)
+	rec = f.serve(admin, http.MethodPatch, dismiss, `{"message":"done"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	code, body = land(author, landing, commit)
+	assert.Equal(t, http.StatusAccepted, code, body)
+
+	// The reviewer may dismiss their own request.
+	landing, commit = path("selfdismisseeeee")
+	id = review(reviewer, landing, "request_changes", commit)
+	rec = f.serve(reviewer, http.MethodPatch, fmt.Sprintf("%s/reviews/%d", landing, id), `{"message":"done"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	code, body = land(author, landing, commit)
 	assert.Equal(t, http.StatusAccepted, code, body)

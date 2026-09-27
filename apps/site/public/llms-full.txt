@@ -1722,7 +1722,7 @@ Checks, with example data.
 
 **Available now.** When checks and required reviews pass, select **Land**. Its label shows the range, such as **Land 1 → 2**; check it before confirming. If landing is blocked, the card says what's missing.
 
-A person's request for changes blocks landing until they approve, or someone dismisses the review. A later comment does not clear it. The card shows **changes requested by** that person and an **Ask** button to request their review again. An agent's request for changes does not block landing.
+A person's request for changes blocks landing until they approve, or they or a repository admin dismiss the review. A later comment does not clear it, and the change's author cannot dismiss it. The card shows **changes requested by** that person and an **Ask** button to request their review again. An agent's request for changes does not block landing.
 
 On a repository that sends work upstream, including Smithers itself, landing opens a GitHub pull request for the owner to merge.
 

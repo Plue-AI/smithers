@@ -62,7 +62,8 @@ verdict is a review row, never a human's approval.
   says `2 threads open`.
 - **Verdicts.** `review.approve` and `review.request-changes` are user-only
   flows; a person's current `request-changes` blocks landing for everyone
-  until that person approves later or the review is dismissed
+  until that person approves later or the review is dismissed (by that
+  person, or a repository admin who is not the author)
   (D-21); an agent's does not. The agent's LGTM arrives
   from `review.ask` as a `reviewer_kind: agent` row with verdict, confidence
   word, and one sentence. The gate may require one agent LGTM plus one human

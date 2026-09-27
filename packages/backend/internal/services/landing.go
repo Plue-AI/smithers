@@ -3067,6 +3067,24 @@ func (s *LandingService) DismissLandingReview(ctx context.Context, actor *db.Use
 			return db.LandingRequestReview{}, err
 		}
 	}
+	// A person's request for changes blocks landing (D-21). Its reviewer may
+	// dismiss it; otherwise only a repository admin (a person) who is not the
+	// landing's author may.
+	if review.ReviewerKind == "human" && review.Type == "request_changes" && review.ReviewerID.Int64 != actor.ID {
+		if landingRow.AuthorID == actor.ID {
+			return db.LandingRequestReview{}, pkgerrors.Forbidden("the landing's author cannot dismiss a request for changes")
+		}
+		if actor.UserType == "bot" || actor.UserType == "service" {
+			return db.LandingRequestReview{}, pkgerrors.Forbidden("only a person dismisses someone else's request for changes")
+		}
+		admin, err := canAdminRepo(ctx, s.queries, repository, actor.ID)
+		if err != nil {
+			return db.LandingRequestReview{}, err
+		}
+		if !admin {
+			return db.LandingRequestReview{}, pkgerrors.Forbidden("only a repository admin dismisses someone else's request for changes")
+		}
+	}
 
 	updated, err := s.queries.UpdateLandingRequestReviewState(ctx, db.UpdateLandingRequestReviewStateParams{
 		ID:    reviewID,
