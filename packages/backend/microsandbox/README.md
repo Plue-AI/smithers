@@ -36,6 +36,11 @@ the only thing `msb exec` runs:
   own port at guest `127.0.0.1`, the only destination the VM's network policy
   (`--no-net --net-rule allow@host:tcp:<port>`) allows.
 
+A managed host's program and every environment value naming a file under a
+`Config.Artifacts` directory (the packaged Flow host bundle and its Linux
+workspace helper) are copied into the guest, digest-checked, and rewritten to
+the guest path before the host starts; no host path reaches the guest.
+
 Every non-PTY `msb exec` uses `--stream`: without it stdin of a few MiB never
 arrives. Guests keep no credentials but task-scoped ones: the product's
 revoked-after-use clone token and the binding-scoped Flow and model-proxy
@@ -51,7 +56,12 @@ A workspace with a `Source` boots from content-addressed snapshots
 | toolchain | pinned image + the repository's declared pins, each against `reviewedDownloads` |
 | dependencies | toolchain key + the install nodes of `.smithers/target-index.json` (`Install`, `Go.ModDownload`, Cargo inputs, lockfile-built `NodeBinary` tools) and the content of their declared inputs, plus pnpm patches, hook and member manifests |
 
-Each key also covers the build script and network allowlist. Layers are built
+The layer's
+environment (`/opt/smithers/env.json`) also lands where each tool looks under
+the agent's home by default (`~/.config/go/env`, and links for the Playwright
+browsers, the Cargo and rustup homes, the pnpm store and cache, and dprint's
+cache), so a process that keeps only `PATH` and `HOME`, such as a coding host's
+least-authority tool, works offline too. Each key also covers the build script and network allowlist. Layers are built
 in prepare VMs with per-layer domain allowlists (CDN CNAME targets included:
 domain rules match the name a connection resolved through), verified in a
 fresh offline VM, and kept as APFS clones. Caches live outside the workspace

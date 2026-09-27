@@ -361,10 +361,54 @@ def setup(user, uid, directories):
             if not os.path.lexists(link):
                 os.symlink(os.path.join(TOOL_HOME, name), link)
                 os.lchown(link, entry.pw_uid, entry.pw_gid)
+    home_defaults(entry)
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
         os.chown(directory, entry.pw_uid, entry.pw_gid)
         os.chmod(directory, 0o755)
+
+
+# Where each tool looks under $HOME when its variable is unset. A process that
+# keeps only PATH and HOME (a Flow host's least-authority tool environment)
+# still finds the layer's caches and offline settings.
+HOME_LINKS = {
+    "PLAYWRIGHT_BROWSERS_PATH": ".cache/ms-playwright",
+    "DPRINT_CACHE_DIR": ".cache/dprint",
+    "CARGO_HOME": ".cargo",
+    "RUSTUP_HOME": ".rustup",
+    "pnpm_config_store_dir": ".local/share/pnpm/store",
+    "pnpm_config_cache_dir": ".cache/pnpm",
+}
+GO_SETTINGS = ("GOTOOLCHAIN", "GOPROXY", "GOFLAGS", "GOMODCACHE", "GOCACHE")
+
+
+def home_defaults(entry):
+    if not os.path.exists(ENV_FILE):
+        return
+    environment = base_environment()
+
+    def owned(path):
+        # Create the missing parents of path as the user's own directories.
+        directory = entry.pw_dir
+        for part in os.path.relpath(os.path.dirname(path), entry.pw_dir).split("/"):
+            directory = os.path.join(directory, part)
+            if not os.path.isdir(directory):
+                os.mkdir(directory, 0o755)
+                os.chown(directory, entry.pw_uid, entry.pw_gid)
+
+    for name, relative in HOME_LINKS.items():
+        target, link = environment.get(name), os.path.join(entry.pw_dir, relative)
+        if target and not os.path.lexists(link):
+            owned(link)
+            os.symlink(target, link)
+            os.lchown(link, entry.pw_uid, entry.pw_gid)
+    settings = ["%s=%s\n" % (name, environment[name]) for name in GO_SETTINGS if environment.get(name)]
+    if settings:
+        path = os.path.join(entry.pw_dir, ".config/go/env")
+        owned(path)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.writelines(settings)
+        os.chown(path, entry.pw_uid, entry.pw_gid)
 
 
 def main(args):
