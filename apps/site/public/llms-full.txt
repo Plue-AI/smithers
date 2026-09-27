@@ -33,9 +33,9 @@ Open [Smithers](https://smithers.sh/smithersai/smithers) in your browser. You do
 
 ## 1. Connect your account
 
-Select **Connect GitHub** or **Sign in with GitHub**, review the requested permissions, and return to Smithers. Complete the account fields if signup appears; its poll questions are optional. Select **Start Automating** when your workspace is ready.
+Select **Connect GitHub** or **Sign in with GitHub**, review the requested permissions, and return to Smithers. Select **Start Automating** when your workspace is ready.
 
-The setup checklist follows three steps: **Connect GitHub**, **Add a repository**, and **Set up a job**. A step completes from the actual account, repository, or registration state.
+The setup checklist follows three steps: **Connect GitHub**, **Add a repository**, and **Set up a job**.
 
 ## 2. Choose a repository
 
@@ -64,7 +64,7 @@ Read the response and inspect the referenced files. Complete any access step the
 
 ## 4. Set up a job
 
-Select **Set up a job**, or a recommended repository job. Review its configuration and proposed plan before approving registration. Follow the run card and background toast until registration finishes. The checklist does not complete merely because you pressed the button.
+Select **Set up a job**, or a recommended repository job. Review its configuration and proposed plan before approving registration. Follow the run card and background toast until registration finishes.
 
 The repository's job buttons remain available after setup and show their current state. Use [Dispatcher](/docs/learn/agent-and-trigger/#put-it-on-a-schedule) to inspect declarations and live registrations, prepare a schedule, or run an enabled registration now.
 
@@ -77,7 +77,7 @@ Update the contribution guide's stale setup instruction to match the current
 package scripts. Run the documentation checks and show me the diff.
 ```
 
-Chat remains usable while background work runs. A request acknowledgment means the work was requested; inspect the run's status and output to learn whether it started or completed. Use **Steer** on the run for a correction. During the current chat turn, Enter steers and Alt-Enter queues a follow-up.
+Chat stays usable while work runs. Use **Steer** on the run for a correction. During the current chat turn, Enter steers and Alt-Enter queues a follow-up.
 
 Read the resulting Change's **Diff**, **Checks**, and **Review**. For issue work on the repository's mythical stack, use `/stack.show` to inspect its lane and pull request. On send-upstream repositories, including Smithers, the owner merges the GitHub PR. Verify the resulting main commit before treating it as landed.
 
