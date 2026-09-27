@@ -56,22 +56,17 @@ embedding the surface in a process of your own.
 
 ## Install
 
-```bash
-pnpm add @smthrs/gateway@1.0.0-rc.0
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-Name the version: these pages describe 1.0.0-rc.0, and until that release
-candidate reaches the registry the unqualified package name still resolves to
-the 0.x line. The package needs Node.js 26.4.0 or later. For the peers and the
+The package needs Node.js 26.4.0 or later. For the peers and the
 services a running composition supplies, see [Installation](./installation.md).
 
 ## The smallest real example
 
 The `smthrs` executable comes from [`@smthrs/cli`](/api/cli), not from this
-package. Install it, then serve a project you already have runs in:
+package; [install it](/docs/installation/#install-the-cli), then serve a project you already have runs in:
 
 ```bash
-npm install --global @smthrs/cli@1.0.0-rc.0
 smthrs serve
 ```
 

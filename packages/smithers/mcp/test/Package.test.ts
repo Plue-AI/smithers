@@ -11,12 +11,9 @@ describe("package manifest and README", () => {
     expect(readme).toContain("https://mcp.smithers.sh")
     expect(readme).not.toMatch(/\]\(\.\/docs\//)
 
-    // Nothing is published yet, and an install command paired with an admission
-    // that it does not work reads as a note to self, so the README states
-    // availability before it states the command.
-    const install = readme.indexOf("pnpm add @smthrs/mcp")
-    expect(install).toBeGreaterThan(-1)
-    expect(readme.indexOf("not published to npm yet")).toBeLessThan(install)
+    // Nothing is published yet, so the README states that and teaches no install.
+    expect(readme).toContain("not published to npm yet")
+    expect(readme).not.toContain("pnpm add @smthrs/mcp")
 
     // The links a reader without the repository can still follow.
     for (const path of [new URL("../LICENSE", import.meta.url)]) {

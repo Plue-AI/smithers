@@ -8,9 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package and its peers
 
-```bash
-pnpm add @smthrs/platform-bun@1.0.0-rc.0 @smthrs/platform-node@1.0.0-rc.0 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/platform-bun@4.0.0-rc.115 effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Version 1.0.0-rc.0 is not on npm yet. Until it is published, take the package
 from [the repository](https://github.com/smithersai/smithers); the rest of this

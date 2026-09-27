@@ -128,11 +128,9 @@ subpath skips its peer:
 | `tsx`                          | `^4.23.13`     | `loadManifest` in `./vite`, which evaluates `PACKAGE.ts` |
 
 The default library install has no test runner or testing facade. To use
-`@smthrs/create-app/testing`, install its prerequisites explicitly:
-
-```bash
-pnpm add -D @smthrs/testing@1.0.0-rc.1 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 vitest@5.0.0
-```
+`@smthrs/create-app/testing`, install its prerequisites explicitly: `@smthrs/testing`,
+`@effect/platform-node`, `@effect/platform-node-shared`, and `vitest@5.0.0`. Not on npm yet; see
+[Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 `@effect/platform-node-shared` is the implementation `@effect/platform-node`
 loads. The Node adapter depends on it through a caret, so an install that names

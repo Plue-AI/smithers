@@ -209,15 +209,12 @@ describe("optional peers", () => {
     expect(listed).toEqual(Object.fromEntries(optional))
   })
 
-  it("are installed at the floor of their peer range by every command that names one", () => {
+  it("are pinned at the floor of their peer range wherever the docs name a version", () => {
     const prose = [read("README.md"), ...pages().map((page) => read(`docs/${page}`))]
     const pins = prose.flatMap((text) =>
-      [...text.matchAll(/^pnpm add .*$/gm)].flatMap((line) =>
-        [...line[0].matchAll(/\s((?:@[\w.-]+\/)?[\w.-]+)@(\S+)/g)].map((pin) => ({ name: pin[1]!, version: pin[2]! }))
-      )
+      [...text.matchAll(/`((?:@[\w.-]+\/)?[\w.-]+)@(\d[^`\s]*)`/g)].map((pin) => ({ name: pin[1]!, version: pin[2]! }))
     )
     const peers = pins.filter((pin) => pin.name in manifest.peerDependencies)
-    expect(peers.length).toBeGreaterThan(0)
     expect(peers.filter((pin) => pin.version !== floorOf(manifest.peerDependencies[pin.name]!))).toEqual([])
   })
 })

@@ -131,11 +131,9 @@ durable engine up. `layerHost` decides the whole composition; `layer`, `make`,
 and `storage` hand progressively more of it back to the caller.
 
 The driver-neutral root installs no platform adapter. Select these optional
-prerequisites before importing `NodeRuntime`:
-
-```sh
-pnpm add @smthrs/platform-node@1.0.0-rc.0 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+prerequisites before importing `NodeRuntime`: `@smthrs/platform-node`, `@effect/platform-node`,
+`@effect/platform-node-shared`, and `@effect/sql-sqlite-node`. Not on npm yet; see
+[Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ```ts
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
@@ -192,10 +190,8 @@ Runtime parity must be demonstrated by the same execute, persist, restart, resum
 and cancellation scenarios, including opening a Node-created database in Bun and
 vice versa. A browser-safe import alone does not prove durable browser execution.
 
-For a Bun executable, install the corresponding optional platform and SQL adapter:
-
-```sh
-pnpm add @smthrs/platform-bun@1.0.0-rc.0 @effect/platform-bun@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-bun@4.0.0-rc.115
-```
+For a Bun executable, install `@smthrs/platform-bun`, `@effect/platform-bun`,
+`@effect/platform-node-shared`, and `@effect/sql-sqlite-bun`. Not on npm yet; see
+[Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Then use `BunRuntime.layerHost` with the same options and registered flows.

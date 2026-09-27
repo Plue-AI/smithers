@@ -76,11 +76,8 @@ There is one platform package per runtime:
 - [`@smthrs/platform-browser`](https://platform-browser.smithers.sh/reference/api/) supplies a browser host
   for authoring and inspection.
 
-For `@smthrs/flows/NodeRuntime`, select the Node host and SQLite driver:
-
-```bash
-pnpm add @smthrs/platform-node@1.0.0-rc.0 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+For `@smthrs/flows/NodeRuntime`, select `@smthrs/platform-node`, `@effect/platform-node`,
+`@effect/platform-node-shared`, and `@effect/sql-sqlite-node`. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Compose a host yourself and you declare the platform package you compose
 against, the same way you declared the barrel:
