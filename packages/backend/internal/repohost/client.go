@@ -13,9 +13,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -1786,6 +1789,38 @@ type ReceivePackMetadata struct {
 	ControlPlane bool
 }
 
+// StartedHeader asks repo-host to answer 102 Processing once it holds the
+// repository's write lock for a receive-pack.
+const StartedHeader = "X-Smithers-Signal-Started"
+
+// PushTooSlowCode is repo-host's code for a push stopped at its duration
+// limit (ReceivePackMaxDuration).
+const PushTooSlowCode = "push_too_slow"
+
+type pushStartedKey struct{}
+
+// WithPushStarted has a receive-pack made with ctx call started once
+// repo-host has taken the repository's write lock for it: until then nothing
+// is written, and the caller may abandon the push or keep waiting; from
+// then on the push has ReceivePackMaxDuration.
+func WithPushStarted(ctx context.Context, started func()) context.Context {
+	return context.WithValue(ctx, pushStartedKey{}, started)
+}
+
+// PushStartedSlack is how much longer than ReceivePackMaxDuration a front
+// door (the API's git route, SSH) gives a started push, so repo-host's own
+// answer at the limit reaches the pusher first.
+const PushStartedSlack = 30 * time.Second
+
+// PushStarted reports, to whoever asked with WithPushStarted, that the
+// receive-pack made with ctx has started. The client does it on repo-host's
+// 102; a stand-in for repo-host calls it itself.
+func PushStarted(ctx context.Context) {
+	if started, ok := ctx.Value(pushStartedKey{}).(func()); ok {
+		started()
+	}
+}
+
 // PusherCredentialHeader carries ReceivePackMetadata.PusherCredential.
 const PusherCredentialHeader = "X-Smithers-Pusher-Credential"
 
@@ -1956,6 +1991,18 @@ func (c *Client) proxyGitRPCWithMeta(
 	}
 
 	gitRPCURL := fmt.Sprintf("%s/git/%s", repoEndpoint(baseURL, owner, repo), rpcPath)
+	started, _ := ctx.Value(pushStartedKey{}).(func())
+	if started != nil && rpcPath == "receive-pack" {
+		var once sync.Once
+		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{Got1xxResponse: func(code int, _ textproto.MIMEHeader) error {
+			if code == http.StatusProcessing {
+				once.Do(started)
+			}
+			return nil
+		}})
+	} else {
+		started = nil
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, gitRPCURL, stdin)
 	if err != nil {
 		return fmt.Errorf("create git proxy request: %w", err)
@@ -1991,6 +2038,9 @@ func (c *Client) proxyGitRPCWithMeta(
 	}
 	if meta.ControlPlane {
 		req.Header.Set("X-Smithers-Control-Plane", "mythical")
+	}
+	if started != nil {
+		req.Header.Set(StartedHeader, "1")
 	}
 	if len(meta.AllowedPaths) > 0 {
 		encoded, err := json.Marshal(meta.AllowedPaths)

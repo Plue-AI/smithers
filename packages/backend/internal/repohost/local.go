@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
+	"net/textproto"
 	"os"
 	"sync"
 	"time"
@@ -118,6 +120,13 @@ type handlerResponseWriter struct {
 func (w *handlerResponseWriter) Header() http.Header { return w.header }
 
 func (w *handlerResponseWriter) WriteHeader(status int) {
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		// Informational, as over the network: the caller's trace sees it.
+		if trace := httptrace.ContextClientTrace(w.request.Context()); trace != nil && trace.Got1xxResponse != nil {
+			_ = trace.Got1xxResponse(status, textproto.MIMEHeader(w.header.Clone()))
+		}
+		return
+	}
 	w.once.Do(func() {
 		w.ready <- localResponse{response: &http.Response{
 			StatusCode:    status,

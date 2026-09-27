@@ -34,6 +34,11 @@ type refusalWriter struct {
 }
 
 func (w *refusalWriter) WriteHeader(status int) {
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		// Informational: the final answer is still to come.
+		w.ResponseWriter.WriteHeader(status)
+		return
+	}
 	if w.wroteHeader {
 		return
 	}

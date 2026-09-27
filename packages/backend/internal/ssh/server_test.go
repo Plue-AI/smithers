@@ -890,33 +890,50 @@ func TestProxyReceivePack_StreamsBeforeClientEOF(t *testing.T) {
 	assert.Equal(t, string(refAdvertisement)+"receive-pack-response", sess.stdout.String())
 }
 
+// The configured timeout bounds the wait for the repository; once the push
+// starts it has the timeout afresh.
 func TestProxyReceivePack_UsesConfiguredTimeoutContext(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
-	server := &Server{
-		ReceivePackTimeout: 2 * time.Minute,
-		RepoHostClient: &mockRepoHostGitProxy{
-			infoRefsReceivePackFn: func(ctx context.Context, owner, repo string) ([]byte, error) {
-				return []byte("0000"), nil
+	for _, starts := range []bool{false, true} {
+		var outcome string
+		server := &Server{
+			ReceivePackTimeout: 200 * time.Millisecond,
+			RepoHostClient: &mockRepoHostGitProxy{
+				infoRefsReceivePackFn: func(ctx context.Context, owner, repo string) ([]byte, error) {
+					return []byte("0000"), nil
+				},
+				proxyReceivePackFn: func(ctx context.Context, owner, repo string, stdin io.Reader, stdout io.Writer, meta ...repohost.ReceivePackMetadata) error {
+					body, err := io.ReadAll(stdin)
+					if err != nil || string(body) != "0000receive-pack-request" {
+						return fmt.Errorf("unexpected body %q: %v", body, err)
+					}
+					if starts {
+						time.Sleep(150 * time.Millisecond)
+						repohost.PushStarted(ctx)
+					}
+					select {
+					case <-ctx.Done():
+						outcome = "cancelled"
+						return ctx.Err()
+					case <-time.After(300 * time.Millisecond):
+						outcome = "alive"
+						return nil
+					}
+				},
 			},
-			proxyReceivePackFn: func(ctx context.Context, owner, repo string, stdin io.Reader, stdout io.Writer, meta ...repohost.ReceivePackMetadata) error {
-				deadline, hasDeadline := ctx.Deadline()
-				assert.True(t, hasDeadline)
-				assert.True(t, deadline.After(now))
-				assert.True(t, deadline.Before(now.Add(3*time.Minute)))
-
-				body, err := io.ReadAll(stdin)
-				require.NoError(t, err)
-				assert.Equal(t, "0000receive-pack-request", string(body))
-				return nil
-			},
-		},
+		}
+		sess := newTestSession("git-receive-pack 'alice/demo.git'", "0000receive-pack-request")
+		principal := sshPrincipal{UserID: 1, Username: "alice"}
+		err := server.proxyReceivePack(context.Background(), sess, "alice", "demo", principal)
+		if starts {
+			require.NoError(t, err)
+			assert.Equal(t, "alive", outcome, "the timeout did not start afresh with the push")
+		} else {
+			require.Error(t, err)
+			assert.Equal(t, "cancelled", outcome, "the wait outlived the timeout")
+		}
 	}
-
-	sess := newTestSession("git-receive-pack 'alice/demo.git'", "0000receive-pack-request")
-	principal := sshPrincipal{UserID: 1, Username: "alice"}
-	require.NoError(t, server.proxyReceivePack(context.Background(), sess, "alice", "demo", principal))
 }
 
 func TestServer_ReceivePackTimeout_DefaultWhenUnset(t *testing.T) {

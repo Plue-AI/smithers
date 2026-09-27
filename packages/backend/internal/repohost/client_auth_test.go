@@ -104,3 +104,31 @@ func TestClient_RecordsHeldRefusalOnTheCallersContext(t *testing.T) {
 		server.Close()
 	}
 }
+
+// A push that asks for it learns when repo-host has taken the repository's
+// lock (102 Processing), over the network and in process alike.
+func TestClient_ProxyReceivePack_ReportsWhenThePushStarts(t *testing.T) {
+	t.Parallel()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(StartedHeader) == "1" {
+			w.WriteHeader(http.StatusProcessing)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	for name, client := range map[string]*Client{
+		"network":    NewClient(&StaticStorageSetResolver{URL: server.URL}, "test-token"),
+		"in process": NewLocalClient(handler, "test-token"),
+	} {
+		started := 0
+		var out bytes.Buffer
+		ctx := WithPushStarted(context.Background(), func() { started++ })
+		err := client.ProxyReceivePack(ctx, "alice", "demo", bytes.NewBufferString("in"), &out)
+		require.NoError(t, err, name)
+		assert.Equal(t, 1, started, name)
+		assert.Equal(t, "ok", out.String(), name)
+	}
+}

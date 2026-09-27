@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gliderlabs/ssh"
@@ -1176,10 +1177,9 @@ func dropRepeatedCommonAcks(reply []byte, acked map[string]bool) []byte {
 // 1. Fetch ref advertisement from repo-host and send to SSH client
 // 2. Buffer client's pack data, then POST to repo-host receive-pack and stream response back
 //
-// We buffer the client data because when the git client finishes sending pack
-// data it closes its stdin (SSH_MSG_CHANNEL_EOF). The gliderlabs/ssh library
-// may cancel the session context at that point, which would abort the HTTP
-// request to repo-host before we get the response. Buffering avoids this race.
+// The session's context ends with the connection, not with the client's
+// stdin EOF, so it may stop a push that is still waiting for the repository;
+// once repo-host starts the push, it runs to its own end.
 func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, repo string, pusher sshPrincipal) error {
 	// Step 1: Get ref advertisement and send to client
 	refs, err := s.RepoHostClient.InfoRefsReceivePack(ctx, owner, repo)
@@ -1243,10 +1243,33 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 		copyErrCh <- nil
 	}()
 
-	// Step 3: POST streamed data to receive-pack using a detached background
-	// context so SSH session context cancellation cannot abort the HTTP request.
-	proxyCtx, cancel := context.WithTimeout(context.Background(), s.receivePackTimeout())
+	// Step 3: POST streamed data to receive-pack on a detached context, so a
+	// push repo-host has started finishes (or is rolled back) whatever the
+	// connection does. Until repo-host holds the repository's lock for it
+	// (repohost.WithPushStarted), nothing is written, and a client that went
+	// away while the push waited stops the wait instead of pinning this
+	// handler. The time limit counts twice: once for the wait, and afresh
+	// from the start of the push, as repo-host's own limit does.
+	proxyCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	limit := time.AfterFunc(s.receivePackTimeout(), cancel)
+	defer limit.Stop()
+	var started atomic.Bool
+	proxyCtx = repohost.WithPushStarted(proxyCtx, func() {
+		started.Store(true)
+		limit.Reset(s.receivePackTimeout() + repohost.PushStartedSlack)
+	})
+	waiting := make(chan struct{})
+	defer close(waiting)
+	go func() {
+		select {
+		case <-sess.Context().Done():
+			if !started.Load() {
+				cancel()
+			}
+		case <-waiting:
+		}
+	}()
 	// SSH authenticates a person's key or a deploy key an administrator
 	// added; the platform issues neither to a run.
 	meta := repohost.ReceivePackMetadata{

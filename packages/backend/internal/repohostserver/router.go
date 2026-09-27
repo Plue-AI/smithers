@@ -895,6 +895,10 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	if _, err := os.Stat(gitDir); err != nil {
 		return notFound("repository not found")
 	}
+	if r.Header.Get(repohost.StartedHeader) == "1" {
+		// The caller may stop waiting for the lock until here, not after.
+		w.WriteHeader(http.StatusProcessing)
+	}
 	allowedPaths, pathRestricted, allowErr := pushPathAllowlist(r.Header)
 	if allowErr != nil {
 		return allowErr
