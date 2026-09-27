@@ -123,8 +123,11 @@ func TestGit_Cov_StreamGitRPCReportsUnreadBody(t *testing.T) {
 }
 
 // Issue #2266: a fast-exiting git never turns a successful RPC into an error.
+// Like upload-pack, the stub reads its whole request, then exits without
+// waiting for the body's EOF. A git that reads none of it is an unread body
+// (TestGit_Cov_StreamGitRPCReportsUnreadBody), not a successful RPC.
 func TestGit_Cov_StreamGitRPCFastExitStress(t *testing.T) {
-	installGitStub(t, "#!/bin/sh\nprintf buffered\nexit 0\n")
+	installGitStub(t, "#!/bin/sh\nhead -c 4 >/dev/null\nprintf buffered\nexit 0\n")
 	dir := t.TempDir()
 
 	failures := 0
