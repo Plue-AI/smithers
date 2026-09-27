@@ -30,6 +30,7 @@ type mockLandingWorkerQuerier struct {
 	getRepositoryCiPolicyFn     func(ctx context.Context, repositoryID int64) (db.GetRepositoryCiLandingPolicyRow, error)
 	getLatestCommitStatusesFn   func(ctx context.Context, arg db.GetLatestCommitStatusesByChangeIDsAndContextsParams) ([]db.GetLatestCommitStatusesByChangeIDsAndContextsRow, error)
 	countUnresolvedThreadsFn    func(ctx context.Context, landingRequestID int64) (int64, error)
+	changesRequestedFn          func(ctx context.Context, landingRequestID int64) ([]string, error)
 	markLandingStartedFn        func(ctx context.Context, id int64) (db.LandingRequest, error)
 	mergeLandingRequestFn       func(ctx context.Context, id int64) (db.LandingRequest, error)
 	markLandingTaskDoneFn       func(ctx context.Context, id int64) (db.LandingTask, error)
@@ -126,6 +127,13 @@ func (m *mockLandingWorkerQuerier) GetRepositoryCiLandingPolicy(ctx context.Cont
 func (m *mockLandingWorkerQuerier) GetLatestCommitStatusesByChangeIDsAndContexts(ctx context.Context, arg db.GetLatestCommitStatusesByChangeIDsAndContextsParams) ([]db.GetLatestCommitStatusesByChangeIDsAndContextsRow, error) {
 	if m.getLatestCommitStatusesFn != nil {
 		return m.getLatestCommitStatusesFn(ctx, arg)
+	}
+	return nil, nil
+}
+
+func (m *mockLandingWorkerQuerier) ListChangesRequestedLandingReviewers(ctx context.Context, landingRequestID int64) ([]string, error) {
+	if m.changesRequestedFn != nil {
+		return m.changesRequestedFn(ctx, landingRequestID)
 	}
 	return nil, nil
 }
@@ -407,6 +415,37 @@ func TestLandingWorker_RefusesNewUnresolvedThreadBeforeLanding(t *testing.T) {
 	assert.True(t, q.markLandingRequestFailedCalled)
 	assert.True(t, q.failTaskCalled)
 	assert.Contains(t, q.lastFailTaskArg.LastError.String, "1 unresolved review comments")
+}
+
+func TestLandingWorker_RefusesChangesRequestedBeforeLanding(t *testing.T) {
+	t.Parallel()
+
+	const taskID, lrID, repoID int64 = 100, 88, 77
+	q := &mockLandingWorkerQuerier{
+		claimPendingLandingTaskFn: func(context.Context) (db.LandingTask, error) {
+			return workerTask(taskID, lrID, repoID), nil
+		},
+		getLandingRequestByIDFn: func(context.Context, int64) (db.LandingRequest, error) {
+			return workerLandingRequest(lrID, repoID), nil
+		},
+		listLandingRequestChangesFn: func(context.Context, db.ListLandingRequestChangesParams) ([]db.LandingRequestChange, error) {
+			return []db.LandingRequestChange{{ID: 1, LandingRequestID: lrID, ChangeID: "k-a", PositionInStack: 1}}, nil
+		},
+		getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
+			return workerRepo(repoID), nil
+		},
+		changesRequestedFn: func(_ context.Context, landingRequestID int64) ([]string, error) {
+			assert.Equal(t, lrID, landingRequestID)
+			return []string{"alice"}, nil
+		},
+	}
+	rh := &mockWorkerRepoHostClient{}
+
+	require.NoError(t, NewLandingWorker(q, rh).PollOnce(context.Background()))
+	assert.False(t, rh.landCalled)
+	assert.False(t, q.markLandingStartedCalled)
+	assert.True(t, q.failTaskCalled)
+	assert.Equal(t, "changes requested by alice", q.lastFailTaskArg.LastError.String)
 }
 
 func TestLandingWorker_CancellationDuringLandStillFinalizesTruthfulSuccess(t *testing.T) {

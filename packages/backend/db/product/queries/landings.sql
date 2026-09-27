@@ -364,6 +364,25 @@ WHERE lrr.landing_request_id = sqlc.arg(landing_request_id)
         )
   );
 
+-- name: ListChangesRequestedLandingReviewers :many
+-- A person's latest review stands until they review again or it is
+-- dismissed; an agent's review, or one given through a run credential,
+-- never stands for a person.
+SELECT u.username
+FROM (
+    SELECT DISTINCT ON (reviewer_id) reviewer_id, type, state
+    FROM landing_request_reviews
+    WHERE landing_request_id = $1
+      AND reviewer_kind = 'human'
+      AND reviewer_id IS NOT NULL
+      AND type IN ('approve', 'comment', 'request_changes')
+    ORDER BY reviewer_id, id DESC
+) AS latest
+JOIN users AS u ON u.id = latest.reviewer_id
+WHERE latest.type = 'request_changes'
+  AND latest.state = 'submitted'
+ORDER BY u.lower_username;
+
 -- name: GetLandingRequestReviewByID :one
 SELECT *
 FROM landing_request_reviews

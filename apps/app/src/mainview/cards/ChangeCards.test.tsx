@@ -621,6 +621,23 @@ describe("the change card", () => {
     expect(landReason(blocked.host)).toBe("check lint · agent LGTM missing · agent changes denied on docs/guide.md")
     blocked.host.remove()
 
+    /* A person's requested changes read plainly, and that person is one press from being asked again. */
+    const requested = renderChange(
+      liveCard({
+        threads: [],
+        stack: {
+          ...stackOf(),
+          blockedBy: [{ kind: "review", name: "ana", repo: null, missing: "changes_requested", count: null, path: null, candidates: [] }]
+        }
+      })
+    )
+    expect(landButton(requested.host).disabled).toBe(true)
+    expect(landReason(requested.host)).toBe("changes requested by ana")
+    const ask = requested.host.querySelector('button[aria-label="Request review from ana"]') as HTMLButtonElement
+    expect(ask.textContent).toBe("Ask ana")
+    expect(ask.getAttribute("data-flow")).toBe("review.request")
+    requested.host.remove()
+
     /* Every thread resolved and no block: Land runs. */
     const clear = renderChange(liveCard({ threads: [THREADS[2]!] }))
     expect(landButton(clear.host).disabled).toBe(false)

@@ -85,6 +85,7 @@ const blockWords = (block: LandingBlock): string => {
   if (block.kind === "review") {
     if (block.missing === "human_approval") return `${block.count ?? 1} human approval${(block.count ?? 1) === 1 ? "" : "s"} missing`
     if (block.missing === "agent_lgtm") return "agent LGTM missing"
+    if (block.missing === "changes_requested") return `changes requested by ${block.name ?? "a reviewer"}`
     return `review ${block.name ?? ""}`.trim()
   }
   if (block.kind === "conflict") return `conflict in ${block.name ?? "a file"}`
@@ -113,6 +114,12 @@ const gateReasons = (payload: ChangePayload): ReadonlyArray<string> => {
   }
   return reasons
 }
+
+/** The people whose requested changes the landing list states for this change. */
+const changesRequestedBy = (payload: ChangePayload): ReadonlyArray<string> =>
+  (payload.stack?.blockedBy ?? []).flatMap((block) =>
+    block.kind === "review" && block.missing === "changes_requested" && block.name !== null ? [block.name] : []
+  )
 
 interface LandAct {
   readonly label: string
@@ -1038,6 +1045,18 @@ export const ChangeCardBody = ({
           <GitMerge size={12} aria-hidden="true" /> {land.label}
         </Button>
         {land.blocked !== null ? <span className="world-card-path">{land.blocked}</span> : null}
+        {/* A person's requested changes hold the landing until they review again: ask them. */}
+        {changesRequestedBy(payload).map((login) => (
+          <Button
+            key={login}
+            size="sm"
+            variant="ghost"
+            aria-label={`Request review from ${login}`}
+            {...flowAction(onRunCommand, "review.request", flowArgs("review.request", { changeId: payload.changeId, reviewer: login }))}
+          >
+            Ask {login}
+          </Button>
+        ))}
         {/* Split ready is an act on a changeset that can still land; a landed one has nothing left to split. */}
         {payload.changeset !== null && payload.changeset.state !== "landed" ?
           (

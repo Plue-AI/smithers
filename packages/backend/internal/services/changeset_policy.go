@@ -56,8 +56,9 @@ func (s *ChangesetService) checkLandingPolicy(ctx context.Context, repo db.Repos
 		}
 		protected = protected || match
 	}
-	// Unresolved review comments block a member's landing whatever the
-	// target, as they block the member's own landing request.
+	// Unresolved review comments and a person's requested changes block a
+	// member's landing whatever the target, as they block the member's own
+	// landing request.
 	if s.landingPolicy != nil {
 		if lr, err := s.queries.GetLatestLandingRequestForChange(ctx, db.GetLatestLandingRequestForChangeParams{RepositoryID: repo.ID, ChangeID: changeID}); err == nil {
 			unresolved, err := s.landingPolicy.queries.CountUnresolvedLandingRequestThreads(ctx, lr.ID)
@@ -66,6 +67,13 @@ func (s *ChangesetService) checkLandingPolicy(ctx context.Context, repo db.Repos
 			}
 			if unresolved > 0 {
 				return pkgerrors.Conflict("changeset member has unresolved review comments")
+			}
+			changesRequested, err := changesRequestedBlocks(ctx, s.landingPolicy.queries, lr.ID)
+			if err != nil {
+				return err
+			}
+			if len(changesRequested) > 0 {
+				return pkgerrors.Conflict("changeset member has " + changesRequestedMessage(changesRequested))
 			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return pkgerrors.Internal("failed to load member landing request").WithCause(err)

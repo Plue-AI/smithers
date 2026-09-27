@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,14 +47,21 @@ func (h gateTestRepoHost) ListBookmarks(context.Context, string, string, string,
 	return []repohost.Bookmark{{Name: "main", TargetChangeID: "mainchangezzzzzz"}}, "", nil
 }
 
-// A run credential acts as its user but no person makes the request. Through
-// the assembled router it cannot take a person's decision on a landing: it
-// cannot acknowledge a review comment (which resolves it and can unblock
-// the landing), dismiss a person's review, land or queue someone else's
-// landing, or report a commit status that required checks trust. A landing
-// it opens is agent-authored. It keeps an agent's work: comments, marking
-// its own landing's comments done, reopening, and landing its own change.
-func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
+// landingGateFixture is a repository with two people and one commit per
+// change, served through the assembled router.
+type landingGateFixture struct {
+	t      *testing.T
+	ctx    context.Context
+	q      *db.Queries
+	pool   *pgxpool.Pool
+	owner  db.User
+	other  db.User
+	repoID int64
+	router http.Handler
+}
+
+func newLandingGateFixture(t *testing.T, commits map[string]string) *landingGateFixture {
+	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -62,49 +70,14 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	other, err := q.CreateUser(ctx, db.CreateUserParams{Username: "gate-other", LowerUsername: "gate-other", DisplayName: "Gate other"})
 	require.NoError(t, err)
 	repoID := ciTestRepo(t, pool, owner.ID, "app")
-
-	commits := map[string]string{
-		"othrchangeaaaaaa":  "1111111111111111111111111111111111111111",
-		"ownchangebbbbbbb":  "2222222222222222222222222222222222222222",
-		"newchangecccccccc": "3333333333333333333333333333333333333333",
-	}
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators (repository_id, user_id, permission) VALUES ($1, $2, 'write')`, repoID, other.ID)
+	require.NoError(t, err)
 	for changeID, commitID := range commits {
 		_, err = q.UpsertChange(ctx, db.UpsertChangeParams{RepositoryID: repoID, ChangeID: changeID, CommitID: commitID, ParentChangeIds: []byte("[]")})
 		require.NoError(t, err)
 		_, err = q.RecordChangeRevision(ctx, db.RecordChangeRevisionParams{RepositoryID: repoID, ChangeID: changeID, CommitID: commitID, Source: "push", OperationIds: []string{}})
 		require.NoError(t, err)
 	}
-	newLanding := func(title string, authorID int64, changeID string) db.LandingRequest {
-		landing, err := q.CreateLandingRequest(ctx, db.CreateLandingRequestParams{
-			RepositoryID: repoID, Title: title, AuthorID: authorID, TargetBookmark: "main", StackSize: 1,
-		})
-		require.NoError(t, err)
-		_, err = q.AddLandingRequestChange(ctx, db.AddLandingRequestChangeParams{LandingRequestID: landing.ID, ChangeID: changeID, PositionInStack: 1})
-		require.NoError(t, err)
-		return landing
-	}
-	othersLanding := newLanding("Someone else's change", other.ID, "othrchangeaaaaaa")
-	ownLanding := newLanding("Own change", owner.ID, "ownchangebbbbbbb")
-
-	token := func(name, scopes string, systemIssued bool) string {
-		plaintext := "smithers_" + hex.EncodeToString([]byte(name + "-token-padding-bytes-xx"))[:40]
-		sum := sha256.Sum256([]byte(plaintext))
-		hash := hex.EncodeToString(sum[:])
-		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{
-			UserID: owner.ID, Name: name, TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
-			SystemIssued: systemIssued, Scopes: scopes,
-			ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
-		})
-		require.NoError(t, err)
-		return plaintext
-	}
-	write := string(middleware.ScopeWriteRepository)
-	runs := map[string]string{
-		"bound agent run":   token("gate-run", write+","+middleware.RepositoryRestrictionScope(repoID)+","+middleware.AgentSessionRestrictionScope("s1"), true),
-		"unbound agent run": token("gate-unbound", write, true),
-	}
-	person := token("gate-person", write, false)
-
 	router := buildRouter(
 		testConfigAllFlagsOn(), q, pool,
 		&routes.RepoHandler{Service: services.NewRepoService(q, nil, "")},
@@ -133,21 +106,79 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 		&routes.RepositoryJobHandler{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
-	serve := func(bearer, method, path, body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(method, "/api/repos/gate-owner/app"+path, bytes.NewBufferString(body))
-		req.Header.Set("Authorization", "Bearer "+bearer)
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		return rec
+	return &landingGateFixture{t: t, ctx: ctx, q: q, pool: pool, owner: owner, other: other, repoID: repoID, router: router}
+}
+
+func (f *landingGateFixture) landing(title string, authorID int64, changeID string) db.LandingRequest {
+	f.t.Helper()
+	landing, err := f.q.CreateLandingRequest(f.ctx, db.CreateLandingRequestParams{
+		RepositoryID: f.repoID, Title: title, AuthorID: authorID, TargetBookmark: "main", StackSize: 1,
+	})
+	require.NoError(f.t, err)
+	_, err = f.q.AddLandingRequestChange(f.ctx, db.AddLandingRequestChangeParams{LandingRequestID: landing.ID, ChangeID: changeID, PositionInStack: 1})
+	require.NoError(f.t, err)
+	return landing
+}
+
+// token mints user's access token; a system-issued one is a run credential.
+func (f *landingGateFixture) token(user db.User, name, scopes string, systemIssued bool) string {
+	f.t.Helper()
+	plaintext := "smithers_" + hex.EncodeToString([]byte(name + "-token-padding-bytes-xx"))[:40]
+	sum := sha256.Sum256([]byte(plaintext))
+	hash := hex.EncodeToString(sum[:])
+	_, err := f.q.CreateAccessToken(f.ctx, db.CreateAccessTokenParams{
+		UserID: user.ID, Name: name, TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
+		SystemIssued: systemIssued, Scopes: scopes,
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+	})
+	require.NoError(f.t, err)
+	return plaintext
+}
+
+func (f *landingGateFixture) serve(bearer, method, path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, "/api/repos/gate-owner/app"+path, bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+	return rec
+}
+
+func (f *landingGateFixture) idOf(rec *httptest.ResponseRecorder) int64 {
+	f.t.Helper()
+	var body struct {
+		ID int64 `json:"id"`
 	}
-	idOf := func(rec *httptest.ResponseRecorder) int64 {
-		var body struct {
-			ID int64 `json:"id"`
-		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
-		return body.ID
+	require.NoError(f.t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
+	return body.ID
+}
+
+// A run credential acts as its user but no person makes the request. Through
+// the assembled router it cannot take a person's decision on a landing: it
+// cannot acknowledge a review comment (which resolves it and can unblock
+// the landing), dismiss a person's review, land or queue someone else's
+// landing, or report a commit status that required checks trust. A landing
+// it opens is agent-authored. It keeps an agent's work: comments, marking
+// its own landing's comments done, reopening, and landing its own change.
+func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
+	commits := map[string]string{
+		"othrchangeaaaaaa":  "1111111111111111111111111111111111111111",
+		"ownchangebbbbbbb":  "2222222222222222222222222222222222222222",
+		"newchangecccccccc": "3333333333333333333333333333333333333333",
 	}
+	f := newLandingGateFixture(t, commits)
+	ctx, q, pool, owner, other := f.ctx, f.q, f.pool, f.owner, f.other
+	serve, idOf := f.serve, f.idOf
+	othersLanding := f.landing("Someone else's change", other.ID, "othrchangeaaaaaa")
+	ownLanding := f.landing("Own change", owner.ID, "ownchangebbbbbbb")
+
+	write := string(middleware.ScopeWriteRepository)
+	runs := map[string]string{
+		"bound agent run":   f.token(owner, "gate-run", write+","+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.AgentSessionRestrictionScope("s1"), true),
+		"unbound agent run": f.token(owner, "gate-unbound", write, true),
+	}
+	person := f.token(owner, "gate-person", write, false)
+
 	unresolved := func(landingID int64) int64 {
 		count, err := q.CountUnresolvedLandingRequestThreads(ctx, landingID)
 		require.NoError(t, err)
@@ -166,7 +197,7 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	rec := serve(person, http.MethodPost, othersPath+"/comments", `{"body":"please fix","commit_id":"1111111111111111111111111111111111111111"}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	thread := idOf(rec)
-	_, err = q.MarkLandingRequestThreadDone(ctx, db.MarkLandingRequestThreadDoneParams{
+	_, err := q.MarkLandingRequestThreadDone(ctx, db.MarkLandingRequestThreadDoneParams{
 		DoneBy: pgtype.Int8{Int64: other.ID, Valid: true}, ResolvedInRevision: []byte(`{}`), ID: thread, LandingRequestID: othersLanding.ID,
 	})
 	require.NoError(t, err)
@@ -199,7 +230,7 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, rec.Code, "%s reported a commit status: %s", name, rec.Body.String())
 	}
 	var statuses int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM commit_statuses WHERE repository_id = $1`, repoID).Scan(&statuses))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM commit_statuses WHERE repository_id = $1`, f.repoID).Scan(&statuses))
 	assert.Zero(t, statuses, "a run credential's commit status was recorded")
 
 	// The owner's own token acknowledges and reports a status.
@@ -211,7 +242,7 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	// The repository CI receipt's context is the server's to record.
 	rec = serve(person, http.MethodPost, "/statuses/1111111111111111111111111111111111111111", `{"context":"Repository-CI/any@1.abc","status":"success"}`)
 	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM commit_statuses WHERE repository_id = $1`, repoID).Scan(&statuses))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM commit_statuses WHERE repository_id = $1`, f.repoID).Scan(&statuses))
 	assert.Equal(t, 1, statuses, "the reserved context was recorded")
 
 	// An agent's work stays open to a run: it comments on its own landing,

@@ -67,6 +67,7 @@ type LandingWorkerQuerier interface {
 	GetRepositoryCiLandingPolicy(ctx context.Context, repositoryID int64) (db.GetRepositoryCiLandingPolicyRow, error)
 	GetLatestCommitStatusesByChangeIDsAndContexts(ctx context.Context, arg db.GetLatestCommitStatusesByChangeIDsAndContextsParams) ([]db.GetLatestCommitStatusesByChangeIDsAndContextsRow, error)
 	CountUnresolvedLandingRequestThreads(ctx context.Context, landingRequestID int64) (int64, error)
+	ListChangesRequestedLandingReviewers(ctx context.Context, landingRequestID int64) ([]string, error)
 	MarkLandingStarted(ctx context.Context, id int64) (db.LandingRequest, error)
 	MergeLandingRequest(ctx context.Context, id int64) (db.LandingRequest, error)
 	MarkLandingTaskDone(ctx context.Context, id int64) (db.LandingTask, error)
@@ -458,6 +459,13 @@ func (w *LandingWorker) executeTask(ctx context.Context, task db.LandingTask) er
 	}
 	if unresolvedThreads > 0 {
 		return fmt.Errorf("landing request has %d unresolved review comments", unresolvedThreads)
+	}
+	changesRequested, err := changesRequestedBlocks(ctx, w.queries, lr.ID)
+	if err != nil {
+		return err
+	}
+	if len(changesRequested) > 0 {
+		return errors.New(changesRequestedMessage(changesRequested))
 	}
 
 	// Re-check required status checks right before landing: statuses may have

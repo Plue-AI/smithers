@@ -61,7 +61,9 @@ verdict is a review row, never a human's approval.
   gate refuses with open or done-but-unacked threads and the Land button
   says `2 threads open`.
 - **Verdicts.** `review.approve` and `review.request-changes` are user-only
-  flows; `request-changes` blocks landing (exists). The agent's LGTM arrives
+  flows; a person's current `request-changes` blocks landing for everyone
+  until that person approves or comments later or the review is dismissed
+  (D-21); an agent's does not. The agent's LGTM arrives
   from `review.ask` as a `reviewer_kind: agent` row with verdict, confidence
   word, and one sentence. The gate may require one agent LGTM plus one human
   approval; the Land button names the missing bit.

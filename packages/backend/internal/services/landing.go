@@ -256,6 +256,7 @@ type LandingQuerier interface {
 	ListLandingRequestComments(ctx context.Context, arg db.ListLandingRequestCommentsParams) ([]db.LandingRequestComment, error)
 	CountLandingRequestComments(ctx context.Context, landingRequestID int64) (int64, error)
 	CountUnresolvedLandingRequestThreads(ctx context.Context, landingRequestID int64) (int64, error)
+	ListChangesRequestedLandingReviewers(ctx context.Context, landingRequestID int64) ([]string, error)
 	CreateLandingRequestComment(ctx context.Context, arg db.CreateLandingRequestCommentParams) (db.LandingRequestComment, error)
 	GetLandingRequestCommentByID(ctx context.Context, arg db.GetLandingRequestCommentByIDParams) (db.LandingRequestComment, error)
 	MarkLandingRequestThreadDone(ctx context.Context, arg db.MarkLandingRequestThreadDoneParams) (db.LandingRequestComment, error)
@@ -1152,6 +1153,13 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 				"landing request has unresolved review comments",
 			)
 		}
+		changesRequested, err := changesRequestedBlocks(ctx, s.queries, landingRow.ID)
+		if err != nil {
+			return LandLandingRequestAccepted{}, err
+		}
+		if len(changesRequested) > 0 {
+			return LandLandingRequestAccepted{}, landingBlocked(changesRequested, changesRequestedMessage(changesRequested))
+		}
 
 		revision, err := s.resolveLandingRevision(ctx, repository.ID, owner, repo, landingRow.ID, req.CommitID, "LandingRequest")
 		if err != nil {
@@ -1246,7 +1254,10 @@ func (s *LandingService) landingBlockers(ctx context.Context, repository db.Repo
 		return nil, pkgerrors.Internal("invalid protected bookmark pattern").WithCause(err)
 	}
 
-	blocks := make([]LandingBlock, 0)
+	blocks, err := changesRequestedBlocks(ctx, s.queries, landingRow.ID)
+	if err != nil {
+		return nil, err
+	}
 	if requiredHumanApprovals > 0 {
 		var approvedCount int64
 		if dismissStale {
@@ -1397,6 +1408,36 @@ func (s *LandingService) autoLandRepositoryOwner(ctx context.Context, q landingA
 }
 
 type LandingOwnerBlock = LandingBlock
+
+type changesRequestedQuerier interface {
+	ListChangesRequestedLandingReviewers(ctx context.Context, landingRequestID int64) ([]string, error)
+}
+
+// changesRequestedBlocks names each person whose current review requests
+// changes: it blocks landing, for everyone, until that person approves or
+// comments later or the review is dismissed (D-21). An agent's
+// request-changes review blocks no one; required_agent_lgtm is the agent
+// review policy.
+func changesRequestedBlocks(ctx context.Context, q changesRequestedQuerier, landingRequestID int64) ([]LandingBlock, error) {
+	logins, err := q.ListChangesRequestedLandingReviewers(ctx, landingRequestID)
+	if err != nil {
+		return nil, pkgerrors.Internal("failed to list changes requested").WithCause(err)
+	}
+	blocks := make([]LandingBlock, 0, len(logins))
+	for _, login := range logins {
+		blocks = append(blocks, LandingBlock{Kind: "review", Name: login, Missing: "changes_requested"})
+	}
+	return blocks, nil
+}
+
+// changesRequestedMessage is the one reason the gate states for them.
+func changesRequestedMessage(blocks []LandingBlock) string {
+	logins := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		logins = append(logins, block.Name)
+	}
+	return "changes requested by " + strings.Join(logins, ", ")
+}
 
 type LandingBlockedDetails struct {
 	BlockedBy []LandingBlock `json:"blocked_by"`
@@ -1964,7 +2005,13 @@ func (s *LandingService) populateLandingReadiness(
 		}
 	}
 
+	changesRequested, err := changesRequestedBlocks(ctx, s.queries, landingRequestID)
+	if err != nil {
+		return err
+	}
+
 	for _, changeID := range changeIDs {
+		response.BlockedBy[changeID] = append(response.BlockedBy[changeID], changesRequested...)
 		for _, contextName := range requiredContexts {
 			if statusByChange[changeID][contextName] != "success" {
 				response.BlockedBy[changeID] = append(response.BlockedBy[changeID], LandingBlock{

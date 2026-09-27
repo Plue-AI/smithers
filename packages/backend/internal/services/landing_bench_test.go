@@ -183,6 +183,10 @@ func (m *benchLandingQuerier) CountLandingRequestComments(_ context.Context, _ i
 	return 0, nil
 }
 
+func (m *benchLandingQuerier) ListChangesRequestedLandingReviewers(context.Context, int64) ([]string, error) {
+	return nil, nil
+}
+
 func (m *benchLandingQuerier) CountUnresolvedLandingRequestThreads(_ context.Context, _ int64) (int64, error) {
 	return 0, nil
 }

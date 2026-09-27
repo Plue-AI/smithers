@@ -1554,6 +1554,46 @@ func (q *Queries) GetMergedLandingRequestForChange(ctx context.Context, arg GetM
 	return i, err
 }
 
+const listChangesRequestedLandingReviewers = `-- name: ListChangesRequestedLandingReviewers :many
+SELECT u.username
+FROM (
+    SELECT DISTINCT ON (reviewer_id) reviewer_id, type, state
+    FROM landing_request_reviews
+    WHERE landing_request_id = $1
+      AND reviewer_kind = 'human'
+      AND reviewer_id IS NOT NULL
+      AND type IN ('approve', 'comment', 'request_changes')
+    ORDER BY reviewer_id, id DESC
+) AS latest
+JOIN users AS u ON u.id = latest.reviewer_id
+WHERE latest.type = 'request_changes'
+  AND latest.state = 'submitted'
+ORDER BY u.lower_username
+`
+
+// A person's latest review stands until they review again or it is
+// dismissed; an agent's review, or one given through a run credential,
+// never stands for a person.
+func (q *Queries) ListChangesRequestedLandingReviewers(ctx context.Context, landingRequestID int64) ([]string, error) {
+	rows, err := q.db.Query(ctx, listChangesRequestedLandingReviewers, landingRequestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		items = append(items, username)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLandingRequestChanges = `-- name: ListLandingRequestChanges :many
 SELECT id, landing_request_id, change_id, position_in_stack, created_at
 FROM landing_request_changes

@@ -105,6 +105,7 @@ type mockLandingQuerier struct {
 	ackLandingRequestThreadFn                      func(ctx context.Context, arg db.AckLandingRequestThreadParams) (db.LandingRequestComment, error)
 	reopenLandingRequestThreadFn                   func(ctx context.Context, arg db.ReopenLandingRequestThreadParams) (db.LandingRequestComment, error)
 	countUnresolvedLandingRequestThreadsFn         func(ctx context.Context, landingRequestID int64) (int64, error)
+	changesRequestedFn                             func(ctx context.Context, landingRequestID int64) ([]string, error)
 	listChangeRevisionsFn                          func(ctx context.Context, arg db.ListChangeRevisionsParams) ([]db.ChangeRevision, error)
 	listLandingRequestChangesFn                    func(ctx context.Context, arg db.ListLandingRequestChangesParams) ([]db.LandingRequestChange, error)
 	countLandingRequestChangesFn                   func(ctx context.Context, landingRequestID int64) (int64, error)
@@ -528,6 +529,13 @@ func (m *mockLandingQuerier) ReopenLandingRequestThread(ctx context.Context, arg
 		return m.reopenLandingRequestThreadFn(ctx, arg)
 	}
 	return db.LandingRequestComment{}, pgx.ErrNoRows
+}
+
+func (m *mockLandingQuerier) ListChangesRequestedLandingReviewers(ctx context.Context, landingRequestID int64) ([]string, error) {
+	if m.changesRequestedFn != nil {
+		return m.changesRequestedFn(ctx, landingRequestID)
+	}
+	return nil, nil
 }
 
 func (m *mockLandingQuerier) CountUnresolvedLandingRequestThreads(ctx context.Context, landingRequestID int64) (int64, error) {
