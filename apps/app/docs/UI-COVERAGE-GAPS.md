@@ -6,7 +6,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 ## P0 (7)
 
-### approvals · Approvals inbox across runs (approvals projection without runId, MCP list_pending_approvals, `ps --status waiting-approval`; plue GET /approvals)
+### approvals · Approvals inbox across runs (approvals projection without runId, MCP approvals_list, `ps --status waiting-approval`; plue GET /approvals)
 
 - Source: both · coverage: none · effort: S
 - Exists: Approval cards appear only for runs the pump is watching (apps/app/src/mainview/state/controller/workflow-pump.ts:199-205; gateway.approvals always passes runId at gateway.ts:165-167).

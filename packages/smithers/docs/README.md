@@ -107,7 +107,7 @@ namespace, and each is also importable from `@smthrs/cli/<Module>`:
 | `Project`, `Environment` | Where an invocation decides it is running, and the closed set of variables it reads. |
 | `Detached` | The `flow start -d` launch, and the admission line its child prints. |
 | `Doctor`, `Forensics`, `NodeOutput`, `Legacy` | Readiness, run diagnosis, node outputs, and the 0.x database guard. |
-| `McpServer`, `Agents` | The stdio MCP server, and the agent configurations `mcp add` writes it into. |
+| `Agents` | The agent configurations `mcp add` writes the MCP server into. |
 | `Serve` | The gateway bind rule, the mount list, and the banner rendered from it. |
 | `Init`, `Suggest`, `Providers` | Scaffolding, the guided suggestion pass, and the seats this machine can run. |
 | `Gc`, `Update`, `Bug`, `ClaudeMirror`, `CodexAuth`, `ExecutorOwnership`, `Version` | Retention, version checks, bug reports, the Claude Code mirror protocol, the Codex credential store, executor ownership, and the installed version. |

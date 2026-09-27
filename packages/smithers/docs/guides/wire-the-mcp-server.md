@@ -93,5 +93,3 @@ configure.
 - [`smthrs mcp`](/cli/mcp): the per-verb reference.
 - [MCP setup](/docs/guides/mcp-setup/): the product guide.
 - [`@smthrs/mcp`](/api/mcp): the client and the flow projection.
-
-The retired names `list_workflows` and `run_workflow` remain tombstones: they return an `unsupported` error directing callers to `list_flows` and `run_flow`. They do not list or launch anything.

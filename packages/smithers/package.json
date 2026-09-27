@@ -51,6 +51,7 @@
     ".": "./src/index.ts",
     "./internal/*": null,
     "./*/index": null,
+    "./McpServer": null,
     "./Agents": "./src/Agents.ts",
     "./Application": "./src/Application.ts",
     "./Audience": "./src/Audience.ts",
@@ -69,7 +70,6 @@
     "./Gc": "./src/Gc.ts",
     "./Init": "./src/Init.ts",
     "./Legacy": "./src/Legacy.ts",
-    "./McpServer": "./src/McpServer.ts",
     "./NodeControl": "./src/NodeControl.ts",
     "./NodeOutput": "./src/NodeOutput.ts",
     "./Output": "./src/Output.ts",
@@ -140,6 +140,7 @@
       },
       "./internal/*": null,
       "./*/index": null,
+      "./McpServer": null,
       "./Agents": {
         "import": {
           "types": "./dist/esm/Agents.d.ts",
@@ -318,16 +319,6 @@
         "require": {
           "types": "./dist/cjs/Legacy.d.ts",
           "default": "./dist/cjs/Legacy.js"
-        }
-      },
-      "./McpServer": {
-        "import": {
-          "types": "./dist/esm/McpServer.d.ts",
-          "default": "./dist/esm/McpServer.js"
-        },
-        "require": {
-          "types": "./dist/cjs/McpServer.d.ts",
-          "default": "./dist/cjs/McpServer.js"
         }
       },
       "./NodeControl": {

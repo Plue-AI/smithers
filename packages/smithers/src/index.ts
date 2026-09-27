@@ -99,11 +99,6 @@ export * as Init from "./Init.ts"
  */
 export * as Legacy from "./Legacy.ts"
 /**
- * @category mcp
- * @since 1.0.0
- */
-export * as McpServer from "./McpServer.ts"
-/**
  * @category node
  * @since 1.0.0
  */

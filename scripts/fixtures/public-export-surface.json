@@ -1203,6 +1203,11 @@
       "name": "@smthrs/gateway",
       "subpath": "./test/TestSuperviseRuntime",
       "reason": "Removed in 703ae262c with the SuperviseRuntime port it doubled."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./McpServer",
+      "reason": "The 0.x named-tool MCP server duplicated `smthrs --mcp`, which serves the canonical command tree through Incur (#2152)."
     }
   ],
   "packages": [

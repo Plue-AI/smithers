@@ -485,14 +485,11 @@ const up = Command.make("up", upFlags, (config) =>
 const approve = Command.make("approve", {
   approval: requiredArgument("approval"),
   // The interactive CLI is an operator affirming the whole launch, matching
-  // `up`. MCP defaults to `once` because an omitted tool argument must not
-  // widen a client's capabilities for the rest of the run.
+  // `up`.
   scope: Flag.Literals("scope", ["once", "run", "remembered"] as const).pipe(
     Flag.withDefault(defaultApprovalScope),
     Flag.withDescription(
-      "How far the grant reaches: this ask only, the whole run (the default, matching `up`), or every later run. " +
-        "The MCP resolve_approval tool defaults to `once` instead, because an argument a client never sent must " +
-        "not widen what it may do"
+      "How far the grant reaches: this ask only, the whole run (the default, matching `up`), or every later run"
     )
   )
 }, (config) =>

@@ -44,7 +44,8 @@ describe("explicit public entrypoints", () => {
       "@smthrs/plan/Migrations",
       "@smthrs/plan/PlanStore",
       "@smthrs/gateway/SuperviseRuntime",
-      "@smthrs/gateway/test/TestSuperviseRuntime"
+      "@smthrs/gateway/test/TestSuperviseRuntime",
+      "@smthrs/cli/McpServer"
     ])
     let retained = 0
     for (const previous of baseline.packages) {
@@ -67,7 +68,7 @@ describe("explicit public entrypoints", () => {
       }
       retained += previous.subpaths.length - removed.length
     }
-    assert.equal(retained, 771)
+    assert.equal(retained, 770)
   })
 
   it("admits only explicitly reviewed additions without rewriting the original surface", () => {

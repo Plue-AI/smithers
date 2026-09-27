@@ -646,6 +646,18 @@ describe("a removed verb refuses before the control plane boots", processBudget,
     })
   })
 
+  it("refuses `--mcp` on a legacy verb and names the unified server", () => {
+    inEmptyDirectory((cwd) => {
+      const result = runIn(cwd, ["ls", "--json", "--mcp"], { SMITHERS_REMOTE: "" })
+
+      expect(result.error).toBeUndefined()
+      expect(result.status).toBe(1)
+      expect(result.stdout).toBe("")
+      expect(result.stderr.trim()).toBe("--mcp takes no command; run `smthrs --mcp`")
+      expect(readdirSync(cwd)).toEqual([])
+    })
+  })
+
   it("still boots the control plane for a surviving verb", () => {
     // The guard is scoped to the removal table. `ls` is a real verb, so it
     // still resolves a project and opens its databases, and a guard that

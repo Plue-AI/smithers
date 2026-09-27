@@ -19440,26 +19440,6 @@ Read-only projections of a run's events. Nothing here opens a database, so
 | `notFound` | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
 | `render` | `(node) => string` | One node's human rendering. |
 
-## McpServer
-
-The stdio MCP server.
-
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `protocolVersion` | `"2025-06-18"` | The MCP version advertised. |
-| `maximumFrameBytes` | `4 MiB` | One request or response frame. |
-| `maximumHistoryEvents`, `maximumHistoryBytes` | `10_000`, `1 MiB` | One history result. |
-| `Envelope` | `{ ok: true, data } \| { ok: false, error: { code, message } }` | The answer every tool gives. |
-| `succeeded`, `failed` | constructors | The two envelopes. |
-| `Tool` | interface | `name`, `description`, `readOnly`, `schema`, `inputSchema`, `call`. |
-| `supportedTools` | `ReadonlyArray<Tool>` | The eleven control-backed tools. |
-| `unsupportedReasons`, `unsupportedTools` | | The twelve retired names that answer `unsupported`, and why. |
-| `Options`, `tools` | `{ approvalTools?, principal?, allowedTools?, readOnly? }` | The session's scope, and the tools it leaves. |
-| `requested` | `(args) => boolean` | Whether `--mcp` was passed. |
-| `optionsFromArguments` | `(args) => Options` | The session scope read from raw argv, because MCP clients configure a launch command. |
-| `respond` | `(request, session, version) => ...` | Answers one request, or `undefined` for a notification. |
-| `serve` | `(options) => Effect` | Serves the session on stdio. |
-
 ## Agents
 
 The agent configurations `smthrs mcp add` writes into.
@@ -50718,7 +50698,7 @@ Global Options:
 - [smthrs runs](/docs/reference/cli/runs/): pass `--remote` to act on a served control plane from another terminal.
 - [Control plane](/docs/guides/control-plane/): run the control plane for a team.
 - [HTTP API](/docs/reference/http-api/): the routes `serve` mounts.
-- [MCP tools](/docs/reference/mcp-tools/): `list_pending_approvals` and `resolve_approval` answer approvals against the same control plane, over the agent's stdio connection.
+- [MCP tools](/docs/reference/mcp-tools/): `approvals_list` reads pending approvals from the same control plane, over the agent's stdio connection.
 
 ---
 

@@ -353,39 +353,4 @@ describe("smithers entrypoint", () => {
     expect(existsSync(join(project, ".flows"))).toBe(true)
     rmSync(project, { recursive: true, force: true })
   }, 120_000)
-
-  it("serves MCP over stdio when `--mcp` is anywhere in the vector", async () => {
-    const fresh = await load()
-    const argv = process.argv
-    const cwd = process.cwd()
-    const home = process.env.HOME
-    const project = mkdtempSync(join(tmpdir(), "flows-cli-bin-"))
-    // `--mcp` is a mode rather than a verb, so the entrypoint reads it before
-    // the parser exists and hands the session the real `process.stdin`. An
-    // already-ended stream is a client that connected and hung up: the server
-    // has nothing to answer and the mode returns, which is the whole promise
-    // this case can hold without a live client.
-    const stdin = new PassThrough()
-    stdin.end()
-    const descriptor = Object.getOwnPropertyDescriptor(process, "stdin")!
-    Object.defineProperty(process, "stdin", { configurable: true, value: stdin })
-    try {
-      process.chdir(project)
-      process.env.HOME = project
-      process.argv = [process.execPath, "smthrs", "--mcp", "--read-only"]
-      await Effect.runPromise(fresh.main)
-    } finally {
-      Object.defineProperty(process, "stdin", descriptor)
-      process.argv = argv
-      process.chdir(cwd)
-      if (home === undefined) delete process.env.HOME
-      else process.env.HOME = home
-    }
-
-    // The mode still builds the durable composition the verbs use, which is
-    // why an MCP client configured with a launch command sees the same runs
-    // `smthrs ps` does.
-    expect(existsSync(join(project, ".flows"))).toBe(true)
-    rmSync(project, { recursive: true, force: true })
-  }, 120_000)
 })

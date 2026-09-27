@@ -19,7 +19,6 @@ import { cli } from "../Command.ts"
 import * as ExecutionTarget from "../history/ExecutionTarget.ts"
 import * as History from "../history/History.ts"
 import * as Failure from "../internal/Failure.ts"
-import * as McpServer from "../McpServer.ts"
 import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
 import * as Ui from "../Ui.ts"
@@ -169,20 +168,11 @@ const main = Effect.gen(function*() {
   // the command tree.
   const refused = Unsupported.refusal(parsed)
   if (refused !== undefined) return yield* Effect.fail(refused)
-  const applicationConfig = yield* NodeControl.configFromArguments(parsed)
-  // `--mcp` is a mode, not a verb: every MCP client configures a launch
-  // command, so the flag has to be readable before the command tree parses
-  // anything. The server then talks to the same Control layer the verbs do.
-  //
-  // `run_flow` and `resolve_approval` can start a run, so its host needs its
-  // completion judge before it opens anything. That is the default
-  // `applicationConfig` already carries.
-  if (McpServer.requested(parsed)) {
-    return yield* McpServer.serve({
-      ...McpServer.optionsFromArguments(parsed),
-      version: packageVersion
-    }).pipe(Effect.provide(NodeControl.layer(applicationConfig)))
+  // `smthrs --mcp` alone serves MCP, from the canonical command tree.
+  if (parsed.options.get("--mcp") === true) {
+    return yield* Effect.fail(new CliError.UnsupportedError({ message: "--mcp takes no command; run `smthrs --mcp`" }))
   }
+  const applicationConfig = yield* NodeControl.configFromArguments(parsed)
   // The durable layer belongs to the handler, not to the program.
   //
   // `Effect.provide` around `Command.run` builds `NodeControl.layer` before

@@ -94,5 +94,3 @@ configure.
 - [`smthrs mcp`](https://smithers.sh/docs/reference/cli/mcp/): the per-verb reference.
 - [MCP setup](https://smithers.sh/docs/guides/mcp-setup/): the product guide.
 - [`@smthrs/mcp`](https://mcp.smithers.sh/reference/api/): the client and the flow projection.
-
-The retired names `list_workflows` and `run_workflow` remain tombstones: they return an `unsupported` error directing callers to `list_flows` and `run_flow`. They do not list or launch anything.

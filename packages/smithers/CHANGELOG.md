@@ -16,6 +16,11 @@
   `--surface raw|both`, and `McpServer.rawTools` and `McpServer.Surface` are
   gone (#2225). Those tools mirrored the shipped verb table, hidden transition
   spellings included; `smthrs --mcp` serves the canonical command tree itself.
+- **Breaking:** the `@smthrs/cli/McpServer` subpath and the `McpServer`
+  namespace export are removed (#2152). `smthrs --mcp` is the one MCP server;
+  its discovery tools serve the canonical command tree. `--mcp` after a
+  legacy verb (`smthrs ls --json --mcp`) exits 1 and names `smthrs --mcp` instead
+  of serving the retired `list_flows`/`run_flow` tools.
 
 ### Fixed
 
