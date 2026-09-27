@@ -82,6 +82,17 @@ restores the previous build without a rebuild.
 
 ### Cutover log
 
+- **2026-09-27 — `GatewaySessionRegistry` retired (#2198).** The box's coding
+  host on the Smithers backend serves `/api/workflow/{provision,rpc}` and
+  `/api/repository-setup/*`; this Worker forwards them as the signed-in user
+  (`src/workflows.ts`, `src/repositorySetup.ts`). The class, binding and
+  migration identity stay, now the retired class in
+  `src/retainedDurableObjects.ts`: it serves 410 and leaves a marker for any
+  alarm still scheduled. Its stored gateway records and setup requests are not
+  migrated or deleted; a setup request admitted before the cutover answers
+  404 on the backend and the app offers Retry, which asks again. Rollback: the
+  prior version restores the live class over the same storage.
+
 - **2026-09-23 — deploys move to the Deploy apps workflow.** From 2026-09-13
   to 2026-09-23 a Stop hook on one laptop (outside this repository) ran
   `scripts/deploy.ts` for every local `main` commit with no test gate: about
@@ -218,7 +229,7 @@ live or not, never by value, and never fail: the deploy keeps them.
    `TURN_CANCELS`/`TURN_LIMITS` path), `GET /api/admin/errors` and
    `GET /api/admin/recommend/log` as an admin (the `CLIENT_ERRORS` and
    `RECOMMEND_LOG` namespaces still answer with their history), and a
-   workflow provision (`GATEWAY_SESSIONS`). Empty logs that were not empty
+   workflow provision (forwarded to the backend). Empty logs that were not empty
    before the deploy mean a namespace was recreated: roll back at once
    (below) and read the preflight output again.
 
@@ -282,18 +293,6 @@ The secret values above exist only on Cloudflare. They are not in any shell,
 repository secret or secret manager, and Cloudflare never reads them back;
 rotating one means minting a new value together with the upstream Worker that
 checks it.
-
-**Four of these reach a Durable Object, not just the router.** The gateway
-registry mints the Cloud token and provisions the workspace inside the object
-(`POST /resolve`, `src/gateway.ts`), so `IDENTITY_UPSTREAM_URL`,
-`IDENTITY_SERVICE_TOKEN`, `SMITHERS_CLOUD_API_BASE_URL` and
-`UPSTREAM_TIMEOUT_MS` are read by `GatewaySessionRegistry`'s own
-`ServerConfig`, built from the `env` workerd hands the class.
-
-`SMITHERS_CLOUD_API_BASE_URL` also pins every gateway relay address to
-`<its origin>/api/gateways/<gateway_id>`. Changing it retires every stored
-gateway record: each one logs a `worker_seam_failure` line with seam
-`gateway record` and re-provisions on next use.
 
 ## Scripted deploy (`scripts/deploy.ts`)
 
@@ -404,15 +403,14 @@ not an optional hardening flag. A deployment identity is not evidence of an
 incoming user's authority to use a workspace.
 
 Product clients use `/api/workflow/provision` and `/api/workflow/rpc`. These
-require a validated, allowlisted session, obtain the user's Cloud identity,
-resolve gateway records by that login, repository and box, and apply the relay's
-procedure/path allowlist. Every call names a box (`workspaceId`); a body without one is refused
-`request_invalid`. Gateway tokens remain server-side in
-`GATEWAY_SESSIONS`; client-supplied identity headers cannot select another user.
-Keep the identity and per-user Cloud gateway configuration described in
-`src/workerIdentity.ts`. Clients needing the gateway's native RPC/WebSocket
-protocols must connect to a separately authenticated gateway, not to these
-retired mounts.
+require a validated, allowlisted session; the Worker forwards the body to the
+same path on `SMITHERS_CLOUD_API_BASE_URL` with the user's Cloud token
+(`forwardToCloud` in `src/proxies.ts`), and the box's coding host on the
+backend validates the repository, box and procedure and answers. The Worker
+waits up to 255 s for the answer's headers (the backend allows a Plan or Run
+four minutes) and reads at most 4 MiB of it. Client-supplied identity headers
+cannot select another user. `/api/repository-setup/*` is forwarded the same
+way.
 
 The local launch/canary scripts now assert the explicit retirement response.
 Their expectations should ship with this Worker version; they are not evidence

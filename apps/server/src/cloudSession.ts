@@ -4,7 +4,7 @@ import { machineReadableRefusal, upstreamProse } from "@smthrs/rpc/UpstreamProse
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import { ServerConfig } from "./Config"
-import { cloudTokenRefusal, fetchCloudToken } from "./gateway"
+import { cloudTokenRefusal, fetchCloudToken } from "./cloudToken"
 import { discardBody, fetchWithDeadline, readRefusalDetail } from "./Http"
 import { validateSession } from "./identity"
 import { json, refuse } from "./Responses"

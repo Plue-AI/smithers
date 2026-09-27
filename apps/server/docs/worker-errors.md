@@ -25,15 +25,14 @@ has been returned remain the stream handler's responsibility.
 A failure that answers no request writes one JSON line,
 `{ "event": "worker_seam_failure", "seam": …, "cause": … }`
 (`logSeamFailure` in `src/RefusalLog.ts`), and Workers Logs
-(`wrangler.jsonc` `observability`) keeps it: a detached gateway resolution,
-a background repository-setup write, and a turn journal or model vault
+(`wrangler.jsonc` `observability`) keeps it: a turn journal or model vault
 Durable Object's own storage failure. `cause` holds the failure's tag, its
 operation, seam or reason, and its cause's message, cut at 500 characters;
 the model vault's causes are fixed words or a tag and never a message.
 
 `UPSTREAM_TIMEOUT_MS` bounds upstream response headers, defaulting to 20,000
 milliseconds when unset or invalid. The model turn and stream routes, admin
-forwards and health reads, identity and billing proxies, and gateway calls
+forwards and health reads, identity, billing and Cloud proxies
 share `fetchWithDeadline` in `src/Http.ts`, read through
 `ServerConfig.upstreamTimeoutMs` (`src/Config.ts`). The deadline covers
 headers only: a streaming body continues past it, and caller cancellation
@@ -44,14 +43,15 @@ and a `message` naming the effective duration in milliseconds:
 `${seam} did not answer within ${timeoutMs}ms.` (`UpstreamTimeout` in
 `src/Failures.ts`). Turn deadlines also settle the cancellation registry.
 Client disconnects on model routes remain HTTP 499 (`src/Boundary.ts`).
-Gateway deadlines retain the states and retry policy in
-[gateway-retries.md](gateway-retries.md).
+`/api/workflow/{provision,rpc}` wait `WORKFLOW_UPSTREAM_DEADLINE_MS`
+(255,000 ms, `src/workflows.ts`) instead: the backend answers a Plan or Run
+only when the box has, and allows it four minutes.
 
 An upstream refusal body is read up to 16 KiB (`REFUSAL_DETAIL_MAX_BYTES`
 in `src/Http.ts`). Past that, or when the body breaks off, the read is
 cancelled and the route states the refusal without the upstream's detail.
-A workspace answer on `/api/workflow/rpc` is read up to 4 MiB
-(`GATEWAY_ANSWER_MAX_BYTES` in `src/workflows.ts`). Past that, the route
+A box answer on `/api/workflow/{provision,rpc}` is read up to 4 MiB
+(`WORKFLOW_ANSWER_MAX_BYTES` in `src/workflows.ts`). Past that, the route
 answers `upstream_malformed`; a body that breaks off answers
 `upstream_unreachable`.
 

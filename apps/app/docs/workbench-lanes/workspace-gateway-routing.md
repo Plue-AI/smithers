@@ -1,7 +1,6 @@
 # Every flow runs on a box
 
-The app reuses its existing gateway relay, and every call through it names a
-box (a Plue workspace): flow provisioning, listing, planning, launch, run
+Every flow call names a box (a Plue workspace): flow provisioning, listing, planning, launch, run
 inspection, approvals and triggers all run on that box's coding host. There is
 no box-less path: the repository-level product gateway is deleted (#2194). This
 is a routing choice, not an additional coding service or a browser-held
@@ -33,12 +32,13 @@ open. Chat is never held by it.
 
 ## Existing API extensions
 
-The Worker `POST /api/workflow/provision` and `POST /api/workflow/rpc` bodies
-require `workspaceId` alongside `repo`; a body without one is refused.
-The Worker passes it as `workspace_id` to Plue's existing
-`POST /api/repos/{owner}/{repo}/gateway`. Plue returns the same field on a bound
-response. A missing or mismatched response binding is refused; it never silently
-falls back to a standalone gateway. Canonical nonzero UUIDs are required.
+The `POST /api/workflow/provision` and `POST /api/workflow/rpc` bodies
+require `workspaceId` alongside `repo`; a body without one is refused. The box's
+coding host on the Smithers backend serves both
+(`packages/backend/internal/compose/browser_flow.go`); the Worker forwards the
+body unchanged as the signed-in user (#2198). Provision answers `ready` once the
+box runs and its host is live, else `provisioning`, which the app polls.
+Canonical UUIDs are required.
 
 ```json
 {
@@ -49,9 +49,8 @@ falls back to a standalone gateway. Canonical nonzero UUIDs are required.
 }
 ```
 
-The example illustrates the relay envelope; a real coding plan must satisfy its
-flow's schema. Gateway credentials stay in the existing per-user Worker Durable
-Object, keyed by repository and box.
+The example illustrates the envelope; a real coding plan must satisfy its
+flow's schema. No box credential reaches the Worker or the browser.
 
 The gateway's existing `GatewayHealth` schema accepts optional
 `capabilities: string[]`. This schema addition alone does not advertise a coding
@@ -94,7 +93,7 @@ The same argument works through slash and agent doors:
 ```
 
 The shared `@smthrs/rpc/GatewayWorkspace` module exposes the small validation
-contract used by both persisted cards and the Worker (new exported helpers):
+contract persisted cards use:
 
 ```ts
 import { GatewayWorkspaceIdSchema, isGatewayWorkspaceId } from "@smthrs/rpc/GatewayWorkspace"
@@ -102,13 +101,11 @@ const id = GatewayWorkspaceIdSchema.parse("ffffffff-ffff-ffff-ffff-ffffffffffff"
 isGatewayWorkspaceId(id) // true: canonical hex, not restricted to an RFC version nibble
 ```
 
-This aligns with Plue's existing canonical lowercase, non-nil ID predicate. The
-Worker keeps its prior `isGatewayWorkspaceId` export as a re-export.
+This aligns with Plue's existing canonical lowercase, non-nil ID predicate.
 
 ## Verification and limits
 
-Tests cover Worker routing, canonical IDs, mismatched responses, missing host
-capability, durable-cache restart, selection changes during actual controller
+Tests cover canonical IDs, selection changes during actual controller
 provisioning, every branch of the default-box rule, a box-less recorded run, and
 a launch with no box (`src/mainview/state/BoxRequired.test.ts`). Run-card tests follow with a later run operation
 under another active selection. The bound cloud host still needs to be staged

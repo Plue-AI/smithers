@@ -35,10 +35,10 @@
   never the identity verdict — `bun scripts/adopt-durable-objects.ts` is.
 - A Durable Object's in-memory state is made once by the object (the native
   class's field), never a Layer built per request: the client-error throttle
-  `Ref` and the gateway registry's resolution join map.
-- A Durable Object that talks to an upstream needs the deployment's config.
-  workerd constructs each class with `(ctx, env)`, and `GatewaySessionRegistry`
-  builds its Layers from that `env`; the gateway registry provisions inside
-  the object, so an empty bag is a silent `/api/workflow/*` outage.
+  `Ref`.
+- Routes the Smithers backend serves (`/api/workflow/{provision,rpc}`,
+  `/api/repository-setup/*`, the platform proxy) are forwarded as the
+  signed-in user through `forwardToCloud` (`src/proxies.ts`); never a second
+  forwarder, and never Worker-side state for them.
 - This package is the UI gateway. Changes to sandbox execution or frontend
   framework code belong to their owning packages.

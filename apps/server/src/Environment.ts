@@ -15,9 +15,6 @@ import type { NativeNamespace } from "./DurableStorage"
 import { UpstreamUnreachable } from "./Failures"
 import { edgeCacheLayer, githubAppAuthLayer } from "./githubApp"
 import type { EdgeCache, GithubAppAuth } from "./githubApp"
-import { gatewaySessionsLayer } from "./gateway"
-import type { GatewaySessions } from "./gateway"
-import { setupRequestsLayer, SetupRequests } from "./repositorySetupStore"
 import { TransportLive } from "./Http"
 import { TerminalSockets, terminalSocketsLayer } from "./terminalRelay"
 import type { Transport } from "./Http"
@@ -58,14 +55,6 @@ export interface WorkerEnv extends ServerEnvVars {
    * in-memory storage (src/memoryDurableObjects.ts).
    */
   readonly TURN_CANCELS: NativeNamespace
-  /**
-   * The per-user gateway session registry (Wave 11, Durable Object keyed by
-   * login): holds the relay records server-side so gateway tokens never
-   * reach a browser, and coordinates provisioning so concurrent cold or
-   * expired misses join one resolution. Bound on every real deployment;
-   * tests drive the real class over in-memory storage.
-   */
-  readonly GATEWAY_SESSIONS: NativeNamespace
   /**
    * The per-login turn ceiling (Durable Object keyed by the validated login).
    * An abuse guard on a comped seam, not a billing pause — see turnLimit.ts.
@@ -237,8 +226,6 @@ export type AllServices =
   | BrowserEgress
   | DeploymentBindings
   | TurnCancels
-  | GatewaySessions
-  | SetupRequests
   | TurnLimits
   | ClientErrors
   | RecommendLogStore
@@ -262,8 +249,6 @@ export const layersFromEnv = (env: WorkerEnv): Layer.Layer<AllServices> => {
     browserEgressLayer(env.BROWSER_EGRESS),
     deploymentBindingsLayer(env),
     turnCancelsLayer(env.TURN_CANCELS),
-    gatewaySessionsLayer(env.GATEWAY_SESSIONS),
-    setupRequestsLayer(env.GATEWAY_SESSIONS),
     turnLimitsLayer(env.TURN_LIMITS),
     clientErrorsLayer(env.CLIENT_ERRORS),
     recommendLogLayer(env.RECOMMEND_LOG),
@@ -274,7 +259,7 @@ export const layersFromEnv = (env: WorkerEnv): Layer.Layer<AllServices> => {
 /*
  * One runtime per env bag. workerd hands every request of an isolate the same
  * `env` object, so the services built from it (the GitHub App single-flight
- * mint, the catalog cache, the gateway provisioning gate) live for the
+ * mint, the catalog cache) live for the
  * isolate and every request reuses them. A test builds a fresh bag per case
  * and so gets fresh services; two bags never share a credential.
  */

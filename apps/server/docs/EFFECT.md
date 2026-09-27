@@ -42,7 +42,7 @@ Each Durable Object module exports, in this order of importance:
 2. The native class (`class TurnCancelRegistry { fetch(request) { return
    runDurable(...) } }`), kept for tests and the local host; its `fetch` line
    is a declared boundary (below).
-3. The Worker-side service (`TurnCancels`, `GatewaySessions`, `TurnLimits`,
+3. The Worker-side service (`TurnCancels`, `TurnLimits`,
    `ClientErrors`, `RecommendLogStore`) and its Layer constructor from a
    `NativeNamespace | undefined` (undefined = the binding is absent, unit-test
    behaviour).
@@ -54,33 +54,16 @@ once, and its `fetch` line runs the request Effect over them through
 `runDurable`.
 
 **A Durable Object's in-memory state is made once by the object.** The object,
-not the request, is the thing that remembers. Two services live by that rule:
+not the request, is the thing that remembers. `ClientErrorThrottle` — the
+throttle window, a `Ref<ClientErrorWindow>` from `makeClientErrorThrottle()` —
+is created in the native class's field initialiser (`src/clientErrorLog.ts`),
+so `clientErrorLogRequest` requires `DurableStorage | ClientErrorThrottle`. A
+window rebuilt per request throttles nothing. The same rule governs any future
+per-object counter, cache or lock.
 
-- `ClientErrorThrottle` — the throttle window, a `Ref<ClientErrorWindow>` from
-  `makeClientErrorThrottle()`. A window rebuilt per request throttles nothing.
-- `GatewayResolutions` — the registry's join map,
-  `Map<string, Deferred<ProvisionOutcome>>` from `makeGatewayResolutions()`,
-  built inside `gatewayRegistryLayers`. A map rebuilt per request joins
-  nothing, and eight cold callers would provision eight workspaces.
-
-Both are created in the native class's field initialiser
-(`src/clientErrorLog.ts:306`, `src/gateway.ts:284`). So `clientErrorLogRequest` requires
-`DurableStorage | ClientErrorThrottle` and `gatewaySessionRequest` requires
-`GatewayRegistryServices = DurableStorage | Transport | ServerConfig |
-GatewayResolutions`. The same rule governs any future per-object counter,
-cache or lock.
-
-**The gateway registry needs the deployment's config, and getting that wrong is
-an outage.** Since upstream `e089305e5d` the object serves `POST /resolve`: it
-mints the Cloud token and provisions the workspace itself, so it reads
-`IDENTITY_UPSTREAM_URL`, `IDENTITY_SERVICE_TOKEN`,
-`SMITHERS_CLOUD_API_BASE_URL` and `UPSTREAM_TIMEOUT_MS` from its own
-`ServerConfig`, built from the `env` workerd hands the class constructor
-(`src/gateway.ts:284`). An empty bag typechecks, deploys, and passes every
-router test — the router just forwards to the binding — while every
-resolution answers `unavailable: IDENTITY_UPSTREAM_URL is unset on this
-deployment.` `src/gateway.test.ts` is the gate: it builds the registry from a
-fixture bag and asserts the `ServerConfig` the object runs on.
+`GatewaySessionRegistry` is a retired class (`src/retainedDurableObjects.ts`):
+the flow and setup routes it served are the Smithers backend's, forwarded by
+`forwardToCloud` (`src/proxies.ts`).
 
 Why both names survive adoption, briefly (DEPLOY.md has the procedure): the
 binding is declared in `env` with the props form
@@ -105,14 +88,13 @@ handler declares what it needs in its `R`:
 | `Transport` | `src/Http.ts` | `TransportLive`, `transportLayer(fetch)` | outbound fetch with a header-only deadline |
 | `TerminalSockets` | `src/terminalRelay.ts` | `terminalSocketsLayer` | workerd WebSocketPair and upgrade response; relay listeners live until either peer closes |
 | `Assets`, `BrowserEgress` | `src/Environment.ts` | `assetsLayer`, `browserEgressLayer` | the `ASSETS` and `BROWSER_EGRESS` fetchers |
-| `TurnCancels`, `GatewaySessions`, `TurnLimits`, `ClientErrors`, `RecommendLogStore` | their modules | `<x>Layer(namespace \| undefined)` | one Durable Object namespace each |
+| `TurnCancels`, `TurnLimits`, `ClientErrors`, `RecommendLogStore` | their modules | `<x>Layer(namespace \| undefined)` | one Durable Object namespace each |
 | `ModelPayer` | `src/modelPayer.ts` | `paidBy(login)` (a `Context.Reference`, default visitor) | who pays a model call: a login's goes through Smithers Cloud's metered proxy on its Cloud token; a visitor's keeps the deployment key |
 | `EdgeCache`, `GithubAppAuth` | `src/githubApp.ts` | `edgeCacheLayer(cache)`, `githubAppAuthLayer` | the Cache API and the single-flight App mint |
 | `DeploymentBindings` | `src/Environment.ts` | `deploymentBindingsLayer(env)` | which optional bindings this deployment has, so admin reads answer honestly |
 | `ExecutionContext` | `src/Environment.ts` | `Effect.provideService(ExecutionContext, executionContextFrom(ctx))` | this request's `waitUntil`; provided by the adapter, never by `layersFromEnv` |
 | `DurableStorage` / `RecommendStorage` | `src/DurableStorage.ts`, `src/recommend.ts` | `storageLayer(native)`, `recommendStorageLayer(native)` | a Durable Object's own storage, inside the object |
 | `ClientErrorThrottle` | `src/clientErrorLog.ts` | `clientErrorThrottleLayer(makeClientErrorThrottle())` | one object's throttle window, made once per in-memory object |
-| `GatewayResolutions` | `src/gateway.ts` | `gatewayRegistryLayers(storage, env)` | one registry object's provisioning join map, made once per in-memory object |
 
 `layersFromEnv(env)` in `src/Environment.ts` is the one composition point; it
 returns `Layer<AllServices>` — everything except `ExecutionContext`, which the

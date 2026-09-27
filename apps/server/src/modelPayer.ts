@@ -3,7 +3,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import { ServerConfig } from "./Config"
-import { fetchCloudToken } from "./gateway"
+import { fetchCloudToken } from "./cloudToken"
 import { readRefusalDetail } from "./Http"
 import type { Transport } from "./Http"
 

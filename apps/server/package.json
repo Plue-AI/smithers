@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Smithers closed-alpha Cloudflare Worker: same-origin agent API, gateway relay, and host for the smithers-app build",
+  "description": "Smithers closed-alpha Cloudflare Worker: same-origin agent API, Smithers Cloud proxy, and host for the smithers-app build",
   "exports": {
     "./package.json": "./package.json",
     "./*": {

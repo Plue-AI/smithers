@@ -14,8 +14,8 @@
  *     control plane, a real engine over two SQLite files, and the
  *     `EngineJournalSupervisor` bridge a deployed host wires;
  *   - `NodeGateway` on a loopback port, behind a bearer this process mints;
- *   - the product Worker's relay, with the Worker's own frame adapter
- *     (`smithers-server/gatewayRpc`), which holds that bearer.
+ *   - a local stand-in for the box's flow route (`scripts/workerRelay.ts`,
+ *     frames in `scripts/gatewayFrames.ts`), which holds that bearer.
  *
  * The relay answers `provision` as ready and `/api/auth/session` as the scoped
  * test user, so nothing here needs a GitHub session, a Cloud workspace, or a
@@ -233,11 +233,10 @@ const contents = async (repo: string, path: string, ref?: string): Promise<{ sta
 }
 
 /**
- * The product Worker's relay: the Worker's own procedure allowlist, its own
- * frame adapter, and the credential the browser cannot hold.
+ * The box's flow route, stood in locally: the procedure set production
+ * relays, the gateway frames, and the credential the browser cannot hold.
  *
- * Shared with `gateway-run-proof.ts`. An unregistered procedure
- * is refused by the Worker's own handler,
+ * Shared with `gateway-run-proof.ts`. An unregistered procedure is refused,
  * so a spec cannot reach a procedure production would not relay.
  */
 const startRelay = (gatewayUrl: string): Promise<{ url: string; close: () => Promise<void> }> =>

@@ -6,8 +6,8 @@
  *   - a real workspace gateway (`@smthrs/gateway` over a real SQLite control
  *     plane, journal, and run store) on a loopback port, behind a bearer
  *     credential;
- *   - the product Worker's relay, using the Worker's own frame adapter
- *     (`smithers-server/gatewayRpc`), which holds the credential the browser
+ *   - a local stand-in for the box's flow route (`scripts/workerRelay.ts`,
+ *     frames in `scripts/gatewayFrames.ts`), which holds the credential the browser
  *     cannot;
  *   - this app's seam (`createGatewaySeam`), unmodified, pointed at the relay,
  *
@@ -175,7 +175,7 @@ const served = NodeGateway.layer(
 /** Every procedure the relay forwarded, so a second resume would be visible. */
 const relayed: Array<string> = []
 
-/** The product Worker's relay, with the Worker's own frame adapter. */
+/** The box's flow route, stood in locally (`scripts/workerRelay.ts`). */
 const startRelay = (gatewayUrl: string): Promise<{ url: string; close: () => void }> =>
   new Promise((resolve) => {
     const server = createServer((request, response) => {

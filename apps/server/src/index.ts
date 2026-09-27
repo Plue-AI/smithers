@@ -40,7 +40,7 @@ import { ServerConfig } from "./Config"
 import { Assets, BrowserEgress, DeploymentBindings, ExecutionContext, executionContextFrom, runtimeFor } from "./Environment"
 import type { NativeExecutionContext, RequestServices, WorkerEnv } from "./Environment"
 import { discardBody, readJsonOrUndefined } from "./Http"
-import { GatewaySessionRegistry } from "./gateway"
+import { GatewaySessionRegistry } from "./retainedDurableObjects"
 import { AccountModelVault } from "./modelVault"
 import { handleAuthNavigation, isVisitorRefusal, probeAuthSession, proxyToIdentity, requireTurnSession, validateSession } from "./identity"
 import {
@@ -101,7 +101,12 @@ import { handleRepositorySetup } from "./repositorySetup"
  * shape, which the tests and a local host run as well.
  */
 
-/* The five Durable Object classes wrangler binds, under their frozen names. */
+/*
+ * The Durable Object classes wrangler binds, under their frozen names.
+ * GatewaySessionRegistry is retired (#2198): the box's coding host on the
+ * Smithers backend serves the flow and setup routes, and its storage stays
+ * for rollback.
+ */
 export { AccountModelVault, ClientErrorLog, GatewaySessionRegistry, RecommendLog, TurnCancelRegistry, TurnRateLimiter }
 /* The route tables the host parity matrix and the identity test read. */
 export { PLATFORM_PROXY_RULES, platformProxyRuleCovers }
@@ -111,7 +116,7 @@ export type { TurnCancelNamespace, TurnCancelStorage } from "./turns"
 /*
  * Retired raw gateway mounts. The old static proxy used deployment credentials
  * without a per-request user/target authority. Product clients use the
- * session-validated, per-user /api/workflow/* relay instead. Leftover secrets
+ * session-validated, per-user /api/workflow/* routes instead. Leftover secrets
  * must never reactivate this path.
  */
 const RETIRED_GATEWAY_ROUTE_PREFIXES = ["/rpc", "/projections", "/sync", "/health"] as const
@@ -149,8 +154,8 @@ const isApiRoute = (pathname: string): boolean => pathname.startsWith("/api/") |
 
 /**
  * Same-origin guard for the API surface. These routes spend the deployment's
- * own credentials — `/api/workflow/rpc` relays a gateway procedure under the
- * credential the Worker holds and the browser never sees — and a `text/plain`
+ * own credentials — `/api/workflow/rpc` forwards a flow procedure under the
+ * Cloud credential the Worker holds and the browser never sees — and a `text/plain`
  * or form POST from another site is not preflighted, so nothing else would
  * stop a page anywhere from driving them. Requests without an `Origin`
  * (same-origin GETs, top-level OAuth navigation, curl, the e2e) are untouched.

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -22,9 +22,6 @@ import type { ClientErrorRecord } from "./clientErrorLog"
 import { memoryStorage as memoryObjectStorage, storageLayer } from "./DurableStorage"
 import { floodStream, FLOOD_CHUNK_BYTES } from "./floodStream"
 import type { NativeNamespace } from "./DurableStorage"
-import { WORKSPACE_GONE_REFUSAL } from "./gateway"
-import type { ProvisionOutcome } from "./gateway"
-import { ALLOWED_GATEWAY_PROCEDURES } from "./gatewayRpc"
 import { REFUSAL_DETAIL_MAX_BYTES } from "./Http"
 import worker, { PLATFORM_PROXY_RULES, TurnCancelRegistry } from "./index"
 import { asAdmitted } from "./admittedSession"
@@ -33,7 +30,7 @@ import type { TurnCancelNamespace, TurnCancelStorage, WorkerEnv } from "./index"
 import { AVAILABLE_REPOS, COMING_SOON_REPOS } from "./publicRepoCatalog"
 import { memoryRecommendStorage, RecommendLog } from "./recommend"
 import { TURN_WINDOW_MAX, TurnRateLimiter } from "./turnLimit"
-import { GATEWAY_ANSWER_MAX_BYTES } from "./workflows"
+import { WORKFLOW_ANSWER_MAX_BYTES, WORKFLOW_UPSTREAM_DEADLINE_MS } from "./workflows"
 
 /** The Worker's fetch as one admitted login: every model-spending route fails closed without identity. */
 const admitted = asAdmitted(worker.fetch)
@@ -4472,701 +4469,206 @@ describe("generation-scoped turn lifecycle", () => {
  */
 
 /*
- * Wave 11 — the /api/workflow/* routes over the relay double (from
- * gateway.test.ts). The hard invariant every one of these pins: a gateway
- * token is an operator credential on the user's VM. It lives server-side only.
+ * The /api/workflow/{provision,rpc} routes: the box's coding host on the
+ * Smithers backend answers them, and the Worker forwards each one as the
+ * signed-in user. The invariant every one of these pins: the user's Cloud
+ * token is a server-side credential; it goes to Cloud and never comes back.
  */
-describe("wave 11 — the /api/workflow/* routes", () => {
-  const GATEWAY_TOKEN = "smithers_gateway_secret-operator-token"
+describe("the /api/workflow/* routes forward to the box's coding host", () => {
   const CLOUD_TOKEN = "smithers_pat_cloud-identity"
-  /** Every flow call names a box (#2194). */
   const BOX = "83e75ae5-0920-4000-8000-00000000000c"
+  const CLOUD = "https://api.smithers-cloud.test"
 
-  const BASE_ENV = {
+  const env = (extra: Partial<WorkerEnv> = {}): WorkerEnv => ({
+    ...memoryDurableObjects(),
     ASSETS: { fetch: async () => new Response("<html></html>", { status: 200 }) },
     IDENTITY_UPSTREAM_URL: "https://identity.test",
     IDENTITY_SERVICE_TOKEN: "service-token",
-    SMITHERS_CLOUD_API_BASE_URL: "https://api.smithers-cloud.test"
-  }
-
-  /*
-   * The Durable Object bindings are the REAL classes over in-memory storage,
-   * one fixture per test: records persist across `env()` calls inside a test
-   * (a deployment keeps them across Worker requests) and vanish between tests.
-   * The registry runs the resolution itself, so the first `env()` of a test
-   * fixes the settings it resolves with.
-   */
-  let durable: ReturnType<typeof memoryDurableObjects> | undefined
-  const env = (extra: Partial<WorkerEnv> = {}): WorkerEnv => {
-    const settings = { ...BASE_ENV, ...extra }
-    durable ??= memoryDurableObjects({ env: settings })
-    return { GATEWAY_SESSIONS: durable.GATEWAY_SESSIONS, TURN_CANCELS: durable.TURN_CANCELS, ...settings }
-  }
+    SMITHERS_CLOUD_API_BASE_URL: CLOUD,
+    ...extra
+  })
 
   const json = (status: number, body: unknown): Response =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
-  interface RelayCall {
+  interface CloudCall {
     readonly url: string
     readonly method: string
     readonly authorization: string | null
-    readonly serviceToken: string | null
-    readonly body: unknown
+    readonly body: string
   }
 
-  /**
-   * The relay double: the identity cloud-token door plus the Cloud provision
-   * route and a per-gateway RPC/REST surface, each answering the exact shapes
-   * the receipts recorded. `script` lets a test bend one leg at a time.
-   */
-  const withRelay = async (
-    script: {
-      readonly cloudToken?: (call: RelayCall, attempt: number) => Response | undefined
-      readonly provision?: (call: RelayCall, attempt: number) => Response | undefined
-      readonly gateway?: (call: RelayCall, attempt: number, signal: AbortSignal) => Response | undefined | Promise<Response>
-    },
-    run: (calls: RelayCall[]) => Promise<void>
+  /** The identity door and Smithers Cloud; `cloud` answers each forwarded call. */
+  const withCloud = async (
+    cloud: (call: CloudCall, attempt: number, signal: AbortSignal) => Response | Promise<Response>,
+    run: (calls: CloudCall[], tokens: () => number) => Promise<void>,
+    token: (attempt: number) => string = () => CLOUD_TOKEN
   ): Promise<void> => {
-    const calls: RelayCall[] = []
-    const attempts = { cloudToken: 0, provision: 0, gateway: 0 }
+    const calls: CloudCall[] = []
+    let minted = 0
     const originalFetch = globalThis.fetch
     globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-      const request = typeof input === "string"
-        ? new Request(input, init)
-        : input instanceof URL
-        ? new Request(input.toString(), init)
-        : new Request(input as Request, init)
+      const request = typeof input === "string" ? new Request(input, init) : new Request(input as Request, init)
       const url = new URL(request.url)
-      const raw = await request.clone().text()
-      const call: RelayCall = {
-        url: request.url,
-        method: request.method,
-        authorization: request.headers.get("authorization"),
-        serviceToken: request.headers.get("x-smithers-service-token"),
-        body: raw === "" ? undefined : JSON.parse(raw)
-      }
-      calls.push(call)
       if (url.pathname === "/api/identity/cloud-token") {
-        attempts.cloudToken += 1
-        return (
-          script.cloudToken?.(call, attempts.cloudToken) ??
-            json(200, { valid: true, login: "codeplanesmithers", found: true, token: CLOUD_TOKEN })
-        )
+        minted += 1
+        return json(200, { found: true, token: token(minted) })
       }
-      if (/^\/api\/repos\/[^/]+\/[^/]+\/gateway$/.test(url.pathname)) {
-        attempts.provision += 1
-        return (
-          script.provision?.(call, attempts.provision) ??
-            json(200, {
-              base_url: "https://api.smithers-cloud.test/api/gateways/gw-1",
-              token: GATEWAY_TOKEN,
-              expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-              gateway_id: "gw-1",
-              vm_id: "msb_1",
-              status: "running",
-              workspace_id: (call.body as { workspace_id?: string } | undefined)?.workspace_id
-            })
-        )
-      }
-      if (url.pathname.startsWith("/api/gateways/")) {
-        attempts.gateway += 1
-        return script.gateway?.(call, attempts.gateway, request.signal) ?? json(200, { ok: true, apiVersion: "v1", payload: [] })
-      }
-      if (url.hostname === "identity.test") {
-        // The session probe every workflow route gates on.
-        return json(200, { login: "codeplanesmithers", allowlisted: true, admin: false })
-      }
-      return originalFetch(request)
+      if (url.hostname === "identity.test") return json(200, { login: "codeplanesmithers", allowlisted: true, admin: false })
+      const call: CloudCall = { url: request.url, method: request.method, authorization: request.headers.get("authorization"), body: await request.text() }
+      calls.push(call)
+      return cloud(call, calls.length, request.signal)
     }) as typeof fetch
     try {
-      await run(calls)
+      await run(calls, () => minted)
     } finally {
       globalThis.fetch = originalFetch
     }
   }
 
-  const signedIn = (path: string, init?: RequestInit): Request =>
+  const signedIn = (path: string, body: unknown, init?: RequestInit): Request =>
     new Request(`https://mvp.test${path}`, {
+      method: "POST",
+      body: typeof body === "string" ? body : JSON.stringify(body),
       ...init,
       headers: { "content-type": "application/json", cookie: "smithers_session=abc", ...(init?.headers ?? {}) }
     })
 
-  afterEach(() => {
-    durable = undefined
-  })
+  const call = { repo: "codeplanesmithers/smithers-demo", workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } }
 
-  test("provision answers the gateway id and cadence — and NEVER the token", async () => {
-    await withRelay({}, async () => {
-      const response = await worker.fetch(
-        signedIn("/api/workflow/provision", {
-          method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX })
-        }),
-        env()
-      )
+  test("provision reaches the backend as the user, body unchanged, and answers its status and body", async () => {
+    const ready = { status: "ready", workspaceId: BOX, gatewayId: BOX }
+    await withCloud(() => json(200, ready), async (calls) => {
+      const sent = JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX })
+      const response = await worker.fetch(signedIn("/api/workflow/provision", sent), env())
       expect(response.status).toBe(200)
       const text = await response.text()
-      expect(JSON.parse(text)).toMatchObject({ status: "ready", gatewayId: "gw-1" })
-      // The one invariant that matters most on this seam.
-      expect(text).not.toContain(GATEWAY_TOKEN)
+      expect(JSON.parse(text)).toEqual(ready)
       expect(text).not.toContain(CLOUD_TOKEN)
-      expect(text).not.toContain("smithers_gateway")
+      expect(calls).toEqual([{ url: `${CLOUD}/api/workflow/provision`, method: "POST", authorization: `Bearer ${CLOUD_TOKEN}`, body: sent }])
     })
   })
 
-  /*
-   * Measured on canary 0068f10c2b35: after /box.suspend then
-   * /box.resume, `POST /api/workflow/provision` answered `ready` in 0s
-   * while the gateway was not up, five rpc calls then timed out at 30s each,
-   * and the first one that worked landed at t=161s. The cached record inside
-   * its half-life was the whole answer, and a suspend writes nothing to it —
-   * so `ready` was the PRE-SUSPEND state. A readiness answer has to be about
-   * the gateway, so the gateway is who answers it.
-   */
-  test("a workspace whose gateway is not serving is never answered `ready`", async () => {
-    let serving = true
-    await withRelay({ gateway: () => (serving ? undefined : json(502, { error: "bad gateway" })) }, async (calls) => {
-      const ask = () =>
-        worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX }) }),
-          env()
-        )
-      expect(await (await ask()).json()).toMatchObject({ status: "ready", gatewayId: "gw-1" })
-      const provisions = calls.filter((call) => call.url.endsWith("/gateway")).length
-
-      // The VM idle-suspends behind a record nothing invalidates.
-      serving = false
-      const response = await ask()
+  test("a waking box answers provisioning, which passes through for the app to poll", async () => {
+    await withCloud(() => json(200, { status: "provisioning" }), async () => {
+      const response = await worker.fetch(signedIn("/api/workflow/provision", { repo: "will/mvp", workspaceId: BOX }), env())
       expect(response.status).toBe(200)
-      const body = await response.json() as { status?: unknown; message?: unknown }
-      expect(body.status).not.toBe("ready")
-      expect(body).toMatchObject({ status: "provisioning" })
-      expect(String(body.message)).toContain("isn't answering yet")
-      // The record is younger than the forced-reprovision floor, so the honest
-      // answer is the wait itself and not another POST at Smithers Cloud.
-      expect(calls.filter((call) => call.url.endsWith("/gateway")).length).toBe(provisions)
+      expect(await response.json()).toEqual({ status: "provisioning" })
     })
   })
 
-  /*
-   * The person's sentence. `upstream_refused — … Something Smithers depends on
-   * refused that` is a true fault class and a false account of what happened:
-   * nothing refused anything, the workspace was still coming up.
-   */
-  test("running something against a starting workspace says it is starting, not that something refused", async () => {
-    await withRelay(
-      { gateway: () => json(409, { code: "conflict", message: "repo gateway is not running" }) },
-      async () => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/rpc", {
-            method: "POST",
-            body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX, procedure: "Run", payload: {} })
-          }),
-          env()
-        )
-        const body = await response.json() as { code?: unknown; message?: unknown }
-        expect(body.code).not.toBe("upstream_refused")
-        expect(body.code).toBe("workspace_starting")
-        expect(String(body.message)).toContain("starting back up")
-        expect(response.status).toBe(WORKER_FAILURES.workspace_starting.status)
-        expect(WORKER_FAILURES.workspace_starting.fault).toBe("wait")
-      }
-    )
+  test("rpc passes the canonical answer and the canonical refusal through unchanged", async () => {
+    const answers = [
+      { ok: true, payload: { rows: [] } },
+      { ok: false, error: { message: "No flow \"x\" is registered on this workspace.", detail: [{ _tag: "Fail", error: { code: "flow_not_found" } }] } }
+    ]
+    for (const answer of answers) {
+      await withCloud(() => json(200, answer), async (calls) => {
+        const response = await worker.fetch(signedIn("/api/workflow/rpc", call), env())
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual(answer)
+        expect(calls.map((c) => [c.url, JSON.parse(c.body)])).toEqual([[`${CLOUD}/api/workflow/rpc`, call]])
+      })
+    }
   })
 
-  test("a workspace answer past the relay ceiling is refused as malformed and cancelled, not buffered", async () => {
-    const { stream, seen } = floodStream()
-    await withRelay({ gateway: () => new Response(stream, { status: 200 }) }, async () => {
-      const response = await worker.fetch(
-        signedIn("/api/workflow/rpc", {
-          method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
-        }),
-        env()
-      )
-      expect(response.status).toBe(WORKER_FAILURES.upstream_malformed.status)
-      expect(await response.json()).toMatchObject({
-        code: "upstream_malformed",
-        message: "The workspace answer is larger than 4 MiB."
+  test("a typed refusal keeps its status and its top-level code", async () => {
+    const refusals = [
+      { status: 409, body: { ok: false, code: "workspace_starting", error: { code: "workspace_starting", message: "This box is starting." } } },
+      { status: 409, body: { ok: false, code: "workspace_gone", error: { code: "workspace_gone", message: "This box is gone. Open a new one." } } },
+      { status: 503, body: { ok: false, code: "runtime_host_starting", error: { code: "runtime_host_starting", message: "Flow host unavailable." } } }
+    ]
+    for (const refusal of refusals) {
+      await withCloud(() => json(refusal.status, refusal.body), async () => {
+        const response = await worker.fetch(signedIn("/api/workflow/rpc", call), env())
+        expect(response.status).toBe(refusal.status)
+        expect(await response.json()).toEqual({ status: "error", code: refusal.body.code, message: refusal.body.error.message })
       })
+    }
+  })
+
+  test("the browser receives plan-limit 402 and the upgrade target", async () => {
+    const refusal = { code: "plan_limit_exceeded", fault: "user", message: "Upgrade or suspend one sandbox.", plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro" }
+    await withCloud(() => json(402, refusal), async () => {
+      const response = await worker.fetch(signedIn("/api/workflow/provision", { repo: "will/mvp", workspaceId: BOX }), env())
+      expect(response.status).toBe(402)
+      expect(await response.json()).toEqual({ status: "error", code: "plan_limit_exceeded", message: refusal.message,
+        plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro" })
+    })
+  })
+
+  test("a box answer past 4 MiB is refused as malformed and cancelled, not buffered", async () => {
+    const { stream, seen } = floodStream()
+    await withCloud(() => new Response(stream, { status: 200 }), async () => {
+      const response = await worker.fetch(signedIn("/api/workflow/rpc", call), env())
+      expect(response.status).toBe(WORKER_FAILURES.upstream_malformed.status)
+      expect(await response.json()).toMatchObject({ code: "upstream_malformed", message: "Smithers Cloud's answer is larger than 4 MiB." })
     })
     expect(seen.cancelled).toBe(true)
-    expect(seen.pulled).toBeLessThanOrEqual(GATEWAY_ANSWER_MAX_BYTES + 2 * FLOOD_CHUNK_BYTES)
+    expect(seen.pulled).toBeLessThanOrEqual(WORKFLOW_ANSWER_MAX_BYTES + 2 * FLOOD_CHUNK_BYTES)
   })
 
-  test("a workspace answer that breaks off mid-body is refused as unreachable, not relayed as an empty answer", async () => {
+  test("a box answer that breaks off mid-body is refused as unreachable, not relayed as an empty answer", async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode("{\"_tag\":\"Exit\""))
+        controller.enqueue(new TextEncoder().encode("{\"ok\":true"))
         controller.error(new Error("connection reset"))
       }
     })
-    await withRelay({ gateway: () => new Response(stream, { status: 200 }) }, async () => {
-      const response = await worker.fetch(
-        signedIn("/api/workflow/rpc", {
-          method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
-        }),
-        env()
-      )
+    await withCloud(() => new Response(stream, { status: 200 }), async () => {
+      const response = await worker.fetch(signedIn("/api/workflow/rpc", call), env())
       expect(response.status).toBe(WORKER_FAILURES.upstream_unreachable.status)
-      expect(await response.json()).toMatchObject({
-        code: "upstream_unreachable",
-        message: "The workspace answer broke off before it ended."
-      })
+      expect(await response.json()).toMatchObject({ code: "upstream_unreachable", message: "Smithers Cloud's answer broke off before it ended." })
     })
   })
 
-  test("a signed-out caller gets 401 and nothing is provisioned", async () => {
-    const originalFetch = globalThis.fetch
-    let provisions = 0
-    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-      const request = typeof input === "string" ? new Request(input, init) : (input as Request)
-      if (new URL(request.url).pathname.endsWith("/gateway")) provisions += 1
-      return json(401, { error: "unauthorized" })
-    }) as typeof fetch
-    try {
-      const response = await worker.fetch(
-        new Request("https://mvp.test/api/workflow/provision", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX })
-        }),
-        env()
-      )
-      expect(response.status).toBe(401)
-      expect(provisions).toBe(0)
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  test("the rpc relay refuses any procedure outside the allowlist before touching the gateway", async () => {
-    await withRelay({}, async (calls) => {
-      for (const procedure of ["RunShell", "constructor", "toString", "__proto__", "hasOwnProperty"]) {
-        const refused = await worker.fetch(
-          signedIn("/api/workflow/rpc", {
-            method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX, procedure, payload: {} })
-          }), env()
-        )
-        expect(refused.status).toBe(400)
-        expect(((await refused.json()) as { message: string }).message).toContain(`does not relay ${procedure}`)
-      }
-
-      // A call that names no procedure at all is refused the same way.
-      const unnamed = await worker.fetch(
-        signedIn("/api/workflow/rpc", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
-        env()
-      )
-      expect(unnamed.status).toBe(400)
-      expect(calls.filter((call) => call.url.includes("/api/gateways/"))).toHaveLength(0)
-    })
-    // The allowlist is exactly the product's floor. Nothing else crosses.
-    expect([...ALLOWED_GATEWAY_PROCEDURES].sort()).toEqual([
-      "Approval.Submit",
-      "Cancel",
-      "List",
-      "Plan",
-      "Projection.Snapshot",
-      "Resume",
-      "Run",
-      "Signal",
-      "Steer"
-    ])
-  })
-
-  test("a malformed repo is refused before any upstream call", async () => {
-    await withRelay({}, async (calls) => {
-      for (const repo of ["not-a-repo", "../../etc/passwd", "owner/repo/extra", ""]) {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/rpc", {
-            method: "POST",
-            body: JSON.stringify({ repo, workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
-          }),
-          env()
-        )
-        expect(response.status).toBe(400)
-      }
-      expect(calls.filter((call) => call.url.includes("/api/gateways/"))).toHaveLength(0)
-    })
-  })
-
-  /*
-   * `..` matches every character a repository name may contain, and URL
-   * parsing resolves it away — `POST /api/repos/../admin/gateway` becomes
-   * `POST /api/admin/gateway`, carrying the user's server-held Cloud token
-   * to a route this seam never allowlisted. Holding the token server-side is
-   * pointless if the browser can still choose where it is spent.
-   */
-  test("a dot-segment repo cannot steer the Cloud token off the provision route", async () => {
-    await withRelay({}, async (calls) => {
-      for (const repo of ["../admin", "../..", "owner/..", "./config", "codeplanesmithers/."]) {
-        const rpc = await worker.fetch(
-          signedIn("/api/workflow/rpc", {
-            method: "POST",
-            body: JSON.stringify({ repo, workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
-          }),
-          env()
-        )
-        expect(rpc.status).toBe(400)
-        const provision = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo, workspaceId: BOX }) }),
-          env()
-        )
-        expect(provision.status).toBe(400)
-      }
-      // Not one call left the Worker: no Cloud token was minted, let alone spent.
-      expect(calls.filter((call) => call.url.includes("/api/repos/"))).toHaveLength(0)
-      expect(calls.filter((call) => call.url.endsWith("/api/identity/cloud-token"))).toHaveLength(0)
-    })
-  })
-
-  test("a projection read reaches the gateway's projections mount under the seam's bearer", async () => {
-    await withRelay(
-      {
-        gateway: () =>
-          new Response(
-            `${
-              JSON.stringify({
-                _tag: "Exit",
-                requestId: 1,
-                exit: { _tag: "Success", value: { cursor: { projection: "run-summary" }, rows: [{ runId: "run-9" }] } }
-              })
-            }\n`,
-            { status: 200 }
-          )
-      },
-      async (calls) => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/rpc", {
-            method: "POST",
-            body: JSON.stringify({
-              repo: "will/mvp",
-              workspaceId: BOX,
-              procedure: "Projection.Snapshot",
-              payload: { selector: { _tag: "run-summary", runId: "run-9" } }
-            })
-          }),
-          env()
-        )
-        expect(response.status).toBe(200)
-        expect(await response.json()).toEqual({
-          ok: true,
-          payload: { cursor: { projection: "run-summary" }, rows: [{ runId: "run-9" }] }
-        })
-        const relayed = calls.find((call) => call.url.endsWith("/projections"))
-        // The credential the browser can never hold is added on this side.
-        expect(relayed?.url).toBe("https://api.smithers-cloud.test/api/gateways/gw-1/projections")
-        expect(relayed?.authorization).toBe(`Bearer ${GATEWAY_TOKEN}`)
-        expect(relayed?.body).toMatchObject({ _tag: "Request", tag: "Projection.Snapshot" })
-      }
-    )
-  })
-
-  test("an approval decision is one relayed call that also resumes the run", async () => {
-    await withRelay(
-      {
-        gateway: () =>
-          new Response(
-            `${
-              JSON.stringify({
-                _tag: "Exit",
-                requestId: 1,
-                exit: {
-                  _tag: "Success",
-                  value: { decision: { _tag: "Accepted" }, resume: { _tag: "Accepted" } }
-                }
-              })
-            }\n`,
-            { status: 200 }
-          )
-      },
-      async (calls) => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/rpc", {
-            method: "POST",
-            body: JSON.stringify({
-              repo: "will/mvp",
-              workspaceId: BOX,
-              procedure: "Approval.Submit",
-              payload: { decision: "approve" }
-            })
-          }),
-          env()
-        )
-        expect(response.status).toBe(200)
-        const body = (await response.json()) as { ok: boolean; payload: { resume?: unknown } }
-        expect(body.ok).toBe(true)
-        // One relayed call records the decision AND resumes the run, because
-        // the gateway binds the pair behind `Approval.Submit`. There is no
-        // second round trip for a lost answer to strand.
-        expect(body.payload.resume).toEqual({ _tag: "Accepted" })
-        expect(calls.filter((call) => call.url.includes("/api/gateways/"))).toHaveLength(1)
-      }
-    )
-  })
-
-  test("no_capacity reaches the browser as an honest state, not a 500 and not a retry loop", async () => {
-    await withRelay(
-      { provision: () => json(500, { error: "no_capacity" }) },
-      async (calls) => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/provision", {
-            method: "POST",
-            body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX })
-          }),
-          env()
-        )
-        expect(response.status).toBe(200)
-        const body = (await response.json()) as { status: string; message: string }
-        expect(body.status).toBe("no-capacity")
-        expect(body.message).toContain("nothing was queued")
-        expect(calls.filter((call) => call.url.includes("/gateway"))).toHaveLength(1)
-      }
-    )
-  })
-
-  test("a 503 no_capacity reaches the browser as the same honest state, not a 502", async () => {
-    // Smithers Cloud's corrected full-fleet status. Before the body's `code`
-    // was read it fell through to the generic branch and the route answered
-    // 502 with a leaked "answered HTTP 503".
-    await withRelay(
-      { provision: () => json(503, { code: "no_capacity", fault: "infra", message: "no sandbox slots are free" }) },
-      async (calls) => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
-          env()
-        )
-        expect(response.status).toBe(200)
-        const body = (await response.json()) as { status: string; message: string }
-        expect(body.status).toBe("no-capacity")
-        expect(body.message).toContain("nothing was queued")
-        expect(calls.filter((call) => call.url.includes("/gateway"))).toHaveLength(1)
-      }
-    )
-  })
-
-  test("the browser receives plan-limit 402 and the upgrade target from provisioning", async () => {
-    const refusal = { code: "plan_limit_exceeded", fault: "user", message: "Upgrade or suspend one sandbox.", plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro" }
-    await withRelay({ provision: () => json(402, refusal) }, async () => {
-      const response = await worker.fetch(
-        signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }), env()
-      )
-      expect(response.status).toBe(402)
-      expect(await response.json()).toEqual(refusal)
-    })
-  })
-
-  test("the user's own box cap is its own state on the wire, never the fleet's no-capacity", async () => {
-    await withRelay(
-      { provision: () => json(429, { code: "quota_exceeded", message: "concurrent sandboxes limit reached" }) },
-      async () => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
-          env()
-        )
-        expect(response.status).toBe(200)
-        const body = (await response.json()) as { status: string; message: string }
-        expect(body.status).toBe("quota-exceeded")
-        expect(body.message).toBe("concurrent sandboxes limit reached")
-      }
-    )
-  })
-
-  test("the browser sees no-cloud-repo as a 200 state, not a 502", async () => {
-    await withRelay(
-      { provision: () => json(404, { error: "not_found" }) },
-      async () => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
-          env()
-        )
-        expect(response.status).toBe(200)
-        const body = (await response.json()) as { status?: string; message?: string }
-        expect(body.status).toBe("no-cloud-repo")
-        expect(body.message).toContain("isn't on Smithers Cloud yet")
-      }
-    )
-  })
-
-  /*
-   * Repro apps/app/canary-repros/honesty/22.6: Smithers Cloud accepted the
-   * provision POST and never answered, so the route hung past 70s. A deadline
-   * turns silence into one of the seam's own honest states.
-   */
-  test("the provision ROUTE answers a state a client can act on when Cloud stays silent", async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-      const url = new URL(typeof input === "string" ? input : (input as Request).url)
-      if (url.pathname === "/api/identity/validate") {
-        return json(200, { login: "codeplanesmithers", allowlisted: true, admin: false })
-      }
-      if (url.pathname === "/api/identity/cloud-token") {
-        return json(200, { found: true, token: CLOUD_TOKEN })
-      }
-      return await new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")))
-      })
-    }) as typeof fetch
-    try {
-      const response = await worker.fetch(
-        signedIn("/api/workflow/provision", {
-          method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/canary-sandbox", workspaceId: BOX })
-        }),
-        env({ UPSTREAM_TIMEOUT_MS: "150" })
-      )
-      expect(response.status).toBe(200)
-      const body = (await response.json()) as { status: string; message: string }
-      expect(body.status).toBe("provisioning")
-      expect(body.message).toContain("codeplanesmithers/canary-sandbox")
-      expect(body.message).toContain("150ms")
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  describe("owning workspace routing", () => {
-    const first = "83e75ae5-0920-4000-8000-000000000001"
-    const second = "83e75ae5-0920-4000-8000-000000000002"
-    const repo = "codeplanesmithers/smithers-demo"
-    const provision = (call: RelayCall): Response => {
-      const workspaceId = (call.body as { workspace_id: string }).workspace_id
-      return json(200, {
-        base_url: `https://api.smithers-cloud.test/api/gateways/${workspaceId}`,
-        token: GATEWAY_TOKEN,
-        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
-        gateway_id: workspaceId,
-        workspace_id: workspaceId
-      })
-    }
-
-    test("partitions two owning workspaces without exposing their credentials", async () => {
-      await withRelay({ provision }, async (calls) => {
-        for (const workspaceId of [first, second, first]) {
-          const response = await worker.fetch(signedIn("/api/workflow/provision", {
-            method: "POST", body: JSON.stringify({ repo, workspaceId })
-          }), env())
-          expect(response.status).toBe(200)
-          const result = await response.json() as Record<string, unknown>
-          expect(result.status).toBe("ready")
-          expect(result.workspaceId).toBe(workspaceId)
-          expect(result.gatewayId).toBe(workspaceId)
-          expect(JSON.stringify(result)).not.toContain(GATEWAY_TOKEN)
-        }
-        const provisions = calls.filter((call) => call.url.endsWith("/gateway"))
-        expect(provisions.map((call) => call.body)).toEqual([{ workspace_id: first }, { workspace_id: second }])
-        const response = await worker.fetch(signedIn("/api/workflow/rpc", {
-          method: "POST", body: JSON.stringify({ repo, workspaceId: first, procedure: "List", payload: { _tag: "flows" } })
+  test("a signed-out caller gets 401 and nothing reaches the backend", async () => {
+    await withCloud(() => json(200, {}), async (calls) => {
+      for (const path of ["/api/workflow/provision", "/api/workflow/rpc"]) {
+        const response = await worker.fetch(new Request(`https://mvp.test${path}`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(call)
         }), env())
-        expect(response.status).toBe(200)
-        expect(calls.at(-1)?.url).toContain(`/api/gateways/${first}/`)
-      })
-    })
-
-    /*
-     * Smithers Cloud answers a call bound to a workspace it no longer has with
-     * `404 {"code":"not_found"}`. That is the registered infra code
-     * `workspace_gone` (409), and the person reads its sentence — "retry
-     * creates a new one". Answering it as `upstream_refused` puts that sentence
-     * under a 502 dependency headline, which tells them the wrong thing to do.
-     */
-    test("a relay 404 not_found on a pinned call is workspace_gone, not a dependency failure", async () => {
-      await withRelay(
-        { provision, gateway: () => json(404, { code: "not_found", fault: "user", message: "workspace not found" }) },
-        async () => {
-          const response = await worker.fetch(signedIn("/api/workflow/rpc", {
-            method: "POST", body: JSON.stringify({ repo, workspaceId: first, procedure: "List", payload: { _tag: "flows" } })
-          }), env())
-          expect(response.status).toBe(409)
-          expect(await response.json()).toEqual({ status: "error", code: "workspace_gone", message: WORKSPACE_GONE_REFUSAL })
-        }
-      )
-    })
-
-    test("a provision 404 not_found on a pinned workspace is workspace_gone, not a dependency failure", async () => {
-      await withRelay(
-        { provision: () => json(404, { code: "not_found", fault: "user", message: "workspace not found" }) },
-        async () => {
-          const response = await worker.fetch(signedIn("/api/workflow/provision", {
-            method: "POST", body: JSON.stringify({ repo, workspaceId: second })
-          }), env())
-          expect(response.status).toBe(409)
-          expect(await response.json()).toEqual({ status: "error", code: "workspace_gone", message: WORKSPACE_GONE_REFUSAL })
-        }
-      )
-    })
-
-    test("provision and rpc without a box answer 400 request_invalid before any upstream call", async () => {
-      await withRelay({ provision }, async (calls) => {
-        for (const [path, body] of [
-          ["/api/workflow/provision", { repo }],
-          ["/api/workflow/rpc", { repo, procedure: "List", payload: { _tag: "flows" } }]
-        ] as const) {
-          const response = await worker.fetch(signedIn(path, { method: "POST", body: JSON.stringify(body) }), env())
-          expect(response.status).toBe(400)
-          expect(await response.json()).toEqual({ status: "error", code: "request_invalid", message: "Body must name a box: workspaceId." })
-        }
-        expect(calls.map((call) => new URL(call.url).pathname)).toEqual(["/api/identity/validate", "/api/identity/validate"])
-      })
-    })
-
-    test("rejects malformed bindings before provisioning", async () => {
-      await withRelay({}, async (calls) => {
-        for (const workspaceId of ["../other", first.toUpperCase(), "00000000-0000-0000-0000-000000000000", null]) {
-          const result = await worker.fetch(signedIn("/api/workflow/rpc", {
-            method: "POST", body: JSON.stringify({ repo, workspaceId, procedure: "List", payload: { _tag: "flows" } })
-          }), env())
-          expect(result.status).toBe(400)
-        }
-        expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(0)
-      })
+        expect(response.status).toBe(401)
+      }
+      expect(calls).toEqual([])
     })
   })
 
-  /*
-   * A gradual deployment: this Worker reads a gateway-sessions object already
-   * running the next script, so `/resolve` answers a status this version's
-   * `ProvisionOutcome` does not have. `isProvisionOutcome` (gateway.ts) takes
-   * any object whose `status` is a string, so the value reaches both routes'
-   * exhaustive `default:` — which still owes the wire a Response.
-   */
-  describe("a gateway-sessions object on a newer script", () => {
-    const FUTURE_DETAIL = "The next script calls this state from_the_future."
-    const newerScript = (): NativeNamespace => ({
-      idFromName: (name) => name,
-      get: () => ({
-        fetch: async (request: Request) =>
-          new URL(request.url).pathname === "/resolve"
-            ? json(200, { status: "from_the_future", detail: FUTURE_DETAIL } as unknown as ProvisionOutcome)
-            : json(200, { record: null })
-      })
+  test("a rejected Cloud token is minted again once, and a second rejection is the answer", async () => {
+    await withCloud((_call, attempt) => attempt === 1 ? json(401, { code: "unauthorized", message: "token expired" }) : json(200, { ok: true, payload: [] }), async (calls, minted) => {
+      const response = await worker.fetch(signedIn("/api/workflow/rpc", call), env())
+      expect(response.status).toBe(200)
+      expect(minted()).toBe(2)
+      expect(calls.map((c) => c.authorization)).toEqual(["Bearer token-1", "Bearer token-2"])
+      expect(calls[1]!.body).toBe(calls[0]!.body)
+    }, (attempt) => `token-${attempt}`)
+    await withCloud(() => json(401, { code: "unauthorized", message: "token expired" }), async (calls, minted) => {
+      const response = await worker.fetch(signedIn("/api/workflow/rpc", call), env())
+      expect(response.status).toBe(401)
+      expect(await response.json()).toMatchObject({ status: "error", code: "unauthorized" })
+      expect(minted()).toBe(2)
+      expect(calls).toHaveLength(2)
     })
+  })
 
-    test("the provision route answers 502 upstream_refused, never a bare outcome", async () => {
-      await withRelay({}, async (calls) => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
-          env({ GATEWAY_SESSIONS: newerScript() })
-        )
-        expect(response.status).toBe(502)
-        expect(await response.json()).toEqual({ status: "error", code: "upstream_refused", message: FUTURE_DETAIL })
-        expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(0)
-      })
+  test("a Plan that takes longer than the ordinary upstream deadline still answers", async () => {
+    await withCloud(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      return json(200, { ok: true, payload: { planId: "p" } })
+    }, async () => {
+      const response = await worker.fetch(signedIn("/api/workflow/rpc", { ...call, procedure: "Plan" }), env({ UPSTREAM_TIMEOUT_MS: "20" }))
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true, payload: { planId: "p" } })
     })
+    expect(WORKFLOW_UPSTREAM_DEADLINE_MS).toBeGreaterThan(4 * 60 * 1000)
+  })
 
-    test("the rpc relay answers 502 upstream_refused, never a bare outcome", async () => {
-      await withRelay({}, async () => {
-        const response = await worker.fetch(
-          signedIn("/api/workflow/rpc", {
-            method: "POST",
-            body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX, procedure: "List", payload: { _tag: "flows" } })
-          }),
-          env({ GATEWAY_SESSIONS: newerScript() })
-        )
-        expect(response.status).toBe(502)
-        expect(await response.json()).toEqual({ status: "error", code: "upstream_refused", message: FUTURE_DETAIL })
-      })
+  test("a request body past 1 MiB is refused before anything is spent", async () => {
+    await withCloud(() => json(200, {}), async (calls) => {
+      const response = await worker.fetch(signedIn("/api/workflow/rpc", { ...call, payload: "x".repeat(1024 * 1024) }), env())
+      expect(response.status).toBe(413)
+      expect(await response.json()).toMatchObject({ code: "request_body_too_large" })
+      expect(calls).toEqual([])
     })
   })
 })

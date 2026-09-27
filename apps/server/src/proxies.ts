@@ -15,7 +15,8 @@ import { exportClientError } from "./clientErrorTelemetry"
 import { ServerConfig } from "./Config"
 import { BrowserEgress } from "./Environment"
 import type { DeploymentBindings, ExecutionContext } from "./Environment"
-import { cloudTokenRefusal, fetchCloudToken } from "./gateway"
+import { cloudTokenRefusal, fetchCloudToken } from "./cloudToken"
+import type { CloudTokenOutcome } from "./cloudToken"
 import { discardBody, fetchWithDeadline, readBoundedBytes, readRefusalDetail } from "./Http"
 import type { Transport } from "./Http"
 import { isVisitorRefusal, requireTurnSession, validateSession } from "./identity"
@@ -26,8 +27,8 @@ import { anonymousBucketAddress } from "./turnLimit"
 /*
  * The curated platform proxy (MULTI-ACTIONS-GAP.md Tier 1/2): the browser
  * calls these paths same-origin; the Worker validates the session, mints the
- * user's own Smithers Cloud token (the same per-user door the gateway seam
- * uses), and forwards with that bearer. An ALLOWLIST, never a wildcard —
+ * user's own Smithers Cloud token, and forwards with that bearer
+ * (`forwardToCloud`). An ALLOWLIST, never a wildcard —
  * every proxied family is one the product ships commands for. Note
  * Billing overview, plans, checkout, and portal are exact platform routes.
  * Other /api/billing/* routes, including balance, stay with the product
@@ -165,14 +166,51 @@ export const handlePlatformProxy = (
         url.pathname === "/api/billing/portal" ? "The billing portal is unavailable on this host." : "Checkout is unavailable on this host."
       )
     }
-    const token = yield* fetchCloudToken(gate.login)
-    if (token.status !== "ok") {
-      const refusal = cloudTokenRefusal(token, `Smithers Cloud isn't reachable for your account right now (${token.status}).`)
-      return refuse(refusal.code, refusal.message)
-    }
+    return yield* forwardToCloud(request, gate.login, {
+      path: (publicRead ? cloudReadPath(url.pathname) : url.pathname) + url.search,
+      bodyLimit: platformBodyLimit(url.pathname, request.method),
+      deadlineMs: config.upstreamTimeoutMs,
+      // A provider setup token crossed this proxy only in the request body.
+      // Never reflect upstream prose or fields for its write endpoints.
+      ...(url.pathname.startsWith("/api/user/provider-connections") && request.method !== "GET"
+        ? { quietRefusal: "provider_connection_refused" }
+        : {})
+    })
+  })
+
+/** How one signed-in request is forwarded to Smithers Cloud as its user. */
+export interface CloudForward {
+  /** The Cloud path and query, joined onto the Cloud origin. */
+  readonly path: string
+  /** The most request body read before the forward is refused. */
+  readonly bodyLimit: number
+  /** How long Cloud may take to send its answer's headers. */
+  readonly deadlineMs: number
+  /** A success body is read whole under this bound; absent, it streams through. */
+  readonly answerMaxBytes?: number
+  /** The only fact a refusal may carry: its status and this code. */
+  readonly quietRefusal?: string
+}
+
+/**
+ * Forward one request to Smithers Cloud as `login`: the user's Cloud token
+ * is the bearer (minted again, once, when Cloud rejects it), the body is read
+ * under its bound, and Cloud's status and body come back. A refusal's prose is
+ * restated; its machine-readable facts are kept. Every Worker route that
+ * reaches Cloud as the signed-in user goes through here.
+ */
+export const forwardToCloud = (
+  request: Request,
+  login: string,
+  forward: CloudForward
+): Effect.Effect<Response, never, Transport | ServerConfig> =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig
+    const token = yield* fetchCloudToken(login)
+    if (token.status !== "ok") return tokenRefusal(token)
     let body: Uint8Array<ArrayBuffer> | undefined
     if (request.method !== "GET" && request.method !== "HEAD") {
-      const read = yield* Effect.result(readBoundedBytes(request, platformBodyLimit(url.pathname, request.method)))
+      const read = yield* Effect.result(readBoundedBytes(request, forward.bodyLimit))
       if (Result.isFailure(read)) {
         return read.failure._tag === "BodyTooLarge"
           ? refuse("request_body_too_large", "Request body too large.")
@@ -182,25 +220,35 @@ export const handlePlatformProxy = (
     }
     // The path is joined onto the platform's origin and must still be there
     // once parsed: a bearer never leaves for any other host.
-    const target = new URL((publicRead ? cloudReadPath(url.pathname) : url.pathname) + url.search, config.cloudApiBaseUrl)
+    const target = new URL(forward.path, config.cloudApiBaseUrl)
     if (target.origin !== new URL(config.cloudApiBaseUrl).origin) return notFound()
-    const headers = new Headers({ authorization: `Bearer ${token.token}` })
-    const contentType = request.headers.get("content-type")
-    if (contentType !== null) headers.set("content-type", contentType)
-    const accept = request.headers.get("accept")
-    if (accept !== null) headers.set("accept", accept)
-    // SSE reconnect positions belong to the committed upstream stream. The
-    // proxy must not turn a resumed read into an implicit read from zero.
-    const lastEventId = request.headers.get("last-event-id")
-    if (request.method === "GET" && lastEventId !== null) headers.set("last-event-id", lastEventId)
-    const fetched = yield* Effect.result(
-      fetchWithDeadline(
+    const send = (token: string) => {
+      const headers = new Headers({ authorization: `Bearer ${token}` })
+      const contentType = request.headers.get("content-type")
+      if (contentType !== null) headers.set("content-type", contentType)
+      const accept = request.headers.get("accept")
+      if (accept !== null) headers.set("accept", accept)
+      // SSE reconnect positions belong to the committed upstream stream. The
+      // proxy must not turn a resumed read into an implicit read from zero.
+      const lastEventId = request.headers.get("last-event-id")
+      if (request.method === "GET" && lastEventId !== null) headers.set("last-event-id", lastEventId)
+      return Effect.result(fetchWithDeadline(
         "Smithers Cloud",
         target.toString(),
         { method: request.method, headers, ...(body === undefined ? {} : { body }) },
-        config.upstreamTimeoutMs
-      )
-    )
+        forward.deadlineMs
+      ))
+    }
+    let fetched = yield* send(token.token)
+    // Cloud rejected the vaulted token (expired or revoked): the door mints
+    // from the vaulted GitHub token again, so one fresh token may succeed.
+    // More than one retry would be a loop.
+    if (Result.isSuccess(fetched) && fetched.success.status === 401) {
+      yield* discardBody(fetched.success)
+      const reminted = yield* fetchCloudToken(login)
+      if (reminted.status !== "ok") return tokenRefusal(reminted)
+      fetched = yield* send(reminted.token)
+    }
     if (Result.isFailure(fetched)) return upstreamUnreachable("Smithers Cloud", fetched.failure)
     const upstream = fetched.success
     // The Transport never follows a redirect (the Location would get the
@@ -221,11 +269,7 @@ export const handlePlatformProxy = (
      */
     if (upstream.status >= 400) {
       const detail = yield* readRefusalDetail(upstream)
-      // A provider setup token crossed this proxy only in the request body.
-      // Never reflect upstream prose or fields for its write endpoints.
-      if (url.pathname.startsWith("/api/user/provider-connections") && request.method !== "GET") {
-        return json(upstream.status, { status: "error", code: "provider_connection_refused" })
-      }
+      if (forward.quietRefusal !== undefined) return json(upstream.status, { status: "error", code: forward.quietRefusal })
       const failure = json(upstream.status, {
         status: "error",
         message: platformFailureMessage(upstream.status, detail),
@@ -241,8 +285,22 @@ export const handlePlatformProxy = (
     out.set("cache-control", "private, no-store")
     const upstreamType = upstream.headers.get("content-type")
     if (upstreamType !== null) out.set("content-type", upstreamType)
-    return new Response(upstream.body, { status: upstream.status, headers: out })
+    if (forward.answerMaxBytes === undefined) return new Response(upstream.body, { status: upstream.status, headers: out })
+    // A bounded answer is read whole: past the bound the read stops and the
+    // rest is cancelled, never buffered.
+    const answer = yield* Effect.result(readBoundedBytes(upstream, forward.answerMaxBytes))
+    if (Result.isFailure(answer)) {
+      return answer.failure._tag === "BodyTooLarge"
+        ? refuse("upstream_malformed", `Smithers Cloud's answer is larger than ${forward.answerMaxBytes / (1024 * 1024)} MiB.`)
+        : refuse("upstream_unreachable", "Smithers Cloud's answer broke off before it ended.")
+    }
+    return new Response(answer.success, { status: upstream.status, headers: out })
   })
+
+const tokenRefusal = (token: Exclude<CloudTokenOutcome, { readonly status: "ok" }>): Response => {
+  const refusal = cloudTokenRefusal(token, `Smithers Cloud isn't reachable for your account right now (${token.status}).`)
+  return refuse(refusal.code, refusal.message)
+}
 
 /*
  * `GET /api/user`, the ApplicationClient identity read (@smthrs/rpc

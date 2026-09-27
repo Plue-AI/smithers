@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { initialSetup, REPOSITORY_JOBS, setupCandidate, type RepositoryJob, type SetupRecoveryResponse } from "@smthrs/rpc/RepositorySetup"
+import { initialSetup, REPOSITORY_JOBS, setupCandidate, type RepositoryJob } from "@smthrs/rpc/RepositorySetup"
 import worker from "./index"
 import { memoryDurableObjects } from "./memoryDurableObjects"
 import { TRIGGER_APPROVAL_PATH, TRIGGER_PAUSE_PATH, TRIGGER_REGISTRATIONS_PATH, triggerRegistrationRow } from "./repositoryTriggers"
@@ -45,8 +45,7 @@ const waitlisted: CloudToken = () => Response.json({ found: false, cloud: { stat
 const deployment = (cloud: (call: CloudCall) => Response, token: CloudToken = minted) => {
   const settings = { ASSETS: { fetch: async () => new Response("SPA") }, IDENTITY_UPSTREAM_URL: "https://identity.test",
     IDENTITY_SERVICE_TOKEN: "synthetic-service", SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test" }
-  const durable = memoryDurableObjects({ env: settings, nativeAlarms: true })
-  const env = { ...settings, GATEWAY_SESSIONS: durable.GATEWAY_SESSIONS, TURN_CANCELS: durable.TURN_CANCELS }
+  const env = { ...settings, ...memoryDurableObjects() }
   const calls: Array<CloudCall> = []
   globalThis.fetch = (async (target: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(target instanceof Request ? target.url : String(target), "https://identity.test")
@@ -98,19 +97,6 @@ test("the listing reads each row on its own: the five built-ins, a foreign row a
       registrationId: "registration-nightly"
     }]
   })
-})
-
-test("a trigger row leaves the five setup jobs' recovery reporting their real state", async () => {
-  const rows = [...REPOSITORY_JOBS.map((job) => known(job, "enabled")), triggerRow("nightly")]
-  const { fetchAs } = deployment((call) => call.path === "/api/user" ? Response.json({ id: 1 }) : Response.json(rows))
-  for (const job of REPOSITORY_JOBS) {
-    const answer = await fetchAs(`/api/repository-setup/state?repo=org%2Frepo&job=${job}`)
-    const state = (await answer.json() as SetupRecoveryResponse).registration
-    if (state.state !== "known") throw Error(`Expected ${job} to stay known, got ${JSON.stringify(state)}`)
-    expect(state.active?.digest).toBe(setupCandidate(initialSetup("org/repo", job, "alice")))
-  }
-  const listed = await fetchAs(`${TRIGGER_REGISTRATIONS_PATH}?repo=org%2Frepo`)
-  expect((await body(listed)).rows).toHaveLength(1)
 })
 
 test("the listing names its repository and its session before it spends anything", async () => {

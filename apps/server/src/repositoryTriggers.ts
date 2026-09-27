@@ -12,8 +12,8 @@
  * The listing parses EACH ROW ON ITS OWN and drops what it does not
  * recognise. A foreign registration — one of the five built-ins, a row a
  * later Plue writes, a row past this Worker's vocabulary — never fails the
- * listing, and the five setup jobs' own recovery (repositorySetupRecovery.ts)
- * is a separate reader that this file never touches.
+ * listing, and the five setup jobs' own recovery (the backend's
+ * `/api/repository-setup/state`) is a separate reader.
  */
 import { BudgetTokensSchema, SetupDraftSchema } from "@smthrs/rpc/RepositorySetup"
 import { plueFailureCode } from "@smthrs/rpc/Refusal"
@@ -22,7 +22,7 @@ import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
 import { Data, Effect, Result } from "effect"
 import { z } from "zod"
 import { ServerConfig } from "./Config"
-import { cloudTokenRefusal, fetchCloudToken, isRelayRepoName } from "./gateway"
+import { cloudTokenRefusal, fetchCloudToken, isRelayRepoName } from "./cloudToken"
 import type { UpstreamFailure } from "./Failures"
 import { discardBody, fetchWithDeadline, readBoundedJson, readRefusalDetail } from "./Http"
 import type { Transport } from "./Http"

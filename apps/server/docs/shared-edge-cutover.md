@@ -46,7 +46,7 @@ exported, changed, drained or reconciled by this candidate.
 | --- | --- | --- |
 | AccountModelVault | `model-vault:v1`, login, immutable provider origins, encrypted entries, receipts | Encrypted export; verified identity mapping; import through canonical owner-model store and codec; compare provider pins/receipts/defaults |
 | TurnCancelRegistry | `state`; `turn-journal:v1:head`; `turn-journal:v1:batch:<sequence>`; seven-day expiry alarm | Drain producers; export all remaining heads/batches/tombstones; validate hash chains and owner scope; import eligible history and erasures before changing access |
-| GatewaySessionRegistry | `gateway:<repo>NUL<workspace>` (a box-less `gateway:<repo>` row is ignored); `repository-setup:request:<id>`; `repository-setup:current:<repo>:<job>`; `repository-setup:pending` | Drain setup requests and gateway activity; preserve receipts and pointers; renew canonical authority rather than copying legacy bearer tokens |
+| GatewaySessionRegistry | `gateway:<repo>NUL<workspace>` (a box-less `gateway:<repo>` row is ignored); `repository-setup:request:<id>`; `repository-setup:current:<repo>:<job>`; `repository-setup:pending` | Retired (#2198): the legacy Worker already serves the retired class, so no gateway activity or setup work runs here. Rows are kept for rollback, not imported; a setup request admitted before retirement answers 404 on the backend and the app offers Retry |
 | IdentityDurableObject | `account:<id>`, `loginid:<login>`, `ghtoken:id:<id>`, `cloudtoken:id:<id>`, allow/deny and repository state | Export sealed; join verified numeric GitHub id to canonical OAuth account; preserve supported account settings and GitHub token state; legacy session cookies/PATs are not canonical sessions |
 | AccountDurableObject + BILLING KV + metering queue | balances, grants, reservations, settlement identities; exact inventory pending | Drain queue, reconcile reservations and ledger, prove no missing or duplicate usage; no payment writes or balance resets during preparation |
 | Recommendation/client-error logs | recommendation ring sequence and rows; `reports` | Sealed archive and agreed canonical retention/import; do not silently discard |
@@ -117,8 +117,8 @@ version of each owning Worker; it cannot be obtained by the counts script.
    capability migration if actual unexpired anonymous rows exist. Do not add
    a permanent anonymous-history bridge.
 8. Stop **new** legacy admissions in a coordinated maintenance window while
-   preserving reads and letting accepted jobs settle. Drain chat producers,
-   setup requests and billing metering; reconcile reservations/usage exactly.
+   preserving reads and letting accepted jobs settle. Drain chat producers
+   and billing metering; reconcile reservations/usage exactly.
    Capture the final consistent export after drain. Do not synthesize terminal
    success, cancel jobs by deleting state, or enqueue imported accepted turns
    as new work. Import final records once, verify canonical reads/access and
@@ -146,41 +146,17 @@ or history was removed while preparing this change.
 | Repository setup | Real required flow; not a stale client. Needs canonical durable admission/result projection and authorized coding catalog selection described below |
 | `/api/jev` | Legacy Worker feature; locate any remaining selected-client consumer before claiming full contract coverage; not implemented by an edge shim |
 
-## Repository setup migration boundary
+## Repository setup and workflow RPC (#2198)
 
-The old handler is `src/repositorySetup.ts`; durable admission/storage is
-`repositorySetupStore.ts`, execution is `repositorySetupExecution.ts`, and
-recovery is `repositorySetupRecovery.ts`. The request contract is
-`@smthrs/rpc/RepositorySetup`, with actual Flow `flows/repository/setup/flow.ts`.
-The UI's `state/controller/repositorySetup.ts` starts the persisted request
-immediately and keeps the shared toast through launch and execution. Do not
-replace this with an awaited synchronous provisioning call.
-
-The old request records immutable input (repo/job/operation/digest/revision and
-optional workspace), a CAS version, workspace binding, plan/envelope, run ID,
-phase timestamps, result and observation errors. Admissions atomically write
-the request, latest repo/job pointer and pending queue. Duplicate request IDs
-join only the same input; changed input is refused. A five-second alarm resumes
-pending work, with a 24-hour observation queue bound; expiry is not completion.
-
-The executor selects a workspace with `repository-jobs/v1`, obtains a gateway,
-plans `repository/setup`, submits its exact reviewed approval, starts with
-`setup:<requestId>:run`, then observes `Projection.Snapshot` for that same run.
-Completion is accepted only after matching request/digest/revision/workspace
-and a valid typed result. Manual jobs require a verified job run ID. Transient
-observation failure leaves phase unchanged and retryable. Recovery joins the
-latest pointer with the canonical repository-job registration revision/digest.
-
-Use the existing shared jobs/flowdispatch admission, idempotency and result
-store for this product request; do not add another queue. A small canonical
-product adapter can validate SetupHostInput, admit `repository/setup` with
-the authorized coding catalog and repository/workspace target, and project
-existing durable receipts into SetupOperationResponse. Persist the repo/job
-pointer and admission in one transaction. Planning/approval/start/result
-reconciliation stays in the existing Flow dispatch worker. Browser RPC
-always targets the box the call names. Choose coding from the authorized operation and capability, never
-from an unrestricted caller-supplied catalog. This backend work and its
-unresolved-launch/reload/duplicate/failure regressions are cutover gates.
+The backend owns both: `/api/repository-setup/*`
+(`internal/compose/repository_setup.go`, durable admission through the shared
+jobs/flowdispatch store) and `/api/workflow/{provision,rpc}` on the box's
+coding host (`internal/compose/browser_flow.go`). The legacy Worker forwards
+them as the signed-in user (`forwardToCloud` in `src/proxies.ts`) and holds no
+setup or gateway state. Setup requests the Worker admitted before this were
+not migrated; the backend has no record of them, so a reload's observation
+answers 404 and the UI settles the request as failed with Retry, which asks
+again under a new request id.
 
 ## Acceptance receipts required before activation
 

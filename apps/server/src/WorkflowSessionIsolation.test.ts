@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import worker from "./index"
 import { memoryDurableObjects } from "./memoryDurableObjects"
 
@@ -8,47 +8,33 @@ const SETTINGS = {
   IDENTITY_SERVICE_TOKEN: "synthetic-identity-service",
   SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test"
 }
-const durable = memoryDurableObjects({ env: SETTINGS })
 const BOX = "83e75ae5-0920-4000-8000-00000000000b"
 
-afterEach(() => durable.reset())
-
-describe("supported per-user workflow relay", () => {
-  for (const path of ["/api/workflow/provision", "/api/workflow/rpc"]) {
+describe("the per-user workflow and setup routes", () => {
+  for (const path of ["/api/workflow/provision", "/api/workflow/rpc", "/api/repository-setup/inspect"]) {
     for (const caller of ["anonymous", "expired", "not-allowlisted", "alice", "bob"]) {
       test(`${path} derives authority from the validated ${caller} session, never a supplied login`, async () => {
-        const now = Date.now()
-        for (const login of ["alice", "bob"]) {
-          await durable.seedGatewayRecord(login, "org/repo", {
-            gatewayId: `gateway-${login}`,
-            workspaceId: BOX,
-            baseUrl: `https://cloud.test/api/gateways/gateway-${login}`,
-            token: `synthetic-${login}-token`,
-            vmId: null,
-            expiresAt: now + 3_600_000,
-            renewAfter: now + 1_800_000,
-            provisionedAt: now
-          })
-        }
-        const seen: Array<{ url: string; authorization: string | null }> = []
+        const seen: Array<{ url: string; authorization: string | null; login: string | null }> = []
         const original = globalThis.fetch
         globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
           const request = input instanceof Request ? input : new Request(String(input), init)
           const url = new URL(request.url)
           if (url.hostname === "identity.test") {
-            expect(url.pathname).toBe("/api/identity/validate")
             expect(request.headers.get("x-user-login")).toBeNull()
             expect(request.headers.get("authorization")).toBeNull()
             expect(request.headers.get("x-smithers-service-token")).toBe("synthetic-identity-service")
+            if (url.pathname === "/api/identity/cloud-token") {
+              const { login } = await request.json() as { login: string }
+              return Response.json({ found: true, token: `synthetic-${login}-token` })
+            }
+            expect(url.pathname).toBe("/api/identity/validate")
             const login = request.headers.get("cookie")?.split("=")[1]
             if (login === undefined || login === "expired") return Response.json({}, { status: 401 })
             return Response.json({ login, allowlisted: login !== "not-allowlisted", admin: false })
           }
-          if (url.hostname !== "cloud.test" || !url.pathname.startsWith("/api/gateways/")) throw new Error("Unexpected upstream in isolation test")
-          seen.push({ url: request.url, authorization: request.headers.get("authorization") })
-          return new Response(
-            JSON.stringify({ _tag: "Exit", requestId: 1, exit: { _tag: "Success", value: { runs: [] } } }) + "\n"
-          )
+          if (url.hostname !== "cloud.test") throw new Error("Unexpected upstream in isolation test")
+          seen.push({ url: request.url, authorization: request.headers.get("authorization"), login: request.headers.get("x-user-login") })
+          return Response.json({ ok: true, payload: { runs: [] } })
         }) as typeof fetch
         try {
           const forgedLogin = caller === "alice" ? "bob" : "alice"
@@ -65,7 +51,7 @@ describe("supported per-user workflow relay", () => {
               headers,
               body: JSON.stringify({ repo: "org/repo", workspaceId: BOX, procedure: "List", payload: {}, login: forgedLogin })
             }),
-            { ...SETTINGS, GATEWAY_SESSIONS: durable.GATEWAY_SESSIONS, TURN_CANCELS: durable.TURN_CANCELS }
+            { ...SETTINGS, ...memoryDurableObjects() }
           )
           const text = await response.text()
           if (caller === "anonymous" || caller === "expired") {
@@ -76,21 +62,7 @@ describe("supported per-user workflow relay", () => {
             expect(seen).toEqual([])
           } else {
             expect(response.status).toBe(200)
-            if (path.endsWith("/rpc")) {
-              expect(seen).toEqual([{
-                url: `https://cloud.test/api/gateways/gateway-${caller}/rpc`,
-                authorization: `Bearer synthetic-${caller}-token`
-              }])
-            } else {
-              expect(JSON.parse(text)).toMatchObject({ status: "ready", gatewayId: `gateway-${caller}` })
-              // `ready` is the gateway's own answer, so provision asks it —
-              // on the caller's box, with the caller's credential, never the
-              // forged login's.
-              expect(seen).toEqual([{
-                url: `https://cloud.test/api/gateways/gateway-${caller}/health`,
-                authorization: `Bearer synthetic-${caller}-token`
-              }])
-            }
+            expect(seen).toEqual([{ url: `https://cloud.test${path}`, authorization: `Bearer synthetic-${caller}-token`, login: null }])
           }
           expect(text).not.toContain("synthetic-")
         } finally {

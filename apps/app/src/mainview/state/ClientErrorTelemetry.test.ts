@@ -31,7 +31,6 @@ const fixture = (options: {
   const env: WorkerEnv = {
     ASSETS: { fetch: async () => new Response(null, { status: 404 }) },
     TURN_CANCELS: forbidden,
-    GATEWAY_SESSIONS: forbidden,
     CLIENT_ERRORS: namespace,
     SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test/prefix",
     PLUE_WORKER_EXCHANGE_TOKEN: TOKEN,

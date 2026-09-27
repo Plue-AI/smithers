@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"
 import { ServerConfig } from "./Config"
-import { cloudTokenRefusal, fetchCloudToken } from "./gateway"
+import { cloudTokenRefusal, fetchCloudToken } from "./cloudToken"
 import { discardBody, fetchWithDeadline, readBoundedJson } from "./Http"
 import { requireTurnSession } from "./identity"
 import { json, refuse, upstreamUnreachable } from "./Responses"

@@ -152,7 +152,8 @@ The old `/rpc`, `/projections`, `/sync` and `/health` product mounts remain
 retired. Static site redirects may still serve documentation addresses. The
 shared authenticated routes are `/api/workflow/provision` and
 `/api/workflow/rpc`; every call names a box (`workspaceId`). Their authorization
-is the shared backend's responsibility.
+is the shared backend's responsibility; the legacy Worker already forwards them
+there (#2198).
 The old deployment-credential gateway relay cannot be reactivated by a secret.
 
 ### Other upstream services
