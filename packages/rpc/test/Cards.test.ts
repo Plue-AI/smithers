@@ -219,12 +219,12 @@ describe("the agent cards", () => {
         native: true,
         agents: [
           { ...row, model: { provider: "openai", id: "gpt 5", label: "Edited" }, label: "Edited" },
-          { ...row, id: "custom-reviewer", builtin: false, kind: "specialist", reportsTo: "orchestrator" }
+          { ...row, id: "custom-reviewer", builtin: false, kind: "specialist" }
         ]
       }
     })
     // A built-in reads its facts from the table; a configured profile (smithers-ui-DESIGN.md §3.3) keeps its own.
-    expect(card.payload).toEqual({ native: true, agents: [row, { ...row, id: "custom-reviewer", builtin: false, kind: "specialist", reportsTo: "orchestrator" }] })
+    expect(card.payload).toEqual({ native: true, agents: [row, { ...row, id: "custom-reviewer", builtin: false, kind: "specialist" }] })
   })
 
   test("the flow-form card holds the flow, who asked, the derived fields, the draft and what was given; a bad kind or provider is rejected", () => {

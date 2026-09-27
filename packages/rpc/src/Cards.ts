@@ -2746,8 +2746,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
             harnessName: z.string(),
             model: AgentRoleModelSchema,
             builtin: z.boolean(),
-            /** Profile metadata (smithers-ui-DESIGN.md §3.3): who this profile reports to, and whether it is a hired specialist. */
-            reportsTo: z.string().optional(),
+            /** Profile metadata (smithers-ui-DESIGN.md §3.3): whether it is a core role or a specialist. */
             kind: z.enum(["core", "specialist", "helper"]).optional(),
             available: z.boolean(),
             /** Why it cannot launch here (roleMenuEntries); empty when available. */

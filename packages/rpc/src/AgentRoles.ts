@@ -106,8 +106,7 @@ export const AgentRoleSchema = z.object({
   delegates: z.boolean(),
   /** Whether the role belongs to the built-in registry. */
   builtin: z.boolean(),
-  /** Profile metadata: the profile this one reports to, and whether it is a core role or a hired specialist. */
-  reportsTo: z.string().optional(),
+  /** Profile metadata: whether it is a core role or a specialist. */
   kind: z.enum(["core", "specialist", "helper"]).optional(),
   createdAt: z.number(),
   updatedAt: z.number()
