@@ -12,6 +12,9 @@ import { knowledgeCardAvailable } from "../KnowledgeFeatures"
  * (docs/LOCAL-BACKEND-RETIREMENT.md, smithersai/smithers#2229).
  */
 
+/** A box a pick may select: one that runs, or one a flow call resumes (RepoContext.repositoryBoxOf). */
+const SELECTABLE_BOX: ReadonlySet<string> = new Set(["running", "suspended", "stopped"])
+
 export interface TabsController {
   /** A maximized card's "Open in tab": one tab per card, rendering the same store record. */
   readonly openCardTab: (cardId: string) => string | void
@@ -23,6 +26,8 @@ export interface TabsController {
    * Select a repository or one of its boxes.
    */
   readonly selectRepo: (repoKey: string) => Promise<string | void>
+  /** `box.select`: select one of a repository's boxes, then run the act that asked for the pick, once. */
+  readonly selectBox: (workspaceId: string, repo?: string, flow?: string, args?: string) => Promise<string | void | { readonly value: string }>
   /** The Cmd+W / Cmd+1..9 bindings on one document; returns the uninstaller. */
   readonly installKeyboard: (target: Pick<Document, "addEventListener" | "removeEventListener">) => () => void
 }
@@ -89,6 +94,22 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     store.dispatch({ type: "repo.selected", actor: "user", id: repoKey })
   }
 
+  const selectBox: TabsController["selectBox"] = async (workspaceId, repo, flow, args) => {
+    const box = store.collections.cloudWorkspaces.get(workspaceId)
+    if (box === undefined || (repo !== undefined && box.repoId !== repo) || !SELECTABLE_BOX.has(box.status)) return "That box is no longer available."
+    if (flow === "box.select") return "box.select cannot continue into itself."
+    await store.dispatch({ type: "repo.selected", actor: "user", id: `${box.repoId}#workspace:${box.id}` }).isPersisted.promise
+    if (flow === undefined) return
+    const outcome = await ctx.commands.run(flow, args)
+    switch (outcome.status) {
+      case "failed": return outcome.error
+      case "unavailable": return outcome.reason
+      case "unknown-command": return `/${flow} is not available here.`
+      case "executed": return outcome.value === undefined ? undefined : { value: outcome.value }
+      case "form": return
+    }
+  }
+
   /*
    * Cmd+W, Cmd+1..9 (docs/LOCAL-APP.md "Keyboard"). The capture phase so a
    * focused card body that handles keydown itself still yields the chrome's
@@ -113,6 +134,7 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     selectTab,
     closeTab,
     selectRepo,
+    selectBox,
     installKeyboard
   }
 }

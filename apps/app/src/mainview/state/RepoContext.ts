@@ -146,8 +146,15 @@ export const repositorySource = (
   return "error" in target ? {} : { repo: target.repo }
 }
 
-/** The box a flow call runs on, or the sentence saying which box to open or pick. UI frame IDs are unrelated. */
-export type GatewayBinding = { readonly workspaceId: string } | { readonly error: string }
+/**
+ * The box a flow call runs on, or the sentence saying which box to open or
+ * pick. A refusal that asks for a pick carries the boxes to pick from, so a
+ * human's act can render the box.select form instead of the sentence
+ * (controller/boxChoice.ts). UI frame IDs are unrelated.
+ */
+export type GatewayBinding =
+  | { readonly workspaceId: string }
+  | { readonly error: string; readonly choices?: ReadonlyArray<CloudWorkspaceRow> }
 
 /** The statuses a box passes through before it runs. */
 const SETTLING: ReadonlySet<string> = new Set(["pending", "starting"])
@@ -178,14 +185,26 @@ export const repositoryBoxOf = (store: AppStore, repo: string): RepositoryBox =>
   return settling === undefined ? { kind: "none" } : { kind: "settling", box: settling }
 }
 
+/** The boxes a pick of `repo`'s box offers: the several running ones, else the several resumable ones, else the one default. */
+export const repositoryBoxChoices = (store: AppStore, repo: string): ReadonlyArray<CloudWorkspaceRow> => {
+  const found = repositoryBoxOf(store, repo)
+  switch (found.kind) {
+    case "box": return [found.box]
+    case "several": return found.running
+    case "resumable": return found.resumable
+    case "settling":
+    case "none": return []
+  }
+}
+
 /** The repository's default box as a flow binding, or the act that gets one. */
 export const defaultBoxBinding = (store: AppStore, repo: string): GatewayBinding => {
   const found = repositoryBoxOf(store, repo)
   switch (found.kind) {
     case "box": return { workspaceId: found.box.id }
-    case "several": return { error: `Select a box of ${repo} first.` }
+    case "several": return { error: `Select a box of ${repo} first.`, choices: found.running }
     // Provisioning resumes it, exactly as it resumes a selected suspended box.
-    case "resumable": return found.resumable.length === 1 ? { workspaceId: found.box.id } : { error: `Select a box of ${repo} first.` }
+    case "resumable": return found.resumable.length === 1 ? { workspaceId: found.box.id } : { error: `Select a box of ${repo} first.`, choices: found.resumable }
     case "settling": return { error: `A box of ${repo} is starting.` }
     case "none": return { error: `Open a box of ${repo} first: /box.open ${repo}` }
   }

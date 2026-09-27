@@ -121,6 +121,24 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     input: Schema.Struct({ sessionId: Schema.String, workspaceId: Schema.optional(Schema.String) }),
     handler: ({ sessionId, workspaceId }) => actions.destroyWorkspaceSession(sessionId, workspaceId)
   }),
+  /*
+   * The pick a box-bound act asks for when several boxes could be meant
+   * (RepoContext.defaultBoxBinding): its form lists those boxes, and Submit
+   * selects the chosen one and runs the act that asked, once.
+   */
+  flow({
+    name: "box.select",
+    form: { fields: { workspaceId: { optionsFrom: "workspaces", label: "Box" }, repo: { hidden: true }, flow: { hidden: true }, args: { hidden: true } } },
+    summary: "Select a box",
+    runtime: ["cloud"],
+    hidden: true,
+    userOnly: true,
+    userOnlyReason: "which box an act runs on is the human's selection",
+    args: "<workspaceId>",
+    requires: ["signed-in"],
+    input: Schema.Struct({ workspaceId: Schema.String, repo: Schema.optional(Schema.String), flow: Schema.optional(Schema.String), args: Schema.optional(Schema.String) }),
+    handler: ({ workspaceId, repo, flow, args }) => actions.selectBox(workspaceId, repo, flow, args)
+  }),
   flow({
     name: "box.delete",
     form: { fields: { workspaceId: { optionsFrom: "workspaces" }, confirmName: { label: "Name, typed back" } } },

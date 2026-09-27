@@ -56,6 +56,7 @@ export const FLOW_NAMES = [
   "billing.portal",
   "billing.upgrade",
   "box.delete",
+  "box.select",
   "box.desktop",
   "box.desktop.open",
   "box.desktop.rotate",

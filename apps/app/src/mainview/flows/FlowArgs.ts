@@ -47,6 +47,7 @@ export interface FlowInput {
   readonly "box.egress": { readonly workspaceId: string; readonly cursor?: string }
   readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
+  readonly "box.select": { readonly workspaceId?: string; readonly repo: string; readonly flow: string; readonly args?: string }
 
   readonly "change.split": { readonly changeId: string; readonly paths: ReadonlyArray<string> }
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
@@ -221,6 +222,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "box.egress": payload => line(token(payload, "workspaceId"), token(payload, "cursor")),
   "box.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
   "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
+  "box.select": payload => JSON.stringify(payload),
 
   "change.split": payload => fileArgs(String(payload.changeId), ...(payload.paths as ReadonlyArray<string>)),
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),

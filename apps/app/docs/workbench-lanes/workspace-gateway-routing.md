@@ -23,6 +23,14 @@ repository means:
    "A box of <repo> is starting.", and none
    "Open a box of <repo> first: /box.open <repo>".
 
+When several boxes could be meant, a human's Inbox (`approvals.list`) or run
+list (`runs.list`) renders the `box.select` form for exactly those boxes
+instead of the sentence (THE FORM LAW; `controller/boxChoice.ts`). The act
+rides the form's payload; Submit selects the chosen box and runs the act once
+on it. Nothing reaches a box before the pick, and no box is created or chosen
+for the person. The agent keeps the sentence, because which box an act runs on
+is the human's selection.
+
 Repository jobs and the trigger registrar use the box their setups recorded,
 else the same default box (`RepoContext.repositoryJobBinding`); flow authoring
 prefers the selected box, then that one (`RepoContext.flowAuthoringBinding`).

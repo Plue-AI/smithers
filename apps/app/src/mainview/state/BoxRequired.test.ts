@@ -45,7 +45,10 @@ describe("the repository's default box", () => {
     const store = await signedIn()
     await loadBox(store, REPO, BOX_A)
     await loadBox(store, REPO, BOX_B)
-    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Select a box of ${REPO} first.` })
+    const binding = gatewayBindingFor(store, REPO)
+    expect(binding).toMatchObject({ error: `Select a box of ${REPO} first.` })
+    // The refusal carries the boxes to pick from (controller/boxChoice.ts).
+    expect("error" in binding ? binding.choices?.map((box) => box.id) : undefined).toEqual([BOX_A, BOX_B])
   })
 
   test("with none running, the one suspended or stopped box is the answer, as a selected one is: provisioning resumes it", async () => {
@@ -62,7 +65,9 @@ describe("the repository's default box", () => {
     const store = await signedIn()
     await loadBox(store, REPO, BOX_A, "suspended")
     await loadBox(store, REPO, BOX_B, "stopped")
-    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Select a box of ${REPO} first.` })
+    const binding = gatewayBindingFor(store, REPO)
+    expect(binding).toMatchObject({ error: `Select a box of ${REPO} first.` })
+    expect("error" in binding ? binding.choices?.map((box) => box.id) : undefined).toEqual([BOX_A, BOX_B])
   })
 
   test("a box still starting says so", async () => {

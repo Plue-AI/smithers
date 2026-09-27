@@ -70,6 +70,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "toast.dismiss": "dismissing a toast is the human's gesture",
   "tab.select": "focus is the human's",
   "repo.select": "which pinned repository is active is the human's selection",
+  "box.select": "which box an act runs on is the human's selection",
   "workspace.rename.edit": "opening the inline editor is the human's gesture; the agent names the workspace with workspace.rename",
   "chat.open": "opening Chat and starting the selected microphone mode is the human's gesture",
   "chat.dictate": "microphone capture is the human's explicit gesture",

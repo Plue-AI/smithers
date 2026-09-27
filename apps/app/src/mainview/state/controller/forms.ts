@@ -9,8 +9,8 @@ import { payloadFor } from "../../flows/SlashPayload"
 import { manifests } from "../../plugins/catalog"
 import { actorSharedState } from "../ActorBindings"
 import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
-import type { Card } from "../AppState"
-import { knownRepositories, resolveTargetRepo } from "../RepoContext"
+import type { Card, CloudWorkspaceRow } from "../AppState"
+import { knownRepositories, repositoryBoxChoices, resolveTargetRepo } from "../RepoContext"
 import { fileOptions,fileTargetKey } from "../seams/FilesSeam"
 import { readIssueOptions } from "../seams/IssuesSeam"
 import { readLandingOptions } from "../seams/LandingsSeam"
@@ -72,6 +72,9 @@ export interface FormsControllerDependencies {
   readonly minimizeCard?: () => void
   readonly nextOrdinal: () => number
 }
+
+/** One box as a `workspaces` option. */
+const workspaceOption = (workspace: CloudWorkspaceRow): FieldOption => ({ value: workspace.id, label: `${workspace.name} · ${workspace.status}` })
 
 /** The card id one flow's form lives under: a second render of the same flow replaces the first. */
 export const formCardId = (flow: string): string => `form-${flow}`
@@ -195,7 +198,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         return [...seen.values()]
       }
       case "workspaces":
-        return [...collections.cloudWorkspaces.values()].map((workspace) => ({ value: workspace.id, label: `${workspace.name} · ${workspace.status}` }))
+        return [...collections.cloudWorkspaces.values()].map(workspaceOption)
       case "plugins": {
         const installed = store.session().plugins ?? []
         return manifests().map((manifest) =>
@@ -384,6 +387,11 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         field.name === "repo" ? { ...field, required: true } : field)
       const missing = missingFields(fields, draftFrom(fields, given))
       fields = fields.filter(field => missing.includes(field.name))
+    }
+    /* A box pick for one repository offers only the boxes that act could mean (RepoContext.repositoryBoxChoices). */
+    if (request.name === "box.select" && typeof given["repo"] === "string") {
+      const choices = repositoryBoxChoices(store, given["repo"]).map(workspaceOption)
+      fields = fields.map(({ optionsFrom: _listed, ...field }) => field.name === "workspaceId" ? { ...field, options: choices } : field)
     }
     let title = request.title
     /*

@@ -344,6 +344,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly chooseTutorialRepository: TutorialRepositoryActions["chooseTutorialRepository"]
   readonly createTutorialRepository: TutorialRepositoryActions["createTutorialRepository"]
   readonly selectRepo: TabsController["selectRepo"]
+  readonly selectBox: TabsController["selectBox"]
   /* The sidebar's file tree and workspace heading (docs/workbench-lanes/sidebar-tree.md); see controller/sidebar.ts. */
   readonly toggleRepoTree: SidebarController["toggleRepoTree"]
   readonly renameWorkspace: SidebarController["renameWorkspace"]
@@ -1064,6 +1065,7 @@ export const createAppController = (
     selectTab,
     closeTab,
     selectRepo,
+    selectBox,
     installKeyboard
   } = actors.pair(ctx, (context) => createTabsController(context))
   const { renderFlowForm, setFormField, submitForm, dismissCard, focusHandoff: formFocus } = actors.pair(ctx, (context) => createFormsController(context, { nextOrdinal: store.nextOrdinal, minimizeCard }))
@@ -1739,6 +1741,7 @@ export const createAppController = (
     closeTab,
     ...tutorialRepository,
     selectRepo,
+    selectBox,
     toggleRepoTree,
     renameWorkspace,
     toggleWorkspaceRename,
