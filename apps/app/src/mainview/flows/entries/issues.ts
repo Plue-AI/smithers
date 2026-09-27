@@ -34,16 +34,18 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.list",
-    summary: "List a repository's issues",
+    summary: "List a repository's issues and conversations, or only one kind",
+    form: { args: payload => line(text(payload, "filter"), payload.kind === undefined || payload.kind === "all" ? undefined : flag(payload, "kind"), text(payload, "repo")) },
     runtimeAny: ["cloud"],
-    args: "[open|closed|all] [owner/repo]",
+    args: "[open|closed|all] [--kind conversation|issue] [owner/repo]",
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({
       filter: Schema.optional(Schema.Literals(["open", "closed", "all"])),
+      kind: Schema.optional(Schema.Literals(["all", "conversation", "issue"])),
       repo: Schema.optional(Schema.String)
     }),
-    prepare: ({ filter, repo }) => actions.listIssues.preload?.(filter ?? "open", repo),
-    handler: ({ filter, repo }) => actions.listIssues(filter ?? "open", repo)
+    prepare: ({ filter, repo, kind }) => actions.listIssues.preload?.(filter ?? "open", repo, kind),
+    handler: ({ filter, repo, kind }) => actions.listIssues(filter ?? "open", repo, kind)
   }),
   flow({
     name: "issues.view",
@@ -61,13 +63,13 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.create",
-    form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } } },
-    summary: "Create an issue",
+    form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => line(text(payload, "title"), text(payload, "repo"), flag(payload, "kind")) },
+    summary: "Create an issue, or a private conversation with --kind conversation",
     runtime: ["cloud"],
-    args: "<title> [owner/repo]",
+    args: "<title> [owner/repo] [--kind conversation]",
     requires: ["signed-in"],
-    input: Schema.Struct({ title: Schema.String, repo: Schema.optional(Schema.String) }),
-    handler: ({ title, repo }) => actions.createIssue(title, repo)
+    input: Schema.Struct({ title: Schema.String, repo: Schema.optional(Schema.String), kind: Schema.optional(Schema.Literals(["issue", "conversation"])) }),
+    handler: ({ title, repo, kind }) => actions.createIssue(title, repo, kind === "conversation" ? "chat" : kind)
   }),
   flow({
     name: "issues.close",
@@ -86,6 +88,60 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     requires: ["repo-read"],
     input: NumberedTarget,
     handler: ({ number, repo }) => actions.setIssueState(number, "open", repo)
+  }),
+  flow({
+    name: "issues.fix",
+    summary: "Mark an issue fixed; you become its fixer",
+    runtimeAny: ["cloud"],
+    args: "<number> [owner/repo]",
+    requires: ["repo-read"],
+    input: NumberedTarget,
+    handler: ({ number, repo }) => actions.setIssueState(number, "fixed", repo)
+  }),
+  flow({
+    name: "issues.verify",
+    summary: "Verify a fixed issue; the verifier must differ from the fixer",
+    runtimeAny: ["cloud"],
+    args: "<number> [owner/repo]",
+    requires: ["repo-read"],
+    input: NumberedTarget,
+    handler: ({ number, repo }) => actions.setIssueState(number, "verified", repo)
+  }),
+  flow({
+    name: "issues.comment.react",
+    form: { args: payload => JSON.stringify(payload) },
+    summary: "Add or remove a reaction on a message",
+    runtimeAny: ["cloud"],
+    args: "<json {number, commentId, name, active, repo}>",
+    requires: ["repo-read"],
+    input: Schema.Struct({ number: Schema.Number, commentId: Schema.Number, name: Schema.String, active: Schema.Boolean, repo: Schema.optional(Schema.String) }),
+    handler: ({ number, commentId, name, active, repo }) => actions.reactToIssueComment(number, commentId, name, active, repo)
+  }),
+  flow({
+    name: "issues.comment.retry",
+    form: { args: payload => JSON.stringify(payload) },
+    hidden: true,
+    summary: "Send a message again after it was not delivered",
+    runtimeAny: ["cloud"],
+    args: "<json {cardId, requestId}>",
+    requires: ["signed-in"],
+    input: Schema.Struct({ cardId: Schema.String, requestId: Schema.String }),
+    handler: ({ cardId, requestId }) => actions.retryIssueComment(cardId, requestId)
+  }),
+  flow({
+    name: "issues.set",
+    form: { args: payload => JSON.stringify(payload) },
+    summary: "Set an issue's owner, due date, priority or parent",
+    runtimeAny: ["cloud"],
+    args: "<json {number, field, value, repo}>",
+    requires: ["repo-read"],
+    input: Schema.Struct({
+      number: Schema.Number,
+      field: Schema.Literals(["owner", "due", "priority", "parent"]),
+      value: Schema.String,
+      repo: Schema.optional(Schema.String)
+    }),
+    handler: ({ number, field, value, repo }) => actions.setIssueTask(number, field, value, repo)
   }),
   flow({
     name: "issues.comment",

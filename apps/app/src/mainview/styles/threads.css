@@ -1,0 +1,142 @@
+/*
+ * Threads (ThreadCards.tsx) and integrations (IntegrationsCard.tsx). Rows,
+ * not bubbles: a thread is multi-party. Colors are the shared status and lane
+ * tokens; the task state glyph maps open=info, fixed=warning, verified=success,
+ * closed=muted.
+ */
+.thread-row-btn {
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr);
+	align-items: start;
+	gap: var(--sp-2);
+	width: 100%;
+	padding: 0.5rem var(--sp-3);
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.thread-row-btn:hover { background: var(--hover-subtle); }
+.thread-row-btn:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }
+.thread-row[data-state="closed"] .thread-row-title { color: var(--text-muted); }
+.thread-row-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.thread-row-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); }
+.thread-row-title { font-weight: 600; overflow-wrap: anywhere; }
+.thread-row-meta {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--sp-2);
+	margin-left: auto;
+	font-family: var(--font-mono);
+	font-size: var(--fs-caption);
+	color: var(--text-faint);
+	white-space: nowrap;
+}
+.thread-row-last { color: var(--text-muted); font-size: var(--fs-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-row-who { color: var(--text); }
+.thread-slack {
+	font-family: var(--font-mono);
+	font-size: var(--fs-caption);
+	color: var(--text-faint);
+	text-decoration: none;
+}
+.thread-slack-link { color: var(--brand); }
+
+/* ── Task strip ──────────────────────────────────────────────────────── */
+.thread-task { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-small); }
+.thread-task[data-compact] { gap: 0.4rem; font-size: var(--fs-caption); }
+.thread-state { font-family: var(--font-mono); font-size: var(--fs-caption); white-space: nowrap; }
+.thread-state[data-state="open"] { color: var(--info); }
+.thread-state[data-state="fixed"] { color: var(--warning); }
+.thread-state[data-state="verified"] { color: var(--success); }
+.thread-state[data-state="closed"] { color: var(--text-muted); }
+.thread-due,
+.thread-priority,
+.thread-parent,
+.thread-by { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-muted); white-space: nowrap; }
+.thread-due[data-past="true"] { color: var(--danger); font-weight: 600; }
+.thread-priority[data-priority="0"],
+.thread-priority[data-priority="1"] { color: var(--danger); }
+.thread-by { display: inline-flex; align-items: center; gap: 0.3rem; }
+.thread-ref {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--brand);
+	font: inherit;
+	font-family: var(--font-mono);
+	font-size: var(--fs-caption);
+	cursor: pointer;
+}
+.thread-ref:hover { text-decoration: underline; }
+.thread-ref:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; border-radius: 2px; }
+
+/* ── One thread ──────────────────────────────────────────────────────── */
+.thread { display: flex; flex-direction: column; gap: var(--sp-3); }
+.thread-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border); }
+.thread-head .thread-slack-link { margin-left: auto; }
+.thread-messages { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.thread-day-group + .thread-day-group { margin-top: var(--sp-2); }
+.thread-day {
+	margin: var(--sp-2) 0;
+	font-family: var(--font-mono);
+	font-size: var(--fs-caption);
+	color: var(--text-faint);
+	text-align: center;
+}
+.thread-message { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: var(--sp-2); padding: 0.2rem 0; }
+.thread-message[data-continued] { padding-top: 0; }
+.thread-message-head { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
+.thread-message-head .agent-mark-name { font-size: var(--fs-small); }
+.thread-message-time,
+.thread-pending-word { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-faint); }
+.thread-message-body { grid-column: 2; min-width: 0; }
+.thread-message-body .smithers-card-markdown > :first-child { margin-top: 0; }
+.thread-message-body .smithers-card-markdown > :last-child { margin-bottom: 0; }
+.thread-reactions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem; }
+.thread-reaction {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0 0.45rem;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--r-full);
+	background: var(--surface);
+	color: var(--text-muted);
+	font: inherit;
+	font-size: var(--fs-caption);
+	line-height: 1.5;
+}
+button.thread-reaction { cursor: pointer; }
+.thread-reaction[data-mine] { border-color: var(--brand-border); background: var(--brand-soft); color: var(--text); }
+button.thread-reaction:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.thread-pending { opacity: 0.8; }
+.thread-pending[data-pending="failed"] .thread-pending-word,
+.thread-pending[data-pending="unknown"] .thread-pending-word { color: var(--danger); }
+.thread-pending[data-pending="unknown"] .thread-pending-word { color: var(--warning); }
+.thread-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--sp-2); }
+.thread-composer textarea { min-height: 2.25rem; resize: vertical; }
+.thread-actions { justify-content: flex-start; }
+@media (max-width: 640px) {
+	.thread-row-btn { grid-template-columns: 20px minmax(0, 1fr); }
+	.thread-row-meta { width: 100%; margin-left: 0; }
+	.thread-message { grid-template-columns: 1fr; }
+	.thread-message-body { grid-column: 1; }
+}
+
+
+/* ── Inbox incidents and references (RunsCards.tsx) ──────────────────── */
+.inbox-incident {
+	display: flex;
+	flex-direction: column;
+	gap: var(--sp-2);
+	padding: var(--sp-2) var(--sp-3);
+	border: 1px solid var(--danger-border);
+	border-radius: var(--r-sm);
+	background: var(--danger-soft);
+}
+.inbox-incident-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.inbox-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.inbox-age { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-muted); }

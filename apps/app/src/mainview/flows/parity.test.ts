@@ -304,6 +304,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../experimental/panes/TimeTravel.tsx": 1,
       "../experimental/panes/Tools.tsx": 1,
       "../experimental/panes/Triggers.tsx": 2,
+      "../AgentMark.tsx": 1, // A persona that resolves to an agent profile is a door to the roster.
       "../App.tsx": 4, // -1: the shell has four handlers; main's five-count baseline was already stale.
       "../ChatFilterMenu.tsx": 2,
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
@@ -377,7 +378,8 @@ describe("launch-law parity: every affordance is a command", () => {
       "../ToastStack.tsx": 1,
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
       
-      "../cards/IssueCards.tsx": 8, // + the detail's comment box submit (issues.comment)
+      "../cards/IssueCards.tsx": 10, // + the detail's comment box submit (issues.comment), the thread rows and the kind chips
+      "../cards/IssueThread.tsx": 5, // The chat body: composer submit and send, reaction toggles, Retry, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
       "../cards/FileCards.tsx": 3,
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */

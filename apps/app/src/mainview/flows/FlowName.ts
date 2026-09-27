@@ -84,12 +84,12 @@ export const FLOW_NAMES = [
   "chat.filter.reset",
   "chat.filter.toggle",
   "chat.open",
-  "chat.reload",
   "chat.queue",
   "chat.queue.edit",
   "chat.queue.remove",
   "chat.queue.restore",
   "chat.queue.resume",
+  "chat.reload",
   "chat.retry",
   "chat.send",
   "chat.stop",
@@ -160,10 +160,15 @@ export const FLOW_NAMES = [
   "issues",
   "issues.close",
   "issues.comment",
+  "issues.comment.react",
+  "issues.comment.retry",
   "issues.create",
+  "issues.fix",
   "issues.list",
   "issues.reopen",
+  "issues.set",
   "issues.setup",
+  "issues.verify",
   "issues.view",
   "model",
   "model.ask",
@@ -327,7 +332,7 @@ export const FLOW_NAMES = [
   "world.delete.cancel",
   "world.delete.confirm",
   "world.new-note",
-  "world.select",
+  "world.select"
 ] as const
 
 /** The name of one declared flow: what the card seam and the tabs may raise. */

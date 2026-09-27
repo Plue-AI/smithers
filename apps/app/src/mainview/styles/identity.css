@@ -1,0 +1,61 @@
+/*
+ * Identity marks (Persona.ts / AgentMark.tsx): one identity, one lane color,
+ * everywhere it appears. Colors are the shared lane tokens; nothing here
+ * names a color of its own.
+ */
+
+/* ── Monogram marks (Persona.ts / AgentMark.tsx) ─────────────────────── */
+.agent-mark {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: var(--surface-2);
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 9px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	line-height: 1;
+	object-fit: cover;
+}
+.agent-mark[data-size="16"] { width: 16px; height: 16px; font-size: 8px; }
+.agent-mark[data-size="28"] { width: 28px; height: 28px; font-size: 11px; }
+.agent-mark[data-lane="0"] { background: color-mix(in srgb, var(--lane-0) 22%, var(--surface)); color: var(--lane-0); }
+.agent-mark[data-lane="1"] { background: color-mix(in srgb, var(--lane-1) 22%, var(--surface)); color: var(--lane-1); }
+.agent-mark[data-lane="2"] { background: color-mix(in srgb, var(--lane-2) 22%, var(--surface)); color: var(--lane-2); }
+.agent-mark[data-lane="3"] { background: color-mix(in srgb, var(--lane-3) 22%, var(--surface)); color: var(--lane-3); }
+.agent-mark[data-lane="4"] { background: color-mix(in srgb, var(--lane-4) 22%, var(--surface)); color: var(--lane-4); }
+.agent-mark[data-lane="5"] { background: color-mix(in srgb, var(--lane-5) 22%, var(--surface)); color: var(--lane-5); }
+.agent-mark-door {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--r-full);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	cursor: default;
+}
+button.agent-mark-door { cursor: pointer; }
+button.agent-mark-door:hover .agent-mark-name { color: var(--brand); text-decoration: underline; }
+button.agent-mark-door:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.agent-mark-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* ── Agent profile rows (AgentCards.tsx): mark · label and facts · Runs door ── */
+.agent-row.workflow-list-row {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto;
+	justify-content: start;
+	text-align: left;
+}
+.agent-row .workflow-list-text { min-width: 0; }
+.agent-row[data-kind="specialist"] .workflow-list-text > span,
+.agent-row[data-kind="helper"] .workflow-list-text > span { color: var(--info); }

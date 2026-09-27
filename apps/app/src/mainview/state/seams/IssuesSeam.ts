@@ -9,7 +9,16 @@ import type { SeamContext } from "./SeamContext"
 import { captureCloudOwner,errorMessage,errorText,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 
+import type { PersonaRef } from "@smthrs/rpc/Threads"
+
+/** Which rows a list shows: every issue, only conversations, or only issues (smithers-ui-DESIGN.md §3.1). */
+export type IssueKindFilter = "all" | "conversation" | "issue"
+/** The backend's issue states; an issue moves open → fixed → verified → closed. */
+export type IssueState = "open" | "fixed" | "verified" | "closed"
+
 export interface IssuesSeam {
+  /** Intent metadata (smithers-ui-DESIGN.md §3.2): PATCH one field on the issue. */
+  readonly setIssueTask: (number: number, field: "owner" | "due" | "priority" | "parent", value: string, repo?: string) => Promise<string | void>
   readonly submitConversation: (text: string, turnId: string, repo: string, owner: string) => Promise<boolean>
 
   readonly draftIssueComment: (cardId: string, text: string) => Promise<string | void>
@@ -19,12 +28,12 @@ export interface IssuesSeam {
   readonly subscribe: (onDispose: (release: () => void) => void) => void
   readonly mapIssueSync: (number: number, mapping: Omit<NonNullable<IssuePayload["sync"]>, "state" | "error">, repo?: string) => Promise<string | void>
   /** Renders the list card and answers the rows as text (the model reads the value, never the card). */
-  readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string]>
+  readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string, kind?: IssueKindFilter]>
   readonly viewIssue: ViewAction<[number: number, repo?: string, source?: "smithers-cloud" | "github"]>
   readonly createIssue: (title: string, repo?: string, kind?: "issue" | "chat") => Promise<string | void>
   readonly setIssueState: (
     number: number,
-    state: "open" | "closed",
+    state: IssueState,
     repo?: string
   ) => Promise<string | void>
   readonly editIssueComment: (number: number, commentId: number, text: string, repo?: string) => Promise<string | void>
@@ -44,7 +53,37 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const asInt = (value: unknown): number | null => typeof value === "number" && Number.isInteger(value) ? value : null
 
-const asIssueState = (value: unknown): "open" | "closed" => value === "closed" ? "closed" : "open"
+const asIssueState = (value: unknown): IssueState => value === "closed" || value === "fixed" || value === "verified" ? value : "open"
+const asText = (value: unknown): string | undefined => typeof value === "string" && value !== "" ? value : undefined
+
+/** A user summary off the wire (`{ login, avatar_url? }` or a bare login) as a persona. */
+const taskPersonOf = (value: unknown): PersonaRef | undefined => {
+  if (typeof value === "string") return value === "" ? undefined : { id: value, name: value }
+  if (!isRecord(value)) return undefined
+  const login = asText(value.login) ?? asText(value.username) ?? asText(value.name)
+  if (login === undefined) return undefined
+  const avatar = asText(value.avatar_url) ?? asText(value.iconUrl)
+  return { id: login, name: login, ...(avatar === undefined ? {} : { iconUrl: avatar }) }
+}
+
+/** Intent metadata the issue carries, when it carries any (owner, due, priority, parent, fixer, verifier). */
+const taskOf = (value: Record<string, unknown>): IssueListRow["task"] => {
+  const owner = taskPersonOf(value.owner)
+  const fixedBy = taskPersonOf(value.fixed_by)
+  const verifiedBy = taskPersonOf(value.verified_by)
+  const priority = asInt(value.priority)
+  const parentNumber = isRecord(value.parent) ? asInt(value.parent.number) : asInt(value.parent_number)
+  const due = asText(value.due) ?? asText(value.due_at)
+  const task = {
+    ...(owner === undefined ? {} : { owner }),
+    ...(due === undefined ? {} : { due }),
+    ...(priority === null || priority < 0 || priority > 3 ? {} : { priority: priority as 0 | 1 | 2 | 3 }),
+    ...(parentNumber === null ? {} : { parent: { number: parentNumber, ...(isRecord(value.parent) && asText(value.parent.title) !== undefined ? { title: value.parent.title as string } : {}) } }),
+    ...(fixedBy === undefined ? {} : { fixedBy }),
+    ...(verifiedBy === undefined ? {} : { verifiedBy })
+  }
+  return Object.keys(task).length === 0 ? undefined : task
+}
 
 /** The author login off Plue's `author: { login }` shape, or null. */
 const authorLogin = (value: unknown): string | null =>
@@ -77,7 +116,8 @@ const parseListRow = (value: unknown): IssueListRow | null => {
     ...forgeFacts(value, value.author),
     labels: parseLabels(value.labels),
     comments: comments !== null && comments >= 0 ? comments : 0,
-    updatedAt: typeof value.updated_at === "string" ? value.updated_at : null
+    updatedAt: typeof value.updated_at === "string" ? value.updated_at : null,
+    ...(taskOf(value) === undefined ? {} : { task: taskOf(value) })
   }
 }
 
@@ -152,6 +192,7 @@ const parseDetail = (
     issueBody: typeof value.body === "string" ? value.body : "",
     labels: parseLabels(value.labels),
     comments: [...comments],
+    ...(taskOf(value) === undefined ? {} : { task: taskOf(value) }),
   }
 }
 
@@ -442,13 +483,17 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     ].join("\n")) }
   }
 
-  const listView = preparedView(ctx, (filter: "open" | "closed" | "all", repoArg?: string) => {
+  const listView = preparedView(ctx, (filter: "open" | "closed" | "all", repoArg?: string, kind: IssueKindFilter = "all") => {
     const target = resolveTargetRepo(ctx.store, repoArg)
     if ("error" in target) return target.error
     const repo = target.repo
-    return { id: `issues-${repo}`, title: `Issues · ${repo}`, key: JSON.stringify(["issues", repo, filter]), pane: repo, read: async (): Promise<ViewResult> => {
+    return { id: `issues-${repo}`, title: `Issues · ${repo}`, key: JSON.stringify(["issues", repo, filter, kind]), pane: repo, read: async (): Promise<ViewResult> => {
       // Plue 422s unknown states ("all" included) — omit the param to list every state.
-      const query = filter === "all" ? "" : `?state=${filter}`
+      const search = new URLSearchParams()
+      if (filter !== "all") search.set("state", filter)
+      // Conversations are owner-private and excluded from the plain list; ask for them by kind (chat = issues contract; #2111).
+      if (kind === "conversation") search.set("kind", "chat")
+      const query = search.size === 0 ? "" : `?${search}`
       let response: Response
       try {
         response = await ctx.http(`${issuesPath(repo)}${query}`)
@@ -468,7 +513,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       const native = body.flatMap((entry) => {
         const parsed = parseListRow(entry)
         return parsed === null ? [] : [{ ...parsed, source: "smithers-cloud" as const }]
-      })
+      }).filter((row) => kind === "all" || (kind === "conversation" ? row.kind === "chat" : row.kind !== "chat"))
       /*
        * Smithers Cloud's /issues is the repository's OWN tracker and is correctly
        * empty for a repo mirrored from GitHub; the upstream issues live at
@@ -477,16 +522,17 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
        * GitHub read's provenance rides the card. A GitHub refusal (not
        * linked, not mirrored) is stated, never a silent absence.
        */
-      const github = await readGithubIssues(repo, filter)
+      // Conversations live in Smithers' own tracker; GitHub's rows join the unfiltered and issues lists.
+      const github = kind === "conversation" ? { issues: [], meta: undefined } : await readGithubIssues(repo, filter)
       const issues = [...native, ...github.issues]
       const card: Card = {
         id: `issues-${repo}`,
         kind: "issue-list",
-        title: `Issues · ${repo}`,
+        title: kind === "conversation" ? `Conversations · ${repo}` : `Issues · ${repo}`,
         status: "active",
         createdAt: Date.now(),
         ordinal: ctx.nextOrdinal(),
-        payload: { repo, filter, issues, ...(github.meta === undefined ? {} : { github: github.meta }) }
+        payload: { repo, filter, issues, ...(kind === "all" ? {} : { kind }), ...(github.meta === undefined ? {} : { github: github.meta }) }
       }
       return { card, ...readResult(issues.length === 0
         ? `No ${filter === "all" ? "" : `${filter} `}issues in ${repo}${github.meta?.refusal ? ` (GitHub: ${github.meta.refusal})` : ""}.`
@@ -811,7 +857,22 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       await response.body?.cancel().catch(() => {})
       return refreshDetail("Sync mapped", repo, number)
     },
-    listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo)), { preload: listView.preload }),
+    listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all")), { preload: listView.preload }),
+    setIssueTask: async (number, field, value, explicitRepo) => {
+      const target = resolveTargetRepo(ctx.store, explicitRepo)
+      if ("error" in target) return target.error
+      const { repo } = target
+      let response: Response
+      try {
+        response = await ctx.http(`${issuesPath(repo)}/${number}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ [field]: value }) })
+      } catch (error) { return unreachable(`set ${field} on issue #${number} in ${repo}`, error) }
+      if (!response.ok) {
+        if (response.status === 404) return explain404(response, `Issue #${number} in ${repo} was not found`)
+        return readErrorMessage(response, `Setting ${field} on issue #${number} failed (${response.status})`)
+      }
+      await response.body?.cancel().catch(() => {})
+      return refreshDetail(`Issue #${number} ${field} set`, repo, number)
+    },
 
     viewIssue: Object.assign(async (number: number, explicitRepo?: string, source?: "smithers-cloud" | "github") => {
       const target = resolveTargetRepo(ctx.store, explicitRepo)
@@ -863,7 +924,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       const target = resolveTargetRepo(ctx.store, explicitRepo)
       if ("error" in target) return target.error
       const { repo } = target
-      const verb = state === "closed" ? "close" : "reopen"
+      const verb = state === "closed" ? "close" : state === "fixed" ? "mark fixed" : state === "verified" ? "verify" : "reopen"
       let response: Response
       try {
         response = await ctx.http(`${issuesPath(repo)}/${number}`, {

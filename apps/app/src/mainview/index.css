@@ -8,4 +8,6 @@
 @import "./styles/surfaces.css";
 @import "./styles/chrome.css";
 @import "./styles/experimental.css";
+@import "./styles/identity.css";
+@import "./styles/threads.css";
 @config "../../tailwind.config.js";

@@ -13,10 +13,13 @@ import { flowAction, flowProps } from "../flows/FlowAction"
 import { flowArgs } from "../flows/FlowArgs"
 import { Button, Markdown } from "@smthrs/ui"
 import { useState } from "react"
+import { Monogram } from "../AgentMark"
+import { ageLabel } from "../Timestamps"
+import { commentPersona, IssueThreadBody, stateActions, TaskStrip } from "./IssueThread"
 import type { Card } from "../state/AppState"
 import { dateLabel } from "../Timestamps"
 import { trustedHttpsUrl } from "../state/seams/SeamContext"
-import type { CardFamily, RunCommand } from "./CardFamily"
+import type { CardFamily, CardProjectionAuthority, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 import {
   AvatarStack,
@@ -40,7 +43,30 @@ export interface IssueCardActions {
 type IssueRow = Extract<Card, { kind: "issue-list" }>["payload"]["issues"][number]
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 
+/** A conversation's row (smithers-ui-DESIGN.md §3.1): the last poster's mark, the title, the issue strip, the sync mark, the age and the last line. */
+const ThreadListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; readonly issue: IssueRow } & IssueCardActions) => (
+  <li className="world-card-row ghc-row thread-row" data-issue={issue.number} data-state={issue.state} data-kind={issue.task === undefined ? "conversation" : "issue"}>
+    <button type="button" className="thread-row-btn" {...flowAction(onRunCommand, "issues.view", flowArgs("issues.view", { number: issue.number, repo, source: issue.source }))}>
+      {issue.last === undefined ? <span className="agent-mark" data-size="28" aria-hidden /> : <Monogram persona={issue.last.persona} size={28} />}
+      <span className="thread-row-main">
+        <span className="thread-row-head">
+          <span className="thread-row-title">{issue.title}</span>
+          <TaskStrip thread={{ ...issue, repo }} onRunCommand={onRunCommand} compact />
+          <span className="thread-row-meta">
+            {issue.synced === true ? <span className="thread-slack">synced</span> : null}
+            {issue.updatedAt === null ? null : <time dateTime={issue.updatedAt}>{ageLabel(issue.updatedAt)}</time>}
+          </span>
+        </span>
+        {issue.last === undefined ? null : (
+          <span className="thread-row-last"><span className="thread-row-who">{issue.last.persona.name}:</span> {issue.last.text.split("\n")[0]}</span>
+        )}
+      </span>
+    </button>
+  </li>
+)
+
 const IssueListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; readonly issue: IssueRow } & IssueCardActions) => {
+  if (issue.kind === "chat") return <ThreadListRow repo={repo} issue={issue} onRunCommand={onRunCommand} />
   const extra = issue
   const labels = issue.labels ?? []
   const assignees = people(issue.assignees)
@@ -48,6 +74,7 @@ const IssueListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; re
     <li
       className="world-card-row ghc-row"
       data-issue={issue.number}
+      data-state={issue.state}
       data-good-first={labels.includes("good first issue") ? "true" : undefined}
     >
       <button
@@ -55,11 +82,12 @@ const IssueListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; re
         className="ghc-row-btn"
         {...flowAction(onRunCommand, "issues.view", flowArgs("issues.view", { number: issue.number, repo, source: issue.source }))}
       >
-        <StateIcon display={issueDisplay(issue.state)} />
+        <StateIcon display={issueDisplay(issue.state === "closed" ? "closed" : "open")} />
         <span className="ghc-row-main">
           <span className="ghc-row-title">
             <span className="ghc-row-title-text">{issue.title}</span>
             {labels.map((label) => <LabelPill key={label} name={label} color={extra.labelColors?.[label]} />)}
+            <TaskStrip thread={{ ...issue, repo }} onRunCommand={onRunCommand} compact />
           </span>
           <span className="ghc-row-meta">
             #{issue.number}
@@ -96,9 +124,12 @@ export const IssueListCardBody = ({
   onRunCommand
 }: { readonly card: Extract<Card, { kind: "issue-list" }> } & IssueCardActions) => {
   const { repo, filter, issues, github } = card.payload
-  const open = issues.filter((issue) => issue.state === "open").length
+  const kind = card.payload.kind ?? "all"
+  const open = issues.filter((issue) => issue.state !== "closed").length
+  /* Conversations and issues (smithers-ui-DESIGN.md §3.1): the kind chips re-invoke issues.list with the same state and repository. */
+  const kindArgs = (next: "all" | "conversation" | "issue") => flowArgs("issues.list", { filter, repo, kind: next })
   return (
-    <div className="ghc ghc-box" data-testid="issue-list">
+    <div className="ghc ghc-box" data-testid="issue-list" data-kind={kind}>
       <div className="ghc-toolbar">
         {filter !== "closed" ?
           <span className="ghc-count" data-active={filter === "open" ? "true" : undefined}><Octicon name="issue-opened" /> {open} Open</span> :
@@ -106,6 +137,11 @@ export const IssueListCardBody = ({
         {filter !== "open" ?
           <span className="ghc-count" data-active={filter === "closed" ? "true" : undefined}><Octicon name="check" /> {issues.length - open} Closed</span> :
           null}
+        <span className="ghc-toolbar-kinds" role="group" aria-label="Kind">
+          {([["all", "All"], ["conversation", "Conversations"], ["issue", "Issues"]] as const).map(([id, label]) => (
+            <button key={id} type="button" className="run-trace-filter" data-on={kind === id} aria-pressed={kind === id} {...flowAction(onRunCommand, "issues.list", kindArgs(id))}>{label}</button>
+          ))}
+        </span>
         <span className="ghc-toolbar-repo">{repoLabel(repo)}</span>
       </div>
       {github !== undefined && (github.refusal !== null || github.stale || github.syncError !== null) ?
@@ -171,22 +207,26 @@ const IssueCommentForm = ({ repo, number, onRunCommand }: { readonly repo: strin
 
 export const IssueCardBody = ({
   card,
-  onRunCommand
-}: { readonly card: Extract<Card, { kind: "issue" }> } & IssueCardActions) => {
+  onRunCommand,
+  projectionStore
+}: { readonly card: Extract<Card, { kind: "issue" }>; readonly projectionStore?: CardProjectionAuthority | undefined } & IssueCardActions) => {
   const { repo, number, title, state, author, issueBody, labels, comments } = card.payload
+  /* A conversation (smithers-ui-DESIGN.md §3.1): the conversation body replaces the GitHub layout. */
+  if (card.payload.kind === "chat") return <IssueThreadBody card={card} onRunCommand={onRunCommand} projectionStore={projectionStore} />
   const github = card.payload.source === "github"
   const githubHref = github ? trustedHttpsUrl(card.payload.htmlUrl ?? "", "github.com") : null
   const extra: IssuePayload = card.payload
-  const toggleCommand = state === "open" ? "issues.close" : "issues.reopen"
+  const acts = stateActions(card)
   const assignees = people(extra.assignees)
   return (
-    <article className="ghc ghc-detail" data-issue={number}>
+    <article className="ghc ghc-detail" data-issue={number} data-state={state}>
       <header className="ghc-detail-head">
         <h3 className="ghc-detail-title">
           {title} <span className="ghc-detail-number">#{number}</span>
         </h3>
         <div className="ghc-detail-sub">
-          <StatePill display={issueDisplay(state)} />
+          <StatePill display={issueDisplay(state === "closed" ? "closed" : "open")} />
+          <TaskStrip thread={{ ...card.payload, repo }} onRunCommand={onRunCommand} />
           <span>
             <strong className="ghc-author">{author ?? "Someone"}</strong> opened this issue
             {extra.createdAt != null ? <> <RelativeTime iso={extra.createdAt} /></> : null}
@@ -211,23 +251,25 @@ export const IssueCardBody = ({
               <Markdown className="smithers-card-markdown" content={issueBody} />}
           </CommentBox>
           {comments.map((comment, index) => (
-            <CommentBox key={`comment-${index}`} author={comment.author} avatarUrl={(comment as { readonly authorAvatar?: string }).authorAvatar} createdAt={comment.createdAt} verb="commented">
+            <CommentBox key={comment.id ?? `comment-${index}`} author={commentPersona(comment).name} avatarUrl={commentPersona(comment).iconUrl} createdAt={comment.createdAt} verb="commented">
               <Markdown className="smithers-card-markdown" content={comment.commentBody} />
             </CommentBox>
           ))}
           {!github ? <div className="ghc-detail-foot">
             <IssueCommentForm repo={repo} number={number} onRunCommand={onRunCommand} />
             <div className="ghc-actions">
-              <Button
-                variant="outline"
-                size="sm"
-                {...flowAction(onRunCommand, toggleCommand, flowArgs(toggleCommand, { number, repo }))}
-              >
-                <span className={state === "open" ? "ghc-tone-done" : "ghc-tone-open"}>
-                  <Octicon name={state === "open" ? "issue-closed" : "issue-opened"} />
-                </span>
-                {state === "open" ? "Close issue" : "Reopen issue"}
-              </Button>
+              {/* An issue moves open → fixed → verified → closed; the verifier must differ from the fixer (DESIGN §3.2). */}
+              {acts.map((act) => (
+                <Button key={act.flow} variant="outline" size="sm" disabled={act.disabled !== undefined} title={act.disabled}
+                  {...flowAction(onRunCommand, act.flow, act.args)}>
+                  {act.flow === "issues.close" || act.flow === "issues.reopen" ? (
+                    <span className={act.flow === "issues.close" ? "ghc-tone-done" : "ghc-tone-open"}>
+                      <Octicon name={act.flow === "issues.close" ? "issue-closed" : "issue-opened"} />
+                    </span>
+                  ) : null}
+                  {act.label}
+                </Button>
+              ))}
             </div>
           </div> : null}
         </div>
@@ -253,7 +295,7 @@ export const issueCardFamily: CardFamily<"issue-list" | "issue"> = {
     pill: settledPill
   },
   issue: {
-    render: (card, actions) => <IssueCardBody card={card} onRunCommand={actions.onRunCommand} />,
+    render: (card, actions) => <IssueCardBody card={card} onRunCommand={actions.onRunCommand} projectionStore={actions.projectionStore} />,
     pill: settledPill
   }
 }

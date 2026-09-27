@@ -364,6 +364,15 @@ const restAfter = (args: string | undefined, count: number): string => {
   return rest.trim()
 }
 
+/** `<number> [owner/repo]`: a positive integer, then an optional repository. */
+const numberedTarget = (name: string, args: string | undefined): Parsed => {
+  const [first, repo, ...rest] = tokensOf(args)
+  if (first === undefined) return NONE
+  const number = Number(first)
+  if (!Number.isInteger(number) || number <= 0) return no(`${name} needs a thread number`)
+  if (rest.length > 0) return no(`${name} takes a number and one owner/repo`)
+  return ok(repo === undefined ? { number } : { number, repo })
+}
 const tokensOf = (args: string | undefined): Array<string> =>
   trimmed(args)
     .split(/\s+/)
@@ -708,11 +717,16 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "prs": (args, known) => GRAMMAR["prs.list"]!(args, known),
   "issues.list": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
-    const filter = rest === "" ? "open" : rest
+    // `--kind conversation|issue` narrows the list (DESIGN §3.1, §3.2).
+    const kindMatch = /(?:^|\s)--kind(?:\s+|=)(\S+)/.exec(rest)
+    const kind = kindMatch?.[1]
+    if (kind !== undefined && kind !== "conversation" && kind !== "issue" && kind !== "all") return no("issues.list --kind takes conversation, issue or all")
+    const bare = rest.replace(/(?:^|\s)--kind(?:\s+|=)\S+/, "").trim()
+    const filter = bare === "" ? "open" : bare
     if (filter !== "open" && filter !== "closed" && filter !== "all") {
       return no("issues.list takes open, closed, or all")
     }
-    return ok(repo === undefined ? { filter } : { filter, repo })
+    return ok({ filter, ...(repo === undefined ? {} : { repo }), ...(kind === undefined || kind === "all" ? {} : { kind }) })
   },
   "issue.flows": (args, known) => numbered(args, "An issue number is required", known),
   "issue.repro": (args, known) => numbered(args, "An issue number is required", known),
@@ -726,9 +740,13 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok(parts)
   },
   "issues.create": (args, known) => {
-    const { rest, repo } = splitTrailingRepo(args, known)
+    // `--kind conversation` starts an owner-private conversation (smithers-ui-DESIGN.md §3.1); the title is everything else.
+    const kindMatch = /(?:^|\s)--kind(?:\s+|=)(\S+)\s*$/.exec(args ?? "")
+    const kind = kindMatch?.[1]
+    if (kind !== undefined && kind !== "conversation" && kind !== "issue") return no("issues.create --kind takes conversation or issue")
+    const { rest, repo } = splitTrailingRepo(kindMatch === null ? args : (args ?? "").slice(0, kindMatch.index).trim(), known)
     if (rest === "") return no("issues.create needs a title")
-    return ok(repo === undefined ? { title: rest } : { title: rest, repo })
+    return ok({ title: rest, ...(repo === undefined ? {} : { repo }), ...(kind === undefined ? {} : { kind }) })
   },
   /*
    * The repository welcome and its three answers (controller/onboarding.ts):

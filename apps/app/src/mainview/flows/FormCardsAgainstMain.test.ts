@@ -306,10 +306,18 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     flow, kind: "sentence" as const, rows: 2,
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
   })),
-  ...(["issues", "issues.list"] as const).flatMap(flow => (["card", "sentence"] as const).map(kind => ({
-    flow, kind, rows: 1,
+  ...(["issues", "issues.list"] as const).map(flow => ({
+    flow, kind: "sentence" as const, rows: 1,
     because: "A repository-only issues listing now accepts an explicit unloaded repository with the default open filter (#2082), so the obsolete filter error and its incorrect draft disappear."
-  }))),
+  })),
+  {
+    flow: "issues", kind: "card", rows: 1,
+    because: "A repository-only issues listing now accepts an explicit unloaded repository with the default open filter (#2082), so the obsolete filter error and its incorrect draft disappear."
+  },
+  {
+    flow: "issues.list", kind: "card", rows: 35,
+    because: "The issues list narrows to chats or tasks with `--kind` (smithers-ui-DESIGN.md §3.1), so the list form gains an optional Kind field: every swept line's card lists it beside Filter and Repository, and the one #2082 row keeps its move."
+  },
   ...(["agent.session.view", "agent.session.stop"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 1,
     because: "An explicit repository is recognized without loaded inventory (#2075). A repository alone now receives the existing missing-session-id diagnostic instead of being mistaken for the session id; complete id-plus-repository arguments work through every door."
@@ -337,6 +345,10 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
   {
     flow: "issue.add-flow", kind: "card", rows: 1,
     because: "The same skip over the optional repository that leads the add-flow input, so the second token reaches the description the form is there to collect."
+  },
+  {
+    flow: "issues.create", kind: "card", rows: 36,
+    because: "A chat thread is an issue created with `--kind chat` (smithers-ui-DESIGN.md §3.1), so the create form gains an optional Kind field: every swept line's card now lists that field beside Title and Repository; no draft or missing field changes."
   },
   {
     flow: "runs.trace.view", kind: "sentence", rows: 13,
@@ -422,7 +434,8 @@ describe("the card every slash line opens, against main@origin", () => {
       "/issues codeplanesmithers/canary", "/issues.list codeplanesmithers/canary"
     ])
     /* `here` counts only flows that still exist: the three `change.pick` rows left with the flow (#1904). */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1449 })
+    /* 1448: `/issues.create --nope value` and friends now read the create grammar's own --kind refusal instead of a usage line (smithers-ui-DESIGN.md §3.1). */
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1448 })
     /*
      * Two doors throw when the one token they are given is a number: the
      * render dispatches a card whose payload the event schema rejects. It is
