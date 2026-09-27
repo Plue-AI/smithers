@@ -951,7 +951,11 @@ describe("search palette", () => {
     await tui.until((screen) => /exchanges · ↑0/.test(screen), 5_000, "session note")
     await tui.press(key.ctrlK)
     await tui.type("?")
-    await tui.until((screen) => screen.includes("conversation:") && screen.includes("worker tabs"), 5_000, "prefix list")
+    await tui.until(
+      (screen) => screen.includes("conversation:") && screen.includes("worker tabs"),
+      5_000,
+      "prefix list"
+    )
     await tui.press(key.enter)
     await tui.type("hotk")
     await tui.until((screen) => /\/hotkeys\s+Show the keys/.test(screen), 5_000, "typed after the prefix")

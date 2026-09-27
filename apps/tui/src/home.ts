@@ -13,7 +13,8 @@ export interface App {
   readonly picture: string
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
 
 /** The `app` blocks of `<cwd>/.smithers/home.json`, in declaration order. */
 export const read = (cwd: string): ReadonlyArray<App> => {

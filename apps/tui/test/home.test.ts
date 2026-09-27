@@ -14,14 +14,16 @@ const directory = (home?: string): string => {
 }
 
 it("reads the app blocks of .smithers/home.json in order and nothing else", () => {
-  const cwd = directory(JSON.stringify({ blocks: [
-    { type: "prompt", title: "What should we work on?" },
-    { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
-    { type: "text", text: "After" },
-    { type: "app", flow: "review", title: "Review a PR", picture: "review" },
-    { type: "app", flow: "", title: "Nameless" },
-    { type: "app", flow: "wiki", picture: "wiki" }
-  ] }))
+  const cwd = directory(JSON.stringify({
+    blocks: [
+      { type: "prompt", title: "What should we work on?" },
+      { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+      { type: "text", text: "After" },
+      { type: "app", flow: "review", title: "Review a PR", picture: "review" },
+      { type: "app", flow: "", title: "Nameless" },
+      { type: "app", flow: "wiki", picture: "wiki" }
+    ]
+  }))
   expect(Home.read(cwd)).toEqual([
     { flow: "issue.implement", title: "Fix an issue", picture: "issue" },
     { flow: "review", title: "Review a PR", picture: "review" }

@@ -16,7 +16,11 @@ const text = (value: string | undefined): Array<Panels.Block> =>
 /** The panel id; the surface is `ui:smithers`, owned `plugin:smithers`. */
 export const id = "smithers"
 
-export const panel = (listed: ReadonlyArray<Listed>, runs: ReadonlyArray<Run>, apps: ReadonlyArray<Home.App> = []): Panels.Panel => {
+export const panel = (
+  listed: ReadonlyArray<Listed>,
+  runs: ReadonlyArray<Run>,
+  apps: ReadonlyArray<Home.App> = []
+): Panels.Panel => {
   const newest = [...runs].sort((a, b) => b.startedAt - a.startedAt)
   const active = newest.filter((run) => {
     const shown = status(run)
@@ -33,7 +37,9 @@ export const panel = (listed: ReadonlyArray<Listed>, runs: ReadonlyArray<Run>, a
         id: `app:${app.flow}`,
         label: app.title,
         details: text(app.flow),
-        ...(discovered.has(app.flow) ? { action: { label: app.title, action: { kind: "flow" as const, flow: app.flow } } } : {})
+        ...(discovered.has(app.flow)
+          ? { action: { label: app.title, action: { kind: "flow" as const, flow: app.flow } } }
+          : {})
       })),
       ...newest.map((run) => ({
         id: `run:${run.id}`,

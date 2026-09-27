@@ -30,8 +30,12 @@ describe("seatOf", () => {
 
 describe("default chat seat", () => {
   test("prefers Cerebras, then Sol, then another available provider", () => {
-    expect(Models.detect({ CEREBRAS_API_KEY: "test", OPENAI_API_KEY: "test" }).defaultSeat).toBe(Models.delegateModels.cerebras)
-    expect(Models.detect({ OPENAI_API_KEY: "test", MOONSHOT_API_KEY: "test" }).defaultSeat).toBe(Models.delegateModels.sol)
+    expect(Models.detect({ CEREBRAS_API_KEY: "test", OPENAI_API_KEY: "test" }).defaultSeat).toBe(
+      Models.delegateModels.cerebras
+    )
+    expect(Models.detect({ OPENAI_API_KEY: "test", MOONSHOT_API_KEY: "test" }).defaultSeat).toBe(
+      Models.delegateModels.sol
+    )
     expect(Models.detect({ OPENAI_API_KEY: "test", SMITHERS_TUI_SEAT: "custom:chat" }).defaultSeat).toBe("custom:chat")
   })
 })

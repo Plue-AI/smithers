@@ -208,7 +208,10 @@ export class Tui {
   /** Types text one character at a time, as a person does. */
   async type(text: string): Promise<void> {
     for (const character of text) {
-      await this.call("session.send", { sessionId: this.sessionId, dataBase64: Buffer.from(character).toString("base64") })
+      await this.call("session.send", {
+        sessionId: this.sessionId,
+        dataBase64: Buffer.from(character).toString("base64")
+      })
     }
     await sleep(150)
   }

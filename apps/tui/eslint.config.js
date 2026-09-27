@@ -59,8 +59,9 @@ export default tseslint.config(
     }
   },
   {
-    // Process entry points print to the terminal; `log.ts` wraps `console.error` for the renderer.
-    files: ["src/main.tsx", "src/ask.ts", "src/log.ts"],
+    // Process entry points (main.tsx checks the runtime, run.tsx is the CLI) print to the terminal;
+    // `log.ts` wraps `console.error` for the renderer.
+    files: ["src/main.tsx", "src/run.tsx", "src/ask.ts", "src/log.ts"],
     rules: { "no-console": "off" }
   },
   ...invariants(uninstalledSafety, swallowedCause, ambientAuthority)

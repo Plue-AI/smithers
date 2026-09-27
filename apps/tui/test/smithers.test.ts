@@ -63,9 +63,23 @@ it("lists the homepage's apps first, running the ones this directory discovers",
   const panel = Smithers.panel(listed, [run("a", "done", { answer: "Approved." })], apps)
   expect(Panels.decode(panel)).toEqual(panel)
   expect(panel.summary).toBe("2 apps · 2 flows · 0 active")
-  expect(panel.rows.map((row) => row.id)).toEqual(["app:review", "app:issue.implement", "run:a", "flow:review", "flow:release"])
-  expect(panel.rows[0]).toEqual({ id: "app:review", label: "Review a PR", details: [{ kind: "text", text: "review" }],
-    action: { label: "Review a PR", action: { kind: "flow", flow: "review" } } })
+  expect(panel.rows.map((row) => row.id)).toEqual([
+    "app:review",
+    "app:issue.implement",
+    "run:a",
+    "flow:review",
+    "flow:release"
+  ])
+  expect(panel.rows[0]).toEqual({
+    id: "app:review",
+    label: "Review a PR",
+    details: [{ kind: "text", text: "review" }],
+    action: { label: "Review a PR", action: { kind: "flow", flow: "review" } }
+  })
   // A flow the app home names but this directory does not discover is listed, and runs nowhere here.
-  expect(panel.rows[1]).toEqual({ id: "app:issue.implement", label: "Fix an issue", details: [{ kind: "text", text: "issue.implement" }] })
+  expect(panel.rows[1]).toEqual({
+    id: "app:issue.implement",
+    label: "Fix an issue",
+    details: [{ kind: "text", text: "issue.implement" }]
+  })
 })
