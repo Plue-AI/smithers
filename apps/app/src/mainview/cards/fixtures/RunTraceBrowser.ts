@@ -101,7 +101,7 @@ const cardId = "flow-run-strip-browser"
 if (!store.collections.cards.has(cardId)) {
   const card: Extract<Card, { kind: "run-trace" }> = {
     id: cardId, kind: "run-trace", title: "Trace", status: "active", createdAt: 0, ordinal: 0,
-    payload: { repo: "fixture/strip", runId: "strip-browser", workflow: "probe", phase: scenario === "live" || scenario === "tail-live" || scenario === "chat" ? "running" : "completed", steps: [], result: null, lastSeq: events.length, events, traceView: "timeline", liveTail: true }
+    payload: { repo: "fixture/strip", workspaceId: "00000000-0000-4000-8000-00000000517a", runId: "strip-browser", workflow: "probe", phase: scenario === "live" || scenario === "tail-live" || scenario === "chat" ? "running" : "completed", steps: [], result: null, lastSeq: events.length, events, traceView: "timeline", liveTail: true }
   }
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
 }
