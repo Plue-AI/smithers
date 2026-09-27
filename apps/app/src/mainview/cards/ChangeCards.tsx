@@ -90,7 +90,7 @@ const blockWords = (block: LandingBlock): string => {
   if (block.kind === "conflict") return `conflict in ${block.name ?? "a file"}`
   if (block.kind === "owner") return `owner approval missing on ${block.path ?? "a path"}`
   if (block.kind === "agent_policy") return `agent changes denied on ${block.path ?? "a path"}`
-  if (block.kind === "thread") return `${block.count ?? 1} thread${(block.count ?? 1) === 1 ? "" : "s"} open`
+  if (block.kind === "thread") return `${block.count ?? 1} comment${(block.count ?? 1) === 1 ? "" : "s"} open`
   return block.kind
 }
 
@@ -100,13 +100,13 @@ const unresolvedThreads = (threads: ReadonlyArray<ChangeThread> | null): number 
 
 /**
  * What the landing gate stands on, from the card's own facts: the threads
- * still open (ADR 0004: the Land button says `2 threads open`) and the
+ * still open (ADR 0004's `2 threads open`, shown as `2 comments open`) and the
  * blocks the landing list stated for this change.
  */
 const gateReasons = (payload: ChangePayload): ReadonlyArray<string> => {
   const reasons: Array<string> = []
   const open = unresolvedThreads(payload.threads)
-  if (open > 0) reasons.push(`${open} thread${open === 1 ? "" : "s"} open`)
+  if (open > 0) reasons.push(`${open} comment${open === 1 ? "" : "s"} open`)
   for (const block of payload.stack?.blockedBy ?? []) {
     if (block.kind === "thread") continue
     reasons.push(blockWords(block))
@@ -517,11 +517,11 @@ const ChangeReviewFacet = ({ card, onRunCommand }: { readonly card: ChangeCard }
   const since = payload.diff?.sinceReview ?? null
   const threadActs = (thread: ChangeThread): ReadonlyArray<readonly ["review.done" | "review.ack" | "review.reopen", string, string]> => {
     if (thread.id === null || thread.id === undefined || thread.state === null || thread.state === undefined) return []
-    if (thread.state === "open") return [["review.done", "Done", `Mark thread ${thread.id} done`]]
+    if (thread.state === "open") return [["review.done", "Done", `Mark comment ${thread.id} done`]]
     if (thread.state === "done") {
-      return [["review.ack", "Ack", `Acknowledge thread ${thread.id}`], ["review.reopen", "Reopen", `Reopen thread ${thread.id}`]]
+      return [["review.ack", "Ack", `Acknowledge comment ${thread.id}`], ["review.reopen", "Reopen", `Reopen comment ${thread.id}`]]
     }
-    return [["review.reopen", "Reopen", `Reopen thread ${thread.id}`]]
+    return [["review.reopen", "Reopen", `Reopen comment ${thread.id}`]]
   }
   return (
     <div className="world-card-list">
@@ -571,10 +571,10 @@ const ChangeReviewFacet = ({ card, onRunCommand }: { readonly card: ChangeCard }
       )}
       {owners !== null ? <p className="world-card-path">{owners}</p> : null}
       {threads.length === 0 ? null : (
-        <ul className="world-card-list" aria-label="Review threads">
+        <ul className="world-card-list" aria-label="Review comments">
           {threads.map((thread, index) => (
             <li key={thread.id ?? index} className="world-card-row">
-              {thread.state !== null && thread.state !== undefined ? <span aria-label={`thread ${thread.state}`}>{THREAD_GLYPH[thread.state]}</span> : null}
+              {thread.state !== null && thread.state !== undefined ? <span aria-label={`comment ${thread.state}`}>{THREAD_GLYPH[thread.state]}</span> : null}
               <span className="world-card-path">
                 {thread.path ?? "file"}{thread.line !== null ? `:${thread.line}` : ""}
                 {thread.anchor === "moved" && thread.currentLine !== null && thread.currentLine !== undefined ? ` → :${thread.currentLine}` : ""}
@@ -845,7 +845,7 @@ const ReviewEvidence = ({ card, onRunCommand }: { readonly card: ChangeCard } & 
   if (p.findings !== null || p.unread?.findings) rows.push(["findings", "Findings", p.findings === null ? missing(p.unread?.findings) :
     p.currentSeq === null ? String(p.findings.length) :
       `${current?.length ?? 0} current · ${p.findings.length - (current?.length ?? 0)} older or unlinked`])
-  if (p.threads !== null || p.unread?.threads) rows.push(["review", "Review threads", p.threads === null ? missing(p.unread?.threads) :
+  if (p.threads !== null || p.unread?.threads) rows.push(["review", "Review comments", p.threads === null ? missing(p.unread?.threads) :
     `${p.threads.filter(thread => thread.state === "open").length} open · ${p.threads.filter(thread => thread.state === "done").length} awaiting acknowledgment`])
   if (p.walkthrough) rows.push(["walkthrough", "Walkthrough", at(p.walkthrough.seq)])
   const hasHumanReview = (p.reviews ?? []).some(review => review.reviewerKind !== "agent")

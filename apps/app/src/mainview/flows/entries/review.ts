@@ -9,7 +9,7 @@ import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
 /** The `review` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
-export const namespace: Namespace = { id: "review", label: "Review", summary: "Review threads, requests, and the diff since your last one (ADR 0004)" }
+export const namespace: Namespace = { id: "review", label: "Review", summary: "Review comments, requests, and the diff since your last one (ADR 0004)" }
 
 /** The `review` flows registered as one aggregator block. */
 export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
@@ -24,27 +24,30 @@ export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "review.done",
-    summary: "Mark a review thread done: the author addressed it at the current revision",
+    summary: "Mark a review comment done: the author addressed it at the current revision",
     runtime: ["cloud"],
-    args: "<changeId> <threadId>",
+    args: "<changeId> <commentId>",
+    form: { fields: { threadId: { label: "Comment id" } } },
     requires: ["signed-in"],
     input: Schema.Struct({ changeId: Schema.String, threadId: Schema.Number }),
     handler: ({ changeId, threadId }) => actions.reviewThreadDone(changeId, threadId)
   }),
   flow({
     name: "review.ack",
-    summary: "Acknowledge a done review thread: the reviewer accepts the author's work",
+    summary: "Acknowledge a done review comment: the reviewer accepts the author's work",
     runtime: ["cloud"],
-    args: "<changeId> <threadId>",
+    args: "<changeId> <commentId>",
+    form: { fields: { threadId: { label: "Comment id" } } },
     requires: ["signed-in"],
     input: Schema.Struct({ changeId: Schema.String, threadId: Schema.Number }),
     handler: ({ changeId, threadId }) => actions.reviewThreadAck(changeId, threadId)
   }),
   flow({
     name: "review.reopen",
-    summary: "Reopen a done or resolved review thread",
+    summary: "Reopen a done or resolved review comment",
     runtime: ["cloud"],
-    args: "<changeId> <threadId>",
+    args: "<changeId> <commentId>",
+    form: { fields: { threadId: { label: "Comment id" } } },
     requires: ["signed-in"],
     input: Schema.Struct({ changeId: Schema.String, threadId: Schema.Number }),
     handler: ({ changeId, threadId }) => actions.reviewThreadReopen(changeId, threadId)

@@ -66,7 +66,7 @@ export class Journal {
     this.commit(next)
   }
   start(prompt: string, id: string) {
-    if (["requested", "running"].includes(this.head.run?.status ?? "")) throw new Error("Resume the saved task first.")
+    if (["requested", "running"].includes(this.head.run?.status ?? "")) throw new Error("Resume the saved run first.")
     this.update((frame) => {
       frame.run = {
         id,

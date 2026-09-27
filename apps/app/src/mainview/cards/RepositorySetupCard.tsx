@@ -17,7 +17,7 @@ const jobActions: Record<RepositoryJob, { trial: string; enable: string; update:
   review: { trial: "Review test PR", enable: "Enable PR reviews", update: "Update PR reviews", title: "Test PR", body: "Review trial input", scope: "This test PR only" },
   ci: { trial: "Test CI checks", enable: "Enable CI checks", update: "Update CI checks", title: "CI trial", body: "Change to check", scope: "This test change only" },
   feature: { trial: "Try feature flow", enable: "Enable feature flow", update: "Update feature flow", title: "Test feature", body: "Feature request", scope: "This test feature only" },
-  chores: { trial: "Run test chore", enable: "Enable chore", update: "Update chore", title: "Test chore", body: "Maintenance task", scope: "This test chore only" }
+  chores: { trial: "Run test chore", enable: "Enable chore", update: "Update chore", title: "Test chore", body: "Routine maintenance", scope: "This test chore only" }
 }
 
 // Keep the most recent edit until its durable projection arrives, including

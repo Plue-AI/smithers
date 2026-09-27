@@ -357,6 +357,20 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
   {
     flow: "triggers.register", kind: "sentence", rows: 6,
     because: "A limit the LINE names meets the rule the FIELD meets: `--tokens 500000` reached the Tokens field and was told nothing on production, while 500000 typed into that field and prepared is refused with the range before any network call (walk W1 item 4c). The register form routes to TriggersSeam.limitsRefusal, so two rows that used to read the grammar's usage line read the range instead, and four that said nothing now say it."
+  },
+  ...(["review.done", "review.ack", "review.reopen"] as const).flatMap(flow => [
+    {
+      flow, kind: "card" as const, rows: 36,
+      because: "Product words (#2144): the numeric field the review flows collect is labelled Comment id, not Thread id, so every card these lines open renames that one field."
+    },
+    {
+      flow, kind: "sentence" as const, rows: 1,
+      because: "Product words (#2144): the refusal names the id the user types as a comment id; the wire field and route still say thread."
+    }
+  ]),
+  {
+    flow: "agent.session.new", kind: "card", rows: 38,
+    because: "Product words (#2144): the session's free-text field is labelled Request instead of Task; the payload field keeps its name."
   }
 ]
 

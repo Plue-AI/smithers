@@ -100,7 +100,7 @@ const CloudAgentCardBody = ({
       <p className="smithers-card-note" data-testid="agent-session-header">
         session {sessionId} · {repo}{provider === null ? "" : ` · ${provider}`} · {state}
       </p>
-      {task !== undefined && task !== displayName ? <p className="smithers-card-note agent-card-task">Task: {task}</p> : null}
+      {task !== undefined && task !== displayName ? <p className="smithers-card-note agent-card-task">Request: {task}</p> : null}
       {timelineRowsShown || transcript.length === 0 ? null : (
         <ol className="world-card-list" data-testid="agent-session-transcript">
           {transcript.map((row) => (
@@ -168,7 +168,7 @@ const AgentCardBody = ({
   return (
     <div className="agent-card" data-phase={phase} data-role={roleId}>
       {purpose !== undefined ? <p className="smithers-card-note agent-card-role">{purpose}</p> : null}
-      {task !== undefined ? <p className="smithers-card-note agent-card-task">Task: {task}</p> : null}
+      {task !== undefined ? <p className="smithers-card-note agent-card-task">Request: {task}</p> : null}
       <p className="smithers-card-note">{state}</p>
       {phase === "running" ?
         (

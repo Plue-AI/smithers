@@ -159,7 +159,7 @@ test.each([
   ["review", "Review test PR", "Enable PR reviews", "Test PR", null],
   ["ci", "Test CI checks", "Enable CI checks", "CI trial", null],
   ["feature", "Try feature flow", "Enable feature flow", "Test feature", "Feature request"],
-  ["chores", "Run test chore", "Enable chore", "Test chore", "Maintenance task"]
+  ["chores", "Run test chore", "Enable chore", "Test chore", "Routine maintenance"]
 ] as const)("%s trial and activation actions describe the actual job", (job, trial, enable, titleLabel, bodyLabel) => {
   const card = makeCard(job)
   card.payload.view = "test"

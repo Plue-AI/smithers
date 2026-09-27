@@ -222,9 +222,9 @@ describe("custom agents", () => {
     const f = setup()
     f.workspace.request(request)
     expect(f.workspace.request(request)).toEqual({ id: "rev", status: "requested" })
-    expect(() => f.workspace.request({ ...request, agent: "manual", by: "user" })).toThrow("another task")
-    expect(() => f.workspace.request({ ...request, agent: undefined })).toThrow("another task")
-    expect(() => f.workspace.request({ ...request, model: "sol" })).toThrow("another task")
+    expect(() => f.workspace.request({ ...request, agent: "manual", by: "user" })).toThrow("another request")
+    expect(() => f.workspace.request({ ...request, agent: undefined })).toThrow("another request")
+    expect(() => f.workspace.request({ ...request, model: "sol" })).toThrow("another request")
     expect(f.records.filter((record) => record.type === "tab")).toHaveLength(1)
   })
 

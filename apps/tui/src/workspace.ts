@@ -353,7 +353,7 @@ export class Workspace {
             : existing.seat === delegateModels[request.model]
           : existing.model === request.model
       )
-      if (!same) throw new Error("Request id already belongs to another task")
+      if (!same) throw new Error("Request id already belongs to another request")
       return { id: existing.id, status: existing.status }
     }
     if (this.options.occupied?.(request.id)) throw new Error("Request id already belongs to a flow run")

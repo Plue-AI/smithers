@@ -10,7 +10,7 @@ import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
 /** The `agent` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
-export const namespace: Namespace = { id: "agent", label: "Agents", summary: "Delegate a task to an agent role" }
+export const namespace: Namespace = { id: "agent", label: "Agents", summary: "Delegate work to an agent role" }
 
 /** The `agent.*` flows: roles, delegation, the explainer, the list. */
 export const agentFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {

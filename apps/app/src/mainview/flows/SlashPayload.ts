@@ -1116,9 +1116,9 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok({ changeId, seq: number })
   },
   "review.since-mine": (args) => required("changeId", args, "review.since-mine needs a change id"),
-  "review.done": (args) => numberedChangeRef("review.done", "threadId", "a thread id", args),
-  "review.ack": (args) => numberedChangeRef("review.ack", "threadId", "a thread id", args),
-  "review.reopen": (args) => numberedChangeRef("review.reopen", "threadId", "a thread id", args),
+  "review.done": (args) => numberedChangeRef("review.done", "threadId", "a comment id", args),
+  "review.ack": (args) => numberedChangeRef("review.ack", "threadId", "a comment id", args),
+  "review.reopen": (args) => numberedChangeRef("review.reopen", "threadId", "a comment id", args),
   /* plue#488: a login, or `agent:<name>` for a named agent — the seam sends whichever the wire expects. */
   "review.request": (args) => {
     const [changeId, reviewer, ...rest] = tokensOf(args)

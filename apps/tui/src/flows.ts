@@ -326,7 +326,7 @@ export class FlowRuns {
     const existing = request.id === undefined ? undefined : this.runs.get(request.id)
     if (existing !== undefined) {
       if (existing.flow !== request.flow || existing.requested !== requested) {
-        throw new Error("Request id already belongs to another task")
+        throw new Error("Request id already belongs to another request")
       }
       return { id: existing.id, status: existing.status }
     }

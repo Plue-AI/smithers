@@ -1094,14 +1094,14 @@ describe("createChangeSeam", () => {
     await seam.viewChange("qupxosqw")
     requests.length = 0
 
-    expect(textOf(await seam.threadDone("qupxosqw", 3))).toBe("Thread 3 on qupxosqw is done — the card tracks it.")
+    expect(textOf(await seam.threadDone("qupxosqw", 3))).toBe("Comment 3 on qupxosqw is done — the card tracks it.")
     /* The landing number comes off the card's stack: no list re-read before the POST. */
     expect(requests[0]).toBe(`POST ${REPO}/landings/42/threads/3/done`)
     expect(payloadOf(store)?.facet).toBe("review")
 
-    expect(textOf(await seam.threadAck("qupxosqw", 4))).toBe("Thread 4 on qupxosqw is resolved — the card tracks it.")
+    expect(textOf(await seam.threadAck("qupxosqw", 4))).toBe("Comment 4 on qupxosqw is resolved — the card tracks it.")
     expect(requests).toContain(`POST ${REPO}/landings/42/threads/4/ack`)
-    expect(textOf(await seam.threadReopen("qupxosqw", 5))).toBe("Thread 5 on qupxosqw is open — the card tracks it.")
+    expect(textOf(await seam.threadReopen("qupxosqw", 5))).toBe("Comment 5 on qupxosqw is open — the card tracks it.")
     expect(requests).toContain(`POST ${REPO}/landings/42/threads/5/reopen`)
   })
 
@@ -1116,7 +1116,7 @@ describe("createChangeSeam", () => {
   test("a thread transition without a carrying landing request says so", async () => {
     const { seam, requests } = await harness({ [`${REPO}/landings?limit=100`]: json(200, { items: [] }) })
     expect(textOf(await seam.threadDone("qupxosqw", 3))).toBe(
-      "No landing request carries qupxosqw on will/smithers — its threads live on one."
+      "No landing request carries qupxosqw on will/smithers — its review comments live on one."
     )
     expect(requests.some((request) => request.startsWith("POST "))).toBe(false)
   })
@@ -1308,7 +1308,7 @@ describe("createChangeSeam", () => {
 
     const orphan = await harness({ [`${REPO}/landings?limit=100`]: json(200, { items: [] }) })
     expect(textOf(await orphan.seam.requestReview("qupxosqw", "ana"))).toBe(
-      "No landing request carries qupxosqw on will/smithers — its threads live on one."
+      "No landing request carries qupxosqw on will/smithers — its review comments live on one."
     )
     expect(orphan.requests.some((request) => request.startsWith("POST "))).toBe(false)
   })
@@ -1652,9 +1652,9 @@ describe("committed change mutations", () => {
   })
 
   const reviewCases = [
-    { act: "threadDone", arg: 3, route: `POST ${REPO}/landings/42/threads/3/done`, body: { ...COMMENTS[0], state: "done" }, success: "Thread 3 on qupxosqw is done" },
-    { act: "threadAck", arg: 3, route: `POST ${REPO}/landings/42/threads/3/ack`, body: { ...COMMENTS[0], state: "resolved" }, success: "Thread 3 on qupxosqw is resolved" },
-    { act: "threadReopen", arg: 3, route: `POST ${REPO}/landings/42/threads/3/reopen`, body: { ...COMMENTS[0], state: "open" }, success: "Thread 3 on qupxosqw is open" },
+    { act: "threadDone", arg: 3, route: `POST ${REPO}/landings/42/threads/3/done`, body: { ...COMMENTS[0], state: "done" }, success: "Comment 3 on qupxosqw is done" },
+    { act: "threadAck", arg: 3, route: `POST ${REPO}/landings/42/threads/3/ack`, body: { ...COMMENTS[0], state: "resolved" }, success: "Comment 3 on qupxosqw is resolved" },
+    { act: "threadReopen", arg: 3, route: `POST ${REPO}/landings/42/threads/3/reopen`, body: { ...COMMENTS[0], state: "open" }, success: "Comment 3 on qupxosqw is open" },
     { act: "notUseful", arg: 11, route: `POST ${CHANGE_ROUTE}/findings/11/feedback`, body: { useful: false }, success: "Finding 11 of qupxosqw is recorded not useful" },
     { act: "requestReview", arg: "ana", route: `POST ${REPO}/landings/42/review-requests`, body: { id: 8 }, success: "Review of qupxosqw requested from ana on landing request #42" },
     { act: "unrequestReview", arg: 5, route: `DELETE ${REPO}/landings/42/review-requests/5`, body: {}, success: "Review request 5 on landing request #42 is dismissed" }

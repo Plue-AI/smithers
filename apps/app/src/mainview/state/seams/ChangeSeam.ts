@@ -1260,7 +1260,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     }
     const landing = await loadLanding(repoId, changeId)
     if ("unread" in landing) return { error: `The landing requests of ${repoId} weren't read (${landing.unread}).` }
-    if (landing.value === null) return { error: `No landing request carries ${changeId} on ${repoId} — its threads live on one.` }
+    if (landing.value === null) return { error: `No landing request carries ${changeId} on ${repoId} — its review comments live on one.` }
     return { number: landing.value.landing.number }
   }
 
@@ -1584,7 +1584,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   async (changeId, threadId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
-    if (!Number.isInteger(threadId) || threadId <= 0) return `review.${verb} needs a thread id: /review.${verb} <changeId> <threadId>`
+    if (!Number.isInteger(threadId) || threadId <= 0) return `review.${verb} needs a comment id: /review.${verb} <changeId> <commentId>`
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const landing = await landingNumberOf(resolved.repo, changeId)
@@ -1595,7 +1595,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     const state = thread?.state ?? null
     return mutationResult(
       resolved.repo, changeId,
-      `Thread ${threadId} on ${changeId}${state === null ? "" : ` is ${state}`} — the card tracks it.`,
+      `Comment ${threadId} on ${changeId}${state === null ? "" : ` is ${state}`} — the card tracks it.`,
       { facet: "review" }
     )
   }

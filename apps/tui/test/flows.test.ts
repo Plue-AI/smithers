@@ -157,7 +157,7 @@ describe("flow runs", () => {
     })
     expect(f.records).toHaveLength(1)
     expect(() => f.runs.request({ id: "r1", flow: "review", input: { title: "x" }, by: "agent" })).toThrow(
-      "another task"
+      "another request"
     )
   })
 

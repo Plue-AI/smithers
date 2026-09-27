@@ -519,7 +519,7 @@ describe("the change card", () => {
     /* plue#484: the agent's own verdict word, and the type it counts as, both stated. */
     expect(verdicts).toContain("agent · lgtm · approve at rev 2 · low confidence")
     expect(verdicts).toContain("\"Bounded reads hold; see F-2\"")
-    const rows = [...host.querySelectorAll('[aria-label="Review threads"] > li')].map((row) => row.textContent ?? "")
+    const rows = [...host.querySelectorAll('[aria-label="Review comments"] > li')].map((row) => row.textContent ?? "")
     expect(rows[0]).toContain("○")
     /* plue#484: the thread's author by login (ADR 0004's `· will ·`). */
     expect(rows[0]).toContain("src/app.ts:12 → :14 · will · rev 1 · moved")
@@ -531,10 +531,10 @@ describe("the change card", () => {
     expect(rows[2]).toContain("src/old.ts:3 · will · rev 1 · stale")
     expect(rows[2]).toContain("resolved")
     expect(host.textContent ?? "").not.toContain("plue#453")
-    click(host, "Mark thread 3 done")
-    click(host, "Acknowledge thread 4")
-    click(host, "Reopen thread 4")
-    click(host, "Reopen thread 5")
+    click(host, "Mark comment 3 done")
+    click(host, "Acknowledge comment 4")
+    click(host, "Reopen comment 4")
+    click(host, "Reopen comment 5")
     expect(commands).toEqual([
       { name: "review.done", args: "qupxosqw 3" },
       { name: "review.ack", args: "qupxosqw 4" },
@@ -601,7 +601,7 @@ describe("the change card", () => {
   test("the Land button names the gate's block: open threads and the landing list's blocked_by (ADR 0004)", () => {
     const { host } = renderChange(liveCard())
     expect(landButton(host).disabled).toBe(true)
-    expect(landReason(host)).toBe("2 threads open")
+    expect(landReason(host)).toBe("2 comments open")
     host.remove()
 
     const blocked = renderChange(

@@ -26,14 +26,14 @@ export const agentSessionFlows = (actions: CommandActions): ReadonlyArray<FlowEn
     form: {
       fields: {
         repo: { optionsFrom: "cloud-repos", kind: "text" },
-        task: { label: "Task", kind: "textarea" }
+        task: { label: "Request", kind: "textarea" }
       },
       args: (payload) => line(text(payload, "repo"), text(payload, "provider"), text(payload, "task"))
     },
     summary: "Start a cloud agent session (Codex, Claude, or Smithers) on a repository: Smithers Cloud runs it in a sandbox, and the session card streams its transcript",
     runtime: ["cloud"],
     confirm: (payload) => `start a ${String(payload.provider)} agent session on ${String(payload.repo)}`,
-    args: "<owner/repo> <provider> <task…>",
+    args: "<owner/repo> <provider> <request…>",
     requires: ["signed-in"],
     input: Schema.Struct({
       repo: Schema.String,

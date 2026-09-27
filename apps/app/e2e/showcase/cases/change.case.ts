@@ -57,7 +57,7 @@ export default showcase({
   id: "change",
   order: 110,
   title: "Change",
-  summary: "Triage findings, settle review threads, ask a reviewer, land, read the diff.",
+  summary: "Triage findings, settle review comments, ask a reviewer, land, read the diff.",
   flows: ["change.view", "change.facet", "findings.please-fix", "findings.not-useful", "review.done", "review.ack", "review.request", "review.unrequest", "change.land", "change.diff"],
   run: async ({ page, app, backend }) => {
     let landing = "open"
@@ -138,7 +138,7 @@ export default showcase({
     await app.slash("/change.view qupxosqw")
     const card = page.getByTestId(`card-change-${REPO}-qupxosqw`)
     await expect(card).toContainText("Add the split flow", { timeout: 15_000 })
-    await expect(card).toContainText("1 thread open")
+    await expect(card).toContainText("1 comment open")
     await app.closeComposer()
     await app.show(card)
     await app.beat(1200)
@@ -152,8 +152,8 @@ export default showcase({
     await app.beat(900)
 
     await app.click(card.getByRole("tab", { name: "Review" }))
-    await app.click(card.getByRole("button", { name: "Mark thread 3 done" }))
-    await app.click(card.getByRole("button", { name: "Acknowledge thread 3" }))
+    await app.click(card.getByRole("button", { name: "Mark comment 3 done" }))
+    await app.click(card.getByRole("button", { name: "Acknowledge comment 3" }))
     await expect(card).toContainText("resolved")
     await app.click(card.getByRole("button", { name: "Request review from ana" }))
     await app.click(card.getByRole("button", { name: "Dismiss review request 5" }))

@@ -753,8 +753,8 @@ describe("background work", () => {
   it("cancels before launch and refuses id collisions", async () => {
     const f = setup()
     f.workspace.request(request)
-    expect(() => f.workspace.request({ ...request, prompt: "Different work" })).toThrow("another task")
-    expect(() => f.workspace.request({ ...request, model: "sol" })).toThrow("another task")
+    expect(() => f.workspace.request({ ...request, prompt: "Different work" })).toThrow("another request")
+    expect(() => f.workspace.request({ ...request, model: "sol" })).toThrow("another request")
     f.workspace.cancel("fix")
     await tick()
     expect(f.launched()).toBe(0)
