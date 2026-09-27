@@ -32,7 +32,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 23: the terminal and harness tabs, their `pty.*`, `tab.menu.toggled`, `tab.close.asked`, `harnesses.loaded` and
 // `agents.loaded` transitions and the `harnesses` projection retired (smithersai/smithers#2229); an older
 // store's rows seed a fresh stream and its stale tab rows fail `TabSchema`.
-// v24 retires the local repository inventory and its event (#2239).
+// 24: `repos.loaded`, `repo.pinned`, `repo.unpinned`, the `repos` and `pinnedRepos` projections and local working
+// copies retired (smithersai/smithers#2239); an older store's local rows fail their schema and seed a fresh stream.
 export const APP_PROJECTOR_VERSION = 24
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([

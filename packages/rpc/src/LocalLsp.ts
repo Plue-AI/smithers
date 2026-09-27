@@ -13,7 +13,7 @@ import { z } from "zod"
  * reached over POST routes the way PTYs are; the renderer never names a
  * binary, an argv, or a cwd. Positions are 1-based on the wire and in flows
  * and converted once at the session. Paths are relative to the repository
- * root and pass the same segment check as REPO_FILES_PATH; access is a read.
+ * root and pass the repository path segment check; access is a read.
  * The caps are what the host applies before answering, and the schemas
  * refuse anything past them, so an over-cap answer fails to parse instead of
  * rendering. A missing language server is stated with its install line and
@@ -98,7 +98,7 @@ const lspOrdinal = z.number().int().min(1)
 const lspRepoId = z.string().min(1)
 const lspRepoPath = z.string().min(1).max(4096)
 /**
- * The digest (RepoFilesResponse.digest) of the file text the server was
+ * The digest (the file card's `digest`) of the file text the server was
  * asked about. A file card whose own digest differs shows a file the answer
  * is not about; the renderer re-reads the card before it draws the answer.
  */

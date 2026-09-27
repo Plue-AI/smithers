@@ -23,8 +23,6 @@ export interface TabsController {
    * Select a repository or one of its boxes.
    */
   readonly selectRepo: (repoKey: string) => Promise<string | void>
-  /** Forget a pinned repository; its open session and tabs stay until closed. */
-  readonly unpinRepo: (repoKey: string) => string | void
   /** The Cmd+W / Cmd+1..9 bindings on one document; returns the uninstaller. */
   readonly installKeyboard: (target: Pick<Document, "addEventListener" | "removeEventListener">) => () => void
 }
@@ -87,17 +85,8 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
      * Lane piper: `org/repo` and `org/repo#copyId` tokens select from the
      * inventory; the reducer validates them.
      */
-    const selection = parseRepoSelection(repoKey)
-    if (selection !== null && "repoId" in selection) {
-      store.dispatch({ type: "repo.selected", actor: "user", id: repoKey })
-      return
-    }
-    return "This host no longer opens local repositories."
-  }
-
-  const unpinRepo: TabsController["unpinRepo"] = (repoKey) => {
-    if (collections.pinnedRepos.get(repoKey) === undefined) return `There is no pinned repository with key ${repoKey}.`
-    store.dispatch({ type: "repo.unpinned", actor: "user", id: repoKey })
+    if (parseRepoSelection(repoKey) === null) return `There is no repository ${repoKey}.`
+    store.dispatch({ type: "repo.selected", actor: "user", id: repoKey })
   }
 
   /*
@@ -124,7 +113,6 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     selectTab,
     closeTab,
     selectRepo,
-    unpinRepo,
     installKeyboard
   }
 }

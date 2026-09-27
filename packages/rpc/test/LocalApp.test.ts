@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import * as LocalApp from "../src/LocalApp.ts"
-import { HarnessSchema, RepoFilesResponseSchema, RepoSchema, splitLabel, TargetSchema } from "../src/LocalApp.ts"
+import { HarnessSchema, RepoSchema, splitLabel, TargetSchema } from "../src/LocalApp.ts"
 
 /*
  * The local-app wire model (apps/app/docs/LOCAL-APP.md "Targets: load and
@@ -111,52 +111,6 @@ describe("splitLabel", () => {
     expect(splitLabel("//packages/rpc:check")).toEqual({ package: "//packages/rpc", name: "check" })
     expect(splitLabel("//a/b")).toEqual({ package: "//a/b", name: "b" })
     expect(splitLabel("//pkg")).toEqual({ package: "//pkg", name: "pkg" })
-  })
-})
-
-/*
- * The `/api/repo/files` answer is a discriminated union, because a directory
- * and a file carry different facts:
- * a directory says whether its listing was cut at the entry cap, a file says
- * whether its bytes were cut at the read cap, whether they are binary, and
- * the digest a language-server answer is compared against.
- */
-describe("the repo-files wire model", () => {
-  test("a directory answer lists typed entries and says when the listing was cut at the entry cap", () => {
-    const dir = {
-      kind: "dir" as const,
-      path: "src",
-      entries: [{ name: "index.ts", kind: "file" as const }, { name: "lib", kind: "dir" as const }]
-    }
-    const parsed = RepoFilesResponseSchema.parse(dir)
-    expect(parsed).toEqual(dir)
-    expect(parsed.truncated).toBeUndefined()
-    expect(RepoFilesResponseSchema.parse({ ...dir, truncated: true })).toEqual({ ...dir, truncated: true })
-    expect(RepoFilesResponseSchema.safeParse({ ...dir, entries: [{ name: "sock", kind: "socket" }] }).success)
-      .toBe(false)
-  })
-
-  test("a file answer states the cut, the binary verdict and the digest, and states them rather than leaving them inferred", () => {
-    const file = {
-      kind: "file" as const,
-      path: "src/index.ts",
-      size: 12,
-      content: "export {}\n",
-      truncated: false,
-      binary: false,
-      digest: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-    }
-    expect(RepoFilesResponseSchema.parse(file)).toEqual(file)
-    // A peer that predates the digest still parses; the cut and the binary verdict never may be omitted.
-    const { digest: _digest, ...withoutDigest } = file
-    expect(RepoFilesResponseSchema.parse(withoutDigest)).toEqual(withoutDigest)
-    const { truncated: _truncated, ...withoutTruncated } = file
-    expect(RepoFilesResponseSchema.safeParse(withoutTruncated).success).toBe(false)
-    const { binary: _binary, ...withoutBinary } = file
-    expect(RepoFilesResponseSchema.safeParse(withoutBinary).success).toBe(false)
-    expect(RepoFilesResponseSchema.safeParse({ ...file, size: -1 }).success).toBe(false)
-    expect(RepoFilesResponseSchema.safeParse({ ...file, size: 1.5 }).success).toBe(false)
-    expect(RepoFilesResponseSchema.safeParse({ ...file, kind: "symlink" }).success).toBe(false)
   })
 })
 

@@ -16,7 +16,6 @@ afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 0)); awa
 const commands = [
   { name: "auth.sign-in", summary: "Sign in with GitHub" },
   { name: "repos.import", summary: "Import a GitHub repository into Smithers Cloud" },
-  { name: "repo.open", summary: "Open a local repository" },
   { name: "issues.setup", summary: "Handle issues" },
   { name: "debug.snapshot", summary: "Snapshot", hidden: true },
 ]
@@ -72,7 +71,7 @@ test("each step names the first flow this host registered, and completion follow
     ["set-up-job", "issues.setup", false],
   ])
   expect(resolveSteps(commands, done).every(step => step.complete)).toBe(true)
-  expect(resolveSteps(commands.filter(command => command.name !== "repos.import"), empty)[1]?.flow).toBe("repo.open")
+  expect(resolveSteps(commands.filter(command => command.name !== "repos.import"), empty)[1]?.flow).toBeUndefined()
   expect(resolveSteps(commands.filter(command => command.name !== "auth.sign-in"), empty)[0]?.flow).toBeUndefined()
 })
 

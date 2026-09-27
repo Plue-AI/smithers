@@ -71,8 +71,8 @@ describe("pure app event projection", () => {
   })
 
   test("owns exactly the domain roster and its stable keys", () => {
-    // 41 since the harness inventory retired with the terminal and harness tabs (#2229).
-    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(40)
+    // 39 since the local repository inventory and its pins retired (#2239).
+    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(39)
     expect(Object.keys(emptyAppProjection())).toEqual(Object.keys(APP_PROJECTION_SCHEMAS))
     expect(APP_PROJECTION_COLLECTION_NAMES).not.toContain("appEvents")
     expect(appProjectionKey("githubAppStatuses", { repo: "org/repo" })).toBe("org/repo")
@@ -105,9 +105,9 @@ describe("pure app event projection", () => {
     try {
       Date.now = () => { throw new Error("ambient clock read") }
       initial = boot()
-      projected = apply(initial, { type: "repo.pinned", actor: "user", pin: {
-        id: "local:/work/repo", name: "Repo", path: "/work/repo", branch: "main", origin: "local", pinnedAt: 111
-      } }, 222)
+      projected = apply(initial, { type: "workingcopies.workspaces.loaded", actor: "system", copies: [
+        { id: "workspace:box", repoId: "org/repo", kind: "workspace", label: "box", workspaceId: "box" }
+      ] }, 222)
       projected = apply(projected, { type: "theme.changed", actor: "user", theme: "light" }, 333)
     } finally { Date.now = now }
     expect(initial.cloudSessions[0]!.updatedAt).toBe(100)

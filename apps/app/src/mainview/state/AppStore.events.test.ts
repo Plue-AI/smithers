@@ -63,9 +63,6 @@ const installProjectorFixture = async (storage: StorageApi, version: number, ret
     id: "kept", kind: "file", title: "kept.ts", status: "active", createdAt: 1, ordinal: 1,
     payload: { repo: "org/repo", path: "kept.ts", content: "retained", truncated: false }
   } }).isPersisted.promise
-  await store.dispatch({ type: "repo.pinned", actor: "user", pin: {
-    id: "kept", name: "kept", path: "/kept", branch: "main", origin: "local", pinnedAt: 1
-  } }).isPersisted.promise
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
     allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "world.document.upserted", actor: "user", document: {
@@ -498,7 +495,7 @@ describe("the live store's authoritative event path", () => {
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
-      "notificationReceipts", "pinnedRepos", "recommendations", "repoTree", "repositories",
+      "notificationReceipts", "recommendations", "repoTree", "repositories",
       "repositoryContexts", "repositoryFlows", "repositoryNotifications", "runtimeApprovals",
       "runtimeRuns", "seats", "sessions", "starredTargets", "tabs", "toasts", "toolCalls", "transitions", "workingCopies",
       "workspaces", "worldDocuments"
@@ -710,7 +707,6 @@ describe("the live store's authoritative event path", () => {
     expect(storage.getItem(ENVELOPE_STORAGE_KEY)).toContain(retiredAppStreamKey(old.head.streamId))
     expect(restored.session()).not.toHaveProperty("guide")
     expect(restored.session()).not.toHaveProperty("guideVisible")
-    expect(next.checkpoint.snapshot.pinnedRepos).toEqual([])
     expect(next.checkpoint.snapshot.workingCopies).toEqual([])
     for (const name of ["sessions", "cards", "messages", "worldDocuments", "identitySessions"]) {
       expect(next.checkpoint.snapshot[name]!.length).toBeGreaterThan(0)

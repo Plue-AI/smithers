@@ -187,7 +187,6 @@ describe("the shared read-only copy of a catalog repository", () => {
       bookmark: "main",
       label: "shared"
     })
-    expect(shared?.path).toBeUndefined()
     expect(shared?.workspaceId).toBeUndefined()
     expect(workingCopyLabel(shared!)).toBe("main · shared · read-only")
     expect(isReadOnlyCopy(shared!)).toBe(true)
@@ -240,11 +239,9 @@ describe("the shared read-only copy of a catalog repository", () => {
     await store.dispose?.()
   })
 
-  test("the label of a box says its state and the label of a checkout says how far ahead it is: one rule for every copy row", () => {
+  test("the label of a box says its state: one rule for every copy row", () => {
     expect(workingCopyLabel({ kind: "workspace", label: "fix-landings", state: "running" })).toBe("fix-landings · running")
     expect(workingCopyLabel({ kind: "workspace", label: "fix-landings" })).toBe("fix-landings")
-    expect(workingCopyLabel({ kind: "local", label: "smithers", ahead: 3 })).toBe("smithers · 3 ahead")
-    expect(workingCopyLabel({ kind: "local", label: "smithers" })).toBe("smithers")
     expect(isReadOnlyCopy({ kind: "workspace", label: "fix-landings" } as never)).toBe(false)
   })
 })

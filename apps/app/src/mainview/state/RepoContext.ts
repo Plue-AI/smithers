@@ -35,7 +35,7 @@ export const knownRepositories = (store: AppStore): KnownRepositories => {
   }
   const key = store.session().activeRepoKey ?? null
   const selection = key === null ? null : parseRepoSelection(key)
-  const copyId = selection === null ? undefined : "repoId" in selection ? selection.copyId : selection.localCopyId
+  const copyId = selection?.copyId
   const copy = copyId === undefined ? undefined : store.collections.workingCopies.get(copyId)
   if (copy !== undefined && REPO_TOKEN.test(copy.repoId)) known.add(copy.repoId)
   return known
@@ -67,15 +67,12 @@ export const splitTrailingRepo = (
 /**
  * The `owner/name` the active selection names: the selected repository, or
  * the repository behind the selected working copy. Null when nothing is
- * selected or the selection is a local-only checkout.
+ * selected.
  */
 export const activeRepositoryId = (store: AppStore): string | null => {
   const key = store.session().activeRepoKey ?? null
   const selection = key === null ? null : parseRepoSelection(key)
-  if (selection === null) return null
-  if ("repoId" in selection) return selection.repoId
-  const copy = store.collections.workingCopies.get(selection.localCopyId)
-  return copy !== undefined && REPO_TOKEN.test(copy.repoId) ? copy.repoId : null
+  return selection === null ? null : selection.repoId
 }
 
 /**
@@ -88,7 +85,7 @@ export const catalogRepositoryOf = (
   repositories: Iterable<Pick<CloudRepository, "id" | "catalog">>
 ): string | null => {
   const selection = activeRepoKey === undefined || activeRepoKey === null ? null : parseRepoSelection(activeRepoKey)
-  if (selection === null || !("repoId" in selection)) return null
+  if (selection === null) return null
   for (const repository of repositories) {
     if (repository.id === selection.repoId) return repository.catalog === true ? selection.repoId : null
   }
@@ -198,7 +195,7 @@ export const defaultBoxBinding = (store: AppStore, repo: string): GatewayBinding
 export const selectedBoxBinding = (store: AppStore, repo: string): GatewayBinding | undefined => {
   const key = store.session().activeRepoKey
   const selection = key == null ? null : parseRepoSelection(key)
-  if (selection === null || !("repoId" in selection) || selection.repoId !== repo || selection.copyId === undefined) return undefined
+  if (selection === null || selection.repoId !== repo || selection.copyId === undefined) return undefined
   const copy = store.collections.workingCopies.get(selection.copyId)
   if (copy === undefined || copy.repoId !== repo) {
     return { error: "The selected working copy is no longer available for this repository." }

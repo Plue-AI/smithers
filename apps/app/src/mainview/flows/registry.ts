@@ -134,9 +134,7 @@ export interface FlowMetadata {
    *
    * The function form decides per decoded payload: the label when THIS
    * invocation needs the human's confirmation, undefined when the handler
-   * may run for the agent as it stands (`repo.open` confirms a named path;
-   * without one there is no act to confirm, and the handler refuses the
-   * agent by name — the folder dialog is the human's).
+   * may run for the agent as it stands.
    */
   readonly confirm?: string | ((payload: Record<string, unknown>) => string | undefined)
   /**

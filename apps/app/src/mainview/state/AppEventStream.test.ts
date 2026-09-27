@@ -93,12 +93,12 @@ describe("authoritative app event stream", () => {
     const current = append(initial, { type: "message.submitted", actor: "user", turnId: "private-turn", text: "private text" })
     const actual = wire(current.snapshot)
     const tampered = { ...actual, messages: [], sessions: actual.sessions.map(row => ({ ...row, draft: "private draft" })),
-      pinnedRepos: [{ id: "extra", name: "Repo", path: "/repo", branch: null, origin: "local" as const, pinnedAt: 1 }] }
+      starredTargets: [{ id: "extra", repoKey: "org/repo", label: "//:extra", starredAt: 1 }] }
     const proof = verifyAppProjection(current, tampered)
     expect(proof.valid).toBe(false)
     expect(proof.differences).toContainEqual({ collection: "messages", key: "message-private-turn-user", kind: "missing" })
     expect(proof.differences).toContainEqual({ collection: "sessions", key: "main", kind: "changed" })
-    expect(proof.differences).toContainEqual({ collection: "pinnedRepos", key: "extra", kind: "extra" })
+    expect(proof.differences).toContainEqual({ collection: "starredTargets", key: "extra", kind: "extra" })
     expect(JSON.stringify(proof)).not.toContain("private text")
     expect(JSON.stringify(proof)).not.toContain("private draft")
   })

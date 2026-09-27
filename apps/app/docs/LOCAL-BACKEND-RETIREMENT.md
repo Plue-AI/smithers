@@ -154,14 +154,19 @@ before the cut still decode; the card renders as it did).
 ## The fourth pass: repository inventory (smithersai/smithers#2239)
 
 The app now reads the backend repository inventory and workspace copies only.
-The local inventory collection and event, local file transport, local form
-options, admission bypass and prompt fallback are deleted. Saved local file
-cards remain readable snapshots and offer no search action for the retired route.
+The local inventory collection and event (`repos`, `repos.loaded`), the pins
+(`pinnedRepos`, `repo.pinned`, `repo.unpinned`), the `local` working-copy kind
+and `local:` selections, the local file transport, local form options,
+admission bypass and prompt fallback are deleted, as is the
+`@smthrs/rpc/LocalApp` repo-files route contract (`RepoSchema` stays for saved
+`repo` cards). Saved local file cards
+remain readable snapshots and offer no search action for the retired route.
 
 Projector version 24 and schema version 17 seed a fresh event stream from
-validated rows. Local inventory rows do not enter it; derived local copies,
-pins and local selections are cleared. Backend repository selections and card
-tabs survive. The migration and reopen tests are in
+validated rows. Local inventory, pin and local working-copy rows fail their
+schema and do not enter it; `app-repos` and `app-pinned-repos` are
+cleanup-only keys, and local selections are cleared. Backend repository
+selections, box selections and card tabs survive. The migration and reopen tests are in
 `src/mainview/state/LocalReposRetirement.test.ts`.
 
 ## Follow-ups this cut did not take either
@@ -176,8 +181,8 @@ tabs survive. The migration and reopen tests are in
   first cut, the same persistence class as the retired card schemas.
 - `@smthrs/rpc/NativeFailureCodes` still carries the language-server route
   codes (`language_server_missing`, `language_server_failed`, `node_missing`)
-  and `@smthrs/rpc/LocalApp` the PTY, repo and harness DTOs. Shared package,
-  separate change.
+  and `@smthrs/rpc/LocalApp` the PTY, repo and harness DTOs (the repo-files
+  route contract left in the fourth pass). Shared package, separate change.
 - `packages/rpc` keeps the card schemas for the retired kinds (`targets`,
   `graph`, `target-run`, `run-timeline`, `run-history`, `affected`,
   `ci-matrix`, `repo`) so a conversation saved before the cut still decodes.

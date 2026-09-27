@@ -82,14 +82,13 @@ export const isReadOnlyCopy = (copy: Pick<WorkingCopy, "access">): boolean => co
 /**
  * The sidebar's line for a copy: what the seams hold and nothing more. A
  * shared copy says its bookmark (when known), that it is shared, and that it
- * is read-only; a box says its state; a checkout says how far ahead it is.
+ * is read-only; a box says its state.
  */
-export const workingCopyLabel = (copy: Pick<WorkingCopy, "kind" | "label" | "state" | "ahead" | "bookmark" | "access">): string => {
+export const workingCopyLabel = (copy: Pick<WorkingCopy, "kind" | "label" | "state" | "bookmark" | "access">): string => {
   if (copy.kind === "shared") {
     return [copy.bookmark, copy.label, ...(copy.access === "read" ? ["read-only"] : [])].filter((part) => part !== undefined).join(" · ")
   }
-  if (copy.kind === "workspace") return copy.state === undefined ? copy.bookmark ?? copy.label : `${copy.bookmark ?? copy.label} · ${copy.state}`
-  return copy.ahead === undefined ? copy.label : `${copy.label} · ${copy.ahead} ahead`
+  return copy.state === undefined ? copy.bookmark ?? copy.label : `${copy.bookmark ?? copy.label} · ${copy.state}`
 }
 /** Approval wording and authority always project from the runtime record. */
 const projectApprovalCard = (card: Card, request: Card | undefined): Card => {

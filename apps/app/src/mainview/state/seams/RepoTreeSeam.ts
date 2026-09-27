@@ -38,14 +38,6 @@ export interface RepoTreeSeam {
 export const normalizeTreePath = (path: string): string => path.split("/").filter((segment) => segment !== "").join("/")
 
 /**
- * Why a copy the two cloud routes do not serve cannot list files. A
- * checkout row can still sit in the sidebar from a pin this app persisted
- * before the local backend was retired, and it has no route left.
- */
-export const unservedCopyRefusal = (copy: WorkingCopy): string =>
-  `${copy.label} is a checkout of ${copy.repoId} on this machine; this app reads files from Smithers Cloud only.`
-
-/**
  * Why a box cannot list files right now, in the state the inventory holds
  * for it. `undefined` for a running box: the route is asked, and its own
  * answer stands. A `failed` box never settles (the settle watch polls only
@@ -187,12 +179,7 @@ export const createRepoTreeSeam = (ctx: SeamContext): RepoTreeSeam => {
       await loadWorkspaceDirectory(copy, path)
       return
     }
-    if (copy.kind === "shared") {
-      await loadSharedDirectory(copy, path)
-      return
-    }
-    // A checkout has no route left: the local backend is retired, so the row says so in place.
-    failed(copyId, path, unservedCopyRefusal(copy))
+    await loadSharedDirectory(copy, path)
   }
   return { loadDirectory }
 }

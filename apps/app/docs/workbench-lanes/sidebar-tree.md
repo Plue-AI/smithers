@@ -8,6 +8,8 @@
 > repository selection lives in the
 > composer's repository menu. The tree seam (`repo.tree`) keeps its slash and
 > agent doors. The rest of this document is the historical record.
+>
+> Superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.
 
 Source: will, in chat, seven asks in order. Laws as always (apps/app/AGENTS.md,
 apps/DESIGN.md): EMBED LAW (a file opens as a card in the chat; maximize only

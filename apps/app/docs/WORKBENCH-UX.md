@@ -57,8 +57,8 @@ surface first and defer the desktop.
 One line each. Names are the ones plue already uses; the app never invents a
 second word for the same thing.
 
-- **Repository** — a Smithers Cloud repository, the source of truth. The local checkout
-  the app opens today is a working copy of one.
+- **Repository** — a Smithers Cloud repository, the source of truth. A box
+  holds a working copy of one.
 - **Bookmark** — a jj bookmark (branch).
 - **Change** — a jj change: id, description, diff, position in a stack.
 - **Landing** — plue's review-and-merge object for a change stack

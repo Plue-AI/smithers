@@ -110,7 +110,7 @@ export const withoutRepoParam = (location: Pick<Location, "pathname" | "search" 
 const selectionForRepo = (controller: Pick<AppController, "store">, repo: string): string => {
   const key = controller.store.session().activeRepoKey
   const selected = key == null ? null : parseRepoSelection(key)
-  if (selected && "repoId" in selected && selected.repoId === repo && selected.copyId !== undefined &&
+  if (selected && selected.repoId === repo && selected.copyId !== undefined &&
     controller.store.collections.workingCopies.get(selected.copyId)?.repoId === repo) return key!
   return repo
 }

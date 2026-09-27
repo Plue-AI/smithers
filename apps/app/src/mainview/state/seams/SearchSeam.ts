@@ -161,7 +161,6 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       if (row.state !== "loaded") continue
       const copy: WorkingCopy | undefined = copies.get(row.copyId)
       if (copy === undefined) continue
-      if (copy.kind === "local") continue
       for (const entry of row.entries) {
         if (entry.kind !== "file") continue
         const path = joinPath(row.path, entry.name)

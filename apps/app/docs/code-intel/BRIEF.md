@@ -1,5 +1,7 @@
 # Planning brief — syntax highlighting and LSP support in Smithers file cards
 
+> Partly superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.
+
 Will, 2026-09-03: "When I open files I notice there is no syntax highlighting
 or LSP support can we have a fable agent figure out how to get that working
 with high quality architecture."

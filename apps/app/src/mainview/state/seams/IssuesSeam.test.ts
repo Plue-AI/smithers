@@ -783,30 +783,19 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     if (outcome.status === "failed") expect(outcome.error).toBe("will/flows was not found")
   })
 
-  /* A pin says the checkout is here, never that a number exists, so a number-scoped 404 keeps its own sentence. */
-  test("a pinned, unopened checkout still answers the number on a number-scoped 404", async () => {
-    const { store, controller } = await issuesController(backend({
+  test("a number-scoped 404 answers the number", async () => {
+    const { controller } = await issuesController(backend({
       "PATCH /api/repos/will/flows/issues/999": json(404, ISSUE_NOT_FOUND)
     }))
-    await store.dispatch({
-      type: "repo.pinned",
-      actor: "user",
-      pin: { id: "pin-flows", name: "will/flows", path: "/Users/will/flows", branch: "main", origin: "local", pinnedAt: 1 }
-    }).isPersisted.promise
     const outcome = await controller.commands.run("issues.close", "999")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") expect(outcome.error).toBe("Issue #999 in will/flows was not found")
   })
 
-  test("a pinned, unopened checkout keeps the platform's message when the 404 carries another code", async () => {
-    const { store, controller } = await issuesController(backend({
+  test("a 404 with another code keeps the platform's message", async () => {
+    const { controller } = await issuesController(backend({
       "POST /api/repos/will/flows/issues": json(404, { status: "error", code: "route_not_found", message: "Not found." })
     }))
-    await store.dispatch({
-      type: "repo.pinned",
-      actor: "user",
-      pin: { id: "pin-flows", name: "will/flows", path: "/Users/will/flows", branch: "main", origin: "local", pinnedAt: 1 }
-    }).isPersisted.promise
     const outcome = await controller.commands.run("issues.create", "A brand new idea")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") expect(outcome.error).toBe("Not found.")

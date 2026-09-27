@@ -5,7 +5,7 @@ import type { AgentPort } from "../../runtime/AgentPort"
 import { scopedControllers } from "../ControllerTestScope"
 import { trackDispatchCommits } from "../StoreTestScope"
 import type { AppServices } from "../AppController"
-import { repoKeyOf, repoTreeRowId } from "../AppState"
+import { repoTreeRowId } from "../AppState"
 import { createAppStore } from "../AppStore"
 
 const createAppController = scopedControllers()
@@ -168,34 +168,15 @@ const boxCopy = (id: string, state: string, repoId = "will/flows") => ({
 })
 
 describe("repo tree seam — one directory per request, the route's answer verbatim", () => {
-  /*
-   * A checkout row can still reach the sidebar from a pin this app persisted
-   * before the local backend was retired (AppProjection's `repo.pinned`),
-   * and no route serves it any more: the row says so in place, and nothing
-   * is asked. An id no copy holds is a refusal from the controller, before
-   * the seam.
-   */
-  test("a checkout copy has no route left: the row is failed in place, and nothing is asked; an unknown copy is a refusal", async () => {
-    const { store, controller, requests, boxRequests, sharedRequests } = await treeController()
-    const other = repoKeyOf("/Users/will/plue")
-    await store.dispatch({
-      type: "repo.pinned",
-      actor: "user",
-      pin: { id: other, name: "plue", path: "/Users/will/plue", branch: "main", origin: "local", pinnedAt: 1 }
-    }).isPersisted.promise
-    expect((await controller.commands.run("repo.tree", other)).status).toBe("executed")
-    expect(store.collections.repoTree.get(repoTreeRowId(other, ""))).toMatchObject({
-      state: "failed",
-      expanded: true,
-      entries: [],
-      error: "plue is a checkout of plue on this machine; this app reads files from Smithers Cloud only."
-    })
+  /* An id no copy holds is a refusal from the controller, before the seam. */
+  test("an unknown copy is a refusal, and nothing is asked", async () => {
+    const { controller, requests, boxRequests, sharedRequests } = await treeController()
+    const unknown = await controller.commands.run("repo.tree", "workspace:nowhere")
+    expect(unknown.status).toBe("failed")
+    expect(JSON.stringify(unknown)).toContain("There is no working copy with id workspace:nowhere.")
     expect(requests).toEqual([])
     expect(boxRequests).toEqual([])
     expect(sharedRequests).toEqual([])
-    const unknown = await controller.commands.run("repo.tree", "local:/nowhere")
-    expect(unknown.status).toBe("failed")
-    expect(JSON.stringify(unknown)).toContain("There is no working copy with id local:/nowhere.")
     // A blank line lacks the copy id: the form asks for it (THE FORM LAW), nothing is refused.
     const blank = await controller.commands.run("repo.tree", "")
     expect(blank).toEqual({ status: "form", flow: "repo.tree", cardId: "form-repo.tree", fields: ["copy"] })

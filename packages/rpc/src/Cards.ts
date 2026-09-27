@@ -2132,7 +2132,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       line: z.number().int().min(1).optional(),
       column: z.number().int().min(1).optional(),
       /**
-       * The digest of the bytes the card shows (RepoFilesResponse.digest). A
+       * The digest of the bytes the card shows (SHA-256, hex). A
        * language server answers about the file on disk and names that
        * digest; the seam re-reads a card whose digest differs before it
        * draws the answer. Absent on cloud reads and cards persisted before.

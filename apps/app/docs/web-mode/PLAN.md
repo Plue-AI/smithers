@@ -1,5 +1,7 @@
 # Web mode (funnel) beside native mode (default) — combined plan
 
+> Partly superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.
+
 Synthesis, 2026-09-02 20:50, from `web-mode.BRIEF.md`, `web-mode.fable.md`
 and `web-mode.codex.md`. Every disagreement was re-read in the tree (the
 file:line after each claim); each decision names its source plan and why.

@@ -33,7 +33,7 @@ interface SetupStep {
 
 export const SETUP_STEPS: ReadonlyArray<SetupStep> = [
   { id: "connect-github", label: "Connect GitHub", flows: ["auth.sign-in"], done: state => state.signedIn },
-  { id: "add-repository", label: "Add a repository", flows: ["repos.import", "repo.open"], done: state => state.hasRepo },
+  { id: "add-repository", label: "Add a repository", flows: ["repos.import"], done: state => state.hasRepo },
   { id: "set-up-job", label: "Set up a job", flows: ["issues.setup"], done: state => state.hasSetup },
 ]
 

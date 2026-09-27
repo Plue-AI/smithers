@@ -32,8 +32,8 @@ changes); the docs updates in this report's commit are the only remainder.
    plue#445's `owner_type`/`default_bookmark_head` short-circuit the
    per-repo call when they land. The local inventory and checkout probes
    described by this original lane retired in #2239; current copies are boxes.
-   `repo.selected` takes `org/repo` or `org/repo#copyId` (legacy pin keys
-   still parse). `RepoContext` resolves: explicit token → active selection →
+   `repo.selected` takes `org/repo` or `org/repo#copyId` (pin keys retired
+   in #2239). `RepoContext` resolves: explicit token → active selection →
    a single loaded repository → honest errors. 131 seam tests.
 3. **Sidebar.** `ChromeBar` renders the tree `org/ → repo → working copies`
    (org headers, repo rows, copy rows `label · N ahead` / `label · state`;

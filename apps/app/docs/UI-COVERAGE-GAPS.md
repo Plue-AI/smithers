@@ -1,5 +1,7 @@
 # UI coverage gaps (2026-09-02)
 
+> Partly superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.
+
 Sweep of every user-facing capability in plue (205 rows) and the Smithers engine/CLI (175 rows) against the app's built UI (38 card kinds, 145 flows) and designed UI (115 surfaces in WORKBENCH-UX and ADR 0001–0005). 92 capabilities are covered; 88 have no UI or partial UI. Method: three inventory agents, one synthesis, one completeness critic (adds and corrections merged). Laws applied: EMBED LAW, NO INVENTION, every act is a flow.
 
 Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M/L. Coverage none/partial.

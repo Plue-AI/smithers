@@ -1,5 +1,7 @@
 # ADR 0001 — Piper: one truth, one address space (2026-09-01, will)
 
+> Partly superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.
+
 ## Decision
 
 1. Smithers Cloud is the source of truth. Repos live under users or orgs and mirror

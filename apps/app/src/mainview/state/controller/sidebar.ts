@@ -5,7 +5,7 @@ import type { ControllerContext } from "./context"
 
 /*
  * The repository tree's and workspace name's acts: the file tree's carets
- * (a local checkout or a cloud workspace copy alike) and the workspace
+ * (a cloud workspace or shared copy alike) and the workspace
  * rename. Every state change goes through the store's dispatcher with the
  * actor recorded; the server is reached only for a directory listing,
  * through the tree seam.

@@ -1,5 +1,7 @@
 # Code intelligence in file cards — plan and architecture (Fable, 2026-09-03)
 
+> Partly superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.
+
 Answers `BRIEF.md`. Every claim names a file; every decision names what it
 beat. Walking skeleton: a highlighted TypeScript file card (lane 1), then
 hover on native (lanes 2-4).

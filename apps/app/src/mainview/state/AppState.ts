@@ -65,24 +65,6 @@ export { SeatAssignmentSchema }
 export type { SeatAssignment } from "@smthrs/rpc/ConfiguredModel"
 
 /*
- * The sidebar's pinned repositories (docs/LOCAL-APP.md "Tabs"). A server
- * mints a fresh opaque `repoId` every time a repository is opened, so a pin
- * keys on what survives a reopen: the local path. Opening a repository pins
- * it; it stays pinned until unpinned, open or not. Tabs nest under the pin
- * they were opened in (`TabRow.repoKey`).
- */
-export const PinnedRepoSchema = z.object({
-  /** `repoKeyOf(path)`: stable across reopens. */
-  id: z.string(),
-  name: z.string(),
-  path: z.string(),
-  branch: z.string().nullable(),
-  origin: z.literal("local"),
-  pinnedAt: z.number()
-})
-export type PinnedRepo = z.infer<typeof PinnedRepoSchema>
-
-/*
  * The flows one repository declares (Factory design session 2026-09-07 §4):
  * the `flows` rows of `.smithers/factory.json`, read for the active
  * repository through the public contents route, one row per repository. The
@@ -231,12 +213,6 @@ export type StarredTarget = z.infer<typeof StarredTargetSchema>
 
 export const starredTargetId = (repoKey: string, label: string): string => `${repoKey}::${label}`
 
-/**
- * The pin key for a local path: the same key for an open repo, its
- * connector, and the working copy of a local checkout, stable across reopens.
- */
-export const repoKeyOf = (path: string): string => `local:${path}`
-
 /*
  * Lane piper (docs/decisions/0001-piper-one-truth.md): Smithers Cloud is the one
  * truth. A repository lives under a user or an org; its head is the default
@@ -280,24 +256,22 @@ export const CloudRepositorySchema = z.object({
 export type CloudRepository = z.infer<typeof CloudRepositorySchema>
 
 /*
- * A working copy of a repository (ADR 0001): a local checkout on this
- * machine, a cloud workspace (a box), or the SHARED copy of a public
+ * A working copy of a repository (ADR 0001): a cloud workspace (a box), or
+ * the SHARED copy of a public
  * repository: the one read-only virtual box every reader of a catalog
  * repository shares over the public mirror (factory design session ruling,
  * lane plan B2: a virtual copy over the mirror's contents reads; factory
  * spec 04 §2 gives a signed-in person one box per branch). It has no VM and
- * no terminal; its files are the mirror's contents route. A checkout computes `ahead` with jj; a
- * cloud workspace has no API field yet, so it carries state only (never
- * faked). `readAt` is the checkout's own jj position, when the local server
- * probed it. A shared copy is a materialized view (WorkspaceViews.ts), never
+ * no terminal; its files are the mirror's contents route. A cloud workspace
+ * carries state only. A shared copy is a materialized view (WorkspaceViews.ts), never
  * a persisted row.
  */
 export const WorkingCopySchema = z.object({
-  /** `local:<path>` (the pin key) for a checkout; `workspace:<workspaceId>` for a cloud workspace; `shared:<org/repo>` for the shared copy. */
+  /** `workspace:<workspaceId>` for a cloud workspace; `shared:<org/repo>` for the shared copy. */
   id: z.string(),
-  /** The repositories row this is a copy of, or the checkout's name when no cloud repo matches. */
+  /** The repositories row this is a copy of. */
   repoId: z.string(),
-  kind: z.enum(["local", "workspace", "shared"]),
+  kind: z.enum(["workspace", "shared"]),
   /**
    * The derived access bit (no role field on the wire yet, lane plan B2): `read`
    * for the shared copy, whose only route is the public mirror's contents
@@ -308,12 +282,8 @@ export const WorkingCopySchema = z.object({
   /** The bookmark the copy tracks, when a seam supplied it: the shared copy reads the repositories row's head bookmark. */
   bookmark: z.string().optional(),
   label: z.string(),
-  path: z.string().optional(),
   workspaceId: z.string().optional(),
-  ahead: z.number().int().nonnegative().optional(),
   state: z.string().optional(),
-  /** The checkout's jj position (a local probe); absent for workspaces and unprobed checkouts. */
-  readAt: z.object({ changeId: z.string().nullable(), commitId: z.string().nullable() }).optional(),
   updatedAt: z.number(),
   revision: z.number().int().nonnegative()
 })
@@ -493,20 +463,17 @@ export const sharedCopyIdOf = (repoId: string): string => `shared:${repoId}`
 
 /**
  * The repo.select grammar (lane piper step 3): `org/repo` selects the
- * repository (its head); `org/repo#copyId` selects one working copy; and a
- * `local:/path` key selects a checkout that has no repository remote.
+ * repository (its head); `org/repo#copyId` selects one working copy.
  */
 export const parseRepoSelection = (
   token: string
-): { readonly repoId: string; readonly copyId?: string } | { readonly localCopyId: string } | null => {
+): { readonly repoId: string; readonly copyId?: string } | null => {
   const hash = token.indexOf("#")
   const head = hash === -1 ? token : token.slice(0, hash)
-  if (/^[\w.-]+\/[\w.-]+$/.test(head)) {
-    if (hash === -1) return { repoId: head }
-    const copyId = token.slice(hash + 1)
-    return copyId === "" ? null : { repoId: head, copyId }
-  }
-  return hash === -1 && token.startsWith("local:") ? { localCopyId: token } : null
+  if (!/^[\w.-]+\/[\w.-]+$/.test(head)) return null
+  if (hash === -1) return { repoId: head }
+  const copyId = token.slice(hash + 1)
+  return copyId === "" ? null : { repoId: head, copyId }
 }
 
 export const ActorSchema = z.enum(["user", "smithers", "system"])
@@ -941,9 +908,8 @@ export const SessionSchema = z.object({
     .array(z.object({ ref: z.string(), kind: z.string(), count: z.number().int().positive(), lastSeen: z.number() }))
     .optional(),
   /*
-   * The active repository as a pin key (`repoKeyOf`): the row the sidebar
-   * highlights, the name the composer's selector shows, and where a new
-   * terminal or agent starts. Optional (missing = the first open repo).
+   * The active repository selection (`parseRepoSelection`): the row the
+   * sidebar highlights and the name the composer's selector shows.
    */
   activeRepoKey: z.string().nullable().optional(),
   /** An explicit entry URL blocks ambient repository fallback until it resolves. */
@@ -1718,9 +1684,7 @@ export type AppTransition =
     actor: "system"
     status: GitHubAppStatusInput
   }
-  /* The sidebar's pinned repositories: opening pins, unpinning forgets, selecting names the active one. */
-  | { type: "repo.pinned"; actor: Actor; pin: PinnedRepo }
-  | { type: "repo.unpinned"; actor: "user"; id: string }
+  /* Selecting names the active repository. */
   | { type: "repo.selected"; actor: Actor; id: string }
   | { type: "repository.entry.changed"; actor: "system"; entry: RepositoryEntry | null }
   | { type: "repository.command.changed"; actor: "system"; entry: RepositoryCommandEntry }

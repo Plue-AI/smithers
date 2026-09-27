@@ -129,20 +129,6 @@ export const RepoSchema = z.object({
  */
 export type Repo = z.infer<typeof RepoSchema>
 
-/*
- * Files in an open repository (LOCAL-APP.md "HTTP and WebSocket surface"):
- * one route answers a directory or a file, the way the Cloud contents route
- * does, so the files seam renders the same file-list / file cards for both.
- * Reads are bounded and say so with `truncated`; a NUL byte or undecodable
- * UTF-8 answers `binary` with no content.
- */
-/**
- * The repo files route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const REPO_FILES_PATH = "/api/repo/files"
 /**
  * Validates repo file entry values at the RPC boundary.
  *
@@ -157,43 +143,6 @@ export const RepoFileEntrySchema = z.object({ name: z.string(), kind: z.enum(["f
  * @category models
  */
 export type RepoFileEntry = z.infer<typeof RepoFileEntrySchema>
-/**
- * Validates repo files response values at the RPC boundary.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const RepoFilesResponseSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("dir"),
-    path: z.string(),
-    entries: z.array(RepoFileEntrySchema),
-    /** True when the directory held more entries than the host lists; the entries are the first page by name. */
-    truncated: z.boolean().optional()
-  }),
-  z.object({
-    kind: z.literal("file"),
-    path: z.string(),
-    size: z.number().int().nonnegative(),
-    content: z.string(),
-    truncated: z.boolean(),
-    binary: z.boolean(),
-    /**
-     * SHA-256 of the bytes read, hex. The file card keeps it; a language
-     * server answer carries the digest of the text it was asked about, so
-     * the card can tell an answer about the file it shows from one about a
-     * newer file on disk. Optional for peers and fixtures that predate it.
-     */
-    digest: z.string().optional()
-  })
-])
-/**
- * The decoded value accepted by {@link RepoFilesResponseSchema}.
- *
- * @since 1.0.0
- * @category models
- */
-export type RepoFilesResponse = z.infer<typeof RepoFilesResponseSchema>
 
 /*
  * One Smithers target as `smithers-build query '//...' --format json` lists it

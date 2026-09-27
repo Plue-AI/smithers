@@ -403,12 +403,10 @@ and usable while a card is maximized.
 
 Repositories have one address space (lane piper, ADR 0001): the composer's
 repository menu is the tree `org/ → repo → working copies`: cloud repositories
-from the signed-in inventory, local checkouts nested under their repository
-when the remote parses into it (standalone entries otherwise), cloud workspaces
-beneath their repo. Selecting a repository names `org/repo`; selecting a copy
-names `org/repo#copyId`. The composer's origin chip states where the
-selection lives (`~/smithers · 3 ahead of main`, or `head @ qupxosqw` at a
-repository's head). File cards carry the global address
+from the signed-in inventory, cloud workspaces beneath their repo. Selecting a
+repository names `org/repo`; selecting a copy names `org/repo#copyId`. The
+composer's origin chip states where the selection lives (the selected box, or
+`head @ qupxosqw` at a repository's head). File cards carry the global address
 (`/org/repo/path`) and the position the read was taken at; when the
 repository's head commit has moved since, a "head moved" line offers an
 explicit refresh. Nothing re-reads on its own. `/files.list` and

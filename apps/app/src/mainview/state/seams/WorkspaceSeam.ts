@@ -721,7 +721,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     }
     const key = ctx.store.session().activeRepoKey ?? null
     const selection = key === null ? null : parseRepoSelection(key)
-    if (selection !== null && "repoId" in selection && selection.copyId !== undefined) {
+    if (selection !== null && selection.copyId !== undefined) {
       const copy = workingCopies.get(selection.copyId)
       if (copy?.kind === "workspace" && copy.workspaceId !== undefined) {
         const row = cloudWorkspaces.get(copy.workspaceId)

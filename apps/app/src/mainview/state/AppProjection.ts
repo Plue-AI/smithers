@@ -50,7 +50,6 @@ IdentitySessionSchema,
 LocalRepositoryConnectorSchema,
 MAIN_TAB_ID,
 MessageSchema,
-PinnedRepoSchema,
 RECOMMENDATION_ID,
 RecommendationSchema,
 RepoTreeRowSchema,
@@ -135,7 +134,6 @@ export const APP_PROJECTION_SCHEMAS = {
   agents: AgentRoleSchema,
   models: StoredModelSchema,
   seats: SeatAssignmentSchema,
-  pinnedRepos: PinnedRepoSchema,
   starredTargets: StarredTargetSchema,
   workspaces: WorkspaceSchema,
   branches: BranchSchema,
@@ -289,8 +287,6 @@ export const APP_TRANSITION_TYPES = {
   "workspace.deleted": true,
   "change.loaded": true,
   "github.app-status.loaded": true,
-  "repo.pinned": true,
-  "repo.unpinned": true,
   "repo.selected": true,
   "repository.entry.changed": true,
   "repository.command.changed": true,
@@ -887,15 +883,13 @@ export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppP
   if (!Number.isFinite(createdAt)) throw new Error("Invalid app boot context")
   const draft = projectionDraft(previous)
   const { collections } = draft
-  // Local inventory no longer has a host. Retire its derived selections and rows.
-  const localCopies = new Set([...collections.workingCopies.values()].filter(copy => copy.kind === "local").map(copy => copy.id))
-  if (localCopies.size > 0) collections.workingCopies.delete([...localCopies])
-  const pins = [...collections.pinnedRepos.keys()]
-  if (pins.length > 0) collections.pinnedRepos.delete(pins)
-  for (const row of collections.repoTree.values()) if (localCopies.has(row.copyId)) collections.repoTree.delete(row.id)
+  // The local repository inventory retired (#2239): a saved checkout selection names nothing.
+  for (const row of collections.repoTree.values()) if (row.copyId.startsWith("local:")) collections.repoTree.delete(row.id)
   for (const session of collections.sessions.values()) {
-    const selection = parseRepoSelection(session.activeRepoKey ?? "")
-    if (selection !== null && (!("repoId" in selection) || (selection.copyId !== undefined && (localCopies.has(selection.copyId) || selection.copyId.startsWith("local:"))))) {
+    const key = session.activeRepoKey ?? null
+    if (key === null) continue
+    const selection = parseRepoSelection(key)
+    if (selection === null || selection.copyId?.startsWith("local:") === true) {
       collections.sessions.update(session.id, draft => { draft.activeRepoKey = null })
     }
   }
@@ -3128,45 +3122,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           }
           break
         }
-        case "repo.pinned": {
-          if (collections.pinnedRepos.get(transition.pin.id) === undefined) {
-            collections.pinnedRepos.insert({ ...transition.pin })
-          } else {
-            collections.pinnedRepos.update(transition.pin.id, (draft) => {
-              Object.assign(draft, transition.pin)
-            })
-          }
-          // Lane piper: a pinned checkout is a local working copy row.
-          if (collections.workingCopies.get(transition.pin.id) === undefined) {
-            collections.workingCopies.insert({
-              id: transition.pin.id,
-              repoId: transition.pin.name,
-              kind: "local",
-              label: transition.pin.name,
-              path: transition.pin.path,
-              updatedAt: createdAt,
-              revision
-            })
-          }
-          break
-        }
-        case "repo.unpinned": {
-          if (collections.pinnedRepos.get(transition.id) === undefined) return
-          collections.pinnedRepos.delete(transition.id)
-          if (collections.workingCopies.get(transition.id)?.kind === "local") {
-            collections.workingCopies.delete(transition.id)
-          }
-          const treeKeys = [...collections.repoTree.values()].filter((row) => row.copyId === transition.id).map((row) => row.id)
-          if (treeKeys.length > 0) collections.repoTree.delete(treeKeys)
-          collections.sessions.update(SESSION_ID, (draft) => {
-            if (draft.activeRepoKey === transition.id) draft.activeRepoKey = null
-            const selected = draft.activeRepoKey
-            if (selected !== undefined && selected !== null && selected.endsWith(`#${transition.id}`)) {
-              draft.activeRepoKey = null
-            }
-          })
-          break
-        }
         case "repository.command.changed": {
           if (collections.sessions.get(SESSION_ID)?.repositoryCommandEntry?.requestId !== transition.entry.requestId) break
           collections.sessions.update(SESSION_ID, draft => { draft.repositoryCommandEntry = transition.entry })
@@ -3181,7 +3136,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             const selected = draft.activeRepoKey == null ? null : parseRepoSelection(draft.activeRepoKey)
             // Keep the same repository's selected working copy across reload.
             // A different entry must not inherit a saved checkout.
-            if (selected === null || !("repoId" in selected) || selected.repoId.toLowerCase() !== entry.repo.toLowerCase()) {
+            if (selected === null || selected.repoId.toLowerCase() !== entry.repo.toLowerCase()) {
               draft.activeRepoKey = null
             }
           })
@@ -3190,21 +3145,15 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         case "repo.selected": {
           /*
            * Lane piper grammar: `org/repo` selects the repository (its
-           * head), `org/repo#copyId` one working copy, and `local:/path` a
-           * checkout with no repository remote.
+           * head), `org/repo#copyId` one working copy.
            */
           const selection = parseRepoSelection(transition.id)
           if (selection === null) return
-          if ("repoId" in selection) {
-            if (selection.copyId !== undefined) {
-              if (views.workingCopies.get(selection.copyId) === undefined) return
-            } else if (
-              collections.repositories.get(selection.repoId) === undefined &&
-              ![...views.workingCopies.values()].some((copy) => copy.repoId === selection.repoId)
-            ) return
+          if (selection.copyId !== undefined) {
+            if (views.workingCopies.get(selection.copyId) === undefined) return
           } else if (
-            collections.pinnedRepos.get(selection.localCopyId) === undefined &&
-            views.workingCopies.get(selection.localCopyId) === undefined
+            collections.repositories.get(selection.repoId) === undefined &&
+            ![...views.workingCopies.values()].some((copy) => copy.repoId === selection.repoId)
           ) return
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.activeRepoKey = transition.id
