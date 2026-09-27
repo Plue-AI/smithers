@@ -147,7 +147,11 @@ describe("follow-up queue and interrupted turns across a restart", () => {
     await screen.until((text) => text.includes("Follow-up: kept for the old session") && idle(text), 10_000, "restored")
     await screen.type("/new")
     await screen.press(key.enter)
-    await screen.until((text) => text.includes("New conversation started") && !text.includes("Follow-up:"), 5_000, "fresh")
+    await screen.until(
+      (text) => text.includes("New conversation started") && !text.includes("Follow-up:"),
+      5_000,
+      "fresh"
+    )
     await screen.type("!echo fresh-row")
     await screen.press(key.enter)
     await screen.until((text) => /fresh-row[\s\S]*fresh-row/.test(text), 10_000, "fresh session writes")
