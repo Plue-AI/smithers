@@ -287,7 +287,7 @@ ensure_rust() {
   # exports CARGO_HOME=/workspace/.cargo and RUSTUP_HOME=/workspace/.rustup and
   # its gates resolve the toolchain against those; overriding them here put the
   # bootstrap's toolchain somewhere the gates never looked, so run 11727's rust
-  # gates re-downloaded channel 1.89.0 at gate time and timed out against
+  # gates re-downloaded the pinned channel at gate time and timed out against
   # static.rust-lang.org. A task-local pair is the fallback, not the rule.
   export CARGO_HOME="${CARGO_HOME:-$tools_dir/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$tools_dir/rustup}"
   export PATH="$CARGO_HOME/bin:$PATH"
@@ -309,8 +309,7 @@ ensure_rust() {
 # Builds the native workspace helper ci.yml's `cargoBinaries` step installs and
 # names it the way that step does. Needs the rust toolchain from ensure_rust.
 native_jj_export() {
-  rustup toolchain install 1.98.0 --profile minimal
-  cargo +1.98.0 build --locked -p smithers-ffi --bin smithers-jj-export
+  cargo build --locked -p smithers-ffi --bin smithers-jj-export
   mkdir -p "$tools_dir/native"
   install -m 755 target/debug/smithers-jj-export "$tools_dir/native/smithers-jj-export"
   export SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$tools_dir/native/smithers-jj-export"

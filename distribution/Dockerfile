@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.8
 # check=skip=FromPlatformFlagConstDisallowed
 # The committed WebAssembly artifact is reproducible only on this host triple.
-FROM --platform=linux/amd64 rust:1.89.0-bookworm AS flows-jj
+FROM --platform=linux/amd64 rust:1.98.0-bookworm AS flows-jj
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./

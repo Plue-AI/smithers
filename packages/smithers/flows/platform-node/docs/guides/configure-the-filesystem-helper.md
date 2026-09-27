@@ -36,7 +36,7 @@ The adapter runs `smithers-jj-export --atomic-fs` and uses the first of:
 Build it in a source checkout:
 
 ```sh
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
 Or name an installed helper:

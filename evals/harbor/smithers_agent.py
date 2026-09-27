@@ -663,7 +663,7 @@ class SmithersAgent(BaseAgent):
             )
         if helper_binary(self.root, dict(os.environ)) is None:
             raise RuntimeError(
-                f"no atomic filesystem helper: build it with (cd {self.root} && cargo +1.98.0 build --release "
+                f"no atomic filesystem helper: build it with (cd {self.root} && cargo build --release "
                 f"-p smithers-ffi --bin smithers-jj-export) or set {HELPER_VARIABLE}"
             )
         if self.auth_mode == "chatgpt":

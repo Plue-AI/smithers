@@ -35,7 +35,7 @@ The filesystem slot spawns the `smithers-jj-export` native helper. From a
 source checkout, build it with:
 
 ```sh
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
 Elsewhere, set `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to its absolute path, or

@@ -170,28 +170,20 @@ mkdirSync(join(nativeDir, "bin"), { recursive: true })
 mkdirSync(join(nativeDir, "licenses"), { recursive: true })
 const wasm = join(root, "packages", "smithers", "flows", "jj", "wasm", "flows_jj.wasm")
 if (!existsSync(wasm) || statSync(wasm).size === 0) {
-  throw new Error("The canonical Rust 1.89 flows_jj.wasm artifact is missing.")
+  throw new Error("The canonical flows_jj.wasm artifact is missing.")
 }
-await run("Rust 1.89 toolchain", ["rustup", "run", "1.89.0", "rustc", "--version"])
+await run("pinned Rust toolchain", ["rustup", "toolchain", "install"])
 if (process.platform === "linux" && process.arch === "x64") {
-  await run(
-    "canonical jj WebAssembly",
-    ["node", "crates/flows-jj/build-wasm.mjs", "--verify"],
-    root,
-    { RUSTUP_TOOLCHAIN: "1.89.0" }
-  )
+  await run("canonical jj WebAssembly", ["node", "crates/flows-jj/build-wasm.mjs", "--verify"])
 } else {
   console.log("[build-native] canonical jj WebAssembly: using verified linux/amd64 artifact")
 }
-await run(
-  "native FFI (Rust 1.98)",
-  ["cargo", "+1.98.0", "build", "--locked", "--release", "--package", "smithers-ffi"]
-)
+await run("native FFI", ["cargo", "build", "--locked", "--release", "--package", "smithers-ffi"])
 const jjInstallRoot = join(nativeDir, ".jj-install")
 await run(
   "pinned jj CLI",
   [
-    "cargo", "+1.98.0", "install", "--locked",
+    "cargo", "install", "--locked",
     "--git", "https://github.com/smithersai/jj.git", "--rev", jjRevision,
     "--root", jjInstallRoot, "jj-cli"
   ],
@@ -303,11 +295,11 @@ const ffiName = process.platform === "darwin"
   : "smithers_ffi.dll"
 const ffi = join(cargoTargetDir, "release", ffiName)
 if (!existsSync(ffi)) {
-  throw new Error(`Rust 1.98 build did not produce ${basename(ffi)}.`)
+  throw new Error(`Rust build did not produce ${basename(ffi)}.`)
 }
 const jjExport = join(cargoTargetDir, "release", "smithers-jj-export")
 if (!existsSync(jjExport)) {
-  throw new Error("Rust 1.98 build did not produce smithers-jj-export.")
+  throw new Error("Rust build did not produce smithers-jj-export.")
 }
 cpSync(ffi, join(nativeDir, "bin", ffiName))
 cpSync(jjExport, join(nativeDir, "bin", "smithers-jj-export"))

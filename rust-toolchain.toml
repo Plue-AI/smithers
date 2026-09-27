@@ -7,12 +7,16 @@
 # build it on any other host and prints the container command; its header
 # explains why the bytes are host-specific.
 #
-# 1.89.0 is the release recorded in the committed artifact's `producers`
-# section. The minimal profile is deliberate: `rust-src` stays uninstalled so
+# This is the one Rust toolchain in the repository: CI, release, Cloud and the
+# distribution image all build with this channel, and
+# `scripts/check-toolchain-pins.mjs` fails on any other release they name.
+# smithers-ffi sets its floor: its exact `yrs` pin uses `if let` match guards,
+# which 1.89 rejects. The committed artifact's `producers` section records the
+# same release. The minimal profile is deliberate: `rust-src` stays uninstalled so
 # rustc keeps std spans on their `/rustc/<commit-hash>` form (build-wasm.mjs
 # remaps the translated form back for toolchains that do have it).
 [toolchain]
-channel = "1.89.0"
+channel = "1.98.0"
 profile = "minimal"
 components = ["clippy", "rustfmt"]
 targets = ["wasm32-wasip1"]

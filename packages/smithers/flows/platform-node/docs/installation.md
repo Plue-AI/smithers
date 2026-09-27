@@ -76,7 +76,7 @@ repository commands use the selected process runner.
 From a source checkout, build it with:
 
 ```sh
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
 The host finds `target/release/smithers-jj-export` automatically. Elsewhere,

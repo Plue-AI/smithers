@@ -114,7 +114,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     let ffiLibrary = process.env.SMITHERS_FFI_LIBRARY_PATH?.trim()
     if (!ffiLibrary) {
       const cargoTarget = join(root, "cargo-target")
-      const child = Bun.spawn(["cargo", "+1.98.0", "build", "--locked", "--release", "--package", "smithers-ffi"], {
+      const child = Bun.spawn(["cargo", "build", "--locked", "--release", "--package", "smithers-ffi"], {
         cwd: rootDir, env: { ...process.env, CARGO_TARGET_DIR: cargoTarget, CARGO_BUILD_JOBS: "2" },
         stdin: "ignore", stdout: "inherit", stderr: "inherit"
       })

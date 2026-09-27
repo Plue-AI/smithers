@@ -15,7 +15,7 @@ which layer is responsible for each.
 
 - Node.js 26.4.0 or later, on a POSIX host.
 - The `smithers-jj-export` helper. From a source checkout, run
-  `cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export`.
+  `cargo build --locked --release -p smithers-ffi --bin smithers-jj-export`.
 - `jj` 0.39.0 or newer on `PATH`. Check with `jj --version`. Every complete
   `NodeHost` layer checks jj at construction, including this quickstart's
   filesystem and process examples. For applications that do not need jj, see

@@ -101,7 +101,7 @@ jobs:
         with:
           bun-version: 1.4.1
       - run: pnpm install --frozen-lockfile
-      - run: rustup toolchain install 1.89.0 1.98.0
+      - run: rustup toolchain install
       - run: brew install postgresql@18
       - run: pnpm --filter smithers-app exec playwright install chromium
       - name: Build packaged native app
@@ -536,8 +536,8 @@ jobs:
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Install Playwright Chromium
         run: pnpm --filter smithers-app exec playwright install --with-deps chromium
-      - name: Install local FFI toolchain
-        run: rustup toolchain install 1.98.0
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
       - name: Install PostgreSQL 18 for the owned local mode
         run: bash .github/scripts/install-postgres-18.sh
       - name: Real PostgreSQL backup and restore

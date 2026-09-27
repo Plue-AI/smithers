@@ -11,7 +11,7 @@ import versions from "../../../data/versions.json"
 ## Requirements
 
 - Node.js <code>{versions.nodeRange}</code>, or Bun 1.4 or later. See the [support matrix](/docs/reference/support-matrix/).
-- pnpm 11.25.0, Git, and Rust 1.98.0 (`rustup toolchain install 1.98.0`).
+- pnpm 11.25.0, Git, and the Rust toolchain `rust-toolchain.toml` pins (`rustup toolchain install`).
 - A model provider key, and `AI_GATEWAY_API_KEY` (Vercel AI Gateway) to run flows. See [environment variables](/docs/reference/environment-variables/#provider-keys).
 - No database server. Run state is local SQLite in the project's `.flows/` directory.
 
@@ -25,7 +25,7 @@ These docs describe <code>{versions.cli}</code>. It is not published to npm: npm
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 export PATH="$PWD/node_modules/.bin:$PATH"
 smthrs --version
 ```
@@ -67,7 +67,7 @@ smthrs doctor
 ```bash
 git pull
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
 `smthrs update` reads npm's dist-tags for `@smthrs/cli` and never installs anything.

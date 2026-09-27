@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { check, findings, satisfies } from "./check-toolchain-pins.mjs"
+import { check, findings, rustFindings, satisfies } from "./check-toolchain-pins.mjs"
 import { toolchainRefusal } from "./require-toolchain.mjs"
 
 const workspace = {
@@ -100,6 +100,36 @@ test("the node file may run ahead of the floor the workspace declares", () => {
   // The floor is the oldest Node the code supports; the file is the exact
   // release every environment runs, and the maintainer's is newer than that.
   assert.deepEqual(findings({ workspace, packageJson, flake, ci, nodeVersion: "26.10.0\n" }), [])
+})
+
+test("every Rust toolchain a build file names is the rust-toolchain.toml channel", () => {
+  const toolchain = '[toolchain]\nchannel = "1.98.0"\nprofile = "minimal"\n'
+  const agreeing = {
+    "ci.yml": "rustup toolchain install '1.98.0' --profile minimal\ncargo +1.98.0 build --locked\nrustup toolchain install",
+    "Dockerfile": "FROM rust:1.98.0-bookworm AS smithers-rust",
+    "PACKAGE.ts": 'toolchain: "1.98.0",'
+  }
+  assert.deepEqual(rustFindings({ toolchain, files: agreeing }), [])
+  // Issue #2199: rust-toolchain.toml pinned 1.89.0 while the FFI crate and
+  // every native build named 1.98.0, so a plain `cargo build` failed.
+  assert.deepEqual(rustFindings({
+    toolchain,
+    files: {
+      "release.yml": "- run: rustup toolchain install 1.89.0 1.98.0",
+      "Dockerfile": "FROM --platform=linux/amd64 rust:1.89.0-bookworm AS flows-jj",
+      "build-native.ts": '["rustup", "run", "1.89.0", "rustc"], { RUSTUP_TOOLCHAIN: "1.89.0" }',
+      "cloud.sh": "cargo +1.91 build"
+    }
+  }), [
+    "release.yml names Rust 1.89.0; rust-toolchain.toml pins 1.98.0",
+    "Dockerfile names Rust 1.89.0; rust-toolchain.toml pins 1.98.0",
+    "build-native.ts names Rust 1.89.0; rust-toolchain.toml pins 1.98.0",
+    "build-native.ts names Rust 1.89.0; rust-toolchain.toml pins 1.98.0",
+    "cloud.sh names Rust 1.91; rust-toolchain.toml pins 1.98.0"
+  ])
+  assert.deepEqual(rustFindings({ toolchain: 'channel = "stable"', files: {} }), [
+    "rust-toolchain.toml must pin one exact release as x.y.z; it pins \"stable\""
+  ])
 })
 
 test("the real repository is in sync", async () => {

@@ -154,7 +154,7 @@ let
   # The `rust-lint`, `rust-test`, `third-party-notices` and `scripts` gates, and
   # the wasm artifact the `wasm-repro` job rebuilds byte for byte.
   #
-  # rust-toolchain.toml pins channel 1.89.0, profile minimal, components clippy
+  # rust-toolchain.toml pins channel 1.98.0, profile minimal, components clippy
   # and rustfmt, target wasm32-wasip1 — assembled here from the same standalone
   # installers rustup would fetch, so no rustup and no run-time channel
   # download. `rust-src` stays out on purpose: rust-toolchain.toml explains that
@@ -162,11 +162,11 @@ let
   # committed wasm bytes. rust-docs is dropped for size; nothing reads it.
   #
   # Digests: the `xz_hash` entries of
-  # https://static.rust-lang.org/dist/channel-rust-1.89.0.toml.
+  # https://static.rust-lang.org/dist/channel-rust-1.98.0.toml.
   rust =
     let
-      version = "1.89.0";
-      date = "2025-08-07";
+      version = "1.98.0";
+      date = "2026-08-20";
       dist = name: sha256: fetchurl {
         url = "https://static.rust-lang.org/dist/${date}/${name}";
         inherit sha256;
@@ -177,13 +177,13 @@ let
       inherit version;
       srcs = [
         (dist "rust-${version}-x86_64-unknown-linux-gnu.tar.xz"
-          "c4f2796b10ee886001f0799bc40caea38746403a33c379d77878c4f4683f9b51")
+          "ed8ee2df70909c88cbaf87a6cfa3920dac00b537de12a6abe6906641e0f5952f")
         (dist "clippy-${version}-x86_64-unknown-linux-gnu.tar.xz"
-          "c6c362c6cd74567022e9ba0c16f6676f8c2b73d955adcf1f6f4c51cf15e57ce8")
+          "646c6bd2450ea4c32a3c78ad7a3727294eea1f1519718a3f1487424021695ffa")
         (dist "rustfmt-${version}-x86_64-unknown-linux-gnu.tar.xz"
-          "540eb7adf43e37b22936f981c630b10c63915f64f3c227d981a8b592ece33430")
+          "8922a03e68265a74a8040590e28b173fb5d9d49655bb6eacfd880fbd3bef0dc3")
         (dist "rust-std-${version}-wasm32-wasip1.tar.xz"
-          "f585900377547032ae5960a00c2fd6bd09cec0517030f719839101aaa117b528")
+          "07af7da4d9e943226c438cd5b60ba2b1f23a88c077eb09ccb227a385529c8b08")
       ];
       sourceRoot = ".";
       nativeBuildInputs = [ pkgs.autoPatchelfHook ];

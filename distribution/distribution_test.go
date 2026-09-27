@@ -42,7 +42,7 @@ func TestContainerContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(b)
-	for _, required := range []string{"FROM postgres:18.6-bookworm", "./apps/backend", "flows/coding/build.mjs", "flows/librarian/build.mjs", "rust:1.89.0-bookworm", "rust:1.98.0-bookworm", "node:26.5.0-bookworm", "libsmithers_ffi.so", "USER smithers", "CMD []"} {
+	for _, required := range []string{"FROM postgres:18.6-bookworm", "./apps/backend", "flows/coding/build.mjs", "flows/librarian/build.mjs", "rust:1.98.0-bookworm", "node:26.5.0-bookworm", "libsmithers_ffi.so", "USER smithers", "CMD []"} {
 		if !strings.Contains(text, required) {
 			t.Errorf("missing %q", required)
 		}

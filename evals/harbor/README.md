@@ -35,9 +35,8 @@ adapter's own logic and is the only thing here CI runs.
 1. Build the CLI: `pnpm --filter @smthrs/cli build`. The adapter refuses to
    run against `src/bin.ts`, for the reason `evals/swebench/flows.sh` gives.
 2. Build the atomic filesystem helper the CLI shells out to:
-   `cargo +1.98.0 build --release -p smithers-ffi --bin smithers-jj-export`
-   (the crate requires rustc 1.98; the repository toolchain file pins 1.89 for
-   the wasm artifact). The CLI
+   `cargo build --release -p smithers-ffi --bin smithers-jj-export`
+   (cargo uses the toolchain `rust-toolchain.toml` pins). The CLI
    looks for it at `/usr/local/bin/smithers-jj-export` or
    `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`; the adapter sets the variable to
    `target/release/smithers-jj-export` when it is there and the variable is not.

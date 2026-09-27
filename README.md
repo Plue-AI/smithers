@@ -36,7 +36,7 @@ The 1.0 release candidate is not on npm. Install it from the source checkout
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 export PATH="$PWD/node_modules/.bin:$PATH"
 ```
 

@@ -155,7 +155,7 @@ export const resolveDefaultExecutable = (
   }
   throw new Error(
     `smithers-jj-export is missing; install @smthrs/platform-node with its native helper, ` +
-      `run cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export in a source checkout, ` +
+      `run cargo build --locked --release -p smithers-ffi --bin smithers-jj-export in a source checkout, ` +
       `or set SMITHERS_WORKSPACE_JJ_EXPORT_BINARY to its absolute path (searched ${candidates.join(", ")})`
   )
 }

@@ -9,12 +9,12 @@ storage-set lookup. Plue can use `NewRemoteClient` and host `NewService` behind
 its own routing and isolation.
 
 The Go service loads `libsmithers_ffi` at `Config.FFILibraryPath`. Build that
-library from this repository with Rust 1.98, then build the Go app. The
-browser's `flows-jj` Wasm artifact remains pinned to Rust 1.89; both Rust
-crates use the same jj-lib revision from the root Cargo workspace.
+library from this repository with the Rust toolchain `rust-toolchain.toml`
+pins, then build the Go app. Both Rust crates build with that toolchain and
+the same jj-lib revision from the root Cargo workspace.
 
 ```sh
-cargo +1.98.0 build -p smithers-ffi --lib
+cargo build -p smithers-ffi --lib
 SMITHERS_FFI_LIBRARY_PATH="$PWD/target/debug/libsmithers_ffi.dylib" \
   go test ./packages/backend/repository ./packages/backend/internal/repohostserver
 ```

@@ -15,13 +15,13 @@ The [playground](https://tui.smithers.sh) runs the same agent on a two-file sand
 
 ## Install
 
-Until the release is published, run it from a source checkout. You need the Node version in `.node-version`, pnpm 11.25.0, Bun 1.4 or later, jj 0.39.0 or later, ripgrep, and Rust 1.98.0.
+Until the release is published, run it from a source checkout. You need the Node version in `.node-version`, pnpm 11.25.0, Bun 1.4 or later, jj 0.39.0 or later, ripgrep, and the Rust toolchain `rust-toolchain.toml` pins.
 
 ```bash
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 bun run tui /path/to/project
 ```
 

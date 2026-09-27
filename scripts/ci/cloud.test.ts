@@ -121,7 +121,7 @@ describe("Smithers Cloud CI", () => {
 
   test("installs Rust into the homes the environment already names", () => {
     // Overriding them put the bootstrap's toolchain where no gate looked, so
-    // run 11727's rust gates re-resolved channel 1.89.0 and timed out.
+    // run 11727's rust gates re-resolved the pinned channel and timed out.
     const rust = section("ensure_rust() {", "# Toolchains each gate needs")
     expect(rust).toContain('export CARGO_HOME="${CARGO_HOME:-$tools_dir/cargo}"')
     expect(rust).toContain('RUSTUP_HOME="${RUSTUP_HOME:-$tools_dir/rustup}"')
@@ -332,9 +332,9 @@ describe("Smithers Cloud CI", () => {
       "ensure_rust() { echo BOOTSTRAP-rust; }",
       // jsdocTree fails, and so does the first of the docs gate's three commands.
       "pnpm() { echo \"RAN $*\"; case \"$*\" in *jsdocTree*|*//apps/docs/...*) return 3 ;; esac; }",
-      // The tui gate's native helper cannot get its toolchain.
-      "rustup() { echo \"RAN rustup $*\"; return 4; }",
-      "cargo() { echo \"RAN cargo $*\"; }",
+      // The tui gate's native helper fails to build.
+      "rustup() { echo \"RAN rustup $*\"; }",
+      "cargo() { echo \"RAN cargo $*\"; return 4; }",
       "install() { echo \"RAN install $*\"; }",
       "bun() { echo \"RAN $*\"; }",
       ""
@@ -395,7 +395,7 @@ describe("Smithers Cloud CI", () => {
       }
       // The first failure stops the gate; nothing after it runs.
       expect(run("docs").stdout).not.toContain("tui-docs")
-      expect(run("tui").stdout).not.toContain("RAN cargo")
+      expect(run("tui").stdout).not.toContain("RAN install")
       expect(shell).not.toMatch(/run_gate "[^"]*"\)?\s*(\|\||&&)/)
     })
 

@@ -64,7 +64,7 @@ the one it was told to spawn is missing or not executable. The guard fails close
 operation, because a path-based fallback is exactly the symlink race the
 extension exists to prevent.
 
-**Fix.** Run `cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export`
+**Fix.** Run `cargo build --locked --release -p smithers-ffi --bin smithers-jj-export`
 in a source checkout, or set `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to an
 absolute helper path. See
 [Configure the filesystem helper](/guides/configure-the-filesystem-helper/).

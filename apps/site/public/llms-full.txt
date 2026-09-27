@@ -189,7 +189,7 @@ The 1.0 release candidate is not on npm. Install it from the source checkout.
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 export PATH="$PWD/node_modules/.bin:$PATH"
 ```
 
@@ -229,7 +229,7 @@ https://smithers.sh/docs/installation/
 ## Requirements
 
 - Node.js <code>>=26.4.0</code>, or Bun 1.4 or later. See the [support matrix](/docs/reference/support-matrix/).
-- pnpm 11.25.0, Git, and Rust 1.98.0 (`rustup toolchain install 1.98.0`).
+- pnpm 11.25.0, Git, and the Rust toolchain `rust-toolchain.toml` pins (`rustup toolchain install`).
 - A model provider key, and `AI_GATEWAY_API_KEY` (Vercel AI Gateway) to run flows. See [environment variables](/docs/reference/environment-variables/#provider-keys).
 - No database server. Run state is local SQLite in the project's `.flows/` directory.
 
@@ -243,7 +243,7 @@ These docs describe <code>1.0.0-rc.1</code>. It is not published to npm: npm's `
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 export PATH="$PWD/node_modules/.bin:$PATH"
 smthrs --version
 ```
@@ -285,7 +285,7 @@ smthrs doctor
 ```bash
 git pull
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
 `smthrs update` reads npm's dist-tags for `@smthrs/cli` and never installs anything.
@@ -2232,13 +2232,13 @@ The [playground](https://tui.smithers.sh) runs the same agent on a two-file sand
 
 ## Install
 
-Until the release is published, run it from a source checkout. You need the Node version in `.node-version`, pnpm 11.25.0, Bun 1.4 or later, jj 0.39.0 or later, ripgrep, and Rust 1.98.0.
+Until the release is published, run it from a source checkout. You need the Node version in `.node-version`, pnpm 11.25.0, Bun 1.4 or later, jj 0.39.0 or later, ripgrep, and the Rust toolchain `rust-toolchain.toml` pins.
 
 ```bash
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 bun run tui /path/to/project
 ```
 
@@ -2492,7 +2492,7 @@ Print mode with a scripted test model.
 `smthrs tui` tries `SMITHERS_TUI_BIN`, an installed binary, Bun, then Node 26.4 or later. Interactive compiled builds need a writable, executable `TMPDIR`.
 
 ```bash
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 node packages/smithers/scripts/build-tui.mjs
 SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$PWD/target/release/smithers-jj-export" \
   node --experimental-ffi --disable-warning=ExperimentalWarning packages/smithers/dist/tui/main.js /path/to/project

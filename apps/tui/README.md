@@ -26,7 +26,7 @@ then this Node with `--experimental-ffi`. To run it on Node from the
 repository:
 
 ```sh
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 node packages/smithers/scripts/build-tui.mjs
 SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$PWD/target/release/smithers-jj-export" \
   node --experimental-ffi --disable-warning=ExperimentalWarning packages/smithers/dist/tui/main.js [directory]

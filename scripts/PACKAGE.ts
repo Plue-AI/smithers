@@ -174,8 +174,10 @@ const signalCampaign = Smithers.NodeTest({
 /**
  * The toolchain drift gate: package.json `engines` and `packageManager`,
  * flake.nix, and the generated CI workflow must agree with the runtimes and
- * package manager `.smithers/WORKSPACE.ts` declares. The gate reads the
- * declaration itself, so a version moves in one file.
+ * package manager `.smithers/WORKSPACE.ts` declares, and every workflow,
+ * script and image that names a Rust release must name the channel
+ * `rust-toolchain.toml` pins. The gate reads both declarations itself, so a
+ * version moves in one file.
  *
  * @since 0.1.0
  * @category test
@@ -187,7 +189,13 @@ const toolchainPins = Smithers.NodeTest({
     Smithers.file("//.smithers/WORKSPACE.ts"),
     Smithers.file("//package.json"),
     Smithers.file("//flake.nix"),
-    Smithers.file("//.github/workflows/ci.yml")
+    Smithers.file("//.node-version"),
+    Smithers.file("//rust-toolchain.toml"),
+    Smithers.glob("//.github/workflows/*.yml"),
+    Smithers.file("//PACKAGE.ts"),
+    Smithers.file("//scripts/ci/cloud.sh"),
+    Smithers.file("//distribution/Dockerfile"),
+    Smithers.file("//apps/app/scripts/build-native.ts")
   ],
   deps: []
 })

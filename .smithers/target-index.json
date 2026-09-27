@@ -389,6 +389,10 @@
       },
       {
         "kind": "file",
+        "path": "rust-toolchain.toml"
+      },
+      {
+        "kind": "file",
         "path": "crates/flows-jj/Cargo.toml"
       },
       {
@@ -9846,10 +9850,6 @@
       {
         "kind": "file",
         "path": "apps/tui/src/replay.ts"
-      },
-      {
-        "kind": "file",
-        "path": "apps/tui/src/rooted.ts"
       },
       {
         "kind": "file",
@@ -39695,7 +39695,32 @@
       },
       {
         "kind": "file",
-        "path": ".github/workflows/ci.yml"
+        "path": ".node-version"
+      },
+      {
+        "kind": "file",
+        "path": "rust-toolchain.toml"
+      },
+      {
+        "kind": "glob",
+        "pattern": ".github/workflows/*.yml",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/ci/cloud.sh"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/Dockerfile"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/build-native.ts"
       }
     ],
     "outputs": [],

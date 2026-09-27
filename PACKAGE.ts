@@ -217,14 +217,15 @@ const backendPostgres = Smithers.Docker.Service({
   stop: { signal: "SIGTERM", grace: "10s" }
 })
 
-// Native FFI needs its own compiler floor. The flows-jj wasm artifact keeps
-// the repository's 1.89.0 pin; `rustup run 1.98.0 cargo` cannot change it.
+// Native FFI builds with the toolchain rust-toolchain.toml pins, installed
+// into a private rustup home so the declared output carries it.
 const nativeFfi = Smithers.Shell.Build({
-  shell: "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install 1.98.0 --profile minimal --component clippy && rustup run 1.98.0 cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && rustup run 1.98.0 cargo test -p smithers-ffi --locked && rustup run 1.98.0 cargo build -p smithers-ffi --lib --locked && touch .native-ffi/qualified",
+  shell: "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install && cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && cargo test -p smithers-ffi --locked && cargo build -p smithers-ffi --lib --locked && touch .native-ffi/qualified",
   outDirs: ["//.native-ffi"],
   data: [
     Smithers.file("//Cargo.toml"),
     Smithers.file("//Cargo.lock"),
+    Smithers.file("//rust-toolchain.toml"),
     Smithers.file("//crates/flows-jj/Cargo.toml"),
     Smithers.glob("//crates/flows-jj/src/**/*.rs"),
     Smithers.glob("//crates/smithers-ffi/**/*.rs"),

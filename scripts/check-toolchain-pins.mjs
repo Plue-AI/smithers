@@ -10,10 +10,14 @@
  * disagrees with it, so the workspace declaration is the one place a version
  * moves.
  *
+ * Rust has the same shape with a different source: `rust-toolchain.toml` pins
+ * the one channel, and every workflow, script and image that names a Rust
+ * release must name that one. `rustFindings` is that comparison.
+ *
  * Run as `node scripts/check-toolchain-pins.mjs`; `findings` is the pure
  * comparison the test drives with fixtures.
  */
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { compare, floorOf } from "./require-toolchain.mjs"
@@ -109,6 +113,45 @@ export const findings = ({ workspace, packageJson, flake, ci, nodeVersion }) => 
   return out
 }
 
+/**
+ * The places a Rust release is spelled: `rustup toolchain install <release>...`,
+ * `cargo +<release>`, `rustup run <release>`, a `rust:<release>-` image, and
+ * `RUSTUP_TOOLCHAIN` or `toolchain:` values.
+ */
+const rustPins = [
+  /toolchain install((?:\s+'?\d[\w.-]*'?)+)/g,
+  /cargo \+(\d[\w.-]*)/g,
+  /rustup",? "?run"?,? "?(\d[\w.-]*)/g,
+  /\brust:(\d[\w.]*)-/g,
+  /RUSTUP_TOOLCHAIN"?[:=]\s*"?(\d[\w.-]*)/g,
+  /\btoolchain: "(\d[\w.-]*)"/g
+]
+
+/** The files outside `.github/workflows` that name a Rust release. */
+export const rustPinFiles = ["PACKAGE.ts", "scripts/ci/cloud.sh", "distribution/Dockerfile", "apps/app/scripts/build-native.ts"]
+
+/**
+ * Every Rust release `files` (path to text) names that is not the channel
+ * `toolchain` (the text of rust-toolchain.toml) pins, one line each.
+ */
+export const rustFindings = ({ toolchain, files }) => {
+  const channel = /^channel = "([^"]*)"/m.exec(toolchain)?.[1]
+  if (channel === undefined || !/^\d+\.\d+\.\d+$/.test(channel)) {
+    return [`rust-toolchain.toml must pin one exact release as x.y.z; it pins ${JSON.stringify(channel)}`]
+  }
+  const out = []
+  for (const [path, text] of Object.entries(files)) {
+    for (const pattern of rustPins) {
+      for (const match of text.matchAll(pattern)) {
+        for (const release of match[1].replaceAll("'", "").trim().split(/\s+/)) {
+          if (release !== channel) out.push(`${path} names Rust ${release}; rust-toolchain.toml pins ${channel}`)
+        }
+      }
+    }
+  }
+  return out
+}
+
 /** Reads the four files of the real repository and compares them. */
 export const check = async (root = repoRoot) => {
   const workspace = await import(pathToFileURL(resolve(root, ".smithers/WORKSPACE.ts")).href)
@@ -118,14 +161,20 @@ export const check = async (root = repoRoot) => {
     flake: readFileSync(resolve(root, "flake.nix"), "utf8"),
     ci: readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8"),
     nodeVersion: readFileSync(resolve(root, nodeVersionFile), "utf8")
-  })
+  }).concat(rustFindings({
+    toolchain: readFileSync(resolve(root, "rust-toolchain.toml"), "utf8"),
+    files: Object.fromEntries([
+      ...readdirSync(resolve(root, ".github/workflows")).map((name) => `.github/workflows/${name}`),
+      ...rustPinFiles
+    ].map((path) => [path, readFileSync(resolve(root, path), "utf8")]))
+  }))
 }
 
 if (isMain(import.meta)) {
   const drift = await check()
   if (drift.length > 0) {
-    process.stderr.write(`toolchain pins drift from .smithers/WORKSPACE.ts:\n${drift.map((line) => `  ${line}`).join("\n")}\n`)
+    process.stderr.write(`toolchain pins drift from .smithers/WORKSPACE.ts or rust-toolchain.toml:\n${drift.map((line) => `  ${line}`).join("\n")}\n`)
     process.exit(1)
   }
-  process.stdout.write("toolchain pins agree with .smithers/WORKSPACE.ts\n")
+  process.stdout.write("toolchain pins agree with .smithers/WORKSPACE.ts and rust-toolchain.toml\n")
 }

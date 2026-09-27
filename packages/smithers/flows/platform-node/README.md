@@ -37,12 +37,11 @@ On POSIX, filesystem confinement requires Node.js 26.4.0 or later and the
 `smithers-jj-export` native helper. From a source checkout, build it with:
 
 ```sh
-cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
-Install Rust 1.98.0 with `rustup toolchain install 1.98.0 --profile minimal` if
-needed. The root Rust 1.89.0 pin belongs to the reproducible WASM build; the
-native crate requires 1.98. The host finds `target/release/smithers-jj-export`
+Install the Rust toolchain `rust-toolchain.toml` pins with `rustup toolchain install`
+if needed. The host finds `target/release/smithers-jj-export`
 automatically. Packaged installs supply a platform helper; an operator-managed
 installation can set `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to its absolute path.
 A missing helper refuses confined operations, including MCP flow discovery.
