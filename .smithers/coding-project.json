@@ -22,7 +22,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/start-here.md",
       "inputs": [
-        "apps/tui/docs/automation/flows.md",
+        "apps/site/src/content/docs/docs/learn/run-a-flow.mdx",
         "packages/smithers/flows/src/NodeRuntime.ts",
         "packages/smithers/agent/docs/concepts/agent-loop.md",
         "packages/smithers/build/targets/docs/README.md"
@@ -405,12 +405,12 @@
     {
       "id": "tui-docs",
       "title": "Executable terminal documentation",
-      "purpose": "Build the terminal recordings and verify browser checkpoint recovery and sponsored model boundaries.",
+      "purpose": "Record the TUI GIFs for smithers.sh and verify the browser playground's checkpoint recovery and sponsored model boundary.",
       "kind": "current",
       "document": "factory/wiki/pages/tui-docs.md",
       "inputs": [
         "apps/tui-docs/README.md",
-        "apps/tui/docs/reference/recordings.md",
+        "apps/tui/docs/README.md",
         "apps/tui-docs/PACKAGE.ts",
         "apps/tui-docs/scripts/targets.ts",
         "apps/tui-docs/package.json"
