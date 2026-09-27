@@ -29,6 +29,32 @@ test("a standalone leading JSDoc is a module header", () => {
   assert.equal(messages("/** Module prose.\n * @since 0.1.0\n */\n\nexport const value = 1\n").length, 0)
 })
 
+test("a module header followed directly by a statement is detached with a blank line", () => {
+  const source = "/** Module prose.\n * @since 0.1.0\n */\nimport * as Value from \"./Value.ts\"\n"
+  const linter = new Linter()
+  const config = [{
+    languageOptions: { ecmaVersion: "latest", sourceType: "module" },
+    plugins: { "flows-jsdoc": { rules: { "module-header": moduleHeader } } },
+    rules: { "flows-jsdoc/module-header": "error" }
+  }]
+  assert.equal(messages(source)[0]?.ruleId, "flows-jsdoc/module-header")
+  assert.equal(
+    linter.verifyAndFix(source, config).output,
+    "/** Module prose.\n * @since 0.1.0\n */\n\nimport * as Value from \"./Value.ts\"\n"
+  )
+})
+
+test("a module header followed directly by a comment is detached with a blank line", () => {
+  assert.equal(
+    messages("/** Module prose.\n * @since 0.1.0\n */\n// note\nexport const value = 1\n")[0]?.ruleId,
+    "flows-jsdoc/module-header"
+  )
+})
+
+test("a module header that also documents the first export stays attached", () => {
+  assert.equal(messages("/** Value prose.\n * @private\n * @since 0.1.0\n */\nexport const value = 1\n").length, 0)
+})
+
 test("the first export's JSDoc is not mistaken for a module header", () => {
   assert.equal(
     messages("/** Export prose.\n * @category values\n * @since 0.1.0\n */\nexport const value = 1\n")[0]?.ruleId,

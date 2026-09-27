@@ -489,7 +489,7 @@ The cut is an operator command, and `//scripts:releaseCut` is its gate.
 
 `pnpm run lint` enforces this. The rules live in [`eslint.jsdoc.js`](eslint.jsdoc.js), which every package's `eslint.config.js` spreads in.
 
-- **Every module gets a header** — a block above the first statement, carrying prose and `@since`. It says what the module is for and why it is shaped the way it is, not what its exports are called.
+- **Every module gets a header** — a block above the first statement, carrying prose and `@since`. It says what the module is for and why it is shaped the way it is, not what its exports are called. A blank line follows it; otherwise tsc can drop it from the `.d.ts`.
 - **Every exported declaration gets prose, `@category`, and `@since`.** The prose must let a reader learn what the thing IS and when to reach for it without opening the implementation. `packages/smithers/flows/flow/src/RetryPolicy.ts` is the bar; `packages/smithers/flows/kernel/src/GrantStore.ts` is the canonical service-module shape and `packages/smithers/flows/engine-store/src/internal/AttemptProbe.ts` the internal-module one.
 - **One tag per line.** `@since 0.1.0 @category models` on a single line parses as one `@since` tag whose description happens to contain the word `@category`, so the second tag silently does not exist.
 - **`@category` is a lowercase noun** — `models`, `constructors`, `layers`, `services`, `errors`, `schemas`, and the few narrower ones a module already uses.

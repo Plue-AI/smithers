@@ -19,6 +19,11 @@ const exported = [
   "ExportDefaultDeclaration[declaration.type='ClassDeclaration']"
 ]
 
+const exportedDeclaration = (node) =>
+  node.type === "ExportNamedDeclaration" && node.declaration !== null ||
+  node.type === "ExportDefaultDeclaration" &&
+    (node.declaration.type === "FunctionDeclaration" || node.declaration.type === "ClassDeclaration")
+
 const restrict = (comment, message) => exported.map((context) => ({ context, comment, message }))
 
 const lacking = (tag) => `JsdocBlock:not(*:has(JsdocTag[tag=${tag}]))`
@@ -31,11 +36,16 @@ const lacking = (tag) => `JsdocBlock:not(*:has(JsdocTag[tag=${tag}]))`
  * file with no header but a documented first export satisfies it, and a file
  * with a header separated by a blank line does not. Both answers are wrong.
  * Reading the leading comments directly is unambiguous.
+ *
+ * The header must also be followed by a blank line. tsc attaches an abutting
+ * block to the first import, and drops both from the `.d.ts` when that import
+ * is runtime-only; a detached block is always emitted (#2207).
  */
 export const moduleHeader = {
   meta: {
     type: "suggestion",
-    docs: { description: "require a module header block carrying `@since` before the first statement" },
+    docs: { description: "require a detached module header block carrying `@since` before the first statement" },
+    fixable: "whitespace",
     schema: []
   },
   create: (context) => ({
@@ -51,7 +61,19 @@ export const moduleHeader = {
         // not. @module is also accepted as an explicit identity marker.
         return /^\s*\*\s*@module\b/m.test(comment.value) || !/^\s*\*\s*@category\b/m.test(comment.value)
       })
-      if (header !== undefined && /^\s*\*\s*@since\b/m.test(header.value)) return
+      if (header !== undefined && /^\s*\*\s*@since\b/m.test(header.value)) {
+        const next = source.getTokenAfter(header, { includeComments: true })
+        if (next === null || next.loc.start.line > header.loc.end.line + 1) return
+        // A block that also documents the first export stays attached: the
+        // export always reaches the `.d.ts`, and the block with it.
+        if (first !== undefined && next === source.getFirstToken(first) && exportedDeclaration(first)) return
+        context.report({
+          loc: header.loc,
+          message: "Follow the module header with a blank line, or tsc can drop it from the `.d.ts`.",
+          fix: (fixer) => fixer.insertTextAfter(header, "\n")
+        })
+        return
+      }
       context.report({
         node,
         message: "Every module needs a header block above the first statement: prose, then `@since`."
