@@ -374,14 +374,14 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 		}
 	}
 
-	// #13 is declined by the planner: skipped with the reason.
+	// #13 is declined by the planner: declined with the reason.
 	o.project(requests[13], jobs.StateFailed, "run-13",
 		`{"_tag":"coding/Error","code":"declined","message":"Already done: README.md has it."}`)
 	// #11 and #12 validate and hand results built on the old tip.
 	o.project(requests[11], jobs.StateCompleted, "run-11", validatedRequest)
 	o.project(requests[12], jobs.StateCompleted, "run-12", validatedRequest)
 	o.wake()
-	assert.Equal(t, "skipped", o.item(13).State)
+	assert.Equal(t, "declined", o.item(13).State)
 	assert.Equal(t, "Already done: README.md has it.", o.item(13).Reason)
 	ws11, ws12 := o.item(11).WorkspaceID, o.item(12).WorkspaceID
 	appended := o.laneResult(ws11, oldTip, map[string]string{"eleven.txt": "11\n"}, "✨ feat: eleven")
@@ -451,7 +451,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.Equal(t, "queued", view.State)
 	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(13).ID))
 	requireRunCredentialRefused(t, err)
-	assert.Equal(t, "skipped", o.item(13).State)
+	assert.Equal(t, "declined", o.item(13).State)
 
 	// Main moves again while #11's PR is open; GitHub reports it behind, so
 	// the proposal is rebuilt on the new tip and verified on a fresh lane.
@@ -482,7 +482,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	for _, row := range snapshot.Items {
 		states[row.Issue.Title] = row.State
 	}
-	assert.Equal(t, map[string]string{"Issue 11": "verifying", "Issue 12": "running", "Issue 13": "skipped"}, states)
+	assert.Equal(t, map[string]string{"Issue 11": "verifying", "Issue 12": "running", "Issue 13": "declined"}, states)
 	busy := map[string]string{}
 	for _, lane := range snapshot.Lanes {
 		if lane.State == "busy" {
@@ -494,6 +494,81 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 		assert.NotEmpty(t, started, "lane %s shows when it started", workspace)
 	}
 	_ = pgtype.UUID{}
+}
+
+// A planner's decline sticks: a backfill, whoever asks for it, keeps the
+// item declined and counts it. Only new issue text or a person's retry
+// queues it again.
+func TestMythicalDeclinedItemStaysDeclined(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 31, Title: "Already done", Body: "add the README line", State: "open", AuthorAssociation: "MEMBER"}
+	waiting := mythicalIssue{Number: 32, Title: "Unapproved", Body: "x", State: "open", AuthorAssociation: "NONE"}
+	o.github.issues = []mythicalIssue{issue, waiting}
+	counts, err := o.service.Backfill(ctx, o.repoID)
+	require.NoError(t, err)
+	assert.Equal(t, MythicalBackfillCounts{Open: 2, Queued: 1, Skipped: 1}, counts)
+	decline := func() {
+		o.t.Helper()
+		o.wake()
+		require.Equal(t, "running", o.item(31).State)
+		o.project(o.launcher.last("coding/request"), jobs.StateFailed, fmt.Sprintf("run-31-%d", len(o.launcher.requests)),
+			`{"_tag":"coding/Error","code":"declined","message":"Already done."}`)
+		o.wake()
+		require.Equal(t, "declined", o.item(31).State)
+		require.Equal(t, "Already done.", o.item(31).Reason)
+	}
+	decline()
+
+	// Unchanged text: the sweep and a person's backfill both keep the decline.
+	for range 2 {
+		counts, err = o.service.Backfill(ctx, o.repoID)
+		require.NoError(t, err)
+		assert.Equal(t, MythicalBackfillCounts{Open: 2, Skipped: 1, Declined: 1}, counts)
+		assert.Equal(t, "declined", o.item(31).State)
+		assert.Equal(t, "Already done.", o.item(31).Reason)
+	}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: "smithers", SenderType: "User"}))
+	assert.Equal(t, "declined", o.item(31).State, "a label event on the same text keeps the decline")
+	closed := issue
+	closed.State = "closed"
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, closed, gitHubLabelApplication{}))
+	assert.Equal(t, "declined", o.item(31).State, "closing keeps the decline")
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{}))
+	assert.Equal(t, "declined", o.item(31).State, "reopening the same text keeps the decline")
+
+	// A new body revision queues it again.
+	edited := issue
+	edited.Body = "add the README line and a CHANGELOG entry"
+	o.github.issues = []mythicalIssue{edited, waiting}
+	counts, err = o.service.Backfill(ctx, o.repoID)
+	require.NoError(t, err)
+	assert.Equal(t, MythicalBackfillCounts{Open: 2, Queued: 1, Skipped: 1}, counts)
+	assert.Equal(t, "queued", o.item(31).State)
+	assert.Equal(t, edited.Body, o.item(31).IssueBody)
+	decline()
+
+	// A new title revision queues it again too.
+	retitled := edited
+	retitled.Title = "Already done?"
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, retitled, gitHubLabelApplication{}))
+	assert.Equal(t, "queued", o.item(31).State)
+	decline()
+
+	// A run cannot retry a decline; a person can.
+	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(31).ID))
+	requireRunCredentialRefused(t, err)
+	assert.Equal(t, "declined", o.item(31).State)
+	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(o.item(31).ID))
+	require.NoError(t, err)
+	assert.Equal(t, "queued", view.State)
+	assert.Empty(t, view.Reason)
+
+	// An admission skip is decided by labels, not by a retry.
+	_, err = o.service.RetryItem(ctx, o.repoID, uuidString(o.item(32).ID))
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusConflict, apiErr.Status)
 }
 
 func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {

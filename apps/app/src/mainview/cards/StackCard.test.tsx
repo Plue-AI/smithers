@@ -32,7 +32,8 @@ const STACK: MythicalStack = {
     item("i4", "proposed", { checks: { state: "passed", failed: [] }, pullRequest: { number: 44, url: "https://github.com/pr/44", state: "open" } }),
     item("i5", "blocked", { reason: "3 attempts failed", checks: { state: "failed", failed: ["//:ci"] } }),
     item("i6", "skipped", { reason: "not actionable" }),
-    item("i7", "landed")
+    item("i7", "landed"),
+    item("i8", "declined", { reason: "Already done." })
   ],
   lanes: [
     { index: 0, state: "busy", itemId: "i1", workspaceId: "ws-000111222", startedAt: "2026-09-25T09:52:53Z",
@@ -49,11 +50,11 @@ const render = (props: Partial<StackBodyProps> = {}, calls: Array<[string, strin
 describe("the History card", () => {
   test("labels every API state in the owner's words", () => {
     const labels = Object.fromEntries(([
-      "queued", "skipped", "cancelled", "running", "delivering", "integrating", "verifying", "proposing", "waiting",
+      "queued", "skipped", "declined", "cancelled", "running", "delivering", "integrating", "verifying", "proposing", "waiting",
       "proposed", "landed", "rejected", "retrying", "blocked"
     ] as const).map((state) => [state, itemStateLabel(item("i1", state))]))
     expect(labels).toEqual({
-      queued: "queued", skipped: "declined", cancelled: "cancelled", running: "implementing", delivering: "checking",
+      queued: "queued", skipped: "skipped", declined: "declined", cancelled: "cancelled", running: "implementing", delivering: "checking",
       integrating: "rebasing", verifying: "checking", proposing: "proposing", waiting: "ready", proposed: "PR open",
       landed: "landed", rejected: "rejected", retrying: "retrying", blocked: "blocked"
     })
@@ -83,7 +84,7 @@ describe("the History card", () => {
 
   test("orders the stack: lanes, queue, decisions, declined, then the changes tip first", () => {
     expect(stackRows(STACK).map((row) => row.kind === "item" ? row.item.id : row.change.changeId))
-      .toEqual(["i1", "i2", "i3", "i5", "i6", "kzzzzzzzaaaa", "kyyyyyyybbbb"])
+      .toEqual(["i1", "i2", "i3", "i5", "i6", "i8", "kzzzzzzzaaaa", "kyyyyyyybbbb"])
     const html = render()
     expect(html.indexOf("stack-item-i1")).toBeLessThan(html.indexOf("stack-change-kzzzzzzzaaaa"))
     // The change i4 made is joined to its issue, state, checks and pull request.
@@ -140,11 +141,14 @@ describe("the History card", () => {
   test("retry only where the API takes it, and admin doors carry typed args", () => {
     const html = render()
     const retries = [...html.matchAll(/data-flow="history.retry" data-flow-args="([^"]+)"/g)].map((match) => match[1])
-    expect(retries).toEqual([`i5 ${REPO}`, `i6 ${REPO}`])
+    expect(retries).toEqual([`i5 ${REPO}`, `i8 ${REPO}`])
+    const declined = html.slice(html.indexOf("stack-item-i8"))
+    expect(declined).toContain(">declined<")
+    expect(declined).toContain("Already done.")
     expect(html).toContain(`data-flow="history.backfill" data-flow-args="${REPO}"`)
     expect(html).toContain(`data-flow="history.parallel" data-flow-args="1 ${REPO}"`)
     expect(html).toContain(`data-flow="history.parallel" data-flow-args="3 ${REPO}"`)
-    const chat = { ...STACK, items: [{ ...item("i8", "blocked"), issue: undefined }] }
+    const chat = { ...STACK, items: [{ ...item("i9", "blocked"), issue: undefined }] }
     expect(render({ snapshot: { stack: chat, error: null } })).not.toContain('data-flow="history.retry"')
   })
 

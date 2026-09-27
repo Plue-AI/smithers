@@ -266,7 +266,7 @@ func mythicalSeat(model string) string {
 
 func mythicalSettled(state string) bool {
 	switch state {
-	case "skipped", "cancelled", "landed", "rejected", "blocked":
+	case "skipped", "declined", "cancelled", "landed", "rejected", "blocked":
 		return true
 	}
 	return false

@@ -24,6 +24,7 @@ import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
+import { HISTORY_RETRY_USER_ONLY_REASON } from "./entries/history"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
 import { PLUGINS_USER_ONLY_REASON } from "./entries/plugins"
 import { WIKI_ASK_USER_ONLY_REASON, WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "./entries/wiki"
@@ -57,6 +58,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
   "wiki.ask": WIKI_ASK_USER_ONLY_REASON,
+  "history.retry": HISTORY_RETRY_USER_ONLY_REASON,
   "wiki.attach": WIKI_ATTACH_USER_ONLY_REASON,
   // The hidden world.* aliases (entries/world.ts) carry their wiki.* twins' reason.
   "world.delete.confirm": "a confirm-dialog answer is the human's",

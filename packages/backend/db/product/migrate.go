@@ -86,6 +86,7 @@ var migrationRegistry = []migrationSpec{
 	{50, "migrations/0050_drop_workspace_capability_bindings.sql"},
 	{51, "migrations/0051_agent_review_notes.sql"},
 	{52, "migrations/0052_repository_setup_delete.sql"},
+	{53, "migrations/0053_mythical_declined_items.sql"},
 }
 
 type migration struct {

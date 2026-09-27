@@ -51,7 +51,7 @@ const (
 
 var (
 	mythicalSkipLabels    = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true}
-	mythicalSettledStates = map[string]bool{"skipped": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
+	mythicalSettledStates = map[string]bool{"skipped": true, "declined": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
 	mythicalLaneStates    = map[string]bool{"running": true, "delivering": true, "verifying": true}
 	mythicalWorkspaceID   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
@@ -118,8 +118,10 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 // approvesIssueText with the smithers label; an outsider's approval holds
 // only for exactly the labeled text and only while the label stays, so an
 // edit after approval needs a new label. Only an item that has not started
-// takes new text; closing cancels an item that has not started. applied is
-// the label this event applied (zero for a sweep).
+// takes new text; closing cancels an item that has not started. A planner's
+// decline stays until the issue's title or body changes, or a person
+// retries it (RetryItem). applied is the label this event applied (zero for
+// a sweep).
 func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
 	q := s.queries()
 	stack, err := q.GetMythicalStack(ctx, repositoryID)
@@ -162,8 +164,10 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 			continue
 		}
 		next := existing
-		notStarted := existing.State == "queued" || existing.State == "skipped" || existing.State == "cancelled"
+		notStarted := existing.State == "queued" || existing.State == "skipped" || existing.State == "cancelled" ||
+			(existing.State == "declined" && existing.IssueDigest != digest)
 		switch {
+		case existing.State == "declined" && !notStarted:
 		case state == "cancelled" && (existing.State == "queued" || existing.State == "retrying" || existing.State == "skipped"):
 			next.State, next.Reason = "cancelled", reason
 		case notStarted:
@@ -196,52 +200,86 @@ func (s *MythicalService) itemChanged(ctx context.Context, q *db.Queries, stack 
 	s.notify(ctx, q, stack.RepositoryID, stack.Generation, "item", uuidString(itemID))
 }
 
+// MythicalBackfillCounts is what one backfill found: the open issues, and
+// how many of their items are queued, skipped by admission or declined by
+// the planner, plus the items it cancelled because their issue closed.
+type MythicalBackfillCounts struct {
+	Open, Queued, Skipped, Declined, Cancelled int
+}
+
 // Backfill admits every open issue now and cancels items whose issue is no
-// longer open and that have not started.
-func (s *MythicalService) Backfill(ctx context.Context, repositoryID int64) error {
+// longer open and that have not started. A declined item stays declined
+// (ObserveIssue) and is counted.
+func (s *MythicalService) Backfill(ctx context.Context, repositoryID int64) (MythicalBackfillCounts, error) {
+	counts, err := s.backfill(ctx, repositoryID)
+	if err == nil {
+		s.logger.Info("mythical.backfill", "repository_id", repositoryID, "open", counts.Open, "queued", counts.Queued,
+			"skipped", counts.Skipped, "declined", counts.Declined, "cancelled", counts.Cancelled)
+	}
+	return counts, err
+}
+
+func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (MythicalBackfillCounts, error) {
+	var counts MythicalBackfillCounts
 	if s.github == nil {
-		return pkgerrors.Internal("GitHub is not configured for the mythical stack")
+		return counts, pkgerrors.Internal("GitHub is not configured for the mythical stack")
 	}
 	q := s.queries()
 	stack, err := q.GetMythicalStack(ctx, repositoryID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return pkgerrors.NotFound("this repository has no mythical stack")
+		return counts, pkgerrors.NotFound("this repository has no mythical stack")
 	}
 	if err != nil {
-		return err
+		return counts, err
 	}
 	repository, owner, err := s.repository(ctx, repositoryID)
 	if err != nil {
-		return err
+		return counts, err
 	}
 	gh, err := s.github.Resolve(ctx, repository, owner, stack.ActorUserID.Int64)
 	if err != nil {
-		return err
+		return counts, err
 	}
 	issues, err := s.github.OpenIssues(ctx, gh)
 	if err != nil {
-		return err
+		return counts, err
 	}
 	open := make(map[int64]bool, len(issues))
 	for _, issue := range issues {
 		open[issue.Number] = true
 		if err := s.ObserveIssue(ctx, repositoryID, issue, gitHubLabelApplication{}); err != nil {
-			return err
+			return counts, err
 		}
 	}
 	items, err := q.ListMythicalItems(ctx, repositoryID, 1000)
 	if err != nil {
-		return err
+		return counts, err
 	}
+	counts.Open = len(issues)
 	for _, item := range items {
-		if item.IssueNumber.Valid && !open[item.IssueNumber.Int64] && (item.State == "queued" || item.State == "retrying") {
+		if !item.IssueNumber.Valid {
+			continue
+		}
+		if open[item.IssueNumber.Int64] {
+			switch item.State {
+			case "queued":
+				counts.Queued++
+			case "skipped":
+				counts.Skipped++
+			case "declined":
+				counts.Declined++
+			}
+			continue
+		}
+		if item.State == "queued" || item.State == "retrying" {
 			if err := s.ObserveIssue(ctx, repositoryID, mythicalIssue{Number: item.IssueNumber.Int64, Title: item.IssueTitle,
 				URL: item.IssueURL, State: "closed"}, gitHubLabelApplication{}); err != nil {
-				return err
+				return counts, err
 			}
+			counts.Cancelled++
 		}
 	}
-	return nil
+	return counts, nil
 }
 
 func (s *MythicalService) repository(ctx context.Context, repositoryID int64) (db.Repository, string, error) {
@@ -682,7 +720,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	q := s.queries()
 	if s.github != nil && s.now().Sub(s.lastBackfill(r.row.RepositoryID)) >= mythicalBackfillEvery {
 		s.markBackfill(r.row.RepositoryID)
-		if err := s.Backfill(ctx, r.row.RepositoryID); err != nil && ctx.Err() == nil {
+		if _, err := s.Backfill(ctx, r.row.RepositoryID); err != nil && ctx.Err() == nil {
 			s.logger.Warn("mythical.backfill_failed", "repository_id", r.row.RepositoryID, "error", err)
 		}
 	}
@@ -838,7 +876,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			return st.deliver(ctx, item)
 		case strings.HasPrefix(outcome, "declined: "):
 			next := item
-			next.State, next.Reason = "skipped", strings.TrimPrefix(outcome, "declined: ")
+			next.State, next.Reason = "declined", strings.TrimPrefix(outcome, "declined: ")
 			return &next, false, nil
 		default:
 			return mythicalRetry(item, "the lane's request ended "+outcome, st.now), false, nil
@@ -1639,11 +1677,11 @@ func (s *MythicalService) SetMaxParallel(ctx context.Context, repositoryID int64
 	return nil
 }
 
-// RetryItem gives a blocked, rejected or skipped item a fresh set of
+// RetryItem gives a blocked, rejected or declined item a fresh set of
 // attempts. A rejected item's pull request was closed by its owner, and a
-// skipped item was declined or awaits a maintainer's approval: retrying
-// either is a person's decision (middleware.RequirePerson). A run may retry
-// a blocked item.
+// declined item was declined by the planner: retrying either is a person's
+// decision (middleware.RequirePerson). A run may retry a blocked item. A
+// skipped item is not retried: admission (labels, approval) decides it.
 func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, itemID string) (MythicalItemView, error) {
 	id, err := uuid.Parse(itemID)
 	if err != nil {
@@ -1658,8 +1696,8 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 		if err != nil {
 			return MythicalItemView{}, err
 		}
-		if item.State != "blocked" && item.State != "rejected" && item.State != "skipped" {
-			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or skipped item is retried")
+		if item.State != "blocked" && item.State != "rejected" && item.State != "declined" {
+			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or declined item is retried")
 		}
 		if item.State != "blocked" {
 			if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {

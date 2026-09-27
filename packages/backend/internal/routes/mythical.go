@@ -21,7 +21,7 @@ import (
 type MythicalRouteService interface {
 	Snapshot(ctx context.Context, repositoryID int64, slug, mainCommit string, viewer services.MythicalViewer) (services.MythicalStackView, error)
 	RequestBootstrap(ctx context.Context, repositoryID, actorUserID int64, depth int32, reset bool) (db.MythicalStack, error)
-	Backfill(ctx context.Context, repositoryID int64) error
+	Backfill(ctx context.Context, repositoryID int64) (services.MythicalBackfillCounts, error)
 	SubmitLane(ctx context.Context, repositoryID, userID int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error)
 	SetMaxParallel(ctx context.Context, repositoryID int64, maxParallel int32) error
 	RetryItem(ctx context.Context, repositoryID int64, itemID string) (services.MythicalItemView, error)
@@ -176,7 +176,7 @@ func (h *MythicalHandler) Backfill(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	if err := h.Service.Backfill(ctx, repoCtx.Repository.ID); err != nil {
+	if _, err := h.Service.Backfill(ctx, repoCtx.Repository.ID); err != nil {
 		writeRouteError(w, r, err)
 		return
 	}

@@ -38,7 +38,10 @@ func (f *fakeMythicalRoute) RequestWiki(context.Context, int64) error {
 	return nil
 }
 
-func (f *fakeMythicalRoute) Backfill(context.Context, int64) error { f.backfills++; return nil }
+func (f *fakeMythicalRoute) Backfill(context.Context, int64) (services.MythicalBackfillCounts, error) {
+	f.backfills++
+	return services.MythicalBackfillCounts{}, nil
+}
 
 func (f *fakeMythicalRoute) SubmitLane(_ context.Context, _, _ int64, input services.MythicalLaneSubmission) (services.MythicalLaneReceipt, error) {
 	f.lanes = append(f.lanes, input)

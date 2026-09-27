@@ -25,14 +25,13 @@ export const itemStateLabel = (item: MythicalItem): string => {
     case "waiting": return "ready"
     case "retrying": return item.integration?.conflict === undefined ? "retrying" : "conflict"
     case "proposed": return "PR open"
-    case "skipped": return "declined"
     default: return item.state
   }
 }
 
 /** A person decides these; the retry route accepts exactly them, for issue items. */
 export const retryable = (item: MythicalItem): boolean =>
-  item.issue !== undefined && (item.state === "blocked" || item.state === "rejected" || item.state === "skipped")
+  item.issue !== undefined && (item.state === "blocked" || item.state === "rejected" || item.state === "declined")
 
 /** `#12 Title` for an issue; a chat item is named by the stack change it made, else its id. */
 export const itemTitle = (stack: MythicalStack, item: MythicalItem): string => {
@@ -71,7 +70,7 @@ export const stackCounts = (stack: MythicalStack): StackCounts => ({
   queued: stack.items.filter((item) => item.state === "queued").length,
   open: stack.items.filter((item) => item.state === "proposed").length,
   blocked: stack.items.filter((item) => item.state === "blocked" || item.state === "rejected").length,
-  declined: stack.items.filter((item) => item.state === "skipped").length
+  declined: stack.items.filter((item) => item.state === "declined").length
 })
 
 /** One row of the ordered stack: an item not yet on the stack, or a stack change with its item. */

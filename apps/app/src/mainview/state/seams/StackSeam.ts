@@ -193,7 +193,8 @@ export const createStackSeam = (
         ctx.resolveToast?.(key, { status: "ok", title, detail: item.state })
         return
       case "skipped":
-        ctx.resolveToast?.(key, { status: "ok", title, detail: reason === undefined ? "declined" : `declined · ${reason}` })
+      case "declined":
+        ctx.resolveToast?.(key, { status: "ok", title, detail: reason === undefined ? item.state : `${item.state} · ${reason}` })
         return
       case "blocked":
       case "rejected":

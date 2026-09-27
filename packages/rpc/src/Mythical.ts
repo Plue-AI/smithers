@@ -165,8 +165,10 @@ export type MythicalChange = z.infer<typeof MythicalChangeSchema>
  * Where an item is.
  *
  * - `queued`: admitted, waiting for a free lane.
- * - `skipped`: not actionable; `reason` says why (a label, the author, or the
- *   planner's decline). `cancelled`: the issue closed before work started.
+ * - `skipped`: admission holds it; `reason` says why (a label, the author).
+ * - `declined`: the planner declined it; `reason` says why. It stays until
+ *   the issue's title or body changes or a person retries it.
+ * - `cancelled`: the issue closed before work started.
  * - `running`: its lane is planning and implementing (`coding/request`).
  * - `delivering`: its lane is cleaning and rechecking the result (`coding/vibe`).
  * - `integrating`: the service is putting the result onto the current tip.
@@ -184,6 +186,7 @@ export type MythicalChange = z.infer<typeof MythicalChangeSchema>
 export const MythicalItemStateSchema = z.enum([
   "queued",
   "skipped",
+  "declined",
   "cancelled",
   "running",
   "delivering",
@@ -527,5 +530,5 @@ export type MythicalLaneSubmission = z.infer<typeof MythicalLaneSubmissionSchema
  * @category accessors
  */
 export const isSettledItemState = (state: MythicalItemState): boolean =>
-  state === "skipped" || state === "cancelled" || state === "landed" || state === "rejected" ||
+  state === "skipped" || state === "declined" || state === "cancelled" || state === "landed" || state === "rejected" ||
   state === "blocked"

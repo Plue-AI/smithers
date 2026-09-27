@@ -17,6 +17,9 @@ export const namespace: Namespace = { id: "history", label: "History", summary: 
 
 const RepoOptional = Schema.optional(Schema.String)
 
+/** Retrying a blocked, rejected or declined issue is a person's decision (the retry route requires a person). */
+export const HISTORY_RETRY_USER_ONLY_REASON = "retrying a blocked, rejected or declined issue is a person's decision"
+
 /** The `history` flows registered as one aggregator block. */
 export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
@@ -64,6 +67,8 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "history.retry",
     summary: "Give a blocked, rejected or declined issue a fresh set of attempts",
+    userOnly: true,
+    userOnlyReason: HISTORY_RETRY_USER_ONLY_REASON,
     runtime: ["cloud"],
     args: "<item> [owner/repo]",
     requires: ["signed-in"],

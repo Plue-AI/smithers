@@ -172,7 +172,7 @@ describe("the mythical stack contract", () => {
 
   test("settled states are the ones nothing moves without a person or a new event", () => {
     expect(
-      ["skipped", "cancelled", "landed", "rejected", "blocked"].every((state) => isSettledItemState(state as never))
+      ["skipped", "declined", "cancelled", "landed", "rejected", "blocked"].every((state) => isSettledItemState(state as never))
     ).toBe(true)
     expect(isSettledItemState("proposed")).toBe(false)
   })

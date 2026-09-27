@@ -43,7 +43,7 @@ When Smithers works on issues, each one moves through a path: planned, built, ch
 
 - `/history.backfill` adds the repository's open issues.
 - `/history.parallel 3` works on up to three issues at once (1 to 8).
-- `/history.retry` retries a blocked or rejected issue.
+- `/history.retry` retries a blocked, rejected or declined issue. A declined issue stays declined until its title or body changes.
 
 </TabItem>
 <TabItem label="TUI">
@@ -66,7 +66,7 @@ When Smithers works on issues, each one moves through a path: planned, built, ch
 | `GET .../mythical/events` | A live stream of changes. |
 | `POST .../mythical/backfill` | Add open issues. |
 | `PUT .../mythical/config` | Set `maxParallel` (admin). |
-| `POST .../mythical/items/{id}/retry` | Retry one issue. Only a person retries a rejected or skipped issue. |
+| `POST .../mythical/items/{id}/retry` | Retry one issue. Only a person retries a rejected or declined issue. |
 
 </TabItem>
 </Tabs>

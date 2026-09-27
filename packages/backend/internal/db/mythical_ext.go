@@ -389,7 +389,7 @@ func rawJSON(value []byte) json.RawMessage {
 // settled ones after the ones still moving.
 func (q *Queries) ListMythicalItems(ctx context.Context, repositoryID int64, limit int32) ([]MythicalItem, error) {
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1
-		ORDER BY (state IN ('skipped', 'cancelled', 'landed', 'rejected', 'blocked')), issue_number NULLS LAST, created_at
+		ORDER BY (state IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')), issue_number NULLS LAST, created_at
 		LIMIT $2`, repositoryID, limit)
 	if err != nil {
 		return nil, err
