@@ -29,7 +29,6 @@ import { experimentalCardFamily } from "./ExperimentalCard"
 import { fileCardFamily } from "./FileCards"
 import { flowFormCardFamily } from "./FlowFormCards"
 import { flowPlanCardFamily } from "./FlowPlanCard"
-import { historyCardFamily } from "./HistoryCard"
 import { stackCardFamily } from "./StackCard"
 import { issueCardFamily } from "./IssueCards"
 import { landingCardFamily } from "./LandingCards"
@@ -94,7 +93,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   secretsCardFamily,
   modelCardFamily,
   accountCardFamily,
-  historyCardFamily,
   stackCardFamily,
   repoImportCardFamily,
   syncCardFamily,
@@ -136,7 +134,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...secretsCardFamily,
   ...modelCardFamily,
   ...accountCardFamily,
-  ...historyCardFamily,
   ...stackCardFamily,
   ...repoImportCardFamily,
   ...syncCardFamily,

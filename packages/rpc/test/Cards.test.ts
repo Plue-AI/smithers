@@ -1562,34 +1562,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       fixture: "Evaluator.layerScripted(() => ({ [\"ok\"]: { probability: 0.97 } }))"
     }
   },
-  history: {
-    minimal: {
-      repo: "smithersai/smithers",
-      defaultBookmark: null,
-      mainCommits: null,
-      mythical: { state: "absent" }
-    },
-    full: {
-      repo: "smithersai/smithers",
-      defaultBookmark: "main",
-      mainCommits: 1200,
-      mythical: {
-        state: "present",
-        head: "4e87ac15",
-        mainHead: "67d55ba5",
-        treeEqual: "equal",
-        commitCount: 3,
-        notes: "read",
-        epics: [{
-          sha: "4e87ac15",
-          title: "One build system",
-          merge: true,
-          note: { tried: "BUILD.ts", evidence: "the drift lint", folded: "PACKAGE.ts", superseded: null },
-          commits: [{ sha: "9910aa2b", title: "Delete the loader", note: null }]
-        }]
-      }
-    }
-  },
   account: {
     minimal: { login: "will", scopes: [], allowlisted: false, accessRequested: false, boxes: [] },
     full: {
@@ -2903,6 +2875,7 @@ describe("removed presentation compatibility", () => {
     ...["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form"].map((kind) =>
       saved(kind, { draft: "old data" })
     ),
+    saved("history", { repo: "smithersai/smithers", defaultBookmark: "main", mainCommits: null, mythical: { state: "absent" } }),
     saved("connector-setup", { connector: "linear" }),
     saved("sync-ops", { source: "linear" }),
     ...[
@@ -2947,7 +2920,13 @@ describe("removed presentation compatibility", () => {
       "issues.unlink-linear",
       "sync.retry",
       "sync.ops.load-older",
-      "linear.setup"
+      "linear.setup",
+      "stack.show",
+      "stack.backfill",
+      "stack.parallel",
+      "stack.retry",
+      "history.amend",
+      "history.fold"
     ].map((flow) => saved("flow-form", { flow, via: "user", submitting: true, draft: { secret: "obsolete" } }))
   ]
   test.each(retired)("retires $kind without losing the card identity", (row) => {

@@ -16,7 +16,7 @@ import { Effect } from "effect"
 import { availableRail, contribute } from "./AppPlugin"
 import type { AppPlugin, PluginManifest } from "./AppPlugin"
 
-/** The Librarian: the Wiki and the mythical history, the first thing to add. */
+/** The Librarian: the Wiki and the History, the first thing to add. */
 const librarian: AppPlugin = {
   manifest: {
     id: "librarian",
@@ -25,13 +25,13 @@ const librarian: AppPlugin = {
     version: "1.0.0",
     summary: "Reads your codebase and keeps a Wiki you can both cite.",
     description:
-      "The Librarian learns a repository in the background and writes what it learns into the Wiki: pages, links and a graph you and Smithers read from the same place. It also tells the mythical history — the order the code would have been written in if it had been written once, foundations first.",
+      "The Librarian learns a repository in the background and writes what it learns into the Wiki: pages, links and a graph you and Smithers read from the same place. History shows every change on its way to main.",
     icon: "book-open",
     tags: ["knowledge", "wiki", "background"],
     recommended: 1,
     gettingStarted: [
       "Open the Wiki to see what Smithers understands so far.",
-      "Ask it to build the wiki and the mythical history for a connected repository.",
+      "Ask it to build the wiki and the history for a connected repository.",
       "Cite a page in the conversation: Smithers answers with the page, never a summary of it."
     ]
   },
@@ -39,7 +39,7 @@ const librarian: AppPlugin = {
     Effect.flatMap(
       availableRail([
         { flow: "wiki", label: "Wiki", icon: "book-open" },
-        { flow: "history.show", label: "Mythical history", icon: "history" }
+        { flow: "history.show", label: "History", icon: "history" }
       ]),
       (rail) => contribute(ctx, { rail, flows: ["wiki", "wiki.graph", "wiki.create", "history.show", "history.bootstrap"] })
     )

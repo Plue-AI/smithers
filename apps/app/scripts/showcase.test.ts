@@ -48,11 +48,11 @@ describe("showcase coverage", () => {
 
   test("a record's flows count as recorded and unknown names are reported", () => {
     const record: ShowcaseRecord = {
-      id: "x", order: 1, title: "X", summary: "x", flows: ["stack.show", "missing-flow"], doors: [], observed: ["stack.show", "palette.open"],
-      registered: ["stack.show", "palette.open"], fakeBackend: true, revision: "abc", trimStart: 0, recordedAt: ""
+      id: "x", order: 1, title: "X", summary: "x", flows: ["history.show", "missing-flow"], doors: [], observed: ["history.show", "palette.open"],
+      registered: ["history.show", "palette.open"], fakeBackend: true, revision: "abc", trimStart: 0, recordedAt: ""
     }
     const result = coverage([record])
-    expect(result.rows.find(row => row.name === "stack.show")?.bucket).toBe("recorded")
+    expect(result.rows.find(row => row.name === "history.show")?.bucket).toBe("recorded")
     // Observed but not asserted is not proof.
     expect(result.rows.find(row => row.name === "palette.open")?.bucket).toBe("unrecorded")
     expect(result.rows.find(row => row.name === "wiki")?.bucket).toBe("unavailable")
@@ -63,8 +63,8 @@ describe("showcase coverage", () => {
 
   test("the page escapes case text and tags fake-backend cases", () => {
     const record: ShowcaseRecord = {
-      id: "x", order: 1, title: "<b>", summary: "a & b", flows: ["stack.show"], doors: ["/stack.show"], observed: ["stack.show"],
-      registered: ["stack.show", "palette.open"], fakeBackend: true, revision: "abc", trimStart: 0, recordedAt: ""
+      id: "x", order: 1, title: "<b>", summary: "a & b", flows: ["history.show"], doors: ["/history.show"], observed: ["history.show"],
+      registered: ["history.show", "palette.open"], fakeBackend: true, revision: "abc", trimStart: 0, recordedAt: ""
     }
     const html = renderPage({ records: [record], coverage: coverage([record]), revision: "abc", generatedAt: "now" })
     expect(html).toContain("&lt;b&gt;")

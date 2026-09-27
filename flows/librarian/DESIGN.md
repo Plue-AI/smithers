@@ -3,6 +3,10 @@
 Status: design, 2026-09-14. Supersedes the doctrine in `host.md` ("factual,
 deterministic generators", "not inferred documentation").
 
+Since D-20 (2026-09-26) the app reads no retold history: the History button
+opens the stack service's stack, and the `HistorySeam`/`HistoryCard` readers
+named below are deleted. Retiring this flow is #2165.
+
 What shipped first was a one-commit snapshot. The specs promise a history of how
 the repository got here (factory-spec 03/07, Mythical Coding Contract
 2026-09-08): a retold history whose tree equals today's tree. The repository

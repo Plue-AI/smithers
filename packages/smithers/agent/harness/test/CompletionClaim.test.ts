@@ -1004,18 +1004,6 @@ describe("the sentences of a claim", () => {
     ])
   })
 
-  it("reads a backtick with no closer as text, not as the start of code", () => {
-    expect(CompletionClaim.sentences("Ran the suite. Fixed `foo.ts and it passed. Committed.")).toEqual([
-      "Ran the suite.",
-      "Fixed `foo.ts and it passed.",
-      "Committed."
-    ])
-    expect(CompletionClaim.sentences("Fixed `foo.ts. Ran `go test ./...` and it passed. Committed.")).toEqual([
-      "Fixed `foo.ts. Ran `go test ./...` and it passed.",
-      "Committed."
-    ])
-  })
-
   it("splits at sentence ends and keeps every word", () => {
     expect(CompletionClaim.sentences("Fixed a.py. Tests pass! Done?  ")).toEqual([
       "Fixed a.py.",

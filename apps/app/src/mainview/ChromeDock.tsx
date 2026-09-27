@@ -31,7 +31,7 @@ export function ChromeDock() {
   const canFlows = controller.commands.find("flows") !== undefined
   // Secrets: secrets.list, registered on the cloud host only.
   const canSecrets = controller.commands.find("secrets.list") !== undefined
-  // History: history.show, the mythical history card (design session 2026-09-07).
+  // History: history.show, the History card: the mythical stack is the repository history (D-20).
   const canHistory = controller.commands.find("history.show") !== undefined
   // Account (factory mock 21): account.show, registered where an identity seam exists.
   const canAccount = controller.commands.find("account.show") !== undefined
@@ -166,7 +166,7 @@ export function ChromeDock() {
           </button>
         ) :
         null}
-      {/* History: the button door of history.show; readable signed out through the public mirror. */}
+      {/* History: the button door of history.show; signed out, the flow parks behind sign-in. */}
       {canHistory ?
         (
           <button

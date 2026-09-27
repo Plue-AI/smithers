@@ -1,4 +1,4 @@
-import { controlTabKey, expect, test } from "./browserTest"
+import { expect, test } from "./browserTest"
 
 test.use({ contextOptions: { reducedMotion: "reduce" } })
 
@@ -41,13 +41,13 @@ test("dictation opens chat, appends recognized speech, and Escape releases the m
 test("the keyboard reaches Mode to stop dictation without closing Chat", async ({ page }) => {
   const input = page.getByTestId("composer-input")
   await input.fill("Keep this draft")
-  await input.press(controlTabKey(page))
+  await input.press("Tab")
   await expect(page.getByRole("button", { name: "Queue", exact: true })).toBeFocused()
-  await page.keyboard.press(controlTabKey(page))
+  await page.keyboard.press("Tab")
   await expect(page.getByTestId("composer-send")).toBeFocused()
-  await page.keyboard.press(controlTabKey(page))
+  await page.keyboard.press("Tab")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeFocused()
-  await page.keyboard.press(controlTabKey(page))
+  await page.keyboard.press("Tab")
   await expect(page.getByRole("button", { name: "Mode: Dictation", exact: true })).toBeFocused()
   await page.keyboard.press("Enter")
   await expect(page.getByRole("menuitemradio", { name: "Dictation", exact: true })).toBeFocused()

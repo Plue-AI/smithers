@@ -1,5 +1,5 @@
 import type { Locator,Page } from "./browserTest"
-import { controlTabKey, expect,test } from "./browserTest"
+import { expect,test } from "./browserTest"
 import type { StatusRollup } from "@smthrs/rpc/Health"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -279,7 +279,7 @@ test("T1: launch a fixture flow, steer it, stop it, and see it in the run inbox"
 const tabTo = async (page: Page, target: Locator): Promise<void> => {
   for (let step = 0; step < 100; step++) {
     if (await target.evaluate((element) => element === document.activeElement)) return
-    await page.keyboard.press(controlTabKey(page))
+    await page.keyboard.press("Tab")
   }
   throw new Error("The coding control was not reachable with Tab")
 }
@@ -379,7 +379,7 @@ test("T1: real retained prototype source and feedback remain embedded and keyboa
   await expect(form).toHaveAttribute("data-via", "user")
   await tabTo(page, body)
   await page.keyboard.insertText("Keep the greeting small; use the expected real text.")
-  await page.keyboard.press(controlTabKey(page))
+  await page.keyboard.press("Tab")
   const submit = form.getByTestId("flow-form-submit")
   await expect(submit).toBeEnabled()
   await tabTo(page, submit)
@@ -448,7 +448,7 @@ test("health: gateway observations distinguish working, idle and input, then exp
   await expect(details).toHaveText("Running · Needs input", { timeout: 10_000 })
   const steer = card.getByTestId(`flow-run-steer-input-${RUN_ID}`)
   await steer.fill("Continue with the smaller change")
-  await steer.press(controlTabKey(page))
+  await steer.press("Tab")
   await expect(card.getByRole("button", { name: "Steer" })).toBeFocused()
   await page.keyboard.press("Enter")
   await expect.poll(() => rpc.some((call) => call.procedure === "Steer")).toBe(true)

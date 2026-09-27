@@ -870,7 +870,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   /*
    * The palette flows (Search and Command Palette Spec 2026-09-07 §6): the
-   * whole line is the query, qualifiers included (`retry section:tried`);
+   * whole line is the query, qualifiers included (`deploy status:failed`);
    * the seam reads them in the mode's own grammar. Only search.open takes
    * a flag, `--kinds a,b`, and only it may run with no query at all.
    */
@@ -898,20 +898,19 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "input.mode": (args) => required("mode", args, "Choose an input mode."),
   "palette.open": (args) => optional("prefix", args),
   "palette.actions": (args) => required("ref", args, "palette.actions needs an item ref"),
-  "stack.show": (args) => repoOnly("stack.show", args),
-  "stack.backfill": (args) => repoOnly("stack.backfill", args),
-  "stack.parallel": (args) => {
+  "history.show": (args) => repoOnly("history.show", args),
+  "history.backfill": (args) => repoOnly("history.backfill", args),
+  "history.parallel": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
     const value = Number(rest)
-    if (!/^[1-8]$/.test(rest) || !Number.isInteger(value)) return no("stack.parallel takes a lane count from 1 to 8")
+    if (!/^[1-8]$/.test(rest) || !Number.isInteger(value)) return no("history.parallel takes a lane count from 1 to 8")
     return ok(repo === undefined ? { value } : { value, repo })
   },
-  "stack.retry": (args) => {
+  "history.retry": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
-    if (!/^[\w-]{1,64}$/.test(rest)) return no("stack.retry takes an item id")
+    if (!/^[\w-]{1,64}$/.test(rest)) return no("history.retry takes an item id")
     return ok(repo === undefined ? { id: rest } : { id: rest, repo })
   },
-  "history.show": (args) => repoOnly("history.show", args),
   /*
    * Both generators need a repository. Commands.ts renders a form only for a
    * grammar failure, so a blank line must fail here rather than reach schema
@@ -919,8 +918,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    */
   "wiki.create": (args) => trimmed(args) === "" ? no("Choose a repository.") : repoOnly("wiki.create", args),
   "history.bootstrap": (args) => trimmed(args) === "" ? no("Choose a repository.") : repoOnly("history.bootstrap", args),
-  "history.amend": (args) => repoOnly("history.amend", args),
-  "history.fold": (args) => repoOnly("history.fold", args),
   "branches.list": (args) => repoOnly("branches.list", args),
   /* A lone token with a slash is the repository; name both to list a branch whose name has one. */
   "commits.list": (args) => {

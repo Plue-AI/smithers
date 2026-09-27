@@ -50,7 +50,6 @@ import * as flow from "./entries/flow"
 import * as frame from "./entries/frame"
 import * as github from "./entries/github"
 import * as history from "./entries/history"
-import * as stack from "./entries/stack"
 import * as issue from "./entries/issue"
 import * as issues from "./entries/issues"
 import * as integrations from "./entries/integrations"
@@ -495,7 +494,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   secrets.namespace,
   model.namespace,
   history.namespace,
-  stack.namespace,
   notifications.namespace,
   browser.namespace,
   auth.namespace,

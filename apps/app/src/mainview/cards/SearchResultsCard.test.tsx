@@ -31,8 +31,8 @@ const fixture: ResultsCard = {
         kind: "history",
         ref: "abc1234",
         title: "Redact secrets before they reach the journal",
-        subtitle: "epic · 3 commits",
-        actions: [{ flow: "history.show", label: "Show the mythical history", role: "open" }]
+        subtitle: "#12 · landed",
+        actions: [{ flow: "history.show", label: "Show the history", role: "open" }]
       },
       {
         kind: "file",

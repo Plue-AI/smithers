@@ -105,7 +105,7 @@ test("availableRail keeps only the entries this runtime can honour", async () =>
   const rail = await run(
     availableRail([
       { flow: "wiki", label: "Wiki", icon: "book-open" },
-      { flow: "history.show", label: "Mythical history", icon: "history" }
+      { flow: "history.show", label: "History", icon: "history" }
     ]),
     "wiki"
   )

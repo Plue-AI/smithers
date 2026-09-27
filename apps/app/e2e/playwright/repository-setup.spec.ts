@@ -1,4 +1,4 @@
-import { controlTabKey, expect, test, type Page } from "./browserTest"
+import { expect, test, type Page } from "./browserTest"
 import type { SetupHostInput, SetupOperationResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import type { z } from "zod"
 import { SCOPED_TEST_USER, skipSignup } from "./identity"
@@ -73,7 +73,7 @@ test("setup preview offers all five jobs, keeps prompt edits and fits 320px", as
   await prompt.fill("")
   await prompt.pressSequentially("Check observability before changing the adapter.", { delay: 5 })
   await expect(prompt).toHaveValue("Check observability before changing the adapter.")
-  await prompt.press(controlTabKey(page))
+  await prompt.press("Tab")
   await expect(prompt).toHaveValue("Check observability before changing the adapter.")
   // The next durable view command follows all queued prompt edits. Await
   // its projection before reload instead of interrupting in-flight writes.

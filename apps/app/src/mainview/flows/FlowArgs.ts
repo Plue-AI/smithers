@@ -50,8 +50,8 @@ export interface FlowInput {
   readonly "commits.list": { readonly branch: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   readonly "secrets.move": { readonly id: string; readonly direction: "up" | "down" }
-  readonly "stack.parallel": { readonly value: number; readonly repo: string }
-  readonly "stack.retry": { readonly id: string; readonly repo: string }
+  readonly "history.parallel": { readonly value: number; readonly repo: string }
+  readonly "history.retry": { readonly id: string; readonly repo: string }
   readonly "issues.close": { readonly number: number; readonly repo: string }
   readonly "issues.fix": { readonly number: number; readonly repo: string }
   readonly "issues.verify": { readonly number: number; readonly repo: string }
@@ -217,8 +217,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "runs.tools": payload => line(token(payload, "runId"), token(payload, "toolNames")),
   "runs.thinking": payload => line(token(payload, "runId"), token(payload, "thinking")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
-  "stack.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
-  "stack.retry": payload => line(token(payload, "id"), token(payload, "repo")),
+  "history.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
+  "history.retry": payload => line(token(payload, "id"), token(payload, "repo")),
   "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),

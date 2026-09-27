@@ -260,7 +260,7 @@ describe("launch-law parity: every affordance is a command", () => {
       // Toast dismissal is owned by ToastStack; includes dock Close and dictation controls.
       // Close, Back and Next all dispatch onboarding.act through IntroSlidesShell.
       // The optional capability reel after the last lesson: its launch pill and its Back.
-      // Delegates to the shared onboarding and existing app flows; the Command-K overlay is the summoned composer with no chrome of its own. The dock lists Wiki and Mythical history only — no Library entry.
+      // Delegates to the shared onboarding and existing app flows; the Command-K overlay is the summoned composer with no chrome of its own. The dock lists Wiki and History only — no Library entry.
       /*
        * The chrome Sign in button (LOCAL-APP.md: sign-in is an option in the
        * chrome, never a gate on the chat) is SessionNavigation's one handler
@@ -417,7 +417,6 @@ describe("launch-law parity: every affordance is a command", () => {
        * onto a wall.
        */
       "../cards/WorkspaceCard.tsx": 16,
-      "../cards/HistoryCard.tsx": 2,
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */

@@ -39,10 +39,6 @@ const screens = {
     await page.getByRole("button", { name: "Dispatcher", exact: true }).click()
     await page.getByRole("button", { name: "Register a rule", exact: true }).waitFor()
   },
-  history: async (page) => {
-    await page.getByRole("button", { name: "History", exact: true }).click()
-    await page.getByText(/mythical history/).last().waitFor()
-  },
   account: async (page) => {
     await page.getByRole("button", { name: "Account", exact: true }).click()
     await page.getByText(/One step connects GitHub/).waitFor()

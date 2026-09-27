@@ -6,18 +6,15 @@ sidebar:
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
-import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-When Smithers works on issues, each one moves through a path: planned, built, checked, opened as a pull request, landed. The stack shows every issue on that path at once.
+When Smithers works on issues, each one moves through a path: planned, built, checked, opened as a pull request, landed. **History** shows every issue on that path at once, above the changes already on main.
 
 ## Turn it on
 
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** Select **History**, then **Create**. Smithers builds the stack from main in the background; a toast follows it until it's ready. Needs admin permission on the repository.
-
-<AppScreenshot src="/images/app/history.png" alt="The History card with its Create action." caption="History before the stack exists." width={1440} height={1000} />
+**Available now.** Select **History**, then **Bootstrap**. Smithers builds the history from main in the background; a toast follows it until it's ready. Needs admin permission on the repository.
 
 </TabItem>
 <TabItem label="TUI">
@@ -42,11 +39,11 @@ When Smithers works on issues, each one moves through a path: planned, built, ch
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** Enter `/stack.show`. Each issue shows its step, checks, failures, and pull request. Open its run or pull request for the detail.
+**Available now.** Select **History**, or enter `/history.show`. Each issue shows its step, checks, failures, and pull request; each change shows whether it has landed. Open its run or pull request for the detail.
 
-- `/stack.backfill` adds the repository's open issues.
-- `/stack.parallel 3` works on up to three issues at once (1 to 8).
-- `/stack.retry` retries a blocked or rejected issue.
+- `/history.backfill` adds the repository's open issues.
+- `/history.parallel 3` works on up to three issues at once (1 to 8).
+- `/history.retry` retries a blocked or rejected issue.
 
 </TabItem>
 <TabItem label="TUI">
@@ -65,7 +62,7 @@ When Smithers works on issues, each one moves through a path: planned, built, ch
 
 | Call | Does |
 | --- | --- |
-| `GET /api/repos/{owner}/{repo}/mythical` | The stack and every issue on it. |
+| `GET /api/repos/{owner}/{repo}/mythical` | The history and every issue on it. |
 | `GET .../mythical/events` | A live stream of changes. |
 | `POST .../mythical/backfill` | Add open issues. |
 | `PUT .../mythical/config` | Set `maxParallel` (admin). |

@@ -506,67 +506,6 @@ export const ReadAtSchema = z.object({
 export type ReadAt = z.infer<typeof ReadAtSchema>
 
 /**
- * One note under refs/notes/mythical: the four sections the design names, null when the note lacks one.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const HistoryNoteSchema = z.object({
-  tried: z.string().nullable(),
-  evidence: z.string().nullable(),
-  folded: z.string().nullable(),
-  superseded: z.string().nullable()
-})
-/**
- * The decoded note.
- *
- * @since 1.0.0
- * @category models
- */
-export type HistoryNote = z.infer<typeof HistoryNoteSchema>
-
-/**
- * One atomic commit under an epic: its sha, the first line of its message, and its note.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const HistoryCommitSchema = z.object({
-  sha: z.string(),
-  title: z.string(),
-  note: HistoryNoteSchema.nullable()
-})
-/**
- * The decoded atomic commit.
- *
- * @since 1.0.0
- * @category models
- */
-export type HistoryCommit = z.infer<typeof HistoryCommitSchema>
-
-/**
- * One row of `git log --first-parent mythical`: a merge is an epic whose
- * atomic commits are its second-parent chain; a plain commit has none.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const HistoryEpicSchema = z.object({
-  sha: z.string(),
-  title: z.string(),
-  merge: z.boolean(),
-  note: HistoryNoteSchema.nullable(),
-  commits: z.array(HistoryCommitSchema)
-})
-/**
- * The decoded epic row.
- *
- * @since 1.0.0
- * @category models
- */
-export type HistoryEpic = z.infer<typeof HistoryEpicSchema>
-
-/**
  * The kinds a search result can be: the Librarian Door union (RULINGS 6)
  * plus `flow`, the kind `search.flows` answers with (the slash tree as data).
  *
@@ -1841,43 +1780,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: ModelCallCardPayloadSchema
   }),
   /*
-   * The mythical history (Factory design session 2026-09-07 §3, mock 13): the
-   * repository's second history read through the Smithers Cloud mirror. The
-   * payload states what the mirror answered and nothing else: `mainCommits`
-   * is null until a seam exposes the default bookmark's commit count (the
-   * mirror exposes none today, and a capped change-feed page is never counted
-   * as one), `mythical` is absent until the bookmark exists,
-   * `treeEqual` is unsupported until the mirror serves git commits, and a
-   * note is null when refs/notes/mythical holds none for that commit. `notes`
-   * says how far the notes read went: "read" means the notes commit's tree was
-   * listed and every note it holds for a commit in the history was decoded,
-   * "absent" means the mirror lists no refs/notes/mythical, and "unread" means
-   * the ref exists but the tree or one of its notes could not be read, in
-   * which case every note is null and no note is a claim of absence.
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("history"),
-    payload: z.object({
-      repo: z.string(),
-      defaultBookmark: z.string().nullable(),
-      mainCommits: z.number().int().nonnegative().nullable(),
-      mythical: z.discriminatedUnion("state", [
-        z.object({ state: z.literal("absent") }),
-        z.object({ state: z.literal("unsupported"), reason: z.string() }),
-        z.object({
-          state: z.literal("present"),
-          head: z.string(),
-          mainHead: z.string().nullable(),
-          treeEqual: z.enum(["equal", "different", "unsupported"]),
-          commitCount: z.number().int().nonnegative(),
-          notes: z.enum(["read", "absent", "unread"]),
-          epics: z.array(HistoryEpicSchema)
-        })
-      ])
-    })
-  }),
-  /*
    * The repository's mythical stack (@smthrs/rpc/Mythical, epic #1745). The
    * snapshot itself is live server state the stack seam keeps in memory and
    * never journals; the card holds what the person asked for: `failure` is
@@ -2980,9 +2882,17 @@ const retiredFlows = new Set([
   "issues.link-linear",
   "issues.unlink-linear",
   "sync.retry",
-  "sync.ops.load-older"
+  "sync.ops.load-older",
+  /* One history view (D-20): the stack flows joined `history.*`; amend and fold were refusal-only. */
+  "stack.show",
+  "stack.backfill",
+  "stack.parallel",
+  "stack.retry",
+  "history.amend",
+  "history.fold"
 ])
-const retiredKinds = new Set(["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form"])
+/* `history` is the retired narrative History card: the stack card is the one history view (D-20). */
+const retiredKinds = new Set(["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form", "history"])
 /**
  * One persisted card, decoded by kind. The preprocessor retires a kind or a flow
  * the product no longer serves before the union sees it, so a frame stored by an

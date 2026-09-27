@@ -46,7 +46,7 @@ const render = (props: Partial<StackBodyProps> = {}, calls: Array<[string, strin
   renderToStaticMarkup(<StackBody repo={REPO} snapshot={{ stack: STACK, error: null }} failure={null} bootstrapping={false}
     onRunCommand={(name, args) => { calls.push([name, args]) }} {...props} />)
 
-describe("the Stack card", () => {
+describe("the History card", () => {
   test("labels every API state in the owner's words", () => {
     const labels = Object.fromEntries(([
       "queued", "skipped", "cancelled", "running", "delivering", "integrating", "verifying", "proposing", "waiting",
@@ -60,10 +60,20 @@ describe("the Stack card", () => {
     expect(itemStateLabel(STACK.items[1]!)).toBe("conflict")
   })
 
+  test("the history: each change says whether main contains it, and main moving past the stack shows", () => {
+    const pending = { ...STACK, mainBehind: true, changes: [{ ...STACK.changes[1]!, state: "pending" as const }] }
+    const html = render({ snapshot: { stack: pending, error: null } })
+    expect(html).toContain("main ahead")
+    expect(html).not.toContain(`data-testid="stack-landed"`)
+    expect(html).toMatch(/data-testid="stack-change-kyyyyyyybbbb".*data-state="pending">pending</)
+  })
+
   test("counts, not prose", () => {
-    expect(stackCounts(STACK)).toEqual({ changes: 2, busy: 2, maxParallel: 2, queued: 1, open: 1, blocked: 1, declined: 1 })
+    expect(stackCounts(STACK)).toEqual({ changes: 2, landed: 2, busy: 2, maxParallel: 2, queued: 1, open: 1, blocked: 1, declined: 1 })
     const html = render()
     expect(html).toContain("2 changes")
+    expect(html).toContain("2 landed")
+    expect(html).not.toContain("main ahead")
     expect(html).toContain("2/2 lanes")
     expect(html).toContain("1 queued")
     expect(html).toContain("1 PR<")
@@ -129,13 +139,13 @@ describe("the Stack card", () => {
 
   test("retry only where the API takes it, and admin doors carry typed args", () => {
     const html = render()
-    const retries = [...html.matchAll(/data-flow="stack.retry" data-flow-args="([^"]+)"/g)].map((match) => match[1])
+    const retries = [...html.matchAll(/data-flow="history.retry" data-flow-args="([^"]+)"/g)].map((match) => match[1])
     expect(retries).toEqual([`i5 ${REPO}`, `i6 ${REPO}`])
-    expect(html).toContain(`data-flow="stack.backfill" data-flow-args="${REPO}"`)
-    expect(html).toContain(`data-flow="stack.parallel" data-flow-args="1 ${REPO}"`)
-    expect(html).toContain(`data-flow="stack.parallel" data-flow-args="3 ${REPO}"`)
+    expect(html).toContain(`data-flow="history.backfill" data-flow-args="${REPO}"`)
+    expect(html).toContain(`data-flow="history.parallel" data-flow-args="1 ${REPO}"`)
+    expect(html).toContain(`data-flow="history.parallel" data-flow-args="3 ${REPO}"`)
     const chat = { ...STACK, items: [{ ...item("i8", "blocked"), issue: undefined }] }
-    expect(render({ snapshot: { stack: chat, error: null } })).not.toContain('data-flow="stack.retry"')
+    expect(render({ snapshot: { stack: chat, error: null } })).not.toContain('data-flow="history.retry"')
   })
 
   test("absent offers Bootstrap until a request is pending; frozen states its reason", () => {
@@ -153,9 +163,9 @@ describe("the Stack card", () => {
     })
     expect(html).toContain('role="alert"')
     expect(html).toContain("Only a repository admin can change lanes.")
-    expect(html).toContain(`data-flow="stack.parallel" data-flow-args="3 ${REPO}"`)
+    expect(html).toContain(`data-flow="history.parallel" data-flow-args="3 ${REPO}"`)
     expect(html).toContain("Reading the stack failed (502)")
-    expect(html).toContain(`data-flow="stack.show" data-flow-args="${REPO}"`)
+    expect(html).toContain(`data-flow="history.show" data-flow-args="${REPO}"`)
     expect(html).toContain("stack-item-i1")
     // Before any snapshot, the failure is all there is.
     const empty = render({ snapshot: { stack: null, error: "Not found" } })

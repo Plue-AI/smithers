@@ -116,8 +116,6 @@ import type { FilesSeam } from "./seams/FilesSeam"
 import { createFilesSeam, resolveFileTarget } from "./seams/FilesSeam"
 import type { GitHubSeam } from "./seams/GitHubSeam"
 import { createGitHubSeam } from "./seams/GitHubSeam"
-import type { HistorySeam } from "./seams/HistorySeam"
-import { createHistorySeam } from "./seams/HistorySeam"
 import type { IssuesSeam } from "./seams/IssuesSeam"
 import { createIssuesSeam } from "./seams/IssuesSeam"
 import { createIntegrationsSeam, type IntegrationsSeam } from "./seams/IntegrationsSeam"
@@ -540,9 +538,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly connectCodex: SecretsSeam["connectCodex"]
   readonly moveCodingProvider: SecretsSeam["moveCodingProvider"]
   readonly listSecrets: SecretsSeam["listSecrets"]
-  readonly showHistory: HistorySeam["showHistory"]
-  readonly retellHistory: HistorySeam["retellHistory"]
-  /* The mythical stack (#1745): the Stack card, its admin writes, and the live snapshots its views read. */
+  /* The mythical stack (#1745), the repository history (D-20): the History card, its admin writes, and the live snapshots its views read. */
   readonly showStack: StackSeam["showStack"]
   readonly bootstrapStack: StackSeam["bootstrapStack"]
   readonly backfillStack: StackSeam["backfillStack"]
@@ -919,10 +915,6 @@ export const createAppController = (
   const notificationsSeam = actors.pair(seamCtx, (context) => createNotificationsSeam(context))
   const environmentSeam = actors.pair(seamCtx, (context) => createEnvironmentSeam(context))
   const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast))
-  const historySeam = actors.pair(seamCtx, (context, select) => createHistorySeam(context, async repo => {
-    const result = await select(stackSeam).bootstrapStack(repo)
-    return typeof result === "string" ? result : undefined
-  }))
   /* A registration is a launched flow run: it rides the app's own run watch and the shared toast stack. */
   const triggersSeam = actors.pair(seamCtx, (context, select) => createTriggersSeam(context, {
     requestRun: (repo, slug, operation) => select(workflowController).requestTriggerRun(repo, slug, operation),
@@ -958,7 +950,8 @@ export const createAppController = (
    * construction.
    */
   const searchSeam = actors.pair(seamCtx, (context, select) =>
-    createSearchSeam(context, { registry: () => commands, refreshWorkspaces: select(workspaceSeam.refreshWorkspaces) }))
+    createSearchSeam(context, { registry: () => commands, refreshWorkspaces: select(workspaceSeam.refreshWorkspaces), readStack: select(stackSeam).readStack,
+      heldStack: select(stackSeam).heldStack }))
   const egressSeam = actors.pair(seamCtx, (context) => createEgressSeam(context))
   ctx.onDispose(workspaceSeam.dispose)
   ctx.onDispose(agentSessionSeam.dispose)
@@ -1859,8 +1852,6 @@ export const createAppController = (
     connectCodex: secretsSeam.connectCodex,
     moveCodingProvider: secretsSeam.moveCodingProvider,
     listSecrets: secretsSeam.listSecrets,
-    showHistory: historySeam.showHistory,
-    retellHistory: historySeam.retellHistory,
     showStack: stackSeam.showStack,
     bootstrapStack: stackSeam.bootstrapStack,
     backfillStack: stackSeam.backfillStack,

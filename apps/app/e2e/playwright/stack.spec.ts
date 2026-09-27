@@ -50,7 +50,7 @@ test("the Stack card follows lanes live, and a refused act is retried from the c
 
   await page.goto("/")
   await expect(page.getByTestId("first-run-actions")).toBeVisible()
-  await fillComposer(page, `/stack.show ${REPO}`)
+  await fillComposer(page, `/history.show ${REPO}`)
   await page.getByTestId("composer-send").click()
   const card = page.locator('[data-kind="stack"]')
   await expect(card.getByTestId("stack-counts")).toContainText("1 change")
@@ -101,7 +101,7 @@ test("the Stack card follows lanes live, and a refused act is retried from the c
   await expect(card).toHaveAttribute("data-maximized", "true")
 
   // The same flow entered as a new Chat command returns to the transcript.
-  await fillComposer(page, `/stack.backfill ${REPO}`)
+  await fillComposer(page, `/history.backfill ${REPO}`)
   await page.getByTestId("composer-send").click()
   await expect.poll(() => writes.length).toBe(4)
   await expect(card).toHaveAttribute("data-maximized", "false")

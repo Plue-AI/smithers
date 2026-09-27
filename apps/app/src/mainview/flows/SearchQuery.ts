@@ -50,7 +50,7 @@ export const PREFIXES: ReadonlyArray<PrefixRow> = [
   { prefix: "/", label: "/", mode: "flows", searches: "Flows: the slash tree", flow: "search.flows", signedIn: false },
   { prefix: "//", label: "//", mode: "targets", searches: "Targets, //apps/app:test", flow: "search.targets", signedIn: false },
   { prefix: "wiki:", label: "wiki:", mode: "wiki", searches: "Generated wiki pages; signed in, your notes join the list", flow: "search.wiki", signedIn: false },
-  { prefix: "history:", label: "history:", mode: "history", searches: "Mythical commits, epics, note sections tried, evidence, folded, superseded", flow: "search.history", signedIn: false },
+  { prefix: "history:", label: "history:", mode: "history", searches: "Changes by title, id, issue", flow: "search.history", signedIn: true },
   { prefix: "ask:", label: "ask:", mode: "ask", searches: "The Librarian: one sentence with citation doors (proposed)", flow: null, signedIn: false },
   { prefix: "run:", label: "run:", mode: "runs", searches: "Runs by id, flow, status, step", flow: "search.runs", signedIn: false },
   { prefix: "change:", label: "change:", mode: "changes", searches: "Changes by id, title, file", flow: "search.changes", signedIn: false },
@@ -77,7 +77,6 @@ const QUALIFIER_KEYS: ReadonlySet<string> = new Set([
   "kind",
   "status",
   "state",
-  "section",
   "repo",
   "symbol",
   "file"
@@ -392,7 +391,7 @@ const REF_FIELDS: Readonly<Record<SearchItemKind, ReadonlyArray<string>>> = {
   target: ["repoId", "label", "workspace"],
   wiki: ["documentId", "path"],
   note: ["documentId"],
-  history: ["sha"],
+  history: ["repo"],
   run: ["runId"],
   change: ["changeId"],
   issue: ["number"],
@@ -431,7 +430,8 @@ export const refPayload = (kind: SearchItemKind, ref: string): Readonly<Record<s
     case "note":
       return { documentId: ref }
     case "history":
-      return { sha: ref }
+      // `<owner/repo>#<changeId>`: the open door shows that repository's history.
+      return { repo: ref.slice(0, Math.max(0, ref.indexOf("#"))) }
     case "run":
       return runSearchPayload(ref)
     case "change":

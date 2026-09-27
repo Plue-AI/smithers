@@ -45,7 +45,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "integrations.list", "issues.comment.react", "issues.comment.retry", "issues.fix", "issues.set", "issues.verify",
     "files.read", "findings.not-useful", "findings.please-fix", "flow.plan", "flow.run.retry", "flows",
     "github.app.choose", "github.app.open", "github.mirror-sync", "github.mirror.retry-ref",
-    "github.reconcile", "history.bootstrap", "history.show", "issues",
+    "github.reconcile", "history.bootstrap", "issues",
     /* The app home's doors (PRODUCT.md D-18): the browser spec covers the launch; the real workspace run is owed. */
     "prs.triage", "wiki.ask",
     "issues.setup", "notifications.read-update", "notifications.tag", "plugins", "plugins.install",
@@ -55,8 +55,8 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "search.history", "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex", "secrets.move",
     "search.targets", "search.wiki", "setup.ask", "setup.discard", "setup.discard.confirm", "setup.guide",
     "setup.retry", "setup.work",
-    // Cloud stack writes/readback still need real-host receipts: https://github.com/smithersai/smithers/issues/1921.
-    "stack.backfill", "stack.parallel", "stack.retry", "stack.show",
+    // History writes/readback still need real-host receipts: https://github.com/smithersai/smithers/issues/1921.
+    "history.backfill", "history.parallel", "history.retry", "history.show",
     // Resume reuses the reviewed registration; authenticated host acceptance remains #1939.
     "tab.close.confirm", "triggers.approve", "triggers.pause", "triggers.resume", "triggers.run",
     "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop",

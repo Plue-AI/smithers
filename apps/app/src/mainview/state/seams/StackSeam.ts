@@ -1,12 +1,13 @@
 /*
- * The stack seam: one repository's mythical stack (epic #1745) through
+ * The stack seam: one repository's mythical stack (epic #1745), its history
+ * (D-20), through
  * `@smthrs/rpc/Mythical`. `GET …/mythical` is the authoritative snapshot;
  * `GET …/mythical/events` is a stream of hints, each of which coalesces into
  * one more snapshot read (at most one read in flight, at most one a second).
  *
  * The snapshot is live server state, held here in memory and read by the
- * Stack card and the homepage block through `snapshots`; it is never
- * journaled. The Stack card (`stack:<repo>`) holds only what the person
+ * History card and the homepage block through `snapshots`; it is never
+ * journaled. The History card (`stack:<repo>`) holds only what the person
  * asked for: the durable bootstrap request and the last failed act.
  *
  * Writes (bootstrap, backfill, lane count, retry) are acknowledged at once and
@@ -56,6 +57,9 @@ export interface StackSnapshots {
 
 export interface StackSeam {
   readonly showStack: (repo?: string) => Promise<Result>
+  /** One snapshot without a card: the watched one, else a single read. */
+  readonly readStack: (repo?: string) => Promise<MythicalStack | string>
+  readonly heldStack: (repo: string) => MythicalStack | undefined
   readonly bootstrapStack: (repo: string) => Promise<Result>
   readonly backfillStack: (repo?: string) => Promise<Result>
   readonly setStackParallel: (value: number, repo?: string) => Promise<Result>
@@ -164,7 +168,7 @@ export const createStackSeam = (
     const next: StackCard = {
       id: stackCardId(repo),
       kind: "stack",
-      title: `Stack · ${repo}`,
+      title: `History · ${repo}`,
       status: "active",
       createdAt: previous?.createdAt ?? Date.now(),
       ordinal: surface || previous === undefined ? ctx.nextOrdinal() : previous.ordinal,
@@ -195,7 +199,7 @@ export const createStackSeam = (
       case "rejected":
         // The card keeps the Retry row; the notice leaves on its own so blocked items never pile up.
         ctx.resolveToast?.(key, { status: "failed", title, detail: itemDetail(item), autoDismissMs: 30_000,
-          ...(item.issue === undefined ? {} : { action: { flow: "stack.retry", args: `${item.id} ${repo}`, label: "Retry" } }) })
+          ...(item.issue === undefined ? {} : { action: { flow: "history.retry", args: `${item.id} ${repo}`, label: "Retry" } }) })
         return
       default:
     }
@@ -312,8 +316,8 @@ export const createStackSeam = (
     })
     if (!watch.current()) { await response.body?.cancel().catch(() => {}); return undefined }
     if (!response.ok || response.body === null || !(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
-      const failure = response.ok ? cloudUnreachable(new Error("Smithers Cloud did not provide the stack's event stream.")) :
-        await cloudFailure(response, `Smithers Cloud could not open the stack's event stream (HTTP ${response.status}).`)
+      const failure = response.ok ? cloudUnreachable(new Error("Smithers Cloud did not provide the history's event stream.")) :
+        await cloudFailure(response, `Smithers Cloud could not open the history's event stream (HTTP ${response.status}).`)
       await response.body?.cancel().catch(() => {})
       return failure
     }
@@ -332,7 +336,7 @@ export const createStackSeam = (
         const blocks = buffer.split(/\r?\n\r?\n/)
         buffer = blocks.pop() ?? ""
         if (blocks.some((block) => /^event:\s*revoked\s*$/m.test(block))) {
-          const failure = cloudUnreachable(new Error("Access to this stack was revoked."))
+          const failure = cloudUnreachable(new Error("Access to this history was revoked."))
           return { ...failure, status: 403 }
         }
         if (blocks.some((block) => /^event:\s*mythical\s*$/m.test(block))) void refresh(watch)
@@ -397,7 +401,7 @@ export const createStackSeam = (
   /* ---- the acts ---- */
 
   const target = (repoArg?: string): { readonly repo: string } | { readonly error: string } => {
-    if (login() === null) return { error: "Sign in to see the stack." }
+    if (login() === null) return { error: "Sign in to see the history." }
     return resolveTargetRepo(ctx.store, repoArg)
   }
   const summary = (stack: MythicalStack): string => {
@@ -407,7 +411,7 @@ export const createStackSeam = (
     const rows = stack.items.filter((item) => item.state !== "landed" && item.state !== "cancelled").slice(0, 50)
       .map((item) => `${item.id} ${itemTitle(stack, item)}: ${itemDetail(item)}${item.pullRequest === undefined ? "" : ` PR #${item.pullRequest.number}`}`)
     return [
-      `Stack of ${stack.repository}: ${stack.state}${stack.reason === undefined ? "" : ` (${stack.reason})`}, ${counts.changes} changes, ${counts.busy}/${counts.maxParallel} lanes busy, ${counts.queued} queued, ${counts.open} pull requests open, ${counts.blocked} blocked, ${counts.declined} declined. The Stack card shows it live.`,
+      `History of ${stack.repository}: ${stack.state}${stack.reason === undefined ? "" : ` (${stack.reason})`}, ${counts.changes} changes, ${counts.busy}/${counts.maxParallel} lanes busy, ${counts.queued} queued, ${counts.open} pull requests open, ${counts.blocked} blocked, ${counts.declined} declined. The History card shows it live.`,
       ...lanes, ...rows
     ].join("\n")
   }
@@ -419,7 +423,7 @@ export const createStackSeam = (
     const handle = watch(repo)
     await refresh(handle)
     const value = shared.values.get(repo)
-    if (value?.stack == null) return value?.error ?? "The stack could not be read."
+    if (value?.stack == null) return value?.error ?? "The history could not be read."
     return readResult(summary(value.stack))
   }
 
@@ -499,14 +503,14 @@ export const createStackSeam = (
       const done = (outcome: true | string | typeof TOAST_SUPERSEDED): void => { handle.waiters.delete(check); resolve(outcome) }
       if (stack === TOAST_SUPERSEDED || typeof stack === "string") done(stack)
       else if (stack.state === "active") done(true)
-      else if (stack.state === "frozen") done(stack.reason ?? "The stack is frozen.")
+      else if (stack.state === "frozen") done(stack.reason ?? "The history is frozen.")
       else if (stack.state === "bootstrapping" && stack.lastError !== undefined && stack.lastError !== "") done(stack.lastError)
     }
     handle.waiters.add(check)
     void refresh(handle)
   })
   const runBootstrap = (repo: string, post: boolean, before?: () => Promise<void>): Promise<Result> =>
-    act(repo, "bootstrap", repo, { running: "Creating the stack…", done: "Stack ready" }, async () => {
+    act(repo, "bootstrap", repo, { running: "Creating the history…", done: "History ready" }, async () => {
       if (post) {
         const answer = await send("POST", route("bootstrap", repo), {}, "the stack")
         if ("error" in answer) {
@@ -691,5 +695,24 @@ export const createStackSeam = (
     options.onDispose?.(stop)
   }
 
-  return { showStack, bootstrapStack, backfillStack, setStackParallel, retryStackItem, refreshWiki, watchHomeStack, resumeStacks, snapshots }
+  /** A watched snapshot, only while the account that read it is still signed in. */
+  const heldStack: StackSeam["heldStack"] = (repo) => {
+    const current = login()
+    if (current === null || current !== shared.owner) return undefined
+    return shared.values.get(repo)?.stack ?? undefined
+  }
+
+  /** One snapshot for a reader that shows no card (search.history): the live one when watched, else one read. */
+  const readStack: StackSeam["readStack"] = async (repoArg) => {
+    const resolved = target(repoArg)
+    if ("error" in resolved) return resolved.error
+    const held = heldStack(resolved.repo)
+    if (held !== undefined) return held
+    const answer = await get(route("stack", resolved.repo), "the history")
+    if ("error" in answer) return answer.error
+    const parsed = MythicalStackSchema.safeParse(answer.body)
+    return parsed.success ? parsed.data : "The history could not be read."
+  }
+
+  return { showStack, readStack, heldStack, bootstrapStack, backfillStack, setStackParallel, retryStackItem, refreshWiki, watchHomeStack, resumeStacks, snapshots }
 }

@@ -59,7 +59,7 @@ describe("§1 prefixes: the first token decides the mode", () => {
       { key: "path", value: "*.test.*", negated: true }
     ])
     expect(parseQuery("#label:bug")).toMatchObject({ mode: "issues", query: "", qualifiers: [{ key: "label", value: "bug", negated: false }] })
-    expect(parseQuery("history: retry section:tried").qualifiers).toEqual([{ key: "section", value: "tried", negated: false }])
+    expect(parseQuery("run: retry status:failed").qualifiers).toEqual([{ key: "status", value: "failed", negated: false }])
     expect(parseQuery("note: about x")).toMatchObject({ mode: "all", query: "note: about x", qualifiers: [] })
   })
 
@@ -71,7 +71,7 @@ describe("§1 prefixes: the first token decides the mode", () => {
     expect(PREFIXES.map((row) => row.label)).toEqual([
       "(none)", "path", ":", "/", "//", "wiki:", "history:", "ask:", "run:", "change:", "#", "box:", "secret:", "?"
     ])
-    expect(PREFIXES.filter((row) => row.signedIn).map((row) => row.mode)).toEqual(["boxes", "secrets"])
+    expect(PREFIXES.filter((row) => row.signedIn).map((row) => row.mode)).toEqual(["history", "boxes", "secrets"])
   })
 })
 
@@ -104,8 +104,8 @@ describe("§2 ranking on a fixture", () => {
     item("flow", "flow.list", "flow.list", "List the flows on your workspace"),
     item("file", "packages/journal/Redaction.ts", "packages/journal/Redaction.ts", "smithers"),
     item("file", "packages/journal/Redaction.test.ts", "packages/journal/Redaction.test.ts", "smithers"),
-    item("history", "abc123", "Redact secrets before they reach the journal", "epic · 3 commits"),
-    item("history", "def456", "tried: regex rescan per write, lost on latency", "note · Redact secrets"),
+    item("history", "abc123", "Redact secrets before they reach the journal", "#12 · landed"),
+    item("history", "def456", "tried: regex rescan per write, lost on latency", "pending"),
     item("run", "run-9", "run-9", "review · running")
   ]
 

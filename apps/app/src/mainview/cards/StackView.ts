@@ -1,5 +1,5 @@
 /*
- * What the Stack card shows, derived from one `@smthrs/rpc/Mythical`
+ * What the History card shows, derived from one `@smthrs/rpc/Mythical`
  * snapshot: the counts row, the lanes, and the ordered stack rows. Pure, so
  * the card, the homepage block and their tests read the same projection.
  */
@@ -49,6 +49,8 @@ export const itemReason = (item: MythicalItem): string | undefined => {
 
 export interface StackCounts {
   readonly changes: number
+  /** Changes main contains. */
+  readonly landed: number
   readonly busy: number
   readonly maxParallel: number
   readonly queued: number
@@ -63,6 +65,7 @@ const laneItems = (stack: MythicalStack): ReadonlyArray<MythicalItem> =>
 
 export const stackCounts = (stack: MythicalStack): StackCounts => ({
   changes: stack.changes.length,
+  landed: stack.changes.filter((change) => change.state === "landed").length,
   busy: laneItems(stack).length,
   maxParallel: stack.limits.maxParallel,
   queued: stack.items.filter((item) => item.state === "queued").length,

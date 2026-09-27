@@ -778,61 +778,6 @@
 	color: var(--muted-foreground);
 }
 
-/* The history card (factory mock 13): epics stack their header row, note and
-   atomic commits vertically; commits indent under their epic. */
-.history-epics,
-.history-commits {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 0.375rem;
-}
-.history-epics > li,
-.history-commits > li {
-	display: flex;
-	flex-direction: column;
-	align-items: stretch;
-	gap: 0.25rem;
-	min-width: 0;
-}
-.history-commits {
-	margin-left: 1rem;
-	padding-left: 0.75rem;
-	border-left: 1px solid var(--border);
-}
-.history-epic-count {
-	margin-left: auto;
-}
-.history-note {
-	margin: 0 0 0 1rem;
-	padding: 0.375rem 0.625rem;
-	display: grid;
-	grid-template-columns: max-content minmax(0, 1fr);
-	gap: 0.125rem 0.75rem;
-	border-radius: 0.375rem;
-	background: var(--surface-2, transparent);
-	font-size: var(--fs-small);
-}
-.history-note > div {
-	display: contents;
-}
-.history-note dt {
-	color: var(--muted-foreground);
-}
-.history-note dd {
-	margin: 0;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-.history-doors {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 0.5rem;
-	margin-top: 0.25rem;
-}
 .world-card-workspace {
 	display: grid;
 	grid-template-columns: 180px minmax(0, 1fr);

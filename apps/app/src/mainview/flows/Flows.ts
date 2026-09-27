@@ -73,7 +73,6 @@ import { searchFlows } from "./entries/search"
 import { smithersFlows } from "./entries/smithers"
 import { secretsFlows } from "./entries/secrets"
 import { historyFlows } from "./entries/history"
-import { stackFlows } from "./entries/stack"
 import { storageFlows } from "./entries/storage"
 import { syncFlows } from "./entries/sync"
 import { systemFlows } from "./entries/system"
@@ -163,7 +162,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...secretsFlows(actions),
   ...modelFlows(actions),
   ...historyFlows(actions),
-  ...stackFlows(actions),
   ...branchesFlows(actions),
   ...commitsFlows(actions),
   ...filesFlows(actions),

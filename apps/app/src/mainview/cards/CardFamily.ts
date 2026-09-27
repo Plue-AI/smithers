@@ -88,10 +88,9 @@ export interface CardActions {
   readonly fileCards?: ReadonlyArray<Extract<Card, { kind: "file" }>>
   /*
    * The identity seam's definitive signed-out answer. A card that is a public
-   * read (the mythical history) renders its write doors only for a session
-   * that can take them; signed out it is read-only and its one door is the
-   * sign-in door. Unknown or unavailable identity never hides a door (gate on
-   * answers, not on silence).
+   * read renders its write doors only for a session that can take them.
+   * Unknown or unavailable identity never hides a door (gate on answers, not
+   * on silence).
    */
   readonly signedOut?: boolean
   /** Which frame the body is mounted in. Absent in static previews, which read as embedded. */

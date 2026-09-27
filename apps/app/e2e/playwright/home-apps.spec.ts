@@ -96,10 +96,6 @@ test("the home is the question, the composer and the apps; opening one gives one
   const words = await page.locator(".factory-home").evaluate(node => [...node.querySelectorAll("h1, .app-tile-title")].map(each => each.textContent).join(" ").split(/\s+/).length)
   expect(words).toBeLessThanOrEqual(20)
   if (process.env.SMITHERS_HOME_CAPTURE) {
-    // The first-sight tip leaves through its own door (app.hint.dismiss); the capture is the home alone.
-    const tip = page.getByRole("button", { name: "Dismiss help" })
-    if (await tip.isVisible()) await tip.click()
-    await expect(page.getByRole("note", { name: "Help" })).toHaveCount(0)
     await page.evaluate(() => document.fonts.ready)
     await page.screenshot({ path: process.env.SMITHERS_HOME_CAPTURE })
   }

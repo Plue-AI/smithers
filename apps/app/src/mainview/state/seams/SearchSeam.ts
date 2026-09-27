@@ -19,6 +19,7 @@
  * The proposed Librarian ask mode refuses in place; it has no registered flow.
  */
 import type { SearchAction, SearchItem } from "@smthrs/rpc/Cards"
+import type { MythicalStack } from "@smthrs/rpc/Mythical"
 import type { SearchArgs } from "../../flows/entries/search"
 import { actionsFor, itemsValue, parseQuery, prefixRow, PREFIXES, rankItems } from "../../flows/SearchQuery"
 import type { PaletteMode, ParsedQuery, PrefixRow, ResultGroup, SearchFact } from "../../flows/SearchQuery"
@@ -32,8 +33,6 @@ import { runSearchRef } from "@smthrs/ui/run-command"
 import { fileArgs } from "../../flows/FileArgs"
 import { readEnvironment } from "./EnvironmentSeam"
 import type { SecretMetadata } from "./EnvironmentSeam"
-import { readHistory } from "./HistorySeam"
-import type { HistoryPayload } from "./HistorySeam"
 import { captureCloudOwner, type SeamContext } from "./SeamContext"
 import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import { readFactoryProjection } from "./TriggersSeam"
@@ -49,6 +48,9 @@ export interface SearchSeamDeps {
   readonly registry: () => SearchRegistry
   /** The boxes seam's silent refresh, so `search.boxes` lists what plue holds now. */
   readonly refreshWorkspaces?: (repo?: string) => Promise<string | void>
+  /** The history (stack) seam: the watched snapshot, else one read; `heldStack` is the watched one only. */
+  readonly readStack?: (repo?: string) => Promise<MythicalStack | string>
+  readonly heldStack?: (repo: string) => MythicalStack | undefined
   readonly now?: () => number
 }
 
@@ -111,7 +113,7 @@ interface SecretRows {
 
 /** The live reads a flow door takes from the readers' answers instead of the cards (§6: a search embeds one card). */
 interface LiveIndexes {
-  readonly history?: ReadonlyArray<HistoryPayload>
+  readonly history?: ReadonlyArray<MythicalStack>
   readonly secrets?: ReadonlyArray<SecretRows>
 }
 
@@ -186,45 +188,25 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
   const wikiItems = (): ReadonlyArray<Fact> =>
     [...ctx.store.collections.worldDocuments.values()].map((document) => ({ kind: "note" as const, ref: document.id, title: document.title, subtitle: document.path }))
 
-  /** The history cards the history seam has written, as their payloads. */
-  const heldHistory = (): ReadonlyArray<HistoryPayload> =>
-    cards().flatMap((card) => (card.kind === "history" ? [card.payload] : []))
+  /** The histories the History cards show: each card's live snapshot. */
+  const heldHistory = (): ReadonlyArray<MythicalStack> =>
+    cards().flatMap((card) => {
+      const stack = card.kind === "stack" ? deps.heldStack?.(card.payload.repo) : undefined
+      return stack === undefined ? [] : [stack]
+    })
 
   /** The secrets cards the secrets seam has written, as name-and-host rows. */
   const heldSecrets = (): ReadonlyArray<SecretRows> =>
     cards().flatMap((card) => (card.kind === "secrets" ? [{ repo: card.payload.repo, secrets: card.payload.secrets }] : []))
 
-  /** The mythical history as read: epics, atomic commits, and the note sections. */
-  const historyItems = (payloads: ReadonlyArray<HistoryPayload>, section?: string): ReadonlyArray<Fact> => {
-    const out: Array<Fact> = []
-    const note = (sha: string, owner: string, sections: Record<string, string | null> | null): void => {
-      if (sections === null) return
-      for (const [name, text] of Object.entries(sections)) {
-        if (text === null || text.trim() === "" || (section !== undefined && section !== name)) continue
-        // A note row's ref names its section beside the sha, so the epic and its notes stay distinct rows.
-        out.push({ kind: "history", ref: `${sha}#${name}`, title: `${name}: ${firstLine(text)}`, subtitle: `note · ${owner}` })
-      }
-    }
-    for (const payload of payloads) {
-      if (payload.mythical.state !== "present") continue
-      for (const epic of payload.mythical.epics) {
-        if (section === undefined) {
-          out.push({
-            kind: "history",
-            ref: epic.sha,
-            title: epic.title,
-            subtitle: epic.merge ? `epic · ${epic.commits.length} commit${epic.commits.length === 1 ? "" : "s"}` : "commit"
-          })
-        }
-        note(epic.sha, epic.title, epic.note)
-        for (const commit of epic.commits) {
-          if (section === undefined) out.push({ kind: "history", ref: commit.sha, title: commit.title, subtitle: `commit · ${epic.title}` })
-          note(commit.sha, commit.title, commit.note)
-        }
-      }
-    }
-    return out
-  }
+  /** The history's changes, tip first: each one's title, its issue and whether main contains it. */
+  const historyItems = (stacks: ReadonlyArray<MythicalStack>): ReadonlyArray<Fact> =>
+    stacks.flatMap((stack) => stack.changes.map((change) => ({
+      kind: "history" as const,
+      ref: `${stack.repository}#${change.changeId}`,
+      title: change.title,
+      subtitle: change.issue === undefined ? change.state : `#${change.issue} · ${change.state}`
+    })))
 
   /** Runs the runs controller has listed or opened. */
   const runItems = (status?: string): ReadonlyArray<Fact> => {
@@ -352,7 +334,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       case "wiki":
         return wikiItems()
       case "history":
-        return historyItems(history, qualifier("section"))
+        return historyItems(history)
       case "runs":
         return runItems(qualifier("status"))
       case "changes": {
@@ -438,9 +420,8 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
    * The live reads a flow door takes before it answers, where the mode has
    * one. Each is the reader's own answer, indexed in place: a search embeds
    * one card (§6), so the secrets and history cards stay their own flows'.
-   * A history card already held is the index (the read is the expensive
-   * mirror walk); the environment document is always re-read, as
-   * secrets.list re-reads it.
+   * A watched history snapshot is the index, else one read; the environment
+   * document is always re-read, as secrets.list re-reads it.
    */
   const liveIndexes = async (mode: PaletteMode, args: SearchArgs): Promise<LiveIndexes | string> => {
     if (mode === "boxes" && deps.refreshWorkspaces !== undefined) {
@@ -456,11 +437,9 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       if (typeof config === "string") return config
       return { secrets: [{ repo, secrets: config.secrets }] }
     }
-    const held = ctx.store.collections.cards.get(`history-${repo}`)
-    if (held?.kind === "history") return { history: [held.payload] }
-    const payload = await readHistory(ctx, repo)
-    if ("error" in payload) return payload.error
-    return { history: [payload] }
+    if (deps.readStack === undefined) return { history: [] }
+    const stack = await deps.readStack(repo)
+    return typeof stack === "string" ? stack : { history: [stack] }
   }
 
   /** The factory projection's declared flows, as flow items that `flow.run` starts (targets: `//` reads the repository's own catalog). */
@@ -490,7 +469,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     const live = await liveIndexes(mode, args)
     if (!current()) return SIGN_OUT_REFUSAL
     if (typeof live === "string") return live
-    // The flow's query reads in its own mode's grammar, so `section:tried` is a qualifier for search.history too.
+    // The flow's query reads in its own mode's grammar.
     const parsed = parseQuery(`${prefixRow(mode).prefix}${args.query}`)
     const query = parsed.query
     const base = itemsOf(mode, parsed, live)

@@ -1,6 +1,6 @@
 # Cloud development
 
-Open this repository in Smithers, select its cloud workspace, and request one focused change in Chat. Track actionable work in a GitHub issue. Inspect the run's result and checks, and use `/stack.show smithersai/smithers` to follow the repository's issue lanes and pull requests.
+Open this repository in Smithers, select its cloud workspace, and request one focused change in Chat. Track actionable work in a GitHub issue. Inspect the run's result and checks, and use **History** (`/history.show smithersai/smithers`) to follow the repository's issue lanes and pull requests.
 
 The stack service alone writes the repository's linear `mythical` stack. For this send-upstream repository, work reaches append-only `main` through a GitHub pull request merged by the owner, with one commit per stack item. Never push to `mythical` by hand or rewrite `main`.
 

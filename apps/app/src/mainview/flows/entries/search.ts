@@ -67,7 +67,7 @@ export const searchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   search(actions, "search.flows", "flows", "The slash tree as data: every flow this session may run", "<query>"),
   search(actions, "search.targets", "targets", "Find targets by label, and the flows the factory projection declares", "<query>"),
   search(actions, "search.wiki", "wiki", "Find wiki pages and notes by title", "<query>"),
-  search(actions, "search.history", "history", "Find mythical commits, epics and note sections", "<query> [section:tried|evidence|folded|superseded]"),
+  search(actions, "search.history", "history", "Find changes in the history", "<query>"),
   search(actions, "search.runs", "runs", "Find runs by id, flow or status", "<query> [status:…]"),
   search(actions, "search.changes", "changes", "Find changes by id or title", "<query>"),
   search(actions, "search.issues", "issues", "Find issues by number or title", "<query> [is:open|closed]"),

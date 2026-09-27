@@ -1,4 +1,4 @@
-import { controlTabKey, expect,test } from "./browserTest"
+import { expect,test } from "./browserTest"
 
 /*
  * The boot-blocking regression (the local app stuck on "Smithers is starting
@@ -24,7 +24,7 @@ test("repository chrome sign-in is keyboard reachable and carries return_to", as
   const door = page.getByTestId("chrome-sign-in")
   await expect(door).toBeVisible()
   // The header holds the door; it is the first stop of the native tab order, then Enter activates it.
-  await page.keyboard.press(controlTabKey(page))
+  await page.keyboard.press("Tab")
   await expect(door).toBeFocused()
   const bounds = await door.boundingBox()
   expect(bounds!.x).toBeGreaterThan(page.viewportSize()!.width / 2)

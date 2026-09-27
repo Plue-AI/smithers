@@ -56,20 +56,12 @@
     "data": "Live public app, signed out"
   },
   {
-    "file": "history.png",
-    "source": "https://smithers.sh/smithersai/smithers",
-    "capturedAt": "2026-09-08T04:19:17.746Z",
-    "width": 1440,
-    "height": 1000,
-    "data": "Live public app, signed out"
-  },
-  {
     "file": "home.png",
-    "source": "Local app from main 94bef9ed49 (Playwright spec reproduces it)",
-    "capturedAt": "2026-09-26T20:00:00.000Z",
+    "source": "Design mockup of the app home; replace with the app capture when it ships",
+    "capturedAt": "2026-09-26T18:40:00.000Z",
     "width": 2880,
     "height": 1800,
-    "data": "Example repository"
+    "data": "Illustrative example repository acme/widgets"
   },
   {
     "file": "run-example.png",

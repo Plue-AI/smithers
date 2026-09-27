@@ -145,37 +145,3 @@ test("a real signed-out browser never dials Smithers Cloud, and the proxy refuse
   expect(String(body.message)).not.toMatch(/repo|repository/i)
 })
 
-
-const refuseAnonymousHistoryWrite = async (page: Page, action: "history.amend" | "history.fold"): Promise<void> => {
-  await boot(page)
-  const identity = await realApi(page, page.context().request, "GET", "/api/user")
-  expect(identity.status(), "the real host must distinguish signed-out from unavailable identity").toBe(401)
-  const step = page.locator(".smithers-chat-message")
-    .filter({ has: page.getByRole("button", { name: "Sign in with GitHub" }) })
-  const before = await step.count()
-  const dialled: string[] = []
-  page.on("request", (sent) => {
-    const path = new URL(sent.url()).pathname
-    if (/^\/api\/(?:repos?|user\/repos|cloud|mirror)(?:\/|$)/.test(path)) {
-      dialled.push(`${sent.method()} ${path}`)
-    }
-  })
-  await command(page, `/${action} smithersai/smithers`)
-  await expect(step).toHaveCount(before + 1)
-  await expect(step.last()).toContainText(/sign in/i)
-  expect(dialled).toEqual([])
-}
-
-test("amending history requires a signed-in owner before reading the repository", scenario("history.amend.signed-out-refusal", {
-  capabilities: ["cloud"],
-  coverage: ["action:history.amend", "host:local", "path:permission", "door:slash", "dimension:history-auth-boundary", "evidence:sign-in-receipt-and-no-repository-request"]
-}), async ({ page }) => {
-  await refuseAnonymousHistoryWrite(page, "history.amend")
-})
-
-test("folding history requires a signed-in owner before reading the repository", scenario("history.fold.signed-out-refusal", {
-  capabilities: ["cloud"],
-  coverage: ["action:history.fold", "host:local", "path:permission", "door:slash", "dimension:history-auth-boundary", "evidence:sign-in-receipt-and-no-repository-request"]
-}), async ({ page }) => {
-  await refuseAnonymousHistoryWrite(page, "history.fold")
-})

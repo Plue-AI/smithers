@@ -357,7 +357,7 @@ describe("factory homepage", () => {
       <RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
     expect(markup).toContain("<h2>Stack</h2>")
     expect(markup).toContain("0/1 lanes")
-    expect(markup).toContain('data-flow="stack.backfill"')
+    expect(markup).toContain('data-flow="history.backfill"')
   })
 
   test("prompt submits through chat.send and flow button uses the repository slash leaf", async () => {

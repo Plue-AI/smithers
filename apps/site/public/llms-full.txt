@@ -8,7 +8,7 @@ Smithers maintains your codebase. It turns issues into reviewed, tested changes 
 [Open Smithers](https://smithers.sh/smithersai/smithers)
 [Follow the quickstart](/docs/quickstart/)
 
-![The Smithers home: the question What should we work on?, the chat box, and four tiles: Fix an issue, Review a PR, Ask the codebase, and Run it every night.](/images/app/home.png)
+![The Smithers home for acme/widgets: the question What should we work on?, the chat box, and four tiles: Fix an issue, Review a PR, Ask the codebase, and Run it every night.](/images/app/home.png)
 
 Smithers home.
 
@@ -79,7 +79,7 @@ package scripts. Run the documentation checks and show me the diff.
 
 Chat stays usable while work runs. Use **Steer** on the run for a correction. During the current chat turn, Enter steers and Alt-Enter queues a follow-up.
 
-Read the resulting Change's **Diff**, **Checks**, and **Review**. Select **Land**. On repositories that send work upstream, such as Smithers, the owner merges the pull request. [History](/docs/learn/issue-to-main/) shows each issue's path to main.
+Read the resulting Change's **Diff**, **Checks**, and **Review**. Select **Land**. On repositories that send work upstream, such as Smithers, the owner merges the pull request. [History](/docs/learn/issue-to-main/) (`/history.show`) shows each issue's path to main.
 
 ## Continue
 
@@ -311,30 +311,30 @@ Check the configuration and flow discovery:
 
 ```bash
 smthrs doctor
-smthrs flow list
+smthrs ls
 ```
 
-`doctor` reports runtime and configuration problems without running a flow. `flow list` should include `change` with the description from its frontmatter. Resolve any failing checks before launching.
+`doctor` reports runtime and configuration problems without running a flow. `ls` should include `change` with the description from its frontmatter. Resolve any failing checks before launching.
 
 ## 4. Run and inspect it
 
 ```bash
-smthrs flow start change
+smthrs up change
 ```
 
-`flow start` plans the flow, grants its requested capabilities for this run, and launches it. Review the flow's instructions and capabilities before running it. The command stays attached until the run completes, fails, is cancelled, or waits for approval.
+`up` plans the flow, grants its requested capabilities for this run, and launches it. Review the flow's instructions and capabilities before running it. The command stays attached until the run completes, fails, is cancelled, or waits for approval.
 
 After it settles, list the runs and use the returned run id to inspect one:
 
 ```bash
-smthrs runs list
-smthrs runs show <run-id>
-smthrs runs logs <run-id>
+smthrs ps
+smthrs status <run-id>
+smthrs logs <run-id>
 ```
 
-A successful run appears as `completed`. Its transcript should contain the test instructions and source-directory explanation you requested. If it fails, `runs show` explains the diagnosis and `runs logs` shows the transcript.
+A successful run appears as `completed`. Its transcript should contain the test instructions and source-directory explanation you requested. If it fails, `status` explains the diagnosis and `logs` shows the transcript.
 
-Smithers records completed action results in the project's journal. A resumed run can reuse those results; starting another `flow start` creates a new run. See [durable execution](/docs/concepts/durable-execution/) for what replay preserves.
+Smithers records completed action results in the project's journal. A resumed run can reuse those results; starting another `up` creates a new run. See [durable execution](/docs/concepts/durable-execution/) for what replay preserves.
 
 ## Next steps
 
@@ -452,7 +452,7 @@ open → fixed → verified → closed
 
 ## Let Smithers fix it
 
-**Available now.** Label an issue `smithers`, or run `/issue.implement 42` in the app. Smithers plans the change, runs the checks, and opens a pull request. `/stack.show` shows where each issue is.
+**Available now.** Label an issue `smithers`, or run `/issue.implement 42` in the app. Smithers plans the change, runs the checks, and opens a pull request. **History** (`/history.show`) shows where each issue is.
 
 ## Sync with Linear
 
@@ -961,7 +961,7 @@ Set `SMITHERS_API` to your Smithers API origin and `SMITHERS_TOKEN` to a persona
 
 **GUI**
 
-**Available now.** Enter `/issue.implement 42`. The factory plans, changes, checks, and opens a pull request. `/stack.show` shows its progress.
+**Available now.** Enter `/issue.implement 42`. The factory plans, changes, checks, and opens a pull request. **History** (`/history.show`) shows its progress.
 
 **TUI**
 
@@ -1023,17 +1023,13 @@ Verifying your own fix fails with `self_verification`. Verifying an issue that i
 # Follow an issue to main
 https://smithers.sh/docs/learn/issue-to-main/
 
-When Smithers works on issues, each one moves through a path: planned, built, checked, opened as a pull request, landed. The stack shows every issue on that path at once.
+When Smithers works on issues, each one moves through a path: planned, built, checked, opened as a pull request, landed. **History** shows every issue on that path at once, above the changes already on main.
 
 ## Turn it on
 
 **GUI**
 
-**Available now.** Select **History**, then **Create**. Smithers builds the stack from main in the background; a toast follows it until it's ready. Needs admin permission on the repository.
-
-![The History card with its Create action.](/images/app/history.png)
-
-History before the stack exists.
+**Available now.** Select **History**, then **Bootstrap**. Smithers builds the history from main in the background; a toast follows it until it's ready. Needs admin permission on the repository.
 
 **TUI**
 
@@ -1051,11 +1047,11 @@ History before the stack exists.
 
 **GUI**
 
-**Available now.** Enter `/stack.show`. Each issue shows its step, checks, failures, and pull request. Open its run or pull request for the detail.
+**Available now.** Select **History**, or enter `/history.show`. Each issue shows its step, checks, failures, and pull request; each change shows whether it has landed. Open its run or pull request for the detail.
 
-- `/stack.backfill` adds the repository's open issues.
-- `/stack.parallel 3` works on up to three issues at once (1 to 8).
-- `/stack.retry` retries a blocked or rejected issue.
+- `/history.backfill` adds the repository's open issues.
+- `/history.parallel 3` works on up to three issues at once (1 to 8).
+- `/history.retry` retries a blocked or rejected issue.
 
 **TUI**
 
@@ -1071,7 +1067,7 @@ History before the stack exists.
 
 | Call | Does |
 | --- | --- |
-| `GET /api/repos/{owner}/{repo}/mythical` | The stack and every issue on it. |
+| `GET /api/repos/{owner}/{repo}/mythical` | The history and every issue on it. |
 | `GET .../mythical/events` | A live stream of changes. |
 | `POST .../mythical/backfill` | Add open issues. |
 | `PUT .../mythical/config` | Set `maxParallel` (admin). |

@@ -17,7 +17,7 @@ import { json, memoryStorage, silentAgent } from "./TestFixtures"
 const createAppController = scopedControllers()
 /* The Wiki (D-09b) and the mythical history (D-09 superseded) are core: no flag and no build variable hides them. */
 const wiki = ["wiki", "wiki.create", "wiki.open", "wiki.graph", "world", "world.new-note", "search.wiki"]
-const core = ["history.show", "history.bootstrap", "history.amend", "history.fold", "search.history"]
+const core = ["history.show", "history.bootstrap", "history.backfill", "history.parallel", "history.retry", "search.history"]
 
 describe("the Wiki is core", () => {
   test("every Wiki door registers with no feature and no environment flag", async () => {
@@ -45,8 +45,8 @@ describe("the Wiki is core", () => {
       expect(await controller.runWorkflow(name, "owner/repo")).toBe("Sign in with GitHub first: flows run on your own workspace.")
     }
     // Creating the mythical history and refreshing the Wiki ask the server for its stack (#1760).
-    expect(await controller.bootstrapStack("owner/repo")).toBe("Sign in to see the stack.")
-    expect(await controller.refreshWiki("owner/repo")).toBe("Sign in to see the stack.")
+    expect(await controller.bootstrapStack("owner/repo")).toBe("Sign in to see the history.")
+    expect(await controller.refreshWiki("owner/repo")).toBe("Sign in to see the history.")
     expect(calls).toEqual([])
     expect(store.session().librarianLaunches ?? []).toEqual([])
   })

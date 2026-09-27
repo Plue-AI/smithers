@@ -1,4 +1,4 @@
-import { controlTabKey, expect, test, type Page } from "./browserTest"
+import { expect, test, type Page } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 
 const repo = "smithersai/smithers"
@@ -103,7 +103,7 @@ test("a launch refusal survives reload and its keyboard Retry reuses the request
   expect(plans).toHaveLength(1)
   refuse = false
   const retry = card.getByRole("button", { name: "Retry", exact: true })
-  for (let stop = 0; stop < 50 && !await retry.evaluate(button => button === document.activeElement); stop++) await page.keyboard.press(controlTabKey(page))
+  for (let stop = 0; stop < 50 && !await retry.evaluate(button => button === document.activeElement); stop++) await page.keyboard.press("Tab")
   await expect(retry).toBeFocused()
   await page.keyboard.press("Enter")
   await expect(card).toHaveAttribute("data-run-id", "retried-run")

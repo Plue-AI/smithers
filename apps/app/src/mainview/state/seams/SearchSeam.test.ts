@@ -6,6 +6,7 @@
  * refuses with its reason.
  */
 import type { Card } from "@smthrs/rpc/Cards"
+import type { MythicalStack } from "@smthrs/rpc/Mythical"
 import type { StorageApi } from "@tanstack/db"
 import { describe,expect,test } from "bun:test"
 import { runSearchRef } from "@smthrs/ui/run-command"
@@ -101,31 +102,6 @@ const seed = async (store: AppStore): Promise<void> => {
     }
   })
   card(store, {
-    id: `history-${REPO}`,
-    kind: "history",
-    title: "history",
-    payload: {
-      repo: REPO,
-      defaultBookmark: "main",
-      mainCommits: null,
-      mythical: {
-        state: "present",
-        head: "h",
-        mainHead: null,
-        treeEqual: "unsupported",
-        commitCount: 2,
-        notes: "read",
-        epics: [{
-          sha: "abc1234",
-          title: "Redact secrets before they reach the journal",
-          merge: true,
-          note: { tried: "regex rescan per write, lost on latency", evidence: null, folded: null, superseded: null },
-          commits: [{ sha: "def5678", title: "Add the redaction seam", note: null }]
-        }]
-      }
-    }
-  })
-  card(store, {
     id: "runs-x",
     kind: "run-list",
     title: "runs",
@@ -186,16 +162,14 @@ const resultsCard = (store: AppStore, flow: string) => {
 }
 
 describe("the palette's rows (the button door) come from what the store holds", () => {
-  test("a bare query groups files, history, runs, issues and changes by kind, files first for a file name", async () => {
+  test("a bare query groups files, runs, issues and changes by kind, files first for a file name", async () => {
     const { store, controller } = await ready()
     await seed(store)
     const answer = controller.searchPalette("redact")
     expect(answer.parsed.mode).toBe("all")
     expect(answer.refusal).toBeUndefined()
-    expect(answer.groups.map((group) => group.label)).toEqual(["Files", "History", "Changes", "Issues"])
+    expect(answer.groups.map((group) => group.label)).toEqual(["Files", "Changes", "Issues"])
     expect(refs(answer.groups, "Files")).toEqual(["local:r1/packages/journal/Redaction.ts", "local:r1/packages/journal/Redaction.test.ts"])
-    // The epic (a prefix match), its commit (contains), then its tried note (its subtitle names the epic).
-    expect(refs(answer.groups, "History")).toEqual(["abc1234", "def5678", "abc1234#tried"])
     expect(refs(answer.groups, "Issues")).toEqual(["412"])
     // A directory is never a file result, and every row names its open flow.
     expect(answer.groups.flatMap((group) => group.items).every((row) => row.item.actions.some((action) => action.role === "open"))).toBe(true)
@@ -210,11 +184,9 @@ describe("the palette's rows (the button door) come from what the store holds", 
     expect(refs(answer.groups, "Files")[0]).toBe("local:r1/packages/journal/Redaction.test.ts")
   })
 
-  test("history: with section:tried lists the tried notes only; run: with status: filters", async () => {
+  test("run: with status: filters", async () => {
     const { store, controller } = await ready()
     await seed(store)
-    const tried = controller.searchPalette("history: section:tried")
-    expect(tried.groups.flatMap((group) => group.items.map((row) => row.item.title))).toEqual(["tried: regex rescan per write, lost on latency"])
     const running = controller.searchPalette("run: status:running")
     expect(running.groups.flatMap((group) => group.items.map((row) => row.item.ref))).toEqual([runSearchRef("run-9", "runs-x")])
     expect(controller.searchPalette("#412").groups.flatMap((group) => group.items.map((row) => row.item.title))).toEqual(["#412 Harden redaction on the journal path"])
@@ -339,12 +311,9 @@ describe("§6 the flow doors", () => {
     expect(resultsCard(store, "search.open").payload.items.map((item) => item.kind)).toEqual(["issue"])
   })
 
-  test("search.history reads the section qualifier in its own grammar; search.runs, search.changes and search.issues read their seams' rows", async () => {
+  test("search.runs, search.changes and search.issues read their seams' rows", async () => {
     const { store, controller } = await ready()
     await seed(store)
-    const history = await controller.commands.run("search.history", "regex section:tried")
-    expect(history.status).toBe("executed")
-    expect(resultsCard(store, "search.history").payload.items.map((item) => item.title)).toEqual(["tried: regex rescan per write, lost on latency"])
     await controller.commands.run("search.runs", "run status:completed")
     expect(resultsCard(store, "search.runs").payload.items.map((item) => item.ref)).toEqual([runSearchRef("run-7", "runs-x")])
     await controller.commands.run("search.changes", "journal")
@@ -390,56 +359,6 @@ describe("§6 the flow doors", () => {
     // A search embeds ONE card (§6): the secrets card is secrets.list's, and the search never wrote it.
     expect(store.collections.cards.get(`secrets-${REPO}`)).toBeUndefined()
     expect([...store.collections.cards.values()].map((row) => row.kind)).toEqual(["search-results"])
-  })
-
-  test("search.history with no history card reads the mirror itself, indexes the read, and writes no history card", async () => {
-    const seen: Array<string> = []
-    const change = (changeId: string, commitId: string, description: string, parents: ReadonlyArray<string>) => ({
-      change_id: changeId,
-      commit_id: commitId,
-      description,
-      author_name: "will",
-      author_email: "will@example.test",
-      timestamp: "2026-09-07T00:00:00Z",
-      has_conflict: false,
-      is_empty: false,
-      parent_change_ids: parents
-    })
-    const ref = (name: string, sha: string) => ({ ref: name, object: { sha, type: "commit" } })
-    const E1 = "e100000000000000000000000000000000000001"
-    const A1 = "a100000000000000000000000000000000000001"
-    const R = "0000000000000000000000000000000000000000"
-    const { store, controller } = await ready(
-      backend({
-        "/api/repos/will/flows": json(200, { default_bookmark: "main" }),
-        "/api/repos/will/flows/git/refs": json(200, [ref("refs/heads/main", E1), ref("refs/heads/mythical", E1)]),
-        "/api/repos/will/flows/changes": json(200, {
-          items: [
-            change("c-e1", E1, "01 · The workspace declares its toolchain", ["c-r", "c-a1"]),
-            change("c-a1", A1, "feat(workspace): WORKSPACE.ts", ["c-r"]),
-            change("c-r", R, "root", [])
-          ],
-          next_cursor: ""
-        })
-      }, seen)
-    )
-    const outcome = await controller.commands.run("search.history", "workspace")
-    expect(outcome.status).toBe("executed")
-    expect(seen).toContain("/api/repos/will/flows/git/refs")
-    const items = resultsCard(store, "search.history").payload.items
-    expect(items.map((item) => [item.ref, item.title])).toEqual([
-      [E1, "01 · The workspace declares its toolchain"],
-      [A1, "feat(workspace): WORKSPACE.ts"]
-    ])
-    // The read is the index, never a second card: history.show owns `history-<repo>`.
-    expect(store.collections.cards.get(`history-${REPO}`)).toBeUndefined()
-    expect([...store.collections.cards.values()].map((row) => row.kind)).toEqual(["search-results"])
-    // A history card already held is the index and the mirror is not walked again.
-    await seed(store)
-    const reads = seen.length
-    await controller.commands.run("search.history", "redaction")
-    expect(seen.length).toBe(reads)
-    expect(resultsCard(store, "search.history").payload.items.map((item) => item.ref)).toEqual(["def5678"])
   })
 
   test("unindexed search flows are absent from the real registry", async () => {
@@ -582,26 +501,23 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
       const { store, controller } = await ready(backend({}), "signed-in")
       const gate = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
       let disposed = false, reads = 0
-      const sha = "e100000000000000000000000000000000000001"
+      const privateHistory: MythicalStack = { repository: "search/private", state: "active", generation: 1, mainBehind: false, items: [], lanes: [],
+        limits: { maxParallel: 1 }, changes: [{ changeId: "private-change", commitId: "c1", title: "Private commit", kind: "item", state: "landed" }] }
       const answer = () => mode === "secrets"
         ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
         : mode === "targets"
           ? { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
-          : { items: [{ change_id: "private-change", commit_id: sha, description: "Private commit", author_name: "will", author_email: "will@example.test", timestamp: "2026-09-07T00:00:00Z", has_conflict: false, is_empty: false, parent_change_ids: [] }], next_cursor: "" }
+          : {}
       const wait = async () => { reads++; entered.resolve(); await gate.promise }
       try {
         await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
         await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
         const seam = createSearchSeam({ store, baseUrl: "", dispatch: store.dispatch, actor: () => actor, nextOrdinal: store.nextOrdinal, isDisposed: () => disposed,
-          http: async input => {
-            if (mode === "history") {
-              if (String(input).endsWith("/git/refs")) return json(200, [{ ref: "refs/heads/main", object: { sha } }, { ref: "refs/heads/mythical", object: { sha } }])
-              if (String(input).endsWith("/api/repos/search/private")) return json(200, { default_bookmark: "main" })
-              if (!String(input).includes("/changes?")) return json(404, {})
-            }
+          http: async () => {
             await wait(); return json(200, answer())
           }
-        }, { registry: () => controller.commands, refreshWorkspaces: wait })
+        }, { registry: () => controller.commands, refreshWorkspaces: wait,
+          readStack: async () => { await wait(); return privateHistory } })
         const pending = seam.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
         await entered.promise
         const loaded = (login: string | null, provider: "github" | "local" = "github") => store.dispatch({ type: "identity.session.loaded", actor: "system",

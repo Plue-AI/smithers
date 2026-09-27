@@ -1,8 +1,10 @@
 import { useClock } from "@smthrs/ui/clock"
 /*
- * The Stack card (epic #1745): one repository's mythical stack, live. Counts,
- * the lanes against maxParallel, and the ordered stack, each row naming its
- * issue, where it is, its checks and its pull request. Every button is a
+ * The History card (epic #1745, D-20): one repository's mythical stack, which
+ * is its history of logical changes, live. Counts (landed, and whether main
+ * moved past the stack), the lanes against maxParallel, and the ordered
+ * stack, each row naming its issue or change, where it is, its checks and its
+ * pull request. Every button is a
  * registered flow. The same body renders in the chat, maximized, and on the
  * repository homepage (`S.Home.Stack`); the snapshot is the stack seam's live
  * read, never card state.
@@ -58,7 +60,7 @@ const ItemCells = ({ item, repo, onRunCommand }: {
       )}
       {retryable(item) ? (
         <Button size="sm" variant="ghost"
-          {...flowAction(onRunCommand, "stack.retry", flowArgs("stack.retry", { id: item.id, repo }))}>Retry</Button>
+          {...flowAction(onRunCommand, "history.retry", flowArgs("history.retry", { id: item.id, repo }))}>Retry</Button>
       ) : null}
       {reason === undefined ? null : <span className="world-card-path stack-reason">{reason}</span>}
     </>
@@ -88,7 +90,7 @@ const WikiRow = ({ wiki, repo, onRunCommand }: {
   )
 }
 
-const RETRY_FLOW = { bootstrap: "history.bootstrap", backfill: "stack.backfill", parallel: "stack.parallel", retry: "stack.retry" } as const
+const RETRY_FLOW = { bootstrap: "history.bootstrap", backfill: "history.backfill", parallel: "history.parallel", retry: "history.retry" } as const
 
 const FailureRow = ({ message, act, args, onRunCommand }: {
   readonly message: string
@@ -98,7 +100,7 @@ const FailureRow = ({ message, act, args, onRunCommand }: {
 }) => (
   <div role="alert" className="world-card-row stack-failure" data-testid="stack-failure" data-act={act}>
     <span>{message}</span>
-    <Button size="sm" {...flowAction(onRunCommand, act === "read" ? "stack.show" : RETRY_FLOW[act], args)}>Retry</Button>
+    <Button size="sm" {...flowAction(onRunCommand, act === "read" ? "history.show" : RETRY_FLOW[act], args)}>Retry</Button>
   </div>
 )
 
@@ -137,6 +139,8 @@ export const StackBody = ({ repo, snapshot, failure, bootstrapping, onRunCommand
       {stack.state === "frozen" ? <p role="alert" data-testid="stack-frozen">{stack.reason ?? "frozen"}</p> : null}
       <p className="world-card-row stack-counts" data-testid="stack-counts">
         <span>{counts.changes} {counts.changes === 1 ? "change" : "changes"}</span>
+        {counts.landed === 0 ? null : <span data-testid="stack-landed">{counts.landed} landed</span>}
+        {stack.mainBehind ? <span data-testid="stack-main-behind">main ahead</span> : null}
         <span data-testid="stack-lane-count">{counts.busy}/{counts.maxParallel} lanes</span>
         {counts.queued === 0 ? null : <span>{counts.queued} queued</span>}
         {counts.open === 0 ? null : <span>{counts.open} {counts.open === 1 ? "PR" : "PRs"}</span>}
@@ -144,12 +148,12 @@ export const StackBody = ({ repo, snapshot, failure, bootstrapping, onRunCommand
         {counts.declined === 0 ? null : <span>{counts.declined} declined</span>}
       </p>
       <div className="world-card-row stack-admin">
-        <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "stack.backfill", repo)}>Backfill</Button>
+        <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "history.backfill", repo)}>Backfill</Button>
         <Button size="sm" variant="ghost" aria-label="Fewer lanes" disabled={counts.maxParallel <= 1}
-          {...flowAction(onRunCommand, "stack.parallel", flowArgs("stack.parallel", { value: counts.maxParallel - 1, repo }))}>−</Button>
+          {...flowAction(onRunCommand, "history.parallel", flowArgs("history.parallel", { value: counts.maxParallel - 1, repo }))}>−</Button>
         <span data-testid="stack-max-parallel">{counts.maxParallel}</span>
         <Button size="sm" variant="ghost" aria-label="More lanes" disabled={counts.maxParallel >= 8}
-          {...flowAction(onRunCommand, "stack.parallel", flowArgs("stack.parallel", { value: counts.maxParallel + 1, repo }))}>+</Button>
+          {...flowAction(onRunCommand, "history.parallel", flowArgs("history.parallel", { value: counts.maxParallel + 1, repo }))}>+</Button>
       </div>
       {stack.wiki === undefined ? null : <WikiRow wiki={stack.wiki} repo={repo} onRunCommand={onRunCommand} />}
       <ol className="stack-lanes" aria-label="Lanes" data-testid="stack-lanes">
@@ -188,7 +192,8 @@ export const StackBody = ({ repo, snapshot, failure, bootstrapping, onRunCommand
           <li key={row.key} className="world-card-row" data-testid={`stack-change-${row.change.changeId}`}>
             {row.item === undefined ? <span className="world-card-title">{row.change.title}</span> : <Title stack={stack} item={row.item} />}
             <span className="world-card-path">{row.change.changeId.slice(0, 8)}</span>
-            {row.item === undefined ? null : <ItemCells item={row.item} repo={repo} onRunCommand={onRunCommand} />}
+            {row.item !== undefined ? <ItemCells item={row.item} repo={repo} onRunCommand={onRunCommand} /> :
+              row.change.state === "pending" ? <span className="stack-state" data-state="pending">pending</span> : null}
           </li>
         ))}
       </ol>
