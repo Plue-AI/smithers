@@ -42,7 +42,14 @@ export const RuntimeCapabilitySchema = z.enum([
   // Cloud doors a host serves itself, declared by the host that opens them
   // (packages/rpc/src/HostCapabilities.ts holds the per-host tables).
   "cloud.terminal", // this origin tunnels workspace terminals (/api/cloud-ws/*)
-  "cloud.pat" // a host-held Smithers Cloud PAT session (/api/cloud-auth/*)
+  "cloud.pat", // a host-held Smithers Cloud PAT session (/api/cloud-auth/*)
+  /*
+   * The desktop shell (Electrobun) serves this origin: its renderer relay
+   * appends the row to the backend's bootstrap, and the packaged Bun host
+   * emits it when the shell starts it. No web origin — hosted or self-hosted —
+   * ever reports it, so native-shell UI reads this row and never `host`.
+   */
+  "native.shell"
 ])
 /**
  * The decoded value accepted by {@link RuntimeCapabilitySchema}.
@@ -60,6 +67,13 @@ export type RuntimeCapability = z.infer<typeof RuntimeCapabilitySchema>
  */
 export const AppBootstrapSchema = z.object({
   apiVersion: z.literal(APP_API_VERSION),
+  /**
+   * The API surface: `cloud` is every web origin the product serves — the
+   * Worker, the hosted backend and a self-hosted backend alike — and `local`
+   * is the Bun host (`apps/app/src/bun/server.ts`). Which shell shows the page
+   * is the `native.shell` capability, and which sign-in door the origin has is
+   * `authFlow`; neither is read from this field.
+   */
   host: z.enum(["cloud", "local"]),
   version: z.string(),
   buildSha: z.string(),
@@ -91,3 +105,15 @@ export type AppBootstrap = z.infer<typeof AppBootstrapSchema>
  */
 export const hasCapability = (bootstrap: AppBootstrap, capability: RuntimeCapability): boolean =>
   bootstrap.capabilities.includes(capability)
+
+/**
+ * True when the desktop shell serves this origin (`native.shell`). Every
+ * native-shell behaviour in the app reads this and never `host`: a self-hosted
+ * backend is a web origin like the hosted one, and only the shell reports the row.
+ * A missing bootstrap is no shell.
+ *
+ * @since 1.0.0
+ * @category conversions
+ */
+export const nativeShell = (bootstrap: Pick<AppBootstrap, "capabilities"> | undefined): boolean =>
+  bootstrap !== undefined && bootstrap.capabilities.includes("native.shell")

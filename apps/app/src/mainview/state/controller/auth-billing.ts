@@ -1,5 +1,5 @@
 import { accountProviderChanged } from "../AccountOwner"
-import { identityProviderFor } from "../IdentityProvider"
+import { identityProviderFor, signInByHandoff } from "../IdentityProvider"
 import {
 ADMIN_ALLOWLIST_PATH,
 ADMIN_GRANT_PATH,
@@ -588,10 +588,10 @@ export const createAuthBillingController = (
     }
     // Reserve the popup synchronously in the keyboard/button gesture. OAuth
     // finishes on the upstream; the claim transfers its cookie to this origin.
-    const popup = reservedOpen === undefined && services.openExternal === undefined && (services.bootstrap?.host === "local" || services.bootstrap?.authFlow === "native-handoff") && typeof window !== "undefined"
+    const popup = reservedOpen === undefined && services.openExternal === undefined && signInByHandoff(services.bootstrap) && typeof window !== "undefined"
       ? window.open("about:blank", "smithers-github-sign-in") : null
     if (popup) popup.opener = null
-    const openExternal = reservedOpen ?? services.openExternal ?? (services.bootstrap?.host === "local" || services.bootstrap?.authFlow === "native-handoff"
+    const openExternal = reservedOpen ?? services.openExternal ?? (signInByHandoff(services.bootstrap)
       ? async (url: string) => {
         if (!popup || popup.closed) return false
         popup.location.href = url

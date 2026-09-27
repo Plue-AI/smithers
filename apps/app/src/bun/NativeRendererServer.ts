@@ -72,6 +72,20 @@ const csrfFor = (jar: Map<string, StoredCookie>): string | undefined =>
   [...jar.values()].find((cookie) => cookie.name === "__csrf" && cookie.path === "/" &&
     (cookie.expiresAt === undefined || cookie.expiresAt > Date.now()))?.value
 
+/**
+ * The one row this relay adds to a backend's bootstrap: the desktop shell
+ * serves this origin (`native.shell`, packages/rpc/src/AppBootstrap.ts). The
+ * backend — owned Go or Plue — is a web origin and cannot know which shell
+ * shows its page, so the shell says so here and the app reads only this row
+ * for native-shell UI. Anything that is not a bootstrap document is relayed
+ * untouched, including a 404 for a backend without one.
+ */
+const withNativeShell = (body: unknown): unknown => {
+  if (typeof body !== "object" || body === null || !Array.isArray((body as { capabilities?: unknown }).capabilities)) return body
+  const capabilities = (body as { capabilities: Array<unknown> }).capabilities
+  return capabilities.includes("native.shell") ? body : { ...body, capabilities: [...capabilities, "native.shell"] }
+}
+
 /** The packaged native UI always serves locally and relays only API paths. */
 export const startNativeRendererServer = (distDirectory: string, apiOrigin: string, apiToken = ""): {
   readonly origin: string
@@ -176,6 +190,14 @@ export const startNativeRendererServer = (distDirectory: string, apiOrigin: stri
         relayed.set("set-cookie", rendererCSRF(jar))
         relayed.delete("content-encoding")
         relayed.delete("content-length")
+        if (url.pathname === "/api/bootstrap" && request.method === "GET" && response.ok) {
+          let body: unknown
+          try { body = await response.json() }
+          catch { return new Response("Backend returned an invalid Smithers bootstrap.", { status: 502 }) }
+          if (selectedGeneration !== generation) return new Response("Backend changed", { status: 409 })
+          relayed.set("content-type", "application/json")
+          return new Response(JSON.stringify(withNativeShell(body)), { status: response.status, statusText: response.statusText, headers: relayed })
+        }
         const reader = response.body?.getReader()
         let finished = false
         let outputController: ReadableStreamDefaultController<Uint8Array> | undefined

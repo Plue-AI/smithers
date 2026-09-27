@@ -96,7 +96,8 @@ const bootstrapFor = (host: AppBootstrap["host"]): AppBootstrap =>
       host,
       version: "test",
       buildSha: "local",
-      capabilities: localCapabilities({ agent: true, identity: true, cloud: true }),
+      // The desktop shell's row: the mode line reads it, never the host name.
+      capabilities: localCapabilities({ agent: true, identity: true, cloud: true, nativeShell: true }),
       authFlow: "native-handoff",
       sandbox: { platform: "darwin", mode: "enforced" }
     }

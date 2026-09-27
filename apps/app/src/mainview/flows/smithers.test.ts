@@ -49,7 +49,7 @@ const NATIVE: AppBootstrap = {
   host: "local",
   version: "test",
   buildSha: "local",
-  capabilities: localCapabilities({ agent: true, identity: true, cloud: true }),
+  capabilities: localCapabilities({ agent: true, identity: true, cloud: true, nativeShell: true }),
   authFlow: "native-handoff",
   sandbox: { platform: "darwin", mode: "enforced" }
 }

@@ -327,14 +327,10 @@ describe("the Smithers Cloud seam", () => {
     // bootstrap broke its contract"), so a field the client requires is part
     // of this route's contract and the key is never omitted.
     //
-    // It is a DESCRIPTOR and not `null`, which is the Worker's answer:
-    // `runtime/Runtime.ts` reads `host === "local" && sandbox === null` as
-    // "this origin has no repositories at all" and gives the app no
-    // repositories backend, so a local host that said `null` booted without
-    // one. This host wraps no child process — the seatbelt and bubblewrap
-    // mechanisms live in `@smthrs/build` `ExecSandbox` and nothing here
-    // selects one — so it says `unavailable` and `unenforced` rather than
-    // claiming an enforcement it does not perform.
+    // It is a DESCRIPTOR and not `null`: this host wraps no child process —
+    // the seatbelt and bubblewrap mechanisms live in `@smthrs/build`
+    // `ExecSandbox` and nothing here selects one — so it says `unavailable`
+    // and `unenforced` rather than claiming an enforcement it does not perform.
     const body: unknown = await (await apiFetch(APP_BOOTSTRAP_PATH)).json()
     const parsed = AppBootstrapSchema.safeParse(body)
     expect(parsed.success ? [] : parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`)).toEqual([])

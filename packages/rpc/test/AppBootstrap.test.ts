@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { APP_API_VERSION, AppBootstrapSchema, hasCapability, RuntimeCapabilitySchema } from "../src/AppBootstrap.ts"
+import { APP_API_VERSION, AppBootstrapSchema, hasCapability, nativeShell, RuntimeCapabilitySchema } from "../src/AppBootstrap.ts"
 
 describe("app bootstrap contract", () => {
   test("validates a local offline host without inventing cloud services", () => {
@@ -26,6 +26,19 @@ describe("runtime capabilities", () => {
     expect(RuntimeCapabilitySchema.parse("cloud.terminal")).toBe("cloud.terminal")
     expect(RuntimeCapabilitySchema.parse("cloud.pat")).toBe("cloud.pat")
     expect(RuntimeCapabilitySchema.safeParse("cloud.unknown").success).toBe(false)
+  })
+
+  test("native.shell is the desktop shell's row: a self-hosted web bootstrap never carries it", () => {
+    // The Go backend's self-host answer (packages/backend/internal/compose/bootstrap.go): a web origin with owner credentials.
+    const selfHost = AppBootstrapSchema.parse({
+      apiVersion: APP_API_VERSION, host: "cloud", version: "dev", buildSha: "abc",
+      capabilities: ["identity", "cloud", "cloud.terminal"], authFlow: "credentials",
+      sandbox: { platform: "darwin", mode: "trusted-only" }
+    })
+    expect(nativeShell(selfHost)).toBe(false)
+    expect(nativeShell(undefined)).toBe(false)
+    expect(nativeShell({ capabilities: ["native.shell"] })).toBe(true)
+    expect(RuntimeCapabilitySchema.parse("native.shell")).toBe("native.shell")
   })
 
   test("the retired local backend's doors are no longer capabilities any host can name", () => {

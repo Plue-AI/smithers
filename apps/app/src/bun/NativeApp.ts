@@ -90,7 +90,9 @@ const testServer = stubAgent === undefined ? undefined : await startLocalServer(
   distDir: defaultDistDir(import.meta.dir),
   stateDir,
   agent: stubAgent,
-  cloudMode: "offline"
+  cloudMode: "offline",
+  // This process is the desktop shell, so its renderer origin says so (`native.shell`).
+  nativeShell: true
 })
 const backend = await (async () => {
   try {

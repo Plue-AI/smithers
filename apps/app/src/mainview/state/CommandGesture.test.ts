@@ -3,6 +3,7 @@ import type { AppController,AppServices } from "./AppController"
 import { createAppStore,type AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, silentAgent } from "./TestFixtures"
+import { signInByHandoff } from "./IdentityProvider"
 
 const createAppController = scopedControllers()
 
@@ -24,7 +25,7 @@ const gate = () => {
 }
 const fixture = async (services: AppServices = {}, reject = false) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  if (services.bootstrap?.host === "local" || services.bootstrap?.authFlow === "native-handoff") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  if (signInByHandoff(services.bootstrap)) await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
   const held = gate()
   const observed: AppStore = { ...store, dispatch: transition => {
     const transaction = store.dispatch(transition)

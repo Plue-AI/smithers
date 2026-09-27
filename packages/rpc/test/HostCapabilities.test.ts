@@ -52,7 +52,7 @@ describe("cloudCapabilities (the Worker, host cloud)", () => {
       .toEqual(["cloud.terminal"])
   })
 
-  test("the Worker never claims cloud.pat and every entry is a known capability", () => {
+  test("the Worker never claims cloud.pat or native.shell and every entry is a known capability", () => {
     for (const identity of booleans) {
       for (const cloud of booleans) {
         for (const agent of booleans) {
@@ -60,6 +60,7 @@ describe("cloudCapabilities (the Worker, host cloud)", () => {
             for (const terminal of booleans) {
               const emitted = cloudCapabilities({ identity, cloud, agent, checkout, terminal })
               expect(emitted).not.toContain("cloud.pat")
+              expect(emitted).not.toContain("native.shell")
               expect(emitted.includes("cloud.terminal")).toBe(terminal)
               expect(new Set(emitted).size).toBe(emitted.length)
               for (const capability of emitted) expect(RuntimeCapabilitySchema.safeParse(capability).success).toBe(true)
@@ -98,6 +99,19 @@ describe("localCapabilities (the Bun server, host local)", () => {
           for (const capability of localCapabilities({ agent, identity, cloud })) {
             expect(capability.startsWith("local.")).toBe(false)
           }
+        }
+      }
+    }
+  })
+
+  test("native.shell is emitted last, only when the desktop shell started the host", () => {
+    expect(localCapabilities({ agent: true, identity: false, cloud: false, nativeShell: true })).toEqual(["agent", "model.turn", "native.shell"])
+    for (const agent of booleans) {
+      for (const identity of booleans) {
+        for (const cloud of booleans) {
+          expect(localCapabilities({ agent, identity, cloud })).not.toContain("native.shell")
+          expect(localCapabilities({ agent, identity, cloud, nativeShell: false })).not.toContain("native.shell")
+          expect(localCapabilities({ agent, identity, cloud, nativeShell: true }).at(-1)).toBe("native.shell")
         }
       }
     }

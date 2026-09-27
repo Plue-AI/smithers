@@ -22,7 +22,8 @@ const fixture = async (provider: "github" | "local" = "github", storage = memory
     return { username: body.login, admin: false, scopes: null }
   } }
   const ctx = createControllerContext(store, unavailableAgent, {
-    bootstrap: { apiVersion: 1, host: provider === "local" ? "local" : "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: ["identity"] },
+    // The owner's backend signs in with credentials; only the hosted redirect is the GitHub session (IdentityProvider.ts).
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: provider === "local" ? "credentials" : "redirect", sandbox: null, capabilities: ["identity"] },
     ...(provider === "local" ? { applicationIdentity } : {}),
     fetchImpl: async input => {
       const path = new URL(String(input), "https://app.test").pathname

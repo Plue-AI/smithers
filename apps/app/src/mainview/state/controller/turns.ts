@@ -4,7 +4,7 @@ import { lostActRefusal } from "../BrowserWriteFailure"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import type { ModelBinding } from "@smthrs/rpc/ConfiguredModel"
 import { AGENT_RUNTIME_CONTEXT_VERSION,composeAgentInstructions,renderAgentRuntimeContext } from "@smthrs/rpc/AgentContext"
-import { hasCapability } from "@smthrs/rpc/AppBootstrap"
+import { hasCapability, nativeShell } from "@smthrs/rpc/AppBootstrap"
 import { setupCandidate, storedSetupCandidate } from "@smthrs/rpc/RepositorySetup"
 import { AGENT_TURN_FRONT_DOOR_CALL_PREFIX } from "@smthrs/rpc/NativeAgent"
 import type { AgentChatMessage,AgentTurnCommand,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
@@ -452,8 +452,8 @@ export const createTurnController = (
     const contextBytes = context === undefined ? 0 : bytesOf(renderAgentRuntimeContext(context)) + 2
     const budgetBytes = CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES - contextBytes
     return smithersInstructions(agentVisibleCatalog(ctx.commands.callable()), {
-      // The bootstrap is the one authority for the mode: the cloud Worker is the web app; anything else is native-shaped.
-      host: ctx.services.bootstrap?.host === "cloud" ? "web" : "native",
+      // The bootstrap is the one authority for the mode: the desktop shell's row says native; every web origin, hosted or self-hosted, is the web app.
+      host: nativeShell(ctx.services.bootstrap) ? "native" : "web",
       nativeDownloadable: downloadUrlOf(ctx.services) !== null,
       github: {
         connected: githubConnected,

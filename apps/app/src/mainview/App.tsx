@@ -1,3 +1,4 @@
+import { nativeShell } from "@smthrs/rpc/AppBootstrap"
 import {
 Button,
 ChatMessage,
@@ -209,14 +210,16 @@ function AppContent() {
    * reads and chat work, and writes render the sign-in step when needed.
    */
   /*
-   * The host, named once, because the sign-in message and the gate below both
-   * read it. `AppBootstrap.host` is exactly "cloud" or "local", so on every
-   * real host `cloudHost` and the gate's `host !== "local"` are the same
-   * answer; they part only where there is no bootstrap at all (a harness),
-   * and there the empty transcript is the pinned behaviour — a build that
-   * cannot name its host has no sign-in to offer and no opening read to give.
+   * The sign-in door, named once: the hosted GitHub session is the provider
+   * `github` (state/IdentityProvider.ts), and the GitHub copy, the public
+   * catalog exploring and the signup are its. The owner's credentials
+   * (self-host, the owned native backend) get the one `auth.sign-in` door
+   * below. Neither reads the host name: a self-hosted origin is the web app.
+   * A build with no bootstrap at all (a harness) has no sign-in to offer and
+   * no opening read to give; the empty transcript is the pinned behaviour.
    */
-  const cloudHost = controller.bootstrap?.host === "cloud"
+  const hasBootstrap = controller.bootstrap !== undefined
+  const githubIdentity = hasBootstrap && controller.identityProvider === "github"
   const bootRepository = useMemo(() => typeof window === "undefined" ? null : pathRepo(window.location.pathname), [])
   // The catalog receipt owns admission. A build-time roster cannot classify a
   // pending/failed request, or reject a repository added since this build.
@@ -226,14 +229,30 @@ function AppContent() {
   const bootUnavailable = bootEntry?.phase === "failed" && bootEntry.failureKind !== "not-public"
   const missingBootRepository = bootEntry?.phase === "failed" && bootEntry.failureKind === "not-public"
     ? bootRepository : null
-  const exploringRepo = identity?.state === "signed-out" && cloudHost
+  const exploringRepo = identity?.state === "signed-out" && githubIdentity
     ? catalogRepositoryOf(session.activeRepoKey, repositoryRows)
     : null
-  const repositoryNotice = missingBootRepository !== null && identity?.state === "signed-out" && cloudHost
+  const repositoryNotice = missingBootRepository !== null && identity?.state === "signed-out" && githubIdentity
   // The signup onboarding owns the transcript until its stage is done (state/Signup.ts).
   // A repository URL is a page about that repository; the signup meets the landing entry, or resumes wherever its row is.
-  const signingUp = cloudHost && (session.signup !== undefined || controller.repositoryApp === null) && signupOpening(session.signup, identity?.state, identity?.accountOwnerLogin) !== false
-  const authMessage: Message | undefined = signingUp ? undefined : identity?.state === "signed-out" && cloudHost
+  const signingUp = githubIdentity && (session.signup !== undefined || controller.repositoryApp === null) && signupOpening(session.signup, identity?.state, identity?.accountOwnerLogin) !== false
+  /*
+   * On a web origin sign-in is the whole transcript (`gatedByAuth` below): the
+   * desktop shell alone opens signed out. An owner-credentials origin
+   * (self-host) has no GitHub copy to show, so its gate is the one door.
+   */
+  const nativeShellHost = nativeShell(controller.bootstrap)
+  const authMessage: Message | undefined = signingUp ? undefined : identity?.state === "signed-out" && hasBootstrap && !githubIdentity && !nativeShellHost
+    ? {
+      id: "auth-state",
+      role: "smithers",
+      text: "Sign in to continue.",
+      status: "complete",
+      action: { flow: "auth.sign-in", label: "Sign in" },
+      createdAt: 0,
+      ordinal: 0
+    }
+    : identity?.state === "signed-out" && githubIdentity
     ? bootPending ? undefined : bootUnavailable
       ? {
         id: "repository-state",
@@ -316,11 +335,12 @@ function AppContent() {
    * A gated auth state (signed out, not allowlisted) still shows only itself.
    */
   /*
-   * On the local host sign-in is an option, never a gate (docs/LOCAL-APP.md):
-   * repositories, terminals, and harnesses all work signed out, so the
-   * opening read shows. Signed out on Cloud, sign-in is the whole transcript.
+   * In the desktop shell sign-in is an option, never a gate (docs/LOCAL-APP.md):
+   * the shell's own backend signs its owner in, so the opening read shows.
+   * Signed out on any web origin — hosted or self-hosted — sign-in is the whole
+   * transcript. The shell is the `native.shell` row, never the host name.
    */
-  const gatedByAuth = (identity?.state === "signed-out" && controller.bootstrap?.host !== "local") ||
+  const gatedByAuth = (identity?.state === "signed-out" && !nativeShellHost) ||
     (identity?.state === "signed-in" && !identity.allowlisted)
   const repositoryCatalog = controller.repositoryFlows()
   // An app names a flow; a tile whose flow this host does not register would be a dead button, so it is not shown.
@@ -352,8 +372,8 @@ function AppContent() {
   const homeOnly = appsHome && messages.length === 0 && conversationCards.length === 0 && !typing
   // A cloud repository opens on its Welcome actions. Selection is durable and
   // precedes that card's load, so the technical success read never flashes first.
-  // Native host diagnostics and stored failures keep their existing presentation.
-  const repositoryOpening = cloudHost && session.activeRepoKey != null
+  // The desktop shell's diagnostics and stored failures keep their existing presentation.
+  const repositoryOpening = !nativeShellHost && session.activeRepoKey != null
   // A new conversation opens empty; the host's opening read belongs to main alone.
   const openingMessage: InitMessage | undefined = gatedByAuth || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
     bootstrap: controller.bootstrap,

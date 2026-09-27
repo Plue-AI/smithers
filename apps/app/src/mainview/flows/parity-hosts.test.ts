@@ -156,8 +156,8 @@ const localBootstrap = (capabilities: ReadonlyArray<RuntimeCapability>): AppBoot
 
 /** The Worker with every supported capability, including the W4 terminal relay. */
 const WEB = cloudBootstrap(cloudCapabilities({ identity: true, cloud: true, agent: true, balance: true, overview: true, plans: true, portal: true, checkout: true, terminal: true, browser: true }))
-/** The Bun server with a cloud upstream, the agent, identity and manual paths. */
-const NATIVE = localBootstrap(localCapabilities({ agent: true, identity: true, cloud: true, balance: true, overview: true, plans: true, browser: true }))
+/** The Bun server under the desktop shell, with a cloud upstream, the agent, identity and manual paths. */
+const NATIVE = localBootstrap(localCapabilities({ agent: true, identity: true, cloud: true, balance: true, overview: true, plans: true, browser: true, nativeShell: true }))
 
 /** Every command state the recommendation rule distinguishes. */
 const STATES: ReadonlyArray<CommandState> = (["chat", "world", "connectors", "flows"] as const).flatMap((surface) =>
@@ -524,7 +524,7 @@ describe("host parity — the web and native catalogs against the servers' own c
     const everything = new Set<RuntimeCapability>([
       ...productCapabilities,
       ...cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: true, browser: true }),
-      ...localCapabilities({ agent: true, identity: true, cloud: true, browser: true })
+      ...localCapabilities({ agent: true, identity: true, cloud: true, browser: true, nativeShell: true })
     ])
     /* Every capability the schema names is emitted by some host; an orphan fails here. */
     const orphans = RuntimeCapabilitySchema.options.filter((capability) => !everything.has(capability))

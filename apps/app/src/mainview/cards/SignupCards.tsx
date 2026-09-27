@@ -136,7 +136,8 @@ export function SignupCards() {
   const { data: identities } = useLiveQuery(collections.identitySessions)
   const { data: repositories } = useLiveQuery(collections.repositories)
   const signup = sessions[0]?.signup ?? controller.store.session().signup
-  const opening = controller.bootstrap?.host === "cloud" && (signup !== undefined || controller.repositoryApp === null) ? signupOpening(signup, identities[0]?.state, identities[0]?.accountOwnerLogin) : false
+  // The signup is the hosted GitHub door's; an origin signed in with owner credentials has no account to create.
+  const opening = controller.bootstrap !== undefined && controller.identityProvider === "github" && (signup !== undefined || controller.repositoryApp === null) ? signupOpening(signup, identities[0]?.state, identities[0]?.accountOwnerLogin) : false
   if (opening === false) return null
   // Pending DOM input belongs to this owner too, even before its command saves.
   // Same-owner refreshes retain the editor; retirement replaces its nodes.

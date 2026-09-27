@@ -12,7 +12,9 @@ import type { RuntimeCapability } from "./AppBootstrap.ts"
  * (`apps/app/src/bun/server.ts`, host `local`) call these with what they have
  * configured, and the parity test builds its registries from the same two
  * functions, so the matrix cannot drift from production. Each table is the
- * emission order; a row is kept only when its flag is on.
+ * emission order; a row is kept only when its flag is on. The Go backend
+ * (`packages/backend/internal/compose/bootstrap.go`) is a `cloud` host too,
+ * hosted or self-hosted, and keeps its own list.
  */
 
 /** What the Worker has configured. `terminal` names the same-origin workspace terminal relay.
@@ -34,6 +36,7 @@ export interface CloudCapabilityEnv {
 }
 
 /** What a Bun launch has configured. `cloud` is the cloud upstream; offline launches have none.
+ * `nativeShell` is true only when the desktop shell (`src/bun/NativeApp.ts`) started this host as its renderer origin.
  * @since 1.0.0
  * @category models
  */
@@ -47,6 +50,7 @@ export interface LocalCapabilityOptions {
   readonly identity: boolean
   readonly cloud: boolean
   readonly recommend?: boolean
+  readonly nativeShell?: boolean
 }
 
 const present = (rows: ReadonlyArray<readonly [RuntimeCapability, boolean]>): Array<RuntimeCapability> =>
@@ -91,5 +95,6 @@ export const localCapabilities = (opts: LocalCapabilityOptions): Array<RuntimeCa
     ["billing.portal", opts.portal === true],
     ["cloud.terminal", opts.cloud],
     ["cloud.pat", opts.cloud],
-    ["recommend", opts.recommend === true]
+    ["recommend", opts.recommend === true],
+    ["native.shell", opts.nativeShell === true]
   ])

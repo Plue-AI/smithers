@@ -59,12 +59,13 @@ const mount = (controller: AppControllerType): HTMLElement => {
   return host
 }
 
+/** The Bun host under the desktop shell: `native.shell` is the row the ungated opening reads. */
 const localBootstrap: AppBootstrap = {
   apiVersion: 1,
   host: "local",
   version: "1.0.0",
   buildSha: "abcdef1234567890",
-  capabilities: localCapabilities({ agent: true, identity: true, cloud: true }),
+  capabilities: localCapabilities({ agent: true, identity: true, cloud: true, nativeShell: true }),
   authFlow: "none",
   sandbox: null
 }

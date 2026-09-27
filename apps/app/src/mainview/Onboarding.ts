@@ -1,4 +1,5 @@
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
+import { nativeShell } from "@smthrs/rpc/AppBootstrap"
 import type { Harness, LocalRepositoryConnector, Message, Repo } from "./state/AppState"
 
 /*
@@ -93,8 +94,9 @@ export interface IdentityFacts extends Pick<InitFacts, "bootstrap" | "harnesses"
   readonly registered: (flow: string) => boolean
 }
 
+/** Which app this is: the desktop shell's row decides, never the host name (a self-hosted origin is the web app). */
 const hostLabel = (bootstrap: AppBootstrap | undefined): string =>
-  bootstrap === undefined ? "an unknown host" : bootstrap.host === "cloud" ? "the Smithers web app" : "the native Smithers app"
+  bootstrap === undefined ? "an unknown host" : nativeShell(bootstrap) ? "the native Smithers app" : "the Smithers web app"
 
 /**
  * The text /smithers.who renders: the name, the host, the repositories in

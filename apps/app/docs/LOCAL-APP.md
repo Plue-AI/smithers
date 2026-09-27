@@ -15,8 +15,9 @@ origin; it is not a separate application or state model.
 | Host | Server | Native privileges | Typical capabilities |
 | --- | --- | --- | --- |
 | Smithers Cloud | `apps/server` Cloudflare Worker | none | agent, identity, Smithers Cloud, checkout when configured |
+| Web, hosted or self-hosted | `packages/backend` Go (`host: "cloud"`, `authFlow` `redirect` or `credentials`) | none | identity, cloud, `cloud.terminal`, GitHub when configured |
 | Local browser/headless | `apps/app/src/bun/serve.ts` | none | agent/identity/cloud only in hybrid mode |
-| Local native | `apps/app/src/bun/index.ts` + Electrobun | system-browser handoff | the same rows; the Bun-held Smithers Cloud bearer adds `cloud.terminal` and `cloud.pat` |
+| Desktop shell | `apps/app/src/bun/NativeApp.ts` + Electrobun over the Go backend or Plue | system-browser handoff | the backend's rows plus `native.shell`, the one row native-shell UI reads (never `host`) |
 
 The desktop app offers exactly the web app's feature set. The local backend —
 targets, in-process language servers, terminals, local repositories and
@@ -31,7 +32,7 @@ so disabled hosts do not expose controls that can only fail.
 
 Supported capabilities are `agent`, `model.turn`, `recommend`,
 `browser.read`, `identity`, `github`, `cloud`, `billing.checkout`,
-`cloud.terminal`, and `cloud.pat`. No
+`cloud.terminal`, `cloud.pat`, and `native.shell`. No
 capability is local-only: a door no host can open is a flow that should not
 exist.
 

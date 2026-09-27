@@ -141,7 +141,7 @@ for (const replacement of ["login", "provider"] as const) test(`pending editor D
   const identity = (login: string, provider: "github" | "local" = "github") => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, provider, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   const host = document.createElement("div"), root = createRoot(host)
   document.body.append(host)
-  const controller = { store, bootstrap: { host: "cloud" }, repositoryApp: null, runCommand: () => true } as unknown as AppController
+  const controller = { store, bootstrap: { host: "cloud" }, identityProvider: "github", repositoryApp: null, runCommand: () => true } as unknown as AppController
   const project = () => flushSync(() => root.render(<ControllerContext value={controller}><SignupCards /></ControllerContext>))
   const input = () => host.querySelector<HTMLInputElement>('[data-testid="signup-name"]')!
   try {

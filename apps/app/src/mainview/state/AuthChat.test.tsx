@@ -447,10 +447,10 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(controller.commands.state().publicRepo).toBe(false)
   })
 
-  test("signed-out on the native host (host local) never reads the web opening message", async () => {
+  test("signed-out in the desktop shell (native.shell) never reads the web opening message", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
-      bootstrap: { ...WEB, host: "local", authFlow: "native-handoff", sandbox: { platform: "darwin", mode: "enforced" } },
+      bootstrap: { ...WEB, host: "local", capabilities: [...WEB.capabilities, "native.shell"], authFlow: "native-handoff", sandbox: { platform: "darwin", mode: "enforced" } },
       ...backend({
         "/api/auth/session": json(401, { status: "error" }),
         "/api/auth/scopes": json(200, { scopes: [] })

@@ -16,7 +16,7 @@ test("packaged Plue window serves its UI and forwards authenticated product API 
   const seen: Array<{ path: string; auth: string | null; body: string }> = []
   const remote = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => {
     seen.push({ path: new URL(request.url).pathname, auth: request.headers.get("authorization"), body: await request.text() })
-    return Response.json({ buildSha: "remote" })
+    return Response.json({ buildSha: "remote", capabilities: ["identity"] })
   } })
   close.push(() => remote.stop(true))
   const native = startNativeRendererServer(dist, `http://127.0.0.1:${remote.port}`, "owner-token")
@@ -26,7 +26,8 @@ test("packaged Plue window serves its UI and forwards authenticated product API 
   expect(await (await fetch(`${native.origin}/assets/main.js`)).text()).toBe("window.packaged = true")
   const response = await fetch(`${native.origin}/api/bootstrap`, { headers: { authorization: "Bearer owner-token" } })
   expect(response.status).toBe(200)
-  expect(await response.json()).toEqual({ buildSha: "remote" })
+  // The shell's one addition: the backend is a web origin; only this relay knows the desktop shell shows its page.
+  expect(await response.json()).toEqual({ buildSha: "remote", capabilities: ["identity", "native.shell"] })
   const mutation = await fetch(`${native.origin}/api/issues`, { method: "POST", headers: {
     authorization: "Bearer owner-token", "content-type": "application/json"
   }, body: JSON.stringify({ title: "Native issue" }) })
@@ -51,9 +52,33 @@ test("native UI stays available when the selected backend has no bootstrap", asy
   const ready = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ apiVersion: 1 }) })
   close.push(() => ready.stop(true))
   native.setTarget(`http://127.0.0.1:${ready.port}`)
+  // A document without a capability list is not a bootstrap this relay can decorate; it passes through.
   expect(await (await fetch(`${native.origin}/api/bootstrap`)).json()).toEqual({ apiVersion: 1 })
   expect(() => native.setTarget("file:///private/backend")).toThrow("Native API origin")
   expect(await (await fetch(`${native.origin}/api/bootstrap`)).json()).toEqual({ apiVersion: 1 })
+})
+
+test("the relay marks the selected backend's bootstrap as the desktop shell's and nothing else", async () => {
+  const dist = mkdtempSync(join(tmpdir(), "smithers-native-shell-row-"))
+  close.push(() => rmSync(dist, { recursive: true, force: true }))
+  writeFileSync(join(dist, "index.html"), "<div id='root'>packaged UI</div>")
+  // The owned Go backend's self-host answer: a web origin (`host: "cloud"`) with owner credentials.
+  const selfHost = { apiVersion: 1, host: "cloud", version: "dev", buildSha: "abc", capabilities: ["identity", "cloud"], authFlow: "credentials", sandbox: { platform: "darwin", mode: "trusted-only" } }
+  const remote = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
+    const url = new URL(request.url)
+    if (url.pathname !== "/api/bootstrap") return Response.json({ capabilities: ["not-a-bootstrap"] })
+    return request.method === "GET" ? Response.json(selfHost) : new Response("method not allowed", { status: 405 })
+  } })
+  close.push(() => remote.stop(true))
+  const native = startNativeRendererServer(dist, `http://127.0.0.1:${remote.port}`)
+  close.push(native.stop)
+  const relayed = await fetch(`${native.origin}/api/bootstrap`)
+  expect(relayed.headers.get("content-type")).toBe("application/json")
+  expect(await relayed.json()).toEqual({ ...selfHost, capabilities: ["identity", "cloud", "native.shell"] })
+  // Idempotent, and confined to the bootstrap document: another route's `capabilities` field is not the shell's to edit.
+  expect(await (await fetch(`${native.origin}/api/bootstrap`)).json()).toEqual({ ...selfHost, capabilities: ["identity", "cloud", "native.shell"] })
+  expect(await (await fetch(`${native.origin}/api/other`)).json()).toEqual({ capabilities: ["not-a-bootstrap"] })
+  expect((await fetch(`${native.origin}/api/bootstrap`, { method: "POST" })).status).toBe(405)
 })
 
 test("packaged Plue window relays a compressed backend response as readable JSON", async () => {

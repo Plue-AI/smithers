@@ -166,6 +166,12 @@ export interface LocalServerOptions {
   readonly version?: string
   readonly buildSha?: string
   /**
+   * True only when the desktop shell (`NativeApp.ts`) started this host as
+   * its renderer origin: the bootstrap then carries `native.shell`, the one
+   * row native-shell UI reads. A headless or test launch never claims it.
+   */
+  readonly nativeShell?: boolean
+  /**
    * Where the host remembers state across launches (the turn journal). The
    * native launcher passes the platform's application-support directory; a
    * test passes a temp dir or nothing.
@@ -721,7 +727,8 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         overview: identityUpstream !== null,
         plans: identityUpstream !== null,
         cloud: cloudUpstream !== null,
-        browser: remoteEnabled
+        browser: remoteEnabled,
+        nativeShell: options.nativeShell === true
       }),
       authFlow: identityUpstream === null ? "none" : "both",
       // Required by `AppBootstrapSchema`, and omitting it stopped the app
@@ -729,10 +736,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       // a missing `sandbox` is a contract break, not a default. This host
       // wraps no child process — the seatbelt and bubblewrap mechanisms live
       // in `@smthrs/build` `ExecSandbox` and nothing here selects one — so it
-      // says so rather than claiming an enforcement it does not perform. The
-      // descriptor is present rather than `null` because `null` is the CLOUD
-      // host's answer, and `Runtime.createRuntime` reads a local host's `null`
-      // as "this origin has no repositories at all".
+      // says so rather than claiming an enforcement it does not perform.
       sandbox: {
         platform: process.platform,
         mode: "unavailable",

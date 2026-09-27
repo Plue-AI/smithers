@@ -1,4 +1,5 @@
-import { identityProviderFor } from "./IdentityProvider"
+import { hostedSession, identityProviderFor, ownerCredentials } from "./IdentityProvider"
+import type { IdentityProvider } from "./IdentityProvider"
 import type { ClientErrorReporter } from "./ClientErrors"
 import type { FlowSubmission } from "../flows/Commands"
 import { createRepositoryReadiness } from "./controller/repositoryReadiness"
@@ -156,6 +157,8 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   /** The form the human's own invocation just rendered, until its card takes the keyboard (controller/forms.ts). */
   readonly formFocus: FormFocusHandoff
   readonly bootstrap: AppBootstrap | undefined
+  /** The sign-in door this origin has (IdentityProvider.ts): the hosted GitHub session, or the owner's credentials. */
+  readonly identityProvider: IdentityProvider
   /** Immutable repository pointer from this page's entry URL. */
   readonly repositoryApp: string | null
   /** The native app's download URL this page offers; null while no native release carries an asset (controller/app.ts). */
@@ -992,10 +995,9 @@ export const createAppController = (
     return refusal
   }
 
-  // A cloud browser session uses its hosted identity seam. A selected Plue
-  // bearer/token target reads the same backend through its application client.
-  const cloudSession = services.bootstrap?.host === "cloud" &&
-    (services.applicationTarget === undefined || services.applicationTarget.auth.kind === "session")
+  // A hosted browser session uses its hosted identity seam. A selected Plue
+  // bearer/token target, and the owner's backend, read through the application client.
+  const cloudSession = hostedSession(services)
   const applicationIdentity = cloudSession
     ? undefined
     : services.applicationIdentity
@@ -1021,7 +1023,7 @@ export const createAppController = (
   } = actors.pair(ctx, (context) => createAuthBillingController(
     context,
     store.nextOrdinal,
-    applicationIdentity === undefined && services.bootstrap?.host === "cloud" && hasCapability(services.bootstrap, "cloud")
+    applicationIdentity === undefined && services.bootstrap !== undefined && hasCapability(services.bootstrap, "cloud")
       ? loadCloudSession
       : undefined,
     () => {
@@ -1037,12 +1039,7 @@ export const createAppController = (
         settled: reloadRepositoriesWhenSignedIn
       }
   ))
-  if (
-    services.bootstrap?.host !== "cloud" &&
-    services.localIdentity !== undefined &&
-    services.applicationTarget?.ownership === "owner" &&
-    services.applicationTarget.auth.kind === "session"
-  ) {
+  if (ownerCredentials(services) && services.localIdentity !== undefined) {
     localAuth = createLocalAuthController(services.localIdentity, loadSession, services.localBootstrapToken)
     ctx.onDispose(localAuth.dispose)
   }
@@ -1661,6 +1658,7 @@ export const createAppController = (
     exportStorageRecovery,
     resetStorageRecovery,
     bootstrap: services.bootstrap,
+    identityProvider: identityProviderFor(services),
     repositoryApp: services.repositoryApp ?? null,
     repositoryFlows,
     knownRepositories: () => knownRepositories(store),

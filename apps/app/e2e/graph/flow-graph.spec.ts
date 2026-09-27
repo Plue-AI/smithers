@@ -205,11 +205,8 @@ test.describe("the flow builder's plan door", () => {
      * run here: `bun test` over `src/bun` orphans `e2e/native` daemons, about
      * ten per run, so nothing executes it. This does, against the real
      * `startLocalServer` the host boots. It is a DESCRIPTOR and not `null`:
-     * `runtime/Runtime.ts` reads `host === "local" && sandbox === null` as
-     * "this origin has no repositories at all", which boots the app without a
-     * repositories backend. The host wraps no child process, so it says
-     * `unavailable` and `unenforced` rather than claiming an enforcement it
-     * does not perform.
+     * the host wraps no child process, so it says `unavailable` and
+     * `unenforced` rather than claiming an enforcement it does not perform.
      */
     const bootstrap = await page.evaluate(async () => {
       const token = document.querySelector('meta[name="smithers-local-session"]')?.getAttribute("content") ?? ""

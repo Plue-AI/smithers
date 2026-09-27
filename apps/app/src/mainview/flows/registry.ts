@@ -243,14 +243,14 @@ export const flowCapabilityHeld = (bootstrap: Pick<AppBootstrap, "capabilities">
   bootstrap.capabilities.includes(capability)
 
 /**
- * A door only the native host opens: the host-held Smithers Cloud PAT session.
+ * A door only the native app opens: the host-held Smithers Cloud PAT session,
+ * and the desktop shell itself (`native.shell`).
  *
  * The local services (`local.*`) were retired with the local backend
  * (apps/app/docs/LOCAL-BACKEND-RETIREMENT.md): no host emits one and
- * `RuntimeCapabilitySchema` no longer accepts one, so the PAT session is the
- * last native-only door.
+ * `RuntimeCapabilitySchema` no longer accepts one.
  */
-const nativeDoor = (capability: FlowCapability): boolean => capability === "cloud.pat"
+const nativeDoor = (capability: FlowCapability): boolean => capability === "cloud.pat" || capability === "native.shell"
 
 /**
  * Whether a flow can exist only in the native app — the classification behind

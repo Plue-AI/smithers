@@ -2,7 +2,7 @@ import type { ClientErrorReporter } from "./state/ClientErrors"
 import { isWriterOwnershipError } from "./state/StorageRecoveryContract"
 import { selectFirstRunRepository } from "./state/FirstRunRepository"
 import { Effect } from "effect"
-import { hasCapability } from "@smthrs/rpc/AppBootstrap"
+import { hasCapability, nativeShell } from "@smthrs/rpc/AppBootstrap"
 import { nativeApplicationBootstrapToken, nativeOpenExternal, nativeShellAvailable } from "./native/NativeBridge"
 import { loadRuntimeApplicationClient } from "./runtime/ApplicationTransport"
 import { beginRepositoryEntry, openRequestedRepo, requestedRepo, withoutRepoParam } from "./RepoLink"
@@ -115,7 +115,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         allowlisted: false,
         admin: false
       }))
-    } else if (bootstrap.host === "local" || canPaintAppBeforeIdentity({
+    } else if (nativeShell(bootstrap) || canPaintAppBeforeIdentity({
       requestedRepo: requested,
       hasTranscript: store.collections.cards.size > 0 || store.collections.messages.size > 0,
       identityState: store.collections.identitySessions.get("identity")?.state,
@@ -123,12 +123,12 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
       accountOwnerLogin: store.collections.identitySessions.get("identity")?.accountOwnerLogin,
     })) {
       /*
-       * The local host never gates on sign-in (LOCAL-APP.md), and this read
-       * rides the remote identity seam through the local proxy — a slow or
-       * captive network held the whole boot on the session shell for as long
-       * as the upstream took. It runs beside the other inventory loads, never
-       * on the paint path: identity "unknown" is a first-class state the app
-       * already renders, and the answer lands in the store whenever it comes.
+       * The desktop shell never gates on sign-in (LOCAL-APP.md), and its
+       * identity read rides a proxied seam — a slow or captive network held
+       * the whole boot on the session shell for as long as the upstream took.
+       * It runs beside the other inventory loads, never on the paint path:
+       * identity "unknown" is a first-class state the app already renders,
+       * and the answer lands in the store whenever it comes.
        * A fresh anonymous entry is public content: its real controls need
        * not wait on identity. Retained content/account ownership keep the
        * cloud identity barrier.
@@ -141,23 +141,15 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
       })
     } else {
       /*
-       * The cloud host gates the transcript on the signed-out answer, so the
-       * probe stays on the boot path: awaiting it keeps the gate from flashing
-       * the opening read first. Same-origin on the Worker, never a proxy hop.
+       * A web origin — hosted or self-hosted — gates the transcript on the
+       * signed-out answer, so the probe stays on the boot path: awaiting it
+       * keeps the gate from flashing the opening read first. Same-origin, never a proxy hop.
        */
       yield* promiseEffect("load identity session", () => controller.loadSession())
     }
     // The awaited branch above has its identity answer here; the non-blocking
     // one does not, so this call is its own no-op and the `.then()` decides.
     if (requested === null) yield* Effect.sync(() => selectFirstRunRepository(store, controller.settleFirstRunTarget))
-    /*
-     * The built-in roles into the app-agents mirror. The local repository and
-     * harness lists retired with the local backend (LOCAL-BACKEND-RETIREMENT.md):
-     * no host serves `/api/repos` or `/api/harnesses`, so nothing probes them.
-     */
-    if (bootstrap.host === "local" && bootstrap.sandbox !== null) {
-      yield* Effect.sync(() => void controller.loadAgents())
-    }
     // An assigned seat this host cannot answer surfaces unasked (controller/models.ts).
     yield* Effect.sync(() => void controller.observeModels())
     // `/api/user` above is also the selected backend's Cloud-capability
