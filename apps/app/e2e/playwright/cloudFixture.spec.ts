@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./browserTest"
 import { AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { ReposResponseSchema } from "@smthrs/rpc/LocalApp"
 import { CloudSessionSchema } from "@smthrs/rpc/CloudTunnel"

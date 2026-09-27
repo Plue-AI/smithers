@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { signedOutVisitor } from "./identity"
 import { fillComposer } from "./composer"
 

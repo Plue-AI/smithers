@@ -1,5 +1,5 @@
 import { fillComposer } from "./composer"
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 
 for (const theme of ["light", "dark"] as const) test(`retained PR history recovers in the selected tab (${theme})`, async ({ page }) => {

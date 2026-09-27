@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 
 for (const [kind, fulfill] of [
   ["unreachable", async (route: import("@playwright/test").Route) => route.abort("failed")],

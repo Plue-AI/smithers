@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./browserTest"
 import { signedOutVisitor, skipSignup } from "./identity"
 
 /*

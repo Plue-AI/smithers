@@ -1,4 +1,4 @@
-import { expect,test } from "@playwright/test"
+import { expect,test } from "./browserTest"
 
 /*
  * The shell fits a phone. `.app-shell` is a flex item, so its default

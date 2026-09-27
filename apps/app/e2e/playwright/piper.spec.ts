@@ -1,6 +1,6 @@
 import { fillComposer } from "./composer"
-import { expect, test } from "@playwright/test"
-import type { Page } from "@playwright/test"
+import { expect, test } from "./browserTest"
+import type { Page } from "./browserTest"
 import type { Repo } from "@smthrs/rpc/LocalApp"
 import { installCloudFixture } from "./cloudFixture.ts"
 

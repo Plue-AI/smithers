@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { SCOPED_TEST_USER, signedOutVisitor } from "./identity"
 
 /*

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test"
-import type { Page } from "@playwright/test"
+import { expect, test } from "./browserTest"
+import type { Page } from "./browserTest"
 import { readFile } from "node:fs/promises"
 import type { StorageRecoverySnapshot } from "../../src/mainview/chain/StorageRecovery"
 

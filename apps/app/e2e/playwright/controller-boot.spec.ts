@@ -1,4 +1,4 @@
-import { expect,test } from "@playwright/test"
+import { expect,test } from "./browserTest"
 
 for (const repo of ["nope/nope", "smithersai/smithres"]) {
   test(`a signed-out repository deep link names ${repo} and keeps a keyboard sign-in path`, async ({ page }) => {

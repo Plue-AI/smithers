@@ -1,5 +1,5 @@
-import type { Page } from "@playwright/test"
-import { expect,test } from "@playwright/test"
+import type { Page } from "./browserTest"
+import { expect,test } from "./browserTest"
 
 /*
  * Control focus ("spotlight"): taking a card's embedded surface dims the rest

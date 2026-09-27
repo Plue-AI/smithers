@@ -1,5 +1,5 @@
 import { fillComposer } from "./composer"
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture.ts"
 
 /*

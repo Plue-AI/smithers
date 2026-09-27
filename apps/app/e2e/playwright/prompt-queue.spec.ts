@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 
 // #1944: the queued-prompt strip sits on the composer surface, never bare over the transcript.

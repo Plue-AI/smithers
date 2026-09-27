@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 
 const repo = "smithersai/smithers", runId = "chat-monitor"

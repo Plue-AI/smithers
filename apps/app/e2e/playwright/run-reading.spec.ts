@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 import { preparedCodingJournal } from "../../src/mainview/cards/fixtures/CodingJournal"
 

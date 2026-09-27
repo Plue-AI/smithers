@@ -1,4 +1,4 @@
-import { expect,test,type Page } from "@playwright/test"
+import { expect,test,type Page } from "./browserTest"
 
 /** Exercise the real failed-storage toast using only this browser profile. */
 const boot = async (page: Page) => {

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import type { MythicalItem, MythicalStack } from "@smthrs/rpc/Mythical"
 import { installCloudFixture } from "./cloudFixture"
 import { fillComposer } from "./composer"

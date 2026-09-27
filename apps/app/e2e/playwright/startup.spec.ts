@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 
 test("a late boot recovers after the startup watchdog without losing React's mount point", async ({ page }) => {
   await page.clock.install()

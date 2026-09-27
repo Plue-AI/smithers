@@ -1,4 +1,4 @@
-import { expect,test } from "@playwright/test"
+import { expect,test } from "./browserTest"
 import { localApiGet } from "./localApi"
 import { AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 

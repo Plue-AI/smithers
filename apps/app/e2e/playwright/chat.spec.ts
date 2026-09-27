@@ -1,4 +1,4 @@
-import { expect,test,type Page } from "@playwright/test"
+import { expect,test,type Page } from "./browserTest"
 
 // The summoned composer is transparent around its card and dismisses to the
 // same readable transcript, without a modal backdrop or an inert conversation.

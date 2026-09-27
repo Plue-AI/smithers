@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./browserTest"
 
 const command = async (page: Page, line: string) => {
   const input = page.getByTestId("composer-input")

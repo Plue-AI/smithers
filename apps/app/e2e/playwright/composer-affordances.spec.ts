@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 
 /*
  * The composer's two affordances, proven end to end.

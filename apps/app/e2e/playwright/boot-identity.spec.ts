@@ -1,4 +1,4 @@
-import { expect,test } from "@playwright/test"
+import { expect,test } from "./browserTest"
 
 /*
  * The boot-blocking regression (the local app stuck on "Smithers is starting

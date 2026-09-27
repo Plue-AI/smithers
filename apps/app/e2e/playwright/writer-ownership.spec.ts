@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 
 test("another tab can take the writer and the old tab stops", async ({ context, page }) => {
   const errors: string[] = []

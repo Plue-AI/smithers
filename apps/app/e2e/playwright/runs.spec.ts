@@ -1,5 +1,5 @@
-import type { Locator,Page } from "@playwright/test"
-import { expect,test } from "@playwright/test"
+import type { Locator,Page } from "./browserTest"
+import { expect,test } from "./browserTest"
 import type { StatusRollup } from "@smthrs/rpc/Health"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { DRAFT_RECOVERY_STORAGE_KEY } from "../../src/mainview/state/DraftRecovery"
 
 test("the split SQLite worker boots with OPFS and preserves a composer draft across reload", async ({ page }) => {

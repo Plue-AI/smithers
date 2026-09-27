@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test"
-import type { Page } from "@playwright/test"
+import { expect, test } from "./browserTest"
+import type { Page } from "./browserTest"
 import { assistantReplyEvidence } from "../contracts/assistantReplyEvidence"
 import type { TranscriptBubble } from "../contracts/assistantReplyEvidence"
 

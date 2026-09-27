@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test"
-import type { Page } from "@playwright/test"
+import { expect, test } from "./browserTest"
+import type { Page } from "./browserTest"
 import * as Y from "yjs"
 import { installCloudFixture } from "./cloudFixture"
 import { fillComposer } from "./composer"

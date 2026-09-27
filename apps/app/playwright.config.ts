@@ -2,7 +2,9 @@ import { defineConfig, devices } from "@playwright/test"
 
 /*
  * Test tier T1 (LOCAL-APP.md): the local origin without a window, driven by
- * headless Chromium. The web server builds the SPA (unless
+ * headless Chromium, or WebKit with SMITHERS_E2E_BROWSER=webkit. Specs use
+ * browserTest.ts so WebKit exercises real OPFS in isolated persistent profiles.
+ * The web server builds the SPA (unless
  * SMITHERS_SKIP_SPA_BUILD=1) and boots an in-process test host
  * (e2e/playwright/webserver.ts -> scripts/browser-test-host.ts) on a fixed
  * port with the chat stub injected. SMITHERS_CHAT_STUB=0 hits the real endpoint

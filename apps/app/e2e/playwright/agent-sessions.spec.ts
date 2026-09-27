@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 import { fillComposer } from "./composer"
 import { AGENT_SESSION_WIRE } from "../../src/mainview/state/seams/fixtures/AgentSessionWire"

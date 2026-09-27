@@ -1,5 +1,5 @@
-import type { Locator, Page } from "@playwright/test"
-import { expect, test } from "@playwright/test"
+import type { Locator, Page } from "./browserTest"
+import { expect, test } from "./browserTest"
 
 /*
  * THE FORM LAW meets the keyboard rule (apps/app/AGENTS.md). CT005 on live

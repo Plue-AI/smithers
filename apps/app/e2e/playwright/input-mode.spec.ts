@@ -1,4 +1,4 @@
-import { expect,test } from '@playwright/test'
+import { expect,test } from './browserTest'
 
 test.use({ contextOptions: { reducedMotion: 'reduce' }, actionTimeout: 3_000, navigationTimeout: 10_000 })
 test.setTimeout(30_000)

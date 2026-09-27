@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./browserTest"
 
 for (const path of ["/smithersai/smithers/", "/smithersai/smithers/?tutorial"]) {
   test(`arrow navigation keeps the palette selection visible and Tab leaves the input: ${path}`, async ({ page }) => {

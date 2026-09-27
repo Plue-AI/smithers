@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './browserTest'
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/bootstrap', route => route.fulfill({ json: {

@@ -1,4 +1,4 @@
-import { expect,test } from "@playwright/test"
+import { expect,test } from "./browserTest"
 import { signedOutVisitor } from "./identity"
 
 test("an unknown repository opens its recovery notice near the header", async ({ page }) => {
