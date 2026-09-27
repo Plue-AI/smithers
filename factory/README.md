@@ -16,8 +16,7 @@ an issue. GitHub remains synchronized; Cloud owns the coding and CI/CD work.
   not prove that a job is registered or running. See [queue/README.md](queue/README.md).
 - `flows/` — existing local factory tooling, not evidence of Cloud deployment.
   Canonical file flows use `flows/<name>/flow.ts` and the root AGENTS.md contract.
-- `coding/project.ts` — repository coding checks and host configuration.
-- `wiki/` — source catalog and engineering wiki recipe; reuse the existing app
+- `wiki/` — the wiki pages and recipe (the page catalog is `.smithers/coding-project.json`); reuse the existing app
   wiki workflows and preserve their source/review receipts.
 - `reports/` — runtime reports and logs, not tracked.
 

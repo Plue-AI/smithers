@@ -359,6 +359,14 @@
         "apps/app/src/mainview/wiki/CloudWikiState.ts",
         "apps/app/src/mainview/flows/entries/wiki.ts"
       ],
+      "excerpts": {
+        "apps/app/src/mainview/flows/entries/wiki.ts": [
+          {
+            "start": 69,
+            "end": 115
+          }
+        ]
+      },
       "related": [
         "wiki-generation",
         "product-ui",
