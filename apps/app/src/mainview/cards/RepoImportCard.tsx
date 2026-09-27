@@ -52,7 +52,6 @@ export const RepoImportCardBody = ({
         null}
       {/* ADR 0005: `stage · provisioning_workspace` — the job's own word, never translated. */}
       {stage != null ? <p className="world-card-path">{`stage · ${stage}`}</p> : null}
-      {jobId !== null ? <p className="world-card-path">job {jobId}</p> : null}
       {phase === "done" && repository != null ?
         <p className="world-card-path">{`${repository.owner}/${repository.name}`}</p> :
         null}

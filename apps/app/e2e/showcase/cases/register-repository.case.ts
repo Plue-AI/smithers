@@ -127,6 +127,9 @@ export default showcase({
     // The analysis toast settles with the run reaching review, not with its launch.
     await expect(page.getByText("Analyzing acme/widgets…")).toHaveCount(0, { timeout: 30_000 })
     await expect(page.locator(".toast")).toHaveCount(0, { timeout: 30_000 })
+    // The import is the registration's own step: no card of its own, no job id anywhere.
+    await expect(page.locator('[data-kind="repo-import"]')).toHaveCount(0)
+    await expect(page.getByText("job-1")).toHaveCount(0)
     await live.evaluate((element) => element.scrollIntoView({ block: "start" }))
     await app.beat(1500)
     // The whole report fits the 1440×900 frame.

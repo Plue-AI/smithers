@@ -1874,7 +1874,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       requestId: z.string().optional(),
       requestKind: z.enum(["start", "retry"]).optional(),
       retryMode: z.enum(["reconnect", "restart"]).optional(),
-      accountOwner: z.string().nullable().optional()
+      accountOwner: z.string().nullable().optional(),
+      /** A registration's import: its step shows on the registration card, so this card is not shown. */
+      registration: z.boolean().optional()
     })
   }),
   /*

@@ -1562,7 +1562,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       requestId: "import-request-1",
       requestKind: "retry",
       retryMode: "restart",
-      accountOwner: "smithersai"
+      accountOwner: "smithersai",
+      registration: true
     }
   },
   registration: {

@@ -147,6 +147,8 @@ export const CardView = memo(function CardView({
   }
   if (card.kind === "retired" || !knowledgeCardAvailable(card.kind, { pluginLibrary })) return null
   if (isRetiredCard(card)) return null
+  // A registration's import is a step of the registration card, not a card of its own.
+  if (card.kind === "repo-import" && card.payload.registration === true) return null
   return (
     <>
       {maximized ?

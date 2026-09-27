@@ -21,7 +21,7 @@ import { TOAST_SUPERSEDED } from "../controller/failures"
 import { actorSharedState } from "../ActorBindings"
 
 export interface RepoImportSeam {
-  readonly importRepository: (repo?: string) => Promise<string | void | { readonly value: string }>
+  readonly importRepository: (repo?: string, options?: { readonly registration?: boolean }) => Promise<string | void | { readonly value: string }>
   /** `repos.import.retry <jobId>`: re-run the failed job the card tracks. */
   readonly retryImport: (jobId: string) => Promise<string | void | { readonly value: string }>
   /** Reconnect persisted starting/running imports after a controller reload. */
@@ -190,6 +190,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
       card.payload.requestId === requestId && card.payload.accountOwner === accountOwner()
   }
 
+  /** Imports a registration asked for: the registration card shows them, so they post no card of their own. */
+  const forRegistration = new Set<string>()
   const upsert = (repo: string, ordinal: number, createdAt: number, patch: CardPatch): Promise<unknown> => {
     const id = `repo-import-${repo}`
     const existing = ctx.store.collections.cards.get(id)
@@ -241,7 +243,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
         ...(patch.requestId !== undefined ? { requestId: patch.requestId } : prior?.requestId !== undefined ? { requestId: prior.requestId } : {}),
         ...(patch.requestKind !== undefined ? { requestKind: patch.requestKind } : prior?.requestKind !== undefined ? { requestKind: prior.requestKind } : {}),
         ...(patch.retryMode !== undefined ? { retryMode: patch.retryMode } : prior?.retryMode !== undefined ? { retryMode: prior.retryMode } : {}),
-        ...(patch.accountOwner !== undefined ? { accountOwner: patch.accountOwner } : prior?.accountOwner !== undefined ? { accountOwner: prior.accountOwner } : {})
+        ...(patch.accountOwner !== undefined ? { accountOwner: patch.accountOwner } : prior?.accountOwner !== undefined ? { accountOwner: prior.accountOwner } : {}),
+        ...(forRegistration.has(repo.toLowerCase()) || prior?.registration === true ? { registration: true } : {})
       }
     }
     // Polling can return the same progress for minutes. Only a committed
@@ -529,7 +532,8 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
     return { value: "Import requested for " + repo + "." }
   }
 
-  const importRepository: RepoImportSeam["importRepository"] = async (explicit) => {
+  const importRepository: RepoImportSeam["importRepository"] = async (explicit, options) => {
+    if (options?.registration === true && explicit !== undefined) forRegistration.add(explicit.toLowerCase())
     if (ctx.isDisposed?.() || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-in") {
       return "Sign in to import a repository."
     }
