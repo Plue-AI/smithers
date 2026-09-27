@@ -67,6 +67,7 @@ import { PLUGINS_USER_ONLY_REASON, pluginsFlows, pluginsSurfaceFlows } from "./e
 import { prsFlows } from "./entries/prs"
 import { repoFlows, tutorialRepositoryFlows } from "./entries/repo"
 import { reposImportFlows, reposImportRetryFlows } from "./entries/repos"
+import { repositoryFlows } from "./entries/repository"
 import { reviewFlows } from "./entries/review"
 import { runsFlows } from "./entries/runs"
 import { searchFlows } from "./entries/search"
@@ -152,6 +153,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...billingBalanceFlows(actions),
   ...billingPlanFlows(actions),
   ...reposImportFlows(actions),
+  ...repositoryFlows(actions),
   ...issuesFlows(actions),
   ...integrationsFlows(actions),
   ...setupFlows(actions),

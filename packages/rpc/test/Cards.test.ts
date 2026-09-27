@@ -1597,6 +1597,10 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       accountOwner: "smithersai"
     }
   },
+  registration: {
+    minimal: { link: "acme/widgets", repo: "acme/widgets", phase: "importing", startedAt: 0, error: null, cloudRepo: null, replay: 0, accountOwner: null },
+    full: { link: "https://github.com/acme/widgets", repo: "acme/widgets", phase: "failed", startedAt: 1_790_000_000_000, error: "The import failed.", cloudRepo: "acme/widgets", replay: 2, accountOwner: "acme" }
+  },
   "connector-setup": {
     minimal: { connector: "github", repo: "smithersai/smithers", phase: "setup", steps: [] },
     full: {

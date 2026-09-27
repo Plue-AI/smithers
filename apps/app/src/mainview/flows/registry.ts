@@ -60,6 +60,7 @@ import * as plugins from "./entries/plugins"
 import * as prs from "./entries/prs"
 import * as repo from "./entries/repo"
 import * as repos from "./entries/repos"
+import * as repository from "./entries/repository"
 import * as review from "./entries/review"
 import * as runs from "./entries/runs"
 import * as search from "./entries/search"
@@ -464,6 +465,7 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   appearance.namespace,
   repo.namespace,
   repos.namespace,
+  repository.namespace,
   feature.namespace,
   connector.namespace,
   wiki.namespace,

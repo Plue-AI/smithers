@@ -70,6 +70,7 @@ import { createModelCallController, type ModelCallController } from "./controlle
 import { createModelsController,type ModelsController } from "./controller/models"
 import type { OnboardingController } from "./controller/onboarding"
 import { createOnboardingController } from "./controller/onboarding"
+import { createRegistrationController, type RegistrationController } from "./controller/registration"
 import { createPluginsController } from "./controller/plugins"
 import { createPresentationController } from "./controller/presentation"
 import type { RecommenderConfig } from "./controller/recommend"
@@ -500,6 +501,8 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   /** Render the account card, or the sign-in step signed out (account.show). */
   readonly showAccount: AccountController["showAccount"]
   readonly prototypeFeature: OnboardingController["prototypeFeature"]
+  /** Register a repository (repository.register); a registered one replays its recorded run. */
+  readonly registerRepository: RegistrationController["registerRepository"]
   /*
    * The multi-parity domain seams (MULTI-ACTIONS-GAP.md Tier 1/2): issues,
    * PRs/landings, billing checkout, notifications, the agent
@@ -1176,8 +1179,7 @@ export const createAppController = (
   const {
     pumpWorkflowRun,
     stopWatchingRun,
-    retryRunWatch: retryObservedRun,
-    resumeWorkflowRuns
+    retryRunWatch: retryObservedRun
   } = createWorkflowPumpController(ctx, store.nextOrdinal, readFlowDurations)
 
   const workflowController: WorkflowController = actors.pair(ctx, (context, select) => createWorkflowController(context, store.nextOrdinal, pumpWorkflowRun, select(renderFlowForm), readFlowDurations))
@@ -1475,6 +1477,28 @@ export const createAppController = (
     }))
 
   /*
+   * Registration: the existing import, then register-repository on the
+   * imported repository's workspace through flow.run's launch path.
+   */
+  const registration = actors.pair(ctx, (context, select) => {
+    const workflows = select(workflowController)
+    return createRegistrationController(context, {
+      guard: () => workflows.workflowIdentityGuard(),
+      importRepository: (repo) => select(repoImportSeam).importRepository(repo),
+      startRegistration: async (cloudRepo, link) => {
+        const started = await workflows.runWorkflow("register-repository", cloudRepo, { link })
+        return started === undefined ? { value: "run-requested" } : started
+      }
+    })
+  })
+  // A registration still importing or launching reconnects with the runs, after boot and sign-in.
+  const resumeRuns = ctx.resumeWorkflowRuns
+  ctx.resumeWorkflowRuns = () => {
+    resumeRuns()
+    registration.resumeRegistrations()
+  }
+
+  /*
    * The account card (mock 21): seam facts about the signed-in person, or the
    * sign-in step when no one is, through auth.prompt's renderer.
    */
@@ -1682,7 +1706,7 @@ export const createAppController = (
     chooseWorkflowRepo,
     stopWatchingRun,
     retryRunWatch,
-    resumeWorkflowRuns,
+    resumeWorkflowRuns: () => ctx.resumeWorkflowRuns(),
     listRuns: runs.listRuns,
     prepareRunHandoff: runs.prepareRunHandoff,
     openRun: runs.openRun,
@@ -1819,6 +1843,7 @@ export const createAppController = (
     introduce,
     showAccount: account.showAccount,
     prototypeFeature: onboarding.prototypeFeature,
+    registerRepository: registration.registerRepository,
     listIssues: issuesSeam.listIssues,
     viewIssue: issuesSeam.viewIssue,
     createIssue: issuesSeam.createIssue,

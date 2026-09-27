@@ -237,6 +237,7 @@ export const FLOW_NAMES = [
   "repo.update",
   "repos.import",
   "repos.import.retry",
+  "repository.register",
   "review.ack",
   "review.done",
   "review.reopen",

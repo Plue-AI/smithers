@@ -1,3 +1,4 @@
+import { registrationCardFamily } from "./RegistrationCard"
 import { repositoryUpdateCardFamily } from "./RepositoryUpdateCard"
 import { repositorySetupCardFamily } from "./RepositorySetupCard"
 import { repositoryHomeCardFamily } from "./RepositoryHomeCard"
@@ -95,6 +96,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   accountCardFamily,
   stackCardFamily,
   repoImportCardFamily,
+  registrationCardFamily,
   syncCardFamily,
   branchesCardFamily,
   fileCardFamily,
@@ -136,6 +138,7 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...accountCardFamily,
   ...stackCardFamily,
   ...repoImportCardFamily,
+  ...registrationCardFamily,
   ...syncCardFamily,
   ...branchesCardFamily,
   ...fileCardFamily,

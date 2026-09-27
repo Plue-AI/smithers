@@ -84,10 +84,14 @@ export const createWorkflowLaunchController = (
     const registration = request.triggerRegistration
     const toastKey = registration ? `trigger.register.${request.repo}.${registration.slug}.${registration.requestId}`
       : request.triggerDispatch ? `trigger.run.${request.repo}.${request.triggerDispatch.slug}.${request.id}` : `flow.request.${digest(requestKey(request))}`
+    // Repository registration's analysis is done when it reaches review; the review can take days.
+    const analysis = request.workflow === "register-repository"
     const title = registration ? `Registering ${registration.slug} on ${request.repo}…`
-      : request.triggerDispatch ? `${request.input.operation === "resume" ? "Resuming" : "Running"} ${request.triggerDispatch.slug} on ${request.repo}…` : request.workflow
+      : request.triggerDispatch ? `${request.input.operation === "resume" ? "Resuming" : "Running"} ${request.triggerDispatch.slug} on ${request.repo}…`
+      : analysis ? `Analyzing ${request.repo}…` : request.workflow
     const doneTitle = registration ? `${registration.slug} registered`
-      : request.triggerDispatch ? `${request.triggerDispatch.slug} ${request.input.operation === "resume" ? "resumed" : "dispatched"}` : `${request.workflow} completed`
+      : request.triggerDispatch ? `${request.triggerDispatch.slug} ${request.input.operation === "resume" ? "resumed" : "dispatched"}`
+      : analysis ? `${request.repo} is in review` : `${request.workflow} completed`
     const work = ctx.withToast(toastKey, title, doneTitle, async () => {
       let stage: NonNullable<WorkflowLaunch["error"]>["stage"] = "preparation"
       const fail = async (failure: Refusal) => {
@@ -218,6 +222,7 @@ export const createWorkflowLaunchController = (
           const card = read(id)!
           const run = store.committedRuntimeRun(runtimeRunKey(card.payload))
           const summary = run?.summary
+          if (analysis && summary?.status === "waiting-approval") return true
           if (summary !== undefined && terminal.has(summary.status)) {
             if (summary.status === "completed") {
               completed?.(request)

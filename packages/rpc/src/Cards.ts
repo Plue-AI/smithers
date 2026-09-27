@@ -1834,6 +1834,30 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
+   * The Register repository app (docs/mvp/REGISTRATION.md, #2153): the
+   * analysis one link starts. `repo` is the canonical GitHub owner/repo; the
+   * run itself is the run-trace card of
+   * `register-repository` for that link, found by its launch record. `replay`
+   * counts replays of a recorded run, so the card re-animates from the start
+   * without launching anything.
+   */
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("registration"),
+    payload: z.object({
+      link: z.string().max(500),
+      repo: z.string(),
+      phase: z.enum(["importing", "launching", "launched", "failed"]),
+      /** When this attempt started; a run recorded before it belongs to an earlier attempt. */
+      startedAt: z.number().int().nonnegative(),
+      error: z.string().nullable(),
+      /** The Smithers Cloud repository the import produced. */
+      cloudRepo: z.string().nullable(),
+      replay: z.number().int().nonnegative(),
+      accountOwner: z.string().nullable()
+    })
+  }),
+  /*
    * Lane sync (ADR 0005): the import becomes a job card. `stage`, `counts`,
    * `error`, `repository`, and `workspaceId` are the progress fields of
    * plue#471 — all optional, parsed only when the wire carries them, never

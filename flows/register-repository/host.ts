@@ -614,7 +614,8 @@ export const stepLayers = (options: HostOptions) => {
           const refs = (list: ReadonlyArray<number>) =>
             list.slice(0, 5).map((number) => ({
               pr: number,
-              title: pulls.find((pull) => pull.number === number)!.title
+              // Titles clipped so the step's journaled preview stays whole.
+              title: pulls.find((pull) => pull.number === number)!.title.slice(0, 80)
             }))
           return {
             _tag: "workflows" as const,

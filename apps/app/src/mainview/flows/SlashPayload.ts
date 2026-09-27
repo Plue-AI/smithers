@@ -718,6 +718,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   /* The flow the card names as absent; blank renders the generic "That is not in the web app". */
   "app.download.prompt": (args) => optional("flow", args),
   "repos.import": (args) => repoOnly("repos.import", args),
+  /* One freeform repository link; without it the form asks for one. */
+  "repository.register": (args) => ok((args ?? "").trim() === "" ? {} : { link: (args ?? "").trim() }),
   /* Tutorial stage 3's bare doors: the same read as their .list flows. */
   "issues": (args, known) => GRAMMAR["issues.list"]!(args, known),
   "prs": (args, known) => GRAMMAR["prs.list"]!(args, known),

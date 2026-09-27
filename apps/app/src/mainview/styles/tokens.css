@@ -124,6 +124,13 @@
 	--confluence-wash: color-mix(in srgb, var(--warning) 16%, transparent);
 	--golden-border: color-mix(in srgb, var(--warning) 45%, var(--surface));
 
+	/* ── Smithers' own choice (light): violet, reserved for answers the workflow chose ── */
+	--ai: #6a5ce0;
+	--ai-text: #4d3fc2;
+	--ai-wash: #efedff;
+	--ai-ring: #e4e0ff;
+	--ai-border: #8a7cf0;
+
 	/* ── Elevation (light) — the palette contributes --shadow-rgb ── */
 	--shadow-1: 0 1px 2px rgb(var(--shadow-rgb) / 4%), 0 1px 3px rgb(var(--shadow-rgb) / 6%);
 	--shadow-2: 0 1px 2px rgb(var(--shadow-rgb) / 4%), 0 12px 32px rgb(var(--shadow-rgb) / 10%);
@@ -264,6 +271,13 @@
 	--confluence-text: var(--warning);
 	--confluence-wash: color-mix(in srgb, var(--warning) 14%, transparent);
 	--golden-border: color-mix(in srgb, var(--warning) 55%, var(--surface));
+
+	/* ── Smithers' own choice (dark) ─────────────────────────── */
+	--ai: #a99ff7;
+	--ai-text: #c9c2ff;
+	--ai-wash: color-mix(in srgb, #8a7cf0 22%, transparent);
+	--ai-ring: color-mix(in srgb, #8a7cf0 30%, transparent);
+	--ai-border: #8a7cf0;
 
 	/* ── Elevation (dark) ────────────────────────────────────── */
 	--shadow-1: 0 1px 2px rgb(var(--shadow-rgb) / 24%), 0 1px 3px rgb(var(--shadow-rgb) / 32%);

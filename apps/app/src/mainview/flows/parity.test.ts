@@ -311,6 +311,7 @@ describe("launch-law parity: every affordance is a command", () => {
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
       "../TranscriptMessage.tsx": 4,
       "../LocalAuthPanel.tsx": 3,
+    "../RegistrationStatus.tsx": 1,
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, bootstrap Retry, backend chooser, and credential submission.
       "../StorageRecoveryButton.tsx": 1,
     "../SubagentGrid.tsx": 4,
@@ -389,6 +390,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/ModelCards.tsx": 11,
       /* Mark-all-read. */
       "../cards/NotificationsCard.tsx": 1,
+    "../cards/RegistrationCard.tsx": 3,
       "../cards/EnvCard.tsx": 2,
       /* The account card's Sign out door (auth.sign-out through onRunCommand). */
       "../cards/AccountCard.tsx": 2,
