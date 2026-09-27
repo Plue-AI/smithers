@@ -213,6 +213,14 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 		return &permanentGitHubWebhookJobError{err: fmt.Errorf("parse payload: %w", err)}
 	}
 
+	// The stack sees every issue event before the trigger trust gate: it
+	// applies its own trust rule, and an outsider's approved issue must still
+	// be cancelled when it closes.
+	if w.mythical != nil {
+		if err := w.mythical.ObserveGitHubEvent(ctx, job.EventType, job.Payload); err != nil {
+			return fmt.Errorf("admit mythical issue: %w", err)
+		}
+	}
 	event, supported := mapGitHubWebhookJobToTriggerEvent(job, payload)
 	if !supported {
 		return w.markJobDone(ctx, job)
@@ -220,11 +228,6 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 
 	if err := w.requestMainPull(ctx, job, payload); err != nil {
 		return err
-	}
-	if w.mythical != nil {
-		if err := w.mythical.ObserveGitHubEvent(ctx, job.EventType, job.Payload); err != nil {
-			return fmt.Errorf("admit mythical issue: %w", err)
-		}
 	}
 
 	selector := buildGitHubWebhookRepositorySelector(job, payload)

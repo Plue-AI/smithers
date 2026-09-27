@@ -388,3 +388,43 @@ func TestGitHubWebhookEventWorker_PollScheduledWorkflowTriggers_DelegatesToCronS
 	assert.Equal(t, now, queries.fireTimes[0].PrevFireAt.Time)
 	assert.Equal(t, now.Add(5*time.Minute), queries.fireTimes[0].NextFireAt)
 }
+
+type recordingMythicalObserver struct{ events []string }
+
+func (m *recordingMythicalObserver) ObserveGitHubEvent(_ context.Context, eventType string, payload []byte) error {
+	var event struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(payload, &event)
+	m.events = append(m.events, eventType+":"+event.Action)
+	return nil
+}
+
+// The stack sees an outside contributor's issue events that the trigger
+// trust gate drops, so closing a maintainer-approved outsider issue cancels
+// its item; the stack applies its own trust rule (smithersai/smithers#2175).
+func TestGitHubWebhookEventWorker_PollOnce_UntrustedIssueEventsReachTheStack(t *testing.T) {
+	t.Parallel()
+
+	queries := &mockGitHubWebhookEventWorkerQuerier{
+		claimPendingGitHubWebhookJobsFn: func(ctx context.Context, claimLimit int32) ([]db.GithubWebhookJob, error) {
+			return []db.GithubWebhookJob{{
+				ID:        3,
+				EventType: "issues",
+				Action:    "closed",
+				Payload: json.RawMessage(`{"action":"closed",
+					"issue":{"id":9,"number":7,"state":"closed","author_association":"NONE","labels":[{"name":"smithers"}]},
+					"repository":{"name":"demo","owner":{"login":"acme"}}}`),
+			}}, nil
+		},
+	}
+	dispatcher := &mockGitHubWebhookEventRunDispatcher{}
+	worker := NewGitHubWebhookEventWorker(queries, dispatcher)
+	stack := &recordingMythicalObserver{}
+	worker.SetMythical(stack)
+
+	require.NoError(t, worker.PollOnce(context.Background()))
+	assert.Equal(t, []string{"issues:closed"}, stack.events)
+	assert.Equal(t, []int64{3}, queries.markDoneIDs)
+	assert.Empty(t, dispatcher.calls, "the trigger trust gate still drops the event")
+}
