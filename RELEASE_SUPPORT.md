@@ -1,6 +1,6 @@
 # Library release and compatibility policy
 
-The public packages currently form one `1.0.0-rc.0` candidate. An RC is not a
+The public packages currently form one `1.0.0-rc.1` candidate. An RC is not a
 stable 1.0 compatibility or long-term support commitment. Publish it to `next`
 only after the release workflow passes for the exact commit on `main`. Builds
 and tests from another revision, a dirty checkout, or another dependency graph

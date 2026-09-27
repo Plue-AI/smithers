@@ -112,7 +112,7 @@ Before either gate, `smthrs migrate` checks every `smithers.db` beside the proje
 
 Three notes on the set:
 
-- `--to` was removed: SQLite only; the 0.x database move is removed. See [databases](#databases) below.
+- `--to` was removed: the 0.x database move is removed. See [databases](#databases) below.
 - `--json` is a shared global flag, so it is not declared on the verb.
 - `--scan` wins over `--apply` when both are given.
 
@@ -417,7 +417,7 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### databases
 
-**Reason:** The 0.x database move is removed; configure PostgreSQL with SMITHERS_POSTGRES_URL. **Removed:** the flags `smthrs migrate --to` and `--backend` (Choose sqlite or postgres using SMITHERS_BACKEND and SMITHERS_POSTGRES_URL). **1.0 path:** local SQLite; rc.0 has no PostgreSQL or PGlite backend, and `SMITHERS_BACKEND=pglite` or `SMITHERS_BACKEND=postgres` fails the same way, exiting 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).
+**Reason:** The 0.x database move is removed; configure PostgreSQL with SMITHERS_POSTGRES_URL. **Removed:** the flags `smthrs migrate --to` and `--backend` (Choose sqlite or postgres using SMITHERS_BACKEND and SMITHERS_POSTGRES_URL). **1.0 path:** local SQLite, or PostgreSQL with `SMITHERS_POSTGRES_URL` or `DATABASE_URL`. Any other `SMITHERS_BACKEND`, such as `pglite`, exits 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).
 
 **Scaffolding flags.**
 

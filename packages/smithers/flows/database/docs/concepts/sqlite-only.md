@@ -106,8 +106,8 @@ maintenance format. PostgreSQL operators must back up and restore the schema
 with PostgreSQL tooling and retain the associated artifact objects and host
 state. A SQLite bundle is not a PostgreSQL export/import format.
 
-Each owning package runs the matrix through `pnpm test`, `pnpm coverage`,
-`pnpm test:matrix`, and its factory test target. It runs the existing suite once
+Each owning package runs the matrix through `pnpm coverage`,
+`pnpm test:matrix`, and its factory test target; plain `pnpm test` runs SQLite only. It runs the existing suite once
 on SQLite and once on a real PostgreSQL server. Set `SMITHERS_TEST_PG_URL` to a
 scratch database, or let the runner create and remove a temporary local cluster.
 `PG_BIN` selects the PostgreSQL binaries. Tests use isolated schemas and remove

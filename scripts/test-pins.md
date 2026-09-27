@@ -21,10 +21,9 @@ floor or when a workflow names a release of its own. The durable database backen
 [SQLite only](../packages/smithers/flows/database/docs/concepts/sqlite-only.md)
 before placing a database file on disk.
 
-**PostgreSQL and PGlite are unsupported.** The write-retry seam recognizes
-some of their transient failures, but release 1 ships neither a client layer
-nor a migration ladder for either backend. This accepted parity gap is tracked
-in the [storage boundaries](../apps/site/docs/reference/support-matrix.md#storage).
+**PostgreSQL is supported; PGlite is not.** PostgreSQL is selected by
+`SMITHERS_POSTGRES_URL` or `DATABASE_URL`, per the
+[storage boundaries](../apps/site/docs/reference/support-matrix.md#storage).
 
 Bun is a second runtime rather than a second support claim. `BunRuntime`
 composes the durable engine on the native Bun SQL driver, the adapter declares

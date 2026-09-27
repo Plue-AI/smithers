@@ -89,4 +89,4 @@ Each page is stitched from the package's colocated `docs/api.md`: the source of 
 
 ## Platform support
 
-The [RC support matrix](/docs/reference/support-matrix/) defines the runtime and platform boundary. Node.js with local SQLite is the only durable target. Browser coverage establishes bundling only; supplying another runtime or SQL client does not establish durable browser support.
+The [RC support matrix](/docs/reference/support-matrix/) defines the runtime and platform boundary. Node.js and Bun are durable runtimes, storing in local SQLite or, when `SMITHERS_POSTGRES_URL` or `DATABASE_URL` is set, PostgreSQL. Browser coverage establishes bundling only; supplying another runtime or SQL client does not establish durable browser support.

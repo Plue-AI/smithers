@@ -70,7 +70,7 @@
     "show": "`smthrs runs show`; see [CLI reference](/docs/reference/cli/).",
     "log": "`smthrs runs logs`; see [CLI reference](/docs/reference/cli/).",
     "help": "`smthrs --help`; see [CLI reference](/docs/reference/cli/).",
-    "databases": "local SQLite; rc.0 has no PostgreSQL or PGlite backend, and `SMITHERS_BACKEND=pglite` or `SMITHERS_BACKEND=postgres` fails the same way, exiting 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).",
+    "databases": "local SQLite, or PostgreSQL with `SMITHERS_POSTGRES_URL` or `DATABASE_URL`. Any other `SMITHERS_BACKEND`, such as `pglite`, exits 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).",
     "init": "the `smthrs init` verb itself stays; seats resolve from provider environment keys; see [Model seats](/docs/guides/model-seats/) and [Environment variables](/docs/reference/environment-variables/).",
     "plan-admission": "declare parallelism in the flow and let plan admission bound it; see [Flows, actions, and plans](/docs/concepts/flows-actions-plans/) and [Plan, approve, run](/docs/guides/plan-approve-run/).",
     "flows": "This anchor is not a removal. Verbs that take a flow id refuse the reserved `system/*` ids: a reserved system flow id carries no body in 1.0.0-rc.0, so a launch would park with nothing to run. **1.0 path:** name a flow from `smthrs flow list`; see [Flow discovery](/docs/guides/flow-discovery/)."

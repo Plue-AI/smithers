@@ -14,7 +14,7 @@ smthrs migrate [path] [--scan] [--apply] [--seat <seat>] [--allow-unsafe <name,.
 
 ## Description
 
-`smthrs migrate` converts a Smithers 0.x project to the 1.0 authoring model: it rewrites application source onto `Flow`, `Action`, and Effect, archives the old sources, and records every decision in an auditable report. It is the same tool as the `smithers-migrate` executable in `@smthrs/migrate`. It never recreates the JSX runtime, and it never rewrites or resumes 0.x run state. The 0.x `--to` flag was removed: storage is SQLite only ([the databases section](/docs/migration/1.0/#databases)).
+`smthrs migrate` converts a Smithers 0.x project to the 1.0 authoring model: it rewrites application source onto `Flow`, `Action`, and Effect, archives the old sources, and records every decision in an auditable report. It is the same tool as the `smithers-migrate` executable in `@smthrs/migrate`. It never recreates the JSX runtime, and it never rewrites or resumes 0.x run state. The 0.x `--to` flag was removed ([the databases section](/docs/migration/1.0/#databases)).
 
 The verb has three modes. With neither flag, the mode is `plan`; when both are passed, `--scan` wins.
 
