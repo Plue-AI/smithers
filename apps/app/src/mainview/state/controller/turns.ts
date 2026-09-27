@@ -492,6 +492,8 @@ export const createTurnController = (
    * oldest card first. A turn fails on size only past that: a context whose
    * tabs and repositories alone pass the cap, which no session has produced.
    */
+  /** The note text (characters) command names never crowd out. */
+  const NOTE_BODY_FLOOR = 1_000
   const composeInstructions = (): { readonly context: AgentRuntimeContext; readonly instructions: string } => {
     const limit = CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES
     const render = (worldBodyBudget: number, lastStage: InstructionStage = 2, setupDrafts?: number, cardLines?: number) => {
@@ -509,7 +511,12 @@ export const createTurnController = (
      * hundreds of bytes of room unused and every note bodiless.
      */
     let fit = render(0)
-    const lastStage = fit.over > 0 ? 3 : 2
+    /*
+     * Command names by namespace stay only while the notes keep a floor of
+     * text beside them; a catalog that fits with a sliver left would cut
+     * every note body to nothing, so the names give way first.
+     */
+    const lastStage = fit.over > 0 || render(NOTE_BODY_FLOOR).over > 0 ? 3 : 2
     let setupDrafts: number | undefined
     let cardLines: number | undefined
     if (lastStage === 3) {
