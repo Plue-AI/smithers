@@ -140,6 +140,9 @@ export interface WikiRow {
   readonly failure: string | undefined
 }
 
+/** The chip tone of the wiki's freshness (D-09b): current is information, failed is danger, refreshing and stale are in progress. */
+export const wikiTone = (state: MythicalWiki["state"]): "info" | "danger" | "brand" => state === "current" ? "info" : state === "failed" ? "danger" : "brand"
+
 export const wikiRow = (wiki: MythicalWiki): WikiRow => ({
   state: wiki.state,
   pages: `${wiki.pages} ${wiki.pages === 1 ? "page" : "pages"}`,

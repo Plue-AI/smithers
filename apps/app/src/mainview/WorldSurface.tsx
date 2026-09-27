@@ -15,6 +15,8 @@ import type { WorldDocument } from "./state/AppState"
 import { SurfaceHeader } from "./SurfaceChrome"
 import { attachmentUrl, indexDocumentId, indexLinksOf, indexPageAt, isAttachment, openIndexPath, useWikiScope, WikiSpaceSwitch, WikiTree } from "./wiki/WikiNavigation"
 import { pageLinksOf, WikiPageView } from "./wiki/WikiPageView"
+import { useStackSnapshot } from "./cards/StackCard"
+import { wikiTone } from "./cards/StackView"
 import { linkGraphOf, linksOf, neighbourhoodOf } from "./wiki/VaultAdapter"
 
 
@@ -55,6 +57,9 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
   const fileInput = useRef<HTMLInputElement>(null)
   /* The page view: the rendered page, or the editor (wiki.view). A local note has only its editor. */
   const reading = (session.wikiPageView ?? "read") === "read" && selected?.cloud !== undefined && repo !== null
+  // Freshness (D-09b): a generated page (`generated-<id>`) wears the stack's wiki state, as the Ask tile does; a hand-written page wears nothing.
+  const stack = useStackSnapshot(repo ?? "")?.stack
+  const freshness = selected?.cloud?.slug.startsWith("generated-") === true && stack !== null && stack !== undefined ? stack.wiki : undefined
   /* The heading a `[[Page#Heading]]` link named, until the page it opened has scrolled to it: transient chrome. */
   const [pendingHeading, setPendingHeading] = useState<{ readonly id: string; readonly heading: string } | null>(null)
   /** A wikilink activated in the reading view: the page by its path in this space, and the heading it names. */
@@ -149,7 +154,6 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                 <div className="world-document-meta">
                   <span data-testid="wiki-page-path">{attachment.path}</span>
                   <div>
-                    <span className="world-document-revision" data-testid="wiki-page-revision">r{attachment.revision}</span>
                     <Button variant="ghost" size="icon" aria-label={`History of ${attachment.path}`} title="History"
                       {...flowAction(controller.runCommand, "wiki.history", flowArgs("wiki.history", { slug: attachment.slug, repo }))}><History size={13} /></Button>
                     <Button variant="ghost" size="icon" aria-label={`Rename ${attachment.path}`} title="Rename"
@@ -173,7 +177,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                 <div className="world-document-meta">
                   <span data-testid="wiki-page-path">{selected.cloud?.path ?? selected.path}</span>
                   <div>
-                    {selected.cloud === undefined ? null : <span className="world-document-revision" data-testid="wiki-page-revision">r{selected.cloud.remoteRevision}</span>}
+                    {freshness === undefined ? null : <span className="app-chip wiki-page-freshness" data-tone={wikiTone(freshness.state)} data-testid="wiki-page-freshness">{freshness.state} · main</span>}
                     {selected.cloud === undefined || repo === null || slug === undefined ? null : <>
                       <Button variant="ghost" size="icon" aria-label="Edit" title="Edit" data-testid="wiki-page-edit" aria-pressed={!reading}
                         {...flowAction(controller.runCommand, "wiki.view", reading ? "edit" : "read")}><Pencil size={13} /></Button>
@@ -258,9 +262,6 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                 onOpenNote={(path) => followLink(path)}
                 linkProps={(path) => flowProps(indexPage === undefined ? "wiki.open" : "wiki.cloud.open", indexPage === undefined ? path : flowArgs("wiki.cloud.open", { slug: path.replace(/\.md$/i, "").split("/").pop() ?? path, repo: repo!, space }))}
               />
-              {links.unresolved.length === 0 ? null : <ul className="wiki-unresolved" aria-label="Unresolved links">
-                {links.unresolved.map((target) => <li key={target}>[[{target}]]</li>)}
-              </ul>}
               {/* The outline: each heading is the button door of wiki.heading; the editor scrolls to its source line, the reading view to the heading. */}
               <section className="sui-vault-links-section wiki-outline" aria-label="Outline">
                 <div className="sui-vault-links-head"><Eyebrow>Outline</Eyebrow><Badge variant="secondary">{parseOutline(selected.body).length}</Badge></div>

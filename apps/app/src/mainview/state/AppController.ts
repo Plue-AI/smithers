@@ -1678,7 +1678,14 @@ export const createAppController = (
     enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue,
     showChat,
     showWorld,
-    showWikiPane: () => { togglePane(); if (store.session().surface === "world") void loadWikiIndex() },
+    showWikiPane: () => {
+      togglePane()
+      if (store.session().surface !== "world") return
+      void loadWikiIndex()
+      // The pane shows generated pages' freshness (D-09b) from the stack snapshot, so the pane keeps it live as a homepage stack block does.
+      const repo = activeRepositoryId(store)
+      if (repo !== null) stackSeam.watchHomeStack(repo)
+    },
     showConnectors,
     showPlugins,
     installPlugin,

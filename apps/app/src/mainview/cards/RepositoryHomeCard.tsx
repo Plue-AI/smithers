@@ -8,7 +8,7 @@ import { repositoryFlowName } from "../flows/entries/flow"
 import type { CardFamily, RunDynamicCommand } from "./CardFamily"
 import { RUN_PHASE_WORDS } from "./RunTraceSummary"
 import { HomeStack, useStackSnapshot } from "./StackCard"
-import { wikiRow } from "./StackView"
+import { wikiRow, wikiTone } from "./StackView"
 import "./RepositoryHomeCard.css"
 
 /*
@@ -153,7 +153,7 @@ const AppTilePicture = ({ app, repo, workflow }: { readonly app: HomeApp; readon
   return <span className="app-tile-picture" data-picture={app.picture} aria-hidden="true">
     <Picture kind={app.picture} />
     {wiki === undefined ? app.picture === "wiki" ? <span className="app-chip app-stamp" data-tone="info">current · main</span> : null
-      : <span className="app-chip app-stamp" data-tone={wiki.state === "current" ? "info" : wiki.state === "failed" ? "danger" : "brand"} data-testid="app-tile-wiki">{wikiRow(wiki).state} · main</span>}
+      : <span className="app-chip app-stamp" data-tone={wikiTone(wiki.state)} data-testid="app-tile-wiki">{wikiRow(wiki).state} · main</span>}
   </span>
 }
 

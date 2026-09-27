@@ -57,7 +57,8 @@ test("the Wiki pane lists a space's index as a tree with folders, tags and serve
   const page = (id: number, slug: string, path: string, extra: Record<string, unknown> = {}) => ({ id, slug, title: slug, path, revision: 1, updatedAt: "2026-09-26T00:00:00Z", tags: [], aliases: [], headings: [], links: [], backlinks: [], ...extra })
   const index = { id: "org/repo#public", repo: "org/repo", space: "public" as const, loadedAt: 1,
     pages: [page(1, "home", "Home.md", { tags: ["guide"], links: [{ target: "Guides/Start", embed: false, pageId: 2 }, { target: "Nowhere", embed: false }], backlinks: [{ pageId: 2, path: "Guides/Start.md", embed: false }] }),
-      page(2, "start", "Guides/Start.md"), page(3, "logo", "assets/logo.png", { attachment: { digest: "c".repeat(64), mediaType: "image/png", size: 3 } })],
+      page(2, "start", "Guides/Start.md"), page(3, "logo", "assets/logo.png", { attachment: { digest: "c".repeat(64), mediaType: "image/png", size: 3 } }),
+      page(4, "generated-runtime", "Runtime.md")],
     folders: ["Guides", "assets"], tags: ["guide"] }
   const wikiIndexes = { get: (repo: string, space: string) => repo === "org/repo" && space === "public" ? index : undefined, subscribe: () => () => {} }
   await store.dispatch({ type: "world.document.upserted", actor: "user", document: { id: "wiki:org/repo:1", path: "org/repo/wiki/home.md", title: "Home", body: "# Home\n\n[[Guides/Start]] and [[Nowhere]]", links: ["Guides/Start", "Nowhere"], tags: [], sources: [], confidence: 1,
@@ -66,7 +67,12 @@ test("the Wiki pane lists a space's index as a tree with folders, tags and serve
     cloud: { repo: "org/repo", pageId: 2, slug: "start", visibility: "public", path: "Guides/Start.md", remoteRevision: 1, remoteAuthor: "will", remoteUpdatedAt: "", state: "", accountLogin: "will", branchId: "main", phase: "live", error: null, pending: [] } }, select: false }).isPersisted.promise
   await store.dispatch({ type: "input.mode.changed", actor: "user", mode: "vim" }).isPersisted.promise
   const calls: Array<[string, string | undefined]> = []
-  const controller = { store, wikiIndexes, runCommand: (name: string, args?: string) => { calls.push([name, args]) }, changeWorldDocument: () => {}, attachWikiEditor: () => {}, attachWorldEditor: () => {}, submitCommand: async () => ({ status: "executed" }) } as unknown as AppController
+  // One stable snapshot: the seam hands the same object back until a write, as useSyncExternalStore requires.
+  const stackSnapshot = { stack: { wiki: { state: "stale", pages: 2, edited: 0, attempt: 1 } }, error: null }
+  const stackSnapshots = { get: (repo: string) => repo === "org/repo" ? stackSnapshot : undefined, subscribe: () => () => {} }
+  await store.dispatch({ type: "world.document.upserted", actor: "user", document: { id: "wiki:org/repo:4", path: "org/repo/wiki/generated-runtime.md", title: "Runtime", body: "# Runtime\n", links: [], tags: [], sources: [], confidence: 1,
+    cloud: { repo: "org/repo", pageId: 4, slug: "generated-runtime", visibility: "public", path: "Runtime.md", remoteRevision: 1, remoteAuthor: "smithers", remoteUpdatedAt: "", state: "", accountLogin: "will", branchId: "main", phase: "live", error: null, pending: [] } }, select: false }).isPersisted.promise
+  const controller = { store, wikiIndexes, stackSnapshots, runCommand: (name: string, args?: string) => { calls.push([name, args]) }, changeWorldDocument: () => {}, attachWikiEditor: () => {}, attachWorldEditor: () => {}, submitCommand: async () => ({ status: "executed" }) } as unknown as AppController
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
@@ -92,15 +98,27 @@ test("the Wiki pane lists a space's index as a tree with folders, tags and serve
   ;(host.querySelector('[data-testid="wiki-page"] a[href="#note/Guides%2FStart.md"]') as HTMLAnchorElement).click()
   expect(calls.at(-1)).toEqual(["wiki.select", "wiki:org/repo:2"])
   expect(text).toContain("#guide")
-  // The open page: its path and revision, the History/Rename/Delete/Attach doors, and the index's backlinks and unresolved link in the rail.
+  // The open page: its path (no revision label: revisions live in History), the History/Rename/Delete/Attach doors, and the index's backlinks in the rail.
   expect(host.querySelector('[data-testid="wiki-page-path"]')?.textContent).toBe("Home.md")
-  expect(host.querySelector('[data-testid="wiki-page-revision"]')?.textContent).toBe("r1")
+  expect(host.querySelector('[data-testid="wiki-page-revision"]')).toBeNull()
+  // A hand-written page wears no freshness chip.
+  expect(host.querySelector('[data-testid="wiki-page-freshness"]')).toBeNull()
   expect(host.querySelector('[data-testid="wiki-page-history"]')?.getAttribute("data-flow-args")).toBe("home org/repo")
   expect(host.querySelector('[data-testid="wiki-page-delete"]')?.getAttribute("data-flow")).toBe("wiki.cloud.delete")
   expect(host.querySelector('[data-flow="wiki.attach"]')).not.toBeNull()
   const rail = host.querySelector('[data-testid="wiki-rail"]')!
   expect(rail.textContent).toContain("Guides/Start.md")
-  expect(rail.querySelector(".wiki-unresolved")?.textContent).toBe("[[Nowhere]]")
+  // The unresolved target is marked on the page itself; the rail lists no loose row for it.
+  expect(rail.querySelector(".wiki-unresolved")).toBeNull()
+  expect(rail.textContent).not.toContain("[[Nowhere]]")
+  // A generated page (D-09b) wears the stack's wiki freshness, in the Ask tile's chip.
+  await store.dispatch({ type: "world.document.selected", actor: "user", id: "wiki:org/repo:4" }).isPersisted.promise
+  await tick()
+  expect(host.querySelector('[data-testid="wiki-page-path"]')?.textContent).toBe("Runtime.md")
+  expect(host.querySelector('[data-testid="wiki-page-freshness"]')?.textContent).toBe("stale · main")
+  expect(host.querySelector('[data-testid="wiki-page-freshness"]')?.getAttribute("data-tone")).toBe("brand")
+  await store.dispatch({ type: "world.document.selected", actor: "user", id: "wiki:org/repo:1" }).isPersisted.promise
+  await tick()
   // The outline is named for what it is.
   expect(rail.querySelector('[aria-label="Outline"]')?.textContent).toContain("Outline")
   // The attachment: selected by its page id, shown as an image of its current revision.
