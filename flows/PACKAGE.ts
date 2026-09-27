@@ -361,7 +361,8 @@ const fixtures = Smithers.NodeTest({
     fixture("run-record.test.ts"),
     fixture("canary-coding-setup.test.mjs"),
     fixture("invoke-native-host.test.ts"),
-    fixture("decide-with-jev-docs.test.ts")
+    fixture("decide-with-jev-docs.test.ts"),
+    fixture("register-repository.test.ts")
   ]),
   // `decide-with-jev-docs` reads the guide.
   srcs: [...codingSources, Smithers.file("//packages/smithers/agent/model/docs/guides/decide-with-jev.md")],

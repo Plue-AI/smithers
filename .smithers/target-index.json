@@ -20942,6 +20942,10 @@
         "path": "flows/test/decide-with-jev-docs.test.ts"
       },
       {
+        "kind": "file",
+        "path": "flows/test/register-repository.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []
