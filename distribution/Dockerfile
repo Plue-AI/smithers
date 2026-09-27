@@ -106,7 +106,6 @@ RUN GOMAXPROCS=2 CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o /out/smith
 # Debian/glibc is required by libsmithers_ffi; Alpine/musl is ABI-incompatible.
 # This base supplies PostgreSQL 18 pg_dump/pg_restore/psql for maintenance.
 FROM postgres:18.6-bookworm
-ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libatomic1 libcurl4 libexpat1 libpcre2-8-0 libssl3 tini util-linux zlib1g && rm -rf /var/lib/apt/lists/* \
   && groupadd --system smithers && useradd --system --gid smithers --home-dir /var/lib/smithers --shell /usr/sbin/nologin smithers \
   && install -d -o smithers -g smithers -m 0700 /var/lib/smithers \
@@ -124,6 +123,8 @@ COPY --from=smithers-rust /out/lib/libsmithers_ffi.so /opt/smithers/lib/libsmith
 COPY packages/backend/db/product/migrations /opt/smithers/migrations
 COPY distribution/lib.sh distribution/entrypoint.sh distribution/backup.sh distribution/restore.sh distribution/upgrade.sh distribution/version.env /opt/smithers/
 COPY LICENSE THIRD_PARTY_NOTICES.md distribution/licenses/ /opt/smithers/licenses/
+# A version-only release must not invalidate the runtime setup above.
+ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0
 RUN schema_version="$(find /opt/smithers/migrations -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1 | cut -c 1-4 | sed 's/^0*//')" \
   && test -n "$schema_version" \
   && sed -i "s/^SMITHERS_DISTRIBUTION_VERSION=.*/SMITHERS_DISTRIBUTION_VERSION=${SMITHERS_DISTRIBUTION_VERSION}/; s/^SMITHERS_SCHEMA_VERSION=.*/SMITHERS_SCHEMA_VERSION=${schema_version}/" /opt/smithers/version.env \
