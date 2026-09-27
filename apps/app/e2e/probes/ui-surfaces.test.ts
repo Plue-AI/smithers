@@ -83,11 +83,11 @@ test("the surfaces answer the keyboard: a conversation row opens on Enter, a ste
     await page.keyboard.press("Enter")
     await page.waitForFunction(() => document.querySelector(".run-step[aria-expanded='true']") !== null)
     expect(await page.locator(".run-trace-pane").count()).toBe(1)
-    const runs = page.getByTestId("agent-runs-engineer")
+    const runs = page.getByTestId("agent-runs-implementation")
     await runs.focus()
     await page.keyboard.press("Enter")
     await page.waitForFunction(() => window.uiSurfaces.commands.some((command) => command.name === "runs.list"))
-    expect(await page.evaluate(() => window.uiSurfaces.commands.find((command) => command.name === "runs.list")?.args)).toContain("engineer")
+    expect(await page.evaluate(() => window.uiSurfaces.commands.find((command) => command.name === "runs.list")?.args)).toContain("implementation")
     expect(errors).toEqual([])
   } finally { await page.close() }
 }, 60_000)

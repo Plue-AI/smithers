@@ -6,6 +6,7 @@
  * real payload shapes, for tests and screenshots only; nothing here reaches a
  * production path.
  */
+import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
 import type * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import type { SubagentItem } from "../../SubagentGrid"
 import type { Card } from "../../state/AppState"
@@ -85,18 +86,19 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
     id: "agents", kind: "agents", title: "Agents", status: "active", createdAt: T0, ordinal: 3,
     payload: {
       native: false,
-      agents: [
-        { id: "assistant", label: "Assistant", purpose: "Schedules, digests and the one door to the owner.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", available: false, reason: "", account: "" },
-        { id: "product-lead", label: "Product Lead", purpose: "Turns accepted work into issues that run.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", available: false, reason: "", account: "" },
-        { id: "researcher", label: "Researcher", purpose: "Watches competing products.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "specialist", available: false, reason: "", account: "" },
-        { id: "engineer", label: "Engineer", purpose: "Implements non-trivial changes end to end, with tests.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-b", label: "Model B" }, builtin: false, kind: "core", available: false, reason: "", account: "" },
-        { id: "reviewer", label: "Reviewer", purpose: "Verifies fixes and keeps the evals honest.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", available: false, reason: "", account: "" }
-      ]
+      // The rows the Agents card renders with no repository loaded: the
+      // built-in roles. Since e2738feeb7 an open card is rewritten to exactly
+      // these after any transition, so invented rows would not survive a command.
+      agents: AGENT_ROLES.map((role) => ({
+        id: role.id, label: role.label, purpose: role.purpose, harness: role.harness, harnessName: role.harness, model: role.model, builtin: role.builtin,
+        ...(role.kind === undefined ? {} : { kind: role.kind }),
+        available: false, reason: "", account: ""
+      }))
     }
   },
   {
     id: "run-daily-audit", kind: "run-trace", title: "Daily audit", status: "active", createdAt: T0, ordinal: 4,
-    payload: { repo: REPO, runId: "run-daily-audit", workflow: "coding/request", phase: "running", steps: [], result: null, lastSeq: 13, events: runEvents(), traceView: "steps", liveTail: true }
+    payload: { repo: REPO, workspaceId: "00000000-0000-4000-8000-00000000da11", runId: "run-daily-audit", workflow: "coding/request", phase: "running", steps: [], result: null, lastSeq: 13, events: runEvents(), traceView: "steps", liveTail: true }
   },
   {
     id: `approvals-inbox-${REPO}`, kind: "approvals-inbox", title: "Inbox", status: "active", createdAt: T0, ordinal: 5,
