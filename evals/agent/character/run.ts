@@ -34,7 +34,7 @@
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { CaseExecutor, EvalError, Runner, Suite, Trials } from "../../../packages/smithers/agent/evals/src/index.ts"
 import {
@@ -68,7 +68,12 @@ const suiteDir = resolve(option("suite") ?? new URL("./example", import.meta.url
 const live = flag("live")
 const calibrate = flag("calibrate")
 const judging = flag("judge") || calibrate
-const trials = Number(option("trials") ?? (live ? 1 : 1))
+let trials = Number(option("trials") ?? 1)
+// `--rescore <results.json>` scores the conversations of an earlier live run
+// again with the current cases and checks, without calling the role's model;
+// with `--judge`, only turns that newly pass their checks go to the judge.
+const rescoreFile = option("rescore")
+const reportLive = live || rescoreFile !== undefined
 const concurrency = Number(option("concurrency") ?? 2)
 const trace = flag("trace")
 const only = option("cases")?.split(",").map((name) => name.trim()).filter((name) => name.length > 0)
@@ -435,6 +440,113 @@ const runCalibration = Effect.gen(function*() {
 
 const stamp = new Date().toISOString().replace(/[:.]/g, "-")
 
+interface Outcome {
+  readonly plan: Planned
+  readonly conversation: Conversation | undefined
+  readonly error: string | undefined
+  readonly checksPass: boolean
+  readonly judgePass: boolean
+  readonly pass: boolean
+  readonly failed: ReadonlyArray<Checks.Check>
+  readonly judgeReason: string | undefined
+}
+
+interface SavedConversation {
+  readonly case: string
+  readonly trial: number
+  readonly checksPass: boolean
+  readonly judgePass: boolean
+  readonly judge?: string | undefined
+  readonly turns?: ReadonlyArray<{
+    readonly trigger: CharacterSuite.Message
+    readonly reply: string | undefined
+    readonly failure: string | undefined
+    readonly actions: ReadonlyArray<World.Action>
+    readonly modelCalls: number
+    readonly usage: Subject.Usage
+    readonly durationMs: number
+  }>
+}
+
+const rescore = (file: string) =>
+  Effect.gen(function*() {
+    const saved = JSON.parse(readFileSync(resolve(file), "utf8")) as {
+      readonly summary: { readonly trials: number }
+      readonly conversations: ReadonlyArray<SavedConversation>
+    }
+    trials = saved.summary.trials
+    const outcomes: Array<Outcome> = []
+    for (const conversation of saved.conversations) {
+      const suiteCase = byId.get(conversation.case)
+      if (suiteCase === undefined) continue
+      const history: Array<CharacterSuite.Message> = [...suiteCase.history]
+      const results: Array<TurnResult> = []
+      for (const [index, savedTurn] of (conversation.turns ?? []).entries()) {
+        const expect = suiteCase.turns[index]?.expect ?? {}
+        const world = World.load(suite.world, suiteCase.world)
+        const prompt = Event.render({
+          world,
+          role: suite.role,
+          where: suiteCase.where,
+          history,
+          trigger: savedTurn.trigger
+        })
+        const turn: Subject.Turn = {
+          reply: savedTurn.reply ?? undefined,
+          actions: savedTurn.actions,
+          failure: savedTurn.failure ?? undefined,
+          modelCalls: savedTurn.modelCalls,
+          usage: [savedTurn.usage],
+          durationMs: savedTurn.durationMs
+        }
+        results.push({
+          prompt,
+          trigger: savedTurn.trigger,
+          turn,
+          checks: Score.score({ suite, world, trigger: savedTurn.trigger, expect, turn })
+        })
+        history.push({ from: savedTurn.trigger.from, text: savedTurn.trigger.text, at: savedTurn.trigger.at })
+        const did = describeActions(turn.actions)
+        history.push({ from: suite.role, text: `${turn.reply ?? ""}${did === "" ? "" : `\n(what you did: ${did})`}` })
+      }
+      const failed = results.flatMap((result, index) =>
+        result.turn.reply === undefined && result.checks.length === 0
+          ? [{ id: `turn ${index + 1}: run`, pass: false, detail: result.turn.failure ?? "did not run" }]
+          : result.checks.filter((check) => !check.pass).map((check) => ({
+            ...check,
+            id: `turn ${index + 1}: ${check.id}`
+          }))
+      )
+      const checksPass = results.length > 0 && failed.length === 0
+      let judgePass = conversation.judgePass
+      let judgeReason = conversation.judge
+      if (checksPass && judgeScorer !== undefined && (!conversation.checksPass || conversation.judge === undefined)) {
+        const graded = yield* characterJudge.score({
+          input: {},
+          output: {
+            caseId: suiteCase.id,
+            variant: "live",
+            trial: conversation.trial,
+            turns: results
+          } satisfies Conversation
+        })
+        judgePass = (graded.meta as { readonly pass: boolean }).pass
+        judgeReason = graded.reason
+      }
+      outcomes.push({
+        plan: { suiteCase, variant: { kind: "live" }, trial: conversation.trial },
+        conversation: { caseId: suiteCase.id, variant: "live", trial: conversation.trial, turns: results },
+        error: undefined,
+        checksPass,
+        judgePass: checksPass ? judgePass : true,
+        pass: checksPass && judgePass,
+        failed,
+        judgeReason: checksPass ? judgeReason : undefined
+      })
+    }
+    return outcomes
+  })
+
 const program = Effect.gen(function*() {
   if (live || judging) {
     const root = process.cwd()
@@ -461,54 +573,58 @@ const program = Effect.gen(function*() {
     )
     return agreement.falsePass === 0 && agreement.accuracy >= 0.8 ? 0 : 1
   }
-  const bindings = [
-    Binding.make({ scorer: checksScorer, appliesTo: target }),
-    ...(judging ? [Binding.make({ scorer: characterJudge, appliesTo: target })] : [])
-  ]
-  const evalSuite = yield* Suite.make({
-    name: `character:${suite.name}`,
-    cases: planned.map((plan, index) => ({
-      name: `${plan.suiteCase.id}/${variantName(plan.variant)}/${plan.trial}`,
-      input: { index }
-    })),
-    bindings,
-    concurrency: live ? concurrency : 1
-  })
-  const run = yield* Runner.run(evalSuite, {
-    runId: `${label}-${stamp}`,
-    sampleId: label,
-    at: new Date().toISOString()
-  }).pipe(
-    Effect.provide(
-      Layer.merge(Layer.succeed(CaseExecutor.CaseExecutor)(executor), Layer.succeed(Runner.Runner)(scoring))
-    )
-  )
-
-  // Per planned conversation: deterministic pass, judge pass.
-  const outcomes = run.cases.map((result, index) => {
-    const plan = planned[index]!
-    const observations = run.observations.filter((observation) => observation.case === result.case)
-    const checks = observations.find((observation) => (observation.scorerName ?? "").includes("checks"))
-    const judged = observations.find((observation) => (observation.scorerName ?? "").includes("judge"))
-    const checksPass = checks?.kind === "score" &&
-      (checks.meta as { readonly pass?: boolean } | undefined)?.pass === true
-    const judgePass = judged === undefined ||
-      (judged.kind === "score" && (judged.meta as { readonly pass?: boolean } | undefined)?.pass === true)
-    return {
-      plan,
-      conversation: result.execution?.output as Conversation | undefined,
-      error: result.error === undefined ? undefined : String(result.error.message),
-      checksPass,
-      judgePass,
-      pass: checksPass && judgePass,
-      failed: checks?.kind === "score"
-        ? ((checks.meta as { readonly checks?: ReadonlyArray<Checks.Check> }).checks ?? []).filter((check) =>
-          !check.pass
+  const outcomes: ReadonlyArray<Outcome> = rescoreFile !== undefined
+    ? yield* rescore(rescoreFile)
+    : yield* Effect.gen(function*() {
+      const bindings = [
+        Binding.make({ scorer: checksScorer, appliesTo: target }),
+        ...(judging ? [Binding.make({ scorer: characterJudge, appliesTo: target })] : [])
+      ]
+      const evalSuite = yield* Suite.make({
+        name: `character:${suite.name}`,
+        cases: planned.map((plan, index) => ({
+          name: `${plan.suiteCase.id}/${variantName(plan.variant)}/${plan.trial}`,
+          input: { index }
+        })),
+        bindings,
+        concurrency: live ? concurrency : 1
+      })
+      const run = yield* Runner.run(evalSuite, {
+        runId: `${label}-${stamp}`,
+        sampleId: label,
+        at: new Date().toISOString()
+      }).pipe(
+        Effect.provide(
+          Layer.merge(Layer.succeed(CaseExecutor.CaseExecutor)(executor), Layer.succeed(Runner.Runner)(scoring))
         )
-        : [],
-      judgeReason: judged?.kind === "score" ? judged.reason : judged?.reason
-    }
-  })
+      )
+
+      // Per planned conversation: deterministic pass, judge pass.
+      return run.cases.map((result, index): Outcome => {
+        const plan = planned[index]!
+        const observations = run.observations.filter((observation) => observation.case === result.case)
+        const checks = observations.find((observation) => (observation.scorerName ?? "").includes("checks"))
+        const judged = observations.find((observation) => (observation.scorerName ?? "").includes("judge"))
+        const checksPass = checks?.kind === "score" &&
+          (checks.meta as { readonly pass?: boolean } | undefined)?.pass === true
+        const judgePass = judged === undefined ||
+          (judged.kind === "score" && (judged.meta as { readonly pass?: boolean } | undefined)?.pass === true)
+        return {
+          plan,
+          conversation: result.execution?.output as Conversation | undefined,
+          error: result.error === undefined ? undefined : String(result.error.message),
+          checksPass,
+          judgePass,
+          pass: checksPass && judgePass,
+          failed: checks?.kind === "score"
+            ? ((checks.meta as { readonly checks?: ReadonlyArray<Checks.Check> }).checks ?? []).filter((check) =>
+              !check.pass
+            )
+            : [],
+          judgeReason: judged?.kind === "score" ? judged.reason : judged?.reason
+        }
+      })
+    })
 
   const lines: Array<string> = []
   let exitCode = 0
@@ -520,7 +636,7 @@ const program = Effect.gen(function*() {
     const rules = [...byRule.keys()].sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
     lines.push("coverage (rule: cases):", ...rules.map((rule) => `  ${rule}: ${byRule.get(rule)!.length}`), "")
   }
-  if (!live) {
+  if (!reportLive) {
     for (const outcome of outcomes) {
       const expectedPass = outcome.plan.variant.kind === "golden"
       const ok = outcome.pass === expectedPass
@@ -546,7 +662,7 @@ const program = Effect.gen(function*() {
   }
 
   const perCase: Record<string, Array<boolean>> = {}
-  for (const outcome of outcomes.filter((o) => o.plan.variant.kind === (live ? "live" : "golden"))) {
+  for (const outcome of outcomes.filter((o) => o.plan.variant.kind === (reportLive ? "live" : "golden"))) {
     ;(perCase[outcome.plan.suiteCase.id] ??= []).push(outcome.pass)
   }
   const k = Math.max(1, trials)
@@ -573,8 +689,8 @@ const program = Effect.gen(function*() {
   const summary = {
     suite: suite.name,
     label,
-    mode: live ? "live" : "offline",
-    seat: live ? seatId : "replay",
+    mode: rescoreFile !== undefined ? "rescored" : live ? "live" : "offline",
+    seat: reportLive ? seatId : "replay",
     judge: judging ? suite.judgeSeat : undefined,
     profile: {
       file: profileFile ?? `${suite.org}/Roles/${suite.role}.md`,
@@ -605,7 +721,7 @@ const program = Effect.gen(function*() {
     }))
   }
 
-  if (live) {
+  if (reportLive) {
     const dir = join(suite.dir, "results")
     mkdirSync(dir, { recursive: true })
     const file = join(dir, `${stamp}-${label}.json`)

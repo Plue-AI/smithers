@@ -219,10 +219,12 @@ export const score = (options: {
     : []
   const reply = turn.reply.trim() !== "" ? turn.reply.trim() : notes.join("\n").trim()
   if (replyExpect.empty === true) {
+    // Silence is about the reply itself; closing a request with a note is not a reply here.
+    const posted = turn.reply.trim()
     checks.push({
       id: "reply: empty",
-      pass: reply === "",
-      detail: reply === "" ? "no reply" : `replied: ${reply.slice(0, 80)}`
+      pass: posted === "",
+      detail: posted === "" ? "no reply" : `replied: ${posted.slice(0, 80)}`
     })
   } else if (
     replyExpect.empty === false || replyExpect.include !== undefined || replyExpect.links !== undefined ||
