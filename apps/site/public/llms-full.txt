@@ -1223,10 +1223,9 @@ Run it like any flow: `/reviewer` in the app, `/agent reviewer` in the TUI, or `
 
 **Available now.**
 
-1. Select **Dispatcher** in the sidebar. It lists the repository's rules and live schedules.
-2. Select **Register a rule**.
-3. Enter the flow, a name, a cron schedule such as `0 9 * * 1-5`, and any input. Select **Prepare**.
-4. Read the plan and approve it. A toast follows the registration until it is live.
+1. On the home, open **Run it every night**, or select **Dispatcher** in the sidebar and then **Register a rule**.
+2. Pick the flow and select **Schedule**. It runs nightly (02:00 UTC) under the flow's name; a toast follows the registration until it is live.
+3. For another schedule, a name, input or limits, type the line instead: `/triggers.register --flow lint --schedule "0 9 * * 1-5"`. That path prepares the plan for you to read and approve before it registers.
 
 Each live schedule has **Run now** and **Pause**. A scheduled run needs a token and time budget; the form uses the flow's `budget`.
 
@@ -2255,7 +2254,7 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | `/summary` | Review this conversation. | [Guide](/docs/learn/review-a-change/) |
 | `/tabs` | Review background work. | [Guide](/docs/learn/background-work/) |
 | `/chat` | Return to chat. | [Guide](/docs/tui/views/) |
-| `/filter` | Show or hide workers and kinds of rows. | [Guide](/docs/tui/views/) |
+| `/filter` | Show or hide kinds of rows. | [Guide](/docs/tui/views/) |
 | `/grep [text]` | Show only rows containing text. | [Guide](/docs/tui/views/) |
 | `/ui [id]` | Open a custom view. | [Guide](/docs/tui/extend/) |
 | `/smithers` | Flows and runs. | [Guide](/docs/learn/run-a-flow/) |
@@ -2291,6 +2290,7 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `ctrl+s` | Summary. |
 | `ctrl+]` / `ctrl+right` | Next tab. |
 | `ctrl+\` / `ctrl+left` | Previous tab. |
+| `ctrl+y` | Back. |
 | `pageup` / `pagedown` | Scroll. |
 | `shift+up` / `shift+down` | Scroll a line. |
 
@@ -2343,7 +2343,6 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `w` | Wait for reset. |
 | `x` | Stop. |
 | `s` | Steer. |
-| `c` | Open in chat. |
 | `a` | Action. |
 | `u` | Undo changes. |
 | `tab` | Next tab. |
@@ -2398,8 +2397,19 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | Key | Action |
 | --- | --- |
 | `enter` | Open. |
-| `up` / `down` / `tab` / `shift+tab` | Next card. |
+| `up` / `down` / `left` / `right` / `tab` / `shift+tab` | Card. |
+| `f` | Files. |
 | `esc` | Composer. |
+
+## Overview
+
+| Key | Action |
+| --- | --- |
+| `tab` | Pane. |
+| `up` / `down` / `left` / `right` / `h` / `j` / `k` / `l` | Move. |
+| `enter` | Open. |
+| `f` | Files. |
+| `esc` | Close. |
 
 ## Editor and mouse
 
@@ -2520,9 +2530,9 @@ Chat, Summary, workers, flow runs, and custom views each have a tab. Ctrl+] move
 
 ## Filter the transcript
 
-`/filter` shows or hides chat, each worker, and kinds of row. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
+`/filter` shows or hides kinds of row. Workers show as cards in the chat; Ctrl+S shows them all. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
 
-![Filtering the TUI transcript by lane and text.](/images/learn/tui-transcript-filter.gif)
+![Filtering the TUI transcript by row kind and text.](/images/learn/tui-transcript-filter.gif)
 
 The TUI with a scripted test model.
 
