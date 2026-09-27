@@ -76,3 +76,69 @@ describe("conversations and issues through the issues seam", () => {
     await controller.dispose()
   })
 })
+
+/*
+ * The chat = issues contract (#2111), read through the backend's own DTOs:
+ * services.IssueResponse (`kind`, `visibility`, `idempotency_key`),
+ * services.IssueCommentResponse (`persona` {username, iconEmoji|iconUrl},
+ * `commenter`, `type`, `idempotency_key`), the `/sync` mapping row and
+ * services.IssueReaction. Field names here are the Go struct tags.
+ */
+const at = "2026-09-26T09:05:00Z"
+const issueDto = {
+  idempotency_key: "thread-request", kind: "chat", visibility: "private", id: 700, number: 7, title: "Owner ↔ Assistant", body: "", state: "open",
+  author: { id: 1, login: "will" }, assignees: [], labels: [], linear: null, milestone_id: null, comment_count: 2, closed_at: null,
+  fixed_by: null, fixed_at: null, verified_by: null, verified_at: null, created_at: at, updated_at: at
+}
+const commentDto = (id: number, body: string, extra: Record<string, unknown>) =>
+  ({ id, issue_id: 700, user_id: 1, commenter: "will", body, type: "issue_comment", created_at: at, updated_at: at, ...extra })
+
+describe("a conversation on the chat = issues contract", () => {
+  test("reads kind and visibility, persona comments, the sync mapping and reactions off the backend's DTOs; a message posts with its request id as the key and a refusal stays retryable in the server's words", async () => {
+    const calls: Array<{ line: string; body?: unknown }> = []
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, unavailableAgent, backend({
+      "GET /api/repos/will/flows/issues/7": json(200, issueDto),
+      "GET /api/repos/will/flows/issues/7/comments": json(200, [
+        commentDto(31, "Taking it.", { idempotency_key: "dispatch:step", persona: { username: "engineering", iconEmoji: ":hammer:" } }),
+        commentDto(32, "from Slack", { commenter: "U0HUMAN", persona: { username: "" } })
+      ]),
+      "GET /api/repos/will/flows/issues/7/sync": json(200, {
+        provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", thread_id: "1700000000.000100", external_user_id: "", state: "synced", error: ""
+      }),
+      "GET /api/repos/will/flows/issues/7/comments/31/reactions": json(200, [{ name: "eyes", actor: "will", active: true }, { name: "eyes", actor: "U0HUMAN", active: false }]),
+      "GET /api/repos/will/flows/issues/7/comments/32/reactions": json(200, []),
+      "POST /api/repos/will/flows/issues/7/comments": json(503, { status: "error", message: "the mirror is down" })
+    }, calls))
+    await signedIn(store)
+    expect((await controller.commands.run("issues.view", `7 ${REPO}`)).status).toBe("executed")
+    const card = store.collections.cards.get(`issue-${REPO}-7`)
+    if (card?.kind !== "issue") throw new Error("the conversation card is absent")
+    expect(card.title).toBe("Owner ↔ Assistant")
+    expect(card.payload).toMatchObject({ kind: "chat", visibility: "private", number: 7, author: "will", state: "open" })
+    expect(card.payload.comments).toEqual([
+      { id: 31, idempotencyKey: "dispatch:step", persona: { username: "engineering", iconEmoji: ":hammer:" }, author: "will", commentBody: "Taking it.", createdAt: at,
+        reactions: [{ name: "eyes", actor: "will", active: true }, { name: "eyes", actor: "U0HUMAN", active: false }] },
+      // An empty persona is no persona: the external commenter is the author, as the mirror recorded it.
+      { id: 32, author: "U0HUMAN", commentBody: "from Slack", createdAt: at, reactions: [] }
+    ])
+    expect(card.payload.sync).toEqual({ provider: "slack", connectionId: "slack-main", scopeId: "T0123", conversationId: "C0123", threadId: "1700000000.000100", state: "synced", error: "" })
+    // A message: acknowledged at once, posted with its request id as the idempotency key; the refusal keeps the row failed in the server's words.
+    expect(await controller.commentOnIssue(7, "Ship it.", REPO)).toEqual({ value: "Requested" })
+    await settled()
+    for (let attempt = 0; attempt < 40 && !calls.some((call) => call.line === "POST /api/repos/will/flows/issues/7/comments"); attempt++) await settled()
+    const post = calls.find((call) => call.line === "POST /api/repos/will/flows/issues/7/comments")
+    expect(post?.body).toMatchObject({ body: "Ship it." })
+    const key = (post?.body as { idempotency_key?: string } | undefined)?.idempotency_key
+    expect(typeof key).toBe("string")
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const live = store.collections.cards.get(`issue-${REPO}-7`)
+      if (live?.kind === "issue" && live.payload.pendingComments?.[0]?.status === "failed") break
+      await settled()
+    }
+    const live = store.collections.cards.get(`issue-${REPO}-7`)
+    if (live?.kind !== "issue") throw new Error("the conversation card is absent")
+    expect(live.payload.pendingComments).toMatchObject([{ id: key, text: "Ship it.", status: "failed", error: expect.stringContaining("the mirror is down") }])
+    await controller.dispose()
+  })
+})

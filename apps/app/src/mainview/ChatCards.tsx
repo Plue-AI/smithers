@@ -112,7 +112,7 @@ export const CardView = memo(function CardView({
    * button that took its place, so Escape (and the Tab ring) keep working.
    */
   const title = card.kind === "repo-update" ? "Activity" :
-    card.kind === "issue-list" ? "Issues" : card.kind === "issue" ? "Issue" :
+    card.kind === "issue-list" ? "Issues" : card.kind === "issue" ? (card.payload.kind === "chat" ? "Conversation" : "Issue") :
     card.kind === "pr-list" ? "Pull requests" : card.kind === "pr" ? "Pull request" : card.title
   const fallback = pillStatus(card)
   const health = card.kind === "agent" || card.kind === "run-trace" ? card.payload.statusRollup : undefined
