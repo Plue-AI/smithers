@@ -10,7 +10,7 @@ This is an active implementation, not a completion claim. It supersedes the epic
 - Self-hosting is one application Docker container plus PostgreSQL and persistent storage. It has exactly one owner. Code execution shares the instance's operating-system trust boundary; this is not hostile-tenant isolation. No Kubernetes, KVM, Docker socket, private service, or Smithers account is required.
 - Private Plue imports the common public backend and adds multitenant enterprise deployment, isolated execution, placement, and managed infrastructure. Shared permissions, job receipts, repository rules, and execution contracts must not fork.
 - Native own-backend mode supervises the same backend and a bundled native PostgreSQL process. Remote-backend mode must not start a redundant database/backend. Local browser development supports either backend.
-- Product state, durable admission, and replay semantics are shared. Presentation-specific OS gestures stay native. User code executes in the local process adapter for the single-owner edition and through isolated Plue execution for cloud.
+- Product state, durable admission, and replay semantics are shared. Presentation-specific OS gestures stay native. User code executes in the local process adapter for the single-owner edition and through isolated Plue execution for cloud. A single-owner installation on a Mac or KVM host may instead require local microVM isolation (`SMITHERS_WORKSPACE_ISOLATION=microvm`, `packages/backend/microsandbox`, #2100): it then refuses to start without Microsandbox and never falls back to host processes.
 
 ## Mode acceptance matrix
 
@@ -18,7 +18,7 @@ This is an active implementation, not a completion claim. It supersedes the epic
 | --- | --- | --- | --- | --- | --- |
 | web-selfhost | Browser | Public Docker app | External PostgreSQL | Single-owner process | Clean image + persistent volume; complete product loop |
 | web-plue | Browser | Plue shared-library composition | Managed PostgreSQL | Isolated cloud | Same product contract and authorization suite |
-| local-own | Local browser | Supervised public backend | Local PostgreSQL | Single-owner process | Same product loop and shutdown/restart |
+| local-own | Local browser | Supervised public backend | Local PostgreSQL | Single-owner process, or local microVM | Same product loop and shutdown/restart; microVM refusal, cancellation, crash recovery |
 | local-plue | Local browser | Plue | Remote only | Isolated cloud | No local DB/backend authority; same product loop |
 | native-own | Packaged native WebView | Supervised public backend | Bundled native PostgreSQL | Single-owner process | Packaged app, first boot, restart, upgrade refusal |
 | native-plue | Packaged native WebView | Plue | Remote only | Isolated cloud | Packaged app, auth handoff, shared product loop |

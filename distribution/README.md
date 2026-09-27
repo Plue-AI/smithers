@@ -1,6 +1,6 @@
 # Self-hosted distribution
 
-Run one unprivileged Smithers application container with an external PostgreSQL 18 service and one persistent data volume. The application container needs no privileged mode, KVM, Docker socket, system service manager, or execution broker. Local jobs are trusted processes for one owner.
+Run one unprivileged Smithers application container with an external PostgreSQL 18 service and one persistent data volume. The application container needs no privileged mode, KVM, Docker socket, system service manager, or execution broker. Local jobs are trusted processes for one owner, or microVMs with [MicroVM isolation](#microvm-isolation).
 
 ```sh
 umask 077
@@ -96,6 +96,21 @@ bun apps/app/scripts/test-native-owned.ts \
 It initializes bundled PostgreSQL, serves the real UI and API, bootstraps the owner, creates a real repository, stops PostgreSQL, restarts against the same state, and verifies that Plue mode starts no local backend or database.
 
 For a native whole-state backup, quit Smithers and copy `~/Library/Application Support/Smithers` while the app is stopped. Record the installed Smithers version with the backup and restore it only while Smithers is stopped, initially with that same version. The PostgreSQL supervisor refuses a different PostgreSQL major and the product migrator refuses a schema newer than the installed application. This stopped-state copy includes the clean PostgreSQL cluster and runtime journals and never copies live WAL or SQLite writers.
+
+## MicroVM isolation
+
+On a Mac (or Linux with KVM) the backend can run every workspace, command, service, terminal, preview and Flow host in a local [Microsandbox](https://github.com/superradcompany/microsandbox) microVM instead of a trusted process. It is opt-in and never falls back:
+
+```sh
+npm install -g microsandbox@0.6.16    # the backend is qualified with msb 0.6.16
+export SMITHERS_WORKSPACE_ISOLATION=microvm
+export SMITHERS_MICROSANDBOX_BIN="$(npm root -g)/microsandbox/node_modules/@superradcompany/microsandbox-darwin-arm64/bin/msb"
+smithers-backend microvm doctor       # read-only: msb, image, owned microVMs and layers, free disk
+```
+
+With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `msb` is missing, is another release, or `msb doctor` is not ready. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.
+
+A workspace boots from environment layers the backend builds once and caches as APFS-cloned disk snapshots: the repository's declared toolchain (`.node-version`, `packageManager`, `go.mod`, `.smithers/WORKSPACE.ts`, `rust-toolchain.toml`, each download checked against a reviewed SHA-256), then the install nodes of `.smithers/target-index.json` (pnpm store, Go modules, Cargo registry, Playwright browsers, tool downloads). A change to a declared input rebuilds only the layers it feeds. The first workspace of a repository takes a few minutes; later ones boot in about two seconds and link dependencies offline. Layers are garbage collected to `SMITHERS_MICROVM_LAYER_BUDGET_GIB` (default 48) and no build or boot starts below `SMITHERS_MICROVM_MIN_FREE_GIB` of free disk (default 40). Per-VM size: `SMITHERS_MICROVM_CPUS` (4), `SMITHERS_MICROVM_MEMORY_MIB` (8192), `SMITHERS_MICROVM_DISK_MIB` (32768); at most `SMITHERS_MICROVM_MAX_RUNNING` (3) run at once. The Docker image cannot host microVMs.
 
 ## Backup, restore, and upgrade
 
