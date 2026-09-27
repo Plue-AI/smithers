@@ -1188,7 +1188,9 @@
 .wiki-page { width: min(100%, 760px); margin: 0 auto; padding: 38px 48px 120px; }
 .wiki-page .sui-md { font-size: var(--fs-body); }
 /* Violet is Smithers' own choice (tokens.css --ai-*); a wiki link is an ordinary link, and the open page is an ordinary selection. */
-.wiki-page a.sui-md-link { color: var(--info); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--info) 40%, transparent); text-underline-offset: 2px; }
+/* Color carries meaning in the app, so a link borrows none: the text, underlined; heavier under the pointer. */
+.wiki-page a.sui-md-link { color: var(--text); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--text) 45%, transparent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.wiki-page a.sui-md-link:hover, .wiki-page a.sui-md-link:focus-visible { text-decoration-color: var(--text); text-decoration-thickness: 2px; }
 .wiki-tree .sui-file-tree-file[data-active="true"] { background: var(--hover-subtle); color: var(--text); font-weight: 650; }
 /* The header keeps its doors: when the path and the chip with the buttons do not share a line, the buttons take the next; a long path truncates. */
 .world-document-meta { flex-wrap: wrap; row-gap: 4px; }
@@ -1196,7 +1198,8 @@
 .world-document-meta > div { flex: none; margin-left: auto; }
 .wiki-page-freshness { margin-right: 4px; font-family: var(--font-sans); }
 /* A target the space has no page for: marked, never a door. */
-.wiki-page a.sui-md-link[href^="#unresolved/"] { color: var(--text-faint); text-decoration-style: dashed; cursor: default; }
+.wiki-page a.sui-md-link[href^="#unresolved/"] { color: var(--text-muted); text-decoration-style: dashed; text-decoration-color: currentColor; cursor: default; }
+.wiki-page a.sui-md-link[href^="#unresolved/"]:hover { text-decoration-thickness: 1px; }
 .wiki-embed { margin: 16px 0; }
 .wiki-embed img { display: block; max-width: 100%; border-radius: var(--r-sm); box-shadow: var(--shadow-1); }
 .wiki-outline { margin-top: 4px; }

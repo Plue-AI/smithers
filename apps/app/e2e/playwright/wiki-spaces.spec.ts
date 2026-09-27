@@ -215,6 +215,20 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(view.getByRole("link", { name: "start", exact: true })).toHaveAttribute("href", "#note/Guides%2FStart.md?h=Install")
   await expect(view.getByTestId("wiki-embed").locator("img")).toHaveAttribute("src", `/api/repos/${repo}/wiki/history/3/1/content?visibility=public`)
   await expect(view.locator('a[href^="#unresolved/"]')).toHaveText("Nowhere")
+  // A link borrows no color: it is the text, underlined, heavier under the pointer; an unresolved one is muted and dashed.
+  const styles = await view.evaluate((node) => {
+    const of = (element: Element | null) => { const style = getComputedStyle(element!); return { color: style.color, line: style.textDecorationLine, dash: style.textDecorationStyle, thick: style.textDecorationThickness } }
+    const root = getComputedStyle(document.documentElement)
+    return { text: root.getPropertyValue("--text").trim(), muted: root.getPropertyValue("--text-muted").trim(), paragraph: of(node.querySelector("p")).color,
+      link: of(node.querySelector('a[href^="#note/"]')), unresolved: of(node.querySelector('a[href^="#unresolved/"]')) }
+  })
+  const rgb = (hex: string) => `rgb(${[1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)).join(", ")})`
+  expect(styles.link).toEqual({ color: styles.paragraph, line: "underline", dash: "solid", thick: "1px" })
+  expect(styles.link.color).toBe(rgb(styles.text))
+  expect(styles.unresolved).toMatchObject({ color: rgb(styles.muted), line: "underline", dash: "dashed" })
+  await view.getByRole("link", { name: "start", exact: true }).hover()
+  await expect(view.getByRole("link", { name: "start", exact: true })).toHaveCSS("text-decoration-thickness", "2px")
+  await page.mouse.move(0, 0)
   await expect(view).not.toContainText("[[")
   // The home beside the pane reflows to 2×2: no picture clipped, no word broken.
   expect(await tileRows(page)).toBe(2)
