@@ -1391,6 +1391,38 @@ test.each(["setup_request_conflict", "setup_request_reused"])("a request id refu
   } finally { await t.close() }
 })
 
+/*
+ * Setup requests the retired Worker host admitted were not moved to the
+ * backend (#2198): a reload finds no record of one there, and observing it
+ * answers 404. The card must settle retryable, not reconnect forever.
+ */
+test("a reconnect to a request the host has no record of settles, and Retry asks again under a new id", async () => {
+  const t = await fixture(async (body, method) => method === "GET"
+    ? Response.json({ status: "error", code: "not_found", message: "Setup request not found" }, { status: 404 })
+    : response(body))
+  try {
+    const digest = setupCandidate(t.state())
+    await pinned(t, { request: { id: "worker-era", operation: "evaluate", revision: t.state().revision, digest, state: "running", observeOnly: true } })
+    t.setup.resumeRepositorySetups()
+    await until(() => t.state().request?.state === "failed")
+    await Promise.all(t.background)
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["GET", "worker-era"]])
+    expect(t.state().request?.observeOnly).toBeUndefined()
+    expect(t.state().recovery?.state).toBe("completed")
+    await t.setup.retryRepositorySetup("setup"); await Promise.all(t.background)
+    expect(t.calls.map(call => call.method)).toEqual(["GET", "POST"])
+    expect(t.calls[1]?.body.requestId).not.toBe("worker-era")
+    expect(t.state().request?.state).toBe("completed")
+  } finally { await t.close() }
+})
+
+test("the host's username names the same account in any case", () => {
+  const current = { ...initialSetup("example/repo", "issues", "Maintainer"), recovery: { id: "r", baseRevision: 1, baseDigest: "d", state: "requested" as const, registrationState: "unknown" as const } }
+  const recovered: SetupRecoveryResponse = { owner: "maintainer", repo: "example/repo", job: "issues", registration: { state: "known" }, setup: { state: "none" } }
+  expect(projectRecoveredSetup(current, recovered).recovery?.state).toBe("completed")
+  expect(() => projectRecoveredSetup(current, { ...recovered, owner: "someone-else" })).toThrow("different account")
+})
+
 test("a settled failure recovered after a reload never reaches the reused-id refusal at all", async () => {
   const t = await fixture(async body => body.requestId === SETTLED_REQUEST
     ? Response.json(REUSED, { status: 409 }) : response(body, "completed", "inspect"))

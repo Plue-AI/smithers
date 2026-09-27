@@ -151,7 +151,9 @@ export const applySetupEdit = (
  * unloaded collection names none, and the pin then moves on host evidence alone.
  */
 export function projectRecoveredSetup(current: RepositorySetup, recovered: SetupRecoveryResponse, liveWorkspaces?: ReadonlySet<string>): RepositorySetup {
-  if (recovered.owner !== current.owner) throw Error("The recovered setup belongs to a different account.")
+  // The host names the account by its username, which is the GitHub login in
+  // whatever case GitHub first reported it.
+  if (current.owner === null || recovered.owner.toLowerCase() !== current.owner.toLowerCase()) throw Error("The recovered setup belongs to a different account.")
   if (recovered.repo !== current.repo || recovered.job !== current.job || !current.recovery) throw Error("The recovered setup belongs to another repository.")
   const unchanged = current.recovery.adoptDraft === true && current.revision === current.recovery.baseRevision && setupCandidate(current) === current.recovery.baseDigest
   let next = { ...current }
@@ -480,12 +482,16 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
     if (held) return held
     if (!current(id, intent.id, login, accountEpoch)) return Promise.resolve()
     const observing = () => intent.observeOnly || get(id)?.payload.request?.observeOnly === true
+    // A read of a request the host has no record of: one admitted by the
+    // retired Worker host (#2198). Nothing is left to reconnect to.
+    let forgotten = false
     const work = ctx.withToast(`setup.${intent.id}`, `${REPOSITORY_JOB_TITLES[job]}…`, intent.operation === "run" ? "Work completed" : "Setup updated", async () => {
       try {
         const body = { requestId: intent.id, repo, job, draft, revision: intent.revision, digest: intent.digest,
           ...(workspaceId ? { workspaceId } : {}), ...(intent.manual ? { manual: intent.manual } : {}) }
         const observationUrl = `${ctx.baseUrl}${REPOSITORY_SETUP_API}/observe?${new URLSearchParams({ requestId: intent.id, repo, job })}`
-        let response = observing() ? await ctx.boundedFetch(observationUrl, { credentials: "include" }) : await ctx.boundedFetch(`${ctx.baseUrl}${REPOSITORY_SETUP_API}/${intent.operation}`, {
+        let reading = observing()
+        let response = reading ? await ctx.boundedFetch(observationUrl, { credentials: "include" }) : await ctx.boundedFetch(`${ctx.baseUrl}${REPOSITORY_SETUP_API}/${intent.operation}`, {
           method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
         })
         for (;;) {
@@ -497,6 +503,7 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
             const code = refusalCode((refusal as { code?: unknown } | undefined)?.code)
             // Accept the older spelling during a mixed app/host rollout too.
             if (code === "setup_request_conflict" || code === "setup_request_reused") shared.spentRequests.add(intent.id)
+            if (reading && response.status === 404) { forgotten = true; shared.spentRequests.add(intent.id) }
             throw Error(await ctx.errorMessageOf(response, "The setup could not be completed."))
           }
           const result = SetupOperationResponseSchema.parse(await response.json())
@@ -570,13 +577,16 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
           await delay()
           if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
           const query = new URLSearchParams({ requestId: intent.id, repo, job })
+          reading = true
           response = await ctx.boundedFetch(`${ctx.baseUrl}${REPOSITORY_SETUP_API}/${observing() ? "observe" : "request"}?${query}`, { credentials: "include" })
         }
       } catch (error) {
         if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
         const latest = get(id)!
         const message = error instanceof Error ? error.message : String(error)
-        await upsert({ ...latest, status: "error", payload: { ...latest.payload, request: { ...intent, ...(observing() ? { observeOnly: true } : {}), state: "failed", error: message } } }, "system")
+        // A forgotten request is no longer observe-only, so its Retry asks again.
+        const { observeOnly: _, ...failed } = intent
+        await upsert({ ...latest, status: "error", payload: { ...latest.payload, request: { ...failed, ...(observing() && !forgotten ? { observeOnly: true } : {}), state: "failed", error: message } } }, "system")
         return message
       }
     }, false, undefined, id)
