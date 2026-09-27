@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -441,9 +444,14 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.Equal(t, "blocked", twelve.State)
 	payload := string(o.launcher.last("coding/request").Payload)
 	assert.Contains(t, payload, "Append new changes at the head only", "the last attempt appends only")
-	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(twelve.ID))
+	// An agent's run may retry a blocked item, but not re-open one the
+	// planner declined: that is a person's decision.
+	view, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(twelve.ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
+	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(13).ID))
+	requireRunCredentialRefused(t, err)
+	assert.Equal(t, "skipped", o.item(13).State)
 
 	// Main moves again while #11's PR is open; GitHub reports it behind, so
 	// the proposal is rebuilt on the new tip and verified on a fresh lane.
@@ -621,6 +629,10 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	require.NoError(t, err)
 	o.wake()
 	require.Equal(t, "rejected", o.item(21).State)
+	// The owner closed the PR: only a person retries it.
+	_, err = o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(item.ID))
+	requireRunCredentialRefused(t, err)
+	require.Equal(t, "rejected", o.item(21).State)
 	view, err := o.service.RetryItem(ctx, o.repoID, uuidString(item.ID))
 	require.NoError(t, err)
 	assert.Equal(t, "queued", view.State)
@@ -694,4 +706,19 @@ func TestMythicalProtectedPathsFollowMainsProjection(t *testing.T) {
 	entries, err = g.protectedPaths(context.Background(), first)
 	require.NoError(t, err)
 	assert.Equal(t, protectedPathRoots, entries)
+}
+
+// mythicalRunContext authenticates as userID through an agent run's
+// credential.
+func mythicalRunContext(ctx context.Context, userID int64) context.Context {
+	return middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{
+		User: &db.User{ID: userID}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository",
+	})
+}
+
+func requireRunCredentialRefused(t *testing.T, err error) {
+	t.Helper()
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusForbidden, apiErr.Status, apiErr.Message)
 }

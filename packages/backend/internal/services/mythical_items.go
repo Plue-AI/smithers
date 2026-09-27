@@ -22,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -1638,7 +1639,11 @@ func (s *MythicalService) SetMaxParallel(ctx context.Context, repositoryID int64
 	return nil
 }
 
-// RetryItem gives a blocked, rejected or declined item a fresh set of attempts.
+// RetryItem gives a blocked, rejected or skipped item a fresh set of
+// attempts. A rejected item's pull request was closed by its owner, and a
+// skipped item was declined or awaits a maintainer's approval: retrying
+// either is a person's decision (middleware.RequirePerson). A run may retry
+// a blocked item.
 func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, itemID string) (MythicalItemView, error) {
 	id, err := uuid.Parse(itemID)
 	if err != nil {
@@ -1655,6 +1660,11 @@ func (s *MythicalService) RetryItem(ctx context.Context, repositoryID int64, ite
 		}
 		if item.State != "blocked" && item.State != "rejected" && item.State != "skipped" {
 			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or skipped item is retried")
+		}
+		if item.State != "blocked" {
+			if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
+				return MythicalItemView{}, err
+			}
 		}
 		if item.Source != "issue" {
 			return MythicalItemView{}, pkgerrors.Conflict("request a chat change again from its workspace")

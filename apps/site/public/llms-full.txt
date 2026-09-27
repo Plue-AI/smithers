@@ -1106,7 +1106,7 @@ When Smithers works on issues, each one moves through a path: planned, built, ch
 | `GET .../mythical/events` | A live stream of changes. |
 | `POST .../mythical/backfill` | Add open issues. |
 | `PUT .../mythical/config` | Set `maxParallel` (admin). |
-| `POST .../mythical/items/{id}/retry` | Retry one issue. |
+| `POST .../mythical/items/{id}/retry` | Retry one issue. Only a person retries a rejected or skipped issue. |
 
 ## When is it landed
 
