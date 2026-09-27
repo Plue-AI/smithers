@@ -69,8 +69,4 @@ A tool invocation runs the underlying command. `flow_execute` launches only a pl
 
 Historical mutations retain their CLI requirements. A rewind needs an exact frame and either a preview or explicit confirmation. Remote connectivity is command-specific: history and local operator commands require the host that owns the state.
 
-## Compatibility
-
-The older semantic server described tools such as `list_workflows` and `run_workflow`, along with `semantic`, `raw`, and `both` surfaces. Those names and flags do not describe the default unified `smthrs --mcp` entry point. Re-discover tools when moving an existing agent integration to the unified CLI.
-
 For client setup, see [Drive Smithers from your agent](/docs/guides/mcp-setup/). For the command groups, see the [CLI reference](/docs/reference/cli/).

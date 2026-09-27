@@ -32,8 +32,8 @@ The executable inspects the raw argument vector before it builds anything:
    command, is what keeps a refusal from creating `.flows/` and opening two
    databases on its way to saying the verb is gone.
 3. **The MCP server.** `--mcp` is a mode, not a verb, because every MCP client
-   configures a launch command rather than a subcommand. `McpServer.serve`
-   then talks to the same `Control` layer the verbs do.
+   configures a launch command rather than a subcommand. Incur serves the
+   same command tree the verbs use.
 
 Anything else runs the command tree. Even then the durable layer belongs to
 the handler the parse selects, not to the program: `Command.provide` builds

@@ -26,13 +26,7 @@ called through MCP.
 
 <Code code={help} lang="text" title="smthrs mcp add --help" />
 
-## Compatibility and external servers
-
-The exported `@smthrs/cli/McpServer` module retains the previous named-tool
-protocol for existing hosts. Its `--surface`, `--allowed-tools`, and
-`--read-only` options belong to that compatibility adapter, not the generated
-public `smthrs --mcp` command. The historical [MCP tools reference](/docs/reference/mcp-tools/)
-describes that older API.
+## External servers
 
 `--mcp-config <path>` on flow commands serves a different purpose: it connects
 external MCP servers and exposes their tools to the local flow executor.

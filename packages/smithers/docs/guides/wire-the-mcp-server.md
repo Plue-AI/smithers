@@ -1,6 +1,6 @@
 ---
 title: "Wire the MCP server into an agent"
-description: "Connect the canonical MCP command surface, keep approval decisions independent, and configure an explicitly delegated compatibility host."
+description: "Connect the canonical MCP command surface and keep approval decisions independent."
 ---
 
 `smthrs --mcp` serves the Smithers MCP server on stdio, over the same control
@@ -74,49 +74,6 @@ approval authority. MCP invocations carry the local actor `mcp/agent`.
 This is an approval boundary, not an operating-system sandbox. Do not grant
 arbitrary host shell, code execution, or database write access to an actor that
 must not bypass a human gate.
-
-## Compatibility hosts
-
-The separately exported `McpServer` library retains the 0.x semantic tool names
-and its `{ ok, data?, error? }` result envelope. It is not the canonical
-executable's discovery protocol. Its `Options` choose `surface` (`semantic`,
-`raw`, or `both`), `allowedTools`, and `readOnly`. Raw tools are shell-command
-directory entries, not another execution path. An allowlist cannot enable
-approval-bearing tools on its own.
-
-`list_flows`, `list_runs`, and `list_pending_approvals` return one Control page.
-Each accepts optional `cursor` and `limit` arguments. `limit` is 1 to 500 and
-defaults to 100. `data` stays the array of items. When more items remain, the
-envelope also carries `nextCursor`; pass it back as `cursor` to read the next
-page. An envelope without `nextCursor` is the last page. `list_flows` drops
-reserved system flows from each page, so a page can hold fewer than `limit`
-items and still have a `nextCursor`.
-
-The default semantic session exposes nine Control-backed tools plus twelve
-unsupported compatibility entries. `run_flow` and `resolve_approval` are
-excluded. A custom host can set `approvalTools: true` and a host-authenticated
-`principal: { id, kind }`; that only exposes the tools. The receiving Control
-runtime must independently delegate the exact identity, target kind, and scope
-using `ApprovalAuthority`. Without a configured principal the actor is
-`mcp/agent`, never the local operator. Tool arguments cannot choose that actor.
-
-`resolve_approval` defaults to `once`; `run_flow` needs `run`-scope Plan
-approval. `remembered` must be explicitly delegated. See
-[approval authority](/pkg/control/guides/approvals/#who-may-decide).
-If a host delegates approval to an agent, describe that as automated approval,
-not independent human review. When using a remote Control client, the remote
-server authenticates the connection; give each trust domain its own credential
-and policy rather than sharing an operator credential.
-
-Compatibility frames are bounded to 4 MiB; history results to 10,000 events and
-1 MiB. `watch_run` applies those history limits only to events after
-`afterSequence` and retains the supplied cursor when the delta is empty.
-`McpServer.serve` pauses input while replies are blocked, waits for each write
-to complete, and returns after input EOF only once all replies have completed.
-Transport errors stop the session; interruption releases its stream listeners.
-These are the `McpServer` library's bounds, not a claim about Incur's
-transport limits. `McpServer.unsupportedTools` and `unsupportedReasons` enumerate
-the retained tools that answer `unsupported`.
 
 ## The other direction
 

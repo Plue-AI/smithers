@@ -119,7 +119,7 @@
 
 - [Library API](https://smithers.sh/docs/reference/api/): One page per @smthrs package: what it exports, with the types and defaults stitched from the api.md colocated with its source.
 - [Targets](https://smithers.sh/docs/reference/targets/): One page per @smthrs/targets rule: attributes, verbs, cache behavior, and channels from Target.make.
-- [RC support matrix](https://smithers.sh/docs/reference/support-matrix/): Runtime, platform, storage, hosting, and evidence limits for Smithers 1.0.0-rc.0.
+- [RC support matrix](https://smithers.sh/docs/reference/support-matrix/): Runtime, platform, storage, and hosting limits for the Smithers 1.0 release candidate.
 - [smthrs flow](https://smithers.sh/docs/reference/cli/flow/): Discover flows, inspect plans, and launch durable executions.
 - [smthrs runs](https://smithers.sh/docs/reference/cli/runs/): Inspect, resume, cancel, and read historical frames of durable executions.
 - [smthrs approvals](https://smithers.sh/docs/reference/cli/approvals/): List in-run approval requests and submit decisions against exact payloads.

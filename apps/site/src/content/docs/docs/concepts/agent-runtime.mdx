@@ -63,7 +63,7 @@ Extensibility is a plugin kernel with waterfall hooks at the points where a deci
 
 The runtime owns identity, durability, and policy. `sealStep` digests the credential-free prepared request together with declared key material into a step key; credentials are signed on after the digest and never enter it, so a replayed turn re-emits the recorded model events instead of paying the provider again, and a provider wire change re-keys the step. The runtime also owns budgets (`Sandbox.Limits` per cell, `maxFrames` per loop, `Budget` per run), quota parks, and authorization, which is checked before a boundary opens because an activity's outcome is journaled.
 
-The model owns the cells: what to compute, which flows to call, and when to declare `ctx.done`. What it can see is the projected `ctx.flows` catalog and nothing else, and the catalog is a contract: the declaration digest a cell was written against is re-derived at the call boundary, so a declaration that moved between disclosure and dispatch is refused rather than run against a body the model never saw. The runtime never writes a cell; the model never touches the journal. The provider-tool-call loop is gone, and nothing replaced it beside the cell path.
+The model owns the cells: what to compute, which flows to call, and when to declare `ctx.done`. What it can see is the projected `ctx.flows` catalog and nothing else, and the catalog is a contract: the declaration digest a cell was written against is re-derived at the call boundary, so a declaration that moved between disclosure and dispatch is refused rather than run against a body the model never saw. The runtime never writes a cell; the model never touches the journal.
 
 ## Related
 

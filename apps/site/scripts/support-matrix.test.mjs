@@ -33,8 +33,11 @@ test("the support reference states every released Node engine range and current 
   for (const step of steps) {
     const inputs = step.with ?? {}
     const versionFile = inputs["node-version-file"]
-    const pins = [inputs["node-version"], inputs["bun-version"],
-      typeof versionFile === "string" ? read(versionFile).trim() : undefined]
+    const pins = [
+      inputs["node-version"],
+      inputs["bun-version"],
+      typeof versionFile === "string" ? read(versionFile).trim() : undefined
+    ]
     for (const pin of pins) {
       if (pin !== undefined) assert.ok(page.includes(`\`${pin}\``), `CI pin ${pin}`)
     }
@@ -48,9 +51,7 @@ test("the support reference states every released Node engine range and current 
       "ControlClient.credential",
       "unauthenticated",
       "before paging",
-      "canary",
-      "funded",
-      "migrated project"
+      "Best effort"
     ]
   ) {
     assert.ok(page.includes(term), `support boundary: ${term}`)
@@ -158,18 +159,7 @@ for (const section of ["guides", "reference"]) {
   })
 }
 
-test("operator docs describe the declared soak, PR evidence upload, and factory operator", () => {
-  const page = read("apps/site/src/content/docs/docs/reference/support-matrix.mdx")
-  const reliability = read(".github/workflows/reliability.yml")
-  const soakRow = /^\| Soak\s+\|(.+)$/m.exec(page)?.[1] ?? ""
-  assert.doesNotMatch(soakRow, /No nightly soak runner/, "the soak row no longer denies the scheduled runner")
-  assert.match(reliability, /^\s+sync-long-soak:$/m, "reliability.yml declares the sync-long-soak job")
-  assert.ok(soakRow.includes("sync-long-soak"), "the soak row names the scheduled job")
-  const minutes = /SMITHERS_SOAK_MINUTES: '(\d+)'/.exec(reliability)?.[1]
-  assert.ok(soakRow.includes(`${minutes} minute`), `the soak row states the ${minutes} minute duration`)
-  assert.match(soakRow, /reliability\.yml/, "the soak row cites its workflow")
-  assert.match(soakRow, /not run evidence|declaration, not/, "the soak row keeps the declaration-only caveat")
-
+test("operator docs describe the PR evidence upload and factory operator", () => {
   const ci = parseWorkflow(read(".github/workflows/ci.yml"))
   const steps = Object.values(ci.jobs).flatMap((job) => job.steps ?? [])
   for (const name of ["Collect ci-test-tier-evidence", "Upload ci-test-tier-evidence"]) {
