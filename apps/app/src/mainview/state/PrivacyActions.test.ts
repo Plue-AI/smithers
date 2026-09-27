@@ -80,6 +80,24 @@ test("refused actions never replay when the owner changes again or the app reloa
   } finally { await t.dispose() }
 })
 
+test("a refused Chat action keeps its notice through cleanup and background work until dismissed", async () => {
+  const t = await fixture()
+  try {
+    expect(await t.controller.commands.run("chat.open")).toMatchObject({ status: "failed", writeRefused: true })
+    const notice = t.controller.privacyNotices.get("toast-privacy-write")
+    expect(notice?.title).toBe("Not saved")
+    t.release.resolve(); await t.changing
+    expect((await t.controller.commands.runAsAgent("account.show")).status).toBe("executed")
+    expect(t.controller.privacyNotices.get("toast-privacy-write")).toEqual(notice)
+    expect(t.store.session().paletteOpen).not.toBe(true)
+    expect((await t.controller.commands.run("chat.open")).status).toBe("executed")
+    expect(t.store.session().paletteOpen).toBe(true)
+    expect(t.controller.privacyNotices.get("toast-privacy-write")).toEqual(notice)
+    expect((await t.controller.commands.run("toast.dismiss", "toast-privacy-write")).status).toBe("executed")
+    expect(t.controller.privacyNotices.size).toBe(0)
+  } finally { await t.dispose() }
+})
+
 for (const door of ["button", "submission", "agent", "native", "agent form", "chat", "input mode"] as const) {
   test(`${door} returns an honest refusal before gestures, network work, or durable admission`, async () => {
     const t = await fixture()

@@ -26,7 +26,9 @@ export const createPrivacyActions = (ctx: ControllerContext) => actorSharedState
   const refuse = (actor: "user" | "smithers" | "system"): string | undefined => {
     const state = ctx.store.privacyWriteState()
     if (ctx.disposed) return state === "failed" ? PRIVACY_WRITE_FAILED : undefined
-    if (state === "ready") { clear(); return undefined }
+    // A later background action is not an acknowledgment of the refused act.
+    // Keep its content-free failure visible until the human dismisses it.
+    if (state === "ready") return undefined
     const detail = state === "failed" ? PRIVACY_WRITE_FAILED : PRIVACY_WRITE_PENDING
     const notice = { id, key: "privacy-write", title: "Not saved", detail, status: "failed" as const,
       createdAt: notices.get(id)?.createdAt ?? Date.now(), updatedAt: Date.now(), actor, revision: ++revision }
