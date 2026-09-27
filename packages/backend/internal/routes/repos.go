@@ -493,6 +493,7 @@ type repositoryHomeBlock struct {
 	Text        string  `json:"text,omitempty"`
 	Flow        string  `json:"flow,omitempty"`
 	Placeholder string  `json:"placeholder,omitempty"`
+	Picture     string  `json:"picture,omitempty"`
 	Path        string  `json:"path,omitempty"`
 	Markdown    *string `json:"markdown,omitempty"`
 	Links       []struct {
@@ -548,7 +549,7 @@ func (h *RepoHandler) GetRepositoryHome(w http.ResponseWriter, r *http.Request) 
 		for i := range parsed.Blocks {
 			block := &parsed.Blocks[i]
 			switch block.Type {
-			case "prompt", "flows", "text", "links", "stack":
+			case "prompt", "flows", "text", "links", "stack", "app":
 			case "markdown":
 				if !validHomePath(block.Path) {
 					errors.WriteError(w, errors.BadRequest("repository homepage has an invalid markdown path"))

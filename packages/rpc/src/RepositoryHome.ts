@@ -18,7 +18,9 @@ const path = z.string().min(1).max(1024).refine((value) =>
  * @since 1.0.0
  */
 export const RepositoryHomeBlockSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("prompt"), flow: flow.optional(), placeholder: title.optional() }),
+  z.object({ type: z.literal("prompt"), flow: flow.optional(), title: title.optional(), placeholder: title.optional() }),
+  /* An app: a featured flow with a picture (D-18); the tiles of the app home. */
+  z.object({ type: z.literal("app"), flow, title, picture: z.enum(["issue", "review", "wiki", "schedule"]) }),
   z.object({ type: z.literal("flows"), title: title.optional() }),
   z.object({ type: z.literal("markdown"), path, title: title.optional(), markdown: z.string().max(256 * 1024) }),
   z.object({ type: z.literal("text"), title: title.optional(), text: z.string().min(1).max(4096) }),
