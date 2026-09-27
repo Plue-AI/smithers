@@ -81,7 +81,8 @@ export const startNativeOwn = async (
     await app.ready()
     await waitForBackend(origin)
     const bootstrap = await request(origin, "/api/bootstrap")
-    if (bootstrap.buildSha !== revision || bootstrap.host !== "local") {
+    // The owned backend is a web origin with the owner's credentials; the shell adds `native.shell` on its own relay, not here.
+    if (bootstrap.buildSha !== revision || bootstrap.host !== "cloud" || bootstrap.authFlow !== "credentials") {
       throw new Error(`native-own bootstrap revision or host mismatch: ${JSON.stringify(bootstrap)}`)
     }
     const dataRoot = join(home, "Library", "Application Support", "Smithers")

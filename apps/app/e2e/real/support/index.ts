@@ -437,8 +437,9 @@ export const test = selectedBase.extend<RealFixtures>({
       } } : {})
     })
     if (!bootstrap.ok()) throw new Error(`Real host bootstrap preflight failed: HTTP ${bootstrap.status()} ${await bootstrap.text()}`)
-    const body = await bootstrap.json() as { host?: unknown; capabilities?: unknown; buildSha?: unknown }
-    const verifiedHost = body.host === "cloud" ? "production" : body.host
+    const body = await bootstrap.json() as { host?: unknown; authFlow?: unknown; capabilities?: unknown; buildSha?: unknown }
+    // Every web origin is `host: "cloud"`; the hosted deployment signs in by redirect, a self-hosted one with owner credentials.
+    const verifiedHost = body.host === "cloud" ? (body.authFlow === "redirect" ? "production" : "local") : body.host
     if (verifiedHost !== "local" && verifiedHost !== "production" && verifiedHost !== "native") {
       throw new Error(`Real host bootstrap returned an unsupported host identity: ${JSON.stringify(body.host)}`)
     }

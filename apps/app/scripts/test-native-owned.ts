@@ -358,7 +358,7 @@ try {
     }
     recoveredBackend = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) =>
       new URL(request.url).pathname === "/api/bootstrap"
-        ? Response.json({ apiVersion: 1, host: "local", version: "test", buildSha: "test",
+        ? Response.json({ apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
             capabilities: [], authFlow: "none", sandbox: null })
         : new Response("not found", { status: 404 })
     })

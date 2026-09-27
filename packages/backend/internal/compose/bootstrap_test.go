@@ -12,9 +12,12 @@ import (
 )
 
 func TestAppBootstrapReportsAssembledCapabilities(t *testing.T) {
+	// Self-host is the same web app as the hosted one: a "cloud" host whose
+	// sign-in is the owner's credentials. Nothing here names the desktop shell.
 	local := newAppBootstrap(bootstrapFeatures{role: localTopology, identity: true, redirectAuth: true, workspaceRuntime: true, workspace: true, terminal: true})
-	require.Equal(t, "local", local.Host)
+	require.Equal(t, "cloud", local.Host)
 	require.Equal(t, []string{"identity", "cloud", "cloud.terminal"}, local.Capabilities)
+	require.NotContains(t, local.Capabilities, "native.shell")
 	require.Equal(t, "credentials", local.AuthFlow)
 	require.Equal(t, "trusted-only", local.Sandbox.Mode)
 	require.NotEmpty(t, local.Sandbox.Platform)
@@ -23,6 +26,7 @@ func TestAppBootstrapReportsAssembledCapabilities(t *testing.T) {
 		agent: true, modelTurn: true, billingCheckout: true, isolatedSandbox: true})
 	require.Equal(t, "cloud", hosted.Host)
 	require.Equal(t, []string{"identity", "agent", "model.turn", "billing.checkout"}, hosted.Capabilities)
+	require.NotContains(t, hosted.Capabilities, "native.shell")
 	require.Equal(t, "redirect", hosted.AuthFlow)
 	require.Equal(t, "enforced", hosted.Sandbox.Mode)
 
@@ -71,7 +75,7 @@ func TestAppBootstrapRoute(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	require.Equal(t, float64(1), body["apiVersion"])
-	require.Equal(t, "local", body["host"])
+	require.Equal(t, "cloud", body["host"])
 	require.NotEmpty(t, body["version"])
 	require.NotEmpty(t, body["buildSha"])
 	require.Equal(t, []any{"identity"}, body["capabilities"])

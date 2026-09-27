@@ -15,6 +15,12 @@ var BuildSHA string
 
 // appBootstrap describes only capabilities that this assembled process can
 // actually serve. The browser reads it before making any authenticated call.
+//
+// Host is always "cloud": every origin this backend serves — hosted or
+// single-owner self-host — is the same web app, and the differences travel as
+// Capabilities and AuthFlow. The desktop shell is never named here; its own
+// renderer relay appends the "native.shell" capability (apps/app/src/bun/
+// NativeRendererServer.ts), so a web page can never be mistaken for the shell.
 type appBootstrap struct {
 	APIVersion   int      `json:"apiVersion"`
 	Host         string   `json:"host"`
@@ -49,11 +55,8 @@ type bootstrapFeatures struct {
 
 func newAppBootstrap(features bootstrapFeatures) appBootstrap {
 	version, sha := buildIdentity()
-	result := appBootstrap{APIVersion: 1, Host: "local", Version: version, BuildSHA: sha,
+	result := appBootstrap{APIVersion: 1, Host: "cloud", Version: version, BuildSHA: sha,
 		Capabilities: make([]string, 0, 4), AuthFlow: "none"}
-	if features.role.hosted() {
-		result.Host = "cloud"
-	}
 	if features.identity {
 		result.Capabilities = append(result.Capabilities, "identity")
 		if !features.role.hosted() {
