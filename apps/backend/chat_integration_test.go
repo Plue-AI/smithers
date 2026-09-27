@@ -42,40 +42,35 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "apps/model-host/node_modules/esbuild")); err != nil && os.Getenv("SMITHERS_REQUIRE_DATABASE_TESTS") != "1" {
 		t.Skip("apps/model-host dependencies are not installed; run pnpm install")
 	}
+	// The box's coding host binds its checkout through the native helper.
+	if os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY") == "" && os.Getenv("SMITHERS_REQUIRE_DATABASE_TESTS") != "1" {
+		t.Skip("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY is not set; build smithers-jj-export")
+	}
 	bundleDir := t.TempDir()
 	bundle := filepath.Join(bundleDir, "smithers-model-host")
 	build := exec.Command(node, filepath.Join(root, "apps/model-host/build.mjs"), bundle)
 	build.Dir = root
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
-	for _, family := range []string{"coding"} {
-		name := "smithers-" + family + "-host"
-		require.NoError(t, os.WriteFile(filepath.Join(bundleDir, name), []byte("#!/bin/sh\nexit 1\n"), 0o755))
-	}
-	librarian := filepath.Join(bundleDir, "smithers-librarian-host")
-	librarianBuild := exec.Command(node, filepath.Join(root, "flows/librarian/build.mjs"), librarian)
-	librarianBuild.Dir = root
-	output, err = librarianBuild.CombinedOutput()
+	// Every browser flow runs on a box's coding host (#2194).
+	coding := filepath.Join(bundleDir, "smithers-coding-host")
+	codingBuild := exec.Command(node, filepath.Join(root, "flows/coding/build.mjs"), coding)
+	codingBuild.Dir = root
+	output, err = codingBuild.CombinedOutput()
 	require.NoError(t, err, string(output))
-	require.NoError(t, os.Chmod(librarian, 0o755))
-	manifest := map[string]any{"version": 1, "hosts": map[string]any{}}
-	hosts := manifest["hosts"].(map[string]any)
-	for _, family := range []string{"coding", "librarian"} {
-		name := "smithers-" + family + "-host"
-		content, readErr := os.ReadFile(filepath.Join(bundleDir, name))
-		require.NoError(t, readErr)
-		sum := sha256.Sum256(content)
-		flows := []string{"coding/dispatch"}
-		if family == "librarian" {
-			flows = []string{}
-		}
-		hosts[family] = map[string]any{"executable": name, "sha256": hex.EncodeToString(sum[:]), "flows": flows}
-	}
+	codingBytes, err := os.ReadFile(coding)
+	require.NoError(t, err)
+	codingSum := sha256.Sum256(codingBytes)
+	manifest := map[string]any{"version": 1, "hosts": map[string]any{
+		"coding": map[string]any{"executable": "smithers-coding-host", "sha256": hex.EncodeToString(codingSum[:]), "flows": []string{"coding/dispatch"}},
+	}}
 	manifestBytes, err := json.Marshal(manifest)
 	require.NoError(t, err)
 	manifestPath := filepath.Join(bundleDir, "flow-hosts.json")
 	require.NoError(t, os.WriteFile(manifestPath, manifestBytes, 0o600))
 
+	keysPath := filepath.Join(t.TempDir(), "platform-model-keys.json")
+	require.NoError(t, os.WriteFile(keysPath, []byte(`{"cerebras":"scripted-provider-key","vercel":"scripted-evaluator-key"}`), 0o600))
 	databaseURL := testdb.New(t).URL
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -97,11 +92,15 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		"SMITHERS_SERVER_ADDR":                   addr,
 		"SMITHERS_PUBLIC_URL":                    origin,
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS":       "false",
-		"SMITHERS_FEATURE_FLAGS_SANDBOXES":       "false",
+		"SMITHERS_FEATURE_FLAGS_SANDBOXES":       "true",
 		"SMITHERS_FLOW_HOST_MANIFEST":            manifestPath,
 		"SMITHERS_MODEL_HOST_BUNDLE":             bundle,
 		"SMITHERS_NODE_BINARY":                   node,
-		"AI_GATEWAY_API_KEY":                     "test-gateway-key-only-for-deterministic-flow",
+		// The box's coding host reaches models only through the metered proxy's
+		// platform seats; the catalog read below calls none of them.
+		"SMITHERS_PLATFORM_MODEL_KEYS_FILE":       keysPath,
+		"AI_GATEWAY_API_KEY":                      "",
+		"SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL": "cerebras:gpt-oss-120b",
 	} {
 		t.Setenv(name, value)
 	}
@@ -150,6 +149,8 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		wantStatus := http.StatusOK
 		if path == "/api/user/repos" {
 			wantStatus = http.StatusCreated
+		} else if strings.HasSuffix(path, "/workspaces") {
+			wantStatus = http.StatusAccepted
 		}
 		require.Equal(t, wantStatus, response.StatusCode, string(result))
 		return result
@@ -164,15 +165,45 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		post("/api/user/repos", tokenResult.Token, map[string]any{
 			"name": "flow-http-integration", "private": true, "auto_init": true, "default_bookmark": "main",
 		})
-		// Catalog reads require an existing workspace and must never provision one.
+		// A flow call that names no box is refused: there is no repository-level host.
+		noBox, err := json.Marshal(map[string]any{"repo": "l3bowner/flow-http-integration"})
+		require.NoError(t, err)
+		refusal, err := http.NewRequest(http.MethodPost, origin+"/api/workflow/provision", bytes.NewReader(noBox))
+		require.NoError(t, err)
+		refusal.Header.Set("Content-Type", "application/json")
+		refusal.Header.Set("Authorization", "token "+tokenResult.Token)
+		refused, err := client.Do(refusal)
+		require.NoError(t, err)
+		refusedBody, _ := io.ReadAll(refused.Body)
+		refused.Body.Close()
+		require.Equal(t, http.StatusBadRequest, refused.StatusCode, string(refusedBody))
+		// Open the box, then run on its coding host.
 		var workspace struct {
-			ID string `json:"workspaceId"`
+			ID     string `json:"id"`
+			Status string `json:"status"`
 		}
-		require.NoError(t, json.Unmarshal(post("/api/workflow/provision", tokenResult.Token, map[string]any{
-			"repo": "l3bowner/flow-http-integration",
+		require.NoError(t, json.Unmarshal(post("/api/repos/l3bowner/flow-http-integration/workspaces", tokenResult.Token, map[string]any{
+			"name": "flows", "source_bookmark": "main",
 		}), &workspace))
 		_, err = uuid.Parse(workspace.ID)
 		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			request, _ := http.NewRequest(http.MethodGet, origin+"/api/repos/l3bowner/flow-http-integration/workspaces/"+workspace.ID, nil)
+			request.Header.Set("Authorization", "token "+tokenResult.Token)
+			response, getErr := client.Do(request)
+			if getErr != nil {
+				return false
+			}
+			defer response.Body.Close()
+			var current struct {
+				Status string `json:"status"`
+			}
+			return json.NewDecoder(response.Body).Decode(&current) == nil && current.Status == "running"
+		}, 2*time.Minute, 500*time.Millisecond)
+		ready := post("/api/workflow/provision", tokenResult.Token, map[string]any{
+			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID,
+		})
+		require.Contains(t, string(ready), `"status":"ready"`)
 		missing := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
 			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": "Plan",
 			"payload": map[string]any{"flowId": "missing/flow", "input": map[string]any{}},
@@ -183,10 +214,9 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		catalog := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
 			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": "List", "payload": map[string]string{"_tag": "flows"},
 		})
-		// The product gateway serves no product flow (#2165); the admitted host
-		// answers its catalog without one.
+		// The box's coding host answers its own catalog.
 		require.Contains(t, string(catalog), `"ok":true`)
-		require.NotContains(t, string(catalog), `"flowId":"librarian/`)
+		require.Contains(t, string(catalog), `"flowId":"coding/dispatch"`)
 	}
 	key := "private-owner-model-key"
 	received := make(chan string, 1)

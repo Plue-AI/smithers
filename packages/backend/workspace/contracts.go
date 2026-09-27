@@ -288,7 +288,7 @@ type ManagedHostPlacement struct {
 	Address   string
 }
 
-// ManagedHostBuilder materializes a canonical coding or librarian command
+// ManagedHostBuilder materializes a canonical coding host command
 // after the execution adapter allocates the address.
 type ManagedHostBuilder interface {
 	BuildManagedHost(context.Context, ManagedHostPlacement) (Command, error)

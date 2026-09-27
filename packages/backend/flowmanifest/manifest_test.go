@@ -37,7 +37,7 @@ func writeManifest(t *testing.T, path string, hosts map[string]rawHost) {
 	}
 }
 
-func TestLoadVerifiesTwoCanonicalHosts(t *testing.T) {
+func TestLoadVerifiesTheCodingHost(t *testing.T) {
 	path, hosts := bundledManifest(t)
 	writeManifest(t, path, hosts)
 	registry, err := Load(path)
@@ -45,7 +45,7 @@ func TestLoadVerifiesTwoCanonicalHosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if registry.Coding.Executable != filepath.Join(filepath.Dir(path), hosts["coding"].Executable) ||
-		registry.Librarian.SHA256 != hosts["librarian"].SHA256 {
+		registry.Coding.SHA256 != hosts["coding"].SHA256 {
 		t.Fatalf("wrong registry: %+v", registry)
 	}
 	if err := os.WriteFile(registry.Coding.Executable, []byte("altered host"), 0o755); err != nil {
@@ -70,7 +70,11 @@ func TestLoadRejectsEscapedOrSubstitutedHost(t *testing.T) {
 	if err := os.Remove(filepath.Join(filepath.Dir(path), coding.Executable)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(filepath.Dir(path), hosts["librarian"].Executable), filepath.Join(filepath.Dir(path), coding.Executable)); err != nil {
+	other := filepath.Join(filepath.Dir(path), "other-host")
+	if err := os.WriteFile(other, []byte("host:coding"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, filepath.Join(filepath.Dir(path), coding.Executable)); err != nil {
 		t.Fatal(err)
 	}
 	writeManifest(t, path, hosts)
@@ -80,15 +84,26 @@ func TestLoadRejectsEscapedOrSubstitutedHost(t *testing.T) {
 }
 
 func TestLoadRejectsMissingOrExtraFlow(t *testing.T) {
-	for _, flows := range [][]string{{"librarian/history"}, {"librarian/history", "librarian/wiki"}} {
+	for _, flows := range [][]string{nil, {"coding/dispatch", "librarian/history"}} {
 		path, hosts := bundledManifest(t)
-		librarian := hosts["librarian"]
-		librarian.Flows = flows
-		hosts["librarian"] = librarian
+		coding := hosts["coding"]
+		coding.Flows = flows
+		hosts["coding"] = coding
 		writeManifest(t, path, hosts)
 		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unexpected flows") {
 			t.Fatalf("flow host with %v accepted: %v", flows, err)
 		}
+	}
+}
+
+// The product gateway's librarian host is retired (#2194); a manifest that
+// still ships it is a stale release, not an extra host to ignore.
+func TestLoadRejectsTheRetiredLibrarianHost(t *testing.T) {
+	path, hosts := bundledManifest(t)
+	hosts["librarian"] = rawHost{Executable: hosts["coding"].Executable, SHA256: hosts["coding"].SHA256}
+	writeManifest(t, path, hosts)
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "host set") {
+		t.Fatalf("retired librarian host accepted: %v", err)
 	}
 }
 
@@ -147,8 +162,8 @@ func TestLoadManifestAtSizeLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registry.Librarian.Flows) != 0 {
-		t.Fatalf("unexpected librarian flows: %v", registry.Librarian.Flows)
+	if len(registry.Coding.Flows) != 1 || registry.Coding.Flows[0] != "coding/dispatch" {
+		t.Fatalf("unexpected coding flows: %v", registry.Coding.Flows)
 	}
 }
 

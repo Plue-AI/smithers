@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/previewgateway"
@@ -70,9 +69,7 @@ func TestRepoGatewayHandler_Success(t *testing.T) {
 		getConnectionInfoFn: func(ctx context.Context, input services.RepoGatewayConnectionInput) (services.RepoGatewayConnectionInfo, error) {
 			assert.Equal(t, int64(200), input.RepositoryID)
 			assert.Equal(t, int64(1), input.UserID)
-			assert.Equal(t, "alice", input.RepoOwner)
-			assert.Equal(t, "demo", input.RepoName)
-			assert.Equal(t, "main", input.RepoDefaultBookmark)
+			assert.Equal(t, "ca5f0c31-7736-4a6d-b275-b62c8f5d7fe2", input.WorkspaceID)
 			return services.RepoGatewayConnectionInfo{
 				BaseURL:   "https://vm-1.sandbox.sh",
 				Token:     "smithers_gateway_abc123",
@@ -84,9 +81,8 @@ func TestRepoGatewayHandler_Success(t *testing.T) {
 		},
 	}}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/gateway", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/gateway", strings.NewReader(`{"workspace_id":"ca5f0c31-7736-4a6d-b275-b62c8f5d7fe2"}`))
 	req = withWorkspaceRepoCtx(req, "alice", "demo")
-	middleware.RepoContextFromContext(req.Context()).Repository.DefaultBookmark = "main"
 	req = withAuth(req, 1, "alice")
 	rec := httptest.NewRecorder()
 	h.PostRepoGateway(rec, req)
@@ -171,23 +167,30 @@ func TestRepoGatewayHandler_RelayAuthenticatesAndRewrites(t *testing.T) {
 	assert.JSONEq(t, `{"ok":true}`, rec.Body.String())
 }
 
-func TestRepoGatewayHandler_WorkspaceBinding(t *testing.T) {
-	for _, body := range []string{`{"workspace_id":"ca5f0c31-7736-4a6d-b275-b62c8f5d7fe2"}`, `{}`, ``} {
+// Every gateway is a box's coding host (#2194): a request that names no box
+// reaches the service, which refuses it before touching any store or VM.
+func TestRepoGatewayHandler_BoxlessRequestRefused(t *testing.T) {
+	for _, body := range []string{`{}`, ``} {
 		t.Run(body, func(t *testing.T) {
-			expected := ""
-			if body != "{}" && body != "" {
-				expected = "ca5f0c31-7736-4a6d-b275-b62c8f5d7fe2"
-			}
-			h := &RepoGatewayHandler{Service: &mockRepoGatewayRouteService{getConnectionInfoFn: func(_ context.Context, input services.RepoGatewayConnectionInput) (services.RepoGatewayConnectionInfo, error) {
-				require.Equal(t, expected, input.WorkspaceID)
-				return services.RepoGatewayConnectionInfo{GatewayID: "gateway", WorkspaceID: expected}, nil
-			}}}
+			h := &RepoGatewayHandler{Service: services.NewRepoGatewayService(nil)}
 			req := withAuth(withWorkspaceRepoCtx(httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/gateway", strings.NewReader(body)), "alice", "demo"), 1, "alice")
 			rec := httptest.NewRecorder()
 			h.PostRepoGateway(rec, req)
-			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "workspace_id is required")
 		})
 	}
+}
+
+func TestRepoGatewayHandler_WorkspaceBinding(t *testing.T) {
+	h := &RepoGatewayHandler{Service: &mockRepoGatewayRouteService{getConnectionInfoFn: func(_ context.Context, input services.RepoGatewayConnectionInput) (services.RepoGatewayConnectionInfo, error) {
+		require.Equal(t, "ca5f0c31-7736-4a6d-b275-b62c8f5d7fe2", input.WorkspaceID)
+		return services.RepoGatewayConnectionInfo{GatewayID: "gateway", WorkspaceID: input.WorkspaceID}, nil
+	}}}
+	req := withAuth(withWorkspaceRepoCtx(httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/gateway", strings.NewReader(`{"workspace_id":"ca5f0c31-7736-4a6d-b275-b62c8f5d7fe2"}`)), "alice", "demo"), 1, "alice")
+	rec := httptest.NewRecorder()
+	h.PostRepoGateway(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
 	for _, body := range []string{`{"workspace_id":12}`, `{"workspace_id":"x","actor_id":2}`, `{} {}`, `{"workspace_id":`} {
 		h := &RepoGatewayHandler{Service: &mockRepoGatewayRouteService{getConnectionInfoFn: func(context.Context, services.RepoGatewayConnectionInput) (services.RepoGatewayConnectionInfo, error) {
 			t.Fatal("invalid body reached service")

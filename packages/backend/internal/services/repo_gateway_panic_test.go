@@ -13,25 +13,14 @@ import (
 // singleflight entry; otherwise it kills the process, or every later caller
 // joins a resolve that never completes.
 func TestRepoGatewayService_PanickingResolveFailsAndReleasesTheGateway(t *testing.T) {
-	t.Parallel()
-	const gatewayID, vmID, token = "gw-panic", "vm-panic", "smithers_gateway_panic"
-	q := &relayRepoGatewayQuerier{fakeRepoGatewayQuerier: &fakeRepoGatewayQuerier{
-		active: idleSuspendedGatewayRow(gatewayID, vmID, token),
-	}}
-	panics := true
-	vm := &fakeRepoGatewayVMClient{
-		getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
-			if panics {
-				panic("sandbox client bug")
-			}
-			return sandbox.Sandbox{ID: vmID, State: sandbox.StateRunning}, nil
-		},
+	svc, q, vm, w := boundGatewayFixture(t)
+	q.active = boundGatewayRow(q, w, "starting")
+	vm.execAwaitFn = func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
+		panic("sandbox client bug")
 	}
-	svc := newTestRepoGatewayService(q, vm)
-	fastRepoGatewaySleep(svc)
 
-	_, err := svc.GetRepoGatewayConnectionInfo(context.Background(), testRepoGatewayInput())
-	require.Error(t, err)
+	_, err := svc.GetRepoGatewayConnectionInfo(context.Background(), RepoGatewayConnectionInput{RepositoryID: w.RepositoryID, UserID: w.UserID, WorkspaceID: w.ID})
+	require.Equal(t, 500, apiStatus(t, err))
 
 	svc.resolveMu.Lock()
 	inflight := len(svc.resolveInflight)

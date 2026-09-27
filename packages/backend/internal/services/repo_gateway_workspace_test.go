@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,6 +48,19 @@ func boundGatewayFixture(t *testing.T) (*RepoGatewayService, *fakeRepoGatewayQue
 	return newTestRepoGatewayService(q, vm, WithRepoGatewayHealthProbe(server.URL, server.Client()), WithRepoGatewayWorkspaces(ws), WithRepoGatewaySecretCodec(&staticTestCodec{prefix: "enc:"})), q, vm, workspace
 }
 
+// boundGatewayRow is an existing gateway row of the fixture's box whose ID the
+// fixture's health server answers for.
+func boundGatewayRow(q *fakeRepoGatewayQuerier, w *db.Workspace, status string) *runtimeports.RepoGateway {
+	const token = "smithers_gateway_bound"
+	digest := sha256.Sum256([]byte(token))
+	return &runtimeports.RepoGateway{
+		ID: q.nextGatewayID, RepositoryID: w.RepositoryID, UserID: w.UserID,
+		WorkspaceID: pgtype.UUID{Bytes: uuid.MustParse(w.ID), Valid: true}, VmID: w.VmID,
+		BaseUrl: "https://" + repoGatewayDomain(q.nextGatewayID), AuthTokenHash: hex.EncodeToString(digest[:]),
+		AuthTokenCiphertext: "enc:" + token, Status: status, LastActivityAt: time.Now(),
+	}
+}
+
 func TestWorkspaceGateway_UsesOwnedVMAndModernService(t *testing.T) {
 	s, q, vm, w := boundGatewayFixture(t)
 	input := RepoGatewayConnectionInput{RepositoryID: w.RepositoryID, UserID: w.UserID, WorkspaceID: w.ID}
@@ -54,7 +68,6 @@ func TestWorkspaceGateway_UsesOwnedVMAndModernService(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, w.ID, info.WorkspaceID)
 	require.Equal(t, w.VmID, info.VMID)
-	require.Empty(t, vm.createVMReqs)
 	require.Empty(t, vm.deletedVMIDs)
 	require.Len(t, vm.systemdSpecs, 1)
 	spec := vm.systemdSpecs[0]
@@ -87,7 +100,6 @@ func TestWorkspaceGateway_RefusesMissingRuntimeWithoutDeletingWorkspace(t *testi
 	_, err := s.GetRepoGatewayConnectionInfo(context.Background(), RepoGatewayConnectionInput{RepositoryID: w.RepositoryID, UserID: w.UserID, WorkspaceID: w.ID})
 	require.NotEqual(t, pkgerrors.CodeRepositoryWorkspacePending, assertAPIErrorStatus(t, err, http.StatusConflict).Code)
 	assert.Empty(t, vm.systemdSpecs)
-	assert.Empty(t, vm.createVMReqs)
 	assert.Empty(t, vm.deletedVMIDs)
 	assert.Empty(t, vm.mappedDomains)
 	require.Len(t, q.executionInfo, 1)
@@ -125,13 +137,14 @@ func TestWorkspaceGateway_PrimaryProbeReturnsTypedPendingWithoutIdentity(t *test
 func TestWorkspaceGateway_MissingVMPendingOnlyWhenProvisioning(t *testing.T) {
 	for _, status := range []string{"pending", "starting", "running"} {
 		t.Run(status, func(t *testing.T) {
-			s, _, vm, w := boundGatewayFixture(t)
+			s, q, vm, w := boundGatewayFixture(t)
 			w.VmID = ""
 			w.Status = status
 			info, err := s.GetRepoGatewayConnectionInfo(context.Background(), RepoGatewayConnectionInput{RepositoryID: w.RepositoryID, UserID: w.UserID, WorkspaceID: w.ID})
 			api := assertAPIErrorStatus(t, err, http.StatusConflict)
 			require.Empty(t, info.WorkspaceID)
-			require.Empty(t, vm.createVMReqs)
+			require.Empty(t, q.created)
+			require.Empty(t, vm.execAwaitReqs)
 			if status == "running" {
 				require.NotEqual(t, pkgerrors.CodeRepositoryWorkspacePending, api.Code)
 			} else {
@@ -198,7 +211,6 @@ func TestWorkspaceGateway_BindingValidationBeforeSideEffects(t *testing.T) {
 	}
 	assert.Empty(t, q.created)
 	assert.Empty(t, vm.execAwaitReqs)
-	assert.Empty(t, vm.createVMReqs)
 }
 
 func TestWorkspaceGateway_ReadinessRequiresRegisteredCodingHost(t *testing.T) {
@@ -306,7 +318,6 @@ func TestWorkspaceGateway_ProviderBootstrapPreservesHealthyHost(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.GatewayID, second.GatewayID)
 	require.Len(t, vm.systemdSpecs, serviceCount, "a running service and its outstanding runs remain alive")
-	require.Empty(t, vm.startedVMIDs)
 	require.Empty(t, vm.deletedVMIDs)
 }
 
@@ -369,10 +380,40 @@ func TestWorkspaceGateway_PrimaryCapabilityStartsHostWithoutAllocating(t *testin
 	require.NoError(t, err)
 	require.True(t, compatible)
 	require.Len(t, vm.systemdSpecs, 1, "fresh imported workspace starts its already staged host")
-	require.Empty(t, vm.createVMReqs)
 	require.Empty(t, vm.deletedVMIDs)
 	stale := *w
 	stale.VmID = "previous-vm"
 	_, err = s.ProbeWorkspaceCapability(context.Background(), stale, repositoryJobsCapability)
 	require.ErrorContains(t, err, "workspace changed during capability check")
+}
+
+// Store failures while recording a new host fail before anything runs in the
+// box; a lost race for the active slot is the poll-me answer, not an error.
+func TestWorkspaceGateway_ProvisionStoreFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		create, exec error
+		status       int
+		pending      bool
+		markedFailed bool
+	}{
+		{name: "create", create: errors.New("insert failed"), status: http.StatusInternalServerError},
+		{name: "write shared", create: &pgconn.PgError{Code: "23514", ConstraintName: "workspace_gateway_private_execution"}, status: http.StatusConflict},
+		{name: "lost race", exec: &pgconn.PgError{Code: "23505", ConstraintName: "uq_repo_gateways_active"}, status: http.StatusConflict, pending: true, markedFailed: true},
+		{name: "persist", exec: errors.New("update failed"), status: http.StatusInternalServerError, markedFailed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, q, vm, w := boundGatewayFixture(t)
+			q.createGatewayErr, q.executionInfoErr = tc.create, tc.exec
+			_, err := s.GetRepoGatewayConnectionInfo(context.Background(), RepoGatewayConnectionInput{RepositoryID: w.RepositoryID, UserID: w.UserID, WorkspaceID: w.ID})
+			apiErr := assertAPIErrorStatus(t, err, tc.status)
+			assert.Equal(t, tc.pending, apiErr.Code == pkgerrors.CodeRepositoryWorkspacePending)
+			if tc.markedFailed {
+				require.NotEmpty(t, q.statusUpdates)
+				assert.Equal(t, "failed", q.statusUpdates[len(q.statusUpdates)-1].Status)
+			}
+			assert.Empty(t, vm.execAwaitReqs)
+			assert.Empty(t, vm.systemdSpecs)
+		})
+	}
 }

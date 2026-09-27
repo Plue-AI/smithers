@@ -89,7 +89,7 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 	if !catalogKeyPattern.MatchString(catalog.Key) {
 		return Catalog{}, errors.New("flow host catalog key is invalid")
 	}
-	if catalog.Family != CatalogCoding && catalog.Family != CatalogLibrarian {
+	if catalog.Family != CatalogCoding {
 		return Catalog{}, fmt.Errorf("flow host catalog %q has an unsupported family", catalog.Key)
 	}
 	if !filepath.IsAbs(catalog.Executable) {

@@ -20,8 +20,6 @@ const maxManifestBytes = 1 << 20
 
 var expectedFlows = map[string][]string{
 	"coding": {"coding/dispatch"},
-	// The librarian host is the product gateway; it serves no product flow (#2165).
-	"librarian": nil,
 }
 
 // Host is a validated packaged executable. Source revision is deliberately
@@ -33,8 +31,7 @@ type Host struct {
 }
 
 type Registry struct {
-	Coding    Host
-	Librarian Host
+	Coding Host
 }
 
 type rawManifest struct {
@@ -94,12 +91,7 @@ func Load(path string) (Registry, error) {
 		if err != nil {
 			return Registry{}, err
 		}
-		switch family {
-		case "coding":
-			registry.Coding = host
-		case "librarian":
-			registry.Librarian = host
-		}
+		registry.Coding = host
 	}
 	return registry, nil
 }

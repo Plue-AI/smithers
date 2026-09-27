@@ -59,7 +59,7 @@ func TestRepoGatewayHealthProbe_RealDomainRoutesToLoopbackHost(t *testing.T) {
 			svc := newTestRepoGatewayService(&fakeRepoGatewayQuerier{}, &fakeRepoGatewayVMClient{},
 				WithRepoGatewayHealthProbe(ingress.URL, ingress.Client()), WithPreviewRelayToken("relay-secret"))
 			fastRepoGatewaySleep(svc)
-			require.NoError(t, svc.probeGatewayHealth(context.Background(), tt.vmID))
+			require.NoError(t, svc.probeGatewayHealthChecked(context.Background(), tt.vmID, nil))
 		})
 	}
 }

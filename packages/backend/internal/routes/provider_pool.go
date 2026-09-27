@@ -20,7 +20,7 @@ import (
 )
 
 // The provider account pool route. Workspaces' and managed Flow hosts'
-// (coding runs', the librarian's) model calls for Claude and Codex reach here
+// (a box's coding host) model calls for Claude and Codex reach here
 // (POST /provider-pool/{anthropic,chatgpt}/...) with the workspace's pool
 // credential or the host's model credential instead of a provider key; GET /provider-pool/routes tells the guest which routes have
 // connected accounts right now. The handler asks the

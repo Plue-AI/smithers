@@ -65,12 +65,6 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 			Environment:   codingHostEnvironment(options.topology),
 			ModelProxyURL: modelProxyURL, ModelSeats: modelSeats, AccountPoolURL: accountPoolURL,
 		},
-		{
-			// The product gateway: no product flow, so no model seats.
-			Key: flowhost.CatalogLibrarian, Family: flowhost.CatalogLibrarian,
-			Executable: registry.Librarian.Executable, ArtifactDigest: registry.Librarian.SHA256,
-			ServiceName: "smithers-librarian-host", Environment: map[string]string{},
-		},
 	}
 	bindings, err := flowhost.NewStore(pool, codec)
 	if err != nil {

@@ -4,8 +4,6 @@ package testkit
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -60,13 +58,7 @@ func Workspace(t testing.TB, q services.WorkspaceQuerier, provider sandbox.Provi
 func RepoGateway(t testing.TB, q services.RepoGatewayQuerier, provider services.RepoGatewayVMClient, opts ...services.RepoGatewayServiceOption) *services.RepoGatewayService {
 	t.Helper()
 	base := []services.RepoGatewayServiceOption{services.WithRepoGatewayGitBaseURL("https://repository.test"), services.WithRepoGatewaySandboxClient(provider)}
-	service := services.NewRepoGatewayService(q, append(base, opts...)...)
-	fixture := filepath.Join(t.TempDir(), "product-gateway-fixture.mjs")
-	if err := os.WriteFile(fixture, []byte("console.log('Smithers product gateway fixture');\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	services.ConfigureGatewayFixtureHost(t, service, fixture)
-	return service
+	return services.NewRepoGatewayService(q, append(base, opts...)...)
 }
 func GatewayPushTokens(t testing.TB, conn productstore.DBTX, q services.RepoGatewayQuerier) *services.GatewayPushTokenService {
 	t.Helper()

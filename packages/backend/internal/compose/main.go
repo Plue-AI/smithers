@@ -801,22 +801,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var repoGatewayService *services.RepoGatewayService
 	if runtimeStores.RepoGateways != nil && repoGatewaySandbox != nil {
 		repoGatewayService = services.NewRepoGatewayService(runtimeStores.RepoGateways,
-			services.WithRepoGatewayBillingPolicy(billingPolicy),
 			services.WithRepoGatewayWorkspaces(workspaceService),
 			services.WithRepoGatewaySandboxClient(repoGatewaySandbox),
 			services.WithRepoGatewaySandboxMetrics(smithersMetrics),
 			services.WithRepoGatewaySecretCodec(webhookSecretCodec),
 			services.WithRepoGatewayGitBaseURL(publicBaseURL),
-			services.WithRepoGatewayGoldenSnapshots(goldenSnapshotService),
-			// Cap concurrent gateway VMs against the same per-user active-sandbox
-			// budget as workspaces (default 3), enforced only on the provision path
-			// so resuming an existing gateway is never blocked.
-			services.WithRepoGatewayConcurrencyCap(queries, perUserConcurrentSandboxCap),
 			// Reaper-driven authorization sweep: tear down gateways whose user lost
 			// write access, since the VM-local operator token is never re-checked
 			// against Smithers permissions on use.
 			services.WithRepoGatewayAccessRevocation(runtimeStores.RepoGateways),
-			services.WithRepoGatewayModelSeats(modelSeats),
 			// Resume-time liveness probe through the preview ingress (the relay's
 			// own upstream). Empty in local dev: no preview gateway exists there.
 			services.WithRepoGatewayHealthProbe(cfg.Sandbox.GatewayHealthProbeBaseURL, nil),
@@ -1462,7 +1455,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			DeploymentAdmin:    deploymentAdminRoutes},
 	)
 	if flow != nil && options.topology.servesHTTP() {
-		browser := &browserFlowAPI{repos: repoService, workspaces: workspaceService, queries: queries, dispatcher: flow.dispatcher, subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
+		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
 		flowAccess := []func(http.Handler) http.Handler{
 			cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
 			middleware.JSONAllowContentType("application/json"), middleware.MaxBodySize(middleware.MaxRequestBodySize),

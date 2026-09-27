@@ -177,7 +177,7 @@ func NewProviderPoolScopes(q providerPoolScopeQuerier, pool *pgxpool.Pool, codec
 
 // Scope answers the pool (user, repository) of an authenticated call.
 //
-// A managed Flow host (a coding run's host, the librarian) presents its
+// A managed Flow host (a box's coding host) presents its
 // binding's model credential: it draws on the accounts of the binding's
 // user, the user who initiated the run, on the binding's repository; the
 // repository preference and that user's grants decide the rest.

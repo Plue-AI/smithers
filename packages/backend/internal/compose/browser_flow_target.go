@@ -13,7 +13,12 @@ import (
 
 // browserFlowTarget resolves the repository and workspace afresh on every RPC.
 // Browser-supplied names and workspace IDs never become host authority alone.
-type browserFlowTarget struct{ queries *db.Queries }
+type browserFlowTarget struct {
+	queries interface {
+		GetRepoByOwnerAndLowerName(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
+		GetWorkspaceForUserRepo(context.Context, db.GetWorkspaceForUserRepoParams) (db.Workspace, error)
+	}
+}
 
 func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
 	if target.BindingKind != "browser-flow" || target.WorkspaceID == "" {
@@ -39,6 +44,6 @@ func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, tar
 	}
 	return flowhost.Authority{
 		Target: target, RepositoryID: repository.ID, UserID: userID, WorkspaceID: workspace.ID,
-		CatalogKey: flowhost.CatalogLibrarian, Repository: target.BindingID,
+		CatalogKey: flowhost.CatalogCoding, Repository: target.BindingID,
 	}, nil
 }

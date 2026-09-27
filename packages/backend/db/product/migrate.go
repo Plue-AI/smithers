@@ -80,6 +80,7 @@ var migrationRegistry = []migrationSpec{
 	{44, "migrations/0044_billing_subscription_snapshot_observed.sql"},
 	{45, "migrations/0045_outsider_provenance.sql"},
 	{46, "migrations/0046_subscription_token_flags.sql"},
+	{47, "migrations/0047_retire_librarian_flow_hosts.sql"},
 }
 
 type migration struct {

@@ -84,12 +84,10 @@ RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40,64}$' \
   && SMITHERS_BUILD_SHA="$BUILD_SHA" pnpm --dir apps/app run build:web
 RUN pnpm --dir flows run typecheck
 RUN node flows/coding/build.mjs /out/flow-hosts/smithers-coding-host \
-  && node flows/librarian/build.mjs /out/flow-hosts/smithers-librarian-host \
   && node apps/model-host/build.mjs /out/flow-hosts/smithers-model-host \
   && node distribution/flow-host-manifest.mjs \
     /out/flow-hosts/flow-hosts.json \
-    /out/flow-hosts/smithers-coding-host \
-    /out/flow-hosts/smithers-librarian-host
+    /out/flow-hosts/smithers-coding-host
 
 FROM golang:1.26.8-bookworm AS backend
 ARG BUILD_SHA
@@ -128,21 +126,19 @@ ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0
 RUN schema_version="$(find /opt/smithers/migrations -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1 | cut -c 1-4 | sed 's/^0*//')" \
   && test -n "$schema_version" \
   && sed -i "s/^SMITHERS_DISTRIBUTION_VERSION=.*/SMITHERS_DISTRIBUTION_VERSION=${SMITHERS_DISTRIBUTION_VERSION}/; s/^SMITHERS_SCHEMA_VERSION=.*/SMITHERS_SCHEMA_VERSION=${schema_version}/" /opt/smithers/version.env \
-  && chmod 0555 /opt/smithers/*.sh /opt/smithers/bin/node /opt/smithers/bin/smithers /opt/smithers/bin/smithers-backend /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-librarian-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj \
+  && chmod 0555 /opt/smithers/*.sh /opt/smithers/bin/node /opt/smithers/bin/smithers /opt/smithers/bin/smithers-backend /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj \
   && chmod 0444 /opt/smithers/bin/flow-hosts.json /opt/smithers/bin/*.sha256 \
   && cd /opt/smithers/bin \
-  && sha256sum -c smithers-coding-host.sha256 smithers-librarian-host.sha256 smithers-model-host.sha256 \
+  && sha256sum -c smithers-coding-host.sha256 smithers-model-host.sha256 \
   && ./node --version | grep -Eq '^v26\.' \
   && ./jj --version | grep -Fx 'jj 0.44.0-47589ada70c12b3e829b5c98ab32503abad49eac' \
   && /opt/smithers/git/bin/git --version | grep -Fx 'git version 2.50.1' \
   && PATH=/opt/smithers/bin:$PATH ./smithers-coding-host --help >/dev/null \
-  && PATH=/opt/smithers/bin:$PATH ./smithers-librarian-host --help >/dev/null \
   && PATH=/opt/smithers/bin:$PATH ./smithers-model-host --help >/dev/null \
   && chown -R root:root /opt/smithers && chown smithers:smithers /var/lib/smithers
 ENV SMITHERS_DATA_ROOT=/var/lib/smithers \
     SMITHERS_FLOW_HOST_MANIFEST=/opt/smithers/bin/flow-hosts.json \
     SMITHERS_WORKSPACE_CODING_HOST_BINARY=/opt/smithers/bin/smithers-coding-host \
-    SMITHERS_WORKSPACE_LIBRARIAN_HOST_BINARY=/opt/smithers/bin/smithers-librarian-host \
     SMITHERS_MODEL_HOST_BUNDLE=/opt/smithers/bin/smithers-model-host \
     SMITHERS_NODE_BINARY=/opt/smithers/bin/node \
     SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/opt/smithers/bin/smithers-jj-export \

@@ -14,10 +14,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
-const (
-	CatalogCoding    = "coding"
-	CatalogLibrarian = "librarian"
-)
+// CatalogCoding is the one packaged host family: the box's coding host.
+const CatalogCoding = "coding"
 
 var ErrHostNotRunning = errors.New("flow host is not running")
 

@@ -48,8 +48,3 @@ func ReuseWorkspaceGatewayForTesting(t FixtureHelper, service *RepoGatewayServic
 	t.Helper()
 	return service.reuseWorkspaceGateway(ctx, gateway)
 }
-
-func ConfigureGatewayFixtureHost(t FixtureHelper, service *RepoGatewayService, path string) {
-	t.Helper()
-	service.productHostPath = path
-}

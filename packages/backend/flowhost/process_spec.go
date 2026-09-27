@@ -60,18 +60,11 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	environment["SMITHERS_OWNER_GENERATION"] = strconv.FormatInt(launch.Binding.OwnerGeneration, 10)
 	environment["SMITHERS_FLOW_ARTIFACT_SHA256"] = launch.Binding.RuntimeArtifactDigest
 	environment["SMITHERS_SOURCE_REVISION"] = launch.Binding.SourceRevision
-	switch launch.Catalog.Family {
-	case CatalogCoding:
-		if launch.Catalog.ImplementationModel != "" {
-			environment["SMITHERS_CODING_IMPLEMENT_MODEL"] = launch.Catalog.ImplementationModel
-		}
-	case CatalogLibrarian:
-		if strings.TrimSpace(launch.Authority.Repository) == "" {
-			return ProcessSpec{}, errors.New("librarian host needs its authorized repository name")
-		}
-		environment["SMITHERS_REPO"] = launch.Authority.Repository
-	default:
+	if launch.Catalog.Family != CatalogCoding {
 		return ProcessSpec{}, errors.New("flow host family is unsupported")
+	}
+	if launch.Catalog.ImplementationModel != "" {
+		environment["SMITHERS_CODING_IMPLEMENT_MODEL"] = launch.Catalog.ImplementationModel
 	}
 	args := []string{launch.Catalog.Executable, "serve", "--root", root, "--state-dir", stateDir,
 		"--host", host, "--port", strconv.Itoa(int(port)), "--listen"}

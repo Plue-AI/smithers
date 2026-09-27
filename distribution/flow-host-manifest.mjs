@@ -25,14 +25,12 @@ const host = async (root, path, flows) => {
   }
 }
 
-export const writeFlowHostManifest = async ({ output, coding, librarian }) => {
+export const writeFlowHostManifest = async ({ output, coding }) => {
   const manifestPath = resolve(output)
   const root = dirname(manifestPath)
   await mkdir(root, { recursive: true })
   const hosts = {
-    coding: await host(root, coding, ["coding/dispatch"]),
-    // The product gateway serves no product flow (#2165).
-    librarian: await host(root, librarian, [])
+    coding: await host(root, coding, ["coding/dispatch"])
   }
   for (const entry of Object.values(hosts)) {
     await writeFile(
@@ -46,9 +44,9 @@ export const writeFlowHostManifest = async ({ output, coding, librarian }) => {
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const [output, coding, librarian] = process.argv.slice(2)
-  if (output === undefined || coding === undefined || librarian === undefined) {
-    throw new Error("usage: flow-host-manifest.mjs OUTPUT CODING_HOST LIBRARIAN_HOST")
+  const [output, coding] = process.argv.slice(2)
+  if (output === undefined || coding === undefined) {
+    throw new Error("usage: flow-host-manifest.mjs OUTPUT CODING_HOST")
   }
-  await writeFlowHostManifest({ output, coding, librarian })
+  await writeFlowHostManifest({ output, coding })
 }

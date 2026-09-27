@@ -26,8 +26,6 @@ import (
 
 func TestWorkspaceGateway_OwnerEnvironmentAndSharing(t *testing.T) {
 	s, q, vm, w := boundGatewayFixture(t)
-	// A workspace gateway's seats come from its workspace, never the VM gateway's.
-	s.modelSeats = testGatewayModelSeats
 	input := RepoGatewayConnectionInput{RepositoryID: w.RepositoryID, UserID: w.UserID, WorkspaceID: w.ID}
 	q.writableWorkspaceShares = true
 	_, err := s.GetRepoGatewayConnectionInfo(context.Background(), input)

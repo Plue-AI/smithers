@@ -19,7 +19,7 @@ func TestDistributionPackagesCanonicalFlowHosts(t *testing.T) {
 	require.NoError(t, err)
 	content := string(contentBytes)
 	assert.Contains(t, content, "node flows/coding/build.mjs /out/flow-hosts/smithers-coding-host")
-	assert.Contains(t, content, "node flows/librarian/build.mjs /out/flow-hosts/smithers-librarian-host")
+	assert.NotContains(t, content, "librarian")
 	assert.Contains(t, content, "node distribution/flow-host-manifest.mjs")
 	assert.Contains(t, content, "COPY --from=web /out/flow-hosts/ /opt/smithers/bin/")
 	assert.Contains(t, content, "SMITHERS_FLOW_HOST_MANIFEST=/opt/smithers/bin/flow-hosts.json")

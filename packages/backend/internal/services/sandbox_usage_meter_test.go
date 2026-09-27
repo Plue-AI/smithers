@@ -223,23 +223,15 @@ func TestSandboxUsageAgentWorkspaceHandoff(t *testing.T) {
 	q.requireOpen(t, w.UserID, "workspace", w.ID)
 }
 
-func TestSandboxUsageGatewayLifecycle(t *testing.T) {
+// No gateway opens a "gateway" interval any more: every gateway is a service
+// inside a box's VM, which the box meters (#2194). Teardown still closes the
+// kind so an interval a retired repository-level gateway left open ends.
+func TestSandboxUsageGatewayTeardownClosesInterval(t *testing.T) {
 	ctx := context.Background()
-	q := &meteredGatewayQuerier{}
+	gateway := runtimeports.RepoGateway{ID: "gw-legacy", UserID: 1, VmID: "vm-legacy", Status: "running"}
+	q := &fakeRepoGatewayQuerier{}
 	q.err = errors.New("meter unavailable")
-	vm := &fakeRepoGatewayVMClient{}
-	svc := newTestRepoGatewayService(q, vm)
-	info, err := svc.provisionGateway(ctx, testRepoGatewayInput())
-	require.NoError(t, err)
-	q.requireOpen(t, 1, "gateway", info.GatewayID)
-	gateway := *q.active
-	q.opens = nil
-	gateway.Status = "suspended"
-	q.active = &gateway
-	_, err = svc.reuseGateway(ctx, gateway, testRepoGatewayInput())
-	require.NoError(t, err)
-	q.requireOpen(t, 1, "gateway", gateway.ID)
-	q.err = errors.New("meter unavailable")
+	svc := newTestRepoGatewayService(q, &fakeRepoGatewayVMClient{})
 	svc.discardGateway(ctx, gateway)
 	q.requireClose(t, "gateway", gateway.ID)
 	q.closes = nil
@@ -249,37 +241,7 @@ func TestSandboxUsageGatewayLifecycle(t *testing.T) {
 	q.staleRows = []runtimeports.RepoGateway{gateway}
 	svc.sweepStaleGateways(ctx)
 	q.requireClose(t, "gateway", gateway.ID)
-	q.opens = nil
-	gateway.WorkspaceID = pgUUIDFromString("0f8fad5b-d9cb-469f-a165-70867728950e")
-	svc.meterGatewayUsage(ctx, gateway)
 	require.Empty(t, q.opens)
-}
-
-// Preserve the stored owner/execution columns omitted by the legacy fake's
-// narrow status projection; production UPDATE ... RETURNING supplies them.
-type meteredGatewayQuerier struct{ fakeRepoGatewayQuerier }
-
-func (q *meteredGatewayQuerier) UpdateRepoGatewayStatus(ctx context.Context, arg runtimeports.UpdateRepoGatewayStatusParams) (runtimeports.RepoGateway, error) {
-	row, err := q.fakeRepoGatewayQuerier.UpdateRepoGatewayStatus(ctx, arg)
-	if q.active != nil {
-		row = *q.active
-	} else {
-		if len(q.created) > 0 {
-			row.UserID = q.created[0].UserID
-			row.RepositoryID = q.created[0].RepositoryID
-		}
-		if len(q.executionInfo) > 0 {
-			info := q.executionInfo[len(q.executionInfo)-1]
-			row.VmID = info.VmID
-			row.BaseUrl = info.BaseUrl
-			row.AuthTokenHash = info.AuthTokenHash
-			row.AuthTokenCiphertext = info.AuthTokenCiphertext
-		}
-	}
-	row.ID = arg.ID
-	row.Status = arg.Status
-	q.active = &row
-	return row, err
 }
 
 func TestSandboxUsageFailedAgentDispatchClosesReservation(t *testing.T) {

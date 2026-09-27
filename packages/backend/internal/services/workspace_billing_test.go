@@ -81,8 +81,6 @@ func TestSandboxPlanChecksPrecedeHardCaps(t *testing.T) {
 	require.ErrorIs(t, workspace.enforceWorkspaceQuota(context.Background(), 7), denied)
 	_, err := workspace.resumeWorkspaceVM(context.Background(), db.Workspace{UserID: 7})
 	require.ErrorIs(t, err, denied)
-	gateway := &RepoGatewayService{billing: policy}
-	require.ErrorIs(t, gateway.enforceProvisionConcurrency(context.Background(), 7), denied)
 	dispatch := &agentDispatch{ctx: context.Background(), input: DispatchAgentRunInput{UserID: 7}, svc: &AgentService{billing: policy}}
 	require.ErrorIs(t, dispatch.enforceConcurrencyCap(), denied)
 	assert.Same(t, denied, workspaceProvisioningError("resume sandbox", denied))

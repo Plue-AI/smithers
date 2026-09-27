@@ -5,8 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/smithersai/smithers/packages/backend/runtimeports"
-
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -68,13 +66,6 @@ func (s *WorkspaceService) sweepSandboxUsage(ctx context.Context) {
 		if err := q.CloseOrphanedSandboxUsageIntervals(ctx); err != nil {
 			slog.Warn("sandbox usage orphan sweep failed", "error", err)
 		}
-	}
-}
-
-func (s *RepoGatewayService) meterGatewayUsage(ctx context.Context, gateway runtimeports.RepoGateway) {
-	// Workspace gateways are a service inside the workspace's VM.
-	if !gateway.WorkspaceID.Valid {
-		meterSandboxUsage(ctx, s.q, gateway.UserID, "gateway", gateway.ID, true)
 	}
 }
 
