@@ -84,6 +84,13 @@ func (s *ChangesetService) checkLandingPolicy(ctx context.Context, repo db.Repos
 	if err != nil {
 		return err
 	}
+	unresolved, err := s.landingPolicy.queries.CountUnresolvedLandingRequestThreads(ctx, row.ID)
+	if err != nil {
+		return pkgerrors.Internal("failed to count unresolved review comments").WithCause(err)
+	}
+	if unresolved > 0 {
+		return pkgerrors.Conflict("changeset member has unresolved review comments")
+	}
 	current, err = s.repoHost.GetChange(ctx, owner, repo.Name, changeID)
 	if err != nil || current.CommitID != commitID {
 		return pkgerrors.Conflict("member revision changed during policy evaluation")

@@ -175,6 +175,7 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	for name, run := range runs {
 		rec = serve(run, http.MethodPost, fmt.Sprintf("%s/threads/%d/ack", othersPath, thread), `{}`)
 		assert.Equal(t, http.StatusForbidden, rec.Code, "%s acknowledged its user's review comment: %s", name, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "run credential", name)
 		assert.Equal(t, int64(1), unresolved(othersLanding.ID), "%s resolved its user's review comment", name)
 
 		for _, attempt := range []struct{ method, path, body string }{
@@ -182,10 +183,16 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 			{http.MethodPut, othersPath + "/land/append", `{"commit_id":"1111111111111111111111111111111111111111"}`},
 			{http.MethodPost, othersPath + "/auto-land", `{"enabled":true}`},
 			{http.MethodDelete, othersPath + "/auto-land", ``},
+			{http.MethodPatch, othersPath, `{"state":"closed"}`},
+			{http.MethodPatch, othersPath, `{"target_bookmark":"release"}`},
 		} {
 			rec = serve(run, attempt.method, attempt.path, attempt.body)
 			assert.Equal(t, http.StatusForbidden, rec.Code, "%s: %s %s on someone else's landing: %s", name, attempt.method, attempt.path, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "run credential", "%s: %s %s", name, attempt.method, attempt.path)
 		}
+		// Editing the words stays open to any writer.
+		rec = serve(run, http.MethodPatch, othersPath, `{"title":"Someone else's change"}`)
+		assert.Equal(t, http.StatusOK, rec.Code, "%s: %s", name, rec.Body.String())
 		assert.Zero(t, activeTasks(othersLanding.ID), "%s queued someone else's landing", name)
 
 		rec = serve(run, http.MethodPost, "/statuses/1111111111111111111111111111111111111111", `{"context":"ci/test","status":"success"}`)
@@ -201,6 +208,9 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	assert.Zero(t, unresolved(othersLanding.ID))
 	rec = serve(person, http.MethodPost, "/statuses/1111111111111111111111111111111111111111", `{"context":"ci/test","status":"success"}`)
 	assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	// The repository CI receipt's context is the server's to record.
+	rec = serve(person, http.MethodPost, "/statuses/1111111111111111111111111111111111111111", `{"context":"Repository-CI/any@1.abc","status":"success"}`)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 
 	// An agent's work stays open to a run: it comments on its own landing,
 	// marks the comment done, reopens it, and lands its own change.

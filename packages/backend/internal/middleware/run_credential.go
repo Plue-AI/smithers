@@ -96,6 +96,13 @@ func (a *AuthInfo) IsRunCredential() bool {
 // approval), and the person-owned routes behind RefuseRunCredentials. It is
 // the one check for that rule. action completes "a run credential cannot ...".
 func RequirePerson(ctx context.Context, action string) error {
+	if err := requirePerson(ctx, action); err != nil {
+		return err
+	}
+	return nil
+}
+
+func requirePerson(ctx context.Context, action string) *apierrors.APIError {
 	if AuthInfoFromContext(ctx).IsRunCredential() {
 		return apierrors.Forbidden("a run credential cannot " + action)
 	}
@@ -110,8 +117,8 @@ func RequirePerson(ctx context.Context, action string) error {
 // deciding human approvals, and reporting commit statuses.
 func RefuseRunCredentials(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := RequirePerson(r.Context(), "use this endpoint"); err != nil {
-			apierrors.WriteError(w, err.(*apierrors.APIError))
+		if err := requirePerson(r.Context(), "use this endpoint"); err != nil {
+			apierrors.WriteError(w, err)
 			return
 		}
 		next.ServeHTTP(w, r)

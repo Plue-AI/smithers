@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -61,6 +62,11 @@ func (m changesetLandingMember) landing() (commit, change string) {
 func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, orgName string, id int64) (ChangesetResponse, error) {
 	if actor == nil {
 		return ChangesetResponse{}, pkgerrors.Unauthorized("authentication required")
+	}
+	// A changeset lands member changes whoever wrote them; that decision is
+	// a person's.
+	if err := middleware.RequirePerson(ctx, "land a changeset"); err != nil {
+		return ChangesetResponse{}, err
 	}
 	org, err := s.requireOrgMember(ctx, actor, orgName)
 	if err != nil {

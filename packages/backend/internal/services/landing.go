@@ -699,14 +699,17 @@ func (s *LandingService) CreateLandingRequest(ctx context.Context, actor *db.Use
 
 	authorAgentSessionID := landingRequestAgentSessionID(ctx)
 	createParams := db.CreateLandingRequestParams{
-		RepositoryID:         repository.ID,
-		Title:                title,
-		Body:                 req.Body,
-		AuthorID:             actor.ID,
-		TargetBookmark:       targetBookmark,
-		SourceBookmark:       sourceBookmark,
-		StackSize:            int64(len(changeIDs)),
-		AgentAuthored:        authorAgentSessionID != "" || landingRequestIsAgentAuthored(ctx),
+		RepositoryID:   repository.ID,
+		Title:          title,
+		Body:           req.Body,
+		AuthorID:       actor.ID,
+		TargetBookmark: targetBookmark,
+		SourceBookmark: sourceBookmark,
+		StackSize:      int64(len(changeIDs)),
+		// A landing an agent run opens is agent-authored, so agent policies
+		// (ownership agent_policy, the repository CI policy) apply to it.
+		AgentAuthored: authorAgentSessionID != "" || landingRequestIsAgentAuthored(ctx) ||
+			middleware.AuthInfoFromContext(ctx).CredentialKind() == middleware.CredentialAgentRun,
 		AuthorAgentSessionID: authorAgentSessionID,
 	}
 
@@ -968,6 +971,13 @@ func (s *LandingService) UpdateLandingRequest(ctx context.Context, actor *db.Use
 	current, err := s.getLandingByNumber(ctx, repository.ID, number)
 	if err != nil {
 		return LandingRequestResponse{}, err
+	}
+	// Reopening someone else's landing re-arms its auto-land, and retargeting
+	// it sends it where its author did not choose.
+	if req.State != nil || req.TargetBookmark != nil || req.SourceBookmark != nil {
+		if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
+			return LandingRequestResponse{}, err
+		}
 	}
 
 	// Freeze the merge target once a landing request has been enqueued. The
@@ -1394,14 +1404,8 @@ func landingBlocked(blocks []LandingBlock, message string) error {
 	return &pkgerrors.APIError{Status: 422, Code: pkgerrors.CodeLandingBlocked, Message: message, Details: LandingBlockedDetails{BlockedBy: blocks}}
 }
 
-// landingRequestIsAgentAuthored reports whether an agent run makes the
-// request: its landing is agent-authored, so agent policies (ownership
-// agent_policy, the repository CI policy) apply to it.
 func landingRequestIsAgentAuthored(ctx context.Context) bool {
 	info := middleware.AuthInfoFromContext(ctx)
-	if info.CredentialKind() == middleware.CredentialAgentRun {
-		return true
-	}
 	return info != nil && info.IsTokenAuth && len(middleware.ParseTokenPathRestrictions(info.RawScopes)) > 0
 }
 

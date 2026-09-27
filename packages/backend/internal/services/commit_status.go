@@ -142,6 +142,11 @@ func (s *CommitStatusService) CreateCommitStatus(
 	if err := validateSafeText("CommitStatus", "context", contextName); err != nil {
 		return db.CommitStatus{}, err
 	}
+	// The repository CI receipt records its own required context; a reported
+	// status cannot stand in for it.
+	if strings.HasPrefix(strings.ToLower(contextName), repositoryCiContextPrefix) {
+		return db.CommitStatus{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "CommitStatus", Field: "context", Code: "invalid"})
+	}
 	if err := validateCommitStatusDescription(input.Description); err != nil {
 		return db.CommitStatus{}, err
 	}
