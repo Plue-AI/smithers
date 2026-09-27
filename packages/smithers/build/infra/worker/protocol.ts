@@ -345,6 +345,8 @@ export interface ProtocolDependencies {
    * unreviewed branch, holds this one.
    */
   readonly readTokenHash: string
+  /** When set, the read credential may GET only action keys in this namespace. */
+  readonly readNamespacePrefix?: string
   /**
    * SHA-256 of the credential that may publish to it. Only a context whose
    * inputs were reviewed holds this one. This digest must differ from the read
@@ -1273,6 +1275,7 @@ interface NormalizedProtocolDependencies {
   readonly health: (signal?: AbortSignal) => Promise<void>
   readonly maxArtifactBytes: number
   readonly readTokenHash: string
+  readonly readNamespacePrefix: string
   readonly writeTokenHash: string
 }
 
@@ -1330,6 +1333,7 @@ const normalizeDependencies = (value: ProtocolDependencies): NormalizedProtocolD
     "health",
     "maxArtifactBytes",
     "readTokenHash",
+    "readNamespacePrefix",
     "writeTokenHash"
   ])
   for (const key of keys) {
@@ -1364,6 +1368,13 @@ const normalizeDependencies = (value: ProtocolDependencies): NormalizedProtocolD
       "credentialBudget"
     )
   const readTokenHash = read("readTokenHash")
+  const readNamespacePrefix = read("readNamespacePrefix") ?? ""
+  if (
+    typeof readNamespacePrefix !== "string" ||
+    (readNamespacePrefix !== "" && !/^[A-Za-z0-9_-]+\/$/.test(readNamespacePrefix))
+  ) {
+    throw new TypeError("readNamespacePrefix must be one namespace ending in /")
+  }
   if (typeof readTokenHash !== "string" || !hexDigest.test(readTokenHash)) {
     throw new TypeError("readTokenHash must be a lowercase SHA-256 digest")
   }
@@ -1418,6 +1429,7 @@ const normalizeDependencies = (value: ProtocolDependencies): NormalizedProtocolD
     health: health as (signal?: AbortSignal) => Promise<void>,
     maxArtifactBytes: maxArtifactBytes as number,
     readTokenHash,
+    readNamespacePrefix,
     writeTokenHash
   })
 }
@@ -1459,7 +1471,7 @@ export const makeAdmissionState = () => ({
  */
 export const createHandler = (dependencies: ProtocolDependencies, admission = makeAdmissionState()) => {
   const normalized = normalizeDependencies(dependencies)
-  const { maxArtifactBytes, readTokenHash, writeTokenHash } = normalized
+  const { maxArtifactBytes, readTokenHash, readNamespacePrefix, writeTokenHash } = normalized
   const actionGet = boundedOperation<[string], string | null>(
     "actionCache.get",
     normalized.actionCache.get,
@@ -1624,6 +1636,10 @@ export const createHandler = (dependencies: ProtocolDependencies, admission = ma
         // Every cache route is `/<route>/<one segment>`: nothing before the
         // first slash and exactly one segment after the route.
         const routed = root === "" && encoded !== undefined && rest.length === 0
+        if (credential.kind === "read" && readNamespacePrefix !== "" && routed && route === "cas") {
+          await discardBody(request.body)
+          return forbidden()
+        }
         if (routed && route === "cas" && encoded === "findMissing") {
           if (admission.activeFindMissingRequests >= maxConcurrentFindMissingRequests) {
             await discardBody(request.body)
@@ -1647,6 +1663,10 @@ export const createHandler = (dependencies: ProtocolDependencies, admission = ma
           } catch {
             await discardBody(request.body)
             return json(400, { error: "keyDigest must be valid URL encoding" })
+          }
+          if (credential.kind === "read" && readNamespacePrefix !== "" && !keyDigest.startsWith(readNamespacePrefix)) {
+            await discardBody(request.body)
+            return forbidden()
           }
           if (request.method === "PUT") {
             if (admission.activeActionCachePublications >= maxConcurrentActionCachePublications) {

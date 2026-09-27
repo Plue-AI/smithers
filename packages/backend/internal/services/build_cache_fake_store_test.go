@@ -110,7 +110,7 @@ func (s *fakeBuildCacheStore) CreateBuildCacheReadToken(_ context.Context, arg d
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextToken++
-	row := db.BuildCacheReadToken{ID: s.nextToken, RepositoryID: arg.RepositoryID, CreatedBy: arg.CreatedBy, Name: arg.Name, TokenHash: arg.TokenHash, TokenLastEight: arg.TokenLastEight, CreatedAt: time.Now()}
+	row := db.BuildCacheReadToken{ID: s.nextToken, RepositoryID: arg.RepositoryID, CreatedBy: arg.CreatedBy, Name: arg.Name, TokenHash: arg.TokenHash, TokenLastEight: arg.TokenLastEight, NamespacePrefix: arg.NamespacePrefix, CreatedAt: time.Now()}
 	s.tokens[row.ID] = row
 	return row, nil
 }

@@ -151,7 +151,7 @@ interactive Alchemy OAuth profile.
 
 Alchemy creates a stage-specific D1 database and R2 bucket, applies every SQL
 file in `worker/migrations/` in order, applies the bucket's artifact lifecycle
-rules, deploys the Worker with its seven bindings and its retention cron
+rules, deploys the Worker with its eight bindings and its retention cron
 trigger, and attaches `build.smithers.sh` as its custom domain. Migration
 `0001_initial.sql` creates the table;
 `0002_bound_cache_rows.sql` bounds every insert and every update of the

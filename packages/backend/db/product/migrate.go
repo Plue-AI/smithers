@@ -97,6 +97,7 @@ var migrationRegistry = []migrationSpec{
 	{59, "migrations/0059_main_only_secrets.sql"},
 	{60, "migrations/0060_issue_filed_by.sql"},
 	{61, "migrations/0061_issue_sync_notify.sql"},
+	{62, "migrations/0062_build_cache_read_token_namespace.sql"},
 }
 
 type migration struct {

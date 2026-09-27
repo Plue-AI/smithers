@@ -141,7 +141,7 @@ func (m *mockBuildCacheService) PresentDigests(_ context.Context, repo int64, di
 
 func (m *mockBuildCacheService) Health(context.Context) error { return m.fail }
 
-func (m *mockBuildCacheService) CreateReadToken(_ context.Context, actor *db.User, repository *db.Repository, fullName, name, endpoint string) (services.BuildCacheReadTokenCreated, error) {
+func (m *mockBuildCacheService) CreateReadToken(_ context.Context, actor *db.User, repository *db.Repository, fullName, name, endpoint, namespacePrefix string) (services.BuildCacheReadTokenCreated, error) {
 	return services.BuildCacheReadTokenCreated{
 		BuildCacheReadTokenResponse: services.BuildCacheReadTokenResponse{ID: 1, Repository: fullName, Name: name, LastEight: "deadbeef"},
 		Token:                       buildcache.ReadTokenPrefix + strings.Repeat("0", 32) + "deadbeef",

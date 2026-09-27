@@ -28,6 +28,12 @@ variable "read_auth_token" {
   sensitive   = true
 }
 
+variable "read_namespace_prefix" {
+  description = "Optional action-cache namespace allowed for the read token, such as pr-1/."
+  type        = string
+  default     = ""
+}
+
 variable "write_auth_token" {
   description = "Bearer token a publishing client must present."
   type        = string
@@ -55,13 +61,14 @@ variable "listen_port" {
 module "cache" {
   source = "../../modules/cache"
 
-  name_prefix       = "smithers-build"
-  postgres_password = var.postgres_password
-  postgres_image    = var.postgres_image
-  bun_image         = var.bun_image
-  read_auth_token   = var.read_auth_token
-  write_auth_token  = var.write_auth_token
-  listen_port       = var.listen_port
+  name_prefix           = "smithers-build"
+  postgres_password     = var.postgres_password
+  postgres_image        = var.postgres_image
+  bun_image             = var.bun_image
+  read_auth_token       = var.read_auth_token
+  read_namespace_prefix = var.read_namespace_prefix
+  write_auth_token      = var.write_auth_token
+  listen_port           = var.listen_port
 
   # Publish Postgres on the host only when inspecting it by hand.
   # postgres_port = 55432

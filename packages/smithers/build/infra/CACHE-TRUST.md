@@ -207,6 +207,16 @@ before the route is parsed. Its loopback-only development mode, which
 configures no token at all, is the one deployment shape without the split, and
 `variables.tf` cannot produce it.
 
+A read token may also carry one action-cache namespace prefix, such as `pr-1/`.
+The hosted cache stores it with each public read token (`namespace_prefix` on
+token creation); the Worker and self-hosted service accept
+`SMITHERS_CACHE_READ_NAMESPACE_PREFIX` for their configured read token. An
+empty prefix preserves the existing repository-wide read access. A scoped
+token gets `403` for bare keys and every other prefix, including `main/` and
+`pr-2/`. Because `/cas/{digest}` has no namespace, scoped tokens cannot read
+or probe artifacts; those routes answer `403`. Use an unrestricted read token
+when a build needs to hydrate artifact outputs.
+
 ## What a leaked read credential can cost
 
 The read credential is public within the organization, so the question is not

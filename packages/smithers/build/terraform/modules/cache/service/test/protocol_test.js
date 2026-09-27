@@ -107,6 +107,33 @@ const requestAs = (credential, path, init = {}) => {
 const request = (path, init = {}) => requestAs(writeToken, path, init)
 const readRequest = (path, init = {}) => requestAs(readToken, path, init)
 
+test("a scoped read credential cannot fetch another action-cache namespace", async () => {
+  const actionCache = memoryActionCache()
+  const handler = createHandler({
+    actionCache,
+    contentStore: memoryContentStore(),
+    readTokenHash,
+    readNamespacePrefix: "pr-1/",
+    writeTokenHash,
+    maxArtifactBytes: 1024
+  })
+  for (const namespace of ["pr-1/", "main/", "pr-2/", "pr-10/"]) {
+    const key = namespace + keyDigest
+    expect((await handler(jsonRequest(`/ac/${encodeURIComponent(key)}`, { keyDigest: key, result: { ok: true } }, { method: "PUT" }))).status).toBe(201)
+  }
+  for (const [key, status] of [
+    ["pr-1/" + keyDigest, 200],
+    ["main/" + keyDigest, 403],
+    ["pr-2/" + keyDigest, 403],
+    ["pr-10/" + keyDigest, 403],
+    [keyDigest, 403]
+  ]) {
+    expect((await handler(readRequest(`/ac/${encodeURIComponent(key)}`))).status).toBe(status)
+  }
+  expect((await handler(readRequest(`/cas/${keyDigest}`))).status).toBe(403)
+  expect((await handler(readRequest("/cas/findMissing", { method: "POST", body: JSON.stringify({ digests: [] }) }))).status).toBe(403)
+})
+
 /**
  * A request-shaped value the handler reads structurally.
  *

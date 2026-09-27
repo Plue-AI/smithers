@@ -104,8 +104,8 @@ WHERE repository_id = sqlc.arg(repository_id)
 RETURNING digest;
 
 -- name: CreateBuildCacheReadToken :one
-INSERT INTO build_cache_read_tokens (repository_id, created_by, name, token_hash, token_last_eight)
-VALUES (sqlc.arg(repository_id), sqlc.narg(created_by), sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(token_last_eight))
+INSERT INTO build_cache_read_tokens (repository_id, created_by, name, token_hash, token_last_eight, namespace_prefix)
+VALUES (sqlc.arg(repository_id), sqlc.narg(created_by), sqlc.arg(name), sqlc.arg(token_hash), sqlc.arg(token_last_eight), sqlc.arg(namespace_prefix))
 RETURNING *;
 
 -- name: ListBuildCacheReadTokens :many

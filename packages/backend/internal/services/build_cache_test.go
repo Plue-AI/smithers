@@ -126,8 +126,9 @@ func TestBuildCacheService_ReadTokens(t *testing.T) {
 	svc, _, _ := newTestBuildCache(t)
 	ctx := context.Background()
 	repo := &db.Repository{ID: 9, Name: "app"}
-	created, err := svc.CreateReadToken(ctx, &db.User{ID: 1}, repo, "acme/app", "ci", "https://api.example.test/api/repos/acme/app/build-cache")
+	created, err := svc.CreateReadToken(ctx, &db.User{ID: 1}, repo, "acme/app", "ci", "https://api.example.test/api/repos/acme/app/build-cache", "pr-1/")
 	require.NoError(t, err)
+	assert.Equal(t, "pr-1/", created.NamespacePrefix)
 	assert.True(t, buildcache.IsReadToken(created.Token))
 	assert.Equal(t, created.Token[len(created.Token)-8:], created.LastEight)
 	assert.Equal(t, "acme/app", created.Repository)
@@ -135,6 +136,9 @@ func TestBuildCacheService_ReadTokens(t *testing.T) {
 	resolved, err := svc.ResolveReadToken(ctx, created.Token)
 	require.NoError(t, err)
 	assert.Equal(t, int64(9), resolved.RepositoryID)
+	assert.Equal(t, "pr-1/", resolved.NamespacePrefix)
+	_, err = svc.CreateReadToken(ctx, &db.User{ID: 1}, repo, "acme/app", "invalid", "https://api.example.test", "pr-1")
+	assert.Error(t, err, "an unbounded prefix cannot be stored")
 
 	_, err = svc.ResolveReadToken(ctx, "smithers_"+strings.Repeat("0", 40))
 	assert.Error(t, err, "an ordinary token never resolves as a read token")
@@ -142,6 +146,7 @@ func TestBuildCacheService_ReadTokens(t *testing.T) {
 	listed, err := svc.ListReadTokens(ctx, repo, "acme/app")
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
+	assert.Equal(t, "pr-1/", listed[0].NamespacePrefix)
 	require.NoError(t, svc.RevokeReadToken(ctx, repo, created.ID))
 	_, err = svc.ResolveReadToken(ctx, created.Token)
 	assert.Error(t, err, "a revoked token stops resolving")

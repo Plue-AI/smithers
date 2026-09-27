@@ -20,6 +20,7 @@ interface CacheWorkerEnv {
   readonly CACHE_FIND_MISSING_BUDGET: RateLimit
   /** SHA-256 of the pull credential every job may hold, trusted or not. */
   readonly CACHE_READ_TOKEN: string
+  readonly CACHE_READ_NAMESPACE_PREFIX?: string
   /** SHA-256 of the publish credential only post-merge jobs may hold. */
   readonly CACHE_WRITE_TOKEN: string
   /**
@@ -95,6 +96,7 @@ const handlerFor = (env: CacheWorkerEnv): CacheHandler => {
     env.CACHE_DATABASE,
     env.CACHE_BUCKET,
     env.CACHE_READ_TOKEN,
+    env.CACHE_READ_NAMESPACE_PREFIX,
     env.CACHE_WRITE_TOKEN,
     env.CACHE_REQUEST_BUDGET,
     env.CACHE_FIND_MISSING_BUDGET
@@ -106,6 +108,7 @@ const handlerFor = (env: CacheWorkerEnv): CacheHandler => {
     actionCache: makeActionCache(env.CACHE_DATABASE),
     contentStore: makeContentStore(env.CACHE_BUCKET),
     readTokenHash: env.CACHE_READ_TOKEN,
+    readNamespacePrefix: env.CACHE_READ_NAMESPACE_PREFIX ?? "",
     writeTokenHash: env.CACHE_WRITE_TOKEN,
     credentialBudget: makeCredentialBudget(env.CACHE_REQUEST_BUDGET, env.CACHE_FIND_MISSING_BUDGET),
     health: makeHealth(env.CACHE_DATABASE, env.CACHE_BUCKET)

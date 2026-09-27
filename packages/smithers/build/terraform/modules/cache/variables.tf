@@ -99,6 +99,17 @@ variable "read_auth_token" {
   }
 }
 
+variable "read_namespace_prefix" {
+  description = "Optional action-cache namespace the read token may access, such as pr-1/. A scoped token cannot read the unscoped artifact store."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.read_namespace_prefix == "" || can(regex("^[A-Za-z0-9_-]+/$", var.read_namespace_prefix))
+    error_message = "read_namespace_prefix must be one namespace ending in /, or empty."
+  }
+}
+
 variable "write_auth_token" {
   description = <<-EOT
     Bearer token a request must present to publish to or delete from the cache.

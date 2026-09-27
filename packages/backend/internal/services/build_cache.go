@@ -368,12 +368,13 @@ func (s *BuildCacheService) Health(ctx context.Context) error { return s.store.P
 
 // BuildCacheReadTokenResponse is the API shape of one public read token.
 type BuildCacheReadTokenResponse struct {
-	ID         int64      `json:"id"`
-	Repository string     `json:"repository"`
-	Name       string     `json:"name"`
-	LastEight  string     `json:"last_eight"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ID              int64      `json:"id"`
+	Repository      string     `json:"repository"`
+	Name            string     `json:"name"`
+	NamespacePrefix string     `json:"namespace_prefix"`
+	LastEight       string     `json:"last_eight"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
 }
 
 // BuildCacheReadTokenCreated carries the plaintext exactly once.
@@ -387,11 +388,12 @@ type BuildCacheReadTokenCreated struct {
 
 func readTokenResponse(repository string, row db.BuildCacheReadToken) BuildCacheReadTokenResponse {
 	response := BuildCacheReadTokenResponse{
-		ID:         row.ID,
-		Repository: repository,
-		Name:       row.Name,
-		LastEight:  row.TokenLastEight,
-		CreatedAt:  row.CreatedAt.UTC(),
+		ID:              row.ID,
+		Repository:      repository,
+		Name:            row.Name,
+		NamespacePrefix: row.NamespacePrefix,
+		LastEight:       row.TokenLastEight,
+		CreatedAt:       row.CreatedAt.UTC(),
 	}
 	if row.LastUsedAt.Valid {
 		at := row.LastUsedAt.Time.UTC()
@@ -401,7 +403,7 @@ func readTokenResponse(repository string, row db.BuildCacheReadToken) BuildCache
 }
 
 // CreateReadToken mints a public read token for one repository.
-func (s *BuildCacheService) CreateReadToken(ctx context.Context, actor *db.User, repository *db.Repository, repositoryFullName, name, endpoint string) (BuildCacheReadTokenCreated, error) {
+func (s *BuildCacheService) CreateReadToken(ctx context.Context, actor *db.User, repository *db.Repository, repositoryFullName, name, endpoint, namespacePrefix string) (BuildCacheReadTokenCreated, error) {
 	if repository == nil {
 		return BuildCacheReadTokenCreated{}, pkgerrors.NotFound("repository not found")
 	}
@@ -409,13 +411,17 @@ func (s *BuildCacheService) CreateReadToken(ctx context.Context, actor *db.User,
 	if len(name) > 255 {
 		return BuildCacheReadTokenCreated{}, pkgerrors.BadRequest("token name must be at most 255 characters")
 	}
+	if !buildcache.ValidNamespacePrefix(namespacePrefix) {
+		return BuildCacheReadTokenCreated{}, pkgerrors.BadRequest("namespace_prefix must be one namespace ending in /")
+	}
 	plaintext := buildcache.ReadTokenPrefix + randomHex(20)
 	hash := buildcache.TokenHash(plaintext)
 	params := db.CreateBuildCacheReadTokenParams{
-		RepositoryID:   repository.ID,
-		Name:           name,
-		TokenHash:      hash,
-		TokenLastEight: plaintext[len(plaintext)-8:],
+		RepositoryID:    repository.ID,
+		Name:            name,
+		TokenHash:       hash,
+		TokenLastEight:  plaintext[len(plaintext)-8:],
+		NamespacePrefix: namespacePrefix,
 	}
 	if actor != nil {
 		params.CreatedBy = pgtype.Int8{Int64: actor.ID, Valid: true}

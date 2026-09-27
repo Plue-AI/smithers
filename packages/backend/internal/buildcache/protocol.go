@@ -67,9 +67,16 @@ const (
 const ReadTokenPrefix = "smithers_cachero_"
 
 var (
-	hexDigest     = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	readTokenTail = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	hexDigest       = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	readTokenTail   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	namespacePrefix = regexp.MustCompile(`^[A-Za-z0-9_-]+/$`)
 )
+
+// ValidNamespacePrefix restricts a read credential to one action-cache namespace.
+// The trailing slash prevents pr-1 from matching pr-10.
+func ValidNamespacePrefix(prefix string) bool {
+	return prefix == "" || (len(prefix) <= MaxKeyDigestLength && namespacePrefix.MatchString(prefix))
+}
 
 // IsHexDigest reports whether value is a lowercase SHA-256 hex digest.
 func IsHexDigest(value string) bool { return hexDigest.MatchString(value) }

@@ -304,6 +304,7 @@ describe("cache credential verification", () => {
         CACHE_REQUEST_BUDGET: { name: "CACHE_REQUEST_BUDGET", namespaceId: 1001, ...credentialRequestBudget },
         CACHE_FIND_MISSING_BUDGET: { name: "CACHE_FIND_MISSING_BUDGET", namespaceId: 1002, ...findMissingBudget },
         CACHE_REQUEST_METRICS: { name: "CacheRequestMetrics", dataset: "smithers_build_cache_requests_prod" },
+        CACHE_READ_NAMESPACE_PREFIX: expect.any(Object),
         CACHE_READ_TOKEN: cacheCredentialBindings.CACHE_READ_TOKEN,
         CACHE_WRITE_TOKEN: cacheCredentialBindings.CACHE_WRITE_TOKEN
       },
@@ -311,25 +312,29 @@ describe("cache credential verification", () => {
       domain: "build.smithers.sh",
       workersDev: false
     })
-    expect(development).toEqual({
-      ...production,
-      env: {
-        ...production.env,
-        CACHE_REQUEST_BUDGET: {
-          name: "CACHE_REQUEST_BUDGET",
-          namespaceId: developmentNamespaces.request,
-          ...credentialRequestBudget
-        },
-        CACHE_FIND_MISSING_BUDGET: {
-          name: "CACHE_FIND_MISSING_BUDGET",
-          namespaceId: developmentNamespaces.findMissing,
-          ...findMissingBudget
-        },
-        CACHE_REQUEST_METRICS: { name: "CacheRequestMetrics", dataset: "smithers_build_cache_requests_dev_alice" }
+    const prefixBinding = production.env.CACHE_READ_NAMESPACE_PREFIX
+    const resolvePrefix = (values: Record<string, string>): Promise<string> =>
+      Effect.runPromise(Effect.provide(prefixBinding, ConfigProvider.layer(ConfigProvider.fromUnknown(values))))
+    await expect(resolvePrefix({})).resolves.toBe("")
+    await expect(resolvePrefix({ SMITHERS_CACHE_READ_NAMESPACE_PREFIX: "pr-1/" })).resolves.toBe("pr-1/")
+    await expect(resolvePrefix({ SMITHERS_CACHE_READ_NAMESPACE_PREFIX: "pr-1" })).rejects.toThrow("must be one namespace")
+    expect(development.env).toEqual({
+      ...production.env,
+      CACHE_READ_NAMESPACE_PREFIX: expect.any(Object),
+      CACHE_REQUEST_BUDGET: {
+        name: "CACHE_REQUEST_BUDGET",
+        namespaceId: developmentNamespaces.request,
+        ...credentialRequestBudget
       },
-      domain: undefined,
-      workersDev: true
+      CACHE_FIND_MISSING_BUDGET: {
+        name: "CACHE_FIND_MISSING_BUDGET",
+        namespaceId: developmentNamespaces.findMissing,
+        ...findMissingBudget
+      },
+      CACHE_REQUEST_METRICS: { name: "CacheRequestMetrics", dataset: "smithers_build_cache_requests_dev_alice" }
     })
+    expect(development.main).toBe(production.main)
+    expect(development.workersDev).toBe(true)
     expect(development).not.toHaveProperty("domain")
     // The entry and the migrations the seams name exist where the graph
     // resolves them, relative to this directory.

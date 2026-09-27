@@ -19,6 +19,14 @@ const valid = {
 }
 
 describe("readConfig", () => {
+  test("passes a validated read namespace prefix to the server", () => {
+    expect(readConfig({ ...valid, SMITHERS_CACHE_READ_NAMESPACE_PREFIX: "pr-1/" }).config.readNamespacePrefix).toBe("pr-1/")
+    for (const prefix of ["pr-1", "../main/", "pr-1/main/"]) {
+      expect(readConfig({ ...valid, SMITHERS_CACHE_READ_NAMESPACE_PREFIX: prefix }).ok).toBe(false)
+    }
+    expect(readConfig({ DATABASE_URL: databaseUrl, SMITHERS_CACHE_READ_NAMESPACE_PREFIX: "pr-1/" }).ok).toBe(false)
+  })
+
   test("accepts the environment the module wires", () => {
     const result = readConfig({ ...valid, SMITHERS_CACHE_MAX_BODY_BYTES: "16777216" })
     expect(result.ok).toBe(true)

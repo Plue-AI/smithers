@@ -343,15 +343,16 @@ type BuildCacheEntryArtifact struct {
 }
 
 type BuildCacheReadToken struct {
-	ID             int64              `json:"id"`
-	RepositoryID   int64              `json:"repository_id"`
-	CreatedBy      pgtype.Int8        `json:"created_by"`
-	Name           string             `json:"name"`
-	TokenHash      string             `json:"token_hash"`
-	TokenLastEight string             `json:"token_last_eight"`
-	LastUsedAt     pgtype.Timestamptz `json:"last_used_at"`
-	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt      time.Time          `json:"created_at"`
+	ID              int64              `json:"id"`
+	RepositoryID    int64              `json:"repository_id"`
+	CreatedBy       pgtype.Int8        `json:"created_by"`
+	Name            string             `json:"name"`
+	TokenHash       string             `json:"token_hash"`
+	TokenLastEight  string             `json:"token_last_eight"`
+	NamespacePrefix string             `json:"namespace_prefix"`
+	LastUsedAt      pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt       time.Time          `json:"created_at"`
 }
 
 type Change struct {

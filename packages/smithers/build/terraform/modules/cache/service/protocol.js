@@ -1060,6 +1060,7 @@ const normalizeDependencies = (value) => {
     "health",
     "maxArtifactBytes",
     "readTokenHash",
+    "readNamespacePrefix",
     "writeTokenHash"
   ])
   for (const key of keys) {
@@ -1085,6 +1086,10 @@ const normalizeDependencies = (value) => {
   const configuredHealth = read("health")
   const health = configuredHealth ?? (async () => true)
   const readTokenHash = read("readTokenHash")
+  const readNamespacePrefix = read("readNamespacePrefix") ?? ""
+  if (typeof readNamespacePrefix !== "string" || (readNamespacePrefix !== "" && !/^[A-Za-z0-9_-]+\/$/.test(readNamespacePrefix))) {
+    throw new TypeError("readNamespacePrefix must be one namespace ending in /")
+  }
   const writeTokenHash = read("writeTokenHash")
   const maxArtifactBytes = read("maxArtifactBytes")
   if (typeof health !== "function") throw new TypeError("health must be a function")
@@ -1123,6 +1128,7 @@ const normalizeDependencies = (value) => {
     health,
     maxArtifactBytes,
     readTokenHash,
+    readNamespacePrefix,
     writeTokenHash
   })
 }
@@ -1142,7 +1148,7 @@ export const createHandler = (dependencies, {
   transferTimeoutMilliseconds = 60_000,
   healthTimeoutMilliseconds = 5_000
 } = {}) => {
-  const { actionCache, contentStore, health, maxArtifactBytes, readTokenHash, writeTokenHash } = normalizeDependencies(
+  const { actionCache, contentStore, health, maxArtifactBytes, readTokenHash, readNamespacePrefix, writeTokenHash } = normalizeDependencies(
     dependencies
   )
   const digestBytes = (hash) =>
@@ -1232,6 +1238,10 @@ export const createHandler = (dependencies, {
           return forbidden()
         }
         const segments = url.pathname.split("/")
+        if (credential === "read" && readNamespacePrefix !== "" && segments.length === 3 && segments[1] === "cas") {
+          await discardBody(request.body)
+          return forbidden()
+        }
         if (segments.length === 3 && segments[0] === "" && segments[1] === "cas" && segments[2] === "findMissing") {
           if (activeFindMissingRequests >= maxConcurrentFindMissingRequests) {
             await discardBody(request.body)
@@ -1251,6 +1261,10 @@ export const createHandler = (dependencies, {
           } catch {
             await discardBody(request.body)
             return json(400, { error: "keyDigest must be valid URL encoding" })
+          }
+          if (credential === "read" && readNamespacePrefix !== "" && !keyDigest.startsWith(readNamespacePrefix)) {
+            await discardBody(request.body)
+            return forbidden()
           }
           if (request.method === "PUT") {
             if (activeActionCachePublications >= maxConcurrentActionCachePublications) {

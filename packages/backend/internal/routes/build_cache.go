@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -32,7 +33,7 @@ type BuildCacheRouteService interface {
 	PutArtifact(ctx context.Context, repositoryID int64, digest string, body []byte) (services.ArtifactOutcome, error)
 	PresentDigests(ctx context.Context, repositoryID int64, digests []string) (map[string]struct{}, error)
 	Health(ctx context.Context) error
-	CreateReadToken(ctx context.Context, actor *db.User, repository *db.Repository, repositoryFullName, name, endpoint string) (services.BuildCacheReadTokenCreated, error)
+	CreateReadToken(ctx context.Context, actor *db.User, repository *db.Repository, repositoryFullName, name, endpoint, namespacePrefix string) (services.BuildCacheReadTokenCreated, error)
 	ListReadTokens(ctx context.Context, repository *db.Repository, repositoryFullName string) ([]services.BuildCacheReadTokenResponse, error)
 	RevokeReadToken(ctx context.Context, repository *db.Repository, id int64) error
 	ResolveReadToken(ctx context.Context, token string) (db.BuildCacheReadToken, error)
@@ -218,7 +219,15 @@ func (h *BuildCacheHandler) ActionCache(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	keyDigest := chi.URLParam(r, "keyDigest")
+	keyDigest, decodeErr := url.PathUnescape(chi.URLParam(r, "keyDigest"))
+	if decodeErr != nil {
+		buildCacheError(w, errors.CodeBadRequest, "keyDigest must be valid URL encoding")
+		return
+	}
+	if prefix := middleware.BuildCacheNamespacePrefixFromContext(r.Context()); prefix != "" && !strings.HasPrefix(keyDigest, prefix) {
+		buildCacheError(w, errors.CodeForbidden, "this credential may not read that cache namespace")
+		return
+	}
 	if err := buildcache.ValidateKeyDigest(keyDigest); err != nil {
 		buildCacheError(w, errors.CodeBadRequest, err.Error())
 		return
@@ -291,6 +300,10 @@ func (h *BuildCacheHandler) ActionCache(w http.ResponseWriter, r *http.Request) 
 
 // Artifact handles GET, HEAD, and PUT .../build-cache/cas/{digest}.
 func (h *BuildCacheHandler) Artifact(w http.ResponseWriter, r *http.Request) {
+	if middleware.BuildCacheNamespacePrefixFromContext(r.Context()) != "" {
+		buildCacheError(w, errors.CodeForbidden, "this credential may not read unscoped cache artifacts")
+		return
+	}
 	if !h.admit(&h.activeRequests, buildcache.MaxConcurrentCacheRequests) {
 		buildCacheBusy(w, "too many simultaneous cache requests")
 		return
@@ -393,6 +406,10 @@ func (h *BuildCacheHandler) Artifact(w http.ResponseWriter, r *http.Request) {
 
 // FindMissing handles POST .../build-cache/cas/findMissing.
 func (h *BuildCacheHandler) FindMissing(w http.ResponseWriter, r *http.Request) {
+	if middleware.BuildCacheNamespacePrefixFromContext(r.Context()) != "" {
+		buildCacheError(w, errors.CodeForbidden, "this credential may not probe unscoped cache artifacts")
+		return
+	}
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, "POST")
 		return
@@ -439,7 +456,8 @@ func (h *BuildCacheHandler) FindMissing(w http.ResponseWriter, r *http.Request) 
 }
 
 type createBuildCacheTokenRequest struct {
-	Name string `json:"name"`
+	Name            string `json:"name"`
+	NamespacePrefix string `json:"namespace_prefix"`
 }
 
 func buildCacheEndpoint(r *http.Request, owner, repo string) string {
@@ -465,7 +483,7 @@ func (h *BuildCacheHandler) CreateReadToken(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	fullName := repoCtx.Owner + "/" + repoCtx.Repository.Name
-	created, err := h.Service.CreateReadToken(r.Context(), user, repoCtx.Repository, fullName, input.Name, buildCacheEndpoint(r, repoCtx.Owner, repoCtx.Repository.Name))
+	created, err := h.Service.CreateReadToken(r.Context(), user, repoCtx.Repository, fullName, input.Name, buildCacheEndpoint(r, repoCtx.Owner, repoCtx.Repository.Name), input.NamespacePrefix)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

@@ -82,6 +82,11 @@ const readToken = (env, name, problems) => {
 export const readConfig = (env) => {
   const problems = []
 
+  const readNamespacePrefix = env.SMITHERS_CACHE_READ_NAMESPACE_PREFIX ?? ""
+  if (typeof readNamespacePrefix !== "string" || (readNamespacePrefix !== "" && !/^[A-Za-z0-9_-]+\/$/.test(readNamespacePrefix))) {
+    problems.push("SMITHERS_CACHE_READ_NAMESPACE_PREFIX must be one namespace ending in /")
+  }
+
   const rawPort = env.PORT ?? String(defaultPort)
   const port = integer(rawPort)
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
@@ -151,6 +156,9 @@ export const readConfig = (env) => {
 
   if (problems.length > 0) return { ok: false, problems }
   const development = read === "" && write === ""
+  if (development && readNamespacePrefix !== "") {
+    return { ok: false, problems: ["SMITHERS_CACHE_READ_NAMESPACE_PREFIX requires a configured read token"] }
+  }
   return {
     ok: true,
     config: {
@@ -159,6 +167,7 @@ export const readConfig = (env) => {
       databaseUrl,
       // Neither token is retained, so nothing downstream can log one.
       readTokenHash: development ? null : sha256Hex(read),
+      readNamespacePrefix,
       writeTokenHash: development ? null : sha256Hex(write),
       development,
       hostname: development ? "127.0.0.1" : "0.0.0.0"

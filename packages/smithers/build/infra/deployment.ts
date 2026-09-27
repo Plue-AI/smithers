@@ -456,7 +456,7 @@ export interface CacheWorkerResources<Database, Bucket, Budget, Metrics> {
  * Builds the Worker's configuration for the stage a stack is deploying.
  *
  * Every rule the resource graph used to encode inline lives here: the entry
- * module, the compatibility date, the retention trigger, the seven bindings,
+ * module, the compatibility date, the retention trigger, the eight bindings,
  * and the stage's public address. `alchemy.run.ts` hands the result to
  * `Cloudflare.Worker` unchanged, so the suite executes what the deployment
  * applies.
@@ -486,6 +486,14 @@ export const cacheWorkerOptions =
           ...findMissingBudget
         }),
         CACHE_REQUEST_METRICS: resources.metrics("CacheRequestMetrics", { dataset: metricsDataset(stack.stage) }),
+        CACHE_READ_NAMESPACE_PREFIX: Config.String("SMITHERS_CACHE_READ_NAMESPACE_PREFIX").pipe(
+          Config.withDefault(""),
+          Config.mapEffect((prefix) =>
+            prefix === "" || /^[A-Za-z0-9_-]+\/$/.test(prefix)
+              ? Effect.succeed(prefix)
+              : Effect.fail(configError("SMITHERS_CACHE_READ_NAMESPACE_PREFIX must be one namespace ending in /"))
+          )
+        ),
         ...cacheCredentialBindings
       },
       observability: workerObservability,

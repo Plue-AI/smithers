@@ -133,6 +133,7 @@ resource "docker_container" "service" {
   env = [
     "DATABASE_URL=${local.database_url}",
     "SMITHERS_CACHE_READ_TOKEN=${var.read_auth_token}",
+    "SMITHERS_CACHE_READ_NAMESPACE_PREFIX=${var.read_namespace_prefix}",
     "SMITHERS_CACHE_WRITE_TOKEN=${var.write_auth_token}",
     "SMITHERS_CACHE_MAX_BODY_BYTES=${var.max_body_bytes}",
     "PORT=8080",

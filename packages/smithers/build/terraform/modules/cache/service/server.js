@@ -109,6 +109,7 @@ export const main = async (env = process.env, runtime = {}) => {
         contentStore,
         health,
         readTokenHash: config.readTokenHash,
+        readNamespacePrefix: config.readNamespacePrefix,
         writeTokenHash: config.writeTokenHash,
         maxArtifactBytes: config.maxArtifactBytes
       }),

@@ -104,6 +104,12 @@ smithers cache token list --repo acme/app
 smithers cache token revoke --repo acme/app --id 3
 ```
 
+The token creation API also accepts an optional `namespace_prefix` such as
+`pr-1/`. A token with that prefix reads only action-cache keys under it;
+requests for `main/`, `pr-2/`, or bare keys return `403`. Artifact URLs carry
+no namespace, so a scoped token receives `403` from `/cas` too. Use the
+repository-wide read token for builds that need artifact outputs.
+
 Token management calls need a first-class credential with write permission on
 the repository; the cache routes themselves never accept one.
 

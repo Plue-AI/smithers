@@ -63,6 +63,43 @@ const artifact = (): { readonly digest: string; readonly init: RequestInit } => 
 }
 
 describe("the read credential cannot mutate the cache", () => {
+  it("refuses malformed read namespace scopes at construction", () => {
+    const dependencies = {
+      actionCache: new MemoryActionCache(),
+      contentStore: new MemoryContentStore(),
+      readTokenHash: hashOf(readCredential),
+      writeTokenHash: hashOf(writeCredential)
+    }
+    expect(() => createHandler({ ...dependencies, readNamespacePrefix: 42 as never })).toThrow("readNamespacePrefix")
+    expect(() => createHandler({ ...dependencies, readNamespacePrefix: "pr-1" })).toThrow("readNamespacePrefix")
+  })
+
+  it("confines a scoped read token to its action-cache namespace", async () => {
+    const actionCache = new MemoryActionCache()
+    const handler = createHandler({
+      actionCache,
+      contentStore: new MemoryContentStore(),
+      readTokenHash: hashOf(readCredential),
+      readNamespacePrefix: "pr-1/",
+      writeTokenHash: hashOf(writeCredential)
+    })
+    for (const namespace of ["pr-1/", "main/", "pr-2/", "pr-10/"]) {
+      const key = namespace + keyDigest
+      expect((await handler(as(writeCredential, `/ac/${encodeURIComponent(key)}`, publication(key)))).status).toBe(201)
+    }
+    for (const [key, status] of [
+      ["pr-1/" + keyDigest, 200],
+      ["main/" + keyDigest, 403],
+      ["pr-2/" + keyDigest, 403],
+      ["pr-10/" + keyDigest, 403],
+      [keyDigest, 403]
+    ] as const) {
+      expect((await handler(as(readCredential, `/ac/${encodeURIComponent(key)}`))).status).toBe(status)
+    }
+    expect((await handler(as(readCredential, `/cas/${keyDigest}`))).status).toBe(403)
+    expect((await handler(as(readCredential, "/cas/findMissing", { method: "POST", body: JSON.stringify({ digests: [] }) }))).status).toBe(403)
+  })
+
   it("refuses an action-cache publication with 403 and stores nothing", async () => {
     const { actionCache, handler } = deploy()
 

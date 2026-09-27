@@ -12,17 +12,18 @@ import (
 )
 
 const createBuildCacheReadToken = `-- name: CreateBuildCacheReadToken :one
-INSERT INTO build_cache_read_tokens (repository_id, created_by, name, token_hash, token_last_eight)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, repository_id, created_by, name, token_hash, token_last_eight, last_used_at, revoked_at, created_at
+INSERT INTO build_cache_read_tokens (repository_id, created_by, name, token_hash, token_last_eight, namespace_prefix)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, repository_id, created_by, name, token_hash, token_last_eight, last_used_at, revoked_at, created_at, namespace_prefix
 `
 
 type CreateBuildCacheReadTokenParams struct {
-	RepositoryID   int64       `json:"repository_id"`
-	CreatedBy      pgtype.Int8 `json:"created_by"`
-	Name           string      `json:"name"`
-	TokenHash      string      `json:"token_hash"`
-	TokenLastEight string      `json:"token_last_eight"`
+	RepositoryID    int64       `json:"repository_id"`
+	CreatedBy       pgtype.Int8 `json:"created_by"`
+	Name            string      `json:"name"`
+	TokenHash       string      `json:"token_hash"`
+	TokenLastEight  string      `json:"token_last_eight"`
+	NamespacePrefix string      `json:"namespace_prefix"`
 }
 
 func (q *Queries) CreateBuildCacheReadToken(ctx context.Context, arg CreateBuildCacheReadTokenParams) (BuildCacheReadToken, error) {
@@ -32,6 +33,7 @@ func (q *Queries) CreateBuildCacheReadToken(ctx context.Context, arg CreateBuild
 		arg.Name,
 		arg.TokenHash,
 		arg.TokenLastEight,
+		arg.NamespacePrefix,
 	)
 	var i BuildCacheReadToken
 	err := row.Scan(
@@ -44,6 +46,7 @@ func (q *Queries) CreateBuildCacheReadToken(ctx context.Context, arg CreateBuild
 		&i.LastUsedAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.NamespacePrefix,
 	)
 	return i, err
 }
@@ -96,7 +99,7 @@ func (q *Queries) DeleteBuildCacheEntryFenced(ctx context.Context, arg DeleteBui
 }
 
 const getActiveBuildCacheReadTokenByHash = `-- name: GetActiveBuildCacheReadTokenByHash :one
-SELECT id, repository_id, created_by, name, token_hash, token_last_eight, last_used_at, revoked_at, created_at
+SELECT id, repository_id, created_by, name, token_hash, token_last_eight, last_used_at, revoked_at, created_at, namespace_prefix
 FROM build_cache_read_tokens
 WHERE token_hash = $1
   AND revoked_at IS NULL
@@ -115,6 +118,7 @@ func (q *Queries) GetActiveBuildCacheReadTokenByHash(ctx context.Context, tokenH
 		&i.LastUsedAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.NamespacePrefix,
 	)
 	return i, err
 }
@@ -231,7 +235,7 @@ func (q *Queries) InsertBuildCacheEntry(ctx context.Context, arg InsertBuildCach
 }
 
 const listBuildCacheReadTokens = `-- name: ListBuildCacheReadTokens :many
-SELECT id, repository_id, created_by, name, token_hash, token_last_eight, last_used_at, revoked_at, created_at
+SELECT id, repository_id, created_by, name, token_hash, token_last_eight, last_used_at, revoked_at, created_at, namespace_prefix
 FROM build_cache_read_tokens
 WHERE repository_id = $1
   AND revoked_at IS NULL
@@ -257,6 +261,7 @@ func (q *Queries) ListBuildCacheReadTokens(ctx context.Context, repositoryID int
 			&i.LastUsedAt,
 			&i.RevokedAt,
 			&i.CreatedAt,
+			&i.NamespacePrefix,
 		); err != nil {
 			return nil, err
 		}

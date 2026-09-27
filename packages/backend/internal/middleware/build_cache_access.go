@@ -29,6 +29,13 @@ const (
 
 type buildCacheCredentialContextKey struct{}
 type buildCacheReadTokenContextKey struct{}
+type buildCacheNamespaceContextKey struct{}
+
+// BuildCacheNamespacePrefixFromContext is empty for unrestricted credentials.
+func BuildCacheNamespacePrefixFromContext(ctx context.Context) string {
+	prefix, _ := ctx.Value(buildCacheNamespaceContextKey{}).(string)
+	return prefix
+}
 
 // BuildCacheCredentialFromContext returns the classification the access
 // middleware recorded.
@@ -170,6 +177,11 @@ func BuildCacheAccess(queries RepoContextQuerier, tokens BuildCacheReadTokenReso
 			ctx := ContextWithRepoContext(r.Context(), &RepoContext{Owner: owner, Repository: &repoCopy}, PermissionRead)
 			ctx = ContextWithBuildCacheCredential(ctx, BuildCacheCredentialRead)
 			ctx = context.WithValue(ctx, buildCacheReadTokenContextKey{}, row.TokenHash)
+			if !buildcache.ValidNamespacePrefix(row.NamespacePrefix) {
+				writeBuildCacheForbidden(w)
+				return
+			}
+			ctx = context.WithValue(ctx, buildCacheNamespaceContextKey{}, row.NamespacePrefix)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

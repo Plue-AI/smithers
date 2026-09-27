@@ -562,6 +562,30 @@ for (const vector of vectors) {
   })
 }
 
+test("a namespace-scoped read token gets 403 outside its action-cache keys on both servers", async () => {
+  const key = "a".repeat(64)
+  const names = ["pr-1/", "main/", "pr-2/", "pr-10/"]
+  const vector = {
+    dependencies: () => ({ readNamespacePrefix: "pr-1/" }),
+    requests: [
+      ...names.map((name) => ({
+        method: "PUT",
+        path: `/ac/${encodeURIComponent(name + key)}`,
+        body: JSON.stringify({ keyDigest: name + key, result: { ok: true } }),
+        json: true
+      })),
+      ...names.map((name) => ({ method: "GET", path: `/ac/${encodeURIComponent(name + key)}`, auth: "read" })),
+      { method: "GET", path: `/ac/${key}`, auth: "read" },
+      { method: "GET", path: `/cas/${key}`, auth: "read" },
+      { method: "POST", path: "/cas/findMissing", auth: "read", body: JSON.stringify({ digests: [] }), json: true }
+    ]
+  }
+  for (const create of [serviceCreateHandler, workerCreateHandler]) {
+    const { responses } = await runVector(create, vector)
+    expect(responses.map((response) => response.status)).toEqual([201, 201, 201, 201, 200, 403, 403, 403, 403, 403, 403])
+  }
+})
+
 /*
  * The one place the tiers answer differently by contract. The hosted Worker
  * advertises result-only arbitration and refuses journal provenance with 422
