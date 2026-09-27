@@ -68,9 +68,13 @@ type GitHubWebhookEventWorker struct {
 	mythical interface {
 		ObserveGitHubEvent(ctx context.Context, eventType string, payload []byte) error
 	}
-	mainPull interface {
-		RequestForGitHub(ctx context.Context, owner, repo string) error
-	}
+	mainPull gitHubMainPuller
+}
+
+// gitHubMainPuller is the GitHub main pull as the webhook worker uses it.
+type gitHubMainPuller interface {
+	RequestForGitHub(ctx context.Context, owner, repo string) error
+	PullPolicyRecorded(ctx context.Context, repositoryID int64) (bool, error)
 }
 
 // SetMythical admits issue events into repositories' mythical stacks.
@@ -82,9 +86,7 @@ func (w *GitHubWebhookEventWorker) SetMythical(service interface {
 
 // SetMainPull makes a push to a GitHub repository's default branch request
 // the Smithers main pull for the repositories it is the source of.
-func (w *GitHubWebhookEventWorker) SetMainPull(service interface {
-	RequestForGitHub(ctx context.Context, owner, repo string) error
-}) {
+func (w *GitHubWebhookEventWorker) SetMainPull(service gitHubMainPuller) {
 	w.mainPull = service
 }
 
@@ -259,6 +261,14 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 			return fmt.Errorf("list workflow triggers for repository %d: %w", repositoryID, err)
 		}
 
+		pulled, err := w.mainPulled(ctx, repositoryID, event.Type, payload)
+		if err != nil {
+			return fmt.Errorf("read main pull policy for repository %d: %w", repositoryID, err)
+		}
+		if pulled {
+			// The main pull's verified fast-forward starts this push's runs.
+			continue
+		}
 		definitionIDs := matchingWorkflowDefinitionIDs(triggers, event)
 		for _, definitionID := range definitionIDs {
 			workflowDefinitionID := definitionID
@@ -282,8 +292,7 @@ func (w *GitHubWebhookEventWorker) requestMainPull(ctx context.Context, job db.G
 	if w.mainPull == nil || !strings.EqualFold(strings.TrimSpace(job.EventType), "push") || payload.Repository == nil {
 		return nil
 	}
-	branch := strings.TrimSpace(payload.Repository.DefaultBranch)
-	if branch == "" || strings.TrimSpace(payload.Ref) != "refs/heads/"+branch {
+	if !gitHubDefaultBranchPush(payload) {
 		return nil
 	}
 	owner := strings.TrimSpace(payload.Repository.Owner.Login)
@@ -300,6 +309,23 @@ func (w *GitHubWebhookEventWorker) requestMainPull(ctx context.Context, job db.G
 	return nil
 }
 
+// mainPulled reports whether a push to GitHub's default branch reaches this
+// repository through the main pull, whose own push starts its runs.
+func (w *GitHubWebhookEventWorker) mainPulled(ctx context.Context, repositoryID int64, eventType string, payload gitHubWorkflowEventPayload) (bool, error) {
+	if w.mainPull == nil || eventType != "push" || !gitHubDefaultBranchPush(payload) {
+		return false, nil
+	}
+	return w.mainPull.PullPolicyRecorded(ctx, repositoryID)
+}
+
+func gitHubDefaultBranchPush(payload gitHubWorkflowEventPayload) bool {
+	if payload.Repository == nil {
+		return false
+	}
+	branch := strings.TrimSpace(payload.Repository.DefaultBranch)
+	return branch != "" && strings.TrimSpace(payload.Ref) == "refs/heads/"+branch
+}
+
 // gitHubPushCredential classifies a signed GitHub push the way the push hook
 // classifies a Smithers push (middleware.CredentialKind), so one rule decides
 // whose push runs save workflow caches. A person's push to the GitHub
@@ -311,11 +337,7 @@ func gitHubPushCredential(payload gitHubWorkflowEventPayload) middleware.Credent
 	var sender struct {
 		Type string `json:"type"`
 	}
-	if payload.Repository == nil || json.Unmarshal(payload.Sender, &sender) != nil || sender.Type != "User" {
-		return ""
-	}
-	branch := payload.Repository.DefaultBranch
-	if branch == "" || payload.Ref != "refs/heads/"+branch {
+	if !gitHubDefaultBranchPush(payload) || json.Unmarshal(payload.Sender, &sender) != nil || sender.Type != "User" {
 		return ""
 	}
 	return middleware.CredentialPerson

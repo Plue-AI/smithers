@@ -696,6 +696,11 @@ func TestGitHubWebhookMainPullRequestFailureRetriesTheJob(t *testing.T) {
 type recordingMainPull struct {
 	requests []string
 	err      error
+	pulled   bool
+}
+
+func (r *recordingMainPull) PullPolicyRecorded(context.Context, int64) (bool, error) {
+	return r.pulled, nil
 }
 
 func (r *recordingMainPull) RequestForGitHub(_ context.Context, owner, repo string) error {

@@ -98,4 +98,28 @@ func TestGitHubWebhookPushSavesCachesOnlyForAPersonsDefaultBranchPushPostgres(t 
 		require.ErrorAs(t, err, &apiErr, push.name)
 		assert.Equal(t, http.StatusForbidden, apiErr.Status, "%s restores caches and saves none", push.name)
 	}
+
+	// A main-pulled repository's default branch runs from the main pull's
+	// verified fast-forward (a platform push), so the webhook starts none.
+	worker.SetMainPull(pulledMain{})
+	payload, err := json.Marshal(map[string]any{
+		"ref": "refs/heads/main", "after": fmt.Sprintf("%040d", 99),
+		"installation": map[string]any{"id": 7},
+		"repository":   map[string]any{"id": 70, "name": "app", "default_branch": "main", "owner": map[string]any{"login": "gh-owner"}},
+		"sender":       map[string]any{"login": "merge-queue", "type": "Bot"},
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO github_webhook_jobs (delivery_id, event_type, installation_id, github_repository_id, payload) VALUES ($1, 'push', 7, 70, $2)`, uuid.New(), payload)
+	require.NoError(t, err)
+	require.NoError(t, worker.PollOnce(ctx))
+	var runs int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workflow_runs WHERE trigger_commit_sha = $1`, fmt.Sprintf("%040d", 99)).Scan(&runs))
+	assert.Zero(t, runs)
+}
+
+type pulledMain struct{}
+
+func (pulledMain) RequestForGitHub(context.Context, string, string) error { return nil }
+func (pulledMain) PullPolicyRecorded(context.Context, int64) (bool, error) {
+	return true, nil
 }
