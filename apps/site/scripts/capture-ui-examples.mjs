@@ -65,7 +65,7 @@ try {
   for (const [name, suite, command, selector] of [
     ["run", "runs", "/flow.run review-pr", '[data-kind="run-trace"]'],
     ["change", "change", "/change.view qupxosqw", '[data-kind="change"]'],
-    ["box", "citc", "/workspace.open main smithersai/smithers", '[data-kind="workspace"]']
+    ["box", "citc", "/box.open main smithersai/smithers", '[data-kind="workspace"]']
   ]) {
     if (selected.size && !selected.has(name)) continue
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 })
