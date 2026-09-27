@@ -349,3 +349,16 @@ WHERE
               AND c.user_id = sqlc.arg(user_id)::bigint
         )
      OR r.is_public;
+
+-- name: ListRepositoryNamesAfter :many
+-- Keyset page of every repository with its owner's name, for repository
+-- maintenance jobs (#2237).
+SELECT r.id,
+       COALESCE(o.name, u.username, '')::text AS owner,
+       r.name
+FROM repositories r
+LEFT JOIN users u ON u.id = r.user_id
+LEFT JOIN organizations o ON o.id = r.org_id
+WHERE r.id > sqlc.arg(after_id)::bigint
+ORDER BY r.id
+LIMIT sqlc.arg(page_size)::int;

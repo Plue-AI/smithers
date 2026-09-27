@@ -1246,6 +1246,51 @@ func (q *Queries) ListRepoForks(ctx context.Context, arg ListRepoForksParams) ([
 	return items, nil
 }
 
+const listRepositoryNamesAfter = `-- name: ListRepositoryNamesAfter :many
+SELECT r.id,
+       COALESCE(o.name, u.username, '')::text AS owner,
+       r.name
+FROM repositories r
+LEFT JOIN users u ON u.id = r.user_id
+LEFT JOIN organizations o ON o.id = r.org_id
+WHERE r.id > $1::bigint
+ORDER BY r.id
+LIMIT $2::int
+`
+
+type ListRepositoryNamesAfterParams struct {
+	AfterID  int64 `json:"after_id"`
+	PageSize int32 `json:"page_size"`
+}
+
+type ListRepositoryNamesAfterRow struct {
+	ID    int64  `json:"id"`
+	Owner string `json:"owner"`
+	Name  string `json:"name"`
+}
+
+// Keyset page of every repository with its owner's name, for repository
+// maintenance jobs (#2237).
+func (q *Queries) ListRepositoryNamesAfter(ctx context.Context, arg ListRepositoryNamesAfterParams) ([]ListRepositoryNamesAfterRow, error) {
+	rows, err := q.db.Query(ctx, listRepositoryNamesAfter, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRepositoryNamesAfterRow{}
+	for rows.Next() {
+		var i ListRepositoryNamesAfterRow
+		if err := rows.Scan(&i.ID, &i.Owner, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeamReposByRepo = `-- name: ListTeamReposByRepo :many
 SELECT id, team_id, repository_id, created_at
 FROM team_repos

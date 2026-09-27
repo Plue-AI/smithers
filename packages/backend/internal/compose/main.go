@@ -1597,6 +1597,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			// refusal and the workspaces built with them, once per database.
 			launchWorker(func() { services.RunStoredSubscriptionTokenScan(workerCtx, pool, webhookSecretCodec) })
 		}
+		// #2237: case variants of reserved refs that predate their refusal
+		// block the canonical refs; the repair is idempotent.
+		launchWorker(func() { services.RunRefCaseCollisionRepair(workerCtx, queries, repoHostClient) })
 	}
 	var gitHubImportWorker *joinedBackgroundWorker
 	if options.topology.workers() && (!options.topology.hosted() || provisioningEnforced) {

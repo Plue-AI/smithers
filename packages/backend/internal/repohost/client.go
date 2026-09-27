@@ -1354,6 +1354,23 @@ func (c *Client) SetDefaultBookmark(ctx context.Context, owner, repo, name strin
 	)
 }
 
+// RepairRefCaseCollisions renames or removes a repository's case variants of
+// reserved refs (keeping backups) and reports every other case collision.
+func (c *Client) RepairRefCaseCollisions(ctx context.Context, owner, repo string, req RefCaseCollisionRequest) (RefCaseCollisionReport, error) {
+	defer c.observeOperationDuration("RepairRefCaseCollisions", time.Now())
+
+	baseURL, err := c.resolver.ResolveURL(ctx, owner, repo)
+	if err != nil {
+		return RefCaseCollisionReport{}, fmt.Errorf("resolve storage set url: %w", err)
+	}
+	if req.ProtectedPatterns == nil {
+		req.ProtectedPatterns = []string{}
+	}
+	var report RefCaseCollisionReport
+	err = c.doJSON(ctx, http.MethodPost, repoByIDEndpoint(baseURL, owner, repo)+"/ref-case-collisions/repair", req, http.StatusOK, &report)
+	return report, err
+}
+
 // DeleteBookmark deletes a bookmark by name.
 func (c *Client) DeleteBookmark(ctx context.Context, owner, repo, name string) error {
 	defer c.observeOperationDuration("DeleteBookmark", time.Now())

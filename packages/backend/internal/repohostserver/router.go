@@ -220,6 +220,7 @@ func (s *Server) Handler() http.Handler {
 			r.Method(http.MethodGet, "/repos/{id}/bookmarks", s.withAppError(s.listBookmarks))
 			r.Method(http.MethodPost, "/repos/{id}/bookmarks", s.withAppError(s.createBookmark))
 			r.Method(http.MethodPut, "/repos/{id}/default-bookmark", s.withAppError(s.setDefaultBookmark))
+			r.Method(http.MethodPost, "/repos/{id}/ref-case-collisions/repair", s.withAppError(s.repairRefCaseCollisions))
 			r.Method(http.MethodGet, "/repos/{id}/bookmarks/{name}", s.withAppError(s.getBookmark))
 			r.Method(http.MethodDelete, "/repos/{id}/bookmarks/{name}", s.withAppError(s.deleteBookmark))
 			r.Method(http.MethodGet, "/repos/{id}/changes", s.withAppError(s.listChanges))
