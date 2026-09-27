@@ -230,6 +230,29 @@ describe("the agent cards", () => {
     })
   })
 
+  test("a repository agent flow is a row with no harness and its flow id, path segments included", () => {
+    const reviewer = {
+      id: "checks/review",
+      label: "checks/review",
+      purpose: "Reviews the change.",
+      model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
+      builtin: false,
+      available: false,
+      reason: "",
+      account: ""
+    }
+    const card = CardSchema.parse({ ...base, kind: "agents", payload: { native: false, agents: [reviewer] } })
+    expect(card.payload).toEqual({ native: false, agents: [reviewer] })
+    // A model id that reads as a flag is still refused on every row.
+    expect(
+      CardSchema.safeParse({
+        ...base,
+        kind: "agents",
+        payload: { native: false, agents: [{ ...reviewer, model: { ...reviewer.model, id: "-m x" } }] }
+      }).success
+    ).toBe(false)
+  })
+
   test("the flow-form card holds the flow, who asked, the derived fields, the draft and what was given; a bad kind or provider is rejected", () => {
     const card = CardSchema.parse({
       ...base,

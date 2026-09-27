@@ -401,7 +401,7 @@ test("declared flow inputs reuse persisted forms and the existing named launch p
   const controller = createAppController(store, silentAgent, double.services)
   await signIn(store)
   store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: REPO, flows: [{
-    id: "review-pr", description: "Review selected paths", summary: null, featured: true, modelInvocable: true,
+    id: "review-pr", description: "Review selected paths", summary: null, featured: true, model: null, modelInvocable: true,
     inputSchema: Schema.toJsonSchemaDocument(Schema.Struct({
       path: Schema.String, attempts: Schema.Number, mode: Schema.Literals(["quick", "thorough"]), draft: Schema.Boolean
     }))
@@ -428,7 +428,7 @@ test("optional flow inputs are offered before launch, while an empty schema can 
   const controller = createAppController(store, silentAgent, double.services)
   await signIn(store)
   const declare = (input: Schema.Top) => store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: REPO, flows: [{
-    id: "review-pr", description: "Review", summary: null, featured: true, modelInvocable: true,
+    id: "review-pr", description: "Review", summary: null, featured: true, model: null, modelInvocable: true,
     inputSchema: Schema.toJsonSchemaDocument(input)
   }] })
   declare(Schema.Struct({ path: Schema.optional(Schema.String) }))

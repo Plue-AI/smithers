@@ -34,8 +34,8 @@ const fixture = (options: { readonly issues?: boolean; readonly prs?: boolean; r
   const repositoryFlows = new Map<string, RepositoryFlowsRow>()
   if (options.flows !== false) {
     repositoryFlows.set(REPO, { id: REPO, loadedAt: 1, flows: [
-      { id: "review", description: "Review the change.", summary: "Review the working-copy change", featured: true, modelInvocable: true },
-      { id: "checks/lint", description: "Lint.", summary: null, featured: false, modelInvocable: true }
+      { id: "review", description: "Review the change.", summary: "Review the working-copy change", featured: true, model: null, modelInvocable: true },
+      { id: "checks/lint", description: "Lint.", summary: null, featured: false, model: null, modelInvocable: true }
     ] })
   }
   const store = {

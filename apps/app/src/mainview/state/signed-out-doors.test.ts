@@ -75,7 +75,7 @@ test("a repository launch names its human summary and repository for both actors
   for (const actor of ["user", "agent"] as const) {
     const { controller, store } = await setup()
     await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "smithersai/smithers", flows: [
-      { id: "internal-review-42", summary: "Review the changes", description: "Review", featured: true, modelInvocable: true }
+      { id: "internal-review-42", summary: "Review the changes", description: "Review", featured: true, model: null, modelInvocable: true }
     ] }).isPersisted.promise
     if (actor === "agent") await controller.commands.runForAgent("flow.run", "internal-review-42 smithersai/smithers")
     else await controller.commands.run("flow.run", "internal-review-42 smithersai/smithers")

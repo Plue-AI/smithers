@@ -68,6 +68,27 @@ describe("the Agents card", () => {
     expect(host.querySelector("[data-flow]")).toBeNull()
   })
 
+  test("a repository agent flow is a row like a built-in: label, model, and its Runs door is runs.list on its flow id", () => {
+    const { calls, onRunCommand } = recorder()
+    const reviewer: typeof orchestrator = {
+      id: "checks/review",
+      label: "checks/review",
+      purpose: "Reviews the change.",
+      model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
+      builtin: false,
+      available: false,
+      reason: "",
+      account: ""
+    }
+    const host = mount(<AgentsCardBody onRunCommand={onRunCommand} card={agentsCard({ native: false, agents: [orchestrator, reviewer] })} />)
+    const row = host.querySelector<HTMLElement>('[data-agent="checks/review"]')
+    expect(row?.textContent).toContain("checks/review")
+    expect(row?.textContent).toContain("gpt-6-sol")
+    expect(row?.querySelector("[title]")?.getAttribute("title")).toBe("Reviews the change.")
+    click(host, '[data-testid="agent-runs-checks/review"]')
+    expect(calls).toEqual([["runs.list", JSON.stringify({ flow: "checks/review" })]])
+  })
+
   test("the last act's refusal stays on the card", () => {
     const host = mount(<AgentsCardBody onRunCommand={() => {}} card={agentsCard({ native: true, agents: [orchestrator], error: "The server answered 500" })} />)
     expect(host.querySelector("[role=alert]")?.textContent).toBe("The server answered 500")

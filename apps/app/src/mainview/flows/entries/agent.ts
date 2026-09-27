@@ -31,7 +31,7 @@ export const agentFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   flow(EXPLAIN),
   flow({
     name: "agent.list",
-    summary: "Show the agents: built-in, with what each can launch here",
+    summary: "Show the agents and their runs",
     input: NoPayload,
     handler: () => actions.listAgents()
   }),

@@ -80,9 +80,9 @@ describe("the Wiki is core", () => {
  * (both model-invocable); the built-in `wiki` surface flow keeps its name.
  */
 const FACTORY_ROWS = [
-  { id: "wiki", description: "Review each engineering wiki page against its code", summary: null, featured: true, modelInvocable: true },
-  { id: "checks/wiki", description: "Check the wiki pages", summary: null, featured: false, modelInvocable: true },
-  { id: "review", description: "Review a change", summary: null, featured: true, modelInvocable: true }
+  { id: "wiki", description: "Review each engineering wiki page against its code", summary: null, featured: true, model: null, modelInvocable: true },
+  { id: "checks/wiki", description: "Check the wiki pages", summary: null, featured: false, model: null, modelInvocable: true },
+  { id: "review", description: "Review a change", summary: null, featured: true, model: null, modelInvocable: true }
 ]
 
 const repositoryDeclaringWikiFlows = async () => {

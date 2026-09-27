@@ -98,6 +98,8 @@ export const RepositoryFlowSchema = z.object({
   description: z.string(),
   summary: z.string().nullable(),
   featured: z.boolean(),
+  /** The model seat the flow declares, as written (`sol`, `openai:gpt-6-astra`); a flow with one is an agent (controller/agents.ts). */
+  model: z.string().nullable(),
   modelInvocable: z.boolean(),
   inputSchema: z.unknown().optional()
 })

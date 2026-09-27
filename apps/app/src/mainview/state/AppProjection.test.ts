@@ -308,7 +308,7 @@ describe("pure app event projection", () => {
   test("boot expires process-lifetime observations, while retained state and migration stay deterministic", () => {
     let state = apply(boot(), { type: "repo-tree.loaded", actor: "system", copyId: "local:/repo", path: "", entries: [], truncated: false })
     state = apply(state, { type: "repository-flows.loaded", actor: "system", repo: "org/repo", flows: [
-      { id: "flow", description: "A flow", summary: null, featured: false, modelInvocable: true }
+      { id: "flow", description: "A flow", summary: null, featured: false, model: null, modelInvocable: true }
     ] })
     expect(state.repoTree).toHaveLength(1)
     const seeded = seedAppProjection(freeze(state), { createdAt: 500, theme: "light" })

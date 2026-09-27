@@ -300,7 +300,7 @@ const seedPrivateRoster = async (store: AppStore): Promise<void> => {
   await store.dispatch({ type: "repo-tree.failed", actor: "system", copyId: "workspace:private", path: "", error: "ALICE_PRIVATE_PATH"
   }).isPersisted.promise
   await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "alice/private",
-    flows: [{ id: "private", description: "ALICE_PRIVATE_FLOW", summary: null, featured: true, modelInvocable: true }]
+    flows: [{ id: "private", description: "ALICE_PRIVATE_FLOW", summary: null, featured: true, model: null, modelInvocable: true }]
   }).isPersisted.promise
 }
 

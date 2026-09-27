@@ -49,13 +49,14 @@ export const repositoryFlowsOf = (
     readonly description: string
     readonly summary: string | null
     readonly featured: boolean
+    readonly model: string | null
     readonly modelInvocable: boolean
     readonly inputSchema?: unknown
   }>
 ): Array<RepositoryFlow> =>
   [...flows]
     .sort((left, right) => Number(right.featured) - Number(left.featured))
-    .map(({ id, description, summary, featured, modelInvocable, inputSchema }) => ({ id, description, summary, featured, modelInvocable,
+    .map(({ id, description, summary, featured, model, modelInvocable, inputSchema }) => ({ id, description, summary, featured, model, modelInvocable,
       ...(inputSchema === undefined ? {} : { inputSchema }) }))
 
 export const createRepositoryFlowsSeam = (

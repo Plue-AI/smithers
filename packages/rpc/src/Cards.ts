@@ -2663,7 +2663,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       error: z.string().optional()
     })
   }),
-  /* Local agent roles or a repository's cloud session inventory. */
+  /* The agents (the built-in roles and the loaded repository's agent flows) or a repository's cloud session inventory. */
   z.object({
     ...cardBaseShape,
     kind: z.literal("agents"),
@@ -2673,12 +2673,14 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         native: z.boolean(),
         agents: z.array(
           z.object({
-            id: AgentRoleIdSchema,
+            /** A built-in role id, or the flow id of a repository agent flow (`flows/<id>/flow.mdx` with a model). */
+            id: z.string().min(1),
             label: z.string(),
             purpose: z.string(),
-            harness: z.enum(HARNESS_IDS),
+            /** The local harness a built-in role launches through; an agent flow runs on Smithers itself and names none. */
+            harness: z.enum(HARNESS_IDS).optional(),
             /** The harness's display name from the table; the id when the table lacks it. */
-            harnessName: z.string(),
+            harnessName: z.string().optional(),
             model: AgentRoleModelSchema,
             builtin: z.boolean(),
             /** Profile metadata (smithers-ui-DESIGN.md §3.3): whether it is a core role or a specialist. */
