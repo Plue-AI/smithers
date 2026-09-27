@@ -117,19 +117,22 @@ func issueCarriesLabel(labels []string, label string) bool {
 	return false
 }
 
-// issueTextByMaintainerField is the field of an event's issue object that
-// says whether the issue's current title and body were last written by its
-// author or another maintainer person. GitHub names the author's standing,
-// not the editor's, so the webhook worker (GitHubIssueTextStamper) and the
-// native issue payload set it; a payload without it fails closed.
+// issueTextByMaintainerField is the field of an event's issue, pull
+// request, comment or review object that says whether its text is a
+// maintainer's own: a trusted author, and every part (a title, a body) last
+// written by the author or another maintainer person. GitHub names the
+// author's standing, not the writer's, so the webhook worker
+// (GitHubTextStamper) and the native event payloads set it; an object without
+// it fails closed.
 const issueTextByMaintainerField = "smithers_text_by_maintainer"
 
-// maintainerIssueText reports whether an issue's text is a maintainer's own:
-// a trusted author, and the last title or body write was by the author or
+// maintainerText reports whether an object's text is a maintainer's own: a
+// trusted author, and the last write of each part was by the author or
 // another maintainer person. An edit by anyone else (a triage user, an app or
 // bot, a run credential, an import) makes it outsider text until a
-// maintainer writes it again or approves it with the trigger label.
-func maintainerIssueText(authorAssociation string, textByMaintainer bool) bool {
+// maintainer writes it again or, for an issue, approves it with the trigger
+// label.
+func maintainerText(authorAssociation string, textByMaintainer bool) bool {
 	return textByMaintainer && trustedGitHubAuthorAssociation(authorAssociation)
 }
 
@@ -143,7 +146,7 @@ func maintainerIssueText(authorAssociation string, textByMaintainer bool) bool {
 // from a user other than the author. Any other label, assignee or milestone
 // change approves nothing.
 func approvesIssueText(authorAssociation string, textByMaintainer bool, labels []string, applied gitHubLabelApplication, trigger string) bool {
-	if maintainerIssueText(authorAssociation, textByMaintainer) {
+	if maintainerText(authorAssociation, textByMaintainer) {
 		return true
 	}
 	trigger = strings.TrimSpace(trigger)
@@ -151,15 +154,25 @@ func approvesIssueText(authorAssociation string, textByMaintainer bool, labels [
 		applied.SenderType == "User" && !applied.ByAuthor && issueCarriesLabel(labels, trigger)
 }
 
+// authoredText is the part of an event's issue, pull request, comment or
+// review object the trust rule reads.
+type authoredText struct {
+	AuthorAssociation string `json:"author_association"`
+	TextByMaintainer  bool   `json:"smithers_text_by_maintainer"`
+}
+
+func (a *authoredText) maintainers() bool {
+	return a != nil && maintainerText(a.AuthorAssociation, a.TextByMaintainer)
+}
+
 // eventIssue is the part of an event's issue object the trust rule reads.
 type eventIssue struct {
-	AuthorAssociation string        `json:"author_association"`
-	Labels            []gitHubLabel `json:"labels"`
-	TextByMaintainer  bool          `json:"smithers_text_by_maintainer"`
+	authoredText
+	Labels []gitHubLabel `json:"labels"`
 }
 
 // gitHubIssueEventApproves applies approvesIssueText to one event. A comment
-// adds its own text, so its author must be trusted too, and it never
+// adds its own text, so it must be a maintainer's too, and it never
 // approves outsider issue text. Events that carry no issue text pass.
 func gitHubIssueEventApproves(eventType, action string, payload []byte, trigger string) bool {
 	kind := NormalizeTriggerName(eventType)
@@ -167,17 +180,15 @@ func gitHubIssueEventApproves(eventType, action string, payload []byte, trigger 
 		return true
 	}
 	var event struct {
-		Issue   *eventIssue `json:"issue"`
-		Comment *struct {
-			AuthorAssociation string `json:"author_association"`
-		} `json:"comment"`
+		Issue   *eventIssue   `json:"issue"`
+		Comment *authoredText `json:"comment"`
 	}
 	if json.Unmarshal(payload, &event) != nil || event.Issue == nil {
 		return false
 	}
 	applied := gitHubLabelApplied(action, payload)
 	if kind == "issue_comment" {
-		if event.Comment == nil || !trustedGitHubAuthorAssociation(event.Comment.AuthorAssociation) {
+		if !event.Comment.maintainers() {
 			return false
 		}
 		applied = gitHubLabelApplication{}
@@ -186,27 +197,20 @@ func gitHubIssueEventApproves(eventType, action string, payload []byte, trigger 
 }
 
 // gitHubEventByOutsider reports whether an event carries text that is not a
-// maintainer's own: issue text that maintainerIssueText rejects (approved by
-// a label), a pull request, comment or review by a non-maintainer. Work it
-// starts never changes a protected path.
+// maintainer's own (maintainerText): an issue approved by a label, or a pull
+// request, comment or review. Work it starts never changes a protected path.
 func gitHubEventByOutsider(payload []byte) bool {
-	type authored struct {
-		AuthorAssociation string `json:"author_association"`
-	}
 	var event struct {
-		Issue       *eventIssue `json:"issue"`
-		PullRequest *authored   `json:"pull_request"`
-		Comment     *authored   `json:"comment"`
-		Review      *authored   `json:"review"`
+		Issue       *authoredText `json:"issue"`
+		PullRequest *authoredText `json:"pull_request"`
+		Comment     *authoredText `json:"comment"`
+		Review      *authoredText `json:"review"`
 	}
 	if json.Unmarshal(payload, &event) != nil {
 		return true
 	}
-	if event.Issue != nil && !maintainerIssueText(event.Issue.AuthorAssociation, event.Issue.TextByMaintainer) {
-		return true
-	}
-	for _, part := range []*authored{event.PullRequest, event.Comment, event.Review} {
-		if part != nil && !trustedGitHubAuthorAssociation(part.AuthorAssociation) {
+	for _, part := range []*authoredText{event.Issue, event.PullRequest, event.Comment, event.Review} {
+		if part != nil && !part.maintainers() {
 			return true
 		}
 	}

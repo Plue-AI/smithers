@@ -865,6 +865,7 @@ type IssueComment struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 	Persona        json.RawMessage `json:"persona"`
 	IdempotencyKey string          `json:"idempotency_key"`
+	BodyEditorID   pgtype.Int8     `json:"body_editor_id"`
 }
 
 type IssueDependency struct {

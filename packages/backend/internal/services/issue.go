@@ -63,7 +63,10 @@ type CreateIssueCommentInput struct {
 }
 
 type UpdateIssueCommentInput struct {
-	Body string `json:"body"`
+	// externalCommenter: the issue-sync intake writes an external account's
+	// edit under the owner's name, so it names no writer.
+	externalCommenter bool
+	Body              string `json:"body"`
 }
 
 type IssueUserSummary struct {
@@ -814,21 +817,35 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, actor *db.User, o
 		}
 		persona, _ = json.Marshal(req.Persona)
 	}
-	commenter := actor.Username
+	// The comment's writer is the person acting; a run credential names no
+	// one, and neither does the issue-sync intake, whose text an external
+	// account wrote under the owner's name.
+	commenter, editor := actor.Username, nativeIssueTextEditor(ctx, actor.ID)
 	if req.externalCommenter != "" {
-		commenter = req.externalCommenter
+		commenter, editor = req.externalCommenter, ""
 	}
-	comment, err := s.queries.CreateIssueComment(ctx, db.CreateIssueCommentParams{Persona: persona, IdempotencyKey: req.IdempotencyKey,
-		IssueID:   issue.ID,
-		UserID:    pgtype.Int8{Int64: actor.ID, Valid: true},
-		Body:      body,
-		Commenter: commenter,
+	var comment db.IssueComment
+	err = s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
+		if werr := tx.SetIssueTextEditor(ctx, editor); werr != nil {
+			return werr
+		}
+		var werr error
+		comment, werr = tx.CreateIssueComment(ctx, db.CreateIssueCommentParams{Persona: persona, IdempotencyKey: req.IdempotencyKey,
+			IssueID:   issue.ID,
+			UserID:    pgtype.Int8{Int64: actor.ID, Valid: true},
+			Body:      body,
+			Commenter: commenter,
+		})
+		if werr != nil {
+			if stdErrors.Is(werr, pgx.ErrNoRows) {
+				return pkgerrors.Conflict("message identity was deleted or has different content")
+			}
+			return pkgerrors.Internal("failed to create issue comment").WithCause(werr)
+		}
+		return nil
 	})
 	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return IssueCommentResponse{}, pkgerrors.Conflict("message identity was deleted or has different content")
-		}
-		return IssueCommentResponse{}, pkgerrors.Internal("failed to create issue comment").WithCause(err)
+		return IssueCommentResponse{}, err
 	}
 
 	// issues.comment_count is maintained by trg_issue_comments_count_ins.
@@ -936,12 +953,27 @@ func (s *IssueService) UpdateIssueComment(ctx context.Context, actor *db.User, o
 		return IssueCommentResponse{}, pkgerrors.NotFound("issue comment not found")
 	}
 
-	updated, err := s.queries.UpdateIssueComment(ctx, db.UpdateIssueCommentParams{ID: commentID, Body: body})
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return IssueCommentResponse{}, pkgerrors.NotFound("issue comment not found")
+	editor := nativeIssueTextEditor(ctx, actor.ID)
+	if req.externalCommenter {
+		editor = ""
+	}
+	var updated db.IssueComment
+	err = s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
+		if werr := tx.SetIssueTextEditor(ctx, editor); werr != nil {
+			return werr
 		}
-		return IssueCommentResponse{}, pkgerrors.Internal("failed to update issue comment").WithCause(err)
+		var werr error
+		updated, werr = tx.UpdateIssueComment(ctx, db.UpdateIssueCommentParams{ID: commentID, Body: body})
+		if werr != nil {
+			if stdErrors.Is(werr, pgx.ErrNoRows) {
+				return pkgerrors.NotFound("issue comment not found")
+			}
+			return pkgerrors.Internal("failed to update issue comment").WithCause(werr)
+		}
+		return nil
+	})
+	if err != nil {
+		return IssueCommentResponse{}, err
 	}
 
 	mapped := mapIssueComment(updated)

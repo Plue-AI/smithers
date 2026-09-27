@@ -20,6 +20,10 @@ type issueWriteTx interface {
 	UpdateIssue(ctx context.Context, arg db.UpdateIssueParams) (db.Issue, error)
 	ReplaceIssueAssignees(ctx context.Context, arg db.ReplaceIssueAssigneesParams) error
 	ReplaceIssueLabels(ctx context.Context, arg db.ReplaceIssueLabelsParams) error
+	// CreateIssueComment and UpdateIssueComment write a comment body; its
+	// writer is the one SetIssueTextEditor named.
+	CreateIssueComment(ctx context.Context, arg db.CreateIssueCommentParams) (db.IssueComment, error)
+	UpdateIssueComment(ctx context.Context, arg db.UpdateIssueCommentParams) (db.IssueComment, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
 }
@@ -81,6 +85,14 @@ func (t *pgxIssueWriteTx) ReplaceIssueLabels(ctx context.Context, arg db.Replace
 	return t.q.ReplaceIssueLabels(ctx, arg)
 }
 
+func (t *pgxIssueWriteTx) CreateIssueComment(ctx context.Context, arg db.CreateIssueCommentParams) (db.IssueComment, error) {
+	return t.q.CreateIssueComment(ctx, arg)
+}
+
+func (t *pgxIssueWriteTx) UpdateIssueComment(ctx context.Context, arg db.UpdateIssueCommentParams) (db.IssueComment, error) {
+	return t.q.UpdateIssueComment(ctx, arg)
+}
+
 func (t *pgxIssueWriteTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
 func (t *pgxIssueWriteTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
 
@@ -116,6 +128,14 @@ func (t nonTxIssueWriteTx) ReplaceIssueAssignees(ctx context.Context, arg db.Rep
 
 func (t nonTxIssueWriteTx) ReplaceIssueLabels(ctx context.Context, arg db.ReplaceIssueLabelsParams) error {
 	return t.q.ReplaceIssueLabels(ctx, arg)
+}
+
+func (t nonTxIssueWriteTx) CreateIssueComment(ctx context.Context, arg db.CreateIssueCommentParams) (db.IssueComment, error) {
+	return t.q.CreateIssueComment(ctx, arg)
+}
+
+func (t nonTxIssueWriteTx) UpdateIssueComment(ctx context.Context, arg db.UpdateIssueCommentParams) (db.IssueComment, error) {
+	return t.q.UpdateIssueComment(ctx, arg)
 }
 
 func (nonTxIssueWriteTx) Commit(context.Context) error   { return nil }

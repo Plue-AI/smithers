@@ -29,7 +29,7 @@ type mythicalIssue struct {
 	State             string // open | closed
 	AuthorAssociation string
 	// TextByMaintainer: the title and body were last written by the author
-	// or another maintainer person (maintainerIssueText).
+	// or another maintainer person (maintainerText).
 	TextByMaintainer bool
 	Labels           []string
 	PullRequest      bool

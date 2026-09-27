@@ -860,7 +860,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		)
 	}
 	gitHubWebhookEventWorker := services.NewGitHubWebhookEventWorker(queries, workflowRunService)
-	gitHubWebhookEventWorker.SetIssueText(services.NewGitHubIssueTextStamper(repoConnectionService))
+	gitHubWebhookEventWorker.SetTextStamper(services.NewGitHubTextStamper(repoConnectionService))
 	webhookWorker := webhook.NewWorker(
 		queries,
 		webhook.DefaultHTTPClient(),

@@ -69,7 +69,7 @@ type GitHubWebhookEventWorker struct {
 		ObserveGitHubEvent(ctx context.Context, eventType string, payload []byte) error
 	}
 	mainPull  gitHubMainPuller
-	issueText *GitHubIssueTextStamper
+	issueText *GitHubTextStamper
 }
 
 // gitHubMainPuller is the GitHub main pull as the webhook worker uses it.
@@ -85,10 +85,10 @@ func (w *GitHubWebhookEventWorker) SetMythical(service interface {
 	w.mythical = service
 }
 
-// SetIssueText makes the worker read who last wrote an issue's text before
+// SetTextStamper makes the worker read who last wrote an issue's text before
 // any consumer applies the trust rule. Without it no GitHub issue text is a
 // maintainer's own.
-func (w *GitHubWebhookEventWorker) SetIssueText(stamper *GitHubIssueTextStamper) {
+func (w *GitHubWebhookEventWorker) SetTextStamper(stamper *GitHubTextStamper) {
 	w.issueText = stamper
 }
 
@@ -219,13 +219,24 @@ func gitHubWebhookJobRetryBackoff(attempts int32) time.Duration {
 }
 
 func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.GithubWebhookJob) error {
-	// GitHub names the issue author's standing, not the editor's: record
-	// whether a maintainer last wrote the issue's text for every consumer.
-	stamped, err := w.issueText.stampGitHubIssueText(ctx, job.EventType, job.Action, job.Payload)
-	if err != nil {
-		return fmt.Errorf("read issue text writer: %w", err)
+	// GitHub names an author's association, not the writer's standing:
+	// record whether maintainers wrote the event's text before any consumer
+	// reads it. The stack reads every issue event; other events are read
+	// only when a repository takes them, so they are stamped then.
+	stamp := func() error {
+		stamped, err := w.issueText.stampGitHubText(ctx, job.EventType, job.Action, job.Payload)
+		if err != nil {
+			return fmt.Errorf("read text writers: %w", err)
+		}
+		job.Payload = stamped
+		return nil
 	}
-	job.Payload = stamped
+	issueEvent := NormalizeTriggerName(job.EventType) == "issue"
+	if issueEvent {
+		if err := stamp(); err != nil {
+			return err
+		}
+	}
 	payload, err := parseGitHubWorkflowEventPayload(job.Payload)
 	if err != nil {
 		return &permanentGitHubWebhookJobError{err: fmt.Errorf("parse payload: %w", err)}
@@ -256,6 +267,11 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 	repoIDs, err := w.queries.ListRepositoryIDsForGitHubWebhookJob(ctx, selector)
 	if err != nil {
 		return fmt.Errorf("resolve repositories: %w", err)
+	}
+	if !issueEvent && len(repoIDs) > 0 {
+		if err := stamp(); err != nil {
+			return err
+		}
 	}
 
 	// Repository jobs apply the trust rule with their own trigger label when

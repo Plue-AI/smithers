@@ -65,6 +65,16 @@ func (m *mockIssueWriteTx) ReplaceIssueLabels(ctx context.Context, arg db.Replac
 	return nil
 }
 
+func (m *mockIssueWriteTx) CreateIssueComment(context.Context, db.CreateIssueCommentParams) (db.IssueComment, error) {
+	m.calls = append(m.calls, "CreateIssueComment")
+	return db.IssueComment{}, nil
+}
+
+func (m *mockIssueWriteTx) UpdateIssueComment(context.Context, db.UpdateIssueCommentParams) (db.IssueComment, error) {
+	m.calls = append(m.calls, "UpdateIssueComment")
+	return db.IssueComment{}, nil
+}
+
 func (m *mockIssueWriteTx) Commit(context.Context) error {
 	if m.commitErr != nil {
 		return m.commitErr

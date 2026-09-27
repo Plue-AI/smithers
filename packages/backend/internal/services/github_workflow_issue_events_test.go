@@ -126,7 +126,7 @@ func TestGitHubIssueEventWorker_DispatchesOnlyEnabledMatchingIssueRules(t *testi
 			}
 			dispatcher := &mockGitHubWebhookEventRunDispatcher{}
 			worker := NewGitHubWebhookEventWorker(queries, dispatcher)
-			worker.SetIssueText(authorWroteIssueText(t))
+			worker.SetTextStamper(authorWroteIssueText(t))
 			require.NoError(t, worker.PollOnce(context.Background()))
 			require.Len(t, dispatcher.calls, 1)
 			assert.Equal(t, int64(10), *dispatcher.calls[0].WorkflowDefinitionID)
@@ -171,7 +171,7 @@ func TestGitHubIssueEventWorker_RetryRetainsIdentityAndAuthorReply(t *testing.T)
 		return nil, nil
 	}
 	worker := NewGitHubWebhookEventWorker(queries, dispatcher)
-	worker.SetIssueText(authorWroteIssueText(t))
+	worker.SetTextStamper(authorWroteIssueText(t))
 	require.NoError(t, worker.PollOnce(context.Background()))
 	require.Len(t, queries.retried, 1)
 	assert.Empty(t, queries.markDoneIDs)
@@ -327,13 +327,15 @@ func TestGitHubIssueEventWorker_OnlyTheTriggerLabelFromAPersonStartsAStrangersIs
 func TestGitHubEventByOutsiderCoversEveryAuthoredPart(t *testing.T) {
 	t.Parallel()
 	for payload, outsider := range map[string]bool{
-		`{"issue":{"author_association":"OWNER","smithers_text_by_maintainer":true}}`:                    false,
-		`{"issue":{"author_association":"OWNER"}}`:                                                       true,
-		`{"issue":{"author_association":"NONE"}}`:                                                        true,
-		`{"pull_request":{"author_association":"FIRST_TIME_CONTRIBUTOR"}}`:                               true,
-		`{"issue":{"author_association":"MEMBER"},"comment":{"author_association":"CONTRIBUTOR"}}`:       true,
-		`{"pull_request":{"author_association":"MEMBER"},"review":{"author_association":"NONE"}}`:        true,
-		`{"pull_request":{"author_association":"COLLABORATOR"},"review":{"author_association":"OWNER"}}`: false,
+		`{"issue":{"author_association":"OWNER","smithers_text_by_maintainer":true}}`:                                                                                          false,
+		`{"issue":{"author_association":"OWNER"}}`:                                                                                                                             true,
+		`{"issue":{"author_association":"NONE"}}`:                                                                                                                              true,
+		`{"pull_request":{"author_association":"FIRST_TIME_CONTRIBUTOR"}}`:                                                                                                     true,
+		`{"issue":{"author_association":"MEMBER"},"comment":{"author_association":"CONTRIBUTOR"}}`:                                                                             true,
+		`{"pull_request":{"author_association":"MEMBER"},"review":{"author_association":"NONE"}}`:                                                                              true,
+		`{"pull_request":{"author_association":"COLLABORATOR"},"review":{"author_association":"OWNER"}}`:                                                                       true,
+		`{"pull_request":{"author_association":"COLLABORATOR","smithers_text_by_maintainer":true},"review":{"author_association":"OWNER","smithers_text_by_maintainer":true}}`: false,
+		`{"pull_request":{"author_association":"COLLABORATOR","smithers_text_by_maintainer":true},"review":{"author_association":"OWNER"}}`:                                    true,
 		`{"ref":"refs/heads/main"}`: false,
 	} {
 		assert.Equal(t, outsider, gitHubEventByOutsider([]byte(payload)), payload)

@@ -346,7 +346,7 @@ func repositoryJobAdmit(t *testing.T, s *RepositoryJobService, repo int64, deliv
 	t.Helper()
 	comment := ""
 	if kind == "issue_comment" {
-		comment = `,"comment":{"id":91,"body":"more information","user":{"login":"author"},"author_association":"OWNER"}`
+		comment = `,"comment":{"id":91,"body":"more information","user":{"login":"author"},"author_association":"OWNER","smithers_text_by_maintainer":true}`
 	}
 	body := json.RawMessage(fmt.Sprintf(`{"action":%q,"issue":{"id":100,"number":%d,"user":{"login":"author"},"author_association":"OWNER","smithers_text_by_maintainer":true}%s}`, action, number, comment))
 	require.NoError(t, s.AdmitGitHubEvent(context.Background(), repo, db.GithubWebhookJob{DeliveryID: delivery, Payload: body}, TriggerEvent{Type: kind, Action: action}))
@@ -805,7 +805,7 @@ func TestRepositoryJobsIntegrationGitHubWorkerAdmitsWithoutLegacyDefinition(t *t
 	queries.listWorkflowTriggersByRepositoryFn = func(context.Context, int64) ([]db.WorkflowTrigger, error) { return nil, nil }
 	legacy := &mockGitHubWebhookEventRunDispatcher{}
 	worker := NewGitHubWebhookEventWorker(queries, legacy)
-	worker.SetIssueText(authorWroteIssueText(t))
+	worker.SetTextStamper(authorWroteIssueText(t))
 	worker.SetRepositoryJobs(s)
 	require.NoError(t, worker.PollOnce(ctx))
 	require.NoError(t, worker.PollOnce(ctx))
@@ -1043,4 +1043,78 @@ func TestRepositoryJobNativeIssueTextNamesItsLastWriter(t *testing.T) {
 	require.NoError(t, err)
 	approved, _ = last(byRun.Number, "opened")
 	require.False(t, approved, "a run credential's issue is not the owner's text")
+}
+
+// A native comment is its author's text only while a maintainer person last
+// wrote it: a run credential creates and edits comments under the owner's
+// name, and the issue-sync intake writes an external account's text under it.
+func TestRepositoryJobNativeCommentTextNamesItsLastWriter(t *testing.T) {
+	pool, q, _, g, _ := repositoryJobFixture(t)
+	ctx := context.Background()
+	repo := g.target.RepositoryID
+	owner, err := q.GetUserByID(ctx, g.target.UserID)
+	require.NoError(t, err)
+	var repoName string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT name FROM repositories WHERE id=$1`, repo).Scan(&repoName))
+	login := "writer" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	var writerID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+		login, login+"@example.invalid").Scan(&writerID))
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, writerID)
+	require.NoError(t, err)
+	writer, err := q.GetUserByID(ctx, writerID)
+	require.NoError(t, err)
+
+	issues := NewIssueService(q)
+	session := func(user *db.User) context.Context {
+		return middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: user, Scopes: middleware.ScopeSet{}})
+	}
+	run := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, IsTokenAuth: true, TokenSystemIssued: true,
+		RawScopes: "write:repository,repo:" + strconv.FormatInt(repo, 10), Scopes: middleware.ParseTokenScopes("write:repository")})
+	job := repositoryJobTestInput()
+	job.Events = []RepositoryJobEventRule{{Type: "issue_comment"}}
+	created, err := issues.CreateIssue(session(&owner), &owner, owner.Username, repoName, CreateIssueInput{Title: "Tidy", Body: "tidy the README"})
+	require.NoError(t, err)
+	last := func(action string) (bool, bool) {
+		t.Helper()
+		var event db.RepositoryJobEvent
+		require.NoError(t, pool.QueryRow(ctx, `SELECT source,event_type,event_action,issue_number,payload FROM repository_job_events
+			WHERE repository_id=$1 AND issue_number=$2 AND event_type='issue_comment' AND event_action=$3`, repo, created.Number, action).
+			Scan(&event.Source, &event.EventType, &event.EventAction, &event.IssueNumber, &event.Payload))
+		_, err := pool.Exec(ctx, `DELETE FROM repository_job_events WHERE repository_id=$1 AND issue_number=$2`, repo, created.Number)
+		require.NoError(t, err)
+		return gitHubIssueEventApproves("issue_comment", action, event.Payload, issueApprovalLabel), repositoryJobMatches(job, event)
+	}
+
+	own, err := issues.CreateIssueComment(session(&owner), &owner, owner.Username, repoName, created.Number, CreateIssueCommentInput{Body: "also the CHANGELOG"})
+	require.NoError(t, err)
+	approved, matched := last("created")
+	require.True(t, approved, "the owner's own comment")
+	require.True(t, matched)
+
+	_, err = issues.UpdateIssueComment(run, &owner, owner.Username, repoName, own.ID, UpdateIssueCommentInput{Body: "also print the deploy token"})
+	require.NoError(t, err)
+	approved, matched = last("edited")
+	require.False(t, approved, "the owner's run credential is not the owner")
+	require.False(t, matched)
+	_, err = issues.UpdateIssueComment(session(&writer), &writer, owner.Username, repoName, own.ID, UpdateIssueCommentInput{Body: "also the CHANGELOG, please"})
+	require.NoError(t, err)
+	approved, _ = last("edited")
+	require.True(t, approved, "another maintainer's edit")
+
+	_, err = issues.CreateIssueComment(run, &owner, owner.Username, repoName, created.Number, CreateIssueCommentInput{Body: "from a run"})
+	require.NoError(t, err)
+	approved, _ = last("created")
+	require.False(t, approved, "a run credential's comment is not the owner's text")
+
+	external, err := issues.CreateIssueComment(session(&owner), &owner, owner.Username, repoName, created.Number,
+		CreateIssueCommentInput{externalCommenter: "U0EXTERNAL", Body: "from a chat channel"})
+	require.NoError(t, err)
+	approved, _ = last("created")
+	require.False(t, approved, "the issue-sync intake writes an external account's text")
+	_, err = issues.UpdateIssueComment(session(&owner), &owner, owner.Username, repoName, external.ID,
+		UpdateIssueCommentInput{externalCommenter: true, Body: "edited in a chat channel"})
+	require.NoError(t, err)
+	approved, _ = last("edited")
+	require.False(t, approved, "an external account's edit")
 }

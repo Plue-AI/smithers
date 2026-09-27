@@ -144,7 +144,7 @@ ON CONFLICT (issue_id,user_id,idempotency_key) WHERE idempotency_key<>''
 DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
 WHERE (issue_comments.body=EXCLUDED.body AND issue_comments.persona=EXCLUDED.persona)
  OR EXISTS (SELECT 1 FROM issue_comment_keys k WHERE k.issue_id=EXCLUDED.issue_id AND k.user_id=EXCLUDED.user_id AND k.key=EXCLUDED.idempotency_key AND k.request_hash=digest(jsonb_build_array(EXCLUDED.body,EXCLUDED.persona)::text,'sha256'))
-RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
+RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key, body_editor_id
 `
 
 type CreateIssueCommentParams struct {
@@ -177,6 +177,7 @@ func (q *Queries) CreateIssueComment(ctx context.Context, arg CreateIssueComment
 		&i.UpdatedAt,
 		&i.Persona,
 		&i.IdempotencyKey,
+		&i.BodyEditorID,
 	)
 	return i, err
 }
@@ -465,7 +466,7 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 }
 
 const getIssueCommentByID = `-- name: GetIssueCommentByID :one
-SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
+SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key, body_editor_id
 FROM issue_comments
 WHERE id = $1
 `
@@ -484,6 +485,7 @@ func (q *Queries) GetIssueCommentByID(ctx context.Context, id int64) (IssueComme
 		&i.UpdatedAt,
 		&i.Persona,
 		&i.IdempotencyKey,
+		&i.BodyEditorID,
 	)
 	return i, err
 }
@@ -532,7 +534,7 @@ func (q *Queries) ListIssueAssignees(ctx context.Context, issueID int64) ([]List
 }
 
 const listIssueComments = `-- name: ListIssueComments :many
-SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
+SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key, body_editor_id
 FROM issue_comments
 WHERE issue_id = $1
 ORDER BY created_at ASC, id ASC
@@ -566,6 +568,7 @@ func (q *Queries) ListIssueComments(ctx context.Context, arg ListIssueCommentsPa
 			&i.UpdatedAt,
 			&i.Persona,
 			&i.IdempotencyKey,
+			&i.BodyEditorID,
 		); err != nil {
 			return nil, err
 		}
@@ -578,7 +581,7 @@ func (q *Queries) ListIssueComments(ctx context.Context, arg ListIssueCommentsPa
 }
 
 const listIssueCommentsByIssueKeyset = `-- name: ListIssueCommentsByIssueKeyset :many
-SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
+SELECT id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key, body_editor_id
 FROM issue_comments
 WHERE issue_id = $1
   AND ($2::bigint = 0 OR id > $2::bigint)
@@ -614,6 +617,7 @@ func (q *Queries) ListIssueCommentsByIssueKeyset(ctx context.Context, arg ListIs
 			&i.UpdatedAt,
 			&i.Persona,
 			&i.IdempotencyKey,
+			&i.BodyEditorID,
 		); err != nil {
 			return nil, err
 		}
@@ -1032,7 +1036,7 @@ UPDATE issue_comments
 SET body = $1,
     updated_at = NOW()
 WHERE id = $2
-RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key
+RETURNING id, issue_id, user_id, commenter, body, type, created_at, updated_at, persona, idempotency_key, body_editor_id
 `
 
 type UpdateIssueCommentParams struct {
@@ -1054,6 +1058,7 @@ func (q *Queries) UpdateIssueComment(ctx context.Context, arg UpdateIssueComment
 		&i.UpdatedAt,
 		&i.Persona,
 		&i.IdempotencyKey,
+		&i.BodyEditorID,
 	)
 	return i, err
 }

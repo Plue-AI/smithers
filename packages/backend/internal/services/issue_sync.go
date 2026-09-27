@@ -395,7 +395,7 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 		if in.Kind == "delete" {
 			err = inner.DeleteIssueComment(ctx, actor, owner, repo, commentID)
 		} else {
-			_, err = inner.UpdateIssueComment(ctx, actor, owner, repo, commentID, UpdateIssueCommentInput{Body: in.Body})
+			_, err = inner.UpdateIssueComment(ctx, actor, owner, repo, commentID, UpdateIssueCommentInput{externalCommenter: true, Body: in.Body})
 		}
 		if err == nil {
 			_, err = tx.Exec(ctx, `UPDATE issue_external_messages SET provider_version=$3::numeric,deleted=$4 WHERE issue_id=$1 AND message_id=$2`, issueID, in.MessageID, in.Version, in.Kind == "delete")

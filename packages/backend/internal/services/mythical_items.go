@@ -132,7 +132,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		return err
 	}
 	digest := mythicalIssueDigest(issue)
-	outsider := !maintainerIssueText(issue.AuthorAssociation, issue.TextByMaintainer)
+	outsider := !maintainerText(issue.AuthorAssociation, issue.TextByMaintainer)
 	body := issue.Body
 	if len(body) > mythicalPromptBytes {
 		body = body[:mythicalPromptBytes]

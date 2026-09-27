@@ -209,123 +209,181 @@ type gitHubIssueTextTokens interface {
 	CreateGitHubInstallationTokenForInternalInstallation(ctx context.Context, installationID int64) (GitHubInstallationToken, error)
 }
 
-// GitHubIssueTextStamper sets issueTextByMaintainerField on a signed issue
-// event before any consumer reads it. Without one, or for an untrusted
-// author, the field is false.
-type GitHubIssueTextStamper struct {
+// GitHubTextStamper sets issueTextByMaintainerField on every issue, pull
+// request, comment and review object of a signed event before any consumer
+// reads it. Without one, or for an untrusted author, the field is false.
+type GitHubTextStamper struct {
 	api    *gitHubIssueTextAPI
 	tokens gitHubIssueTextTokens
 }
 
-// NewGitHubIssueTextStamper reads writers through the GitHub App.
-func NewGitHubIssueTextStamper(tokens gitHubIssueTextTokens) *GitHubIssueTextStamper {
-	return &GitHubIssueTextStamper{tokens: tokens, api: &gitHubIssueTextAPI{
+// NewGitHubTextStamper reads writers through the GitHub App.
+func NewGitHubTextStamper(tokens gitHubIssueTextTokens) *GitHubTextStamper {
+	return &GitHubTextStamper{tokens: tokens, api: &gitHubIssueTextAPI{
 		api: &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL}}}
 }
 
-// stampGitHubIssueText returns payload with the issue's
-// issueTextByMaintainerField set. Only a transient GitHub failure is an error.
-func (s *GitHubIssueTextStamper) stampGitHubIssueText(ctx context.Context, eventType, action string, payload []byte) ([]byte, error) {
+// gitHubStampedKinds are the events a consumer reads text from.
+var gitHubStampedKinds = map[string]bool{"issue": true, "issue_comment": true, "pull_request": true, "pull_request_review": true}
+
+// gitHubStampedObjects are the event objects that carry text, in the order
+// they are stamped.
+var gitHubStampedObjects = []string{"issue", "pull_request", "comment", "review"}
+
+// gitHubTextEvent is what the stamper reads of a signed event.
+type gitHubTextEvent struct {
+	Changes    map[string]json.RawMessage `json:"changes"`
+	Sender     *gitHubActor               `json:"sender"`
+	Repository struct {
+		Name  string `json:"name"`
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+	} `json:"repository"`
+	Installation struct {
+		ID int64 `json:"id"`
+	} `json:"installation"`
+}
+
+// gitHubTextObject is one stamped object: an issue or pull request (a title
+// and a body) or a comment or review (a body).
+type gitHubTextObject struct {
+	Number            int64       `json:"number"`
+	Title             *string     `json:"title"`
+	Body              *string     `json:"body"`
+	AuthorAssociation string      `json:"author_association"`
+	User              gitHubActor `json:"user"`
+}
+
+// stampGitHubText returns payload with issueTextByMaintainerField set on each
+// text object. Only a transient GitHub failure is an error.
+func (s *GitHubTextStamper) stampGitHubText(ctx context.Context, eventType, action string, payload []byte) ([]byte, error) {
 	kind := NormalizeTriggerName(eventType)
-	if kind != "issue" && kind != "issue_comment" {
+	if !gitHubStampedKinds[kind] {
 		return payload, nil
 	}
 	var raw map[string]json.RawMessage
-	if json.Unmarshal(payload, &raw) != nil || len(raw["issue"]) == 0 {
-		return payload, nil
-	}
-	var issue map[string]json.RawMessage
-	if json.Unmarshal(raw["issue"], &issue) != nil || issue == nil {
+	if json.Unmarshal(payload, &raw) != nil {
 		return payload, nil
 	}
 	if strings.TrimSpace(action) == "" {
 		_ = json.Unmarshal(raw["action"], &action)
 	}
-	byMaintainer, err := s.textByMaintainer(ctx, kind, action, payload)
-	if err != nil {
-		return nil, err
+	var event gitHubTextEvent
+	_ = json.Unmarshal(payload, &event)
+	run := &gitHubTextStamp{stamper: s, ctx: ctx, event: event}
+	changed := false
+	for _, name := range gitHubStampedObjects {
+		var object map[string]json.RawMessage
+		if len(raw[name]) == 0 || json.Unmarshal(raw[name], &object) != nil || object == nil {
+			continue
+		}
+		var text gitHubTextObject
+		_ = json.Unmarshal(raw[name], &text)
+		byMaintainer, err := run.object(kind, action, name, text)
+		if err != nil {
+			return nil, err
+		}
+		object[issueTextByMaintainerField], _ = json.Marshal(byMaintainer)
+		if raw[name], err = json.Marshal(object); err != nil {
+			return nil, err
+		}
+		changed = true
 	}
-	issue[issueTextByMaintainerField], _ = json.Marshal(byMaintainer)
-	if raw["issue"], err = json.Marshal(issue); err != nil {
-		return nil, err
+	if !changed {
+		return payload, nil
 	}
 	return json.Marshal(raw)
 }
 
-func (s *GitHubIssueTextStamper) textByMaintainer(ctx context.Context, kind, action string, payload []byte) (bool, error) {
-	var event struct {
-		Issue struct {
-			Number            int64       `json:"number"`
-			Title             string      `json:"title"`
-			Body              *string     `json:"body"`
-			AuthorAssociation string      `json:"author_association"`
-			User              gitHubActor `json:"user"`
-		} `json:"issue"`
-		Changes    map[string]json.RawMessage `json:"changes"`
-		Sender     *gitHubActor               `json:"sender"`
-		Repository struct {
-			Name  string `json:"name"`
-			Owner struct {
-				Login string `json:"login"`
-			} `json:"owner"`
-		} `json:"repository"`
-		Installation struct {
-			ID int64 `json:"id"`
-		} `json:"installation"`
-	}
-	if s == nil || s.api == nil || s.tokens == nil || json.Unmarshal(payload, &event) != nil ||
-		!trustedGitHubAuthorAssociation(event.Issue.AuthorAssociation) || event.Installation.ID <= 0 {
+// gitHubTextStamp stamps one event; it mints at most one token.
+type gitHubTextStamp struct {
+	stamper *GitHubTextStamper
+	ctx     context.Context
+	event   gitHubTextEvent
+	token   string
+}
+
+// object reads whether one object's text is a maintainer's. The sender wrote
+// the parts the event itself wrote: every part of an opened issue or pull
+// request, a created comment or a submitted review, and the parts an edited
+// event names (whose sender must be a maintainer even when GitHub reports no
+// change). An issue's or pull request's other parts are read from GitHub's
+// history; a comment or review body the event did not write is not trusted.
+func (r *gitHubTextStamp) object(kind, action, name string, text gitHubTextObject) (bool, error) {
+	s := r.stamper
+	if s == nil || s.api == nil || s.tokens == nil || r.event.Installation.ID <= 0 ||
+		!trustedGitHubAuthorAssociation(text.AuthorAssociation) {
 		return false, nil
 	}
-	write := gitHubIssueTextWrite{Number: event.Issue.Number, Title: event.Issue.Title, Author: event.Issue.User}
-	if event.Issue.Body != nil {
-		write.Body = *event.Issue.Body
-	}
-	sender := event.Sender
+	sender := r.event.Sender
 	if sender == nil {
 		sender = &gitHubActor{}
 	}
+	owner, repo := r.event.Repository.Owner.Login, r.event.Repository.Name
+	// Which object the event is about: an issues event writes its issue, an
+	// issue_comment event its comment, and so on; other objects are context.
+	own := map[string]string{"issue": "issue", "pull_request": "pull_request", "issue_comment": "comment",
+		"pull_request_review": "review"}[kind] == name
+	write := gitHubIssueTextWrite{Number: text.Number, Author: text.User}
+	if text.Title != nil {
+		write.Title = *text.Title
+	}
+	if text.Body != nil {
+		write.Body = *text.Body
+	}
+	titled := name == "issue" || name == "pull_request"
 	switch {
-	case kind == "issue" && strings.EqualFold(action, "opened"):
+	case own && (strings.EqualFold(action, "opened") || strings.EqualFold(action, "created") || strings.EqualFold(action, "submitted")):
 		write.TitleWriter, write.BodyWriter = sender, sender
-	case kind == "issue" && strings.EqualFold(action, "edited"):
-		// The event names the parts it changed; its sender wrote them, and
-		// must be a maintainer even when GitHub reports no change.
-		if ok, err := s.maintainerSender(ctx, event.Installation.ID, event.Repository.Owner.Login, event.Repository.Name, write.Author, sender); err != nil || !ok {
+	case own && strings.EqualFold(action, "edited"):
+		if ok, err := r.writerIsMaintainer(owner, repo, write.Author, sender); err != nil || !ok {
 			return false, err
 		}
-		if _, ok := event.Changes["title"]; ok {
+		if _, ok := r.event.Changes["title"]; ok {
 			write.TitleWriter = sender
 		}
-		if _, ok := event.Changes["body"]; ok {
+		if _, ok := r.event.Changes["body"]; ok {
 			write.BodyWriter = sender
 		}
+	}
+	if !titled {
+		// A comment or review has a body only; GitHub's history of it is not
+		// read, so a body this event did not write is not a maintainer's.
+		if write.BodyWriter == nil {
+			return false, nil
+		}
+		write.TitleWriter = write.BodyWriter
 	}
 	if gitHubUserWrote(write.Author, write.TitleWriter) && gitHubUserWrote(write.Author, write.BodyWriter) {
 		return true, nil
 	}
-	token, err := s.token(ctx, event.Installation.ID)
+	token, err := r.installationToken()
 	if err != nil {
 		return false, err
 	}
-	return s.api.TextByMaintainer(ctx, token, event.Repository.Owner.Login, event.Repository.Name, write)
+	return s.api.TextByMaintainer(r.ctx, token, owner, repo, write)
 }
 
-func (s *GitHubIssueTextStamper) maintainerSender(ctx context.Context, installationID int64, owner, repo string, author gitHubActor, sender *gitHubActor) (bool, error) {
-	if gitHubUserWrote(author, sender) {
+func (r *gitHubTextStamp) writerIsMaintainer(owner, repo string, author gitHubActor, writer *gitHubActor) (bool, error) {
+	if gitHubUserWrote(author, writer) {
 		return true, nil
 	}
-	token, err := s.token(ctx, installationID)
+	token, err := r.installationToken()
 	if err != nil {
 		return false, err
 	}
-	return s.api.writerIsMaintainer(ctx, token, owner, repo, author, sender)
+	return r.stamper.api.writerIsMaintainer(r.ctx, token, owner, repo, author, writer)
 }
 
-func (s *GitHubIssueTextStamper) token(ctx context.Context, installationID int64) (string, error) {
-	token, err := s.tokens.CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
+func (r *gitHubTextStamp) installationToken() (string, error) {
+	if r.token != "" {
+		return r.token, nil
+	}
+	token, err := r.stamper.tokens.CreateGitHubInstallationTokenForInternalInstallation(r.ctx, r.event.Installation.ID)
 	if err != nil || strings.TrimSpace(token.Token) == "" {
 		return "", errGitHubIssueTextUnavailable
 	}
-	return token.Token, nil
+	r.token = token.Token
+	return r.token, nil
 }
