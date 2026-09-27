@@ -1,4 +1,5 @@
 /** @since 1.0.0 */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -23,6 +24,6 @@ export const integrationCursors: Effect.Effect<void, unknown, SqlClient.SqlClien
   yield* sql`CREATE TABLE IF NOT EXISTS smithers_integration_cursors (
     source_id TEXT PRIMARY KEY,
     cursor TEXT,
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms ${Dialect.integer(sql)} NOT NULL
   )`
 })

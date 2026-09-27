@@ -1,3 +1,4 @@
+import * as Dialect from "@smthrs/database/Dialect"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
@@ -111,10 +112,14 @@ describe("ScoreStore", () => {
       // A genuine in-transaction SQL failure. Injecting an invalid observation
       // would now be rejected before the transaction opens, which proves
       // nothing about the rollback.
-      yield* sql`CREATE TRIGGER reject_scores BEFORE INSERT ON flows_scores
-        BEGIN SELECT raise(ABORT, 'rejected'); END`.pipe(Effect.orDie)
+      yield* Dialect.trigger(sql, {
+        name: `reject_scores`,
+        table: `flows_scores`,
+        event: `BEFORE INSERT`,
+        reject: "rejected"
+      }).pipe(Effect.orDie)
       const rejected = yield* Effect.flip(store.recordOnce("retryable", score({ at: 1 })))
-      yield* sql`DROP TRIGGER reject_scores`.pipe(Effect.orDie)
+      yield* TestDatabase.dropTrigger(sql, "reject_scores").pipe(Effect.orDie)
       return { rejected, retried: yield* store.recordOnce("retryable", score({ at: 2 })) }
     }))
     expect(output.rejected).toMatchObject({
@@ -129,8 +134,12 @@ describe("ScoreStore", () => {
     const failure = await failed(Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
       const store = yield* ScoreStore.ScoreStore
-      yield* sql`CREATE TRIGGER reject_scores BEFORE INSERT ON flows_scores
-        BEGIN SELECT raise(ABORT, 'CHECK constraint failed'); END`.pipe(Effect.orDie)
+      yield* Dialect.trigger(sql, {
+        name: `reject_scores`,
+        table: `flows_scores`,
+        event: `BEFORE INSERT`,
+        reject: "CHECK constraint failed"
+      }).pipe(Effect.orDie)
       return yield* store.record(score())
     }))
     expect(failure.code).toBe("constraint")
@@ -792,9 +801,9 @@ describe("ScoreStore", () => {
       Effect.gen(function*() {
         const sql = yield* SqlClient.SqlClient
         const store = yield* ScoreStore.ScoreStore
-        yield* sql.unsafe(`PRAGMA ignore_check_constraints = ON`).pipe(Effect.orDie)
+        yield* TestDatabase.checks(sql, false).pipe(Effect.orDie)
         yield* sql.unsafe(`INSERT INTO flows_scores (${columns}) VALUES (${values})`).pipe(Effect.orDie)
-        yield* sql.unsafe(`PRAGMA ignore_check_constraints = OFF`).pipe(Effect.orDie)
+        yield* TestDatabase.checks(sql, true).pipe(Effect.orDie)
         return yield* Effect.flip(store.observations("a"))
       })
 

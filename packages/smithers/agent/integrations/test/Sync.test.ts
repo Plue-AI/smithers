@@ -1,3 +1,5 @@
+import * as Dialect from "@smthrs/database/Dialect"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect, Layer, Option } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describe, expect, it } from "vitest"
@@ -207,12 +209,17 @@ describe("runSync (SQLite) crash between page and checkpoint", () => {
     const result = await run(Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
       const store = yield* SourceStore
-      yield* sql`CREATE TRIGGER poison BEFORE INSERT ON smithers_integration_records
-        WHEN NEW.external_id = 'poison' BEGIN SELECT RAISE(ABORT, 'deliberate failure'); END`
+      yield* Dialect.trigger(sql, {
+        name: `poison`,
+        table: `smithers_integration_records`,
+        event: `BEFORE INSERT`,
+        when: `NEW.external_id = 'poison'`,
+        reject: "deliberate failure"
+      })
       const failure = yield* Effect.flip(runSync({ adapter }))
       const checkpoint = yield* store.cursor("team-chat", "c-general")
       const partial = yield* store.get("team-chat", "b")
-      yield* sql`DROP TRIGGER poison`
+      yield* TestDatabase.dropTrigger(sql, "poison")
       const resumed = yield* runSync({ adapter })
       return { failure, checkpoint, partial, resumed }
     }))

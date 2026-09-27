@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import type * as SqlError from "effect/unstable/sql/SqlError"
 import type { DatabaseService } from "../Database.ts"
@@ -77,19 +78,34 @@ export const enableFts = (
     if (yield* isFtsEnabled(database, kind)) {
       return
     }
-    yield* sql`CREATE VIRTUAL TABLE IF NOT EXISTS ${table}
-      USING fts5(record_id UNINDEXED, record_kind UNINDEXED, namespace_id UNINDEXED, record_key, text)`
+    if (Dialect.isPostgres(sql)) {
+      yield* sql`CREATE TABLE IF NOT EXISTS ${table} (
+        record_id TEXT NOT NULL, record_kind TEXT NOT NULL, namespace_id TEXT NOT NULL,
+        record_key TEXT NOT NULL, text TEXT NOT NULL,
+        search TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', record_key || ' ' || text)) STORED
+      )`
+      yield* sql`CREATE INDEX IF NOT EXISTS ${sql(`${ftsTable(kind)}_search`)} ON ${table} USING GIN (search)`
+    } else {
+      yield* sql`CREATE VIRTUAL TABLE IF NOT EXISTS ${table}
+        USING fts5(record_id UNINDEXED, record_kind UNINDEXED, namespace_id UNINDEXED, record_key, text)`
+    }
     yield* sql`INSERT INTO memory_fts_kinds (namespace_kind, enabled_at_ms)
       VALUES (${kind}, ${enabledAtMs})`
     yield* sql`DELETE FROM ${table}`
     yield* sql`INSERT INTO ${table} (record_id, record_kind, namespace_id, record_key, text)
       SELECT fact_key, 'fact', namespace_id, fact_key,
-        CASE
+        ${
+      Dialect.isPostgres(sql) ?
+        sql`CASE
+          WHEN jsonb_typeof(value_json::jsonb) = 'string' THEN value_json::jsonb #>> '{}'
+          WHEN jsonb_typeof(value_json::jsonb -> 'content') = 'string' THEN value_json::jsonb ->> 'content'
+          ELSE value_json END` :
+        sql`CASE
           WHEN json_type(value_json) = 'text' THEN json_extract(value_json, '$')
           WHEN json_type(value_json) = 'object' AND json_type(value_json, '$.content') = 'text'
             THEN json_extract(value_json, '$.content')
-          ELSE value_json
-        END
+          ELSE value_json END`
+    }
       FROM memory_facts WHERE namespace_kind = ${kind}`
     yield* sql`INSERT INTO ${table} (record_id, record_kind, namespace_id, record_key, text)
       SELECT id, 'note', namespace_id, id, text
@@ -190,6 +206,12 @@ export const searchFts = (
   const { sql } = database
   const tableName = ftsTable(kind)
   const table = sql.literal(tableName)
+  if (Dialect.isPostgres(sql)) {
+    return sql<FtsMatch>`SELECT record_id, record_kind,
+      -ts_rank(search, websearch_to_tsquery('simple', ${query})) AS rank
+      FROM ${table} WHERE search @@ websearch_to_tsquery('simple', ${query}) AND namespace_id = ${namespaceId}
+      ORDER BY rank, record_id LIMIT ${limit} OFFSET ${offset}`
+  }
   const bm25 = sql.literal(`bm25(${tableName})`)
   return sql<FtsMatch>`SELECT record_id, record_kind, ${bm25} AS rank
     FROM ${table}

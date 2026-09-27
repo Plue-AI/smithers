@@ -1,3 +1,4 @@
+import * as Dialect from "@smthrs/database/Dialect"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
@@ -39,14 +40,19 @@ describe("SourceStore (SQLite) transactions", () => {
       const sql = yield* SqlClient.SqlClient
       const store = yield* SourceStore
       yield* commitPage(["before"], "c0")
-      yield* sql`CREATE TRIGGER poison BEFORE INSERT ON smithers_integration_records
-        WHEN NEW.external_id = 'poison' BEGIN SELECT RAISE(ABORT, 'deliberate failure'); END`
+      yield* Dialect.trigger(sql, {
+        name: `poison`,
+        table: `smithers_integration_records`,
+        event: `BEFORE INSERT`,
+        when: `NEW.external_id = 'poison'`,
+        reject: "deliberate failure"
+      })
       const failure = yield* Effect.flip(commitPage(["first", "poison"], "c1"))
       const afterFailure = {
         cursor: yield* store.cursor("team-chat", "c-general"),
         first: yield* store.get("team-chat", "first")
       }
-      yield* sql`DROP TRIGGER poison`
+      yield* TestDatabase.dropTrigger(sql, "poison")
       const retried = yield* commitPage(["first", "poison"], "c1")
       return {
         failure,
@@ -68,8 +74,12 @@ describe("SourceStore (SQLite) transactions", () => {
     const result = await run(Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
       const store = yield* SourceStore
-      yield* sql`CREATE TRIGGER poison_cursor BEFORE INSERT ON smithers_integration_cursors
-        BEGIN SELECT RAISE(ABORT, 'deliberate cursor failure'); END`
+      yield* Dialect.trigger(sql, {
+        name: `poison_cursor`,
+        table: `smithers_integration_cursors`,
+        event: `BEFORE INSERT`,
+        reject: "deliberate cursor failure"
+      })
       const failure = yield* Effect.flip(commitPage(["first"], "c1"))
       return {
         failure,

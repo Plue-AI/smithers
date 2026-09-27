@@ -1,4 +1,5 @@
 import * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as SqlError from "effect/unstable/sql/SqlError"
@@ -22,7 +23,7 @@ describe("MemoryStore", () => {
         yield* MemoryStore.make
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const rows = yield* sql<{ readonly name: string }>`
-          SELECT name FROM sqlite_master
+          SELECT name FROM ${TestDatabase.catalog(sql)}
           WHERE type = 'table' AND name LIKE 'memory_%'
           ORDER BY name
         `
@@ -501,12 +502,16 @@ describe("MemoryStore", () => {
     const failure = await runWithDatabase(Effect.gen(function*() {
       const store = yield* MemoryStore.MemoryStore
       const sql = yield* Effect.service(SqlClient.SqlClient)
-      yield* sql`DROP TABLE memory_facts`
+      yield* sql`DROP TABLE memory_facts ${sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))}`
       return yield* Effect.flip(store.listFacts({ namespace }))
     }))
 
     expect([failure.code, failure.message]).toEqual(["store", "could not list memory facts"])
-    expect(causeMessages(failure.cause).some((message) => message.includes("no such table: memory_facts"))).toBe(
+    expect(
+      causeMessages(failure.cause).some((message) =>
+        /no such table: memory_facts|relation "memory_facts" does not exist/.test(message)
+      )
+    ).toBe(
       true
     )
   })
@@ -571,7 +576,7 @@ describe("MemoryStore", () => {
         id, namespace_kind, namespace_id, text, tags_json, provenance_json, status, created_at_ms
       ) VALUES ('bad-tags', 'flow', 'notes', 'text', '["vendor:x"]', '{}', 'accepted', 0)`
       const storedTags = yield* Effect.flip(store.getNote({ id: "bad-tags" }))
-      yield* sql`PRAGMA ignore_check_constraints = ON`
+      yield* TestDatabase.checks(sql, false)
       yield* sql`INSERT INTO memory_facts (
         namespace_kind, namespace_id, fact_key, value_json, ttl_ms,
         provenance_json, created_at_ms, updated_at_ms

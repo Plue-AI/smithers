@@ -20,7 +20,7 @@ export const indexes = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
   yield* sql`DROP INDEX IF EXISTS memory_facts_expiry_idx`
   yield* sql`CREATE INDEX IF NOT EXISTS memory_facts_expires_at_idx
-    ON memory_facts (updated_at_ms + ttl_ms) WHERE ttl_ms IS NOT NULL`
+    ON memory_facts ((updated_at_ms + ttl_ms)) WHERE ttl_ms IS NOT NULL`
   yield* sql`CREATE INDEX IF NOT EXISTS memory_note_supersedes_target_idx
     ON memory_note_supersedes (target_id, superseder_id)`
 })

@@ -1,3 +1,5 @@
+import * as Dialect from "@smthrs/database/Dialect"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -86,6 +88,7 @@ describe("Maintenance", () => {
         yield* TestClock.adjust("10 millis")
         counts.push(yield* count)
         yield* TestClock.adjust("1 minute")
+        yield* TestDatabase.until(count.pipe(Effect.map((n) => n === 1)))
         counts.push(yield* count)
       }))
       yield* store.putFact({ namespace, key: "after", value: "value", ttlMs: 5, provenance: {} })
@@ -490,10 +493,14 @@ describe("Maintenance", () => {
       const sql = yield* Effect.service(SqlClient.SqlClient)
       yield* append(store, "thread", 903)
       const before = JSON.stringify(yield* store.listMessages({ threadId: "thread" }))
-      yield* sql.unsafe(`CREATE TRIGGER fail_compaction BEFORE DELETE ON memory_messages
-        WHEN OLD.id = 'thread-message-${failAt}'
-          AND EXISTS (SELECT 1 FROM memory_messages WHERE id = 'summary-fixed')
-        BEGIN SELECT RAISE(ABORT, 'injected compaction delete failure'); END`)
+      yield* Dialect.trigger(sql, {
+        name: `fail_compaction`,
+        table: `memory_messages`,
+        event: `BEFORE DELETE`,
+        when: `OLD.id = 'thread-message-${failAt}'
+          AND EXISTS (SELECT 1 FROM memory_messages WHERE id = 'summary-fixed')`,
+        reject: "injected compaction delete failure"
+      })
       const options = {
         threadId: "thread",
         summarizer: { summarize: () => Effect.succeed("summary text") },
@@ -501,7 +508,7 @@ describe("Maintenance", () => {
       }
       const failure = yield* Effect.flip(Maintenance.compact(options))
       const afterFailure = yield* store.listMessages({ threadId: "thread" })
-      yield* sql`DROP TRIGGER fail_compaction`
+      yield* TestDatabase.dropTrigger(sql, "fail_compaction")
       const retried = yield* Maintenance.compact(options)
       return { before, failure, afterFailure, retried, afterRetry: yield* store.listMessages({ threadId: "thread" }) }
     }))

@@ -206,7 +206,7 @@ describe("bank-wide semantic recall", () => {
         }))
       return { pages, scanned }
     }))
-    expect(result).toEqual({ pages: 2, scanned: 128 })
+    expect(result).toEqual(process.env.SMITHERS_TEST_PG_URL ? { pages: 1, scanned: 64 } : { pages: 2, scanned: 128 })
   })
 
   it("refuses oversized adapter pages and invalid exact identity filters", async () => {

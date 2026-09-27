@@ -139,7 +139,11 @@ export const changed = (result: unknown): number => {
     return 0
   }
   const changes = "changes" in result ? result.changes : undefined
-  const rowsAffected = "rowsAffected" in result ? result.rowsAffected : undefined
+  const rowsAffected = "rowCount" in result
+    ? result.rowCount
+    : "rowsAffected" in result
+    ? result.rowsAffected
+    : undefined
   return typeof changes === "number"
     ? changes
     : typeof rowsAffected === "number"

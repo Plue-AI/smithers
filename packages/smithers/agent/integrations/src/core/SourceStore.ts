@@ -886,7 +886,10 @@ export const makeSql: Effect.Effect<SourceStore, never, SqlClient.SqlClient | Du
           conditions.push(query.kinds.length === 0 ? sql.literal("1 = 0") : sql.in("r.kind", query.kinds))
         }
         if (query.query !== undefined && query.query.length > 0) {
-          conditions.push(sql`instr(lower(r.text), lower(${query.query})) > 0`)
+          conditions.push(sql.onDialectOrElse({
+            pg: () => sql`strpos(lower(r.text), lower(${query.query})) > 0`,
+            orElse: () => sql`instr(lower(r.text), lower(${query.query})) > 0`
+          }))
         }
         const rows = yield* sql<Row>`SELECT r.* FROM smithers_integration_records r WHERE ${sql.and(conditions)}
           ORDER BY (r.updated_at_ms IS NULL), r.updated_at_ms DESC, r.connection_id, r.external_id

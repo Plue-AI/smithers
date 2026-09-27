@@ -3,6 +3,7 @@ import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 import { Smithers } from "@smthrs/targets"
 
 const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
+  testProgram: Smithers.file("//packages/smithers/flows/database/scripts/test-matrix.mjs"),
   deps: [],
   cwd: "packages/smithers/agent/memory"
 })

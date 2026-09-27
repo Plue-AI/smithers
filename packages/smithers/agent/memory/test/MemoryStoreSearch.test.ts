@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect, Option } from "effect"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -489,7 +490,7 @@ describe("MemoryStore search and FTS", () => {
       const store = yield* MemoryStore.MemoryStore
       const sql = yield* Effect.service(SqlClient.SqlClient)
       yield* store.putFact({ namespace, key: "newest", value: "safe", provenance: {} })
-      yield* sql`PRAGMA ignore_check_constraints = ON`
+      yield* TestDatabase.checks(sql, false)
       yield* sql`INSERT INTO memory_facts (
         namespace_kind, namespace_id, fact_key, value_json, tags_json, ttl_ms,
         provenance_json, created_at_ms, updated_at_ms
@@ -504,9 +505,11 @@ describe("MemoryStore search and FTS", () => {
     const failures = await runWithDatabase(Effect.gen(function*() {
       const store = yield* MemoryStore.MemoryStore
       const sql = yield* Effect.service(SqlClient.SqlClient)
-      yield* sql`DROP TABLE memory_facts`
+      yield* sql`DROP TABLE memory_facts ${sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))}`
       const rows = yield* Effect.flip(store.searchRows({ namespace, limit: -1 }))
-      yield* sql`DROP TABLE memory_fts_kinds`
+      yield* sql`DROP TABLE memory_fts_kinds ${
+        sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+      }`
       const fts = yield* Effect.flip(store.searchFts({ namespace, query: "query", limit: -1 }))
       return [rows, fts]
     }))

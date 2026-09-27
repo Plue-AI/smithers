@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -21,11 +22,11 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 export const migration: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
   yield* sql`CREATE TABLE flows_scores_classified (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id ${Dialect.identity(sql)},
     kind TEXT NOT NULL CHECK (kind IN ('score', 'inconclusive')),
     target_step_key TEXT NOT NULL,
     scorer_key TEXT NOT NULL,
-    value REAL,
+    value DOUBLE PRECISION,
     reason TEXT,
     failure_code TEXT CHECK (
       failure_code IS NULL OR failure_code IN (
@@ -33,8 +34,8 @@ export const migration: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effe
         'invalid_request', 'inconclusive', 'constraint', 'store'
       )
     ),
-    metadata_json TEXT CHECK (metadata_json IS NULL OR json_valid(metadata_json)),
-    at_ms INTEGER NOT NULL CHECK (at_ms >= 0 AND at_ms = cast(at_ms AS INTEGER)),
+    metadata_json TEXT CHECK (metadata_json IS NULL OR ${Dialect.jsonValid(sql, sql`metadata_json`)}),
+    at_ms ${Dialect.integer(sql)} NOT NULL CHECK (at_ms >= 0 AND ${Dialect.isInteger(sql, sql`at_ms`)}),
     CHECK (
       length(target_step_key) > 0 AND length(scorer_key) > 0 AND (
         (kind = 'score' AND value IS NOT NULL AND value >= 0 AND value <= 1 AND failure_code IS NULL) OR

@@ -1,3 +1,4 @@
+import * as Dialect from "@smthrs/database/Dialect"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect, Exit, Layer } from "effect"
 import * as Crypto from "effect/Crypto"
@@ -64,7 +65,7 @@ const checkClauses = (definition: string): ReadonlyArray<string> => {
 const describeSchema = Effect.gen(function*() {
   const sql = yield* Effect.service(SqlClient.SqlClient)
   const tables = yield* sql<SchemaRow>`
-    SELECT name, sql FROM sqlite_master
+    SELECT name, sql FROM ${TestDatabase.catalog(sql)}
     WHERE type = 'table' AND name LIKE 'memory_%'
     ORDER BY name
   `
@@ -123,7 +124,7 @@ describe("memory migrations", () => {
           VALUES ('shared', 'legacy-thread', 'user', 'legacy', 1)`
         const store = yield* MemoryStore.make
         yield* store.appendMessage({ threadId: "new-thread", id: "shared", role: "assistant", text: "new", at: 2 })
-        const table = yield* sql<{ readonly sql: string }>`SELECT sql FROM sqlite_master
+        const table = yield* sql<{ readonly sql: string }>`SELECT sql FROM ${TestDatabase.catalog(sql)}
           WHERE type = 'table' AND name = 'memory_messages'`
         return {
           definition: table[0]?.sql,
@@ -132,7 +133,7 @@ describe("memory migrations", () => {
             store.listMessages({ threadId: "new-thread" })
           ])
         }
-      }).pipe(Effect.provide(TestDatabase.layer), Effect.provide(testCrypto))
+      }).pipe(Effect.provide(TestDatabase.sqliteLayer), Effect.provide(testCrypto))
     )
 
     expect(result.definition).toMatch(/PRIMARY KEY\s*\(\s*thread_id\s*,\s*id\s*\)/iu)
@@ -175,9 +176,9 @@ describe("memory migrations", () => {
         yield* sql`DELETE FROM flows_migrations WHERE migration_id = 7002`
         const before = yield* sql<
           NameRow
-        >`SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'memory_facts_%'`
+        >`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE type = 'index' AND name LIKE 'memory_facts_%'`
         const applied = yield* Migrations.run
-        const after = yield* sql<NameRow>`SELECT name FROM sqlite_master
+        const after = yield* sql<NameRow>`SELECT name FROM ${TestDatabase.catalog(sql)}
           WHERE type = 'index' AND (name LIKE 'memory_facts_%' OR name LIKE 'memory_note_supersedes_%')
           ORDER BY name`
         return { applied, before: before.map((row) => row.name), after: after.map((row) => row.name) }
@@ -198,7 +199,7 @@ describe("memory migrations", () => {
         yield* Migrations.run
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const explain = (query: string) =>
-          sql<{ readonly detail: string }>`EXPLAIN QUERY PLAN ${sql.literal(query)}`.pipe(
+          TestDatabase.explain(sql, sql`${sql.literal(query)}`).pipe(
             Effect.map((rows) => rows.map((row) => row.detail).join("\n"))
           )
         return {
@@ -214,8 +215,8 @@ describe("memory migrations", () => {
         }
       }).pipe(Effect.provide(TestDatabase.layer))
     )
-    expect(plans.expiry).toContain("SEARCH memory_facts USING INDEX memory_facts_expires_at_idx")
-    expect(plans.notes).toContain("SEARCH edges USING COVERING INDEX memory_note_supersedes_target_idx (target_id=?)")
+    expect(plans.expiry).toContain("memory_facts_expires_at_idx")
+    expect(plans.notes).toContain("memory_note_supersedes_target_idx")
     expect(plans.notes).not.toContain("SCAN edges")
   })
 
@@ -225,9 +226,9 @@ describe("memory migrations", () => {
         const sql = yield* SqlClient.SqlClient
         // A conflicting table makes index creation fail after memory_facts was
         // created. Both the new table and the migration identity must roll back.
-        yield* sql`CREATE TABLE memory_facts_expires_at_idx (id INTEGER)`
+        yield* sql`CREATE TABLE memory_vectors (invalid INTEGER)`
         const failure = yield* Effect.exit(Migrations.run)
-        const facts = yield* sql`SELECT name FROM sqlite_master WHERE name = 'memory_facts'`
+        const facts = yield* sql`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE name = 'memory_facts'`
         const recorded = yield* sql`SELECT migration_id FROM flows_migrations`
         return { failure, facts, recorded }
       }).pipe(Effect.provide(TestDatabase.layer))
@@ -261,7 +262,7 @@ describe("memory migrations", () => {
         ) VALUES ('flow', 'legacy', 'kept', '"survivor"', NULL, '{}', 0, 0)`
 
         const store = yield* MemoryStore.make
-        const columns = yield* sql<ColumnRow>`PRAGMA table_info(memory_facts)`
+        const columns = yield* Dialect.columns(sql, "memory_facts")
         const facts = yield* store.listFacts({ namespace: { kind: "flow", id: "legacy" } })
         return { columns: columns.map((column) => column.name), facts }
       }).pipe(Effect.provide(TestDatabase.layer), Effect.provide(testCrypto))

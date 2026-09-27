@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Clock from "effect/Clock"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
@@ -161,7 +162,7 @@ export const make = (database: DatabaseService, crypto: Crypto.Crypto): Pick<
             ON CONFLICT (thread_id, id) DO NOTHING`.raw
           if (changed(inserted) > 0) {
             yield* sql`UPDATE memory_threads
-              SET updated_at_ms = MAX(updated_at_ms, ${input.at})
+              SET updated_at_ms = ${Dialect.greatest(sql)}(updated_at_ms, ${input.at})
               WHERE thread_id = ${input.threadId}`
             return
           }
@@ -237,7 +238,9 @@ export const make = (database: DatabaseService, crypto: Crypto.Crypto): Pick<
       const rows = yield* sql<{ readonly count: number; readonly code_points: number; readonly bytes: number }>`
         SELECT count(*) AS count,
           COALESCE(SUM(length(text)), 0) AS code_points,
-          COALESCE(SUM(length(CAST(text AS BLOB))), 0) AS bytes
+          COALESCE(SUM(${
+        sql.literal(Dialect.isPostgres(sql) ? "octet_length(text)" : "length(CAST(text AS BLOB))")
+      }), 0) AS bytes
         FROM memory_messages WHERE thread_id = ${input.threadId}
       `.pipe(Effect.mapError(storeError("could not measure memory messages")))
       return {

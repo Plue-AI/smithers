@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -21,35 +22,35 @@ export const initial = Effect.gen(function*() {
     namespace_kind TEXT NOT NULL,
     namespace_id TEXT NOT NULL,
     fact_key TEXT NOT NULL,
-    value_json TEXT NOT NULL CHECK (json_valid(value_json)),
-    tags_json TEXT CHECK (tags_json IS NULL OR json_valid(tags_json)),
-    ttl_ms INTEGER,
-    provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
-    created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL,
+    value_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`value_json`)}),
+    tags_json TEXT CHECK (tags_json IS NULL OR ${Dialect.jsonValid(sql, sql`tags_json`)}),
+    ttl_ms ${Dialect.integer(sql)},
+    provenance_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`provenance_json`)}),
+    created_at_ms ${Dialect.integer(sql)} NOT NULL,
+    updated_at_ms ${Dialect.integer(sql)} NOT NULL,
     PRIMARY KEY (namespace_kind, namespace_id, fact_key),
     CHECK (namespace_kind IN ('flow', 'agent', 'user', 'global')),
     CHECK (length(namespace_id) > 0),
     CHECK (length(fact_key) > 0),
     CHECK (ttl_ms IS NULL OR ttl_ms >= 0)
   )`
-  const factColumns = yield* sql<{ readonly name: string }>`PRAGMA table_info(memory_facts)`
+  const factColumns = yield* Dialect.columns(sql, "memory_facts")
   if (!factColumns.some((column) => column.name === "tags_json")) {
     yield* sql`ALTER TABLE memory_facts
-      ADD COLUMN tags_json TEXT CHECK (tags_json IS NULL OR json_valid(tags_json))`
+      ADD COLUMN tags_json TEXT CHECK (tags_json IS NULL OR ${Dialect.jsonValid(sql, sql`tags_json`)})`
   }
   // The expiry sweep filters on the computed sum, so the index is over that
   // expression; a plain (updated_at_ms, ttl_ms) index could never serve it.
   yield* sql`CREATE INDEX IF NOT EXISTS memory_facts_expires_at_idx
-    ON memory_facts (updated_at_ms + ttl_ms) WHERE ttl_ms IS NOT NULL`
+    ON memory_facts ((updated_at_ms + ttl_ms)) WHERE ttl_ms IS NOT NULL`
   yield* sql`CREATE TABLE IF NOT EXISTS memory_threads (
     thread_id TEXT PRIMARY KEY CHECK (length(thread_id) > 0),
     namespace_kind TEXT NOT NULL,
     namespace_id TEXT NOT NULL,
     title TEXT,
-    metadata_json TEXT CHECK (metadata_json IS NULL OR json_valid(metadata_json)),
-    created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL,
+    metadata_json TEXT CHECK (metadata_json IS NULL OR ${Dialect.jsonValid(sql, sql`metadata_json`)}),
+    created_at_ms ${Dialect.integer(sql)} NOT NULL,
+    updated_at_ms ${Dialect.integer(sql)} NOT NULL,
     CHECK (namespace_kind IN ('flow', 'agent', 'user', 'global')),
     CHECK (length(namespace_id) > 0)
   )`
@@ -58,11 +59,13 @@ export const initial = Effect.gen(function*() {
     thread_id TEXT NOT NULL,
     role TEXT NOT NULL,
     text TEXT NOT NULL,
-    at_ms INTEGER NOT NULL,
+    at_ms ${Dialect.integer(sql)} NOT NULL,
     PRIMARY KEY (thread_id, id),
     FOREIGN KEY (thread_id) REFERENCES memory_threads (thread_id)
   )`
-  const messageTables = yield* sql<{ readonly sql: string | null }>`SELECT sql FROM sqlite_master
+  const messageTables = Dialect.isPostgres(sql) ?
+    [] :
+    yield* sql<{ readonly sql: string | null }>`SELECT sql FROM sqlite_master
     WHERE type = 'table' AND name = 'memory_messages'`
   const messageDefinition = messageTables[0]?.sql
   if (messageDefinition !== undefined && !compositeMessagePrimaryKey.test(messageDefinition ?? "")) {
@@ -71,7 +74,7 @@ export const initial = Effect.gen(function*() {
       thread_id TEXT NOT NULL,
       role TEXT NOT NULL,
       text TEXT NOT NULL,
-      at_ms INTEGER NOT NULL,
+      at_ms ${Dialect.integer(sql)} NOT NULL,
       PRIMARY KEY (thread_id, id),
       FOREIGN KEY (thread_id) REFERENCES memory_threads (thread_id)
     )`
@@ -87,10 +90,10 @@ export const initial = Effect.gen(function*() {
     namespace_kind TEXT NOT NULL,
     namespace_id TEXT NOT NULL,
     text TEXT NOT NULL,
-    tags_json TEXT NOT NULL CHECK (json_valid(tags_json)),
-    provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+    tags_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`tags_json`)}),
+    provenance_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`provenance_json`)}),
     status TEXT NOT NULL DEFAULT 'accepted',
-    created_at_ms INTEGER NOT NULL,
+    created_at_ms ${Dialect.integer(sql)} NOT NULL,
     CHECK (namespace_kind IN ('flow', 'agent', 'user', 'global')),
     CHECK (length(namespace_id) > 0),
     CHECK (status IN ('pending', 'accepted', 'rejected'))
@@ -100,7 +103,7 @@ export const initial = Effect.gen(function*() {
   yield* sql`CREATE TABLE IF NOT EXISTS memory_note_supersedes (
     superseder_id TEXT NOT NULL,
     target_id TEXT NOT NULL,
-    created_at_ms INTEGER NOT NULL,
+    created_at_ms ${Dialect.integer(sql)} NOT NULL,
     PRIMARY KEY (superseder_id, target_id),
     FOREIGN KEY (superseder_id) REFERENCES memory_notes (id),
     FOREIGN KEY (target_id) REFERENCES memory_notes (id),
@@ -113,19 +116,20 @@ export const initial = Effect.gen(function*() {
     ON memory_note_supersedes (target_id, superseder_id)`
   yield* sql`CREATE TABLE IF NOT EXISTS memory_fts_kinds (
     namespace_kind TEXT PRIMARY KEY,
-    enabled_at_ms INTEGER NOT NULL,
+    enabled_at_ms ${Dialect.integer(sql)} NOT NULL,
     CHECK (namespace_kind IN ('flow', 'agent', 'user', 'global'))
   )`
   yield* sql`CREATE TABLE IF NOT EXISTS memory_vectors (
+    ${Dialect.rowId(sql)}
     record_kind TEXT NOT NULL,
     record_id TEXT NOT NULL,
     namespace_kind TEXT NOT NULL,
     namespace_id TEXT NOT NULL,
     embedding_model TEXT NOT NULL,
     content_digest TEXT NOT NULL,
-    dimensions INTEGER NOT NULL,
-    vector_bytes BLOB NOT NULL,
-    updated_at_ms INTEGER NOT NULL,
+    dimensions ${Dialect.integer(sql)} NOT NULL,
+    vector_bytes ${sql.literal(Dialect.isPostgres(sql) ? "BYTEA" : "BLOB")} NOT NULL,
+    updated_at_ms ${Dialect.integer(sql)} NOT NULL,
     PRIMARY KEY (
       namespace_kind, namespace_id, record_kind, record_id, embedding_model
     ),

@@ -724,7 +724,9 @@ describe("RecallSemantic", () => {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const writer = yield* DurableWriter
         const vectors = Semantic.makeSqlVectorStore({ sql, write: writer.write })
-        yield* sql`DROP TABLE memory_vectors`
+        yield* sql`DROP TABLE memory_vectors ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
         return [
           yield* Effect.flip(vectors.upsert({
             bank: "flow-one",

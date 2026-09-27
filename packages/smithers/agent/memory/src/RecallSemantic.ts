@@ -234,7 +234,7 @@ export const makeSqlVectorStore = (database: DatabaseService): VectorStore => {
           SELECT record_kind, record_id, namespace_kind, namespace_id,
             embedding_model, content_digest, dimensions,
             CASE WHEN length(vector_bytes) <= ${maximumDimensions * 4}
-              THEN vector_bytes ELSE x'' END AS vector_bytes, updated_at_ms
+              THEN vector_bytes ELSE ${new Uint8Array()} END AS vector_bytes, updated_at_ms
           FROM memory_vectors
           WHERE namespace_kind = ${namespace.kind} AND namespace_id = ${namespace.id}
             AND embedding_model = ${model} AND rowid <= ${bounds[0]!.upper} AND ${continuation}
