@@ -56,6 +56,21 @@ func TestRegistrationReviewRequiresAdminPerson(t *testing.T) {
 	}
 }
 
+// The canary Inbox sent exactly this body and a backend without the
+// registration route refused it as "The workflow seam does not relay this
+// procedure." (#2327). The procedure is served by the registration route, never
+// the box relay's allowlist, and reaches no box before its directory is read.
+func TestRegistrationReviewsInboxBodyReachesTheRegistrationRoute(t *testing.T) {
+	dispatcher := &reviewDispatcher{}
+	api := &browserFlowAPI{dispatcher: dispatcher}
+	w := registrationRequest(api, &db.User{ID: 1, IsAdmin: true}, false,
+		`{"repo":"smithersai/smithers","workspaceId":"`+browserBoxID+`","procedure":"Registration.Reviews","payload":{"after":""}}`)
+	require.NotContains(t, w.Body.String(), "does not relay this procedure")
+	require.Equal(t, 503, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "Registration reviews unavailable.")
+	require.Zero(t, dispatcher.calls)
+}
+
 func TestRegistrationReviewCannotBypassAdminThroughOrdinaryRelay(t *testing.T) {
 	for _, procedure := range []string{"Approval.Submit", "Signal"} {
 		for _, name := range []string{"register-repository/review#1", "register-repository/decline-note#1"} {

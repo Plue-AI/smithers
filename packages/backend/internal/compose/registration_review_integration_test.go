@@ -134,7 +134,9 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 	dispatcher := &registrationHostDispatcher{client: client, target: flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner.ID), WorkspaceID: workspace, BindingKind: "browser-flow", BindingID: "registrant/repo"}}
 	api := &browserFlowAPI{registrationPool: pool, dispatcher: dispatcher}
 	list := func() []registrationInbox {
-		w := registrationRequest(api, &admin, false, `{"procedure":"Registration.Reviews","payload":{}}`)
+		// The app's own Inbox body (gateway.ts registrationInboxes): the admin's
+		// selected box and repository ride along, and the first page's cursor is "".
+		w := registrationRequest(api, &admin, false, `{"repo":"will/own-repo","workspaceId":"`+uuid.NewString()+`","procedure":"Registration.Reviews","payload":{"after":""}}`)
 		require.Equal(t, 200, w.Code, w.Body.String())
 		var result struct {
 			Payload struct {
