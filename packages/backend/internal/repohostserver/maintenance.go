@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -120,6 +121,13 @@ func runMaintenanceGit(ctx context.Context, gitDir string, args []string) error 
 	_ = pidFile.Close()
 	err = cmd.Wait()
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	// A gc killed here leaves its gc.pid, whose pid may be reused.
+	gcPid := filepath.Join(gitDir, "gc.pid")
+	if raw, readErr := os.ReadFile(gcPid); readErr == nil {
+		if fields := strings.Fields(string(raw)); len(fields) > 0 && fields[0] == strconv.Itoa(cmd.Process.Pid) {
+			_ = os.Remove(gcPid)
+		}
+	}
 	if err != nil {
 		return errors.New("git " + strings.Join(args, " ") + ": " + err.Error() + ": " + strings.TrimSpace(out.String()))
 	}
@@ -150,13 +158,15 @@ func (s *Server) reapOrphanedMaintenance() error {
 		if err != nil {
 			return err
 		}
-		if !group && !gc {
-			continue
-		}
+		// A gc.pid that names no live gc of this repository is stale, and its
+		// pid may be reused: git must not skip gc for it, nor may a later
+		// startup take that process for a gc.
 		if _, alive := liveGitGC(gitDir); !alive {
 			_ = os.Remove(filepath.Join(gitDir, "gc.pid"))
 		}
-		s.removeGitLocks(gitDir, 0)
+		if group || gc {
+			s.removeGitLocks(gitDir, 0)
+		}
 	}
 	return nil
 }
@@ -206,9 +216,11 @@ func (s *Server) reapMaintenanceGroup(gitDir string) (bool, error) {
 	return true, nil
 }
 
-// liveGitGC reports the pid in gitDir's gc.pid when git would judge that gc
-// running: the file is younger than gcPidMaxAge, names this host and a live
-// process, and that process is git (not a process that reused the pid).
+// liveGitGC reports the pid in gitDir's gc.pid when that pid is a gc of this
+// repository still running: the file is younger than gcPidMaxAge and names
+// this host and a live git process that started before gc wrote the file
+// (so did not reuse the pid afterwards) and runs gc on gitDir, its working
+// directory or a --git-dir argument.
 func liveGitGC(gitDir string) (int, bool) {
 	path := filepath.Join(gitDir, "gc.pid")
 	info, err := os.Stat(path)
@@ -232,7 +244,33 @@ func liveGitGC(gitDir string) (int, bool) {
 	if err != nil || filepath.Base(name) != "git" {
 		return 0, false
 	}
+	start, err := processStart(pid)
+	if err != nil || start.After(info.ModTime()) {
+		return 0, false
+	}
+	if !runsGCOn(pid, gitDir) {
+		return 0, false
+	}
 	return pid, true
+}
+
+// runsGCOn reports whether the git process pid runs gc on gitDir.
+func runsGCOn(pid int, gitDir string) bool {
+	args, err := processArgs(pid)
+	if err != nil || !slices.Contains(args, "gc") {
+		return false
+	}
+	dirs := []string{filepath.Clean(gitDir)}
+	if real, err := filepath.EvalSymlinks(gitDir); err == nil {
+		dirs = append(dirs, real)
+	}
+	for _, arg := range args {
+		if slices.Contains(dirs, filepath.Clean(strings.TrimPrefix(arg, "--git-dir="))) {
+			return true
+		}
+	}
+	cwd, err := processCwd(pid)
+	return err == nil && slices.Contains(dirs, filepath.Clean(cwd))
 }
 
 // reapGitGC terminates the live gc gitDir's gc.pid names (liveGitGC), with

@@ -322,20 +322,20 @@ func TestStartupLeavesReleasedMaintenancePidfilesAlone(t *testing.T) {
 	require.NoError(t, syscall.Kill(bystander.Process.Pid, 0))
 }
 
-// startNamed starts sleep under the command name name, in its own group. The
+// startNamed starts, in its own group and in dir, a shell under the command
+// name name with the arguments args after it, as git's gc would run. The
 // channel closes when it exits.
-func startNamed(t *testing.T, name string) (*exec.Cmd, <-chan struct{}) {
+func startNamed(t *testing.T, name, dir string, args ...string) (*exec.Cmd, <-chan struct{}) {
 	t.Helper()
-	sleep, err := exec.LookPath("sleep")
-	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), name)
-	require.NoError(t, os.Symlink(sleep, path))
-	cmd := exec.Command(path, "60")
+	require.NoError(t, os.Symlink("/bin/sh", path))
+	cmd := exec.Command(path, append([]string{"-c", "sleep 60; :", name}, args...)...)
+	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	require.NoError(t, cmd.Start())
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
-	t.Cleanup(func() { _ = cmd.Process.Kill(); <-exited })
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); <-exited })
 	require.Eventually(t, func() bool {
 		got, err := processName(cmd.Process.Pid)
 		return err == nil && filepath.Base(got) == name
@@ -343,35 +343,93 @@ func startNamed(t *testing.T, name string) (*exec.Cmd, <-chan struct{}) {
 	return cmd, exited
 }
 
-// A gc git's gc.pid names as running on this host, from a repo-host that
-// predates maintenance pidfiles or git's own detached gc, is terminated at
-// startup; a gc.pid whose pid another program reused is left alone.
-func TestStartupTerminatesLiveGitGCFromGCPid(t *testing.T) {
+// writeGCPid writes gitDir's gc.pid, naming pid on this host, as git does.
+func writeGCPid(t *testing.T, gitDir string, pid int) {
+	t.Helper()
 	host, err := os.Hostname()
 	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(gitDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "gc.pid"), []byte(fmt.Sprintf("%d %s", pid, host)), 0o644))
+}
+
+// A gc git's gc.pid names as running on this repository, from a repo-host
+// that predates maintenance pidfiles (--git-dir) or git's own detached gc (in
+// the git directory), is terminated at startup.
+func TestStartupTerminatesLiveGitGCFromGCPid(t *testing.T) {
 	maintenanceWaitDelay = 200 * time.Millisecond
 	t.Cleanup(func() { maintenanceWaitDelay = 10 * time.Second })
-	storage := t.TempDir()
-	cfg := Config{StoragePath: storage, AuthToken: testAuthToken}
-	gc, gcExited := startNamed(t, "git")
-	other, _ := startNamed(t, "postgres")
-	gcDir := repoGitDir(cfg.RepoPath("alice", "gc"))
-	reusedDir := repoGitDir(cfg.RepoPath("alice", "reused"))
-	for dir, pid := range map[string]int{gcDir: gc.Process.Pid, reusedDir: other.Process.Pid} {
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "gc.pid"), []byte(fmt.Sprintf("%d %s", pid, host)), 0o644))
-	}
+	cfg := Config{StoragePath: t.TempDir(), AuthToken: testAuthToken}
+	byArg := repoGitDir(cfg.RepoPath("alice", "arg"))
+	inDir := repoGitDir(cfg.RepoPath("alice", "cwd"))
+	require.NoError(t, os.MkdirAll(inDir, 0o755))
+	argGC, argExited := startNamed(t, "git", "", "--git-dir", byArg, "gc", "--auto")
+	cwdGC, cwdExited := startNamed(t, "git", inDir, "gc", "--auto", "--quiet")
+	time.Sleep(1100 * time.Millisecond) // past ps's one-second start times
+	writeGCPid(t, byArg, argGC.Process.Pid)
+	writeGCPid(t, inDir, cwdGC.Process.Pid)
 
-	_, err = NewWithFFI(cfg, &mockFFI{})
+	_, err := NewWithFFI(cfg, &mockFFI{})
 	require.NoError(t, err)
-	select {
-	case <-gcExited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the gc outlived startup")
+	for _, exited := range []<-chan struct{}{argExited, cwdExited} {
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the gc outlived startup")
+		}
 	}
-	require.NoFileExists(t, filepath.Join(gcDir, "gc.pid"))
-	require.NoError(t, syscall.Kill(other.Process.Pid, 0))
-	require.FileExists(t, filepath.Join(reusedDir, "gc.pid"))
+	require.NoFileExists(t, filepath.Join(byArg, "gc.pid"))
+	require.NoFileExists(t, filepath.Join(inDir, "gc.pid"))
+}
+
+// A gc.pid survives its gc's SIGKILL, and its pid may be reused within
+// gcPidMaxAge by another process, a git even: startup signals none of them,
+// and removes the stale gc.pid.
+func TestStartupLeavesProcessesThatReusedAGCPidAlone(t *testing.T) {
+	maintenanceWaitDelay = 200 * time.Millisecond
+	t.Cleanup(func() { maintenanceWaitDelay = 10 * time.Second })
+	cfg := Config{StoragePath: t.TempDir(), AuthToken: testAuthToken}
+	later := repoGitDir(cfg.RepoPath("alice", "later"))
+	other := repoGitDir(cfg.RepoPath("alice", "other"))
+	notGit := repoGitDir(cfg.RepoPath("alice", "notgit"))
+	elsewhere := t.TempDir()
+
+	// A git gc of this very repository that started after gc.pid was written.
+	reused, _ := startNamed(t, "git", "", "--git-dir", later, "gc")
+	writeGCPid(t, later, reused.Process.Pid)
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(later, "gc.pid"), old, old))
+	// A git gc of another repository, and a program that is not git.
+	otherGC, _ := startNamed(t, "git", elsewhere, "gc", "--auto")
+	notGitGC, _ := startNamed(t, "postgres", "", "--git-dir", notGit, "gc")
+	time.Sleep(1100 * time.Millisecond)
+	writeGCPid(t, other, otherGC.Process.Pid)
+	writeGCPid(t, notGit, notGitGC.Process.Pid)
+
+	_, err := NewWithFFI(cfg, &mockFFI{})
+	require.NoError(t, err)
+	for _, cmd := range []*exec.Cmd{reused, otherGC, notGitGC} {
+		require.NoError(t, syscall.Kill(cmd.Process.Pid, 0), "startup signalled %v", cmd.Args)
+	}
+	for _, dir := range []string{later, other, notGit} {
+		require.NoFileExists(t, filepath.Join(dir, "gc.pid"))
+	}
+}
+
+// Maintenance git killed on cancellation leaves no gc.pid of its own behind.
+func TestCancelledMaintenanceRemovesGCPid(t *testing.T) {
+	gitDir := t.TempDir()
+	maintenanceCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", `echo "$$ host" > `+filepath.Join(gitDir, "gc.pid")+`; sleep 60`)
+	}
+	maintenanceWaitDelay = 100 * time.Millisecond
+	t.Cleanup(func() { maintenanceCommandContext, maintenanceWaitDelay = exec.CommandContext, 10*time.Second })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- runMaintenanceGit(ctx, gitDir, gcArgs) }()
+	require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(gitDir, "gc.pid")); return err == nil }, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	require.Error(t, <-done)
+	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
 }
 
 // A maintenance group that outlives SIGKILL fails startup: its git locks stay.
