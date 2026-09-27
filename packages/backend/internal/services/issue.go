@@ -424,6 +424,9 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 					}
 				}
 			}
+			if werr := tx.SetIssueTextEditor(ctx, nativeIssueTextEditor(ctx, actor.ID)); werr != nil {
+				return werr
+			}
 			var werr error
 			created, werr = tx.CreateIssue(ctx, db.CreateIssueParams{Kind: kind, IdempotencyKey: req.IdempotencyKey,
 				RepositoryID: repository.ID,
@@ -642,6 +645,9 @@ func (s *IssueService) UpdateIssue(ctx context.Context, actor *db.User, owner, r
 	}
 	var updated db.Issue
 	if err := s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
+		if werr := tx.SetIssueTextEditor(ctx, nativeIssueTextEditor(ctx, actor.ID)); werr != nil {
+			return werr
+		}
 		var werr error
 		updated, werr = tx.UpdateIssue(ctx, db.UpdateIssueParams{
 			ID:                       current.ID,

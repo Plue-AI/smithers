@@ -80,7 +80,7 @@ func (q *Queries) CountIssuesByRepoFiltered(ctx context.Context, arg CountIssues
 const createIssue = `-- name: CreateIssue :one
 INSERT INTO issues (repository_id, number, title, body, state, author_id, milestone_id, kind, idempotency_key)
 VALUES ($1, get_next_issue_number($1), $2, $3, 'open', $4, $5, COALESCE(NULLIF($6::text,''),'issue'), $7::text)
-RETURNING id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
+RETURNING id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key, title_editor_id, body_editor_id
 `
 
 type CreateIssueParams struct {
@@ -126,6 +126,8 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Issue
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.IdempotencyKey,
+		&i.TitleEditorID,
+		&i.BodyEditorID,
 	)
 	return i, err
 }
@@ -345,7 +347,7 @@ func (q *Queries) FixIssuesForLanding(ctx context.Context, arg FixIssuesForLandi
 }
 
 const getIssueByCommentID = `-- name: GetIssueByCommentID :one
-SELECT i.id, i.repository_id, i.number, i.title, i.body, i.search_vector, i.state, i.author_id, i.milestone_id, i.comment_count, i.closed_at, i.fixed_by_id, i.fixed_by_agent_session_id, i.fixed_at, i.verified_by_id, i.verified_by_agent_session_id, i.verified_at, i.created_at, i.updated_at, i.kind, i.idempotency_key
+SELECT i.id, i.repository_id, i.number, i.title, i.body, i.search_vector, i.state, i.author_id, i.milestone_id, i.comment_count, i.closed_at, i.fixed_by_id, i.fixed_by_agent_session_id, i.fixed_at, i.verified_by_id, i.verified_by_agent_session_id, i.verified_at, i.created_at, i.updated_at, i.kind, i.idempotency_key, i.title_editor_id, i.body_editor_id
 FROM issues i
 JOIN issue_comments ic ON ic.issue_id = i.id
 WHERE ic.id = $1
@@ -376,12 +378,14 @@ func (q *Queries) GetIssueByCommentID(ctx context.Context, id int64) (Issue, err
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.IdempotencyKey,
+		&i.TitleEditorID,
+		&i.BodyEditorID,
 	)
 	return i, err
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key, title_editor_id, body_editor_id
 FROM issues
 WHERE id = $1
 `
@@ -411,12 +415,14 @@ func (q *Queries) GetIssueByID(ctx context.Context, id int64) (Issue, error) {
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.IdempotencyKey,
+		&i.TitleEditorID,
+		&i.BodyEditorID,
 	)
 	return i, err
 }
 
 const getIssueByNumber = `-- name: GetIssueByNumber :one
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key, title_editor_id, body_editor_id
 FROM issues
 WHERE repository_id = $1
   AND number = $2
@@ -452,6 +458,8 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.IdempotencyKey,
+		&i.TitleEditorID,
+		&i.BodyEditorID,
 	)
 	return i, err
 }
@@ -660,7 +668,7 @@ func (q *Queries) ListIssueEventsByIssue(ctx context.Context, arg ListIssueEvent
 }
 
 const listIssuesByRepoFiltered = `-- name: ListIssuesByRepoFiltered :many
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key, title_editor_id, body_editor_id
 FROM issues
 WHERE repository_id = $1
   AND (kind <> 'chat' OR author_id = $2::bigint)
@@ -715,6 +723,8 @@ func (q *Queries) ListIssuesByRepoFiltered(ctx context.Context, arg ListIssuesBy
 			&i.UpdatedAt,
 			&i.Kind,
 			&i.IdempotencyKey,
+			&i.TitleEditorID,
+			&i.BodyEditorID,
 		); err != nil {
 			return nil, err
 		}
@@ -728,7 +738,7 @@ func (q *Queries) ListIssuesByRepoFiltered(ctx context.Context, arg ListIssuesBy
 
 const listIssuesByRepoFilteredKeyset = `-- name: ListIssuesByRepoFilteredKeyset :many
 
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key
+SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key, title_editor_id, body_editor_id
 FROM issues
 WHERE repository_id = $1
   AND (kind <> 'chat' OR author_id = $2::bigint)
@@ -789,6 +799,8 @@ func (q *Queries) ListIssuesByRepoFilteredKeyset(ctx context.Context, arg ListIs
 			&i.UpdatedAt,
 			&i.Kind,
 			&i.IdempotencyKey,
+			&i.TitleEditorID,
+			&i.BodyEditorID,
 		); err != nil {
 			return nil, err
 		}
@@ -922,6 +934,17 @@ func (q *Queries) ReplaceIssueLabels(ctx context.Context, arg ReplaceIssueLabels
 	return err
 }
 
+const setIssueTextEditor = `-- name: SetIssueTextEditor :exec
+SELECT set_config('smithers.issue_text_editor', $1::text, true)
+`
+
+// Names the person who writes issue titles and bodies in this transaction
+// (record_issue_text_editor); an empty editor names no one.
+func (q *Queries) SetIssueTextEditor(ctx context.Context, editor string) error {
+	_, err := q.db.Exec(ctx, setIssueTextEditor, editor)
+	return err
+}
+
 const updateIssue = `-- name: UpdateIssue :one
 WITH repository_lock AS MATERIALIZED (
     SELECT r.id FROM repositories r JOIN issues i ON i.repository_id = r.id
@@ -942,7 +965,7 @@ SET title = $1,
     updated_at = NOW()
 FROM repository_lock
 WHERE issues.id = $12 AND issues.repository_id = repository_lock.id
-RETURNING issues.id, issues.repository_id, issues.number, issues.title, issues.body, issues.search_vector, issues.state, issues.author_id, issues.milestone_id, issues.comment_count, issues.closed_at, issues.fixed_by_id, issues.fixed_by_agent_session_id, issues.fixed_at, issues.verified_by_id, issues.verified_by_agent_session_id, issues.verified_at, issues.created_at, issues.updated_at, issues.kind, issues.idempotency_key
+RETURNING issues.id, issues.repository_id, issues.number, issues.title, issues.body, issues.search_vector, issues.state, issues.author_id, issues.milestone_id, issues.comment_count, issues.closed_at, issues.fixed_by_id, issues.fixed_by_agent_session_id, issues.fixed_at, issues.verified_by_id, issues.verified_by_agent_session_id, issues.verified_at, issues.created_at, issues.updated_at, issues.kind, issues.idempotency_key, issues.title_editor_id, issues.body_editor_id
 `
 
 type UpdateIssueParams struct {
@@ -998,6 +1021,8 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.UpdatedAt,
 		&i.Kind,
 		&i.IdempotencyKey,
+		&i.TitleEditorID,
+		&i.BodyEditorID,
 	)
 	return i, err
 }

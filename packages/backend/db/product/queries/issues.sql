@@ -311,3 +311,8 @@ WHERE issue_id = sqlc.arg(issue_id)
   AND (sqlc.arg(after_id)::bigint = 0 OR id > sqlc.arg(after_id)::bigint)
 ORDER BY id ASC
 LIMIT sqlc.arg(page_size);
+
+-- name: SetIssueTextEditor :exec
+-- Names the person who writes issue titles and bodies in this transaction
+-- (record_issue_text_editor); an empty editor names no one.
+SELECT set_config('smithers.issue_text_editor', sqlc.arg(editor)::text, true);

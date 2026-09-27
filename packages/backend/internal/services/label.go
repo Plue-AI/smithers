@@ -302,7 +302,7 @@ func (s *LabelService) AddLabelsToIssue(ctx context.Context, actor *db.User, own
 	if err := s.queries.AddIssueLabels(ctx, db.AddIssueLabelsParams{
 		IssueID:  issue.ID,
 		LabelIds: labelIDs,
-		AddedBy:  nativeLabelSender(ctx, actor.ID),
+		AddedBy:  nativePersonActor(ctx, actor.ID),
 	}); err != nil {
 		if isUniqueViolation(err) {
 			return nil, pkgerrors.Conflict("label already attached to issue")

@@ -818,6 +818,8 @@ type Issue struct {
 	UpdatedAt                time.Time          `json:"updated_at"`
 	Kind                     string             `json:"kind"`
 	IdempotencyKey           string             `json:"idempotency_key"`
+	TitleEditorID            pgtype.Int8        `json:"title_editor_id"`
+	BodyEditorID             pgtype.Int8        `json:"body_editor_id"`
 }
 
 type IssueArtifact struct {

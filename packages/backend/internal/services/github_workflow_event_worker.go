@@ -68,7 +68,8 @@ type GitHubWebhookEventWorker struct {
 	mythical interface {
 		ObserveGitHubEvent(ctx context.Context, eventType string, payload []byte) error
 	}
-	mainPull gitHubMainPuller
+	mainPull  gitHubMainPuller
+	issueText *GitHubIssueTextStamper
 }
 
 // gitHubMainPuller is the GitHub main pull as the webhook worker uses it.
@@ -82,6 +83,13 @@ func (w *GitHubWebhookEventWorker) SetMythical(service interface {
 	ObserveGitHubEvent(ctx context.Context, eventType string, payload []byte) error
 }) {
 	w.mythical = service
+}
+
+// SetIssueText makes the worker read who last wrote an issue's text before
+// any consumer applies the trust rule. Without it no GitHub issue text is a
+// maintainer's own.
+func (w *GitHubWebhookEventWorker) SetIssueText(stamper *GitHubIssueTextStamper) {
+	w.issueText = stamper
 }
 
 // SetMainPull makes a push to a GitHub repository's default branch request
@@ -211,6 +219,13 @@ func gitHubWebhookJobRetryBackoff(attempts int32) time.Duration {
 }
 
 func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.GithubWebhookJob) error {
+	// GitHub names the issue author's standing, not the editor's: record
+	// whether a maintainer last wrote the issue's text for every consumer.
+	stamped, err := w.issueText.stampGitHubIssueText(ctx, job.EventType, job.Action, job.Payload)
+	if err != nil {
+		return fmt.Errorf("read issue text writer: %w", err)
+	}
+	job.Payload = stamped
 	payload, err := parseGitHubWorkflowEventPayload(job.Payload)
 	if err != nil {
 		return &permanentGitHubWebhookJobError{err: fmt.Errorf("parse payload: %w", err)}

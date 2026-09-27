@@ -115,13 +115,13 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 
 // ObserveIssue admits or updates one issue's item. The admitted text is
 // pinned: a lane reads the snapshot, never the live issue. Approval is
-// approvesIssueText with the smithers label; an outsider's approval holds
-// only for exactly the labeled text and only while the label stays, so an
-// edit after approval needs a new label. Only an item that has not started
-// takes new text; closing cancels an item that has not started. A planner's
-// decline stays until the issue's title or body changes, or a person
-// retries it (RetryItem). applied is the label this event applied (zero for
-// a sweep).
+// approvesIssueText with the smithers label; a label's approval of outsider
+// text holds only for exactly the labeled text and only while the label
+// stays, so an edit after approval needs a new label. Only an item that has
+// not started takes new text; closing cancels an item that has not started.
+// A planner's decline stays until the issue's title or body changes to
+// approved text, or a person retries it (RetryItem). applied is the label
+// this event applied (zero for a sweep).
 func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
 	q := s.queries()
 	stack, err := q.GetMythicalStack(ctx, repositoryID)
@@ -132,7 +132,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		return err
 	}
 	digest := mythicalIssueDigest(issue)
-	outsider := !trustedGitHubAuthorAssociation(issue.AuthorAssociation)
+	outsider := !maintainerIssueText(issue.AuthorAssociation, issue.TextByMaintainer)
 	body := issue.Body
 	if len(body) > mythicalPromptBytes {
 		body = body[:mythicalPromptBytes]
@@ -144,7 +144,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		}
 		approved := ""
 		switch {
-		case approvesIssueText(issue.AuthorAssociation, issue.Labels, applied, issueApprovalLabel):
+		case approvesIssueText(issue.AuthorAssociation, issue.TextByMaintainer, issue.Labels, applied, issueApprovalLabel):
 			approved = digest
 		case issueCarriesLabel(issue.Labels, issueApprovalLabel) && err == nil && existing.ApprovedDigest == digest:
 			approved = digest
@@ -165,7 +165,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		}
 		next := existing
 		notStarted := existing.State == "queued" || existing.State == "skipped" || existing.State == "cancelled" ||
-			(existing.State == "declined" && existing.IssueDigest != digest)
+			(existing.State == "declined" && existing.IssueDigest != digest && approved == digest)
 		switch {
 		case existing.State == "declined" && !notStarted:
 		case state == "cancelled" && (existing.State == "queued" || existing.State == "retrying" || existing.State == "skipped"):
@@ -244,15 +244,35 @@ func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (Myt
 	if err != nil {
 		return counts, err
 	}
+	items, err := q.ListMythicalItems(ctx, repositoryID, 1000)
+	if err != nil {
+		return counts, err
+	}
+	known := make(map[int64]db.MythicalItem, len(items))
+	for _, item := range items {
+		if item.IssueNumber.Valid {
+			known[item.IssueNumber.Int64] = item
+		}
+	}
 	open := make(map[int64]bool, len(issues))
 	for _, issue := range issues {
 		open[issue.Number] = true
+		// A listing names no writer: text the item already holds keeps its
+		// writer; new text is read from GitHub's history, and text GitHub
+		// cannot answer for waits for the next sweep.
+		if trustedGitHubAuthorAssociation(issue.AuthorAssociation) {
+			if item, ok := known[issue.Number]; ok && item.IssueDigest == mythicalIssueDigest(issue) {
+				issue.TextByMaintainer = !item.Outsider
+			} else if issue.TextByMaintainer, err = s.github.IssueTextByMaintainer(ctx, gh, issue); err != nil {
+				s.logger.Warn("mythical.issue_writer_failed", "repository_id", repositoryID, "issue", issue.Number, "error", err)
+				continue
+			}
+		}
 		if err := s.ObserveIssue(ctx, repositoryID, issue, gitHubLabelApplication{}); err != nil {
 			return counts, err
 		}
 	}
-	items, err := q.ListMythicalItems(ctx, repositoryID, 1000)
-	if err != nil {
+	if items, err = q.ListMythicalItems(ctx, repositoryID, 1000); err != nil {
 		return counts, err
 	}
 	counts.Open = len(issues)

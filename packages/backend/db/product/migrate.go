@@ -87,6 +87,7 @@ var migrationRegistry = []migrationSpec{
 	{51, "migrations/0051_agent_review_notes.sql"},
 	{52, "migrations/0052_repository_setup_delete.sql"},
 	{53, "migrations/0053_mythical_declined_items.sql"},
+	{54, "migrations/0054_issue_text_editor.sql"},
 }
 
 type migration struct {

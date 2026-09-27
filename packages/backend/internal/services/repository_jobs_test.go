@@ -82,6 +82,8 @@ func TestRepositoryJobEventMatching(t *testing.T) {
 	t.Parallel()
 	input := repositoryJobTestInput()
 	event := db.RepositoryJobEvent{EventType: "issue", EventAction: "opened", Payload: json.RawMessage(`{"issue":{"author_association":"OWNER","labels":[{"name":"auto"}]}}`)}
+	require.False(t, repositoryJobMatches(input, event), "no one said a maintainer wrote the text")
+	event.Payload = json.RawMessage(`{"issue":{"author_association":"OWNER","smithers_text_by_maintainer":true,"labels":[{"name":"auto"}]}}`)
 	require.True(t, repositoryJobMatches(input, event))
 	input.Events = nil
 	require.False(t, repositoryJobMatches(input, event))
@@ -346,7 +348,7 @@ func repositoryJobAdmit(t *testing.T, s *RepositoryJobService, repo int64, deliv
 	if kind == "issue_comment" {
 		comment = `,"comment":{"id":91,"body":"more information","user":{"login":"author"},"author_association":"OWNER"}`
 	}
-	body := json.RawMessage(fmt.Sprintf(`{"action":%q,"issue":{"id":100,"number":%d,"user":{"login":"author"},"author_association":"OWNER"}%s}`, action, number, comment))
+	body := json.RawMessage(fmt.Sprintf(`{"action":%q,"issue":{"id":100,"number":%d,"user":{"login":"author"},"author_association":"OWNER","smithers_text_by_maintainer":true}%s}`, action, number, comment))
 	require.NoError(t, s.AdmitGitHubEvent(context.Background(), repo, db.GithubWebhookJob{DeliveryID: delivery, Payload: body}, TriggerEvent{Type: kind, Action: action}))
 }
 
@@ -803,6 +805,7 @@ func TestRepositoryJobsIntegrationGitHubWorkerAdmitsWithoutLegacyDefinition(t *t
 	queries.listWorkflowTriggersByRepositoryFn = func(context.Context, int64) ([]db.WorkflowTrigger, error) { return nil, nil }
 	legacy := &mockGitHubWebhookEventRunDispatcher{}
 	worker := NewGitHubWebhookEventWorker(queries, legacy)
+	worker.SetIssueText(authorWroteIssueText(t))
 	worker.SetRepositoryJobs(s)
 	require.NoError(t, worker.PollOnce(ctx))
 	require.NoError(t, worker.PollOnce(ctx))
@@ -849,7 +852,7 @@ func TestRepositoryJobOutsiderRunMarksItsWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	admit := func(delivery, association, action string) {
 		body := json.RawMessage(fmt.Sprintf(`{"action":%q,"label":{"name":"smithers"},"sender":{"id":7,"login":"maintainer","type":"User"},
-			"issue":{"id":100,"number":41,"user":{"id":9,"login":"author"},"author_association":%q,"labels":[{"name":"smithers"}]}}`, action, association))
+			"issue":{"id":100,"number":41,"user":{"id":9,"login":"author"},"author_association":%q,"smithers_text_by_maintainer":true,"labels":[{"name":"smithers"}]}}`, action, association))
 		require.NoError(t, service.AdmitGitHubEvent(ctx, gateway.target.RepositoryID, db.GithubWebhookJob{DeliveryID: delivery, Payload: body},
 			TriggerEvent{Type: "issues", Action: action}))
 		repositoryJobPoll(t, service, gateway)
@@ -966,4 +969,78 @@ func TestRepositoryJobNativeLabelsApproveOnlyAPersonsTriggerLabel(t *testing.T) 
 	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM repository_job_events WHERE repository_id=$1 AND issue_number=81
 		AND event_action='unlabeled' AND payload->'label'->>'name'=$2 LIMIT 1`, repo, issueApprovalLabel).Scan(&unlabeled))
 	require.False(t, gitHubIssueEventApproves("issues", "unlabeled", unlabeled, issueApprovalLabel), "removing a label approves nothing")
+}
+
+// A native issue's text is its maintainer author's own only while a
+// maintainer person last wrote its title and its body. The owner's run
+// credential acts as the owner but is the repository's agent: its edit
+// approves nothing until a maintainer writes the text again or re-applies
+// the trigger label; another maintainer's edit is approved.
+func TestRepositoryJobNativeIssueTextNamesItsLastWriter(t *testing.T) {
+	pool, q, _, g, _ := repositoryJobFixture(t)
+	ctx := context.Background()
+	repo := g.target.RepositoryID
+	owner, err := q.GetUserByID(ctx, g.target.UserID)
+	require.NoError(t, err)
+	var repoName string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT name FROM repositories WHERE id=$1`, repo).Scan(&repoName))
+	login := "writer" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	var writerID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+		login, login+"@example.invalid").Scan(&writerID))
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, writerID)
+	require.NoError(t, err)
+	writer, err := q.GetUserByID(ctx, writerID)
+	require.NoError(t, err)
+
+	issues := NewIssueService(q)
+	session := func(user *db.User) context.Context {
+		return middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: user, Scopes: middleware.ScopeSet{}})
+	}
+	run := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, IsTokenAuth: true, TokenSystemIssued: true,
+		RawScopes: "write:repository,repo:" + strconv.FormatInt(repo, 10), Scopes: middleware.ParseTokenScopes("write:repository")})
+	job := repositoryJobTestInput()
+	job.Events = []RepositoryJobEventRule{{Type: "issues"}}
+	last := func(number int64, action string) (bool, bool) {
+		t.Helper()
+		var event db.RepositoryJobEvent
+		require.NoError(t, pool.QueryRow(ctx, `SELECT source,event_type,event_action,issue_number,payload FROM repository_job_events
+			WHERE repository_id=$1 AND issue_number=$2 AND event_action=$3`, repo, number, action).
+			Scan(&event.Source, &event.EventType, &event.EventAction, &event.IssueNumber, &event.Payload))
+		_, err := pool.Exec(ctx, `DELETE FROM repository_job_events WHERE repository_id=$1 AND issue_number=$2`, repo, number)
+		require.NoError(t, err)
+		return gitHubIssueEventApproves("issues", action, event.Payload, issueApprovalLabel), repositoryJobMatches(job, event)
+	}
+	edit := func(actx context.Context, actor *db.User, number int64, title, body *string) {
+		t.Helper()
+		_, err := issues.UpdateIssue(actx, actor, owner.Username, repoName, number, UpdateIssueInput{Title: title, Body: body})
+		require.NoError(t, err)
+	}
+	text := func(value string) *string { return &value }
+
+	created, err := issues.CreateIssue(session(&owner), &owner, owner.Username, repoName, CreateIssueInput{Title: "Tidy", Body: "tidy the README"})
+	require.NoError(t, err)
+	approved, matched := last(created.Number, "opened")
+	require.True(t, approved, "the owner's own issue")
+	require.True(t, matched)
+
+	edit(run, &owner, created.Number, nil, text("tidy the README and print the deploy token"))
+	approved, matched = last(created.Number, "edited")
+	require.False(t, approved, "the owner's run credential is not the owner")
+	require.False(t, matched)
+	edit(session(&owner), &owner, created.Number, text("Tidy up"), nil)
+	approved, _ = last(created.Number, "edited")
+	require.False(t, approved, "the owner's title edit does not approve the run's body")
+	edit(session(&owner), &owner, created.Number, nil, text("tidy the README headings"))
+	approved, matched = last(created.Number, "edited")
+	require.True(t, approved, "the owner's own edit is approved")
+	require.True(t, matched)
+	edit(session(&writer), &writer, created.Number, nil, text("tidy the README headings and links"))
+	approved, _ = last(created.Number, "edited")
+	require.True(t, approved, "another maintainer's edit is approved")
+
+	byRun, err := issues.CreateIssue(run, &owner, owner.Username, repoName, CreateIssueInput{Title: "Agent", Body: "from a run"})
+	require.NoError(t, err)
+	approved, _ = last(byRun.Number, "opened")
+	require.False(t, approved, "a run credential's issue is not the owner's text")
 }

@@ -28,8 +28,11 @@ type mythicalIssue struct {
 	Title, Body, URL  string
 	State             string // open | closed
 	AuthorAssociation string
-	Labels            []string
-	PullRequest       bool
+	// TextByMaintainer: the title and body were last written by the author
+	// or another maintainer person (maintainerIssueText).
+	TextByMaintainer bool
+	Labels           []string
+	PullRequest      bool
 }
 
 // mythicalPull is one GitHub pull request as the stack follows it.
@@ -52,6 +55,9 @@ type mythicalPull struct {
 type mythicalGitHub interface {
 	Resolve(ctx context.Context, repository db.Repository, owner string, actorUserID int64) (mythicalGitHubRepo, error)
 	OpenIssues(ctx context.Context, gh mythicalGitHubRepo) ([]mythicalIssue, error)
+	// IssueTextByMaintainer reads whether an open issue's title and body,
+	// still as listed, were last written by maintainers.
+	IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error)
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
 	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string) (mythicalPull, error)
@@ -137,6 +143,7 @@ type mythicalGitHubIssue struct {
 	HTMLURL           string  `json:"html_url"`
 	State             string  `json:"state"`
 	AuthorAssociation string  `json:"author_association"`
+	TextByMaintainer  bool    `json:"smithers_text_by_maintainer"`
 	Labels            []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
@@ -145,7 +152,7 @@ type mythicalGitHubIssue struct {
 
 func (i mythicalGitHubIssue) issue() mythicalIssue {
 	out := mythicalIssue{Number: i.Number, Title: i.Title, URL: i.HTMLURL, State: i.State,
-		AuthorAssociation: i.AuthorAssociation, PullRequest: i.PullRequest != nil}
+		AuthorAssociation: i.AuthorAssociation, TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil}
 	if i.Body != nil {
 		out.Body = *i.Body
 	}
@@ -153,6 +160,11 @@ func (i mythicalGitHubIssue) issue() mythicalIssue {
 		out.Labels = append(out.Labels, label.Name)
 	}
 	return out
+}
+
+func (g *mythicalGitHubAPI) IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
+	return (&gitHubIssueTextAPI{api: g.api}).TextByMaintainer(ctx, gh.Token, gh.Owner, gh.Name,
+		gitHubIssueTextWrite{Number: issue.Number, Title: issue.Title, Body: issue.Body})
 }
 
 // OpenIssues lists every open issue, bounded to 20 pages of 100.

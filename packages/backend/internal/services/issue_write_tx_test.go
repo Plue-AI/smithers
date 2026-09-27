@@ -18,10 +18,16 @@ type mockIssueWriteTx struct {
 	replaceIssueAssigneesFn func(ctx context.Context, arg db.ReplaceIssueAssigneesParams) error
 	replaceIssueLabelsFn    func(ctx context.Context, arg db.ReplaceIssueLabelsParams) error
 	commitErr               error
+	editors                 []string
 
 	calls      []string
 	committed  int
 	rolledBack bool
+}
+
+func (m *mockIssueWriteTx) SetIssueTextEditor(_ context.Context, editor string) error {
+	m.editors = append(m.editors, editor)
+	return nil
 }
 
 func (m *mockIssueWriteTx) CreateIssue(ctx context.Context, arg db.CreateIssueParams) (db.Issue, error) {

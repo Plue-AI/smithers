@@ -389,7 +389,10 @@ func TestGitHubWebhookEventWorker_PollScheduledWorkflowTriggers_DelegatesToCronS
 	assert.Equal(t, now.Add(5*time.Minute), queries.fireTimes[0].NextFireAt)
 }
 
-type recordingMythicalObserver struct{ events []string }
+type recordingMythicalObserver struct {
+	events   []string
+	payloads [][]byte
+}
 
 func (m *recordingMythicalObserver) ObserveGitHubEvent(_ context.Context, eventType string, payload []byte) error {
 	var event struct {
@@ -397,6 +400,7 @@ func (m *recordingMythicalObserver) ObserveGitHubEvent(_ context.Context, eventT
 	}
 	_ = json.Unmarshal(payload, &event)
 	m.events = append(m.events, eventType+":"+event.Action)
+	m.payloads = append(m.payloads, payload)
 	return nil
 }
 
