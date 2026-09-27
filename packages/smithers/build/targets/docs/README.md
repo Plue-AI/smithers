@@ -153,18 +153,28 @@ A repository can declare its workspace chat homepage in `.smithers/FACTORY.ts`:
 ```ts
 export const home = Smithers.Factory.Home({
   blocks: [
-    Smithers.Home.Prompt({ placeholder: "Change this repository…" }),
-    Smithers.Home.Flows({ title: "Try first" }),
-    Smithers.Home.Markdown({ path: "README.md" }),
-    Smithers.Home.Links({ links: [{ label: "Source", url: "https://example.com" }] })
+    Smithers.Home.Prompt({ title: "What should we work on?", placeholder: "Ask Smithers…" }),
+    Smithers.Home.App({ flow: "issue.implement", title: "Fix an issue", picture: "issue" }),
+    Smithers.Home.App({ flow: "prs.triage", title: "Review a PR", picture: "review" }),
+    Smithers.Home.App({ flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" }),
+    Smithers.Home.App({ flow: "triggers.register", title: "Run it every night", picture: "schedule" })
   ]
 })
 ```
 
-`Smithers.Home.Text({ text })` adds plain text, and `Smithers.Home.Stack()`
-shows the repository's live mythical stack. The factory projection writes
-`.smithers/home.json`; the server resolves Markdown files at `main`. When that
-file is absent, the chat shows `README.md` if present.
+An app is a featured flow with a picture: `flow` names a slash flow or one of
+the repository's own flows, and `picture` is one of `issue`, `review`, `wiki`
+or `schedule`. The app shows the apps as a grid of tiles under the prompt's
+`title`; a tile with a last result shows that result, otherwise its picture.
+Opening a tile renders the flow's form, then the run card.
+
+`Smithers.Home.Flows({ title })` lists the featured flows,
+`Smithers.Home.Markdown({ path })` a repository Markdown file,
+`Smithers.Home.Links({ links })` links, `Smithers.Home.Text({ text })` plain
+text, and `Smithers.Home.Stack()` the repository's live mythical stack. The
+factory projection writes `.smithers/home.json`; the server resolves Markdown
+files at `main`. When that file is absent, the chat shows `README.md` if
+present.
 
 ## Where to go next
 

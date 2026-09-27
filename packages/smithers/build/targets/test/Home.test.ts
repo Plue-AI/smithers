@@ -32,6 +32,24 @@ describe("the home blocks", () => {
       placeholder: "Change Smithers…"
     })
     expect(Home.Prompt({ flow: "review" })).toEqual({ type: "prompt", flow: "review" })
+    expect(Home.Prompt({ title: "What should we work on?", placeholder: "Ask Smithers…" })).toEqual({
+      type: "prompt",
+      title: "What should we work on?",
+      placeholder: "Ask Smithers…"
+    })
+    const app = Home.App({ flow: "issue.implement", title: "Fix an issue", picture: "issue" })
+    expect(app).toEqual({ type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" })
+    expect(Object.isFrozen(app)).toBe(true)
+    expect(Home.App({ flow: "pr-triage", title: "Review a PR", picture: "review" }).picture).toBe("review")
+    expect(() => Home.App({ flow: "issue.implement", title: "Fix an issue", picture: "photo" } as never)).toThrow()
+    expect(() => Home.App({ flow: "https://x", title: "Fix an issue", picture: "issue" })).toThrow()
+    expect(() => Home.App({ flow: "review", title: "<b>Review</b>", picture: "review" })).toThrow(
+      /must not contain HTML/
+    )
+    expect(() => Home.App({ flow: "review", picture: "review" } as never)).toThrow()
+    expect(() => Home.App({ flow: "review", title: "Review", picture: "review", subtitle: "x" } as never)).toThrow(
+      /unknown option "subtitle"/
+    )
     expect(() => Home.Prompt({ flow: "https://example.com" })).toThrow()
     expect(Home.Markdown({ path: "docs/README.md" })).toEqual({ type: "markdown", path: "docs/README.md" })
     expect(Home.Stack()).toEqual({ type: "stack" })

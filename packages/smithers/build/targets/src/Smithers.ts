@@ -539,7 +539,7 @@ export const Size = Object.freeze({ Budgets: NodeArtifactModule.Budgets })
 export const Docs = Object.freeze({ Page: DocsPageModule.Page, Check: DocsCheckModule.Check })
 
 /**
- * The declared homepage blocks: `Prompt`, `Flows`, `Markdown`, `Text`, `Links`, and `Stack`.
+ * The declared homepage blocks: `Prompt`, `Flows`, `Markdown`, `Text`, `Links`, `Stack`, and `App`.
  *
  * @category namespace exports
  * @since 1.0.0
@@ -550,7 +550,8 @@ export const Home = Object.freeze({
   Flows: HomeModule.Flows,
   Prompt: HomeModule.Prompt,
   Markdown: HomeModule.Markdown,
-  Stack: HomeModule.Stack
+  Stack: HomeModule.Stack,
+  App: HomeModule.App
 })
 
 /**

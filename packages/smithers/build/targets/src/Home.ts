@@ -184,7 +184,33 @@ export const FlowsBlock = Schema.Struct({
 export const PromptBlock = Schema.Struct({
   type: Schema.Literal("prompt"),
   flow: Schema.optional(PromptFlow),
+  /** The heading over the composer ("What should we work on?"). */
+  title: Schema.optional(Title),
   placeholder: Schema.optional(Title)
+})
+
+/**
+ * The pictures an app tile may wear: what the app's result looks like. The
+ * app draws each one; a tile with a last result shows that result instead.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const AppPicture = Schema.Literals(["issue", "review", "wiki", "schedule"])
+
+/**
+ * An app: a featured flow with a picture (PRODUCT.md D-18). The tile names
+ * the flow it opens; opening it renders that flow's form (one input, one
+ * button), then the run card. There is no app model beyond this block.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const AppBlock = Schema.Struct({
+  type: Schema.Literal("app"),
+  flow: PromptFlow,
+  title: Title,
+  picture: AppPicture
 })
 
 /**
@@ -218,7 +244,7 @@ export const StackBlock = Schema.Struct({
  * @category schemas
  * @since 1.0.0
  */
-export const Block = Schema.Union([TextBlock, LinksBlock, FlowsBlock, PromptBlock, MarkdownBlock, StackBlock])
+export const Block = Schema.Union([TextBlock, LinksBlock, FlowsBlock, PromptBlock, MarkdownBlock, StackBlock, AppBlock])
 
 /**
  * One declared block.
@@ -375,7 +401,20 @@ export interface FlowsOptions {
  */
 export interface PromptOptions {
   readonly flow?: string | undefined
+  readonly title?: string | undefined
   readonly placeholder?: string | undefined
+}
+
+/**
+ * What a `FACTORY.ts` writes for an app block.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface AppOptions {
+  readonly flow: string
+  readonly title: string
+  readonly picture: typeof AppPicture.Type
 }
 
 /**
@@ -454,7 +493,19 @@ export const Flows = (options: FlowsOptions = {}): typeof FlowsBlock.Type =>
 export const Prompt = (options: PromptOptions = {}): typeof PromptBlock.Type =>
   freezeDeep(decode("Home.Prompt", PromptBlock, {
     type: "prompt",
-    ...plainOptions("Home.Prompt", options, new Set(["flow", "placeholder"]))
+    ...plainOptions("Home.Prompt", options, new Set(["flow", "title", "placeholder"]))
+  }))
+
+/**
+ * Declares an app: a flow presented as a picture tile on the home.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const App = (options: AppOptions): typeof AppBlock.Type =>
+  freezeDeep(decode("Home.App", AppBlock, {
+    type: "app",
+    ...plainOptions("Home.App", options, new Set(["flow", "title", "picture"]))
   }))
 
 /**
@@ -511,7 +562,7 @@ export const Home = (options: HomeOptions): Declaration => {
   blocks.forEach((block, index) => {
     if (typeof block !== "object" || block === null) {
       throw new TypeError(
-        `Factory.Home block ${index} must be a declared block (Smithers.Home.Text, Links, Flows, Prompt, Markdown, Stack), not ${
+        `Factory.Home block ${index} must be a declared block (Smithers.Home.Text, Links, Flows, Prompt, Markdown, Stack, App), not ${
           typeof block === "string" ? "a string" : typeof block
         }`
       )
