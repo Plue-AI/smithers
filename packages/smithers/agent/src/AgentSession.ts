@@ -126,6 +126,15 @@ import * as StandardFlows from "./StandardFlows.ts"
  * @since 0.1.0
  */
 export interface Options {
+  /** Host-selected profile instructions, sealed before the first model call. */
+  readonly instructions?:
+    | ((launch: {
+      readonly descriptor: Descriptor.FlowDescriptor
+      readonly text: string
+      readonly capabilities: ReadonlyArray<string>
+    }) => Effect.Effect<ReadonlyArray<string>, unknown>)
+    | undefined
+
   /** Host-selected opening context, frozen in this run before the first model call. */
   readonly memory?:
     | ((launch: {
@@ -2698,6 +2707,16 @@ export const make = (
             capabilities: card.envelope.capabilities
           })
         })
+        const instructions = options.instructions === undefined ? [] : yield* Action.make({
+          name: "agent/opening-instructions",
+          implementationVersion: "1",
+          tier: "sealed",
+          idempotencyKey: `${payload.runId}:opening-instructions`,
+          success: Schema.Array(Schema.String),
+          error: Schema.Unknown,
+          execute: options.instructions({ descriptor, text: flowBody.text, capabilities: card.envelope.capabilities })
+        })
+        const system = [...(options.system ?? []), ...instructions, ...(routing?.variant ?? [])]
         const outcome = yield* agent.run({
           memory,
           contextWindowTokensFor: contextWindowResolver(seats),
@@ -2711,7 +2730,7 @@ export const make = (
           prompt: rendered.text,
           // The host's own system text stays first; a routed run's variant
           // follows it.
-          system: routing === undefined ? options.system : [...(options.system ?? []), ...routing.variant],
+          system,
           registry,
           promptRunner: options.promptRunner,
           flows: [

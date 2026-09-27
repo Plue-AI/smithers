@@ -99,6 +99,7 @@ import {
   testRunner
 } from "./NativeEquipment.ts"
 import * as NodeWorkspaceObservation from "./NodeWorkspaceObservation.ts"
+import * as RoleProfile from "./RoleProfile.ts"
 import * as SourceRevision from "./SourceRevision.ts"
 import * as SupervisorMemory from "./SupervisorMemory.ts"
 import * as WorkspaceRouting from "./WorkspaceRouting.ts"
@@ -1187,6 +1188,9 @@ export const make = (
           capacity: options.capacity,
           budget: (envelope) => Budget.layerFromEnvelope(envelope, { weights: native.agentLimits?.weights }),
           memory: (launch) => SupervisorMemory.opening(launch).pipe(Effect.provideContext(memoryServices)),
+          instructions: (launch) =>
+            RoleProfile.forRun(workspaceRoot, launch.descriptor, launch.text, launch.capabilities)
+              .pipe(Effect.provideContext(filesystemServices)),
           orderTerminalStatus: supervisor.awaitSettled,
           approvalChannel: options.approvalChannel,
           asks: askPolicy(environment),

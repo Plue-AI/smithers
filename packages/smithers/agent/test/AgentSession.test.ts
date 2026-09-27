@@ -288,6 +288,7 @@ interface StackOptions {
   readonly catalog?: SeatRouter.Service | undefined
   /** The host's own system text. */
   readonly system?: ReadonlyArray<string> | undefined
+  readonly instructions?: AgentSession.Options["instructions"]
   /** Replaces methods of the control runtime the stack builds. */
   readonly wrapRuntime?: ((runtime: ControlRuntime.Service) => ControlRuntime.Service) | undefined
   /** What an in-run ask does on this host. */
@@ -346,6 +347,7 @@ const stack = (options: StackOptions) => {
     reasoningEffort: options.reasoningEffort,
     judged: options.judged,
     system: options.system,
+    instructions: options.instructions,
     asks: options.asks,
     memory: options.memory
   }).pipe(
@@ -2286,6 +2288,7 @@ const routedRun = (options: {
   readonly status: ControlSchema.RunStatus
   /** The host's own system text. */
   readonly system?: ReadonlyArray<string> | undefined
+  readonly instructions?: AgentSession.Options["instructions"]
   /** Parks once on an ask, and runs `beforeResume` before approving it. */
   readonly park?: { readonly beforeResume: () => void } | undefined
   /** Runs as soon as the launch is accepted, with the seats resolved so far. */
@@ -2351,6 +2354,7 @@ const routedRun = (options: {
         judge: options.judge,
         catalog: options.catalog,
         system: options.system,
+        instructions: options.instructions,
         ...(options.refusing === true ? { asks: "refuse" as const } : {})
       })))
     }).pipe(Effect.scoped) as Effect.Effect<Routed, unknown>
@@ -2542,5 +2546,45 @@ describe("AgentSession seat routing", () => {
     expect(run.resolved).toEqual(["anthropic:test-model", "anthropic:test-model"])
     expect(seatRouted(run.trail)).toHaveLength(0)
     expect(routeSettled(run.trail)).toHaveLength(0)
+  })
+})
+
+describe("AgentSession profile instructions", () => {
+  it("seals the profile before the first call and reuses it after approval", async () => {
+    let reads = 0
+    let current = "Shared rules and skills v1"
+    const run = await routedRun({
+      flowId: "agents/notes",
+      judge: scriptedCompletionJudge,
+      status: "completed",
+      system: ["Host rule"],
+      instructions: () =>
+        Effect.sync(() => {
+          reads++
+          return [current]
+        }),
+      park: {
+        beforeResume: () => {
+          current = "Edited instructions v2"
+        }
+      }
+    })
+    expect(reads).toBe(1)
+    expect(run.requests.length).toBeGreaterThan(1)
+    for (const request of run.requests) {
+      const system = request.system.map((part) => part.text).join("\n")
+      expect(system).toContain("Shared rules and skills v1")
+      expect(system).not.toContain("Edited instructions v2")
+      expect(system.indexOf("Host rule")).toBeLessThan(system.indexOf("Shared rules"))
+    }
+  })
+  it("refuses a profile read failure before calling a model", async () => {
+    const run = await routedRun({
+      flowId: "agents/notes",
+      judge: scriptedCompletionJudge,
+      status: "failed",
+      instructions: () => Effect.fail("missing skill")
+    })
+    expect(run.requests).toHaveLength(0)
   })
 })
