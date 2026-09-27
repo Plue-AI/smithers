@@ -948,7 +948,42 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       ),
       selectedDocumentId: z.string().optional(),
       view: z.enum(["outline", "document"]).optional(),
-      index: z.object({ repo: z.string(), page: z.number().int().positive(), hasNext: z.boolean() }).optional()
+      index: z.object({
+        repo: z.string(),
+        page: z.number().int().positive(),
+        hasNext: z.boolean(),
+        /* The space the index lists (#1922); absent on cards written before spaces existed, which listed public. */
+        space: z.enum(["public", "private"]).optional()
+      }).optional()
+    })
+  }),
+  /*
+   * A wiki page's history (#1922): every revision of one page in one space,
+   * including renames and the deletion, newest first. A row's content is the
+   * scoped revision's own bytes (the history content route), so a revision
+   * downloads after a rename or a delete.
+   */
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("wiki-history"),
+    payload: z.object({
+      repo: z.string(),
+      space: z.enum(["public", "private"]),
+      pageId: z.number().int().positive(),
+      title: z.string(),
+      path: z.string(),
+      revisions: z.array(z.object({
+        revision: z.number().int().positive(),
+        title: z.string(),
+        path: z.string(),
+        author: z.string(),
+        at: z.string(),
+        deleted: z.boolean(),
+        digest: z.string(),
+        attachment: z.object({ digest: z.string(), mediaType: z.string(), size: z.number() }).optional()
+      })),
+      page: z.number().int().positive(),
+      hasNext: z.boolean()
     })
   }),
   /*

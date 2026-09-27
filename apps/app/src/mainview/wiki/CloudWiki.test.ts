@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test"
 import { Effect, Stream } from "effect"
 import * as Y from "yjs"
 import {
+  CloudWikiTransport,
   decodeWikiState,
   editWikiState,
   encodeWikiState,
   makeCloudWikiTransport,
   mergeWikiState,
+  wikiContentPath,
+  wikiFolderOf,
   wikiPagePath,
   wikiStateContains
 } from "./CloudWiki"
@@ -72,8 +75,8 @@ describe("Plue Wiki Yjs-v1 contract", () => {
         )
       }
     })
-    const events = await Effect.runPromise(Stream.runCollect(transport.revisions("owner/repo", "old-name", 42, 6)))
-    expect(request).toContain("/api/repos/owner/repo/wiki/old-name/stream?page_id=42&after=6")
+    const events = await Effect.runPromise(Stream.runCollect(transport.revisions("owner/repo", "old-name", 42, 6, "private")))
+    expect(request).toContain("/api/repos/owner/repo/wiki/old-name/stream?page_id=42&after=6&visibility=private")
     expect(events).toEqual([{ id: 7, page_id: 42, revision: 7, deleted: false, slug: "new-name" }])
   })
 
@@ -92,9 +95,64 @@ describe("Plue Wiki Yjs-v1 contract", () => {
           })
       })
       const result = await Effect.runPromise(
-        Effect.result(Stream.runCollect(transport.revisions("owner/repo", "home", 42, 6)))
+        Effect.result(Stream.runCollect(transport.revisions("owner/repo", "home", 42, 6, "public")))
       )
       expect(result._tag).toBe("Failure")
     }
+  })
+})
+
+describe("the wiki spaces transport (#1922)", () => {
+  const page = { id: 7, slug: "home", title: "Home", revision: 2, author: { id: 1, login: "will" }, created_at: "2026-09-26T00:00:00Z", updated_at: "2026-09-26T00:00:00Z", visibility: "private", path: "Home.md", content_digest: "a".repeat(64) }
+  const recorded = () => {
+    const requests: Array<{ url: string; method: string; type: string | undefined; body: unknown }> = []
+    const transport = makeCloudWikiTransport({ baseUrl: "", http: async (url, init) => {
+      const headers = new Headers(init?.headers)
+      requests.push({ url, method: init?.method ?? "GET", type: headers.get("content-type") ?? undefined, body: init?.body })
+      if (url.includes("/navigation/index")) return Response.json({ pages: [{ ...page, body: "", metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Home"], links: [{ target: "Guides/Start", heading: "Install", alias: "start", embed: false, page_id: 8 }] }, backlinks: [{ page_id: 8, path: "Guides/Start.md", embed: false }] }], folders: ["Guides"], tags: ["guide"] })
+      if (url.includes("/history/7?")) return Response.json([{ page_id: 7, revision: 2, path: "Home.md", title: "Home", content_digest: "a".repeat(64), deleted: false, author: { id: 1, login: "will" }, updated_at: "2026-09-26T00:00:00Z" }])
+      if (init?.method === "DELETE") return new Response(null, { status: 204 })
+      if (url.includes("per_page=50") && !url.includes("/history/")) return Response.json([page])
+      if (url.includes("/document?")) return Response.json({ page: { ...page, body: "# Home" }, state: "", state_vector: "" })
+      return Response.json(page)
+    } })
+    return { requests, transport }
+  }
+
+  test("every request carries its space, and the index, history, create, rename, delete and attach routes are the contract's", async () => {
+    const { requests, transport } = recorded()
+    const run = <A>(effect: Effect.Effect<A, unknown, CloudWikiTransport>) => Effect.runPromise(Effect.provideService(effect, CloudWikiTransport, transport))
+    const index = await run(transport.index("owner/repo", "private"))
+    expect(index.pages[0]?.backlinks?.[0]).toEqual({ page_id: 8, path: "Guides/Start.md", embed: false })
+    expect(index.folders).toEqual(["Guides"])
+    await run(transport.history("owner/repo", "private", 7, 1))
+    await run(transport.create("owner/repo", "private", { title: "Home", body: "# Home\n" }))
+    await run(transport.patch("owner/repo", "private", "home", { path: "Guides/Home.md", expected_revision: 2 }))
+    await run(transport.remove("owner/repo", "private", "home"))
+    await run(transport.attach("owner/repo", "public", "logo", { path: "assets/logo.png", mediaType: "image/png", expectedRevision: 0, bytes: new Uint8Array([1, 2, 3]) }))
+    await run(transport.list("owner/repo", 1, "public"))
+    await run(transport.read("owner/repo", "home", "private"))
+    expect(requests.map((request) => `${request.method} ${request.url}`)).toEqual([
+      "GET /api/repos/owner/repo/wiki/navigation/index?visibility=private",
+      "GET /api/repos/owner/repo/wiki/history/7?page=1&per_page=50&visibility=private",
+      "POST /api/repos/owner/repo/wiki?visibility=private",
+      "PATCH /api/repos/owner/repo/wiki/home?visibility=private",
+      "DELETE /api/repos/owner/repo/wiki/home?visibility=private",
+      "PUT /api/repos/owner/repo/wiki/attachments/logo?path=assets%2Flogo.png&expected_revision=0&visibility=public",
+      "GET /api/repos/owner/repo/wiki?page=1&per_page=50&visibility=public",
+      "GET /api/repos/owner/repo/wiki/home/document?visibility=private"
+    ])
+    expect(JSON.parse(String(requests[3]!.body))).toEqual({ path: "Guides/Home.md", expected_revision: 2 })
+    expect(requests[5]!.type).toBe("image/png")
+    expect(wikiContentPath("owner/repo", "private", 7, 2)).toBe("/repos/owner/repo/wiki/history/7/2/content?visibility=private")
+    expect(wikiFolderOf("Guides/Start.md")).toBe("Guides")
+    expect(wikiFolderOf("Home.md")).toBe("")
+  })
+
+  test("a stale rename or attachment is refused with the 409 the backend answers", async () => {
+    const transport = makeCloudWikiTransport({ baseUrl: "", http: async () => Response.json({ message: "revision 1 is not current" }, { status: 409 }) })
+    const result = await Effect.runPromise(Effect.result(transport.patch("owner/repo", "public", "home", { path: "Other.md", expected_revision: 1 })))
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") expect((result.failure as { status?: number }).status).toBe(409)
   })
 })

@@ -5,6 +5,10 @@ export const CloudWikiState = z.object({
   repo: z.string(),
   pageId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   slug: z.string(),
+  /** The page's space (D-18 wiki: public or private); absent on rows saved before spaces existed, which were public. */
+  visibility: z.enum(["public", "private"]).optional(),
+  /** The page's Markdown path in its space (`Guides/Start.md`); absent before paths existed. */
+  path: z.string().optional(),
   remoteRevision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   remoteAuthor: z.string(),
   remoteUpdatedAt: z.string(),
