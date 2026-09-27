@@ -8,9 +8,9 @@ Smithers is an orchestration agent, primarily used to orchestrate maintaining a 
 [Open Smithers](https://smithers.sh/smithersai/smithers)
 [Follow the quickstart](/docs/quickstart/)
 
-![An earlier Smithers repository home with featured flows and the conversation.](/images/app/home.png)
+![The Smithers home for acme/widgets: the question What should we work on?, the chat box, and four tiles: Fix an issue, Review a PR, Ask the codebase, and Run it every night.](/images/app/home.png)
 
-Repository home preview. Follow the quickstart for the current setup checklist.
+Smithers home.
 
 ## Register your repository
 
