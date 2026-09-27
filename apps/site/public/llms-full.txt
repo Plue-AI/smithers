@@ -18,7 +18,7 @@ Smithers home.
 
 [Register a repository](https://smithers.sh/?register=1)
 
-![Registering github.com/acme/widgets: Smithers has chosen the license, checks, contribution style, and a workflow to build; cards show commits with agent-assisted work, contributors, agent readiness 72, a CI estimate of 14 to 3 minutes, and cleanups 18 of 100.](/images/app/register.png)
+![Smithers analyzing github.com/acme/widgets, now in review.](/images/app/register.png)
 
 Registration on main, with example data. Planned for smithers.sh.
 
