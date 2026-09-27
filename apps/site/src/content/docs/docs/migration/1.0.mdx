@@ -417,7 +417,7 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### databases
 
-**Reason:** SQLite only; the 0.x database move is removed. **Removed:** the flags `smthrs migrate --to` and `--backend` (SQLite only; `--backend sqlite` is accepted as a no-op). **1.0 path:** local SQLite; rc.0 has no PostgreSQL or PGlite backend, and `SMITHERS_BACKEND=pglite` or `SMITHERS_BACKEND=postgres` fails the same way, exiting 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).
+**Reason:** The 0.x database move is removed; configure PostgreSQL with SMITHERS_POSTGRES_URL. **Removed:** the flags `smthrs migrate --to` and `--backend` (Choose sqlite or postgres using SMITHERS_BACKEND and SMITHERS_POSTGRES_URL). **1.0 path:** local SQLite; rc.0 has no PostgreSQL or PGlite backend, and `SMITHERS_BACKEND=pglite` or `SMITHERS_BACKEND=postgres` fails the same way, exiting 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).
 
 **Scaffolding flags.**
 

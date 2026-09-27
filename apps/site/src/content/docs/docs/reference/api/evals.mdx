@@ -114,6 +114,7 @@ Four rules decide what a comparison reports, and none of them are obvious:
 | `invalid_run_options` | `Runner.run`'s own options are wrong: an empty `runId`, or an `at` that is not a canonical UTC instant.                                    | The caller                |
 | `invalid_baseline`    | The committed baseline is unreadable, holds a record the schema rejects, or belongs to another suite.                                      | Regenerate the baseline   |
 | `invalid_tolerance`   | A comparison tolerance is not a finite non-negative number.                                                                                | The caller                |
+| `invalid_trials`      | A `Trials` run, pass, or `k` count is outside its bounds.                                                                                  | The caller                |
 | `executor`            | The target flow failed for a case, or no executor was available.                                                                           | The target or the wiring  |
 | `ambiguous_score_job` | Two jobs share a step key and scorer, so an order-only runner cannot attribute their results to cases.                                     | The suite or batch runner |
 | `scorer_protocol`     | A batch runner returned the wrong number of observations, or observations identifying jobs other than the ones it was given.               | The batch runner          |
@@ -208,7 +209,7 @@ and `path` locates the offending value inside the input the caller supplied
 (`records[3].score`, `cases[1].input`, `options.at`). `cause` retains the
 original failure; it is never rendered on its own, so a message that matters
 to an operator says so itself. `EvalErrorCode` is the schema and type for the
-eight codes in the failure table.
+nine codes in the failure table.
 
 ### Suite
 
@@ -521,6 +522,35 @@ every C0 control and DEL in it is replaced with a space, so a step key or a
 target failure that reached a verdict reason cannot print its own line or a
 terminal escape.
 
+### Trials
+
+Repeated-run statistics for live model evaluations. A case that runs `n`
+times and passes `c` of them is summarized at `k`.
+
+```ts
+const passAtK = (n: number, c: number, k: number): number
+const passHatK = (n: number, c: number, k: number): number
+```
+
+`passAtK` is the unbiased estimator `1 - C(n - c, k) / C(n, k)` (Chen et al.,
+2021): the chance at least one of `k` runs passes. `passHatK` is
+`C(c, k) / C(n, k)`: the chance all `k` pass, the consistency measure of
+tau-bench. Both are computed as products, so large `n` stays exact. Counts must
+be integers with `0 <= c <= n` and `1 <= k <= n`; anything else throws an
+`EvalError` with code `invalid_trials`.
+
+```ts
+const summarize = (outcomes: ReadonlyArray<boolean>, k: number): Summary
+const aggregate = (cases: Readonly<Record<string, ReadonlyArray<boolean>>>, k: number): Aggregate
+```
+
+- `Summary`: `{ n, passes, rate, passAt1, passAtK, passHatK, stderr }`.
+  `stderr` is `sqrt(rate * (1 - rate) / n)`, and 0 for one run.
+- `Aggregate`: `{ cases, passAt1, passAtK, passHatK, allPass, perCase }`. The
+  rates are means over cases; `allPass` is the fraction of cases whose every
+  run passed. A case with fewer than `k` runs is summarized at `k = n`, and no
+  cases aggregate to zeros. A case with no runs throws `invalid_trials`.
+
 ## Export index
 
 | Export                          | Category      | Summary                                                                         |
@@ -577,6 +607,12 @@ terminal escape.
 | `Gate.Options`                  | models        | Thresholds accepted by a CI score gate.                                         |
 | `Gate.check`                    | constructors  | Checks thresholds through `@smthrs/scorers`' shared ScoreGate arithmetic.       |
 | `Gate.ciGrade`                  | grading       | Maps a gate verdict to the shared CI convention.                                |
+| `Trials.Summary`                | models        | Repeated-run statistics for one case.                                           |
+| `Trials.Aggregate`              | models        | Repeated-run statistics averaged over cases.                                    |
+| `Trials.passAtK`                | statistics    | The unbiased pass@k estimator.                                                  |
+| `Trials.passHatK`               | statistics    | The chance all `k` of `n` recorded runs pass.                                   |
+| `Trials.summarize`              | statistics    | Summarizes one case's run outcomes at `k`.                                      |
+| `Trials.aggregate`              | statistics    | Summarizes every case at `k` and averages over cases.                           |
 
 ## A worked suite
 

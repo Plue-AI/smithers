@@ -20666,8 +20666,8 @@ it surfaces on the error channel instead.
 
 ## UnsupportedBackend
 
-The environment half of the SQLite-only contract. Strings only, so it is
-browser safe.
+Notices for unsupported legacy configuration names. This string-only module
+is browser safe.
 
 ### ignoredNames
 
@@ -20675,8 +20675,8 @@ browser safe.
 const ignoredNames: (environment: Readonly<Record<string, string | undefined>>) => ReadonlyArray<string>
 ```
 
-The `SMITHERS_*` names 1.0.0-rc.0 ignores: `SMITHERS_TEST_PG_URL` and every
-name beginning `SMITHERS_POSTGRES_`. Sorted, so an operator reading two runs
+Production ignores `SMITHERS_TEST_PG_URL` and legacy `SMITHERS_POSTGRES_*`
+knobs other than `SMITHERS_POSTGRES_URL` and `SMITHERS_POSTGRES_SCHEMA`. Sorted, so an operator reading two runs
 compares two identical lists. An exported-but-blank name counts as unset.
 
 The separator is part of the prefix, so `SMITHERS_POSTGRESQL_URL`, a name
@@ -20691,7 +20691,7 @@ const ignoredNotice: (name: string) => string
 The one line an ignored name gets:
 
 ```text
-ignored: SMITHERS_POSTGRES_URL has no effect in 1.0.0-rc.0 (SQLite only)
+ignored: SMITHERS_TEST_PG_URL has no effect in 1.0.0-rc.0 (use SMITHERS_POSTGRES_URL to select PostgreSQL)
 ```
 
 It is a notice, not a refusal: it changes no exit code and no result.
@@ -20700,8 +20700,8 @@ It is a notice, not a refusal: it changes no exit code and no result.
 
 Node only. `import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"`.
 
-Provides the `node:sqlite` SQL client through `@effect/sql-sqlite-node`, and
-nothing else. The write policy lives in `DurableWriter.layer`, composed on top.
+Defaults to `node:sqlite` through `@effect/sql-sqlite-node`; a configured
+PostgreSQL URL selects `PostgresDatabase` instead. The write policy lives in `DurableWriter.layer`, composed on top.
 
 ### layer
 
@@ -20801,6 +20801,15 @@ halves share one connection and serialization comes from the client's
 in-process transaction mutex rather than from the database.
 
 See [Test against a database](https://database.smithers.sh/guides/test-against-a-database/).
+
+## PostgresDatabase
+
+Import `@smthrs/database/postgres/PostgresDatabase` and provide
+`layer({ url, schema?, postgres? })`. The optional `postgres` field passes
+Effect PostgreSQL pool/connection options; Smithers owns the type registry.
+The resulting layer provides `SqlClient`; compose `DurableWriter.layer()`
+and the owning migration set as with SQLite. See
+[configuration and isolation](https://database.smithers.sh/concepts/sqlite-only/).
 
 ---
 
@@ -22455,6 +22464,7 @@ Four rules decide what a comparison reports, and none of them are obvious:
 | `invalid_run_options` | `Runner.run`'s own options are wrong: an empty `runId`, or an `at` that is not a canonical UTC instant.                                    | The caller                |
 | `invalid_baseline`    | The committed baseline is unreadable, holds a record the schema rejects, or belongs to another suite.                                      | Regenerate the baseline   |
 | `invalid_tolerance`   | A comparison tolerance is not a finite non-negative number.                                                                                | The caller                |
+| `invalid_trials`      | A `Trials` run, pass, or `k` count is outside its bounds.                                                                                  | The caller                |
 | `executor`            | The target flow failed for a case, or no executor was available.                                                                           | The target or the wiring  |
 | `ambiguous_score_job` | Two jobs share a step key and scorer, so an order-only runner cannot attribute their results to cases.                                     | The suite or batch runner |
 | `scorer_protocol`     | A batch runner returned the wrong number of observations, or observations identifying jobs other than the ones it was given.               | The batch runner          |
@@ -22549,7 +22559,7 @@ and `path` locates the offending value inside the input the caller supplied
 (`records[3].score`, `cases[1].input`, `options.at`). `cause` retains the
 original failure; it is never rendered on its own, so a message that matters
 to an operator says so itself. `EvalErrorCode` is the schema and type for the
-eight codes in the failure table.
+nine codes in the failure table.
 
 ### Suite
 
@@ -22862,6 +22872,35 @@ every C0 control and DEL in it is replaced with a space, so a step key or a
 target failure that reached a verdict reason cannot print its own line or a
 terminal escape.
 
+### Trials
+
+Repeated-run statistics for live model evaluations. A case that runs `n`
+times and passes `c` of them is summarized at `k`.
+
+```ts
+const passAtK = (n: number, c: number, k: number): number
+const passHatK = (n: number, c: number, k: number): number
+```
+
+`passAtK` is the unbiased estimator `1 - C(n - c, k) / C(n, k)` (Chen et al.,
+2021): the chance at least one of `k` runs passes. `passHatK` is
+`C(c, k) / C(n, k)`: the chance all `k` pass, the consistency measure of
+tau-bench. Both are computed as products, so large `n` stays exact. Counts must
+be integers with `0 <= c <= n` and `1 <= k <= n`; anything else throws an
+`EvalError` with code `invalid_trials`.
+
+```ts
+const summarize = (outcomes: ReadonlyArray<boolean>, k: number): Summary
+const aggregate = (cases: Readonly<Record<string, ReadonlyArray<boolean>>>, k: number): Aggregate
+```
+
+- `Summary`: `{ n, passes, rate, passAt1, passAtK, passHatK, stderr }`.
+  `stderr` is `sqrt(rate * (1 - rate) / n)`, and 0 for one run.
+- `Aggregate`: `{ cases, passAt1, passAtK, passHatK, allPass, perCase }`. The
+  rates are means over cases; `allPass` is the fraction of cases whose every
+  run passed. A case with fewer than `k` runs is summarized at `k = n`, and no
+  cases aggregate to zeros. A case with no runs throws `invalid_trials`.
+
 ## Export index
 
 | Export                          | Category      | Summary                                                                         |
@@ -22918,6 +22957,12 @@ terminal escape.
 | `Gate.Options`                  | models        | Thresholds accepted by a CI score gate.                                         |
 | `Gate.check`                    | constructors  | Checks thresholds through `@smthrs/scorers`' shared ScoreGate arithmetic.       |
 | `Gate.ciGrade`                  | grading       | Maps a gate verdict to the shared CI convention.                                |
+| `Trials.Summary`                | models        | Repeated-run statistics for one case.                                           |
+| `Trials.Aggregate`              | models        | Repeated-run statistics averaged over cases.                                    |
+| `Trials.passAtK`                | statistics    | The unbiased pass@k estimator.                                                  |
+| `Trials.passHatK`               | statistics    | The chance all `k` of `n` recorded runs pass.                                   |
+| `Trials.summarize`              | statistics    | Summarizes one case's run outcomes at `k`.                                      |
+| `Trials.aggregate`              | statistics    | Summarizes every case at `k` and averages over cases.                           |
 
 ## A worked suite
 
@@ -40783,6 +40828,122 @@ Every public export, once.
 | `ScoreGate.ScoreExpectation`   | interface | constructors | Mean, minimum, and per-case threshold gates.                            |
 | `ScoreGate.expectScores`       | const     | constructors | Build gates over caller-owned fixed samples.                            |
 
+## Checks
+
+`Checks` holds pure, synchronous text and action checks. Each returns a
+`Check`, `{ id, pass, detail }`, where `detail` names what was found and never
+exceeds 200 characters. `all` folds checks into the fraction passing, and
+`scorer` declares a scorer whose score is that fraction and whose `meta` is
+`{ pass, checks }`.
+
+```typescript
+import { Checks } from "@smthrs/scorers"
+
+const style = Checks.scorer({
+  id: "my-package/scorers/style",
+  version: "1",
+  config: { max: 120 },
+  checks: ({ output }) => [
+    Checks.length(String(output), { max: 120 }),
+    Checks.opener(String(output), ["on it", "got it"]),
+    Checks.truncated(String(output))
+  ]
+})
+```
+
+Links are read in three forms: Slack `<url|label>` and `<url>`, markdown
+links (a bracketed label followed by the URL in parentheses), and bare
+`http(s)://` URLs. `words`, `questions`, `barePaths`,
+and `linkedReferences` read link labels as prose and skip link URLs.
+`excludes` and `leakage` match whole words and phrases case-insensitively; an
+entry written `/source/flags` is a regular expression. `requiredLinks` ignores
+scheme and host case, a trailing slash, and a fragment, and accepts a found URL
+that extends the required one with a path or query. `linkedReferences` accepts
+`/pull/` for a template containing `/issues/`. `count` defaults to at least one
+call when no bound is set.
+
+### Checks export index
+
+| Export                    | Kind      | Category     | Summary                                                                        |
+| ------------------------- | --------- | ------------ | ------------------------------------------------------------------------------ |
+| `Checks.Check`            | interface | models       | `{ id, pass, detail }`; `detail` names what was found, at most 200 characters. |
+| `Checks.Link`             | interface | models       | A found link: `url` and an optional `label`.                                   |
+| `Checks.Reference`        | interface | models       | A reference `pattern` and the `url` template, with `$1`, it must link to.      |
+| `Checks.Action`           | interface | models       | One recorded tool call: `tool` and `input`.                                    |
+| `Checks.CountSpec`        | interface | models       | Tool, `where` field filter, bounds, and id for `count`.                        |
+| `Checks.Emission`         | interface | models       | Text written to one named sink.                                                |
+| `Checks.Summary`          | interface | models       | Fraction passing, whether all passed, and the failed checks.                   |
+| `Checks.ScorerOptions`    | interface | models       | Scorer id, version, name, config, and the checks function.                     |
+| `Checks.words`            | const     | measuring    | Counts words, reading link labels and skipping link URLs.                      |
+| `Checks.length`           | const     | checks       | Word count within inclusive `min` and `max`.                                   |
+| `Checks.includes`         | const     | checks       | Every entry present, case-insensitively; an array is any-of.                   |
+| `Checks.excludes`         | const     | checks       | No forbidden whole word, phrase, or `/regex/flags` match.                      |
+| `Checks.opener`           | const     | checks       | The message does not open with a listed phrase.                                |
+| `Checks.truncated`        | const     | checks       | No cut-off word, trailing ellipsis, or unclosed code fence.                    |
+| `Checks.links`            | const     | extracting   | Slack, markdown, and bare links, deduplicated by URL.                          |
+| `Checks.requiredLinks`    | const     | checks       | Every required URL or any-of group linked.                                     |
+| `Checks.linkedReferences` | const     | checks       | Every reference in the prose linked to its template URL.                       |
+| `Checks.pathExtensions`   | const     | models       | File extensions `barePaths` treats as naming a file.                           |
+| `Checks.barePaths`        | const     | checks       | No file-system path outside link syntax.                                       |
+| `Checks.questions`        | const     | measuring    | Counts sentences ending in `?`.                                                |
+| `Checks.count`            | const     | checks       | Matching tool calls within inclusive bounds.                                   |
+| `Checks.leakage`          | const     | checks       | No marker in any sink; names sink and marker only.                             |
+| `Checks.all`              | const     | combinators  | Folds checks into a score and a pass flag.                                     |
+| `Checks.scorer`           | const     | constructors | Declares a scorer over a list of checks.                                       |
+
+## Rubric
+
+`Rubric` declares an LLM rubric judge as a scorer without a model dependency:
+the caller supplies the `Judge`, a function from `{ system, prompt }` to the
+reply text. Each criterion is scored 1 to 5 against its `low` and `high`
+anchors. The score is `(mean - 1) / 4`, `meta` is the `Verdict`, and `pass`
+follows the `Rule`, by default every score at least 3 and the mean at least
+3.8.
+
+```typescript
+import { Rubric } from "@smthrs/scorers"
+import { Effect } from "effect"
+
+const judge: Rubric.Judge<never> = ({ system, prompt }) => Effect.succeed(callYourModel(system, prompt))
+
+const tone = Rubric.make({
+  id: "my-package/scorers/tone",
+  version: "1",
+  criteria: [{ id: "plain", question: "Is it plain language?", low: "Dense jargon", high: "Anyone could follow it" }],
+  judge
+})
+```
+
+`Scorer.Input.input` is the context string or `{ context, focus? }`, and
+`output` the text judged. `render` fences each piece of content in a fence
+longer than any backtick run inside it. `parse` reads the first JSON object in
+the reply, fenced or not, and requires an integer from 1 to 5 for every
+criterion. An unparsable reply fails with code `invalid_score`; a rubric with
+no criteria or duplicate ids throws `invalid_declaration`. Criteria, examples,
+rule, and instructions are the scorer's `config`, so changing the rubric
+changes the `scorerKey`. `agreement` measures a judge against human labels.
+
+### Rubric export index
+
+| Export                 | Kind      | Category     | Summary                                                          |
+| ---------------------- | --------- | ------------ | ---------------------------------------------------------------- |
+| `Rubric.Request`       | interface | models       | One judge request: `system` and `prompt`.                        |
+| `Rubric.Judge`         | type      | models       | The caller-supplied model call: a request in, the raw reply out. |
+| `Rubric.Criterion`     | interface | models       | A criterion id, question, and the anchors for 1 and 5.           |
+| `Rubric.Example`       | interface | models       | A labelled calibration transcript and why it passes or fails.    |
+| `Rubric.Judgement`     | interface | models       | Parsed scores per criterion and the judge's reason.              |
+| `Rubric.Verdict`       | interface | models       | A judgement and whether it passes the rule.                      |
+| `Rubric.Rule`          | interface | models       | `minEach` and `minMean` pass thresholds.                         |
+| `Rubric.defaultRule`   | const     | models       | `{ minEach: 3, minMean: 3.8 }`.                                  |
+| `Rubric.RenderOptions` | interface | models       | Criteria, examples, context, focus, output, and instructions.    |
+| `Rubric.MakeOptions`   | interface | models       | Scorer identity, rubric, rule, instructions, and the judge.      |
+| `Rubric.Agreement`     | interface | models       | Judge-versus-human agreement counts and accuracy.                |
+| `Rubric.render`        | const     | rendering    | Builds the judge request with fenced, inert content.             |
+| `Rubric.parse`         | const     | parsing      | Reads the first JSON object of a reply into a `Judgement`.       |
+| `Rubric.decide`        | const     | predicates   | Applies a `Rule` to scores.                                      |
+| `Rubric.make`          | const     | constructors | Declares a rubric scorer over a caller-supplied judge.           |
+| `Rubric.agreement`     | const     | calibration  | Counts judge agreement with human labels.                        |
+
 ---
 
 # @smthrs/std
@@ -50151,7 +50312,7 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### databases
 
-**Reason:** SQLite only; the 0.x database move is removed. **Removed:** the flags `smthrs migrate --to` and `--backend` (SQLite only; `--backend sqlite` is accepted as a no-op). **1.0 path:** local SQLite; rc.0 has no PostgreSQL or PGlite backend, and `SMITHERS_BACKEND=pglite` or `SMITHERS_BACKEND=postgres` fails the same way, exiting 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).
+**Reason:** The 0.x database move is removed; configure PostgreSQL with SMITHERS_POSTGRES_URL. **Removed:** the flags `smthrs migrate --to` and `--backend` (Choose sqlite or postgres using SMITHERS_BACKEND and SMITHERS_POSTGRES_URL). **1.0 path:** local SQLite; rc.0 has no PostgreSQL or PGlite backend, and `SMITHERS_BACKEND=pglite` or `SMITHERS_BACKEND=postgres` fails the same way, exiting 1 with `unsupported_database`. See [Unsupported database](/docs/troubleshooting/unsupported-database/).
 
 **Scaffolding flags.**
 

@@ -899,7 +899,7 @@
       "anchor": "databases",
       "name": "to",
       "parent": "migrate",
-      "reason": "SQLite only; the 0.x database move is removed",
+      "reason": "The 0.x database move is removed; configure PostgreSQL with SMITHERS_POSTGRES_URL",
       "spellings": [
         "smthrs migrate --to"
       ]
@@ -919,7 +919,7 @@
       "anchor": "databases",
       "name": "backend",
       "parent": "",
-      "reason": "SQLite only (`--backend sqlite` is accepted as a no-op)",
+      "reason": "Choose sqlite or postgres using SMITHERS_BACKEND and SMITHERS_POSTGRES_URL",
       "spellings": [
         "--backend"
       ]
