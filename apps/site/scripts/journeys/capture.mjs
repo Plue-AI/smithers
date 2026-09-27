@@ -5,6 +5,7 @@
  *   node scripts/journeys/capture.mjs            # app, tui
  *   node scripts/journeys/capture.mjs app        # only the app GIFs
  *   node scripts/journeys/capture.mjs tui        # only the TUI GIFs
+ *   node scripts/journeys/capture.mjs wiki       # only the Wiki pane
  *   node scripts/journeys/capture.mjs previews <dir>
  *
  * app: the real app server and built SPA (build first with
@@ -15,6 +16,11 @@
  *
  * tui: the TUI docs recorder (apps/tui-docs/scripts/record.mjs) drives the
  * production TUI in a PTY with deterministic model replies; its GIFs are copied here.
+ *
+ * wiki: runs the app's wiki-spaces Playwright spec (apps/app) with
+ * SMITHERS_WIKI_CAPTURE set; it captures the Wiki pane in the public space (a
+ * generated page with its freshness chip) and the private space (a
+ * hand-written page), against the spec's fixture repository.
  *
  * previews: copies design previews rendered from fixture data by the app's
  * ui-surfaces probe (`UI_EVIDENCE_DIR=<dir> bun test e2e/probes/ui-surfaces.test.ts`).
@@ -114,6 +120,18 @@ function captureTui() {
   }
 }
 
+function captureWiki() {
+  const detail = "The app's Wiki pane, driven by apps/app/e2e/playwright/wiki-spaces.spec.ts against its fixture repository."
+  run("pnpm", ["exec", "playwright", "test", "e2e/playwright/wiki-spaces.spec.ts"], {
+    cwd: join(root, "apps/app"),
+    env: { ...process.env, SMITHERS_WIKI_CAPTURE: join(out, "app-wiki") }
+  })
+  for (const space of ["public", "private"]) {
+    note(`app-wiki-${space}.png`, "app", detail)
+    console.log(`captured app-wiki-${space}`)
+  }
+}
+
 function copyPreviews(dir) {
   if (!dir || !existsSync(dir)) throw new Error("Pass the ui-surfaces probe output directory")
   for (const entry of previews) {
@@ -126,5 +144,6 @@ function copyPreviews(dir) {
 const [mode, arg] = process.argv.slice(2)
 if (mode === undefined || mode === "app") await captureApp()
 if (mode === undefined || mode === "tui") captureTui()
+if (mode === undefined || mode === "wiki") captureWiki()
 if (mode === "previews") copyPreviews(arg)
 writeFileSync(ledgerPath, JSON.stringify(Object.fromEntries(Object.entries(ledger).sort()), null, 2) + "\n")
