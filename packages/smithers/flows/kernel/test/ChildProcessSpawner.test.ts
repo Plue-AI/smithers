@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
@@ -11,11 +12,16 @@ import {
   ProcessId
 } from "effect/unstable/process/ChildProcessSpawner"
 import * as ChildProcessSpawner from "../src/ChildProcessSpawner.ts"
+import * as CommandLine from "../src/CommandLine.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as Workspace from "../src/Workspace.ts"
 
-/** The kernel spawner over the process directory's workspace. */
-const guarded = ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer]))
+/**
+ * The kernel spawner over an absolute POSIX workspace. Effect's `Path.layer` is
+ * POSIX-only, so a relative root would resolve against the process's own
+ * directory, a drive path on Windows.
+ */
+const guarded = ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layer("/workspace"), Path.layer]))
 
 const itEffect = (name: string, effect: () => Effect.Effect<void, unknown, never>) => it.effect(name, () => effect())
 
@@ -376,7 +382,7 @@ describe("ChildProcessSpawner", () => {
       }))
       expect(seen).toEqual([{
         capability: { action: "proc:spawn", resource: "tool" },
-        context: { cwd: process.cwd(), env: ["A_PATH", "Z_TOKEN"] }
+        context: { cwd: "/workspace", env: ["A_PATH", "Z_TOKEN"] }
       }])
       expect(JSON.stringify(seen)).not.toContain("secret")
     }).pipe(
@@ -405,7 +411,7 @@ describe("ChildProcessSpawner", () => {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       yield* spawner.string(ChildProcess.make("tool", [], { env: environment }))
       expect(seen).toEqual([{
-        cwd: process.cwd(),
+        cwd: "/workspace",
         env: [...Array.from({ length: 64 }, (_, index) => `NAME_${String(index).padStart(2, "0")}`), "+7 more"]
       }])
       expect(JSON.stringify(seen)).not.toContain("value-")
@@ -435,13 +441,43 @@ describe("ChildProcessSpawner", () => {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       yield* spawner.string(ChildProcess.make("tool", [], { env: environment }))
       expect(seen).toEqual([{
-        cwd: process.cwd(),
+        cwd: "/workspace",
         env: Array.from({ length: 64 }, (_, index) => `NAME_${String(index).padStart(2, "0")}`)
       }])
       expect(JSON.stringify(seen)).not.toContain("more")
     }).pipe(
       Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
+      Effect.provideService(GrantStore, store)
+    )
+  })
+
+  itEffect("roots a win32 workspace and passes drive and UNC directories through", () => {
+    const checked: Array<unknown> = []
+    const spawned: Array<string | undefined> = []
+    const store = GrantStore.of({
+      check: (_capability, context) => {
+        checked.push(context?.cwd)
+        return Effect.void
+      },
+      reply: () => Effect.die("not used by decorator tests"),
+      list: Effect.succeed([]),
+      grantEnvelope: () => Effect.void
+    })
+    const cwds = [undefined, "src", "E:\\other", "\\\\server\\share\\dir"]
+    const expected = ["D:\\work", "D:\\work\\src", "E:\\other", "\\\\server\\share\\dir"]
+
+    return Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      for (const cwd of cwds) yield* spawner.string(ChildProcess.make("tool", [], cwd === undefined ? {} : { cwd }))
+      expect(checked).toEqual(expected)
+      expect(spawned).toEqual(expected)
+    }).pipe(
+      Effect.provide(ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layer("D:\\work"), NodePath.layerWin32]))),
+      Effect.provideService(
+        HostChildProcessSpawner,
+        hostSpawner({ stdout: "out", onSpawn: (command) => spawned.push(CommandLine.cwd(command)) })
+      ),
       Effect.provideService(GrantStore, store)
     )
   })

@@ -1,9 +1,10 @@
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { afterEach, describe, expect, it } from "@effect/vitest"
 import { CapabilityPattern } from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
-import { Deferred, Effect, Fiber, Option, Path, type PlatformError } from "effect"
+import { Deferred, Effect, Fiber, Option, type PlatformError } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner as EffectChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { access, mkdtemp, readFile, rm } from "node:fs/promises"
@@ -48,7 +49,7 @@ const withGuardedSpawner = <A, E>(
         Effect.provide(ChildProcessSpawner.layer),
         Effect.provide(NodeChildProcessSpawner.layer),
         Effect.provide(NodeFileSystem.layer),
-        Effect.provide(Path.layer),
+        Effect.provide(NodePath.layer),
         Effect.provideService(GrantStore.GrantStore, store)
       )
     })

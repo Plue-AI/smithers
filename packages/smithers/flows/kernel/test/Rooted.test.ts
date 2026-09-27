@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { afterEach, describe, expect, it } from "@effect/vitest"
 import { Effect, FileSystem, Layer, Path } from "effect"
@@ -7,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as GuardedSpawner from "../src/ChildProcessSpawner.ts"
+import * as CommandLine from "../src/CommandLine.ts"
 import * as ContainedSpawner from "../src/ContainedSpawner.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as KernelPath from "../src/Path.ts"
@@ -34,6 +36,18 @@ const allow = GrantStore.of({
   grantEnvelope: () => Effect.void
 })
 
+/**
+ * Prints the canonical working directory natively; `pwd` under Git Bash prints
+ * an MSYS path, and Windows may report an 8.3 short name.
+ */
+const printCwd = (options?: ChildProcess.CommandOptions) =>
+  ChildProcess.make(process.execPath, [
+    "-e",
+    "process.stdout.write(require(\"node:fs\").realpathSync.native(process.cwd()))"
+  ], options)
+
+const canonical = (value: string) => realpathSync.native(value)
+
 const lifecycle: ContainedSpawner.Lifecycle = (command, spawn) =>
   Effect.map(spawn(command), (handle) => ({ handle, activate: Effect.void, settled: Effect.succeed(true) }))
 
@@ -51,8 +65,8 @@ describe("Rooted", () => {
           relative: path.relative(".", "src/a.ts"),
           read: yield* fs.readFileString("src/a.ts"),
           glob: yield* fs.glob("src/*.ts"),
-          pwd: (yield* spawner.string(ChildProcess.make`pwd -P`)).trim(),
-          nested: (yield* spawner.string(ChildProcess.make({ cwd: "src" })`pwd -P`)).trim(),
+          pwd: yield* spawner.string(printCwd()),
+          nested: yield* spawner.string(printCwd({ cwd: "src" })),
           piped: (yield* spawner.string(ChildProcess.make`ls`.pipe(ChildProcess.pipeTo(ChildProcess.make`cat`))))
             .trim()
         }
@@ -60,11 +74,11 @@ describe("Rooted", () => {
     )
     expect(result).toEqual({
       resolved: join(root, "src"),
-      relative: "src/a.ts",
+      relative: join("src", "a.ts"),
       read: "a\n",
-      glob: ["src/a.ts"],
-      pwd: root,
-      nested: join(root, "src"),
+      glob: [join("src", "a.ts")],
+      pwd: canonical(root),
+      nested: canonical(join(root, "src")),
       piped: "src"
     })
   })
@@ -155,6 +169,31 @@ describe("Rooted", () => {
     expect(String(Effect.runSync(rooted.toFileUrl("a")))).toBe("file:///root/a")
   })
 
+  it("roots relative win32 paths and passes drive and UNC paths through", () => {
+    const calls: Array<ReadonlyArray<unknown>> = []
+    const base = new Proxy({} as FileSystem.FileSystem, {
+      get: (_, name) => (...args: ReadonlyArray<unknown>) => calls.push([name, ...args])
+    })
+    const rooted = Rooted.path(Effect.runSync(Effect.provide(Path.Path, NodePath.layerWin32)), "D:\\root")
+    const fs = Rooted.fileSystem(base, rooted)
+    fs.readFile("src\\a.ts")
+    fs.readFile("E:\\other\\a.ts")
+    fs.readFile("\\\\server\\share\\a.ts")
+    expect(calls).toEqual([
+      ["readFile", "D:\\root\\src\\a.ts"],
+      ["readFile", "E:\\other\\a.ts"],
+      ["readFile", "\\\\server\\share\\a.ts"]
+    ])
+    expect(rooted.resolve("E:\\other")).toBe("E:\\other")
+    expect(rooted.resolve("\\\\server\\share\\dir")).toBe("\\\\server\\share\\dir")
+    expect(rooted.relative(".", "src\\a.ts")).toBe("src\\a.ts")
+    expect(String(Effect.runSync(rooted.toFileUrl("src")))).toBe("file:///D:/root/src")
+    const cwds = [undefined, "src", "E:\\other", "\\\\server\\share\\dir"].map((cwd) =>
+      CommandLine.cwd(Rooted.command(ChildProcess.make("tool", [], cwd === undefined ? {} : { cwd }), rooted))
+    )
+    expect(cwds).toEqual(["D:\\root", "D:\\root\\src", "E:\\other", "\\\\server\\share\\dir"])
+  })
+
   for (const owned of [true, false]) {
     it(`keeps a spawner's containment (owned=${owned})`, () =>
       Effect.gen(function*() {
@@ -178,8 +217,8 @@ describe("Rooted", () => {
         const path = yield* Path.Path
         return {
           resolved: path.resolve("src"),
-          pwd: (yield* spawner.string(ChildProcess.make`pwd -P`)).trim(),
-          nested: (yield* spawner.string(ChildProcess.make({ cwd: "src" })`pwd -P`)).trim()
+          pwd: yield* spawner.string(printCwd()),
+          nested: yield* spawner.string(printCwd({ cwd: "src" }))
         }
       }).pipe(
         Effect.provide(Layer.merge(GuardedSpawner.layer, KernelPath.layer)),
@@ -187,6 +226,10 @@ describe("Rooted", () => {
         Effect.provide(NodeServices.layer)
       )
     )
-    expect(result).toEqual({ resolved: join(root, "src"), pwd: root, nested: join(root, "src") })
+    expect(result).toEqual({
+      resolved: join(root, "src"),
+      pwd: canonical(root),
+      nested: canonical(join(root, "src"))
+    })
   })
 })
