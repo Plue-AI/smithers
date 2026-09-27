@@ -18,6 +18,7 @@ import {
 import Dispatch from "../coding/dispatch/flow.ts"
 import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
+import Register from "../register-repository/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
 import { TriggerOutcome } from "./triggers.ts"
@@ -69,6 +70,20 @@ const policySources = [
   "../coding/implementation/flow.ts",
   "../coding/planning-authority.ts",
   "../coding/immutable-source.ts",
+  ...[
+    "flow.ts",
+    "setup/flow.ts",
+    "workflow.ts",
+    "schema.ts",
+    "host.ts",
+    "tree.ts",
+    "history.ts",
+    "readiness.ts",
+    "cleanup.ts",
+    "pulls.ts",
+    "jev.ts",
+    "link.ts"
+  ].map((name) => `../register-repository/${name}`),
   "../../packages/rpc/src/RepositorySetup.ts",
   "../../pnpm-lock.yaml",
   // A prompt a workspace runs is policy: editing one changes what every
@@ -165,7 +180,12 @@ export const provisionBuiltins = (stateRoot: string, policy: string) =>
       })),
       { name: "coding", flow: ImplementPlan, description: "Execute a native coding plan with its required checks." },
       { name: "coding/dispatch", flow: Dispatch, description: "Run one dispatched agent turn in this workspace." },
-      { name: "coding/implementation", flow: ImplementAtoms, description: "Implement one native coding atom." }
+      { name: "coding/implementation", flow: ImplementAtoms, description: "Implement one native coding atom." },
+      {
+        name: "register-repository",
+        flow: Register,
+        description: "Analyze this repository from its link, wait for Smithers review, then set it up."
+      }
     ]
     const modules = new Map<string, { body: string; declaration: unknown }>()
     for (const entry of entries) {

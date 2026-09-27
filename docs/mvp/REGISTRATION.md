@@ -62,6 +62,34 @@ per-file authorship classifier. Wording never insults the owner: "slop" stays
 internal, agent use is a strength, every finding has a fix, no claims about
 individual people, results private by default.
 
+## Implementation (#2153)
+
+- **Where it runs.** Clone is the existing GitHub import, so the registrant
+  owns a Smithers Cloud repository and a workspace for it. `register-repository`
+  is a coding-host builtin (`flows/repository/registry.ts`) and runs there,
+  which is what lets readiness run the repository's own install, tests, lint
+  and build on an exported copy (scratch `HOME`, bounded time).
+- **Steps.** `flows/register-repository/workflow.ts`; typed results in
+  `schema.ts`. A step whose evidence cannot be read returns `unavailable`
+  naming its step, and the card hides it. GitHub is read only through the
+  repository's proxy at its source coordinates, for pull requests, reviews,
+  files and Actions runs (`remote.ts` `githubReadable`). Jev decides only when
+  the evidence does not settle it (several names, conflicting license texts,
+  several check runners) and classifies merged pull requests as lint rule,
+  chore or neither.
+- **Cleanup.** Deterministic signals S1-S5 only, labeled `deterministic-v0`,
+  with provisional anchors and a seeded interval widened for the unmeasured
+  45 points; S6-S10 and the agent-written estimate wait on the calibration
+  corpus (#2160).
+- **Review.** A durable `select` (Approve / Decline), then a note on decline.
+  Approval runs `register-repository/setup` as a child flow in the same
+  workspace. Today only the registrant's own gateway can answer the wait;
+  the admin route across accounts is #2157 (blocked on the no-backend rule,
+  recorded on #2151). The closed-alpha gate stays until it lands (#2145).
+- **Cache.** Per account: a repeated registration of the same repository
+  reopens the recorded run and replays its journal (no launch, no model call).
+  Across accounts needs #2158.
+
 ## Tests
 
 Unresolved admin wait; duplicate start; decline and retry; restart

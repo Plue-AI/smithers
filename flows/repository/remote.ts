@@ -68,6 +68,13 @@ export class RepositoryRemote extends Context.Service<RepositoryRemote, {
     input: typeof RetainSourceRequest.Type
   ) => Effect.Effect<typeof RetainedSource.Type, CodingError>
   readonly comment?: (job: typeof Job.Type, step: string, input: Schema.Json) => Effect.Effect<Schema.Json, CodingError>
+  /**
+   * One read-only GitHub REST GET for this repository's imported source, through the repository's
+   * GitHub proxy addressed by the source's own coordinates. `path` is relative to `/repos/{owner}/{repo}`.
+   */
+  readonly github?: (path: string) => Effect.Effect<Schema.Json, CodingError>
+  /** The GitHub `owner/repo` this repository was imported from. */
+  readonly githubSource?: Effect.Effect<string, CodingError>
 }>()("repository/Remote") {}
 const failed = (message: string) => new CodingError({ code: "unavailable", message })
 const object = (value: unknown): Record<string, unknown> =>
@@ -94,6 +101,10 @@ const readJson = (response: HttpClientResponse.HttpClientResponse) =>
       catch: () => failed("Repository response is not valid JSON")
     })
   })
+/** The read-only repository paths registration asks GitHub for; nothing encoded, nothing else. */
+export const githubReadable = (path: string): boolean =>
+  /^\/(pulls(\/\d+\/(reviews|files))?|actions\/runs)(\?[A-Za-z0-9_=&]*)?$/.test(path)
+
 export const makeRemote = (options: RemoteOptions) =>
   Effect.gen(function*() {
     const client = yield* HttpClient.HttpClient
@@ -222,9 +233,35 @@ export const makeRemote = (options: RemoteOptions) =>
       }
       return { records, sources }
     })
+    // The source is read once it answers; a failed read is not remembered.
+    let resolvedSource: string | undefined
+    const source = Effect.suspend(() =>
+      resolvedSource !== undefined ?
+        Effect.succeed(resolvedSource) :
+        send(HttpClientRequest.get(`${base}/repository-source`)).pipe(
+          Effect.flatMap((value) => {
+            const metadata = object(value), fullName = metadata.full_name
+            return metadata.source === "github" && typeof fullName === "string" &&
+                /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)
+              ? Effect.succeed(fullName)
+              : Effect.fail(failed("This repository has no GitHub source"))
+          }),
+          Effect.tap((fullName) => Effect.sync(() => (resolvedSource = fullName)))
+        )
+    )
     return RepositoryRemote.of({
       repo: options.repositorySlug,
       workspaceId: options.workspaceId,
+      githubSource: source,
+      github: (path) =>
+        githubReadable(path)
+          ? Effect.flatMap(source, (fullName) =>
+            send(
+              HttpClientRequest.post(`${options.apiBaseUrl}/repos/${fullName}/github-proxy`).pipe(
+                HttpClientRequest.bodyJsonUnsafe({ method: "GET", path: `/repos/${fullName}${path}` })
+              )
+            ))
+          : Effect.fail(failed("Refused a GitHub path outside this repository")),
       history,
       source: send(HttpClientRequest.get(`${base}/repository-source`)).pipe(Effect.flatMap((value) => {
         const source = object(value).source

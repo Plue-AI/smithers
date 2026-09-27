@@ -955,6 +955,38 @@
       "flows": []
     },
     {
+      "id": "register-repository",
+      "description": "Register a GitHub repository with Smithers: analyze it from its link (theme, license, checks, agent readiness, cleanup opportunities, commits, contributors, contribution intake, workflows to build, CI estimate), wait for Smithers admin review, then set it up.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/register-repository/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "proc:spawn:*",
+        "net:post:*",
+        "model:call:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
+      "id": "register-repository/setup",
+      "description": "Set Smithers up for an approved repository: run its detected checks once in this workspace and record the result.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/register-repository/setup/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "proc:spawn:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "release",
       "description": "Prepare a Smithers release or validate, build, smoke-test and publish its exact npm tarballs with durable human approval.",
       "summary": null,

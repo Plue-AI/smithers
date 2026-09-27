@@ -18,6 +18,7 @@ import {
   seatRefusal
 } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
+import { registration as registerRepository } from "../register-repository/host.ts"
 import { activationLayers } from "../repository/activation.ts"
 import { changeLayers, changeModelLayers, changeModelNames } from "../repository/changes.ts"
 import { checkLayers as repositoryCheckLayers } from "../repository/checks.ts"
@@ -424,6 +425,12 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             fs,
             exporterPath: options.exporterPath,
             environment: options.checkEnvironment
+          }),
+          registerRepository({
+            repositoryPath: options.repositoryPath,
+            fs,
+            environment: options.checkEnvironment ?? {},
+            evaluator
           }),
           activationLayers,
           triggerLayers,
