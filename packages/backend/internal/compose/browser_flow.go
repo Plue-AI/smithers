@@ -47,6 +47,9 @@ type browserFlowAPI struct {
 	}
 	// resumes are the background resumes of sleeping boxes, by box.
 	resumes background.Jobs[string]
+	// limit is the account-wide API budget. Reads a run's progress polls
+	// (Projection.Snapshot, List) stay out of it, as the box relay always did.
+	limit func(http.Handler) http.Handler
 	// subscriptionTokens mirrors feature_flags.subscription_connections.
 	subscriptionTokens bool
 }
@@ -144,21 +147,34 @@ func validBrowserWorkspaceID(value string) bool {
 }
 
 // wake answers whether the box is running. A sleeping box is resumed in the
-// background, once; a resume that failed is answered to the next caller.
-func (api *browserFlowAPI) wake(ctx context.Context, workspace db.Workspace) (bool, error) {
+// background, once; a resume that failed is answered to the next caller. A
+// box its owner stopped is resumed only by provision, never by a read.
+func (api *browserFlowAPI) wake(ctx context.Context, workspace db.Workspace, provision bool) (bool, error) {
+	if workspace.Status == "running" {
+		return true, nil
+	}
 	if err := api.resumes.Failed(workspace.ID); err != nil {
 		return false, err
 	}
-	switch workspace.Status {
-	case "running":
-		return true, nil
-	case "suspended", "stopped":
+	if workspace.Status == "suspended" || (provision && workspace.Status == "stopped") {
 		api.resumes.Start(ctx, workspace.ID, func(ctx context.Context) error {
 			_, err := api.boxes.ResumeWorkspace(ctx, workspace.ID, workspace.RepositoryID, workspace.UserID)
 			return err
 		})
 	}
 	return false, nil
+}
+
+// browserFlowWakeFailed answers a box that could not be resumed: a product
+// refusal (a plan limit, a quota) as itself, anything else as resume failed.
+func browserFlowWakeFailed(w http.ResponseWriter, err error) {
+	var refusal *pkgerrors.APIError
+	if errors.As(err, &refusal) {
+		pkgerrors.WriteError(w, refusal)
+		return
+	}
+	slog.Error("box resume failed", "error", err)
+	browserFlowTyped(w, http.StatusServiceUnavailable, "workspace_resume_failed", "This box could not start.")
 }
 
 // provision is the box's provision-or-resume (#2198): it answers "ready" once
@@ -170,9 +186,9 @@ func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	running, err := api.wake(r.Context(), workspace)
+	running, err := api.wake(r.Context(), workspace, true)
 	if err != nil {
-		browserFlowUnavailable(w, err, "provision")
+		browserFlowWakeFailed(w, err)
 		return
 	}
 	if !running {
@@ -214,24 +230,38 @@ func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) 
 
 // rpc relays one procedure to the box's coding host. A snapshot of a box that
 // is waking, or whose host is starting, answers "provisioning", which the app
-// polls; any other procedure on a waking box is refused as workspace_starting.
+// polls; any other procedure on a waking box is refused as workspace_starting,
+// and every procedure on a box its owner stopped as workspace_stopped.
 func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 	request, target, workspace, ok := api.prepare(w, r, false)
 	if !ok {
 		return
 	}
-	snapshot := request.Procedure == "Projection.Snapshot"
-	running, err := api.wake(r.Context(), workspace)
-	if err != nil {
-		browserFlowUnavailable(w, err, request.Procedure)
+	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { api.relay(w, r, request, target, workspace) })
+	if api.limit == nil || request.Procedure == "Projection.Snapshot" || request.Procedure == "List" {
+		serve(w, r)
 		return
 	}
-	if !running {
-		if snapshot {
-			browserFlowProvisioning(w)
-		} else {
-			browserFlowTyped(w, http.StatusConflict, "workspace_starting", "This box is starting.")
-		}
+	api.limit(serve).ServeHTTP(w, r)
+}
+
+func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request browserFlowRequest, target flowruntime.Target, workspace db.Workspace) {
+	snapshot := request.Procedure == "Projection.Snapshot"
+	running, err := api.wake(r.Context(), workspace, false)
+	if err != nil {
+		browserFlowWakeFailed(w, err)
+		return
+	}
+	switch {
+	case running:
+	case workspace.Status == "stopped":
+		browserFlowTyped(w, http.StatusConflict, "workspace_stopped", "This box is stopped.")
+		return
+	case snapshot:
+		browserFlowProvisioning(w)
+		return
+	default:
+		browserFlowTyped(w, http.StatusConflict, "workspace_starting", "This box is starting.")
 		return
 	}
 	answer, err := api.dispatcher.CallRPC(r.Context(), target, request.Procedure, request.Payload)

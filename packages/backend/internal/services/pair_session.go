@@ -1738,7 +1738,7 @@ func (s *PairSessionService) ensureWorkspaceShare(ctx context.Context, session d
 		Level:         pairShareLevelForRole(role),
 	}); err != nil {
 		if workspaceGatewaySharingConflict(err) {
-			return pkgerrors.Conflict("stop the coding gateway before granting write access to this workspace")
+			return pkgerrors.Conflict("Stop this box's flows before sharing it for writing.")
 		}
 		return pkgerrors.Internal("grant workspace share: " + err.Error())
 	}

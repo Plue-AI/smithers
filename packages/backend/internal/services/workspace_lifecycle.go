@@ -179,6 +179,7 @@ func (s *WorkspaceService) UpdateWorkspaceHead(ctx context.Context, input Update
 
 func (s *WorkspaceService) teardownWorkspaceVM(ctx context.Context, workspace db.Workspace) error {
 	s.revokeWorkspaceHeadToken(ctx, workspace)
+	s.retireBoxHostCredentials(ctx, workspace)
 	if s.runtime != nil {
 		return s.deleteRuntimeWorkspace(ctx, workspace, workspace.UserID)
 	}
@@ -221,6 +222,7 @@ func (s *WorkspaceService) destroyWorkspace(ctx context.Context, workspace db.Wo
 			return err
 		}
 		s.revokeWorkspaceHeadToken(ctx, current)
+		s.retireBoxHostCredentials(ctx, current)
 		if err := s.deleteRuntimeWorkspaceLocked(ctx, current, current.UserID); err != nil {
 			return err
 		}
@@ -757,6 +759,7 @@ func (s *WorkspaceService) suspendWorkspace(ctx context.Context, workspace db.Wo
 			return pkgerrors.Conflict("workspace is " + current.Status)
 		}
 		s.revokeWorkspaceHeadToken(ctx, current)
+		s.retireBoxHostCredentials(ctx, current)
 		suspended, err := s.q.SuspendRunningWorkspace(ctx, current.ID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -787,6 +790,7 @@ func (s *WorkspaceService) suspendWorkspace(ctx context.Context, workspace db.Wo
 		return nil
 	}
 	s.revokeWorkspaceHeadToken(ctx, workspace)
+	s.retireBoxHostCredentials(ctx, workspace)
 
 	startedAt := time.Now()
 	if _, err := s.sandbox.SuspendSandbox(ctx, workspace.VmID); err != nil {

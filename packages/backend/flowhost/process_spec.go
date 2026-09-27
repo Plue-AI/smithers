@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -42,10 +43,7 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 		environment[name] = value
 	}
 	for name, value := range launch.Environment {
-		_, reserved := reservedEnvironment[name]
-		_, database := databaseEnvironment[name]
-		landing := name == "SMITHERS_JJHUB_TOKEN" || name == "SMITHERS_JJHUB_API_URL"
-		if (reserved && !landing) || database || name == "" || strings.ContainsAny(name, "=\x00") || strings.IndexByte(value, 0) >= 0 {
+		if !startEnvironmentName(name, launch.Catalog) || strings.IndexByte(value, 0) >= 0 {
 			return ProcessSpec{}, errors.New("flow host start environment names a reserved or invalid variable")
 		}
 		environment[name] = value
@@ -98,3 +96,36 @@ func hostServiceIdentity(launch HostLaunch) string {
 	digest := sha256.Sum256(data)
 	return "flow-host:" + hex.EncodeToString(digest[:])
 }
+
+// hostProcessEnvironment is what the runtime and the host own: paths, the
+// loader and interpreters' startup hooks, and the JJ configuration the
+// runtime clears. A start never supplies them.
+var hostProcessEnvironment = map[string]struct{}{
+	"HOME": {}, "PATH": {}, "USER": {}, "LOGNAME": {}, "SHELL": {}, "TMPDIR": {}, "PWD": {},
+	"XDG_CACHE_HOME": {}, "XDG_CONFIG_HOME": {}, "XDG_DATA_HOME": {}, "XDG_STATE_HOME": {},
+	"NODE_OPTIONS": {}, "NODE_PATH": {}, "BUN_OPTIONS": {}, "BASH_ENV": {}, "ENV": {}, "JJ_CONFIG": {},
+}
+
+// startEnvironmentName admits a per-start variable (HostLaunch.Environment):
+// the landing credential, or a repository variable that no catalog, runtime
+// or host setting owns.
+func startEnvironmentName(name string, catalog Catalog) bool {
+	if name == "SMITHERS_JJHUB_TOKEN" || name == "SMITHERS_JJHUB_API_URL" {
+		return true
+	}
+	_, configured := catalog.Environment[name]
+	return !configured && RepositoryVariable(name)
+}
+
+// RepositoryVariable reports whether a repository's agent variable may reach
+// its box's coding host: no Smithers, host, loader or database name. A model
+// seat's key is set after it, so a repository variable never replaces one.
+func RepositoryVariable(name string) bool {
+	_, reserved := reservedEnvironment[name]
+	_, database := databaseEnvironment[name]
+	_, process := hostProcessEnvironment[name]
+	return !reserved && !database && !process && !strings.HasPrefix(name, "SMITHERS_") &&
+		!strings.HasPrefix(name, "LD_") && !strings.HasPrefix(name, "DYLD_") && startEnvironmentPattern.MatchString(name)
+}
+
+var startEnvironmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

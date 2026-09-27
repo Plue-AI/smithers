@@ -3,8 +3,13 @@ package services
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -18,6 +23,8 @@ type boxHostQuerier interface {
 	HasWritableWorkspaceShares(context.Context, string) (bool, error)
 }
 
+var _ boxHostQuerier = (*db.Queries)(nil)
+
 // PrepareBoxHost readies the owner's running box for its coding host, just
 // before the host starts, and answers the host's per-start environment
 // (#2198): the box's agent environment, and, on an unshared box, the
@@ -28,21 +35,21 @@ type boxHostQuerier interface {
 // answers none. A box with write shares gets no credential: a guest with the
 // owner's UID could read it.
 func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error) {
+	environment, err := s.boxHostAgentEnvironment(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
 	base := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
 	q, ok := s.q.(boxHostQuerier)
 	if s.sandbox == nil || base == "" || !ok {
-		return nil, nil
+		return environment, nil
 	}
 	workspace, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
 	if err != nil {
 		return nil, err
 	}
 	if workspace.UserID != userID {
-		return nil, nil
-	}
-	environment, err := s.boxHostAgentEnvironment(ctx, repositoryID)
-	if err != nil {
-		return nil, err
+		return environment, nil
 	}
 	shared, err := q.HasWritableWorkspaceShares(ctx, workspace.ID)
 	if err != nil || shared {
@@ -89,11 +96,7 @@ func (s *WorkspaceService) boxHostAgentEnvironment(ctx context.Context, reposito
 }
 
 func boxHostAgentVariable(name string) bool {
-	switch name {
-	case "HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME":
-		return false
-	}
-	return agentEnvironmentNamePattern.MatchString(name) && !strings.HasPrefix(name, "SMITHERS_")
+	return agentEnvironmentNamePattern.MatchString(name) && flowhost.RepositoryVariable(name)
 }
 
 // RetireBoxHostCredential revokes a box coding host's landing credential when
@@ -117,11 +120,42 @@ func (s *WorkspaceService) RetireBoxHostCredential(ctx context.Context, hostID s
 
 // KeepBoxAwake records activity on a box whose coding host is being used, so
 // the idle sweep does not suspend it under a run that is progressing.
+// It writes at most once per boxHostActivityInterval per box, far inside any
+// idle timeout.
 func (s *WorkspaceService) KeepBoxAwake(ctx context.Context, workspaceID string) {
-	if s.q == nil {
+	if s.q == nil || s.boxHostActivity == nil {
 		return
 	}
+	now := time.Now()
+	if last, ok := s.boxHostActivity.Load(workspaceID); ok && now.Sub(last.(time.Time)) < boxHostActivityInterval {
+		return
+	}
+	s.boxHostActivity.Store(workspaceID, now)
 	if err := s.q.TouchWorkspaceActivity(ctx, workspaceID); err != nil {
+		s.boxHostActivity.Delete(workspaceID)
 		slog.Warn("record box host activity failed", "workspace_id", workspaceID, "error", err)
+	}
+}
+
+const boxHostActivityInterval = time.Minute
+
+// retireBoxHostCredentials revokes every landing credential minted for a
+// box's coding hosts when the box stops, suspends or is destroyed: its host
+// process ends with it, and the next start mints its own.
+func (s *WorkspaceService) retireBoxHostCredentials(ctx context.Context, workspace db.Workspace) {
+	q, ok := s.q.(boxHostQuerier)
+	if !ok || workspace.UserID <= 0 {
+		return
+	}
+	tokens, err := q.ListAccessTokensByUserID(ctx, workspace.UserID)
+	if err != nil {
+		slog.Warn("list box host credentials failed", "workspace_id", workspace.ID, "error", err)
+		return
+	}
+	scope := middleware.LandingWorkspaceScope(workspace.ID)
+	for _, token := range tokens {
+		if strings.HasPrefix(token.Name, boxHostLandingTokenName("")) && slices.Contains(strings.Split(token.Scopes, ","), scope) {
+			revokeTemporaryRepoCloneToken(ctx, q, workspace.UserID, token.ID)
+		}
 	}
 }

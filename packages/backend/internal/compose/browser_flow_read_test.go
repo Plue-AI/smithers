@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -258,4 +259,55 @@ type hostlessDispatcher struct{ *startingDispatcher }
 
 func (d *hostlessDispatcher) CallRPC(context.Context, flowruntime.Target, string, json.RawMessage) (json.RawMessage, error) {
 	return nil, testFlowFailure("runtime_host_not_running")
+}
+
+// A box its owner stopped is resumed only by provision; a read of it says so.
+// A resume that fails for another reason is typed.
+func TestBrowserFlowStoppedBoxWakesOnlyOnProvision(t *testing.T) {
+	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "stopped", RepositoryID: 23, UserID: 17}}
+	boxes := &resumingBoxes{resumed: make(chan string, 4), err: errors.New("vm unavailable")}
+	api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: &startingDispatcher{}, boxes: boxes,
+		resumes: background.Jobs[string]{FailureTTL: time.Minute}}
+	call := func(provision bool, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(body))
+		request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
+		writer := httptest.NewRecorder()
+		if provision {
+			api.provision(writer, request)
+		} else {
+			api.rpc(writer, request)
+		}
+		return writer
+	}
+	box := `"repo":"owner/repo","workspaceId":"` + browserBoxID + `"`
+	writer := call(false, `{`+box+`,"procedure":"Projection.Snapshot","payload":{}}`)
+	require.Equal(t, 409, writer.Code)
+	require.Contains(t, writer.Body.String(), `"code":"workspace_stopped"`)
+	require.Empty(t, boxes.resumed)
+
+	require.JSONEq(t, `{"status":"provisioning"}`, call(true, `{`+box+`}`).Body.String())
+	<-boxes.resumed
+	require.Eventually(t, func() bool { return !api.resumes.Running(browserBoxID) }, time.Second, time.Millisecond)
+	writer = call(true, `{`+box+`}`)
+	require.Equal(t, 503, writer.Code)
+	require.Contains(t, writer.Body.String(), `"code":"workspace_resume_failed"`)
+}
+
+// The API budget covers what a person does on a box, not a run's progress polls.
+func TestBrowserFlowBudgetsAllButProgressReads(t *testing.T) {
+	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
+	limited := []string{}
+	api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: &hostlessDispatcher{startingDispatcher: &startingDispatcher{}},
+		limit: func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				limited = append(limited, "limited")
+				next.ServeHTTP(w, r)
+			})
+		}}
+	for _, procedure := range []string{"Projection.Snapshot", "List", "Plan", "Run"} {
+		request := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"`+procedure+`","payload":{}}`))
+		request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
+		api.rpc(httptest.NewRecorder(), request)
+	}
+	require.Len(t, limited, 2)
 }

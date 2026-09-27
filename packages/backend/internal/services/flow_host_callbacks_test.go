@@ -66,7 +66,13 @@ func TestFlowHostCallbacksAuthorizeTheBoxHost(t *testing.T) {
 	refusedAs(pkgerrors.CodeUnauthorized, id, credential+"x")
 	refusedAs(pkgerrors.CodeUnauthorized, uuid.NewString(), credential)
 
+	// A share granted while the host was down (the host then starting on a
+	// shared box) refuses its callbacks.
+	_, err = pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='failed' WHERE id=$1`, id)
+	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id, owner_user_id, grantee_user_id, level) VALUES($1,$2,$3,'write')`, workspace, user, other)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='running' WHERE id=$1`, id)
 	require.NoError(t, err)
 	refusedAs(pkgerrors.CodeForbidden, id, credential)
 	_, err = pool.Exec(ctx, `DELETE FROM workspace_shares WHERE workspace_id=$1`, workspace)
@@ -75,4 +81,17 @@ func TestFlowHostCallbacksAuthorizeTheBoxHost(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, workspace)
 	require.NoError(t, err)
 	refusedAs(pkgerrors.CodeConflict, id, credential)
+
+	// While the box's host runs, the box is never shared for writing: its
+	// guest would run as the owner beside the host's credentials (#2198).
+	_, err = pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id, owner_user_id, grantee_user_id, level) VALUES($1,$2,$3,'write')`, workspace, user, other)
+	require.True(t, workspaceGatewaySharingConflict(err), "%v", err)
+	_, err = pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id, owner_user_id, grantee_user_id, level) VALUES($1,$2,$3,'read')`, workspace, user, other)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspace_shares SET level='write' WHERE workspace_id=$1`, workspace)
+	require.True(t, workspaceGatewaySharingConflict(err), "%v", err)
+	_, err = pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='failed' WHERE id=$1`, id)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspace_shares SET level='write' WHERE workspace_id=$1`, workspace)
+	require.NoError(t, err)
 }

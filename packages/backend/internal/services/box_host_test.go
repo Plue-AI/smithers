@@ -74,16 +74,25 @@ func TestPrepareBoxHostMintsTheLandingCredentialPerStart(t *testing.T) {
 	svc.RetireBoxHostCredential(context.Background(), "host-1", 9)
 	require.Equal(t, []int64{7, 7, minted.ID}, q.deleted)
 
+	// Stopping or suspending the box revokes every host credential minted for it.
+	q.deleted = nil
+	q.tokens = append(q.tokens, db.AccessToken{ID: 50, UserID: 9, Name: "flow-host-landing-other-box", Scopes: workspaceGatewayLandingTokenScopes(77, "another")})
+	svc.retireBoxHostCredentials(context.Background(), workspace)
+	require.Contains(t, q.deleted, minted.ID)
+	require.NotContains(t, q.deleted, int64(50))
+	require.NotContains(t, q.deleted, int64(8))
+
 	q.shared = true
 	environment, err = svc.PrepareBoxHost(context.Background(), "host-1", workspace.ID, 77, 9)
 	require.NoError(t, err)
 	require.NotContains(t, environment, "SMITHERS_JJHUB_TOKEN", "a box with write shares gets no credential")
 	require.Equal(t, "production", environment["NODE_ENV"])
 
-	unprovisioned := newWorkspaceServiceForTests(q, WithWorkspaceGitBaseURL("https://api.jjhub.tech"))
+	unprovisioned := newWorkspaceServiceForTests(q, WithWorkspaceGitBaseURL("https://api.jjhub.tech"), WithWorkspaceAgentEnvironment(boxHostTestEnvironment{}))
 	environment, err = unprovisioned.PrepareBoxHost(context.Background(), "host-1", workspace.ID, 77, 9)
 	require.NoError(t, err)
-	require.Empty(t, environment, "a runtime without the landing binding gets no credential")
+	require.NotContains(t, environment, "SMITHERS_JJHUB_TOKEN", "a runtime without the landing binding gets no credential")
+	require.Equal(t, "production", environment["NODE_ENV"], "but still the repository's agent environment")
 }
 
 type boxHostTestEnvironment struct{}
@@ -95,4 +104,25 @@ func (boxHostTestEnvironment) LoadForProvisioning(context.Context, int64) (Agent
 		Secrets:    map[string]string{"NEVER": "plaintext"},
 		ProxyBound: []string{"NPM_TOKEN"},
 	}, nil
+}
+
+type boxActivityCounter struct {
+	*mockWorkspaceQuerier
+	touches int
+}
+
+func (q *boxActivityCounter) TouchWorkspaceActivity(context.Context, string) error {
+	q.touches++
+	return nil
+}
+
+// Using a box's coding host keeps the box awake without a write per call.
+func TestKeepBoxAwakeWritesAtMostOncePerInterval(t *testing.T) {
+	q := &boxActivityCounter{mockWorkspaceQuerier: &mockWorkspaceQuerier{}}
+	svc := newWorkspaceServiceForTests(q)
+	for range 5 {
+		svc.KeepBoxAwake(context.Background(), "box")
+	}
+	svc.KeepBoxAwake(context.Background(), "other")
+	require.Equal(t, 2, q.touches)
 }

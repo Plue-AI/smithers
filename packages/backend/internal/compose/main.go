@@ -1460,6 +1460,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
 			resumes:            background.Jobs[string]{Timeout: 5 * time.Minute, FailureTTL: time.Minute},
+			limit:              middleware.GlobalAPIRateLimit(queries),
 			subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
 		access := func(limited bool) []func(http.Handler) http.Handler {
 			chain := []func(http.Handler) http.Handler{
@@ -1473,12 +1474,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return append(chain, middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository))
 		}
 		flowAccess := access(true)
-		// A box's flow seam is polled while its runs progress (a snapshot every
-		// two seconds per run), so it stays out of the account-wide API budget,
-		// as the box's own relay always was.
-		boxFlowAccess := access(false)
-		router.With(boxFlowAccess...).Post("/api/workflow/provision", browser.provision)
-		router.With(boxFlowAccess...).Post("/api/workflow/rpc", browser.rpc)
+		router.With(flowAccess...).Post("/api/workflow/provision", browser.provision)
+		// The seam takes the API budget itself: a run's progress polls (a
+		// snapshot every two seconds per run) stay out of it (browserFlowAPI.limit).
+		router.With(access(false)...).Post("/api/workflow/rpc", browser.rpc)
 		setup := &repositorySetupAPI{repos: repoService, setup: repositorySetupService}
 		router.With(flowAccess...).Post("/api/repository-setup/{operation}", setup.serve)
 		setupReads := append([]func(http.Handler) http.Handler{}, flowAccess[:len(flowAccess)-1]...)

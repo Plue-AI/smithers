@@ -313,11 +313,24 @@ func (value *lease) PrepareStart(ctx context.Context, replaceOwner bool) (Bindin
 		}
 		value.binding.OwnerGeneration++
 	}
+	// Every start gets its own control credential, so a process from an
+	// earlier start can no longer call the host's callbacks or spend its model
+	// credential (#2198).
+	credential, err := value.store.newCredential()
+	if err != nil {
+		return Binding{}, err
+	}
+	encrypted, err := value.store.codec.EncryptString(credential)
+	if err != nil || strings.TrimSpace(encrypted) == "" {
+		return Binding{}, errors.New("protect flow host credential")
+	}
+	digest := sha256.Sum256([]byte(credential))
 	var generation int64
-	err := value.connection.QueryRow(ctx, `UPDATE flow_runtime_host_bindings
-		SET owner_generation=$2, state='starting', last_error_code='', updated_at=clock_timestamp()
+	err = value.connection.QueryRow(ctx, `UPDATE flow_runtime_host_bindings
+		SET owner_generation=$2, state='starting', last_error_code='', credential_ciphertext=$3, credential_hash=$4,
+			updated_at=clock_timestamp()
 		WHERE id=$1 AND owner_generation <= $2 AND state <> 'retired'
-		RETURNING owner_generation`, value.binding.ID, value.binding.OwnerGeneration).Scan(&generation)
+		RETURNING owner_generation`, value.binding.ID, value.binding.OwnerGeneration, encrypted, digest[:]).Scan(&generation)
 	if err != nil {
 		return Binding{}, err
 	}
@@ -325,6 +338,7 @@ func (value *lease) PrepareStart(ctx context.Context, replaceOwner bool) (Bindin
 		return Binding{}, errors.New("flow host owner fence was not committed")
 	}
 	value.binding.State = "starting"
+	value.credential = credential
 	return value.binding, nil
 }
 

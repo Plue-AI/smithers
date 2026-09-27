@@ -533,3 +533,29 @@ func TestResolverStillRefusesAuthorityMismatchOnDurableBinding(t *testing.T) {
 	assert.Empty(t, launcher.stops, "an authority conflict must never stop or rebind the host")
 	require.Len(t, launcher.starts, 1)
 }
+
+// abandoningLauncher answers a start with a host of another generation.
+type abandoningLauncher struct {
+	*memoryLauncher
+	abandoned []Binding
+}
+
+func (launcher *abandoningLauncher) StartFlowHost(ctx context.Context, request HostLaunch) (Connection, error) {
+	connection, err := launcher.memoryLauncher.StartFlowHost(ctx, request)
+	launcher.transport.identity.OwnerGeneration++
+	return connection, err
+}
+
+func (launcher *abandoningLauncher) AbandonFlowHostStart(_ context.Context, binding Binding) {
+	launcher.abandoned = append(launcher.abandoned, binding)
+}
+
+// A start the resolver refuses after launch releases the start's credentials.
+func TestResolverAbandonsAStartItRefuses(t *testing.T) {
+	resolver, _, memory, target := testResolver(t)
+	launcher := &abandoningLauncher{memoryLauncher: memory}
+	resolver.launcher = launcher
+	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
+	require.ErrorContains(t, err, "runtime_identity_conflict")
+	require.Len(t, launcher.abandoned, 1)
+}

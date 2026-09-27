@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -580,7 +581,9 @@ type WorkspaceService struct {
 	goldenSnapshots *GoldenSnapshotService
 	// agentEnvironment supplies setup-only secrets and persistent nonsecret
 	// variables for new repository workspace VMs.
-	agentEnvironment    AgentEnvironmentProvisioningProvider
+	agentEnvironment AgentEnvironmentProvisioningProvider
+	// boxHostActivity is when each box's coding host last recorded activity.
+	boxHostActivity     *sync.Map
 	providerConnections ProviderPoolOffer
 	providerBootstrap   bool
 	platformSeats       []modelproxy.Seat
@@ -776,6 +779,7 @@ func WithWorkspaceDesktopObserveText(enabled bool) WorkspaceServiceOption {
 func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *WorkspaceService {
 	svc := &WorkspaceService{
 		provisionTasks:               newWorkspaceProvisionTasks(),
+		boxHostActivity:              &sync.Map{},
 		launchSessionCleanup:         SafeGo,
 		q:                            q,
 		sshHost:                      defaultWorkspaceSSHHost,

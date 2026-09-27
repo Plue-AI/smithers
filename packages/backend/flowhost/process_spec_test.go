@@ -54,9 +54,19 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	assert.Equal(t, "landing", withLanding.Environment["SMITHERS_JJHUB_TOKEN"])
 	assert.Equal(t, "https://api.example/api", withLanding.Environment["SMITHERS_JJHUB_API_URL"])
 	assert.Equal(t, spec.Identity, withLanding.Identity)
-	landing.Environment = map[string]string{"SMITHERS_API_KEY": "stolen"}
+	for _, name := range []string{"SMITHERS_API_KEY", "PATH", "HOME", "LD_PRELOAD", "NODE_OPTIONS", "BASH_ENV", "JJ_CONFIG", "SMITHERS_ANYTHING", "BAD-NAME"} {
+		landing.Environment = map[string]string{name: "stolen"}
+		_, err = BuildProcessSpec(landing, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+		require.Error(t, err, name)
+	}
+	landing.Environment = map[string]string{"NPM_TOKEN": "placeholder"}
+	withVariable, err := BuildProcessSpec(landing, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	assert.Equal(t, "placeholder", withVariable.Environment["NPM_TOKEN"])
+	catalog.Environment = map[string]string{"NPM_TOKEN": "catalog"}
+	landing.Catalog = catalog
 	_, err = BuildProcessSpec(landing, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
-	require.Error(t, err)
+	require.Error(t, err, "a start never overrides the catalog")
 	catalog.Environment = map[string]string{"SMITHERS_JJHUB_TOKEN": "static"}
 	_, err = validateCatalog(catalog)
 	require.Error(t, err, "a catalog never carries a landing credential")

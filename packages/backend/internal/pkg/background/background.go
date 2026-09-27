@@ -77,9 +77,9 @@ func (jobs *Jobs[K]) Start(ctx context.Context, key K, work func(context.Context
 	entry := &job{done: make(chan struct{})}
 	jobs.jobs[key] = entry
 	go func() {
-		runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		runCtx, cancel := context.WithoutCancel(ctx), context.CancelFunc(func() {})
 		if jobs.Timeout > 0 {
-			runCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), jobs.Timeout)
+			runCtx, cancel = context.WithTimeout(runCtx, jobs.Timeout)
 		}
 		defer cancel()
 		err := work(runCtx)

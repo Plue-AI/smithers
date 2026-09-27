@@ -45,6 +45,13 @@ func (l *admittedFlowLauncher) StartFlowHost(ctx context.Context, launch flowhos
 	return l.Launcher.StartFlowHost(ctx, launch)
 }
 
+// AbandonFlowHostStart forwards a refused start to the launcher it admitted.
+func (l *admittedFlowLauncher) AbandonFlowHostStart(ctx context.Context, binding flowhost.Binding) {
+	if abandoner, ok := l.Launcher.(flowhost.StartAbandoner); ok {
+		abandoner.AbandonFlowHostStart(ctx, binding)
+	}
+}
+
 // boxHostPreparer readies a box for its coding host and holds the host's
 // per-start credential (services.WorkspaceService).
 type boxHostPreparer interface {
@@ -64,11 +71,14 @@ type boxHostLauncher struct {
 	boxes   boxHostPreparer
 }
 
-func newBoxHostLauncher(launcher interface {
+// boxHostBase is the workspace runtime's host launcher.
+type boxHostBase interface {
 	flowhost.Launcher
 	flowhost.SourceResolver
 	flowhost.RetirementStopper
-}, boxes boxHostPreparer) *boxHostLauncher {
+}
+
+func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer) *boxHostLauncher {
 	return &boxHostLauncher{Launcher: launcher, SourceResolver: launcher, stopper: launcher, boxes: boxes}
 }
 
@@ -95,12 +105,17 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 	return connection, err
 }
 
+// StopFlowHost revokes the host's credential before stopping it, so a stop
+// that fails (a box that is gone) leaves no live credential behind.
 func (l *boxHostLauncher) StopFlowHost(ctx context.Context, binding flowhost.Binding) error {
-	if err := l.stopper.StopFlowHost(ctx, binding); err != nil {
-		return err
-	}
 	l.boxes.RetireBoxHostCredential(ctx, binding.ID, binding.UserID)
-	return nil
+	return l.stopper.StopFlowHost(ctx, binding)
+}
+
+// AbandonFlowHostStart revokes the credential of a start the resolver refused
+// after the launcher succeeded (identity or checkpoint failure).
+func (l *boxHostLauncher) AbandonFlowHostStart(ctx context.Context, binding flowhost.Binding) {
+	l.boxes.RetireBoxHostCredential(ctx, binding.ID, binding.UserID)
 }
 
 // boxHostCallbacks authorizes a repository-job callback from the box's coding

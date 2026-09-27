@@ -95,11 +95,16 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow workspace launcher: %w", err)
 	}
-	admitted, err := newAdmittedFlowLauncher(launcher, db.New(pool), policy)
+	workspaceHosts, ok := launcher.(boxHostBase)
+	if !ok {
+		return nil, errors.New("Flow workspace launcher cannot resolve sources or stop hosts")
+	}
+	// Admission first: a refused start never touches the box.
+	admitted, err := newAdmittedFlowLauncher(newBoxHostLauncher(workspaceHosts, boxes), db.New(pool), policy)
 	if err != nil {
 		return nil, err
 	}
-	launcher = newBoxHostLauncher(admitted, boxes)
+	launcher = admitted
 	stopper, ok := launcher.(flowhost.RetirementStopper)
 	if !ok {
 		return nil, errors.New("Flow workspace launcher cannot stop retired hosts")

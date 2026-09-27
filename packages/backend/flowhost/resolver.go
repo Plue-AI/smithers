@@ -275,12 +275,26 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 	}
 	client, err := resolver.verifiedClient(ctx, connection, lease.Credential(), binding)
 	if err != nil {
+		resolver.abandon(ctx, binding)
 		return nil, startFailed(ctx, lease, binding, err)
 	}
 	if err := lease.MarkRunning(ctx); err != nil {
+		resolver.abandon(ctx, binding)
 		return nil, failure{code: "runtime_binding_checkpoint_failed", retryable: true}
 	}
 	return client, nil
+}
+
+// StartAbandoner releases what a launcher gave a start the resolver then
+// refused (its per-start credentials), whether or not the process stays up.
+type StartAbandoner interface {
+	AbandonFlowHostStart(context.Context, Binding)
+}
+
+func (resolver *Resolver) abandon(ctx context.Context, binding Binding) {
+	if abandoner, ok := resolver.launcher.(StartAbandoner); ok {
+		abandoner.AbandonFlowHostStart(context.WithoutCancel(ctx), binding)
+	}
 }
 
 // rebind replaces a host whose pinned identity drifted from the catalog (for

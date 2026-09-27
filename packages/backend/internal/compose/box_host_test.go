@@ -62,6 +62,16 @@ func TestBoxHostLauncherMintsPerStartAndRevokes(t *testing.T) {
 
 	require.NoError(t, launcher.StopFlowHost(context.Background(), launch.Binding))
 	require.Equal(t, []string{"host-1", "host-1"}, boxes.retired)
+	// A start the resolver refuses after launch (identity, checkpoint) is revoked
+	// through the admitting launcher too.
+	admitted := &admittedFlowLauncher{Launcher: launcher}
+	admitted.AbandonFlowHostStart(context.Background(), launch.Binding)
+	require.Equal(t, []string{"host-1", "host-1", "host-1"}, boxes.retired)
+	// A stop that fails (the box is gone) still revokes first.
+	failing := newBoxHostLauncher(stopFailingTransport{}, boxes)
+	require.Error(t, failing.StopFlowHost(context.Background(), launch.Binding))
+	require.Len(t, boxes.retired, 4)
+	boxes.retired = []string{"host-1", "host-1"}
 
 	// Using a live host keeps its box awake; a host that is not running does not.
 	_, err = launcher.InspectFlowHost(context.Background(), launch)
@@ -105,4 +115,10 @@ func TestBoxHostCallbacksFallBackOnlyForAnUnknownHost(t *testing.T) {
 	var refusal *pkgerrors.APIError
 	require.ErrorAs(t, err, &refusal)
 	require.Equal(t, pkgerrors.CodeUnauthorized, refusal.Code)
+}
+
+type stopFailingTransport struct{ refusingHostTransport }
+
+func (stopFailingTransport) StopFlowHost(context.Context, flowhost.Binding) error {
+	return errors.New("box is unreachable")
 }
