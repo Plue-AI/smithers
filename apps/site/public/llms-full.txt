@@ -18,7 +18,7 @@ Paste a link to an open-source repository. Smithers analyzes it while you watch:
 
 [Register a repository](https://smithers.sh/?register=1)
 
-![Registering github.com/acme/widgets: Smithers has chosen the license, checks, and contribution style; cards show a commit graph with agent-assisted commits, contributors, agent readiness 72, a CI estimate of 14 to 3 minutes, a slop score of 18, and lint rules found in PRs.](/images/app/register.png)
+![Registering github.com/acme/widgets: Smithers has chosen the license, checks, and contribution style; cards show a commit graph with agent-assisted commits, contributors, agent readiness 72, a CI estimate of 14 to 3 minutes, cleanup opportunities of 18, and lint rules found in PRs.](/images/app/register.png)
 
 Smithers analyzing acme/widgets.
 

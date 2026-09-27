@@ -45,8 +45,9 @@ Each step writes a typed result that the report card renders.
 | Clone | Import the repository into Smithers Cloud through the existing path. |
 | License | Jev detects it; shown as an auto-selected answer. |
 | Checks | Jev answers how checks run (GitHub Actions, Makefile, scripts…). |
-| Agent readiness | A score for how ready the repository is for coding agents. |
-| Slop score | How AI-generated the code looks, framed positively; method in research (see below). |
+| Agent readiness | Level 1–5 plus a number over seven areas (test loop, CI, types and lint, AGENTS.md, reproducible setup, docs, safety), measured by actually running tests, lint, and build; top three fixes. |
+| Agent-written share | Traced floor (co-author trailers, agent config, branch names) plus a Jev-estimated range; never a per-file claim. |
+| Cleanup opportunities | The slop score (internal name only): 0–100 as a range from ten weighted signals (55 deterministic, 25 hybrid, 20 Jev-judged); the top three causes with file:line links and **Fix with Smithers**; "insufficient data" below 60% coverage. |
 | Commit graph | Commit frequency over time and signs of agent use (co-author trailers, bot authors, bursts). |
 | Contributors | Charts of who contributes and how much. |
 | Contribution intake | External vs internal PRs, merge rate, time to first review, CONTRIBUTING/CLA. |
@@ -54,8 +55,12 @@ Each step writes a typed result that the report card renders.
 | CI speedup | Estimate on a real PR: affected build graph plus caching. |
 | Anything else | Other notable findings. |
 
-Slop-score research: `~/smithers-slop-score-research-2026-09-26.md`
-(to be folded into this file when it lands).
+Score method and sources: [research/registration-scores.md](research/registration-scores.md).
+Build order: agent readiness, deterministic cleanup signals, agent-written
+share, then Jev-judged signals once the calibration corpus exists. No
+per-file authorship classifier. Wording never insults the owner: "slop" stays
+internal, agent use is a strength, every finding has a fix, no claims about
+individual people, results private by default.
 
 ## Tests
 
