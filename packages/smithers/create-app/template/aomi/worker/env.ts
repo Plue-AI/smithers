@@ -20,7 +20,6 @@ export interface Env {
    */
   readonly ANTHROPIC_API_KEY?: string
   readonly OPENAI_API_KEY?: string
-  /** The Vercel AI Gateway key the completion judge runs on. Every turn needs it. */
   /** Upstream JSON-RPC the Tevm fork reads state from. A turn is refused without it. */
   readonly TEVM_FORK_RPC_URL?: string
   /**

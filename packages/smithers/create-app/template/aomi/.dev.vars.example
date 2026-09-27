@@ -7,8 +7,6 @@
 # AGENT.ts to an anthropic: seat means setting ANTHROPIC_API_KEY here instead.
 OPENAI_API_KEY=
 
-# The Vercel AI Gateway key the completion judge runs on. Every turn needs it.
-
 # JSON-RPC the Tevm fork reads chain state from. Any archive-capable endpoint.
 # Vitest never reads this file: export it in the shell for `pnpm test`.
 # The Worker passes it to layerTevm as rpcUrl and refuses turns (503) without it.

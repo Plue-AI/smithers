@@ -61,6 +61,7 @@ Write three files: the engine composition every part reuses, the flow declaratio
 
 ```ts title="engine.ts"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { EngineStore, StepBoundary, WorkspaceSandbox } from "@smthrs/engine-store"
 import { Action } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
@@ -90,7 +91,8 @@ export const requirements = (filename: string) =>
   Layer.mergeAll(StepBoundary.layer, WorkspaceSandbox.layerFileSystem(), stubJj).pipe(
     Layer.provideMerge(NodeRuntime.storage(filename)),
     Layer.provideMerge(NodeCrypto.layer),
-    Layer.provideMerge(AtomicFileSystem.layer)
+    Layer.provideMerge(AtomicFileSystem.layer),
+    Layer.provideMerge(NodePath.layer)
   )
 
 // An EngineStore over the same file, with the cache environment declared so a
@@ -112,7 +114,8 @@ export const durableEngine = (filename: string, hostId: string) =>
   ).pipe(
     Layer.provideMerge(stubJj),
     Layer.provideMerge(NodeCrypto.layer),
-    Layer.provideMerge(AtomicFileSystem.layer)
+    Layer.provideMerge(AtomicFileSystem.layer),
+    Layer.provideMerge(NodePath.layer)
   )
 ```
 
