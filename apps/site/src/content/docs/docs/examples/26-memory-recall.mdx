@@ -71,7 +71,7 @@ export const bank: string = Recall.bankForNamespace(namespace)
 
 /** The policy every run below carries, before a refusal overrides a field. */
 export const basePolicy: WithMemory.Policy = {
-  namespace,
+  banks: [bank],
   maxTokens: 2048,
   retain: "on-complete"
 }
@@ -310,7 +310,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
         // foreign banks; an empty-bank read must use that bank's own policy.
         const foreign = yield* run("notes-3", "foreign", "release notes", {
           ...basePolicy,
-          namespace: { kind: "flow", id: "other-project" }
+          banks: ["flow-other-project"]
         })
         const refused = yield* run("notes-4", "recall", "release notes", {
           ...basePolicy,
