@@ -6,7 +6,8 @@ import {
   attachProductionJson,
   repositoryApiPath
 } from "./repositories-github/production"
-import { expect, realApi } from "./support/test"
+import { createRepositoryThroughUi } from "./portable/owned-repository"
+import { expect, realApi, reloadApp } from "./support/test"
 import { scenarioOutcome, TEARDOWN_ANNOTATION, TeardownProblem } from "./support/teardown"
 
 authenticatedTest.setTimeout(12 * 60_000)
@@ -26,9 +27,9 @@ authenticatedTest(
   "an authenticated owner creates, reads, and removes a real product repository",
   scenario("repositories.product-create-readback", {
     capabilities: ["identity"],
-    description: "Create an initialized private repository through the canonical product API, read its stored metadata and README, then delete only that uniquely owned repository and prove it is gone.",
+    description: "Create an initialized private repository through repo.create, read its stored metadata and README, reload its creation card, then delete only that uniquely owned repository and prove it is gone.",
     coverage: [
-      "action:repo.create", "host:local", "host:production", "host:native", "path:success", "path:persistence", "door:user-only",
+      "action:repo.create", "host:local", "host:production", "host:native", "path:success", "path:persistence", "door:slash", "dimension:reload",
       "surface:repository-api", "dimension:repository-create", "dimension:initialized-repository",
       "dimension:owned-cleanup", "evidence:create-read-delete-readback"
     ]
@@ -46,13 +47,7 @@ authenticatedTest(
 
     try {
       submitted = true
-      const createdResponse = await realApi(page, request, "POST", "/api/user/repos", {
-        name,
-        description: "Smithers deployment-mode conformance fixture",
-        private: true,
-        auto_init: true,
-        default_bookmark: "main"
-      })
+      const createdResponse = await createRepositoryThroughUi(page, name)
       const created = await createdResponse.json().catch(() => undefined) as Record<string, unknown> | undefined
       expect(createdResponse.status(), `create ${repo}: ${JSON.stringify(created)}`).toBe(201)
       expect(created).toMatchObject({ name, full_name: repo, private: true, default_bookmark: "main" })
@@ -66,6 +61,9 @@ authenticatedTest(
       expect(readmeResponse.status()).toBe(200)
       const readme = await readmeResponse.json() as { readonly encoding?: unknown; readonly content?: unknown }
       expect(repositoryText(readme)).toContain(name)
+
+      await reloadApp(page)
+      await expect(page.getByTestId("repository-choice").getByText(`Created ${repo}`, { exact: true })).toBeVisible()
 
       await attachProductionJson(testInfo, "product-repository-create-readback", {
         repo,

@@ -4,27 +4,54 @@ import { spawn } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { APIRequestContext, Page } from "@playwright/test"
+import type { APIRequestContext, Page, Response } from "@playwright/test"
 import { expect, realApi } from "../support/test"
+import { finishFirstVisit } from "../support/first-visit"
+import { runSlash } from "../issues/local"
 import { readAuthenticatedSession } from "../auth-permissions/profile"
 import { repositoryApiPath } from "../repositories-github/production"
 
 export type OwnedRepository = { readonly name: string; readonly fullName: string; readonly path: string }
 
-export const withOwnedRepository = async <T>(page: Page, request: APIRequestContext, use: (repo: OwnedRepository) => Promise<T>): Promise<T> => {
+/** Exercise the registered repo.create flow and observe its real response and card. */
+export const createRepositoryThroughUi = async (page: Page, name: string): Promise<Response> => {
+  await finishFirstVisit(page)
+  const created = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/user/repos", { timeout: 15_000 })
+  await runSlash(page, `/repo.create ${name}`)
+  const response = await created
+  expect(response.request().postDataJSON()).toEqual({ name, private: true, auto_init: true })
+  expect(response.status(), `create ${name}: ${await response.text()}`).toBe(201)
+  const body = await response.json() as { readonly full_name?: string }
+  expect(body.full_name).toEqual(expect.any(String))
+  await expect(page.getByTestId("repository-choice").getByText(`Created ${body.full_name}`, { exact: true })).toBeVisible()
+  return response
+}
+
+export const withOwnedRepository = async <T>(
+  page: Page, request: APIRequestContext, use: (repo: OwnedRepository) => Promise<T>, creation: "api" | "ui" = "api"
+): Promise<T> => {
   const owner = await readAuthenticatedSession(page)
   expect(owner, "the matrix requires an authenticated product owner").toBeDefined()
   const name = fixtureProtocolId(`smithers-matrix-${randomUUID().slice(0, 12)}`)
   const fullName = `${owner!.login}/${name}`
   const path = repositoryApiPath(fullName)
-  const created = await realApi(page, request, "POST", "/api/user/repos", {
-    name, private: true, auto_init: true, default_bookmark: "main"
-  })
-  expect(created.status(), `create ${fullName}: ${await created.text()}`).toBe(201)
-  try { return await use({ name, fullName, path }) }
-  finally {
-    const deleted = await realApi(page, request, "DELETE", path)
-    expect(deleted.status(), `delete ${fullName}`).toBe(204)
+  try {
+    const created = creation === "ui"
+      ? await createRepositoryThroughUi(page, name)
+      : await realApi(page, request, "POST", "/api/user/repos", {
+          name, private: true, auto_init: true, default_bookmark: "main"
+        })
+    expect(created.status(), `create ${fullName}: ${await created.text()}`).toBe(201)
+    expect(await created.json()).toMatchObject({ name, full_name: fullName, private: true, default_bookmark: "main" })
+    return await use({ name, fullName, path })
+  } finally {
+    const existing = await realApi(page, request, "GET", path)
+    if (existing.status() === 200) {
+      const deleted = await realApi(page, request, "DELETE", path)
+      expect(deleted.status(), `delete ${fullName}`).toBe(204)
+    } else {
+      expect(existing.status(), `probe possibly-created ${fullName}`).toBe(404)
+    }
     expect((await realApi(page, request, "GET", path)).status()).toBe(404)
   }
 }
