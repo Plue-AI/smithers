@@ -684,6 +684,8 @@ const ci = Smithers.GithubCiGen({
       runsOn: ubuntu,
       timeoutMinutes: 60,
       toolchain: Smithers.CiToolchain.Needs({
+        // A box's coding host binds its checkout through smithers-jj-export (#2194).
+        cargoBinaries: nativeFilesystem,
         runtimes: [node, bun],
         jj,
         ripgrep,
