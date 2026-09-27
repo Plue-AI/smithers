@@ -71,7 +71,7 @@ authenticatedTest("the selected mode retains its authenticated session through d
   })
 })
 
-test("a signed-out required action parks behind a durable GitHub sign-in step", scenario("auth.signed-out-deferred-persistence", {
+test("a signed-out required action parks behind its durable sign-in step", scenario("auth.signed-out-deferred-persistence", {
   capabilities: ["identity"],
   coverage: [
     "action:billing.balance", "action:auth.prompt", "host:production",
@@ -87,12 +87,16 @@ test("a signed-out required action parks behind a durable GitHub sign-in step", 
 
   await openChat(page)
   await command(page, "/billing.balance")
-  const signIn = page.locator('button[data-flow="auth.sign-in"]:visible').last()
+  const refusal = page.locator(".smithers-chat-message").filter({
+    has: page.getByText("Sign in to show your balance.", { exact: true })
+  }).last()
+  const signIn = refusal.locator('button[data-flow="auth.sign-in"]')
+  await expect(refusal).toBeVisible()
   await expect(signIn).toBeVisible()
-  await expect(page.getByText("Sign in with GitHub to show your balance.", { exact: false }).last()).toBeVisible()
 
   await reloadApp(page)
-  await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+  await expect(refusal).toBeVisible()
+  await expect(signIn).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="balance"]')).toHaveCount(0)
   const after = await realApi(page, request, "GET", "/api/auth/session")
   expect(await after.json()).toEqual({ status: "signed-out" })
