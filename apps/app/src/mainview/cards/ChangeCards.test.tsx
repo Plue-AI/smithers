@@ -519,7 +519,7 @@ describe("the change card", () => {
     /* plue#484: the agent's own verdict word, and the type it counts as, both stated. */
     expect(verdicts).toContain("agent · lgtm · approve at rev 2 · low confidence")
     expect(verdicts).toContain("\"Bounded reads hold; see F-2\"")
-    const rows = [...host.querySelectorAll('[aria-label="Threads"] > li')].map((row) => row.textContent ?? "")
+    const rows = [...host.querySelectorAll('[aria-label="Review threads"] > li')].map((row) => row.textContent ?? "")
     expect(rows[0]).toContain("○")
     /* plue#484: the thread's author by login (ADR 0004's `· will ·`). */
     expect(rows[0]).toContain("src/app.ts:12 → :14 · will · rev 1 · moved")

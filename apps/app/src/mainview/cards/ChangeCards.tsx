@@ -571,7 +571,7 @@ const ChangeReviewFacet = ({ card, onRunCommand }: { readonly card: ChangeCard }
       )}
       {owners !== null ? <p className="world-card-path">{owners}</p> : null}
       {threads.length === 0 ? null : (
-        <ul className="world-card-list" aria-label="Threads">
+        <ul className="world-card-list" aria-label="Review threads">
           {threads.map((thread, index) => (
             <li key={thread.id ?? index} className="world-card-row">
               {thread.state !== null && thread.state !== undefined ? <span aria-label={`thread ${thread.state}`}>{THREAD_GLYPH[thread.state]}</span> : null}
