@@ -712,13 +712,13 @@ rm -rf /var/lib/apt/lists/* /var/tmp/dl
 		"PATH": strings.Join(pathEntries, ":"), "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOFLAGS": "-mod=readonly",
 		"GOMODCACHE": cacheRoot + "/gomod", "GOCACHE": cacheRoot + "/gocache", "RUSTUP_HOME": "/opt/smithers/rust/rustup",
 		"CARGO_HOME": cacheRoot + "/cargo", "pnpm_config_store_dir": cacheRoot + "/pnpm-store", "pnpm_config_cache_dir": cacheRoot + "/pnpm-cache", "PLAYWRIGHT_BROWSERS_PATH": cacheRoot + "/ms-playwright",
-		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "CI": "1", "LANG": "C.UTF-8",
+		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "CI": "1", "LANG": "C.UTF-8", "DPRINT_CACHE_DIR": cacheRoot + "/dprint",
 	}
 	encoded, _ := json.Marshal(env)
 	fmt.Fprintf(&s, "printf '%%s' %s > /opt/smithers/env.json\n", shellQuote(string(encoded)))
 	// The toolchain's cargo binaries are shared read-only; each build's
 	// registry cache lives in the writable dependency cache.
-	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright %[1]s/home; chown -R %[2]d:%[2]d %[1]s\n", cacheRoot, guestUID)
+	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright %[1]s/home %[1]s/dprint; chown -R %[2]d:%[2]d %[1]s\n", cacheRoot, guestUID)
 	s.WriteString(`export PATH="` + strings.Join(pathEntries, ":") + `"
 echo "inventory node $(node --version)"; echo "inventory pnpm $(pnpm --version)"; echo "inventory bun $(bun --version)"
 echo "inventory go $(go version | cut -d' ' -f3)"; echo "inventory jj $(jj --version)"; echo "inventory rg $(rg --version | head -1)"
@@ -746,7 +746,11 @@ type dependencyLayer struct {
 	Nodes      []dependencyNode `json:"nodes"`
 	Tools      []toolNode       `json:"tools,omitempty"`
 	Playwright []string         `json:"playwright,omitempty"`
-	Derived    bool             `json:"derived,omitempty"`
+	// Dprint is the package that runs dprint and the plugins every Dprint
+	// node's config names; the layer fills dprint's cache with them.
+	Dprint        string   `json:"dprint,omitempty"`
+	DprintPlugins []string `json:"dprintPlugins,omitempty"`
+	Derived       bool     `json:"derived,omitempty"`
 }
 
 // toolNode is a graph node that materialises a tool from the lockfile and
@@ -792,6 +796,35 @@ func patchedDependencies(workspace []byte) []string {
 	}
 	sort.Strings(patches)
 	return patches
+}
+
+// dprintPlugins lists the distinct plugin URLs the dprint configs name,
+// keeping a checksummed spelling when one exists.
+func dprintPlugins(node *dependencyNode, inputs map[string][]byte) []string {
+	byURL := map[string]string{}
+	for file := range node.Files {
+		var config struct {
+			Plugins []string `json:"plugins"`
+		}
+		if json.Unmarshal(inputs[file], &config) != nil {
+			continue
+		}
+		for _, plugin := range config.Plugins {
+			if !strings.HasPrefix(plugin, "https://") {
+				continue
+			}
+			url := strings.SplitN(plugin, "@", 2)[0]
+			if existing, ok := byURL[url]; !ok || !strings.Contains(existing, "@") {
+				byURL[url] = plugin
+			}
+		}
+	}
+	plugins := make([]string, 0, len(byURL))
+	for _, plugin := range byURL {
+		plugins = append(plugins, plugin)
+	}
+	sort.Strings(plugins)
+	return plugins
 }
 
 func declares(target indexTarget, path string) bool {
@@ -863,6 +896,7 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 			return layer, nil, fmt.Errorf("decode .smithers/target-index.json: %w", err)
 		}
 		cargo := &dependencyNode{Label: "cargo", Rule: "Cargo.Fetch", Files: map[string]string{}}
+		dprint := &dependencyNode{Label: "dprint", Rule: "Dprint.Plugins", Files: map[string]string{}}
 		for _, target := range targets {
 			switch {
 			case target.Rule == "Install" || target.Rule == "Go.ModDownload":
@@ -902,6 +936,18 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 					nodes[node.Label] = node
 					layer.Tools = append(layer.Tools, toolNode{Label: target.Label, Package: target.Package, Entry: strings.TrimPrefix(entry, target.Package+"/")})
 				}
+			case target.Rule == "Dprint":
+				for _, input := range target.Inputs {
+					if input.Kind != "file" || path.Base(input.Path) != "dprint.json" {
+						continue
+					}
+					if err := addFile(dprint, input.Path); err != nil {
+						return layer, nil, err
+					}
+					if layer.Dprint == "" && target.Package != "" {
+						layer.Dprint = target.Package
+					}
+				}
 			case strings.HasPrefix(target.Rule, "Cargo.") || target.Label == "//:nativeFfi":
 				for _, input := range target.Inputs {
 					base := path.Base(input.Path)
@@ -915,6 +961,10 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 		}
 		if len(cargo.Files) > 0 {
 			nodes[cargo.Label] = cargo
+		}
+		if len(dprint.Files) > 0 {
+			nodes[dprint.Label] = dprint
+			layer.DprintPlugins = dprintPlugins(dprint, inputs)
 		}
 	} else {
 		layer.Derived = true
@@ -1009,6 +1059,9 @@ func (d dependencyLayer) allowlist() []string {
 	if len(d.Playwright) > 0 {
 		domains = append(append(domains, playwrightCDN...), debianMirrors...)
 	}
+	if len(d.DprintPlugins) > 0 {
+		domains = append(domains, "plugins.dprint.dev")
+	}
 	if len(d.Tools) > 0 {
 		// Tool nodes do not yet declare their download hosts in the target
 		// graph; these are the Hutch/Electrobun release hosts apps/app's
@@ -1030,6 +1083,11 @@ cd %s/prepare/src
 		// The offline install proves the store is complete for the lockfile
 		// and gives tool nodes the packages they run from.
 		s.WriteString("pnpm fetch --reporter=append-only\npnpm install --offline --frozen-lockfile --ignore-scripts --reporter=append-only\necho \"inventory pnpm-store $(du -sh $pnpm_config_store_dir | cut -f1)\" >&3\n")
+	}
+	if len(d.DprintPlugins) > 0 && d.Dprint != "" {
+		warm, _ := json.Marshal(map[string]any{"plugins": d.DprintPlugins})
+		fmt.Fprintf(&s, "printf '%%s' %s > /var/tmp/dprint-warm.json\n(cd %s && pnpm exec dprint output-resolved-config --config /var/tmp/dprint-warm.json >/dev/null)\necho \"inventory dprint-plugins %d\" >&3\n",
+			shellQuote(string(warm)), shellQuote(d.Dprint), len(d.DprintPlugins))
 	}
 	for _, tool := range d.Tools {
 		// Tool downloads through the domain allowlist fail now and then with

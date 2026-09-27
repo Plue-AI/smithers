@@ -82,6 +82,18 @@ func TestLockImportersAndToolNodes(t *testing.T) {
 	require.Equal(t, []toolNode{{Label: "//apps/app:devkit", Package: "apps/app", Entry: "scripts/ensure-devkit.mjs"}}, recipe.Tools)
 }
 
+func TestDprintPluginsComeFromDprintNodes(t *testing.T) {
+	index := `[{"label":"//a:fmt","package":"a","rule":"Dprint","inputs":[{"kind":"file","path":"a/dprint.json"}]},
+	{"label":"//b:fmt","package":"b","rule":"Dprint","inputs":[{"kind":"file","path":"b/dprint.json"}]}]`
+	recipe, _, err := dependencyRecipe("toolchain", fakeRepository(map[string]string{".smithers/target-index.json": index,
+		"a/dprint.json": `{"plugins":["https://plugins.dprint.dev/json-0.21.1.wasm"]}`,
+		"b/dprint.json": `{"plugins":["https://plugins.dprint.dev/json-0.21.1.wasm@abc","https://plugins.dprint.dev/markdown-0.20.0.wasm"]}`}))
+	require.NoError(t, err)
+	require.Equal(t, "a", recipe.Dprint)
+	require.Equal(t, []string{"https://plugins.dprint.dev/json-0.21.1.wasm@abc", "https://plugins.dprint.dev/markdown-0.20.0.wasm"}, recipe.DprintPlugins)
+	require.Contains(t, recipe.allowlist(), "plugins.dprint.dev")
+}
+
 func TestUnixMode(t *testing.T) {
 	require.Equal(t, fs.ModeDir|0o755, unixMode(0o040755))
 	require.Equal(t, fs.ModeSymlink|0o777, unixMode(0o120777))

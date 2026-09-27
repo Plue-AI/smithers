@@ -117,6 +117,14 @@ func TestRealMicroVMWorkspaceFromLayers(t *testing.T) {
 	require.Equal(t, 0, result.ExitCode)
 	require.Regexp(t, `Tests\s+[0-9]+ passed`, result.Stdout)
 
+	// eslint and dprint from the workspace, offline: dprint's plugins come
+	// from the dependency layer's cache.
+	started = time.Now()
+	result, err = runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Directory: "packages/smithers/flows/canonical", Args: []string{"pnpm", "run", "lint"}})
+	require.NoError(t, err)
+	require.Equal(t, 0, result.ExitCode, result.Stdout+result.Stderr)
+	t.Logf("canonical lint (eslint + dprint check, %s)", time.Since(started).Round(time.Millisecond))
+
 	if evidence := os.Getenv("SMITHERS_MICROVM_SCREENSHOT"); evidence != "" {
 		screenshotApp(t, runtime, id, evidence)
 	}
