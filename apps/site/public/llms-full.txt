@@ -8,7 +8,7 @@ Smithers maintains your codebase. It turns issues into reviewed, tested changes 
 [Open Smithers](https://smithers.sh/smithersai/smithers)
 [Follow the quickstart](/docs/quickstart/)
 
-![The Smithers home for acme/widgets: the question What should we work on?, the chat box, and four tiles: Fix an issue, Review a PR, Ask the codebase, and Run it every night.](/images/app/home.png)
+![The Smithers home: the question What should we work on?, the chat box, and four tiles: Fix an issue, Review a PR, Ask the codebase, and Run it every night.](/images/app/home.png)
 
 Smithers home.
 
