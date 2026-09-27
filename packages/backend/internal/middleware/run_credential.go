@@ -21,8 +21,8 @@ const (
 	// system-issued token has unless it is issued as CredentialSync.
 	CredentialAgentRun CredentialKind = "run"
 	// CredentialSync is a system-issued token only the platform's own
-	// GitHub import and mirror code holds, on the server, to copy a GitHub
-	// repository's refs. No agent or workflow ever receives one.
+	// sync workers hold on the server (repository mirroring and chat
+	// connectors). No agent or workflow ever receives one.
 	CredentialSync CredentialKind = "sync"
 	// CredentialPlatform is not a token: it marks the API's own verified
 	// write of the default bookmark, the GitHub main pull's fast-forward to

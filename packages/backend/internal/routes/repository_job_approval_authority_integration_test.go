@@ -183,7 +183,7 @@ func TestRepositoryJobApprovalRefusesNonHumanCredentials(t *testing.T) {
 	workspace := routesIntegrationCreateWorkspace(t, queries, pool, repo, owner, "gateway", time.Now())
 
 	service := services.NewRepositoryJobService(queries, repositoryJobApprovalHost{target: services.BoxHostTarget{
-		GatewayID: "gateway", RepositoryID: repo.ID, UserID: owner.ID, WorkspaceID: workspace.ID}}, pool)
+		HostID: "gateway", RepositoryID: repo.ID, UserID: owner.ID, WorkspaceID: workspace.ID}}, pool)
 	server := repositoryJobApprovalServer(t, queries, service)
 
 	envelope := json.RawMessage(`{"capabilities":["read","write"],"flows":["nightly-lint"],"budget":{"tokens":12000,"milliseconds":600000}}`)

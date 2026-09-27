@@ -14,8 +14,10 @@ import (
 )
 
 type Host struct {
-	node, bundle string
-	environment  []string
+	node, bundle                 string
+	environment                  []string
+	config, bootstrap, stateRoot string
+	refreshInterval              time.Duration
 }
 
 // FromEnvironment is opt-in. Credentials stay in the host process environment,
@@ -35,8 +37,8 @@ func FromEnvironment(get func(string) string, dataRoot, address string) (*Host, 
 	if err != nil {
 		return nil, errors.New("chat connector requires a backend listen port")
 	}
-	host := &Host{node: node, bundle: bundle}
-	for _, key := range []string{"HOME", "PATH", "SMITHERS_JJ_PATH", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "SMITHERS_CHAT_CONNECTOR_CONFIG", "SMITHERS_CHAT_CONNECTOR_TOKEN_FILE", "SMITHERS_SLACK_BOT_TOKEN", "SMITHERS_SLACK_APP_TOKEN", "SMITHERS_TELEGRAM_BOT_TOKEN"} {
+	host := &Host{node: node, bundle: bundle, config: config, bootstrap: credential, stateRoot: filepath.Join(dataRoot, "chat-connectors"), refreshInterval: 30 * time.Minute}
+	for _, key := range []string{"HOME", "PATH", "SMITHERS_JJ_PATH", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "SMITHERS_CHAT_CONNECTOR_CONFIG", "SMITHERS_SLACK_BOT_TOKEN", "SMITHERS_SLACK_APP_TOKEN", "SMITHERS_TELEGRAM_BOT_TOKEN"} {
 		if value := get(key); value != "" {
 			host.environment = append(host.environment, key+"="+value)
 		}
@@ -47,7 +49,11 @@ func FromEnvironment(get func(string) string, dataRoot, address string) (*Host, 
 	return host, nil
 }
 
-func (host *Host) Run(ctx context.Context) error {
+func (host *Host) Run(ctx context.Context, issue IssueCredential) error {
+	return host.withCredential(ctx, issue, host.run)
+}
+
+func (host *Host) run(ctx context.Context, credential string) error {
 	// EOF also stops the child after SIGKILL of the backend, where no signal
 	// handler can run. Otherwise an orphan would keep consuming Socket Mode.
 	reader, writer, err := os.Pipe()
@@ -58,7 +64,7 @@ func (host *Host) Run(ctx context.Context) error {
 	defer writer.Close()
 	cmd := exec.CommandContext(ctx, host.node, host.bundle)
 	cmd.Stdin = reader
-	cmd.Env = host.environment
+	cmd.Env = append(append([]string{}, host.environment...), "SMITHERS_CHAT_CONNECTOR_TOKEN_FILE="+credential)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 10 * time.Second

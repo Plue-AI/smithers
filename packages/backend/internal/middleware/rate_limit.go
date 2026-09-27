@@ -322,6 +322,11 @@ func (l *rateLimiter) retryAfterSeconds(now, resetAt time.Time) int {
 
 func searchRateLimitKey(r *http.Request) string {
 	if user := UserFromContext(r.Context()); user != nil {
+		// Platform sync work shares one bounded principal across rotations,
+		// separate from the person whose repository it synchronizes.
+		if AuthInfoFromContext(r.Context()).CredentialKind() == CredentialSync {
+			return "sync:user:" + strconv.FormatInt(user.ID, 10)
+		}
 		return "user:" + strconv.FormatInt(user.ID, 10)
 	}
 

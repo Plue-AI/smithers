@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { setTimeout as delay } from "node:timers/promises"
 import { Schema } from "effect"
 import { Configuration, openHost } from "./runtime.ts"
+import { runDeliveries } from "./delivery.ts"
 
 const required = (name: string) => {
   const value = process.env[name]?.trim()
@@ -25,7 +26,7 @@ export const serve = async () => {
     if (!path.startsWith("/api/repos/") || path.startsWith("//")) throw new Error("Invalid connector API path")
     const headers = new Headers(init?.headers)
     headers.set("Authorization", `token ${(await readFile(credential, "utf8")).trim()}`)
-    return fetch(new URL(path, origin), { ...init, headers, redirect: "error", signal: AbortSignal.timeout(30_000) })
+    return fetch(new URL(path, origin), { ...init, headers, redirect: "error", signal: AbortSignal.any([stopped.signal, init?.signal ?? AbortSignal.timeout(30_000)]) })
   }
   let host: Awaited<ReturnType<typeof openHost>> | undefined
   try {
@@ -38,20 +39,12 @@ export const serve = async () => {
       await delay(1000, undefined, { signal: stopped.signal })
     }
     host = await openHost({ config, env: process.env, stateRoot: required("SMITHERS_CHAT_CONNECTOR_STATE"), request })
-    // Verify the owner credential and repository access before intake starts.
-    await host.drain()
     console.info("Chat connectors: durable store opened")
-    const drain = async () => {
-      while (!stopped.signal.aborted) {
-        try { await host!.drain() } catch {
-          // A lost product receipt retains its claim for durable replay.
-          // Never log raw provider errors: they may contain credentials.
-          console.error("Chat connector delivery did not settle; retrying persisted receipts")
-        }
-        await delay(1000, undefined, { signal: stopped.signal })
-      }
-    }
-    await Promise.all([host.run(stopped.signal), drain()])
+    await Promise.all([host.run(stopped.signal), runDeliveries({
+      ...config, request, drain: host.drain, signal: stopped.signal,
+      // Never log raw provider errors: they may contain credentials.
+      onError: () => console.error("Chat connector delivery unavailable; backing off")
+    })])
   } catch (error) {
     if (!stopped.signal.aborted) throw error
   } finally {

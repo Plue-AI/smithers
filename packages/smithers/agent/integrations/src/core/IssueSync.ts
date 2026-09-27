@@ -104,8 +104,10 @@ export const make = (options: Options) => {
       ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
     })
     if (!response.ok) {
+      await response.body?.cancel()
       throw Object.assign(new Error(`Issue sync ${method} ${path}: HTTP ${response.status}`), {
-        status: response.status
+        status: response.status,
+        retryAfter: response.headers.get("Retry-After")
       })
     }
     return response.json()
@@ -205,6 +207,9 @@ export const make = (options: Options) => {
         })
         if (settled) completed++
       } catch (error) {
+        // A quota refusal pauses the whole host batch. Retain the durable
+        // claim, but make no further calls before its Retry-After elapses.
+        if (isRecord(error) && error["status"] === 429) throw error
         unsettled.push(error)
       }
     }

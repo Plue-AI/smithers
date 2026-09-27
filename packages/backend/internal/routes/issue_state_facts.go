@@ -101,6 +101,7 @@ func (h *IssueEventHandler) IssueStateFactsStream(w http.ResponseWriter, r *http
 	req := r.Clone(r.Context())
 	req.Header.Set("Last-Event-ID", strconv.FormatInt(after, 10))
 	stream := &sse.DurableStream{
+		Ephemeral: issueSyncWake(user.ID),
 		Head: func(ctx context.Context) (int64, error) {
 			current, err := service.AuthorizeIssueState(ctx, user, owner, name)
 			if err != nil {
@@ -134,4 +135,15 @@ func (h *IssueEventHandler) IssueStateFactsStream(w http.ResponseWriter, r *http
 	}
 	attachRevocation(&cfg, req, principal)
 	serveIssueStateBrokerSSE(w, req, cfg)
+}
+
+// A hint carries no issue or delivery data and is visible only to the connector
+// owner. The authorized delivery list still decides what may be dispatched.
+func issueSyncWake(userID int64) func(sse.Event) (sse.Event, bool) {
+	return func(hint sse.Event) (sse.Event, bool) {
+		if hint.Data != "sync:"+strconv.FormatInt(userID, 10) {
+			return sse.Event{}, false
+		}
+		return sse.Event{Type: "issue.sync", Data: "{}"}, true
+	}
 }

@@ -11,7 +11,7 @@ Set these backend environment variables:
 | Variable | Value |
 | --- | --- |
 | `SMITHERS_CHAT_CONNECTOR_CONFIG` | Absolute path to the JSON configuration below |
-| `SMITHERS_CHAT_CONNECTOR_TOKEN_FILE` | Absolute path to a mode-600 file containing an owner PAT with repository read/write access |
+| `SMITHERS_CHAT_CONNECTOR_TOKEN_FILE` | Absolute path to a mode-600 file containing the owner bootstrap credential with repository write access; only the backend reads it |
 | `SMITHERS_CHAT_CONNECTOR_BUNDLE` | Packaged executable; the container sets this automatically |
 | `SMITHERS_NODE_BINARY` | Packaged Node 26 executable; the container sets this automatically |
 | `SMITHERS_SLACK_BOT_TOKEN`, `SMITHERS_SLACK_APP_TOKEN` | Slack credentials, when Slack is configured |
@@ -42,7 +42,19 @@ expand or overwrite admission settings on restart. Inbound events commit to
 the issue store before the source acknowledges them; the factory consumes the
 same issues. No model credential or separate agent loop enters this host.
 
-The backend supplies its loopback URL and persistent state path. A source failure
+The backend supplies its loopback URL and persistent state path. It exchanges
+bootstrap authorization for a repository-bound, system-issued sync credential,
+rotates it every 30 minutes with a one-hour expiry, and revokes it on shutdown.
+The child reads that credential from an atomically replaced private file; the
+bootstrap credential never enters the child. Sync traffic has its own bounded
+rate-limit principal, shared across rotations, using the normal API limits.
+
+Outbound delivery wakes from the existing issue event stream. Pending delivery
+notifications also cover reactions and explicit retries. The durable delivery
+list remains authoritative. A repair poll backs off from 30 seconds to five
+minutes when idle or unavailable, and HTTP Retry-After delays take precedence.
+Stream reconnects resume the cursor and check persisted deliveries again.
+ A source failure
 fails the critical worker and stops the backend for its supervisor to restart.
 Delivery receipt failures leave their claim for replay. An uncertain provider
 write stays visible as an unknown outcome and requires reconciliation or the
@@ -53,7 +65,7 @@ Build and test from the repository root:
 
 ```sh
 node packages/backend/chatconnector/build.mjs
-node --test packages/backend/chatconnector/runtime.test.ts
+node --test packages/backend/chatconnector/*.test.ts
 go test ./packages/backend/chatconnector
 ```
 

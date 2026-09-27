@@ -68,3 +68,41 @@ func TestSearchRateLimitKey_IPv6SharesSlash64(t *testing.T) {
 	require.Equal(t, "ip:203.0.113.7", key("[::ffff:203.0.113.7]:1234"), "IPv4-mapped IPv6 is keyed as IPv4")
 	require.Equal(t, "ip:unknown", key(""))
 }
+
+// Internal sync traffic has the same bounded budget, shared across token
+// rotations, but cannot spend its owner's interactive allowance.
+func TestPerRepoAPIRequests_SyncCredentialBudget(t *testing.T) {
+	clock := NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	handler := quotaTestRouter(PerRepoAPIRequests(NewTokenBucketStoreWithClock(clock)), http.MethodGet, "/api/repos/{owner}/{repo}/info")
+	user := &db.User{ID: 1}
+	request := func(system bool, token int64) int {
+		req := repoAPIRequestAs(user, "127.0.0.1:1")
+		req = req.WithContext(ContextWithAuthInfo(req.Context(), &AuthInfo{User: user, IsTokenAuth: true, TokenID: token, TokenSystemIssued: system, RawScopes: "write:repository," + SyncCredentialScope()}))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := 0; i < 1000; i++ {
+		require.Equal(t, http.StatusNoContent, request(true, 10))
+	}
+	require.Equal(t, http.StatusTooManyRequests, request(true, 11), "rotation must not reset the sync budget")
+	require.Equal(t, http.StatusNoContent, request(false, 12), "a person retains their allowance; a forged sync scope does not change their kind")
+	req := repoAPIRequestAs(user, "127.0.0.1:1")
+	require.Equal(t, "user:1", searchRateLimitKey(req))
+	require.Equal(t, http.StatusNoContent, request(false, 12))
+}
+
+func TestGlobalAPIRateLimit_SyncCredentialBudget(t *testing.T) {
+	handler := NewGlobalAPIRateLimit(&mockRateLimitStore{}, 2, 1, time.Hour)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	request := func(system bool) int {
+		req := repoAPIRequestAs(&db.User{ID: 1}, "127.0.0.1:1")
+		req = req.WithContext(ContextWithAuthInfo(req.Context(), &AuthInfo{User: &db.User{ID: 1}, IsTokenAuth: true, TokenSystemIssued: system, RawScopes: SyncCredentialScope()}))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	require.Equal(t, http.StatusNoContent, request(true))
+	require.Equal(t, http.StatusNoContent, request(true))
+	require.Equal(t, http.StatusTooManyRequests, request(true))
+	require.Equal(t, http.StatusNoContent, request(false), "sync does not drain the global user allowance either")
+}

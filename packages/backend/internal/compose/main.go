@@ -1562,7 +1562,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	defer workerCancel()
 	var connectorFailure <-chan error
 	if connectorWorker != nil {
-		connectorWorker.Start(workerCtx, "chat connectors", connectorHost.Run)
+		connectorWorker.Start(workerCtx, "chat connectors", func(ctx context.Context) error {
+			return connectorHost.Run(ctx, func(ctx context.Context, owner, repo, bootstrap string) (string, func(), error) {
+				return issueService.IssueChatConnectorCredential(ctx, queries, owner, repo, bootstrap)
+			})
+		})
 		connectorFailure = connectorWorker.Failed()
 	}
 	var flowWorkerFailure <-chan error

@@ -21,8 +21,8 @@ func TestDurableNodeHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	for _, args := range [][]string{
-		{"node_modules/typescript/bin/tsc", "--noEmit", "--strict", "--skipLibCheck", "--target", "esnext", "--module", "nodenext", "--allowImportingTsExtensions", "packages/backend/chatconnector/runtime.ts", "packages/backend/chatconnector/serve.ts", "packages/backend/chatconnector/runtime.test.ts"},
-		{"--test", "packages/backend/chatconnector/runtime.test.ts"},
+		{"node_modules/typescript/bin/tsc", "--noEmit", "--strict", "--skipLibCheck", "--target", "esnext", "--module", "nodenext", "--allowImportingTsExtensions", "packages/backend/chatconnector/runtime.ts", "packages/backend/chatconnector/serve.ts", "packages/backend/chatconnector/runtime.test.ts", "packages/backend/chatconnector/delivery.test.ts"},
+		{"--test", "packages/backend/chatconnector/runtime.test.ts", "packages/backend/chatconnector/delivery.test.ts"},
 	} {
 		cmd := exec.CommandContext(ctx, "node", args...)
 		cmd.Dir = root
@@ -40,10 +40,13 @@ func TestDisabledWithoutConfiguration(t *testing.T) {
 func TestHostEnvironmentAndShutdown(t *testing.T) {
 	root := t.TempDir()
 	output := filepath.Join(root, "environment")
+	config := filepath.Join(root, "config.json")
+	require.NoError(t, os.WriteFile(config, []byte(`{"owner":"alice","repo":"demo"}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "credential"), []byte("bootstrap"), 0600))
 	script := filepath.Join(root, "host")
-	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n/usr/bin/env > \"$SMITHERS_CHAT_CONNECTOR_CONFIG\"\nexec /bin/sleep 30\n"), 0700))
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n/usr/bin/env > \""+output+"\"\nexec /bin/sleep 30\n"), 0700))
 	env := map[string]string{
-		"SMITHERS_CHAT_CONNECTOR_CONFIG":     output,
+		"SMITHERS_CHAT_CONNECTOR_CONFIG":     config,
 		"SMITHERS_CHAT_CONNECTOR_BUNDLE":     script,
 		"SMITHERS_CHAT_CONNECTOR_TOKEN_FILE": filepath.Join(root, "credential"),
 		"SMITHERS_NODE_BINARY":               "/bin/sh",
@@ -57,7 +60,11 @@ func TestHostEnvironmentAndShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- host.Run(ctx) }()
+	go func() {
+		done <- host.Run(ctx, func(context.Context, string, string, string) (string, func(), error) {
+			return "sync-token", func() {}, nil
+		})
+	}()
 	require.Eventually(t, func() bool {
 		contents, err := os.ReadFile(output)
 		return err == nil && strings.Contains(string(contents), "SMITHERS_CHAT_CONNECTOR_STATE=")
@@ -68,6 +75,8 @@ func TestHostEnvironmentAndShutdown(t *testing.T) {
 	require.Contains(t, string(contents), "SMITHERS_CHAT_CONNECTOR_STATE="+filepath.Join(root, "chat-connectors"))
 	require.Contains(t, string(contents), "SMITHERS_SLACK_BOT_TOKEN=fixture-secret")
 	require.NotContains(t, string(contents), "must-not-inherit")
+	require.NotContains(t, string(contents), "SMITHERS_CHAT_CONNECTOR_TOKEN_FILE="+env["SMITHERS_CHAT_CONNECTOR_TOKEN_FILE"]+"\n", "the bootstrap path must not enter the child")
+	require.Contains(t, string(contents), "SMITHERS_CHAT_CONNECTOR_TOKEN_FILE="+filepath.Join(root, "chat-connectors", "credential-"))
 	cancel()
 	select {
 	case err := <-done:
