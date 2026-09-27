@@ -3,6 +3,7 @@
  *
  * @since 0.0.0
  */
+
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import type { JournalEntryLike } from "./EngineSubject.ts"

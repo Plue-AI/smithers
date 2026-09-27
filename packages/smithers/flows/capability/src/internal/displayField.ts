@@ -4,6 +4,7 @@
  *
  * @since 0.1.0
  */
+
 import { maxDisplayFieldLength } from "../maxDisplayFieldLength.ts"
 
 const truncationMarker = "…[truncated]"

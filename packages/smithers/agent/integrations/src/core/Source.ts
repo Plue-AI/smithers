@@ -13,6 +13,7 @@
  *
  * @since 1.0.0
  */
+
 import { Effect, Schedule } from "effect"
 import { CursorStore } from "./CursorStore.ts"
 import type { ExternalEvent } from "./ExternalEvent.ts"

@@ -20,6 +20,7 @@
  *
  * @since 1.0.0
  */
+
 import type { ControlSchema } from "@smthrs/control"
 import { asRecord, asString, callScope, openCallIndex, uniqueCallEvents } from "@smthrs/gateway/Diagnosis"
 

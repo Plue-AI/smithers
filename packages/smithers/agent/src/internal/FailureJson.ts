@@ -2,6 +2,7 @@
  * The one JSON rendering every durable agent failure goes through.
  * @since 1.0.0
  */
+
 import * as Cause from "effect/Cause"
 
 /**

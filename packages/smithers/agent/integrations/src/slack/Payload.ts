@@ -21,6 +21,7 @@
  *
  * @since 1.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import { Schema } from "effect"
 import type { ExternalEvent } from "../core/ExternalEvent.ts"

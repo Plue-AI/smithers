@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Journal from "@smthrs/journal/Journal"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as Redaction from "@smthrs/journal/Redaction"

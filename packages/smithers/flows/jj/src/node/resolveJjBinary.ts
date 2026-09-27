@@ -18,6 +18,7 @@
  *
  * @since 1.0.0
  */
+
 import { accessSync, constants, existsSync } from "node:fs"
 import { delimiter, resolve } from "node:path"
 

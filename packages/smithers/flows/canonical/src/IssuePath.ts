@@ -1,6 +1,7 @@
 /** Bounded paths for schema failures at durable boundaries.
  * @since 1.0.0
  */
+
 import type * as Schema from "effect/Schema"
 import type * as SchemaIssue from "effect/SchemaIssue"
 

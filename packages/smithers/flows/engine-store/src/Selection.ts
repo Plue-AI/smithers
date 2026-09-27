@@ -55,6 +55,7 @@
  *
  * @since 0.1.0
  */
+
 import { Journal, type JournalEvent } from "@smthrs/journal"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"

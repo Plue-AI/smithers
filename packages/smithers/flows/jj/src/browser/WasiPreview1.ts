@@ -68,6 +68,7 @@
  *
  * @since 0.1.0
  */
+
 import type { SyncDirentLike, SyncFsLike, SyncStatsLike } from "./WasiFs.ts"
 
 /**

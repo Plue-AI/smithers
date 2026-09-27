@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"

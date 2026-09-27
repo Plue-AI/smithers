@@ -24,6 +24,7 @@
  *
  * @since 1.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import { hasSmithersErrorShape, SmithersError } from "@smthrs/errors/SmithersError"
 import { Context, Duration, Effect, Layer, Option, Schedule } from "effect"

@@ -14,6 +14,7 @@
  *
  * @since 1.0.0
  */
+
 import { createHmac } from "node:crypto"
 
 const HEX = /^[0-9a-f]+$/i

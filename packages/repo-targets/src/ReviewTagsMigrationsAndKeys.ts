@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Input from "@smthrs/targets/Input"
 import { review } from "./ReviewLint.ts"
 import type { Options, ReviewLint } from "./ReviewLint.ts"

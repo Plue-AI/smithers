@@ -6,6 +6,7 @@
  *
  * @since 0.1.0
  */
+
 import type { EffectDeclaration, EffectTier } from "../Descriptor.ts"
 
 const tierRank: Record<EffectTier, number> = {

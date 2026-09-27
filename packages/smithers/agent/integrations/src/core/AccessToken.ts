@@ -10,6 +10,7 @@
  *
  * @since 1.0.0
  */
+
 import { Effect, type Redacted } from "effect"
 import type { IntegrationError } from "./IntegrationError.ts"
 

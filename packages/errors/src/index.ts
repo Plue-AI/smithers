@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 export {
   ERROR_REFERENCE_URL,
   getSmithersErrorDefinition,

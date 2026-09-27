@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import type { NotificationError } from "@smthrs/notifications/NotificationQueue"
 import { Context, Effect, Layer, Stream } from "effect"
 import type {

@@ -20,6 +20,7 @@
  *
  * @since 0.1.0
  */
+
 import { Journal } from "@smthrs/journal"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as Context from "effect/Context"

@@ -2,6 +2,7 @@
  * The replay fold behind `smthrs runs inspect` and `smthrs runs replay`.
  * @since 1.0.0
  */
+
 import type { Entry } from "@smthrs/journal/JournalEvent"
 import type { Projection } from "@smthrs/time-travel/TimeTravel"
 

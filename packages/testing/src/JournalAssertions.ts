@@ -3,6 +3,7 @@
  *
  * @since 0.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import * as Effect from "effect/Effect"
 import type { JournalEntryLike } from "./EngineSubject.ts"

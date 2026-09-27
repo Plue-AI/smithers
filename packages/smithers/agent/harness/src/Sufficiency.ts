@@ -41,6 +41,7 @@
  *
  * @since 0.1.0
  */
+
 import { Effect, Schema } from "effect"
 import { NonNegativeSafeInt } from "./internal/nonNegativeSafeInt.ts"
 import * as NarrowedCheck from "./NarrowedCheck.ts"

@@ -4,6 +4,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import * as Effect from "effect/Effect"
 import type { Service } from "./ArtifactStore.ts"
 import { ArtifactStoreError } from "./ArtifactStoreError.ts"

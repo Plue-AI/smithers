@@ -16,6 +16,7 @@
  *
  * @since 0.1.0
  */
+
 import { Journal, JournalEvent } from "@smthrs/journal"
 import { Duration, Effect, Stream } from "effect"
 import { Control } from "./Control.ts"

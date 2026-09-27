@@ -13,6 +13,7 @@
  * the journal reported, and it fails closed.
  * @since 1.0.0-rc.0
  */
+
 import { canonicalize, isRecord } from "@smthrs/canonical"
 import { FlowEngine } from "@smthrs/engine"
 import { Journal, JournalEvent } from "@smthrs/journal"

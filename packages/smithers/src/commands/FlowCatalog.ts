@@ -4,6 +4,7 @@
  *
  * @since 1.0.0
  */
+
 import { ControlSchema } from "@smthrs/control"
 import type { Service as ControlServiceShape } from "@smthrs/control/Control"
 import { inputDocument } from "@smthrs/registry/Descriptor"

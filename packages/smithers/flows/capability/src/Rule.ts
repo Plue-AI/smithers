@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Schema } from "effect"
 import { CapabilityPattern } from "./Capability.ts"
 import { RuleEffect } from "./RuleEffect.ts"

@@ -12,6 +12,7 @@
  *
  * @since 0.1.0
  */
+
 import type { FlowDescriptor } from "./Descriptor.ts"
 
 const isXmlCharacter = (codePoint: number): boolean =>

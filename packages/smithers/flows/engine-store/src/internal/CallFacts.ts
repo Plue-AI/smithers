@@ -1,6 +1,7 @@
 /** Native call facts written by the action owner, never a harness stream consumer.
  * @since 1.0.0
  */
+
 import { CallFact, JournalEvent } from "@smthrs/journal"
 import { DerivedKey, digest } from "@smthrs/keys"
 import * as Context from "effect/Context"

@@ -7,6 +7,7 @@
  *
  * @since 1.0.0
  */
+
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as Layer from "effect/Layer"
 import { indexes } from "./internal/MemoryIndexes.ts"

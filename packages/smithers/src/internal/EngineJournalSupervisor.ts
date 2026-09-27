@@ -2,6 +2,7 @@
  * Private host lifetime for the existing native-to-control journal projection.
  * @since 1.0.0
  */
+
 import type * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import type * as ControlRuntime from "@smthrs/control/ControlRuntime"
 import type { RunSummary } from "@smthrs/control/ControlSchema"

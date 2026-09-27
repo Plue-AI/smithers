@@ -4,6 +4,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Markdown from "@smthrs/core/Markdown"
 import * as Option from "effect/Option"
 import type { DiscoveryWarning } from "../Descriptor.ts"

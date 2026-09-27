@@ -8,6 +8,7 @@
  *
  * @since 1.0.0
  */
+
 import { Schema } from "effect"
 
 const rest = [Schema.Record(Schema.String, Schema.Unknown)] as const

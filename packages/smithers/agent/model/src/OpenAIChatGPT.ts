@@ -12,6 +12,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Result from "effect/Result"
 import type * as Auth from "./Auth.ts"
 import * as Endpoint from "./Endpoint.ts"

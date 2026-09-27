@@ -3,6 +3,7 @@
  * cancellation, cache replay, output capture and provenance publication.
  * @since 1.0.0
  */
+
 import type * as Rule from "../RuleContract.ts"
 import * as FetchExecutor from "./FetchExecutor.ts"
 import * as FetchPlan from "./FetchPlan.ts"

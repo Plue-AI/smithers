@@ -3,6 +3,7 @@
  * of the caller's streams; separate sockets carry requests and lifetime status.
  * @since 1.0.0
  */
+
 import type { Lifecycle } from "@smthrs/kernel/ContainedSpawner"
 import * as Channel from "effect/Channel"
 import * as Clock from "effect/Clock"

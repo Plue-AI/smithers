@@ -1,6 +1,7 @@
 /** Private shared local control graph. Native hosts supply the existing engine and executor.
  * @since 1.0.0
  */
+
 import type { Control, ControlExecutor } from "@smthrs/control"
 import { ControlLive, ControlRuntime } from "@smthrs/control"
 import { Journal } from "@smthrs/journal"

@@ -22,6 +22,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Input from "@smthrs/targets/Input"
 import { LlmLint } from "@smthrs/targets/LlmLint"
 import type { Engine } from "@smthrs/targets/LlmLint"

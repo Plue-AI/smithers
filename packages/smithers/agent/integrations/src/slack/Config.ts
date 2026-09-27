@@ -22,6 +22,7 @@
  *
  * @since 1.0.0
  */
+
 import { Duration, Option, Redacted } from "effect"
 import { IntegrationError } from "../core/IntegrationError.ts"
 import * as Environment from "../Environment.ts"

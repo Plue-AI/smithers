@@ -7,6 +7,7 @@
  *
  * @since 0.1.0
  */
+
 import { type Brand, Schema } from "effect"
 import { Action } from "./Action.ts"
 import { PatternResource } from "./internal/PatternResource.ts"

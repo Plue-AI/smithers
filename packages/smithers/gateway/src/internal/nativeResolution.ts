@@ -2,6 +2,7 @@
  * Committed native results and the control binding that authorizes them.
  * @since 1.0.0
  */
+
 import type { ControlSchema } from "@smthrs/control"
 
 interface Identity {

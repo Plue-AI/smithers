@@ -18,6 +18,7 @@
  * The module is pure string handling — no host access — so it stays on the
  * browser-safe side of the package.
  */
+
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 
 /** Tokens made only of these characters need no quoting in a POSIX shell. */

@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 /*
  * The Language Server Protocol shapes as far as Smithers reads them (LSP
  * 3.17), and the one conversion of each into the typed answers of

@@ -16,6 +16,7 @@
  *
  * @since 0.1.0
  */
+
 import type * as Journal from "@smthrs/journal/Journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as Effect from "effect/Effect"

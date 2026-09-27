@@ -1,6 +1,7 @@
 /** Native lifecycle facts captured using the owning store transaction.
  * @since 1.0.0
  */
+
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import { FlowEngine } from "@smthrs/engine"
 import { ExecutionFact, type Journal, Redaction } from "@smthrs/journal"

@@ -15,6 +15,7 @@
  *
  * @since 0.1.0
  */
+
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as JournalMigrations from "@smthrs/journal/Migrations"
 import * as PlanMigrations from "@smthrs/plan-store/Migrations"

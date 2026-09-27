@@ -16,6 +16,7 @@
  * Codes are a STABLE public contract: callers branch on them, step keys digest
  * them, UIs map them to remediation. Never repurpose a code — add one.
  */
+
 import type { JjError } from "@smthrs/jj"
 
 /**

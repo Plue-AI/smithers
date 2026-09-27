@@ -27,6 +27,7 @@
  *
  * @since 0.1.0
  */
+
 import singlefile from "@jitl/quickjs-singlefile-browser-release-sync"
 import { Context, Duration, Effect, Layer, Option, Schema, type Scope } from "effect"
 import type {

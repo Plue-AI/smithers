@@ -22,6 +22,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Dialect from "@smthrs/database/Dialect"
 import { afterCommit, DatabaseError, DurableWriter, fromSqlError } from "@smthrs/database/DurableWriter"
 import { OwnerId } from "@smthrs/journal/OwnerId"

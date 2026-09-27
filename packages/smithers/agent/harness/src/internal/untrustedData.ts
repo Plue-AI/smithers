@@ -4,6 +4,7 @@
  * @since 0.1.0
  * @private
  */
+
 const escape = (text: string): string => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
 
 /**

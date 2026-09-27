@@ -2,6 +2,7 @@
  * Scoped transient commands with the host's process-tree cleanup policy.
  * @since 1.0.0
  */
+
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as PlatformError from "effect/PlatformError"

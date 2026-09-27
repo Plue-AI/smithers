@@ -34,6 +34,7 @@
  * @private
  * @slop
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import * as CanonicalJson from "@smthrs/model/CanonicalJson"
 import type { Schema } from "effect"

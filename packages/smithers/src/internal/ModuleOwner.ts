@@ -2,6 +2,7 @@
  * Private host composition data, never a workflow payload or authority lookup.
  * @since 1.0.0
  */
+
 import { Context } from "effect"
 
 /**

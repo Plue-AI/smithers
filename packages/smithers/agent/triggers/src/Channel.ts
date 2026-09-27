@@ -9,6 +9,7 @@
  * @see packages/smithers/agent/triggers/docs/api.md
  * @since 0.1.0
  */
+
 import type { IdempotencyKey } from "@smthrs/control/ControlSchema"
 import type { CredentialRef } from "@smthrs/control/Credential"
 import type * as Effect from "effect/Effect"

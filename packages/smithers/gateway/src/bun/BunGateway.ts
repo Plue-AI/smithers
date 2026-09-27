@@ -1,6 +1,7 @@
 /** Bun HTTP adapter for the same authenticated workspace gateway protocol.
  * @since 1.0.0
  */
+
 import * as BunHttpServer from "@effect/platform-bun/BunHttpServer"
 import { Cause, Effect, Layer } from "effect"
 import type { HttpServer } from "effect/unstable/http/HttpServer"

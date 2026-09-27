@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+
 import { Canonical } from "@smthrs/canonical"
 import { digest as sha256 } from "@smthrs/crypto"
 import type * as Crypto from "effect/Crypto"

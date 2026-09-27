@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Schema from "effect/Schema"
 
 const keyV1Pattern = /^key1_[0-9a-f]{64}$/

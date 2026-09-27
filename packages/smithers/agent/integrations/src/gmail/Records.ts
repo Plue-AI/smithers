@@ -15,6 +15,7 @@
  *
  * @since 1.0.0
  */
+
 import type { SourceRecord } from "../core/SourceRecord.ts"
 import type { Message, MessagePart } from "./GmailClient.ts"
 

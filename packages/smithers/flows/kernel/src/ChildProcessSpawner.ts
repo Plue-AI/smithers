@@ -21,6 +21,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import { toPlatformError } from "@smthrs/capability/Permission"
 import { Effect, Layer, Path } from "effect"
 import { systemError } from "effect/PlatformError"

@@ -94,6 +94,7 @@
  *
  * @since 0.1.0
  */
+
 import { Schema } from "effect"
 import * as Effect from "effect/Effect"
 import type * as NarrowedCheck from "./NarrowedCheck.ts"

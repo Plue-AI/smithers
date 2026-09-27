@@ -13,6 +13,7 @@
  *
  * @since 1.0.0
  */
+
 import type { Action, FlowRuntime } from "@smthrs/flow"
 import { inputDocument } from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"

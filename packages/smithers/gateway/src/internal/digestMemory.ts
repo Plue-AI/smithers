@@ -1,6 +1,7 @@
 /** Encoded retained-data accounting for private diagnosis state.
  * @since 1.0.0
  */
+
 const sizes = new WeakMap<object, number>()
 const encoder = new TextEncoder()
 

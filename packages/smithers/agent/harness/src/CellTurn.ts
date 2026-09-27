@@ -15,6 +15,7 @@
  *
  * @since 0.1.0
  */
+
 import { Effects, type KeyMaterial, Placement } from "@smthrs/core"
 import * as Digest from "@smthrs/core/Digest"
 import { Capability, CapabilitySet, Permission } from "@smthrs/kernel"

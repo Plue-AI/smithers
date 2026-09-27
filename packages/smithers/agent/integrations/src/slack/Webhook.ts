@@ -25,6 +25,7 @@
  *
  * @since 1.0.0
  */
+
 import type { Channel, InboundResult, RawInbound } from "@smthrs/control/Channels"
 import type { InvalidInput } from "@smthrs/control/ControlError"
 import type { CredentialRef } from "@smthrs/control/Credential"

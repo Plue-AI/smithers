@@ -3,6 +3,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import type { Capability } from "./Capability.ts"
 import type { GrantStoreErrorCode, PermissionDenied, PermissionRequired } from "./Permission.ts"
 

@@ -10,6 +10,7 @@
  *
  * @since 0.1.0
  */
+
 import * as BoundedJson from "@smthrs/canonical/BoundedJson"
 import { affectedRows, DatabaseError, DurableWriter } from "@smthrs/database/DurableWriter"
 import * as Clock from "effect/Clock"

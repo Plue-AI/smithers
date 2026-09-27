@@ -7,6 +7,7 @@
  *
  * @since 1.0.0
  */
+
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import { appliedAudits } from "./migrations/0001_applied_audits.ts"
 

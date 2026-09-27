@@ -12,6 +12,7 @@
  *
  * @since 0.1.0
  */
+
 import * as NodeUtil from "node:util/types"
 import type * as Attr from "./Attr.ts"
 import type * as WorkspaceDeclaration from "./WorkspaceDeclaration.ts"

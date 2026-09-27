@@ -4,6 +4,7 @@
  *
  * @since 1.0.0
  */
+
 import * as EngineEvent from "@smthrs/journal/EngineEvent"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import type * as Projection from "@smthrs/journal/Projection"

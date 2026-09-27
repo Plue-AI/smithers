@@ -19,6 +19,7 @@
  *
  * @since 0.1.0
  */
+
 import * as EngineEvent from "@smthrs/journal/EngineEvent"
 import * as Journal from "@smthrs/journal/Journal"
 import type { Entry } from "@smthrs/journal/JournalEvent"

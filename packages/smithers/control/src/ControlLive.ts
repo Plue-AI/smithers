@@ -4,6 +4,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import { Journal, JournalEvent } from "@smthrs/journal"
 import { NotificationQueue } from "@smthrs/notifications"

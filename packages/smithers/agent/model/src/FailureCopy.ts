@@ -3,6 +3,7 @@
  *
  * @since 1.0.0-rc.1
  */
+
 import type { ModelErrorCode } from "./ModelError.ts"
 
 /**

@@ -2,6 +2,7 @@
  * Reduces a validated Fetch declaration to its complete execution contract.
  * @since 1.0.0
  */
+
 import * as FetchTarget from "@smthrs/targets/Fetch"
 import * as Input from "@smthrs/targets/Input"
 import * as Target from "@smthrs/targets/Target"

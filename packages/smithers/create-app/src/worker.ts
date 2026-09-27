@@ -19,6 +19,7 @@
  *
  * @since 1.0.0
  */
+
 import * as EventSink from "@smthrs/agent/EventSink"
 import * as FlowEngineLike from "@smthrs/agent/FlowEngineLike"
 import * as Seat from "@smthrs/agent/Seat"

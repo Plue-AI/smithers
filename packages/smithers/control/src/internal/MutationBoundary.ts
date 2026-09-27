@@ -4,6 +4,7 @@
  * @since 1.0.0-rc.0
  * @private
  */
+
 import * as BoundedJson from "@smthrs/canonical/BoundedJson"
 
 /** Limits and diagnostic precedence of the control mutation boundary. */

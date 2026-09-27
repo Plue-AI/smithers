@@ -3,6 +3,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import type { ZenFsFileHandleLike } from "./ZenFsFileHandleLike.ts"
 import type { ZenFsStatsLike } from "./ZenFsStatsLike.ts"
 

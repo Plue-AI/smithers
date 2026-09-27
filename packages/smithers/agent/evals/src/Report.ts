@@ -7,6 +7,7 @@
  *
  * @since 0.1.0
  */
+
 import type { Baseline } from "./Baseline.ts"
 import { CanonicalJson } from "./internal/CanonicalJson.ts"
 import { scorerLabel } from "./internal/scorerLabel.ts"

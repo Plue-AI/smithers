@@ -26,6 +26,7 @@
  *
  * @since 1.0.0
  */
+
 import { canonicalize } from "@smthrs/canonical"
 import { digestSync } from "@smthrs/crypto"
 import * as Schema from "effect/Schema"

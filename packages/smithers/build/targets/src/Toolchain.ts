@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 /* eslint-disable jsdoc/require-description, jsdoc/no-restricted-syntax */
 /** Runtime marker shared by every workspace toolchain declaration. */
 export const TypeId: unique symbol = Symbol.for("smithers-build/WorkspaceToolchain") as never

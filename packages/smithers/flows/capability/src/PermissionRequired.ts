@@ -6,6 +6,7 @@
  *
  * @since 0.1.0
  */
+
 import { Schema } from "effect"
 import { Capability, EffectTier } from "./Capability.ts"
 import { capabilitySnapshot } from "./internal/capabilitySnapshot.ts"

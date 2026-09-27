@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import { escapeRegex } from "./SearchContract.ts"
 
 interface Rule {

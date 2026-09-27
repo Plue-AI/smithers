@@ -24,6 +24,7 @@
  *
  * @since 0.1.0
  */
+
 import { Jj } from "@smthrs/jj"
 import type * as EngineEvent from "@smthrs/journal/EngineEvent"
 import * as Journal from "@smthrs/journal/Journal"

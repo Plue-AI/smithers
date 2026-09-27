@@ -12,6 +12,7 @@
  *
  * @since 1.0.0
  */
+
 import { InvalidInput, Unauthorized } from "@smthrs/control/ControlError"
 import { hasSmithersErrorShape, SmithersError } from "@smthrs/errors/SmithersError"
 

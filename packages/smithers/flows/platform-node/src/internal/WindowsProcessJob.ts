@@ -2,6 +2,7 @@
  * A native Windows job guardian, attached before the owner can launch a target.
  * @since 1.0.0
  */
+
 import { spawn } from "node:child_process"
 import type { Socket } from "node:net"
 import { parse } from "node:path"

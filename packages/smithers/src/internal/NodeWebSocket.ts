@@ -2,6 +2,7 @@
  * Node WebSocket construction with errors owned through finalization.
  * @since 1.0.0
  */
+
 import { NodeWS } from "@effect/platform-node/NodeSocket"
 import type * as Socket from "effect/unstable/socket/Socket"
 

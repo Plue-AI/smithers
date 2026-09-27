@@ -9,6 +9,7 @@
  *
  * @since 0.1.0
  */
+
 import { OwnerId } from "@smthrs/journal/OwnerId"
 import { Clock, Duration, Effect, Schema } from "effect"
 import { heartbeatInterval, heartbeatStaleAfter, heartbeatWriteTolerance } from "./Heartbeat.ts"

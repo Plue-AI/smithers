@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as DocsCheck from "@smthrs/targets/DocsCheck"
 import type * as Input from "@smthrs/targets/Input"
 import type * as Target from "@smthrs/targets/Target"

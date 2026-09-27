@@ -2,6 +2,7 @@
  * Versioned control lifecycle facts and their shared read projection.
  * @since 1.0.0
  */
+
 import { Journal, JournalEvent } from "@smthrs/journal"
 import { Effect, Schema } from "effect"
 import type * as ControlRuntime from "./ControlRuntime.ts"

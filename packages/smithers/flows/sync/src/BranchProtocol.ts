@@ -12,6 +12,7 @@
  *
  * @since 0.1.0
  */
+
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"

@@ -8,6 +8,7 @@
  *
  * @since 1.0.0
  */
+
 import { realpathSync } from "node:fs"
 import { findPackageJSON } from "node:module"
 import { dirname } from "node:path"

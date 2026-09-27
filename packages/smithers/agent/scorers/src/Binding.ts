@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+
 import type { Flow } from "@smthrs/core"
 import type { Sampling } from "./Sampling.ts"
 import type { Scorer } from "./Scorer.ts"

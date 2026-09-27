@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import type { ApplicationTargetDocument } from "./ApplicationTarget.ts"
 /*
  * The one native door the local app keeps on Electrobun RPC (LOCAL-APP.md,

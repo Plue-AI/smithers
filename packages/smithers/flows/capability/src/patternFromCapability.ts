@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Option } from "effect"
 import { CapabilityPattern } from "./CapabilityPattern.ts"
 import type { Capability } from "./ExactCapability.ts"

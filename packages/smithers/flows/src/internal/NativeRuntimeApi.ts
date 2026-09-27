@@ -1,6 +1,7 @@
 /** Shared native runtime contracts derived from the composition itself.
  * @since 1.0.0
  */
+
 import type { makeNative } from "./NativeRuntime.ts"
 
 /** Native host API shared by Node and Bun.

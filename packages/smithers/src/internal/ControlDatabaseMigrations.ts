@@ -7,6 +7,7 @@
  *
  * @since 1.0.0
  */
+
 import * as ControlMigrations from "@smthrs/control/Migrations"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as MemoryMigrations from "@smthrs/memory/Migrations"

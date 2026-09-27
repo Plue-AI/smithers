@@ -1,6 +1,7 @@
 /** Private control persistence over the selected native SQL adapter.
  * @since 1.0.0
  */
+
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import { Effect, FileSystem, Layer, Path } from "effect"
 import type { SqlClient } from "effect/unstable/sql/SqlClient"

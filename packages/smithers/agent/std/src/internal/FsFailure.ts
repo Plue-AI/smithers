@@ -9,6 +9,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as PlatformError from "effect/PlatformError"
 import * as StdError from "../StdError.ts"
 

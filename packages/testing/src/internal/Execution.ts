@@ -12,6 +12,7 @@
  *
  * @since 0.0.0
  */
+
 import * as Option from "effect/Option"
 import { ExecutionConflictError } from "../TestingError.ts"
 import { canonical } from "./Structural.ts"

@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import { DiscoveryError } from "@smthrs/registry/RegistryError"

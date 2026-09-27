@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Action } from "../Action.ts"
 
 const actions: ReadonlySet<string> = new Set(Action.literals)

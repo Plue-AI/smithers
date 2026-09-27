@@ -3,6 +3,7 @@
  * redacted journal projections. Intent survives before a merge is appended.
  * @since 1.0.0
  */
+
 import { Sha256 } from "@smthrs/crypto"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
 import { Plan } from "@smthrs/plan"

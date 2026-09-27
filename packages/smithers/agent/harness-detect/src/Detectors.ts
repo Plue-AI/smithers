@@ -13,6 +13,7 @@
  *
  * @since 0.1.0
  */
+
 import type { HarnessModelSpec } from "@smthrs/rpc/AgentRoles"
 import type { Harness } from "@smthrs/rpc/LocalApp"
 import type { HarnessHost, HarnessId } from "./HarnessHost.ts"

@@ -1,6 +1,7 @@
 /** Bun host composition over the shared, injected durable runtime.
  * @since 1.0.0
  */
+
 import * as Database from "@smthrs/database/bun/BunDatabase"
 import * as Host from "@smthrs/platform-bun/BunHost"
 import { makeNative } from "./internal/NativeRuntime.ts"

@@ -16,6 +16,7 @@
  *
  * @since 1.0.0
  */
+
 import * as Redaction from "@smthrs/journal/Redaction"
 import { stripVTControlCharacters } from "node:util"
 

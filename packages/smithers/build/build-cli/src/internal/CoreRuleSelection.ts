@@ -4,6 +4,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as Rule from "./RuleContract.ts"
 
 const nativeLanes = {

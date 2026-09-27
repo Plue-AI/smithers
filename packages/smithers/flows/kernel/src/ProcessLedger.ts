@@ -26,6 +26,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import * as JournalModule from "@smthrs/journal/Journal"
 import type { JournalError } from "@smthrs/journal/Journal"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"

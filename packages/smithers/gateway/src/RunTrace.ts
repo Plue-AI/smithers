@@ -16,6 +16,7 @@
  * Pure: the card renders the model, the tests read it from a fixture.
  * @since 1.0.0
  */
+
 import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
 import { callScope, openCallIndex } from "./Diagnosis.js"

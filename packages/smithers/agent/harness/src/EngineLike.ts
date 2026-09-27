@@ -7,6 +7,7 @@
  *
  * @since 0.1.0
  */
+
 import type * as KeyMaterial from "@smthrs/core/KeyMaterial"
 import type * as Model from "@smthrs/model/Model"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"

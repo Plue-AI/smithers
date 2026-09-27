@@ -19,6 +19,7 @@
  *
  * @since 0.1.0
  */
+
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import type { OwnerId } from "@smthrs/journal/OwnerId"
 import * as Context from "effect/Context"

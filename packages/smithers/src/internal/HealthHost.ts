@@ -1,6 +1,7 @@
 /** Scoped, bounded health observation beside the native control host.
  * @since 1.0.0
  */
+
 import { Control, Health, Monitor } from "@smthrs/control"
 import type { Journal } from "@smthrs/journal"
 import { Cause, Effect, FiberMap, Metric, type Scope, Semaphore } from "effect"

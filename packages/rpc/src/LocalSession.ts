@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 /** Per-launch local-origin capability contract shared by Bun and the browser.
  * @since 1.0.0
  * @category constants

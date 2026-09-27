@@ -9,6 +9,7 @@
  *
  * @since 1.0.0
  */
+
 import type { SignalPayload } from "@smthrs/control/ControlSchema"
 import { SmithersError } from "@smthrs/errors/SmithersError"
 import type { Notification } from "@smthrs/notifications/Notification"

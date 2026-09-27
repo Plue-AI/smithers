@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import { canonicalize } from "@smthrs/canonical/Serializer"
 import { z } from "zod"
 import { AgentTurnFrameSchema } from "./NativeAgent.ts"

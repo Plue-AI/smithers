@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { DocsParity } from "@smthrs/targets/DocsParity"
 import { Dprint } from "@smthrs/targets/Dprint"
 import { EsLint } from "@smthrs/targets/EsLint"

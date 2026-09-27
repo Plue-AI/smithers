@@ -4,6 +4,7 @@
  * Kept on its own subpath because browser test hosts cannot load child_process.
  * @since 1.0.0
  */
+
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process"
 
 /**

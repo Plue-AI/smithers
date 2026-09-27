@@ -10,6 +10,7 @@
  *
  * @since 0.1.0
  */
+
 import { Effect, Option, Schema } from "effect"
 import { classifyHttpStatus } from "./HttpStatusClassifier.ts"
 import { ModelError } from "./ModelError.ts"

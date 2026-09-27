@@ -15,6 +15,7 @@
  *
  * @since 1.0.0
  */
+
 import { Effect, Schema } from "effect"
 import { IntegrationError } from "../core/IntegrationError.ts"
 import type { GmailClient } from "./GmailClient.ts"

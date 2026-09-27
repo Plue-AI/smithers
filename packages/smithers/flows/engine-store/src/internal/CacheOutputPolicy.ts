@@ -3,6 +3,7 @@
  * This preflight performs no host I/O; every path is checked before replay can prune.
  * @since 1.0.0-rc.0
  */
+
 import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import type { FileBoundary } from "@smthrs/flow/FileBoundary"
 import * as FileSet from "@smthrs/plan/FileSet"

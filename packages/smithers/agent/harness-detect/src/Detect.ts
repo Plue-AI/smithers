@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import type { Harness } from "@smthrs/rpc/LocalApp"
 import { DETECTORS } from "./Detectors.ts"
 import { findBinary } from "./HarnessHost.ts"

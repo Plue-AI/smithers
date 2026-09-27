@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import type { RuntimeCapability } from "./AppBootstrap.ts"
 
 /**

@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import { z } from "zod"
 
 const title = z.string().min(1).max(120)

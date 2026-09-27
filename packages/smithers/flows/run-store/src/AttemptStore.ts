@@ -9,6 +9,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Dialect from "@smthrs/database/Dialect"
 import { DatabaseError, DurableWriter, fromSqlError } from "@smthrs/database/DurableWriter"
 import type { OwnerId } from "@smthrs/journal/OwnerId"

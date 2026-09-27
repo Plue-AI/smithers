@@ -1,6 +1,7 @@
 /** SQL fragments shared by the SQLite and PostgreSQL stores.
  * @since 1.0.0
  */
+
 import { Effect } from "effect"
 import type { SqlClient } from "effect/unstable/sql/SqlClient"
 import type { Fragment } from "effect/unstable/sql/Statement"

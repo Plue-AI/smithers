@@ -3,6 +3,7 @@
  *
  * @since 0.0.0
  */
+
 import type { Effect } from "effect"
 import { Schema } from "effect"
 import { compare, snapshot } from "./internal/Structural.ts"

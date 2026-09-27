@@ -14,6 +14,7 @@
  *
  * @since 1.0.0
  */
+
 import { IntegrationError } from "../core/IntegrationError.ts"
 
 /**

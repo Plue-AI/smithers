@@ -1,6 +1,7 @@
 /** Shared issue sync transport: PostgreSQL owns claims, identities and receipts.
  * @since 1.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import type { FlowRuntime } from "@smthrs/flow"
 import { Schema } from "effect"

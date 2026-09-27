@@ -9,6 +9,7 @@
  *
  * @since 1.0.0
  */
+
 import { createHash, randomBytes } from "node:crypto"
 
 const UNRESERVED = /^[A-Za-z0-9\-._~]+$/

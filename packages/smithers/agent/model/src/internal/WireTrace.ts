@@ -12,6 +12,7 @@
  * @since 1.0.0-rc.1
  * @internal
  */
+
 import * as CanonicalJson from "../CanonicalJson.ts"
 
 interface Traced {

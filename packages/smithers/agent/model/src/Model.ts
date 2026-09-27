@@ -7,6 +7,7 @@
  *
  * @since 0.1.0
  */
+
 import type { GrantStoreError, PermissionDenied, PermissionRequired } from "@smthrs/capability/Permission"
 import { Context, Effect, Layer, Stream } from "effect"
 import type { ModelError } from "./ModelError.ts"

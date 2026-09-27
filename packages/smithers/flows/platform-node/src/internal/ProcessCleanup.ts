@@ -2,6 +2,7 @@
  * Prepared process ownership and bounded release for Node and Bun hosts.
  * @since 1.0.0
  */
+
 import { defaultGraceMs, type Lifecycle } from "@smthrs/kernel/ContainedSpawner"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"

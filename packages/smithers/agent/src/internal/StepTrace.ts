@@ -2,6 +2,7 @@
  * Source checkpoints for one native agent dispatch.
  * @since 1.0.0
  */
+
 import * as Digest from "@smthrs/core/Digest"
 import { Action, FlowRuntime } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"

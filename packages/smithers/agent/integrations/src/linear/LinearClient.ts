@@ -28,6 +28,7 @@
  *
  * @since 1.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import { Context, Duration, Effect, Layer, Option } from "effect"
 import { IntegrationError, isIntegrationError } from "../core/IntegrationError.ts"

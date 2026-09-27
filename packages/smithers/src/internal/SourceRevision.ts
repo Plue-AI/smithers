@@ -26,6 +26,7 @@
  *
  * @since 1.0.0
  */
+
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import { Effect, Option, Stream } from "effect"
 

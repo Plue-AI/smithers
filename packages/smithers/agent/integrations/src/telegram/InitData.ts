@@ -25,6 +25,7 @@
  *
  * @since 1.0.0
  */
+
 import { SmithersError } from "@smthrs/errors/SmithersError"
 
 /**

@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import type { JournalEvent } from "@smthrs/journal"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"

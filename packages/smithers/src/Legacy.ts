@@ -12,6 +12,7 @@
  *
  * @since 1.0.0
  */
+
 import { RunState } from "@smthrs/migrate"
 import { existsSync } from "node:fs"
 

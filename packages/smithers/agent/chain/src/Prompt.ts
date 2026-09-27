@@ -19,6 +19,7 @@
  *
  * @since 0.1.0
  */
+
 import * as AuthorDeclaration from "./AuthorDeclaration.ts"
 import type * as Catalog from "./Catalog.ts"
 import * as sections from "./internal/prompts.ts"

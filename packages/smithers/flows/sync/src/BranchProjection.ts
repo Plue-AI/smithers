@@ -21,6 +21,7 @@
  *
  * @since 0.1.0
  */
+
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"

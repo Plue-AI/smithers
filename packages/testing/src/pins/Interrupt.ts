@@ -5,6 +5,7 @@
  *
  * @since 0.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"

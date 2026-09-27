@@ -50,6 +50,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Permission from "@smthrs/capability/Permission"
 import * as Digest from "@smthrs/core/Digest"
 import type * as KeyMaterial from "@smthrs/core/KeyMaterial"

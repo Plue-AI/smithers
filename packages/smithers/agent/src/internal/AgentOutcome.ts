@@ -2,6 +2,7 @@
  * The terminal outcome of a successfully drained agent stream.
  * @since 1.0.0
  */
+
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"

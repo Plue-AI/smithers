@@ -1,6 +1,7 @@
 /** Native store existence without mistaking a PostgreSQL schema for a local file.
  * @since 1.0.0
  */
+
 import { existsSync } from "node:fs"
 
 /** Configuration follows the native database adapter's explicit-URL precedence.

@@ -2,6 +2,7 @@
  * Incremental evidence for the no-TTL cache guard.
  * @since 1.0.0-rc.0
  */
+
 import { Journal, JournalEvent } from "@smthrs/journal"
 import * as Effect from "effect/Effect"
 import * as Semaphore from "effect/Semaphore"

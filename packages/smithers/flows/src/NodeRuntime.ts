@@ -1,6 +1,7 @@
 /** Node host composition over the shared, injected durable runtime.
  * @since 1.0.0
  */
+
 import * as Database from "@smthrs/database/node/NodeDatabase"
 import * as Host from "@smthrs/platform-node/NodeHost"
 import { makeNative } from "./internal/NativeRuntime.ts"

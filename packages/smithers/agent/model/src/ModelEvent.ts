@@ -7,6 +7,7 @@
  *
  * @since 0.1.0
  */
+
 import { Effect, Schema } from "effect"
 import { AssistantMessage, StopReason, ToolCallPart } from "./ModelRequest.ts"
 

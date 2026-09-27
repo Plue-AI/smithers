@@ -2,6 +2,7 @@
  * Human-task diagnostics over the shared inert JSON boundary.
  * @since 1.0.0
  */
+
 import * as BoundedJson from "@smthrs/canonical/BoundedJson"
 
 /** Resource limits for one human-task value.

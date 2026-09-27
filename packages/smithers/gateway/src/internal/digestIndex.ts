@@ -1,6 +1,7 @@
 /** Persistent scalar indexes for carried diagnosis corrections.
  * @since 1.0.0
  */
+
 import { encodedBytes } from "./digestMemory.ts"
 
 /** An ordinal and its optional timestamps, with cached subtree extrema.

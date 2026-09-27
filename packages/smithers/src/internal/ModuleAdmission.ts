@@ -1,6 +1,7 @@
 /** Refuses adoption of persisted module roots by an unconfigured executor.
  * @since 1.0.0
  */
+
 import type { ControlRuntime } from "@smthrs/control"
 import * as RunState from "@smthrs/engine-store/RunState"
 import * as Descriptor from "@smthrs/registry/Descriptor"

@@ -46,6 +46,7 @@
  * @since 1.0.0-rc.1
  * @private
  */
+
 import { parse } from "@babel/parser"
 import type * as Syntax from "@babel/types"
 

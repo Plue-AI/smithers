@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { NotificationError } from "@smthrs/notifications/NotificationQueue"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Rpc, RpcGroup, RpcMiddleware } from "effect/unstable/rpc"

@@ -10,6 +10,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import { Effect, Exit, Result, Schema, Scope } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"

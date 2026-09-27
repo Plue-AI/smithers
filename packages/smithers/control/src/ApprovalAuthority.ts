@@ -4,6 +4,7 @@
  *
  * @since 1.0.0
  */
+
 import { Effect, Schema } from "effect"
 import { InvalidInput, type PersistenceError, Unauthorized } from "./ControlError.ts"
 import { type ApprovalTarget, GrantScope, type Principal } from "./ControlSchema.ts"

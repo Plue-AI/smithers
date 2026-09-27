@@ -17,6 +17,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as Plan from "@smthrs/plan/Plan"
 import type { DeclaredAt } from "../internal/DeclarationSite.ts"
 

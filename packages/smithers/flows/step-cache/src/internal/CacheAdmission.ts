@@ -9,6 +9,7 @@
  *
  * @since 0.1.0
  */
+
 import * as BoundedJson from "@smthrs/canonical/BoundedJson"
 import { Canonical } from "@smthrs/canonical/Canonical"
 import * as Effect from "effect/Effect"

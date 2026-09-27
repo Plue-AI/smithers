@@ -4,6 +4,7 @@
  * @see packages/smithers/agent/triggers/docs/api.md
  * @since 0.1.0
  */
+
 import * as ControlChannels from "@smthrs/control/Channels"
 import type { ControlError } from "@smthrs/control/ControlError"
 import { InvalidInput, Unauthorized } from "@smthrs/control/ControlError"

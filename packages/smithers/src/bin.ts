@@ -3,6 +3,7 @@
  * Public process entry; bootstrap shared declaration identities before loading commands.
  * @since 1.0.0
  */
+
 import * as Audience from "@smthrs/build-cli/Audience"
 import { installEffectResolution } from "@smthrs/build-cli/effect-resolution"
 import * as Redaction from "@smthrs/journal/Redaction"

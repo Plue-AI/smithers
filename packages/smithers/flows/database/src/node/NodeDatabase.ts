@@ -1,6 +1,7 @@
 /** Node SQLite driver. Domain stores depend on Effect SqlClient, not this module.
  * @since 1.0.0
  */
+
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
 import { type Duration, Effect, Layer } from "effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"

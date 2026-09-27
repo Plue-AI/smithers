@@ -15,6 +15,7 @@
  *
  * @since 1.0.0
  */
+
 import { Duration, Effect, Schedule } from "effect"
 import type { ExternalEvent } from "../core/ExternalEvent.ts"
 import { IntegrationError, isIntegrationError } from "../core/IntegrationError.ts"

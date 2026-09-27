@@ -14,6 +14,7 @@
  *
  * @since 1.0.0
  */
+
 import { Duration } from "effect"
 import type { AccessTokenSource } from "../core/AccessToken.ts"
 import type { Connection } from "../core/Connection.ts"

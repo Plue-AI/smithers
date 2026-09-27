@@ -11,6 +11,7 @@
  *
  * @since 1.0.0
  */
+
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as Layer from "effect/Layer"
 import { integrationCursors } from "./IntegrationCursorMigration.ts"

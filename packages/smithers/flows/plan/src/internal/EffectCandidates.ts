@@ -6,6 +6,7 @@
  * @since 0.1.0
  * @private
  */
+
 import * as FileSet from "../FileSet.ts"
 
 interface Branch {

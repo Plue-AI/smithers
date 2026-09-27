@@ -11,6 +11,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import * as Overlap from "./Overlap.ts"
 import type { Overlap as Policy } from "./Trigger.ts"
 import { TriggerError } from "./TriggerError.ts"

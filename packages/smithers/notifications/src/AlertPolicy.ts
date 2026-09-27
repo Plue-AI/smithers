@@ -10,6 +10,7 @@
  *
  * @since 1.0.0
  */
+
 import type { JournalEvent } from "@smthrs/journal"
 import { Schema } from "effect"
 

@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { format } from "./Capability.ts"
 import { displayField } from "./internal/displayField.ts"
 import type { PermissionErrorPayload } from "./PermissionErrorPayload.ts"

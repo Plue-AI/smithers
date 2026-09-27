@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as WebSdk from "@effect/opentelemetry/WebSdk"
 import type { LogRecordProcessor } from "@opentelemetry/sdk-logs"
 import type { MetricReader } from "@opentelemetry/sdk-metrics"

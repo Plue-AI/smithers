@@ -6,6 +6,7 @@
  *
  * @since 0.1.0
  */
+
 import { type Effect, Schema } from "effect"
 import type { ModelError } from "./ModelError.ts"
 import type { ModelEvent } from "./ModelEvent.ts"

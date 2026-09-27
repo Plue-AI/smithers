@@ -10,6 +10,7 @@
  *
  * @since 1.0.0
  */
+
 import { EngineEvent } from "@smthrs/journal"
 import type * as Option from "effect/Option"
 import * as Schema from "effect/Schema"

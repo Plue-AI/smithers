@@ -1,6 +1,7 @@
 /** Node HTTP adapter for the shared native gateway policy and protocol.
  * @since 1.0.0
  */
+
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import { createServer } from "node:http"
 import * as NativeGateway from "../internal/NativeGateway.ts"

@@ -8,6 +8,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import { type Capability, CapabilityPattern, matches } from "@smthrs/capability/Capability"
 import { Context, Effect } from "effect"
 

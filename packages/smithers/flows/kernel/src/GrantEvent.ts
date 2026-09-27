@@ -7,6 +7,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
 import * as Schema from "effect/Schema"
 

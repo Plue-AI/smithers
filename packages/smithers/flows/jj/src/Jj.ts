@@ -17,6 +17,7 @@
  * resolved service set, and `JjError` round-trips through the journal, so
  * renaming either invalidates recorded runs.
  */
+
 import type * as Permission from "@smthrs/capability/Permission"
 import { Context, Effect, Layer, Schema } from "effect"
 import type { PlatformError } from "effect/PlatformError"

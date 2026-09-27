@@ -11,6 +11,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import type * as Checklist from "./Checklist.ts"
 
 const section = (title: string, body: string): string => `## ${title}\n\n${body}`

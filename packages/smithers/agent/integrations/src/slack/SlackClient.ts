@@ -37,6 +37,7 @@
  *
  * @since 1.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import { Context, Duration, Effect, Layer, Redacted } from "effect"
 import * as AccessToken from "../core/AccessToken.ts"

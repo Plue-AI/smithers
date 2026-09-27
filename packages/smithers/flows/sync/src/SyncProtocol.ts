@@ -6,6 +6,7 @@
  *
  * @since 0.1.0
  */
+
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as Schema from "effect/Schema"
 import { ShareCapability } from "./BranchProtocol.ts"

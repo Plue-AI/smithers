@@ -1,6 +1,7 @@
 /** Native configuration selection shared by Node and Bun.
  * @since 1.0.0
  */
+
 import { Effect, Layer } from "effect"
 import type { SqlClient } from "effect/unstable/sql/SqlClient"
 import { createHash } from "node:crypto"

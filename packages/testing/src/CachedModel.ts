@@ -8,6 +8,7 @@
  *
  * @since 0.0.0
  */
+
 import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"

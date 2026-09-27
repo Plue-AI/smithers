@@ -21,6 +21,7 @@
  *
  * @since 1.0.0
  */
+
 import type { ControlSchema } from "@smthrs/control"
 import { asRecord } from "@smthrs/gateway/Diagnosis"
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"

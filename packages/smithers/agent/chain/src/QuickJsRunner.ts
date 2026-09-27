@@ -13,6 +13,7 @@
  *
  * @since 0.1.0
  */
+
 import variant from "@jitl/quickjs-singlefile-browser-release-sync"
 import { Cause, Effect, Layer } from "effect"
 import type { QuickJSContext, QuickJSDeferredPromise, QuickJSRuntime, QuickJSWASMModule } from "quickjs-emscripten-core"

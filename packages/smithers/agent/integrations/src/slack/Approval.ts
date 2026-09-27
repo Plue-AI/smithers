@@ -18,6 +18,7 @@
  *
  * @since 1.0.0
  */
+
 import { SmithersError } from "@smthrs/errors/SmithersError"
 import { Schema } from "effect"
 import { createHash } from "node:crypto"

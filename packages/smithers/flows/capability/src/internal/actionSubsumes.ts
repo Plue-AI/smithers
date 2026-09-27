@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import type { PatternAction } from "../PatternAction.ts"
 
 /**

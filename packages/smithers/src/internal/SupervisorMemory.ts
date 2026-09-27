@@ -10,6 +10,7 @@
  * @since 1.0.0
  * @private
  */
+
 import * as Capability from "@smthrs/capability/Capability"
 import type * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"

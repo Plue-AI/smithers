@@ -13,6 +13,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import type { Action } from "@smthrs/capability/Capability"
 import { permissionDenied } from "@smthrs/capability/Permission"
 import { Jj, type OperationId, type Revision } from "@smthrs/jj"

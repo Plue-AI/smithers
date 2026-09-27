@@ -20,6 +20,7 @@
  *
  * @since 1.0.0
  */
+
 import { digestSync } from "./Sha256.ts"
 
 /**

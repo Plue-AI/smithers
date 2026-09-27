@@ -12,6 +12,7 @@
  *
  * @since 0.1.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import { decodePermissionError } from "@smthrs/capability"
 import type * as Permission from "@smthrs/capability/Permission"

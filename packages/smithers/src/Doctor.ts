@@ -14,6 +14,7 @@
  *
  * @since 1.0.0
  */
+
 import * as Migrations from "@smthrs/database/Migrations"
 import { existsSync, readdirSync } from "node:fs"
 import { DatabaseSync } from "node:sqlite"

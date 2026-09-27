@@ -27,6 +27,7 @@
  *
  * @since 0.1.0
  */
+
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, posix, relative, resolve, sep } from "node:path"
 import { isRouteSegment, routeSegmentGrammar } from "./app.ts"

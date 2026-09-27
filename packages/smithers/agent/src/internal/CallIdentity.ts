@@ -1,6 +1,7 @@
 /** Shared identity construction for native facts and the legacy control trail.
  * @since 1.0.0
  */
+
 import * as Digest from "@smthrs/core/Digest"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as CanonicalJson from "@smthrs/model/CanonicalJson"

@@ -12,6 +12,7 @@
  *
  * @since 0.1.0
  */
+
 import type { OwnerId } from "@smthrs/journal/OwnerId"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"

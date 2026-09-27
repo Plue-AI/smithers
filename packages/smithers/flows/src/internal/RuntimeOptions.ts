@@ -1,6 +1,7 @@
 /** Runtime configuration shared by injected and native hosts.
  * @since 1.0.0
  */
+
 import type * as EngineStore from "@smthrs/engine-store/EngineStore"
 import { Action } from "@smthrs/flow"
 import type { Ownership, RunStore } from "@smthrs/run-store"

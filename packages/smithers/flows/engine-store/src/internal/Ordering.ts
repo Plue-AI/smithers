@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 /**
  * Compares two strings by JavaScript's locale-independent UTF-16 relational
  * order.

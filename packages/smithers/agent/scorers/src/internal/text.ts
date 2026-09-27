@@ -8,6 +8,7 @@
  *
  * @since 0.1.0
  */
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 

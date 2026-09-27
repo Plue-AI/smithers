@@ -37,6 +37,7 @@
  *
  * @since 1.0.0
  */
+
 import type { Credential, CredentialRef } from "@smthrs/control/Credential"
 import { Clock, Duration, Effect, Option, Redacted, Ref, Schedule, Schema, Semaphore } from "effect"
 import type { AccessTokenSource } from "./AccessToken.ts"

@@ -23,6 +23,7 @@
  *
  * @since 0.1.0
  */
+
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as Layer from "effect/Layer"
 import { initial } from "./internal/migrations/0001_initial.ts"

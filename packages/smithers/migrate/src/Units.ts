@@ -15,6 +15,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import * as Schema from "effect/Schema"
 import type { Detection, SpecifierContext } from "./Detect.ts"
 import { localPackageName } from "./Detect.ts"

@@ -2,6 +2,7 @@
  * Private read-side bridge between the existing engine and control journals.
  * @since 1.0.0
  */
+
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import type * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import * as Journal from "@smthrs/journal/Journal"

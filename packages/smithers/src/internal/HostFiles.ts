@@ -8,6 +8,7 @@
  * @since 1.0.0
  * @private
  */
+
 import { readFileSync } from "node:fs"
 
 /**

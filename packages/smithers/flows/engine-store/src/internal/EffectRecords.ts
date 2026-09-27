@@ -32,6 +32,7 @@
  *
  * @since 0.1.0
  */
+
 import { JournalEvent } from "@smthrs/journal"
 
 /**

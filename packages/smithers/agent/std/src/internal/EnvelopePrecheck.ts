@@ -15,6 +15,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as Path from "@smthrs/kernel/Path"
 import * as StdError from "../StdError.ts"
 import { withinEnvelope } from "./Paths.ts"

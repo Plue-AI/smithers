@@ -48,6 +48,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import { ControlFacts } from "@smthrs/control"

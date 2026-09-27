@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Stream from "effect/Stream"
 import { encodeBase64 } from "./base64.ts"
 

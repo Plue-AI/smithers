@@ -17,6 +17,7 @@
  *
  * @since 0.1.0
  */
+
 import { EventTypes } from "@smthrs/engine-store/EventTypes"
 import * as Journal from "@smthrs/journal/Journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"

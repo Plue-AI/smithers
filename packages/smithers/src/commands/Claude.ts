@@ -4,6 +4,7 @@
  *
  * @since 1.0.0
  */
+
 import { Control as ControlService, type ControlSchema } from "@smthrs/control"
 import { Console, Effect, Option, Stream } from "effect"
 import { type Argument, Command, Flag } from "effect/unstable/cli"

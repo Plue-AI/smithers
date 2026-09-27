@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Chunk, Option, Schema } from "effect"
 import { ModelError } from "./ModelError.ts"
 import { JsonObject, type StopReason } from "./ModelRequest.ts"

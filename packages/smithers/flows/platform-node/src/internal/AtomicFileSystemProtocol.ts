@@ -5,6 +5,7 @@
  * here, so a malformed or hostile response fails closed in one place.
  * @since 1.0.0
  */
+
 import type * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import { Effect, type FileSystem, Option, PlatformError, Result } from "effect"
 import * as ByteSize from "effect/ByteSize"

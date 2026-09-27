@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import type { Mode, PlannedRule, Selection } from "./RuleContract.ts"
 
 interface Policy {

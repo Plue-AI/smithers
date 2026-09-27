@@ -13,6 +13,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import type { Detection } from "./Detect.ts"
 import * as Detect from "./Detect.ts"
 import * as Sort from "./internal/Sort.ts"

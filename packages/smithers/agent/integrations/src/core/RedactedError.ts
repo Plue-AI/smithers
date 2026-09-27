@@ -1,4 +1,5 @@
 /** @since 1.0.0 */
+
 import { IntegrationError } from "./IntegrationError.ts"
 import { redact } from "./Redact.ts"
 

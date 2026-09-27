@@ -34,6 +34,7 @@
  *
  * @since 1.0.0
  */
+
 import { Duration, Effect, Option, Queue, Schema } from "effect"
 import type { ExternalEvent } from "../core/ExternalEvent.ts"
 import { IntegrationError } from "../core/IntegrationError.ts"

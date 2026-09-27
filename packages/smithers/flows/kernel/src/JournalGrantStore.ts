@@ -7,6 +7,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import * as Capability from "@smthrs/capability/Capability"
 import { GrantStoreError, Rule } from "@smthrs/capability/Permission"
 import * as JournalModule from "@smthrs/journal/Journal"

@@ -15,6 +15,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as WorkspaceObservation from "@smthrs/agent/WorkspaceObservation"
 import { Effect } from "effect"
 import * as PlatformError from "effect/PlatformError"

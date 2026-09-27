@@ -4,6 +4,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import * as CommandLine from "./CommandLine.ts"
 
 interface Word {

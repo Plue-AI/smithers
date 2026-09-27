@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Rpc, RpcGroup, RpcMiddleware } from "effect/unstable/rpc"
 import { SyncError } from "./SyncError.ts"
 import { Frame, ReadRequest, ReadResponse, Snapshot, SnapshotRequest, SubscribeRequest } from "./SyncProtocol.ts"

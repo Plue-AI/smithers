@@ -7,6 +7,7 @@
  *
  * @since 1.0.0
  */
+
 import { Control } from "@smthrs/control/Control"
 import * as ControlError from "@smthrs/control/ControlError"
 import type { Principal, WatchCursor } from "@smthrs/control/ControlSchema"

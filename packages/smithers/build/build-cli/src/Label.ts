@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Path from "./internal/Path.ts"
 
 /**

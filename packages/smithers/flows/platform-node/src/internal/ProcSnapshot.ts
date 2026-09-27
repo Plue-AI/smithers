@@ -2,6 +2,7 @@
  * Process-group observation read from Linux `/proc`, with no `ps` binary.
  * @since 1.0.0
  */
+
 import { readdirSync, readFileSync } from "node:fs"
 import type * as ProcessCleanup from "./ProcessCleanup.ts"
 

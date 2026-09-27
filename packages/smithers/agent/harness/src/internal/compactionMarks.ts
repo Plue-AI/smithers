@@ -23,6 +23,7 @@
  * @since 1.0.0-rc.0
  * @private
  */
+
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Effect from "effect/Effect"
 import * as Result from "effect/Result"

@@ -4,6 +4,7 @@
  *
  * @since 1.0.0
  */
+
 import type { Plan, Scheduling } from "@smthrs/plan"
 import type { Outcome } from "../PlanScheduler.ts"
 

@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Option } from "effect"
 import { CapabilityPattern } from "./CapabilityPattern.ts"
 import { isPatternAction } from "./internal/isPatternAction.ts"

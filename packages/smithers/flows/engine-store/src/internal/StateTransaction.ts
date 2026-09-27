@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import type { DatabaseError } from "@smthrs/database/DurableWriter"
 import type { Journal } from "@smthrs/journal"
 import * as Effect from "effect/Effect"

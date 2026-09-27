@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as TestJournal from "@smthrs/journal/test/TestJournal"
 import { NotificationQueue } from "@smthrs/notifications"
 import { Registry } from "@smthrs/registry"

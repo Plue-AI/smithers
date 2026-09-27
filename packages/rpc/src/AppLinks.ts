@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 /**
  * Where the web app sends a visitor for the native app.
  *

@@ -1,6 +1,7 @@
 /** Shared native lifecycle; the engine and stores live in Runtime.ts.
  * @since 1.0.0
  */
+
 import * as NodePath from "@effect/platform-node/NodePath"
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"

@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Schema } from "effect"
 import { GrantStoreError } from "./GrantStoreError.ts"
 import { PermissionDenied } from "./PermissionDenied.ts"

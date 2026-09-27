@@ -9,6 +9,7 @@
  *
  * @since 1.0.0
  */
+
 import { sourceLines } from "./Text.ts"
 
 const BEGIN_PATCH_MARKER = "*** Begin Patch"

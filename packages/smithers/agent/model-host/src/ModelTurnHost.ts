@@ -3,6 +3,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import type * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"

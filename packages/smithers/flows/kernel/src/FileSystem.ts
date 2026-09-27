@@ -16,6 +16,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import { permissionDenied, type PermissionError, toPlatformError } from "@smthrs/capability/Permission"
 import {
   Effect,

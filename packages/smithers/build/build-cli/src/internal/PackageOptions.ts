@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as Compose from "@smthrs/targets/Compose"
 import type * as Target from "@smthrs/targets/Target"
 import type * as PackageIndexModule from "../PackageIndex.ts"

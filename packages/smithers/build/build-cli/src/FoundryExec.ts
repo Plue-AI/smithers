@@ -11,6 +11,7 @@
  *
  * @since 0.1.0
  */
+
 import type * as Foundry from "@smthrs/targets/Foundry"
 import * as Input from "@smthrs/targets/Input"
 import type * as WorkspaceDeclaration from "@smthrs/targets/WorkspaceDeclaration"

@@ -1,6 +1,7 @@
 /** Scoped process execution for build-cli discovery and watch cycles.
  * @since 1.0.0-rc.0
  */
+
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import { Cause, Effect, Exit, Layer, Stream } from "effect"

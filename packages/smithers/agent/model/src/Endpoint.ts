@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Result from "effect/Result"
 import { isCredentialName } from "./Auth.ts"
 import { ModelError } from "./ModelError.ts"

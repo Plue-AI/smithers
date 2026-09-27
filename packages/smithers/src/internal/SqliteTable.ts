@@ -2,6 +2,7 @@
  * Table presence probe for databases this package reads but does not own.
  * @since 1.0.0
  */
+
 import type { DatabaseSync } from "node:sqlite"
 
 /**

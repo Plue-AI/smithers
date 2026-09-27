@@ -10,6 +10,7 @@
  *
  * @since 1.0.0
  */
+
 import { Schema } from "effect"
 import { IntegrationError, isIntegrationError, isReason, reasons } from "./IntegrationError.ts"
 

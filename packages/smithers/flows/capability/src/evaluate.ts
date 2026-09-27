@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { type Capability, matches, withinMatchBudget } from "./Capability.ts"
 import type { Rule } from "./Rule.ts"
 import type { RuleEffect } from "./RuleEffect.ts"

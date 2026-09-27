@@ -39,6 +39,7 @@
  *
  * @since 1.0.0
  */
+
 import type { PlueFailureCode, PlueFault } from "./PlueFailureCodes.ts"
 import { isNativeFailureCode, isWorkerFailureCode, refusalCode, refusalEntry } from "./Refusal.ts"
 import type { Refusal, RefusalOrigin } from "./Refusal.ts"

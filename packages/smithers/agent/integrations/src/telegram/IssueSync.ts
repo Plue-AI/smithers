@@ -1,6 +1,7 @@
 /** Telegram connector for the shared issue/comment sync transport.
  * @since 1.0.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import { Flow, type FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"

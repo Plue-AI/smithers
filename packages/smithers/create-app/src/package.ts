@@ -11,6 +11,7 @@
  *
  * @since 0.1.0
  */
+
 import { Smithers as S } from "@smthrs/targets"
 import { type AppDirs, type AppManifest, type Brand, type CloudflareDeploy, defaultDirs, type NavGroup } from "./app.ts"
 

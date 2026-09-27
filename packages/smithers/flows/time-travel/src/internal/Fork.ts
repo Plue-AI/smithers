@@ -9,6 +9,7 @@
  *
  * @since 0.1.0
  */
+
 import { Jj } from "@smthrs/jj"
 import * as Journal from "@smthrs/journal/Journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"

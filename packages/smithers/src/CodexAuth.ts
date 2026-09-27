@@ -24,6 +24,7 @@
  *
  * @since 0.1.0
  */
+
 import { isRecord } from "@smthrs/canonical/Record"
 import type * as Auth from "@smthrs/model/Auth"
 import { ModelError } from "@smthrs/model/ModelError"

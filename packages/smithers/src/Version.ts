@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import metadata from "@smthrs/cli/package.json" with { type: "json" }
 
 if (typeof metadata.version !== "string") {

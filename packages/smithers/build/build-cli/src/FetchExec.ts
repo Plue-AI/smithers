@@ -10,6 +10,7 @@
  *
  * @since 0.1.0
  */
+
 import * as FetchTarget from "@smthrs/targets/Fetch"
 import type * as Target from "@smthrs/targets/Target"
 import * as FetchExecutor from "./internal/rules/FetchExecutor.ts"

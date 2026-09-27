@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as OtelResource from "@effect/opentelemetry/Resource"
 import type { Attributes as OtelAttributes } from "@opentelemetry/api"
 import * as Effect from "effect/Effect"

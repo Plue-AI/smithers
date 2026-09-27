@@ -1,6 +1,7 @@
 /** PostgreSQL adapter for the same injected SQL and durable-write services.
  * @since 1.0.0
  */
+
 import * as PgClient from "@effect/sql-pg/PgClient"
 import * as PgTypes from "@effect/sql-pg/PgTypes"
 import { Effect, Layer, Redacted, Result, Scope } from "effect"

@@ -3,6 +3,7 @@
  * source checkout, without accepting an executable from the workspace.
  * @since 1.0.0
  */
+
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { homedir, tmpdir } from "node:os"

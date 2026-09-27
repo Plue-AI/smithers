@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import type { CapabilityPattern } from "./CapabilityPattern.ts"
 import type { Capability } from "./ExactCapability.ts"
 import { matchesAction } from "./internal/matchesAction.ts"

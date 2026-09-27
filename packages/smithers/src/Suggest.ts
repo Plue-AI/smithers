@@ -26,6 +26,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import { Effect, Exit, Option } from "effect"
 import { statSync } from "node:fs"
 import { homedir } from "node:os"

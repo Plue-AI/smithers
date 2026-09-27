@@ -2,6 +2,7 @@
  * Trusted composition metadata shared by contained and permission-aware spawners.
  * @since 1.0.0
  */
+
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
 // The registry key also works when a service crosses the ESM/CJS projections.

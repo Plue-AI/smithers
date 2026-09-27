@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 /**
  * Shared repository access values used by the host and its clients.
  *

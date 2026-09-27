@@ -1,6 +1,7 @@
 /** Projects only the saved outcome of an annotated trace checkpoint.
  * @since 1.0.0
  */
+
 import { JournalEvent, StepFact } from "@smthrs/journal"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"

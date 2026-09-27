@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import type { Action } from "./Action.ts"
 import { isPatternAction } from "./internal/isPatternAction.ts"
 import type { PatternAction } from "./PatternAction.ts"

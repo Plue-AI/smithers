@@ -7,6 +7,7 @@
  *
  * @since 1.0.0
  */
+
 import * as UnsupportedBackend from "@smthrs/database/UnsupportedBackend"
 import { Console, Effect } from "effect"
 import * as CliError from "../CliError.ts"

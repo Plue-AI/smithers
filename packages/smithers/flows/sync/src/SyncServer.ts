@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { Journal } from "@smthrs/journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as Cause from "effect/Cause"

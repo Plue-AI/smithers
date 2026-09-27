@@ -2,6 +2,7 @@
  * Bounded, redacted live views of subprocess output; captured results stay untouched.
  * @since 1.0.0
  */
+
 import * as Redaction from "@smthrs/journal/Redaction"
 import { StringDecoder } from "node:string_decoder"
 import { stripVTControlCharacters } from "node:util"

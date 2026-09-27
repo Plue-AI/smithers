@@ -12,6 +12,7 @@
  *
  * @since 1.0.0-rc.0
  */
+
 import type { ControlError } from "@smthrs/control/ControlError"
 import { PersistenceError } from "@smthrs/control/ControlError"
 import { defaultPageSize, type FireSummary, type TriggerSummary } from "@smthrs/control/ControlSchema"

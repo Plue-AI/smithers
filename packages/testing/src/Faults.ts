@@ -18,6 +18,7 @@
  *
  * @since 1.0.0
  */
+
 import * as ProcessTable from "./ProcessTable.ts"
 
 const pollIntervalMs = 25

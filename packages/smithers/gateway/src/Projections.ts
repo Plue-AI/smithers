@@ -31,6 +31,7 @@
  *
  * @since 1.0.0
  */
+
 import type { Service as ControlService } from "@smthrs/control/Control"
 import { Control } from "@smthrs/control/Control"
 import * as ControlSchema from "@smthrs/control/ControlSchema"

@@ -32,6 +32,7 @@
  *
  * @since 1.0.0
  */
+
 import { nativeFailureCode, nativeFailureEntry } from "./NativeFailureCodes.ts"
 import type { NativeFailureCode, NativeRouteCode } from "./NativeFailureCodes.ts"
 import { PLUE_FAILURES, PLUE_FAULTS } from "./PlueFailureCodes.ts"

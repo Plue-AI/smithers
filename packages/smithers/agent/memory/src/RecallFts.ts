@@ -8,6 +8,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
 import * as FtsQuery from "./internal/FtsQuery.ts"

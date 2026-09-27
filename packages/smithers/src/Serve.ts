@@ -21,6 +21,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as GatewayServer from "@smthrs/gateway/GatewayServer"
 import type * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
 import { Context, Effect, Option } from "effect"

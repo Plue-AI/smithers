@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { NotificationQueue } from "@smthrs/notifications"
 import type { Notification } from "@smthrs/notifications/Notification"

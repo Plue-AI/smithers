@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import { SmithersError } from "@smthrs/errors/SmithersError"
 import type { Duration } from "effect"
 import * as Environment from "../Environment.ts"

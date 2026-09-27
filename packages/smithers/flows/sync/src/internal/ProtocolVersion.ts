@@ -1,6 +1,7 @@
 /** The one protocol-version comparison every sync boundary answers with.
  * @since 1.0.0-rc.0
  */
+
 import * as Effect from "effect/Effect"
 import { SyncError } from "../SyncError.ts"
 import { protocolVersion } from "../SyncProtocol.ts"

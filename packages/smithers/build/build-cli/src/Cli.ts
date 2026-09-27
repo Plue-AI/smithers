@@ -10,6 +10,7 @@
  *
  * @since 0.1.0
  */
+
 import metadata from "@smthrs/build-cli/package.json" with { type: "json" }
 import * as Config from "@smthrs/targets/Config"
 import * as Input from "@smthrs/targets/Input"

@@ -2,6 +2,7 @@
 /** Bun SQLite driver using the same SQL, migration and write contracts as Node.
  * @since 1.0.0
  */
+
 import * as SqliteClient from "@effect/sql-sqlite-bun/SqliteClient"
 import { Database } from "bun:sqlite"
 import type { Layer } from "effect"

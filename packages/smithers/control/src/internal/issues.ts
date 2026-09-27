@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import { CanonicalError } from "@smthrs/canonical"
 
 const maximumIssueLength = 512

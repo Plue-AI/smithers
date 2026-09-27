@@ -6,6 +6,7 @@
  *
  * @since 0.1.0
  */
+
 import { canonicalize } from "@smthrs/canonical"
 import { digestSync } from "@smthrs/crypto/Sha256"
 import { Journal, JournalEvent } from "@smthrs/journal"

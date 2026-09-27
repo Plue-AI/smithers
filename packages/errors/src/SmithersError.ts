@@ -10,6 +10,7 @@
  *
  * @since 1.0.0
  */
+
 import { ERROR_REFERENCE_URL, isSmithersErrorCode, type SmithersErrorCode } from "./ErrorCode.ts"
 
 /**

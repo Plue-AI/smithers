@@ -25,6 +25,7 @@
  *
  * @since 1.0.0
  */
+
 import { Effect, Schema } from "effect"
 import type { CheckPolicy, HealthChecker, ProbeContext, ProbeReport } from "./Health.ts"
 

@@ -10,6 +10,7 @@
  *
  * @since 1.0.0
  */
+
 import type * as Path from "@smthrs/kernel/Path"
 import { Effect } from "effect"
 import type * as FileSystem from "effect/FileSystem"

@@ -1,6 +1,7 @@
 /** Node adapter for the shared private control persistence layer.
  * @since 1.0.0
  */
+
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { Layer } from "effect"

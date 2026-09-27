@@ -18,6 +18,7 @@
  *
  * @since 1.0.0
  */
+
 import { spawn, spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"

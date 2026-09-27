@@ -23,6 +23,7 @@
  *
  * @since 1.0.0
  */
+
 import { Duration } from "effect"
 import type { AccessTokenSource } from "../core/AccessToken.ts"
 import * as Environment from "../Environment.ts"

@@ -13,6 +13,7 @@
  * journal reported.
  * @since 1.0.0-rc.0
  */
+
 import type { Journal, JournalEvent } from "@smthrs/journal"
 import * as Effect from "effect/Effect"
 import * as CacheAgeHistory from "./CacheAgeHistory.ts"

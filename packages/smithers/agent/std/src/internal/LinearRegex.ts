@@ -4,6 +4,7 @@
  *
  * @since 1.0.0
  */
+
 type Term =
   | { readonly kind: "atom"; readonly source: string }
   | { readonly kind: "sequence" | "alternative"; readonly terms: ReadonlyArray<Term> }

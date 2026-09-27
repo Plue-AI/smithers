@@ -1,6 +1,7 @@
 /** Shared native agent equipment; the platform supplies its request executor.
  * @since 1.0.0
  */
+
 import * as FlowEngineLike from "@smthrs/agent/FlowEngineLike"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"

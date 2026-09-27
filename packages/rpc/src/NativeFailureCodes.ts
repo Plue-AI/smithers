@@ -44,6 +44,7 @@
  *
  * @since 1.0.0
  */
+
 import type { PlueFault } from "./PlueFailureCodes.ts"
 
 /**

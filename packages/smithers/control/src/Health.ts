@@ -1,6 +1,7 @@
 /** Observational health contracts shared by durable runs and native sessions.
  * @since 1.0.0
  */
+
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import { Cause, Effect, Metric, Schema } from "effect"
 import type { ControlEvent, RunSummary } from "./ControlSchema.ts"

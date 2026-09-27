@@ -24,6 +24,7 @@
  *
  * @since 1.0.0
  */
+
 import type { Schema } from "effect"
 import type { Materialized } from "./Checkpoints.ts"
 import { withoutTrailingSlash } from "./internal/Paths.ts"

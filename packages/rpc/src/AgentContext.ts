@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+
 import { z } from "zod"
 
 // Metadata occupies one instruction line. Keep the wire contract bounded and

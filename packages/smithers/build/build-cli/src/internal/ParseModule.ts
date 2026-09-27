@@ -9,6 +9,7 @@
  * @since 1.0.0-rc.0
  * @private
  */
+
 import { resolve } from "node:path"
 import type { SourceFile } from "typescript/unstable/ast"
 import { API } from "typescript/unstable/sync"

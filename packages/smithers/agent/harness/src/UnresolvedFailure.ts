@@ -45,6 +45,7 @@
  *
  * @since 0.1.0
  */
+
 import type { Schema } from "effect"
 import * as DemandText from "./internal/demandText.ts"
 import type * as NarrowedCheck from "./NarrowedCheck.ts"

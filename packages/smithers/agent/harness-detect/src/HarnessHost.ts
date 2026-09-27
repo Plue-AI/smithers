@@ -8,6 +8,7 @@
  *
  * @since 0.1.0
  */
+
 // Type-only: the ids are read as `typeof HARNESS_IDS`, so the built JS
 // carries no runtime import of the contract package.
 import type { HARNESS_IDS } from "@smthrs/rpc/LocalApp"

@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 /* eslint-disable jsdoc/require-description, jsdoc/no-restricted-syntax */
 import * as Schema from "effect/Schema"
 
