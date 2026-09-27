@@ -1,7 +1,7 @@
 /*
  * The boot-blocking fixture (boot-identity.spec.ts): the real local origin in
  * hybrid mode — identity capability ON — with the identity upstream behind a
- * socket that accepts and never answers, so `/api/auth/session` pends for as
+ * socket that accepts and never answers, so `/api/user` pends for as
  * long as the server runs. The spec proves first paint never waits on it.
  * Prints SMITHERS_LOCAL_ORIGIN=http://127.0.0.1:<port> when listening.
  */

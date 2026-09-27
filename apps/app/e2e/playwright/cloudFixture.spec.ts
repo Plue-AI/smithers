@@ -70,3 +70,13 @@ test("cloud fixture overrides stay isolated and match repository pathnames liter
   expect(arrayOf((await read(other, "/api/user/workspaces")).body, "workspaces").map(parseWorkspace)).toEqual([])
   expect(arrayOf((await read(other, "/api/user/repos")).body, "repos").map(parseRepo)[0]?.id).toBe("smithersai/smithers")
 })
+
+test("the controller reads the cloud fixture's identity from /api/user", async ({ page }) => {
+  await installCloudFixture(page)
+  const reads: string[] = []
+  page.on("request", (request) => { reads.push(new URL(request.url()).pathname) })
+  const user = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/user")
+  await page.goto("/")
+  expect(await (await user).json()).toMatchObject({ username: "codeplanesmithers", is_admin: false })
+  expect(reads).not.toContain("/api/auth/session")
+})

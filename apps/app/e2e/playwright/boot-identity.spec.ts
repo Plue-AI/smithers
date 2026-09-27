@@ -2,7 +2,7 @@ import { controlTabKey, expect,test } from "./browserTest"
 
 /*
  * The boot-blocking regression (the local app stuck on "Smithers is starting
- * your session." while /api/auth/session pended on the remote identity seam):
+ * your session." while /api/user pended on the remote identity seam):
  * first paint — the entrance wordmark, then the guide shell — must never wait
  * on that seam.
  * The T1 host stubs identity out entirely, so this spec boots its own origin

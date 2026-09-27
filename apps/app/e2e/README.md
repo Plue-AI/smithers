@@ -196,7 +196,8 @@ its session in `$CANARY_SESSION_COOKIE` and its login in
 scoped-down user".
 
 T1's server doubles answer with the same account. `playwright/identity.ts`
-holds it once, `SCOPED_TEST_USER` for `/api/auth/session` and
+holds it once, `SCOPED_TEST_USER` for `/api/user` (through `identityRoute`,
+which also answers the backend's signed-out 401) and
 `SCOPED_TEST_USER_CLOUD_SESSION` for `/api/cloud-auth/session`, so no spec
 invents a login of its own. `allowlisted` is `true` there because open sign-in
 makes identity answer `true` for every login (Factory spec 01 §3); the

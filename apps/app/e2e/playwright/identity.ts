@@ -30,11 +30,12 @@ export const SCOPED_TEST_USER = {
 /**
  * The app reads identity from the selected backend's user API (`GET /api/user`,
  * ApplicationClient `identity.current`) on every host since 4fa92ed8bf; a 401
- * is signed out. `login` null answers signed out.
+ * is signed out, with the Go backend's `RequireAuth` body
+ * (packages/backend/internal/middleware/auth.go). `login` null answers signed out.
  */
 export const identityRoute = (login: string | null = SCOPED_TEST_USER.login) =>
   (route: import("@playwright/test").Route) => login === null
-    ? route.fulfill({ status: 401, json: { message: "Sign in" } })
+    ? route.fulfill({ status: 401, json: { code: "unauthorized", fault: "user", message: "authentication required" } })
     : route.fulfill({ json: { id: 1, username: login, is_admin: false } })
 
 /** The Smithers Cloud half of the same account (`GET /api/cloud-auth/session`). */

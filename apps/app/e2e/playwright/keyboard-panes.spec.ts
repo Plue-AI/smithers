@@ -1,11 +1,12 @@
 import { expect, test } from './browserTest'
+import { identityRoute } from './identity'
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/bootstrap', route => route.fulfill({ json: {
     apiVersion: 1, host: 'cloud', version: 'test', buildSha: 'test',
     capabilities: ['identity', 'cloud', 'agent'], authFlow: 'redirect', sandbox: null,
   } }))
-  await page.route('**/api/user', route => route.fulfill({ status: 401, json: { message: 'Sign in' } }))
+  await page.route('**/api/user', identityRoute(null))
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Mode: Normal' })).toBeVisible()
   await page.keyboard.press('m')
