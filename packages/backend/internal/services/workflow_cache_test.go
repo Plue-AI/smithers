@@ -289,7 +289,7 @@ func TestWorkflowCacheService_Restore_FallsBackToDefaultBookmark(t *testing.T) {
 		WorkflowCacheConfig{SignedURLExpiry: 15 * time.Minute},
 		WithWorkflowCacheMetrics(metrics),
 	)
-	result, err := service.Restore(context.Background(), db.WorkflowRun{
+	result, err := service.Restore(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           101,
 		RepositoryID: 77,
 		TriggerRef:   "refs/heads/feature/demo",
@@ -348,7 +348,7 @@ func TestWorkflowCacheService_Restore_SurvivesHitStatUpdateFailure(t *testing.T)
 		WorkflowCacheConfig{SignedURLExpiry: 15 * time.Minute},
 		WithWorkflowCacheMetrics(metrics),
 	)
-	result, err := service.Restore(context.Background(), db.WorkflowRun{
+	result, err := service.Restore(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           101,
 		RepositoryID: 77,
 		TriggerRef:   "refs/heads/main",
@@ -384,7 +384,7 @@ func TestWorkflowCacheService_Restore_RecordsMissMetricWhenCacheAbsent(t *testin
 		WithWorkflowCacheMetrics(metrics),
 	)
 
-	result, err := service.Restore(context.Background(), db.WorkflowRun{
+	result, err := service.Restore(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           101,
 		RepositoryID: 77,
 		TriggerRef:   "refs/heads/main",
@@ -440,7 +440,7 @@ func TestWorkflowCacheService_BeginSave_UsesPendingReservationTimeout(t *testing
 		},
 	}, WorkflowCacheConfig{SignedURLExpiry: 10 * time.Minute})
 
-	reservation, err := service.BeginSave(context.Background(), db.WorkflowRun{
+	reservation, err := service.BeginSave(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           123,
 		RepositoryID: 55,
 		TriggerRef:   "refs/heads/main",
@@ -479,7 +479,7 @@ func TestWorkflowCacheService_BeginSave_SkipsForeignPendingReservation(t *testin
 		},
 	}, &mockBlobStore{}, WorkflowCacheConfig{})
 
-	reservation, err := service.BeginSave(context.Background(), db.WorkflowRun{
+	reservation, err := service.BeginSave(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           123,
 		RepositoryID: 55,
 		TriggerRef:   "refs/heads/main",
@@ -570,7 +570,7 @@ func TestWorkflowCacheService_FinalizeSave_ForwardsReservationIdentity(t *testin
 		},
 	}, WorkflowCacheConfig{})
 
-	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{
+	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           7,
 		RepositoryID: 42,
 	}, 10, 100)
@@ -624,7 +624,7 @@ func TestWorkflowCacheService_FinalizeSave_RejectsStaleReservationTakeover(t *te
 		},
 	}, WorkflowCacheConfig{})
 
-	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{
+	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           7,
 		RepositoryID: 42,
 	}, 10, 100)
@@ -662,9 +662,9 @@ func TestWorkflowCacheService_BeginSave_DifferentRunsReserveDifferentObjectKeys(
 	}
 	service := NewWorkflowCacheService(queries, store, WorkflowCacheConfig{})
 
-	_, err := service.BeginSave(context.Background(), db.WorkflowRun{ID: 1, RepositoryID: 55, TriggerRef: "refs/heads/main"}, "npm", "v1", 10)
+	_, err := service.BeginSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 1, RepositoryID: 55, TriggerRef: "refs/heads/main"}, "npm", "v1", 10)
 	require.NoError(t, err)
-	_, err = service.BeginSave(context.Background(), db.WorkflowRun{ID: 2, RepositoryID: 55, TriggerRef: "refs/heads/main"}, "npm", "v1", 10)
+	_, err = service.BeginSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 2, RepositoryID: 55, TriggerRef: "refs/heads/main"}, "npm", "v1", 10)
 	require.NoError(t, err)
 
 	require.Len(t, objectKeys, 2)
@@ -719,7 +719,7 @@ func TestWorkflowCacheService_FinalizeSave_UsesReportedSizeWhenStoreSizeUnknown(
 		},
 	}, WorkflowCacheConfig{})
 
-	cache, err := service.FinalizeSave(context.Background(), db.WorkflowRun{
+	cache, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           7,
 		RepositoryID: 42,
 	}, 10, 321)
@@ -766,7 +766,7 @@ func TestWorkflowCacheService_FinalizeSave_RejectsBlobSizeMismatch(t *testing.T)
 		},
 	}, WorkflowCacheConfig{})
 
-	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{
+	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           7,
 		RepositoryID: 42,
 	}, 10, 12)
@@ -875,7 +875,7 @@ func TestWorkflowCacheService_FinalizeSave_EvictsExpiredAndOverQuotaCaches(t *te
 		},
 	}, WorkflowCacheConfig{RepoQuotaBytes: 100})
 
-	cache, err := service.FinalizeSave(context.Background(), db.WorkflowRun{
+	cache, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push",
 		ID:           7,
 		RepositoryID: 42,
 	}, 10, 60)

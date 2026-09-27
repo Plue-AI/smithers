@@ -1343,6 +1343,7 @@ describe("the split cache credential", () => {
     cacheUrlSecret: Secret("REMOTE_CACHE_URL"),
     cacheTokenSecret: Secret("CACHE_READ_TOKEN"),
     cacheWriteTokenSecret: Secret("CACHE_WRITE_TOKEN"),
+    cacheWriteEnvironment: "cache-publish",
     jobs: [readerJob, publisherJob]
   }
 
@@ -1355,11 +1356,15 @@ describe("the split cache credential", () => {
     )
     expect(publishBlock).toContain("          \"CACHE_READ_TOKEN\": \"${{ secrets.CACHE_READ_TOKEN }}\"")
     expect(publishBlock).toContain("          \"CACHE_WRITE_TOKEN\": \"${{ secrets.CACHE_WRITE_TOKEN }}\"")
+    // The guard decides whether the job starts; the environment decides
+    // whether GitHub hands it the secret, whatever the workflow file says.
+    expect(publishBlock).toContain("    environment: \"cache-publish\"")
     // The reader pulls at full speed and can publish nothing: read entries
     // only, no write entry, no guard.
     expect(readerBlock).toContain("          \"CACHE_READ_TOKEN\": \"${{ secrets.CACHE_READ_TOKEN }}\"")
     expect(readerBlock).not.toContain("CACHE_WRITE_TOKEN")
     expect(readerBlock).not.toMatch(/^    if:/m)
+    expect(readerBlock).not.toMatch(/^    environment:/m)
     expect(() => parseWorkflow(rendered)).not.toThrow()
   })
 
@@ -1385,8 +1390,18 @@ describe("the split cache credential", () => {
   })
 
   it("refuses a publishing job with no declared write credential", () => {
-    const { cacheWriteTokenSecret: _dropped, ...withoutWrite } = splitAttrs
+    const { cacheWriteTokenSecret: _dropped, cacheWriteEnvironment: _environment, ...withoutWrite } = splitAttrs
     expect(() => render(attrsOf(withoutWrite))).toThrow(/no cacheWriteTokenSecret is declared/)
+  })
+
+  it("refuses a write credential outside a GitHub environment", () => {
+    const { cacheWriteEnvironment: _dropped, ...withoutEnvironment } = splitAttrs
+    expect(() => render(attrsOf(withoutEnvironment))).toThrow(/needs cacheWriteEnvironment/)
+    expect(() => render(attrsOf({ ...splitAttrs, cacheWriteEnvironment: "${{ github.ref }}" })))
+      .toThrow(/needs cacheWriteEnvironment/)
+    const { cacheWriteTokenSecret: _write, ...withoutWrite } = splitAttrs
+    expect(() => render(attrsOf({ ...withoutWrite, jobs: [readerJob] })))
+      .toThrow(/cacheWriteEnvironment is declared but no cacheWriteTokenSecret/)
   })
 
   it("refuses a declared write credential no job publishes with", () => {

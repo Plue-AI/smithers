@@ -64,11 +64,13 @@ export SMITHERS_CACHE_READ_TOKEN="$(openssl rand -hex 32)"
 export SMITHERS_CACHE_WRITE_TOKEN="$(openssl rand -hex 32)"
 ```
 
-Production already runs with one pair. The GitHub repository secrets
-`SMITHERS_CACHE_READ_TOKEN` and `SMITHERS_CACHE_WRITE_TOKEN` hold it, and
-GitHub never returns their values, so keep the pair in your own secret store.
-A redeploy either exports that same pair or rotates both: mint a new pair,
-deploy, then `gh secret set` both repository secrets. A deploy with a new pair
+Production already runs with one pair. The repository secret
+`SMITHERS_CACHE_READ_TOKEN` and the `cache-publish` environment secret
+`SMITHERS_CACHE_WRITE_TOKEN` hold it. GitHub never returns their values, so
+keep the pair in your own secret store. A redeploy either exports that same
+pair or rotates both: mint a new pair, deploy, then run
+`gh secret set SMITHERS_CACHE_READ_TOKEN` and
+`gh secret set SMITHERS_CACHE_WRITE_TOKEN --env cache-publish`. A deploy with a new pair
 and no secret update leaves CI with credentials the Worker refuses.
 
 The Cloudflare account must already contain the `smithers.sh` zone. The API

@@ -1,6 +1,6 @@
 import * as Yaml from "yaml"
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 import { readWorkspaceInventory } from "../readWorkspaceInventory.ts"
@@ -17,6 +17,7 @@ interface CiStep {
 interface CiJob {
   readonly name?: string
   readonly if?: string
+  readonly environment?: string
   readonly steps: ReadonlyArray<CiStep>
   readonly strategy?: unknown
   readonly "runs-on"?: string
@@ -35,6 +36,10 @@ describe("ci conformance", () => {
     assert.equal(publishers.length, 1)
     assert.equal(publishers[0]![0], "cache-publish")
     assert.equal(publishers[0]![1].if, "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
+    // The guard only decides whether the job starts. GitHub withholds an
+    // environment secret from any ref the environment's branch policy does
+    // not admit, so an edited workflow on a branch cannot read the credential.
+    assert.equal(publishers[0]![1].environment, "cache-publish")
     for (const [id, job] of Object.entries(ci.jobs)) {
       for (const step of job.steps) {
         if (!step.run?.startsWith("pnpm exec smthrs")) continue
@@ -50,6 +55,16 @@ describe("ci conformance", () => {
     const workspace = readFileSync(new URL("../../.smithers/WORKSPACE.ts", import.meta.url), "utf8")
     assert.match(workspace, /read: S.Secret\("SMITHERS_CACHE_READ_TOKEN"\)/)
     assert.match(workspace, /write: S.Secret\("SMITHERS_CACHE_WRITE_TOKEN"\)/)
+  })
+
+  it("runs no workflow with base-repository secrets on pull-request code", () => {
+    // `pull_request_target` runs with the base repository's secrets and a
+    // write token; checking out the pull request's head there hands both to
+    // code nobody has reviewed. No workflow in this repository uses it.
+    const workflows = new URL("../../.github/workflows/", import.meta.url)
+    for (const file of readdirSync(workflows).filter((name) => /\.ya?ml$/.test(name))) {
+      assert.doesNotMatch(readFileSync(new URL(file, workflows), "utf8"), /pull_request_target|workflow_run/, file)
+    }
   })
 
   const { packagesDir, packages } = readWorkspaceInventory()

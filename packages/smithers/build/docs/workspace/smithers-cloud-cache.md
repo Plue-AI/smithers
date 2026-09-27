@@ -79,9 +79,12 @@ export SMITHERS_CACHE_TOKEN='<a smithers_ token with write:repository>'
 smithers-build ci //...
 ```
 
-Inside an agent computer nothing is exported: the per-run repository token is
-bound to `SMITHERS_CACHE_TOKEN` through the egress proxy, the guest holds only
-a placeholder, and `SMITHERS_CACHE_URL` already names the repository cache.
+An agent computer reads the cache and publishes nothing. Its per-run
+repository token is bound to `SMITHERS_CACHE_TOKEN` through the egress proxy,
+and `SMITHERS_CACHE_URL` names the repository cache. The server treats every
+system-issued run credential as a reader, whatever its scopes, because the run
+executes code nobody has reviewed. A publication from the run is refused with
+`403`, and the run's reads carry on.
 
 ## Generated CI
 
@@ -89,8 +92,8 @@ a placeholder, and `SMITHERS_CACHE_URL` already names the repository cache.
 carries a public read token, because the workflow evaluates `PACKAGE.ts` and
 finds the literal there. Declare `cacheWriteTokenSecret` and mark the trunk
 jobs `publishesToCache: true` for publication; the read credential is the
-committed token, the write credential is a repository secret rendered only
-into those jobs. The trust model is unchanged: readers are untrusted, writers
+committed token, and the write credential is an environment secret
+(`cacheWriteEnvironment`) rendered only into those jobs. The trust model is unchanged: readers are untrusted, writers
 are post-merge trunk jobs.
 
 ## Managing tokens

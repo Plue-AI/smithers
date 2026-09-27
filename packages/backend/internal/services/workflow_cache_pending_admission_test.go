@@ -174,7 +174,7 @@ func TestWorkflowCacheBeginSave_StagesDeclaredSizeAndRotatesSameRunCapability(t 
 	t.Parallel()
 
 	store := newWorkflowCachePendingStore()
-	run := db.WorkflowRun{ID: 9, RepositoryID: 42, TriggerRef: "refs/heads/main"}
+	run := db.WorkflowRun{TriggerEvent: "push", ID: 9, RepositoryID: 42, TriggerRef: "refs/heads/main"}
 	var stateMu sync.Mutex
 	var row *db.WorkflowCache
 	nextID := int64(1)
@@ -333,7 +333,7 @@ func TestWorkflowCacheBeginSave_ConcurrentPendingReservationsRespectRepoQuota(t 
 	for i, key := range []string{"linux", "darwin"} {
 		go func(runID int64, cacheKey string) {
 			<-start
-			_, err := service.BeginSave(context.Background(), db.WorkflowRun{ID: runID, RepositoryID: 42, TriggerRef: "main"}, cacheKey, "v1", 60)
+			_, err := service.BeginSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: runID, RepositoryID: 42, TriggerRef: "main"}, cacheKey, "v1", 60)
 			errs <- err
 		}(int64(i+1), key)
 	}
@@ -408,7 +408,7 @@ func TestWorkflowCacheBeginSave_AdmissionDenialPreservesReplacement(t *testing.T
 
 	_, err := service.BeginSave(
 		context.Background(),
-		db.WorkflowRun{ID: 9, RepositoryID: 42, TriggerRef: "main"},
+		db.WorkflowRun{TriggerEvent: "push", ID: 9, RepositoryID: 42, TriggerRef: "main"},
 		"npm",
 		"v1",
 		50,
@@ -466,7 +466,7 @@ func TestWorkflowCacheFinalize_PromotesStagingAndPurgesIt(t *testing.T) {
 	}
 	service := NewWorkflowCacheService(queries, store, WorkflowCacheConfig{})
 
-	finalized, err := service.FinalizeSave(context.Background(), db.WorkflowRun{ID: 9, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
+	finalized, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 9, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
 	require.NoError(t, err)
 	assert.Equal(t, "finalized", finalized.Status)
 	assert.True(t, store.has(cache.ObjectKey))
@@ -524,7 +524,7 @@ func TestWorkflowCacheFinalize_DeleteWinsAfterPromotionCleansUnclaimedBlob(t *te
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{ID: 9, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
+		_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 9, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
 		errCh <- err
 	}()
 	<-promoted
@@ -574,7 +574,7 @@ func TestWorkflowCacheFinalize_ReconciliationLookupErrorPreservesPromotedBlob(t 
 	}
 	service := NewWorkflowCacheService(queries, store, WorkflowCacheConfig{})
 
-	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{ID: 7, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
+	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 7, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 	assert.True(t, store.has(cache.ObjectKey), "ambiguous reconciliation must preserve a potentially owned final object")
@@ -610,7 +610,7 @@ func TestWorkflowCacheFinalize_TransientWriteErrorWithPendingReconciliationPrese
 	}
 	service := NewWorkflowCacheService(queries, store, WorkflowCacheConfig{})
 
-	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{ID: 7, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
+	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 7, RepositoryID: 42}, cache.ID, cache.ObjectSizeBytes)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 	assert.True(t, store.has(cache.ObjectKey), "an ambiguous write error plus the old pending row must not destroy a promoted archive")
@@ -717,7 +717,7 @@ func TestWorkflowCacheBeginSave_RejectsInvalidDeclaredSizes(t *testing.T) {
 	t.Parallel()
 
 	service := NewWorkflowCacheService(&mockWorkflowCacheQuerier{}, newWorkflowCachePendingStore(), WorkflowCacheConfig{ArchiveMaxBytes: 10})
-	run := db.WorkflowRun{ID: 1, RepositoryID: 42}
+	run := db.WorkflowRun{TriggerEvent: "push", ID: 1, RepositoryID: 42}
 
 	_, err := service.BeginSave(context.Background(), run, "npm", "v1", -1)
 	require.Error(t, err)

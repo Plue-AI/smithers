@@ -292,6 +292,7 @@ const ci = Smithers.GithubCiGen({
   cacheUrlSecret: cacheUrl,
   cacheTokenSecret: cacheToken,
   cacheWriteTokenSecret: cacheWriteToken,
+  cacheWriteEnvironment: "cache-publish",
   workflowDispatch: false,
   // Targets already red on main, each with an owner and an expiry. A step
   // fails only on a red target this list does not name, so a new regression

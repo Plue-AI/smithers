@@ -174,21 +174,23 @@ explicit `smithers-build build` of a `mode: "write"` target generates a file.
 
 ## Attributes
 
-| Name               | Type                            | Default                      | Description                                                                                                                                                   |
-| ------------------ | ------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workflowName`     | `string`                        | `"CI"`                       | Generated workflow name.                                                                                                                                      |
-| `pushBranches`     | `Array<string>`                 | `["main"]`                   | Generated push branches.                                                                                                                                      |
-| `pullRequest`      | `boolean`                       | `true`                       | Generated pull-request trigger.                                                                                                                               |
-| `workflowDispatch` | `boolean`                       | `true`                       | Generated manual trigger.                                                                                                                                     |
-| `cancelInProgress` | `boolean`                       | `true`                       | Generated concurrency policy.                                                                                                                                 |
-| `packageManager`   | `PackageManager.PackageManager` | required                     | The declared package manager. Every job installs with it and runs the smithers-build binary through it, so a workspace that switches managers is regenerated. |
-| `cacheUrlSecret`   | `Secret.Secret`                 | optional                     | The declared secret supplying the remote-cache endpoint override. Every generated target step reads the repository secret of the same name.                   |
-| `cacheTokenSecret` | `Secret.Secret`                 | optional                     | The declared secret supplying the remote-cache bearer token.                                                                                                  |
-| `jobs`             | `Array<Job>`                    | `[]`                         | Jobs rendered by `write` and `check`; the render refuses an empty list.                                                                                       |
-| `gates`            | `Array<Gate>`                   | `[]`                         | Target invocations the pipeline must still perform, optionally in one named job. Checked structurally against the declared steps, never against text.         |
-| `requiredJobs`     | `Array<string>`                 | `[]`                         | Job ids the workflow must define, in every mode.                                                                                                              |
-| `output`           | `string`                        | `".github/workflows/ci.yml"` | Workspace-relative workflow path.                                                                                                                             |
-| `mode`             | `"check" \| "write"`            | `"check"`                    | Output handling described above.                                                                                                                              |
+| Name                    | Type                            | Default                               | Description                                                                                                                                                   |
+| ----------------------- | ------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflowName`          | `string`                        | `"CI"`                                | Generated workflow name.                                                                                                                                      |
+| `pushBranches`          | `Array<string>`                 | `["main"]`                            | Generated push branches.                                                                                                                                      |
+| `pullRequest`           | `boolean`                       | `true`                                | Generated pull-request trigger.                                                                                                                               |
+| `workflowDispatch`      | `boolean`                       | `true`                                | Generated manual trigger.                                                                                                                                     |
+| `cancelInProgress`      | `boolean`                       | `true`                                | Generated concurrency policy.                                                                                                                                 |
+| `packageManager`        | `PackageManager.PackageManager` | required                              | The declared package manager. Every job installs with it and runs the smithers-build binary through it, so a workspace that switches managers is regenerated. |
+| `cacheUrlSecret`        | `Secret.Secret`                 | optional                              | The declared secret supplying the remote-cache endpoint override. Every generated target step reads the repository secret of the same name.                   |
+| `cacheTokenSecret`      | `Secret.Secret`                 | optional                              | The declared secret supplying the remote-cache bearer token.                                                                                                  |
+| `cacheWriteTokenSecret` | `Secret.Secret`                 | optional                              | The declared secret supplying the remote-cache write token, rendered only into `publishesToCache` jobs.                                                       |
+| `cacheWriteEnvironment` | `string`                        | required with `cacheWriteTokenSecret` | The GitHub environment holding the write secret; every publishing job names it.                                                                               |
+| `jobs`                  | `Array<Job>`                    | `[]`                                  | Jobs rendered by `write` and `check`; the render refuses an empty list.                                                                                       |
+| `gates`                 | `Array<Gate>`                   | `[]`                                  | Target invocations the pipeline must still perform, optionally in one named job. Checked structurally against the declared steps, never against text.         |
+| `requiredJobs`          | `Array<string>`                 | `[]`                                  | Job ids the workflow must define, in every mode.                                                                                                              |
+| `output`                | `string`                        | `".github/workflows/ci.yml"`          | Workspace-relative workflow path.                                                                                                                             |
+| `mode`                  | `"check" \                      | "write"`                              | `"check"`                                                                                                                                                     |
 
 ### Cache trust
 
@@ -198,6 +200,13 @@ Only that job receives the write secret, guarded to `push` events on the
 listed `pushBranches`. Publishing jobs cannot satisfy `gates`; required PR
 checks need unconditional reader jobs. Configure the same read and write
 secret names in the workspace's `cache.remote` declaration.
+
+`cacheWriteEnvironment` is required with `cacheWriteTokenSecret`. Every
+publishing job names that GitHub environment. Store the write secret in the
+environment, not in the repository, and limit the environment's deployment
+branches to `pushBranches`. The `if:` guard only decides whether the job
+starts. Any branch in the repository can edit a workflow, and a repository
+secret reaches those edited workflows. An environment secret does not.
 
 For workflows with `pullRequest: true` and declared cache access, non-publishing
 target steps receive `SMITHERS_CACHE_NAMESPACE`. It evaluates to

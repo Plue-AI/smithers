@@ -334,6 +334,18 @@ export const Attrs = Schema.Struct({
    * model and rollout ordering are `packages/smithers/build/infra/CACHE-TRUST.md`.
    */
   cacheWriteTokenSecret: Schema.optional(Secret.Declaration),
+  /**
+   * The GitHub deployment environment holding the write credential, required
+   * with {@link cacheWriteTokenSecret}.
+   *
+   * The `if:` guard only decides whether a job starts. A repository secret is
+   * readable by any workflow a branch in the repository defines, including a
+   * `pull_request` run of an edited workflow file, so the write credential
+   * lives in an environment whose deployment branch policy admits only the
+   * push branches, and every publishing job names it. GitHub then withholds
+   * the secret from a job on any other ref, whatever its workflow says.
+   */
+  cacheWriteEnvironment: Schema.optional(Schema.String),
   /** The jobs the workflow declares. A generated workflow needs at least one. @default [] */
   jobs: Schema.Array(Job).pipe(
     Schema.withConstructorDefault(Effect.succeed<ReadonlyArray<Job>>([]))
@@ -1176,6 +1188,8 @@ const isWhollyAdvisory = (job: Job): boolean =>
  * boundary, and an escaping scheme is a second grammar to get wrong.
  */
 const publishBranchName = /^[A-Za-z0-9._/-]+$/
+/** A GitHub environment name the generated YAML carries without quoting surprises. */
+const environmentName = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 /**
  * The split write-credential declaration, checked as a whole.
@@ -1190,6 +1204,11 @@ const publishBranchName = /^[A-Za-z0-9._/-]+$/
 const validatePublishing = (attrs: Attrs): void => {
   const publishing = attrs.jobs.filter((job) => job.publishesToCache === true)
   if (attrs.cacheWriteTokenSecret === undefined) {
+    if (attrs.cacheWriteEnvironment !== undefined) {
+      throw new Error(
+        "GithubCiGen: cacheWriteEnvironment is declared but no cacheWriteTokenSecret is; declare the write credential or drop the environment"
+      )
+    }
     if (publishing.length > 0) {
       throw new Error(
         `GithubCiGen: job ${
@@ -1202,6 +1221,12 @@ const validatePublishing = (attrs: Attrs): void => {
   if (publishing.length === 0) {
     throw new Error(
       "GithubCiGen: cacheWriteTokenSecret is declared but no job declares publishesToCache; the trunk would silently stop publishing to the cache"
+    )
+  }
+  if (attrs.cacheWriteEnvironment === undefined || !environmentName.test(attrs.cacheWriteEnvironment)) {
+    throw new Error(
+      "GithubCiGen: cacheWriteTokenSecret needs cacheWriteEnvironment, the GitHub environment (letters, digits, \".\", \"_\", \"-\") " +
+        "that holds it with a deployment branch policy admitting only the push branches; a repository secret reaches every branch's workflows"
     )
   }
   if (
@@ -1495,7 +1520,9 @@ export const render = (attrs: Attrs): string => {
     } else {
       lines.push(`    runs-on: ${runner(job.runsOn!)}`)
     }
-    if (publishes) lines.push(`    if: ${publishGuard(attrs)}`)
+    if (publishes) {
+      lines.push(`    if: ${publishGuard(attrs)}`, `    environment: ${scalar(attrs.cacheWriteEnvironment!)}`)
+    }
     if (job.timeoutMinutes !== undefined) lines.push(`    timeout-minutes: ${job.timeoutMinutes}`)
     if (job.matrix !== undefined) {
       lines.push(`    continue-on-error: ${matrixExpressions.advisory}`)

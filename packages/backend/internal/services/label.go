@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -303,7 +302,7 @@ func (s *LabelService) AddLabelsToIssue(ctx context.Context, actor *db.User, own
 	if err := s.queries.AddIssueLabels(ctx, db.AddIssueLabelsParams{
 		IssueID:  issue.ID,
 		LabelIds: labelIDs,
-		AddedBy:  pgtype.Int8{Int64: actor.ID, Valid: true},
+		AddedBy:  nativeLabelSender(ctx, actor.ID),
 	}); err != nil {
 		if isUniqueViolation(err) {
 			return nil, pkgerrors.Conflict("label already attached to issue")

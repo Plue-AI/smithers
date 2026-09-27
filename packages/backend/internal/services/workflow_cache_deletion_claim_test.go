@@ -49,7 +49,7 @@ func TestWorkflowCacheAbort_StaleReservationCannotDeleteWinnerBlob(t *testing.T)
 		},
 	}, WorkflowCacheConfig{})
 
-	err := svc.AbortSave(context.Background(), db.WorkflowRun{ID: 7, RepositoryID: 42}, captured.ID)
+	err := svc.AbortSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 7, RepositoryID: 42}, captured.ID)
 	require.NoError(t, err)
 	assert.False(t, blobDeleted, "a failed identity claim must not touch the observed object key")
 }
@@ -87,7 +87,7 @@ func TestWorkflowCacheDeletion_BlobFailureRetainsAndReleasesClaim(t *testing.T) 
 		deleteFn: func(context.Context, string) error { return errors.New("gcs unavailable") },
 	}, WorkflowCacheConfig{})
 
-	err := svc.AbortSave(context.Background(), db.WorkflowRun{ID: 7, RepositoryID: 42}, captured.ID)
+	err := svc.AbortSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 7, RepositoryID: 42}, captured.ID)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 	assert.True(t, claimToken.Valid)
@@ -165,7 +165,7 @@ func TestWorkflowCacheBeginSave_DeletingLeaseReturnsRetryableConflict(t *testing
 	}
 	svc := NewWorkflowCacheService(queries, &mockBlobStore{}, WorkflowCacheConfig{})
 
-	_, err := svc.BeginSave(context.Background(), db.WorkflowRun{ID: 7, RepositoryID: 42}, "deps", "v1", 10)
+	_, err := svc.BeginSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 7, RepositoryID: 42}, "deps", "v1", 10)
 	require.Error(t, err)
 	assert.Equal(t, 409, apiStatus(t, err))
 }

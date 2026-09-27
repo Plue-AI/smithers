@@ -39,7 +39,7 @@ func (p workflowCacheHBillingPolicy) AuthorizePairing(context.Context, int64) er
 }
 
 func workflowCacheHRun() db.WorkflowRun {
-	return db.WorkflowRun{ID: 5, RepositoryID: 7, TriggerRef: "refs/heads/main"}
+	return db.WorkflowRun{TriggerEvent: "push", ID: 5, RepositoryID: 7, TriggerRef: "refs/heads/main"}
 }
 
 func workflowCacheHCache(status string) db.WorkflowCache {
@@ -650,4 +650,33 @@ func (workflowCacheHBillingPolicy) AuthorizeSandboxStart(context.Context, int64)
 }
 func (workflowCacheHBillingPolicy) SandboxEntitlement(context.Context, int64) (SandboxEntitlement, error) {
 	return SandboxEntitlement{}, nil
+}
+
+// A saved archive is restored by main and, as the fallback bookmark, by every
+// other bookmark. A run of unreviewed code or of someone else's input (an
+// agent message, a landing request, issue text) restores but never saves,
+// whatever ref it names; a push, a schedule or a dispatch saves.
+func TestWorkflowCache_OnlyMaintainerRunsSave(t *testing.T) {
+	reserved := 0
+	service := NewWorkflowCacheService(&mockWorkflowCacheQuerier{
+		getRepoByIDFn: func(context.Context, int64) (db.Repository, error) {
+			return db.Repository{ID: 7, DefaultBookmark: "main"}, nil
+		},
+		upsertPendingWorkflowCacheFn: func(context.Context, db.UpsertPendingWorkflowCacheParams) (db.WorkflowCache, error) {
+			reserved++
+			return db.WorkflowCache{}, errors.New("reserved")
+		},
+	}, &mockBlobStore{}, WorkflowCacheConfig{})
+	for _, event := range []string{"agent_message", "landing_request", "issues", "issue_comment", "invoke", "webhook", "monitoring_alert", "workflow_run", ""} {
+		for _, ref := range []string{"", "main", "refs/heads/main", "refs/tags/v1", "feature"} {
+			_, err := service.BeginSave(context.Background(), db.WorkflowRun{ID: 5, RepositoryID: 7, TriggerEvent: event, TriggerRef: ref}, "npm", "", 10)
+			require.Error(t, err, "%s on %q", event, ref)
+			assert.Equal(t, 403, apiStatus(t, err), "%s on %q", event, ref)
+		}
+	}
+	require.Zero(t, reserved, "a refused run reserved a cache entry")
+	for _, event := range []string{"push", "schedule", "workflow_dispatch", "manual_dispatch", "manual"} {
+		_, _ = service.BeginSave(context.Background(), db.WorkflowRun{ID: 5, RepositoryID: 7, TriggerEvent: event, TriggerRef: "main"}, "npm", "", 10)
+	}
+	require.Equal(t, 5, reserved)
 }

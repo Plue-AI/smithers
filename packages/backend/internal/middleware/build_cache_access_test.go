@@ -150,7 +150,16 @@ func TestBuildCacheAccess_OrdinaryCredentials(t *testing.T) {
 
 	rec = serve(http.MethodPut, tokenInfo(7, "write:repository,repo:5"))
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "write", rec.Header().Get("X-Credential"), "the per-run token bound to this repository publishes")
+	assert.Equal(t, "write", rec.Header().Get("X-Credential"), "a collaborator's own token bound to this repository publishes")
+
+	runInfo := tokenInfo(100, "write:repository,repo:5,agent-session:s1")
+	runInfo.TokenSystemIssued = true
+	rec = serve(http.MethodGet, runInfo)
+	assert.Equal(t, "read", rec.Header().Get("X-Credential"), "a run credential reads")
+	rec = serve(http.MethodPut, runInfo)
+	assert.Equal(t, http.StatusForbidden, rec.Code, "a run credential never publishes, even the owner's")
+	rec = serve(http.MethodDelete, runInfo)
+	assert.Equal(t, http.StatusForbidden, rec.Code, "a run credential never deletes")
 
 	rec = serve(http.MethodPut, tokenInfo(7, "write:repository,repo:999"))
 	assert.Equal(t, http.StatusForbidden, rec.Code, "a token bound to another repository is not a write credential here")
@@ -248,4 +257,22 @@ func TestBuildCacheAccess_RefusalsCarryTheTypedEnvelope(t *testing.T) {
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, put)
 	typed(t, rec, http.StatusForbidden, apierrors.CodeForbidden)
+}
+
+func TestRefuseRunCredentials(t *testing.T) {
+	t.Parallel()
+	handler := RefuseRunCredentials(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	serve := func(info *AuthInfo) int {
+		req := httptest.NewRequest(http.MethodDelete, "/api/repos/acme/app/build-cache/tokens/1", nil)
+		if info != nil {
+			req = req.WithContext(ContextWithAuthInfo(req.Context(), info))
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	assert.Equal(t, http.StatusForbidden, serve(&AuthInfo{User: &db.User{ID: 1}, IsTokenAuth: true, TokenSystemIssued: true}))
+	assert.Equal(t, http.StatusNoContent, serve(&AuthInfo{User: &db.User{ID: 1}, IsTokenAuth: true}))
+	assert.Equal(t, http.StatusNoContent, serve(&AuthInfo{User: &db.User{ID: 1}}))
+	assert.Equal(t, http.StatusNoContent, serve(nil), "anonymous callers fall through to RequireAuth")
 }

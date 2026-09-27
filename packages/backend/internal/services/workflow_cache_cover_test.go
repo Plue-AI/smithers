@@ -53,7 +53,7 @@ func TestWorkflowCache_Cov_RestoreDeletesMissingArchive(t *testing.T) {
 		deleteFn: func(context.Context, string) error { return nil },
 	}, WorkflowCacheConfig{})
 
-	result, err := service.Restore(context.Background(), db.WorkflowRun{ID: 1, RepositoryID: 7, TriggerRef: "refs/tags/v1"}, "npm", "")
+	result, err := service.Restore(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 1, RepositoryID: 7, TriggerRef: "refs/tags/v1"}, "npm", "")
 	require.NoError(t, err)
 	assert.False(t, result.CacheHit)
 	assert.True(t, deleted)
@@ -83,7 +83,7 @@ func TestWorkflowCache_Cov_BeginSaveExistingExpiredAndForeignPending(t *testing.
 		},
 	}, WorkflowCacheConfig{})
 
-	reservation, err := service.BeginSave(context.Background(), db.WorkflowRun{ID: 5, RepositoryID: 7, TriggerRef: "bookmarks/main"}, " key ", "", 10)
+	reservation, err := service.BeginSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 5, RepositoryID: 7, TriggerRef: "bookmarks/main"}, " key ", "", 10)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), reservation.Cache.ID)
 	assert.Equal(t, "https://upload", reservation.UploadURL)
@@ -109,14 +109,14 @@ func TestWorkflowCache_Cov_FinalizeDoesNotRechargeAndOnlyPurgesStaging(t *testin
 		},
 	}, WorkflowCacheConfig{}, WithWorkflowCacheBillingPolicy(workflowCacheCovBillingPolicy{storageErr: errors.New("quota denied")}))
 
-	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{ID: 7, RepositoryID: 42}, 10, 100)
+	_, err := service.FinalizeSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 7, RepositoryID: 42}, 10, 100)
 	require.NoError(t, err)
 	assert.Equal(t, blob.PendingUploadKey("workflow-caches", "cache/new.tgz"), deletedKey)
 }
 
 func TestWorkflowCache_Cov_AbortListClearStatsAndCleanupErrors(t *testing.T) {
 	service := NewWorkflowCacheService(&mockWorkflowCacheQuerier{}, &mockBlobStore{}, WorkflowCacheConfig{})
-	err := service.AbortSave(context.Background(), db.WorkflowRun{ID: 1, RepositoryID: 1}, 0)
+	err := service.AbortSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 1, RepositoryID: 1}, 0)
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
 
@@ -125,7 +125,7 @@ func TestWorkflowCache_Cov_AbortListClearStatsAndCleanupErrors(t *testing.T) {
 			return db.WorkflowCache{}, pgx.ErrNoRows
 		},
 	}, &mockBlobStore{}, WorkflowCacheConfig{})
-	require.NoError(t, service.AbortSave(context.Background(), db.WorkflowRun{ID: 1, RepositoryID: 1}, 1))
+	require.NoError(t, service.AbortSave(context.Background(), db.WorkflowRun{TriggerEvent: "push", ID: 1, RepositoryID: 1}, 1))
 
 	service = NewWorkflowCacheService(&mockWorkflowCacheQuerier{
 		listWorkflowCachesFn: func(_ context.Context, arg db.ListWorkflowCachesParams) ([]db.WorkflowCache, error) {

@@ -1,8 +1,13 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 // issueApprovalLabel is the trigger label a maintainer applies to an
@@ -55,6 +60,18 @@ func gitHubLabelApplied(action string, payload []byte) gitHubLabelApplication {
 	byAuthor := sender.ID == 0 || author.ID == 0 || sender.ID == author.ID ||
 		strings.EqualFold(strings.TrimSpace(sender.Login), strings.TrimSpace(author.Login))
 	return gitHubLabelApplication{Label: event.Label.Name, SenderType: sender.Type, ByAuthor: byAuthor}
+}
+
+// nativeLabelSender is who a native label application names as its sender.
+// A person applying a label through their own session or token is the sender.
+// A system-issued run credential acts as the user who owns the run, but the
+// run's agent is not that person: like a GitHub App on GitHub, it applies a
+// label with no sender, so the application approves no outsider's text.
+func nativeLabelSender(ctx context.Context, actorID int64) pgtype.Int8 {
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.IsTokenAuth && info.TokenSystemIssued {
+		return pgtype.Int8{}
+	}
+	return pgtype.Int8{Int64: actorID, Valid: actorID > 0}
 }
 
 type gitHubActor struct {

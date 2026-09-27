@@ -785,10 +785,11 @@ func (d *agentDispatch) applyReservedRuntimeEnv() {
 	if d.hasJJHubToken {
 		d.bindAgentCallbackCredential("SMITHERS_JJHUB_TOKEN", d.jjhubToken.Plaintext)
 		d.agentServiceSpec.Env["SMITHERS_JJHUB_API_URL"] = normalizePublicBaseURL(d.svc.apiBaseURL)
-		// The same per-run token is the build cache write credential. It is
-		// bound to the API host and the authorization header, so smithers-build
-		// inside the computer publishes through the egress proxy and the value
-		// itself never enters the guest under this name.
+		// The same per-run token reads the repository's build cache. A run
+		// credential is never a cache writer (BuildCacheAccess): the run's
+		// code is unreviewed, and a publication would be read as green by
+		// trusted builds. It is bound to the API host and the authorization
+		// header, so the value itself never enters the guest under this name.
 		if host := apiHost(d.svc.apiBaseURL); host != "" {
 			d.bindEgressSecret(sandbox.EgressProxySecret{
 				Name:         "SMITHERS_CACHE_TOKEN",

@@ -248,6 +248,9 @@ func (s *workflowCacheService) BeginSave(ctx context.Context, run db.WorkflowRun
 	if objectSizeBytes > s.config.ArchiveMaxBytes {
 		return WorkflowCacheSaveReservation{}, pkgerrors.BadRequest("cache archive exceeds configured size limit")
 	}
+	if !workflowCachePublisher(run.TriggerEvent) {
+		return WorkflowCacheSaveReservation{}, pkgerrors.Forbidden("this run restores workflow caches but does not save them")
+	}
 	repository, bookmarkName, err := s.resolveWorkflowCacheScope(ctx, run.RepositoryID, run.TriggerRef)
 	if err != nil {
 		return WorkflowCacheSaveReservation{}, err
@@ -1041,6 +1044,22 @@ func containsControlRune(s string) bool {
 		if unicode.IsControl(r) {
 			return true
 		}
+	}
+	return false
+}
+
+// workflowCachePublisher reports whether a run may save workflow caches. A
+// saved archive is restored by later runs of its bookmark and of every other
+// bookmark (the default bookmark is their fallback), so only a run executing
+// that bookmark's own tree at a maintainer's request saves: a push, a
+// schedule, or a dispatch. An agent message, a landing request, issue or
+// comment text, an alert and every other event run unreviewed code or act on
+// someone else's input; they restore and never save. Unknown events save
+// nothing.
+func workflowCachePublisher(triggerEvent string) bool {
+	switch NormalizeTriggerName(triggerEvent) {
+	case "push", "schedule", "workflow_dispatch", "manual":
+		return true
 	}
 	return false
 }

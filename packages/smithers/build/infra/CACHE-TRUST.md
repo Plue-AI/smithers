@@ -50,6 +50,14 @@ Two mechanisms enforce it, and only the first is a control:
 A `pull_request`-triggered job receives the read credential and no write
 credential. It pulls at full speed and publishes nothing.
 
+The write secret lives in a GitHub environment, not in the repository. A
+repository secret reaches any workflow that a branch of the repository
+defines. A branch that edits `ci.yml` can therefore read it, whatever the
+publishing job's `if:` guard says. An environment whose deployment branch
+policy admits only `main` withholds the secret from every other ref. Fork pull
+requests receive no secrets at all, and no workflow here uses
+`pull_request_target`.
+
 ## Repository CI adoption
 
 `packages/smithers/build/targets/src/GithubCiGen.ts` carries the split. Beside
@@ -72,7 +80,8 @@ request, so it proves nothing).
 
 The root `PACKAGE.ts` declares `SMITHERS_CACHE_READ_TOKEN` and
 `SMITHERS_CACHE_WRITE_TOKEN`. Every target step receives the read credential;
-only `cache-publish`, guarded to pushes on `main`, receives the write
+only `cache-publish`, guarded to pushes on `main` and bound to the
+`cache-publish` environment (`cacheWriteEnvironment`), receives the write
 credential. That job runs the workspace package CI targets. The required PR
 jobs remain unconditional. Release gates receive only the read credential.
 
@@ -167,16 +176,18 @@ cache reuse and publication but must not receive the old shared credential:
    set the **write** token to the current `SMITHERS_CACHE_TOKEN` value and mint
    a new read token: a client that still sends the old single credential
    classifies as `write` and nothing it does changes.
-2. **Add the repository secrets.** Add `SMITHERS_CACHE_READ_TOKEN` holding the
-   newly minted read token and `SMITHERS_CACHE_WRITE_TOKEN` holding the current
-   value to the GitHub repository.
+2. **Add the secrets.** Add `SMITHERS_CACHE_READ_TOKEN`, holding the newly
+   minted read token, as a repository secret. Create the `cache-publish`
+   environment with a deployment branch policy that admits only `main`. Add
+   `SMITHERS_CACHE_WRITE_TOKEN`, holding the current value, to that
+   environment and not to the repository.
 3. **Verify the adopted declarations.** Confirm the generated CI and release
    workflows use the read secret and only the main-push `cache-publish` job
    receives the write secret. Confirm `.smithers/WORKSPACE.ts` declares the
    same split.
 4. **Rotate.** Only now generate a new write credential, redeploy the Worker
    with the new `SMITHERS_CACHE_WRITE_TOKEN` and the unchanged read token, and
-   update the repository secret. Rotating before step 3 breaks every job that
+   update the `cache-publish` environment secret. Rotating before step 3 breaks every job that
    still sends the old value as its write credential.
 
 If the Worker does not have both secrets configured before the client change
@@ -263,5 +274,7 @@ what it can do. The server enforces the same split (`403` on every `PUT` and
 `DELETE` before the body is read), the token is refused on any other
 repository, and the general token loader never accepts its shape, so a leak
 costs a rotation and nothing else. The write credential stays where it was: a
-`write:repository` token in the environment of post-merge trunk jobs, or the
-per-run token an agent computer holds through the egress proxy.
+`write:repository` token in the environment of post-merge trunk jobs. A
+system-issued run credential never publishes, whatever its scopes. That
+includes the per-run token an agent computer holds through the egress proxy. It
+reads the repository's cache like any other reader.

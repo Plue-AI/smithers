@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -146,7 +145,7 @@ func replaceIssueAssociations(ctx context.Context, tx issueWriteTx, issueID, act
 		}
 	}
 	if labelIDs != nil {
-		if err := tx.ReplaceIssueLabels(ctx, db.ReplaceIssueLabelsParams{IssueID: issueID, AddedBy: pgtype.Int8{Int64: actorID, Valid: actorID > 0}, LabelIds: *labelIDs}); err != nil {
+		if err := tx.ReplaceIssueLabels(ctx, db.ReplaceIssueLabelsParams{IssueID: issueID, AddedBy: nativeLabelSender(ctx, actorID), LabelIds: *labelIDs}); err != nil {
 			return pkgerrors.Internal("failed to update issue labels").WithCause(err)
 		}
 	}

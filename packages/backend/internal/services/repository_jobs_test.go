@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -916,4 +918,52 @@ func TestRepositoryJobNativeEventsCarryTheAuthorsAssociation(t *testing.T) {
 	}
 	require.False(t, labeled(stranger))
 	require.True(t, labeled(g.target.UserID))
+}
+
+// A native label reaches the one trust rule through the label service, which
+// records who applied it. The owner's own session approves a stranger's issue
+// with the trigger label and nothing else; a run credential acting as the
+// owner is the repository's agent, not the owner, so its label approves
+// nothing (a GitHub App's label is refused the same way).
+func TestRepositoryJobNativeLabelsApproveOnlyAPersonsTriggerLabel(t *testing.T) {
+	pool, q, _, g, _ := repositoryJobFixture(t)
+	ctx := context.Background()
+	repo := g.target.RepositoryID
+	owner, err := q.GetUserByID(ctx, g.target.UserID)
+	require.NoError(t, err)
+	var ownerLogin, repoName string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT u.username, r.name FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, repo).Scan(&ownerLogin, &repoName))
+	var stranger int64
+	login := "stranger" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+		login, login+"@example.invalid").Scan(&stranger))
+	_, err = pool.Exec(ctx, `INSERT INTO issues(repository_id,number,title,body,author_id) VALUES($1,81,'native','do it',$2)`, repo, stranger)
+	require.NoError(t, err)
+	for _, name := range []string{issueApprovalLabel, "invalid"} {
+		_, err := pool.Exec(ctx, `INSERT INTO labels(repository_id,name,color) VALUES($1,$2,'ffffff')`, repo, name)
+		require.NoError(t, err)
+	}
+	labels := NewLabelService(q)
+	session := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, Scopes: middleware.ScopeSet{}})
+	run := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, IsTokenAuth: true, TokenSystemIssued: true,
+		RawScopes: "write:repository,repo:" + strconv.FormatInt(repo, 10), Scopes: middleware.ParseTokenScopes("write:repository")})
+	approves := func(actx context.Context, label string) bool {
+		_, err := labels.AddLabelsToIssue(actx, &owner, ownerLogin, repoName, 81, []string{label})
+		require.NoError(t, err)
+		var payload []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM repository_job_events WHERE repository_id=$1 AND issue_number=81
+			AND event_action='labeled'`, repo).Scan(&payload))
+		_, err = pool.Exec(ctx, `DELETE FROM issue_labels WHERE issue_id=(SELECT id FROM issues WHERE repository_id=$1 AND number=81)`, repo)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `DELETE FROM repository_job_events WHERE repository_id=$1 AND issue_number=81 AND event_action='labeled'`, repo)
+		require.NoError(t, err)
+		return gitHubIssueEventApproves("issues", "labeled", payload, issueApprovalLabel)
+	}
+	require.False(t, approves(session, "invalid"), "a maintainer's other label approves nothing")
+	require.False(t, approves(run, issueApprovalLabel), "the owner's run applies the trigger label as an agent")
+	require.True(t, approves(session, issueApprovalLabel), "the owner applying the trigger label approves the text")
+	var unlabeled []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM repository_job_events WHERE repository_id=$1 AND issue_number=81
+		AND event_action='unlabeled' AND payload->'label'->>'name'=$2 LIMIT 1`, repo, issueApprovalLabel).Scan(&unlabeled))
+	require.False(t, gitHubIssueEventApproves("issues", "unlabeled", unlabeled, issueApprovalLabel), "removing a label approves nothing")
 }

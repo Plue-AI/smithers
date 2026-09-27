@@ -72,11 +72,19 @@ func presentedReadToken(r *http.Request) string {
 // Two credential classes exist. A public read token (smithers_cachero_...)
 // belongs to exactly one repository, may only read that repository's cache,
 // and is safe to commit. Everything else is ordinary Smithers auth loaded by
-// AuthLoader: a session, a personal access token, or the per-run repository
-// token an agent computer holds. Those classify as write when they hold
-// write permission on the repository (and, for a token, the write:repository
-// scope with no foreign repository restriction), read when they hold read
-// permission, and anonymous reads are allowed on a public repository.
+// AuthLoader: a session, a personal access token, or a system-issued run
+// credential (the per-run repository token an agent computer holds, a clone
+// or landing credential). A session or a user's own token classifies as write
+// when it holds write permission on the repository (and, for a token, the
+// write:repository scope with no foreign repository restriction), read when it
+// holds read permission, and anonymous reads are allowed on a public
+// repository.
+//
+// A system-issued credential is never a cache writer, whatever its scopes. It
+// serves a run of code nobody has reviewed yet, and the cache trust model
+// (packages/smithers/build/infra/CACHE-TRUST.md) admits only reviewed trunk
+// builds as publishers: a hit is reported green, so a run that could publish
+// under a key could decide a later trusted build's verdict for that key.
 func BuildCacheAccess(queries RepoContextQuerier, tokens BuildCacheReadTokenResolver) func(http.Handler) http.Handler {
 	loadRepo := LoadRepoContext(queries)
 	return func(next http.Handler) http.Handler {
@@ -99,8 +107,9 @@ func BuildCacheAccess(queries RepoContextQuerier, tokens BuildCacheReadTokenReso
 				restriction := authInfo.RepositoryRestriction()
 				return restriction == 0 || restriction == repository.ID
 			}
+			runCredential := authInfo != nil && authInfo.IsTokenAuth && authInfo.TokenSystemIssued
 			switch {
-			case permission.Satisfies(PermissionWrite) && scopeOK(ScopeWriteRepository):
+			case permission.Satisfies(PermissionWrite) && scopeOK(ScopeWriteRepository) && !runCredential:
 				credential = BuildCacheCredentialWrite
 			case permission.Satisfies(PermissionRead) && scopeOK(ScopeReadRepository):
 				credential = BuildCacheCredentialRead
@@ -173,6 +182,19 @@ func RequireBuildCacheWrite(next http.Handler) http.Handler {
 		if (r.Method == http.MethodPut || r.Method == http.MethodDelete) &&
 			BuildCacheCredentialFromContext(r.Context()) != BuildCacheCredentialWrite {
 			writeBuildCacheForbidden(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RefuseRunCredentials refuses a system-issued run credential. Read token
+// management belongs to a person: a run could otherwise revoke the committed
+// read token and switch every clone's cache off, or mint one for itself.
+func RefuseRunCredentials(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if info := AuthInfoFromContext(r.Context()); info != nil && info.IsTokenAuth && info.TokenSystemIssued {
+			apierrors.WriteError(w, apierrors.Forbidden("a run credential cannot manage build cache tokens"))
 			return
 		}
 		next.ServeHTTP(w, r)
