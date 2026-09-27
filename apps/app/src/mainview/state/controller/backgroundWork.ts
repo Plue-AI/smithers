@@ -66,11 +66,12 @@ export const observeBackgroundWork = (ctx: ControllerContext): void => {
       } else {
         const timer = pending.get(card.id)
         if (timer) { clearTimeout(timer); pending.delete(card.id) }
-        if (seen.get(card.id) === phase) continue
         seen.set(card.id, phase)
-        if (toast) ctx.resolveToast(key, { status: phase, title: card.title,
-          detail: phase === "ok" ? "" : phase === "cancelled" ? "Cancelled" : card.kind === "run-trace" ? card.payload.error ?? card.payload.phase
-            : card.kind === "agent" && "cloud" in card.payload ? card.payload.error ?? card.payload.state : "Stopped" })
+        const detail = phase === "ok" ? "" : phase === "cancelled" ? "Cancelled" : card.kind === "run-trace" ? card.payload.error ?? card.payload.phase
+          : card.kind === "agent" && "cloud" in card.payload ? card.payload.error ?? card.payload.state : "Stopped"
+        if (toast && (toast.status !== phase || toast.title !== card.title || toast.detail !== detail)) {
+          ctx.resolveToast(key, { status: phase, title: card.title, detail })
+        }
       }
     }
     for (const toast of store.collections.toasts.values()) if (toast.key.startsWith("worker.") && toast.sourceCard && !store.collections.cards.has(toast.sourceCard)) {

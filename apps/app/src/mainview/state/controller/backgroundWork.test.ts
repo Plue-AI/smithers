@@ -22,6 +22,47 @@ const fixture = async (storage = memoryStorage()) => {
   return { store, ctx }
 }
 
+for (const kind of ["run-trace", "agent"] as const) test(`a recovered ${kind} failure toast follows corrected details without repeating unchanged observations`, async () => {
+  const { store, ctx } = await fixture()
+  const base = { id: "corrected-worker", title: "Review", status: "active" as const, ordinal: 1, createdAt: Date.now() - 1000 }
+  const card: Card = kind === "run-trace"
+    ? { ...base, kind, payload: { repo: "owner/repo", workflow: "review", runId: "run-1", phase: "running", steps: [], result: null, lastSeq: 0 } }
+    : { ...base, kind, payload: { cloud: true, displayName: "Review", sessionId: "session-1", repo: "owner/repo", provider: null, workspaceId: null, state: "active", transcript: [] } }
+  const resolutions: unknown[] = [], resolve = ctx.resolveToast
+  ctx.resolveToast = (key, outcome) => { resolutions.push(outcome); resolve(key, outcome) }
+  await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
+  observeBackgroundWork(ctx)
+  await waitFor(() => store.collections.toasts.size === 1)
+  const failure: Card = card.kind === "run-trace"
+    ? { ...card, payload: { ...card.payload, phase: "failed", error: "Initial failure" } }
+    : { ...card, payload: { ...card.payload, state: "failed", error: "Initial failure" } }
+  await store.dispatch({ type: "card.upsert", actor: "system", card: failure }).isPersisted.promise
+  const toast = () => store.collections.toasts.get(`toast-worker.${card.id}`)
+  await waitFor(() => toast()?.status === "failed")
+  expect(toast()?.detail).toBe("Initial failure")
+  const renamed = { ...failure, title: "Reviewed changes" }
+  await store.dispatch({ type: "card.upsert", actor: "system", card: renamed }).isPersisted.promise
+  await settle()
+  expect(toast()?.title).toBe("Reviewed changes")
+  expect(toast()?.detail).toBe("Initial failure")
+  expect(resolutions).toHaveLength(2)
+  const corrected = { ...renamed, payload: { ...renamed.payload, error: "Permission denied" } } as Card
+  await store.dispatch({ type: "card.upsert", actor: "system", card: corrected }).isPersisted.promise
+  await settle()
+  expect(toast()?.title).toBe("Reviewed changes")
+  expect(toast()?.detail).toBe("Permission denied")
+  expect(resolutions).toHaveLength(3)
+  for (let index = 0; index < 5; index++) {
+    await store.dispatch({ type: "card.upsert", actor: "system", card: corrected }).isPersisted.promise
+    await settle()
+  }
+  expect(resolutions).toHaveLength(3)
+  await store.dispatch({ type: "toast.dismissed", actor: "user", id: toast()!.id }).isPersisted.promise
+  await store.dispatch({ type: "card.upsert", actor: "system", card: corrected }).isPersisted.promise
+  await settle()
+  expect(toast()).toBeUndefined()
+})
+
 for (const status of ["failed", "cancelled"] as const) test(`one debounced toast spans launch and execution through ${status}, with real controls`, async () => {
   const { store, ctx } = await fixture()
   const remote = Promise.withResolvers<{ status: "ok"; value: { runId: string } }>()
