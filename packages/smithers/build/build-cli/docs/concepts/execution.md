@@ -26,6 +26,11 @@ never a deletion: the gitignored census holds every ignored file's bytes in a
 stash before the body runs, and a tree it cannot hold whole refuses the target
 before it runs at all.
 
+A workspace without its own `.git`, such as a `jj workspace add` checkout, has
+no tracked tree git can list. There the gitignored census covers the whole
+tree, so every file outside host state is held in the stash, counted against
+the same ceilings, and restored from it.
+
 ### Another writer during a guarded run
 
 The census covers the whole tree, so it also sees what an editor, an agent, or

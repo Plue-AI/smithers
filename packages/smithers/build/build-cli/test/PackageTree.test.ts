@@ -329,18 +329,86 @@ describe("the write-set guard reads git honestly", () => {
     await expect(PackageTree.snapshotTree(root, ".flows")).rejects.toThrow(/not valid UTF-8/)
   })
 
+  /** A `.git` that names no repository: git is asked and cannot answer. */
+  const breakGit = async (): Promise<void> => {
+    await Fs.rm(NodePath.join(root, ".git"), { recursive: true, force: true })
+    await Fs.writeFile(NodePath.join(root, ".git"), `gitdir: ${NodePath.join(outside, "missing")}\n`)
+  }
+
   it("fails the ignored-path census when git cannot answer, instead of reporting nothing ignored", async () => {
     // `listIgnored` runs once before the body and once after. Swallowing the
     // failure disarms the guard when it fails after, and makes every ignored
     // path read as newly created when it fails before, which sends each one
     // that does not match the write-set to `revertIgnored` as a created path.
-    await Fs.rm(NodePath.join(root, ".git"), { recursive: true, force: true })
+    await breakGit()
     await expect(PackageTree.snapshotIgnored(root, ".flows")).rejects.toThrow(/git status failed/)
   })
 
   it("fails the portal census when git cannot answer, instead of measuring no portals", async () => {
-    await Fs.rm(NodePath.join(root, ".git"), { recursive: true, force: true })
+    await breakGit()
     await expect(PackageTree.snapshotPortals(root, ".flows")).rejects.toThrow(/git (ls-files|status) failed/)
+  })
+})
+
+/**
+ * A `jj workspace add` checkout has `.jj` and no `.git`. Git cannot census it
+ * (it would walk out to an ancestor repository), and jj lists neither ignored
+ * paths nor file modes, so the guard measures the whole tree from the
+ * filesystem: every file is held in the stash and restored from it.
+ */
+describe("the write-set guard measures a workspace without a local .git from the filesystem", () => {
+  const file = async (relative: string, content: string): Promise<void> => {
+    const absolute = NodePath.join(root, relative)
+    await Fs.mkdir(NodePath.dirname(absolute), { recursive: true })
+    await Fs.writeFile(absolute, content)
+  }
+
+  beforeEach(async () => {
+    // An ancestor repository the census must never consult.
+    ChildProcess.execFileSync("git", ["init", "--quiet", "."], { cwd: NodePath.dirname(root), stdio: "ignore" })
+    await file(".jj/repo", "jj state")
+    await file(".gitignore", "dist/\n")
+    await file("src/a.ts", "source")
+    await file("dist/a.js", "built")
+    await file("node_modules/dep/index.js", "dep")
+    await file(".flows/cache/entry", "cache")
+  })
+
+  it("censuses every file outside host state, and restores a changed, created, or deleted one", async () => {
+    await Fs.chmod(NodePath.join(root, "src", "a.ts"), 0o600)
+    const tree = await PackageTree.snapshotTree(root, ".flows")
+    const snapshot = await PackageTree.snapshotIgnored(root, ".flows")
+    try {
+      expect([...snapshot.entries.keys()].sort()).toEqual([".gitignore", "dist/a.js", "src/a.ts"])
+      await file("src/a.ts", "rewritten")
+      await Fs.chmod(NodePath.join(root, "src", "a.ts"), 0o644)
+      await file("src/b.ts", "created")
+      await Fs.rm(NodePath.join(root, "dist", "a.js"))
+      await file("node_modules/dep/index.js", "host state")
+      expect(await PackageTree.changedSinceSnapshot(tree, ".flows")).toEqual([])
+      const changed = await PackageTree.changedIgnored(snapshot, ".flows")
+      expect(changed).toEqual(["dist/a.js", "src/a.ts", "src/b.ts"])
+      for (const path of changed) expect(await PackageTree.revertIgnored(snapshot, path)).toBe(true)
+      expect(await Fs.readFile(NodePath.join(root, "src", "a.ts"), "utf8")).toBe("source")
+      expect((await Fs.lstat(NodePath.join(root, "src", "a.ts"))).mode & 0o777).toBe(0o600)
+      expect(await Fs.readFile(NodePath.join(root, "dist", "a.js"), "utf8")).toBe("built")
+      expect(await Fs.lstat(NodePath.join(root, "src", "b.ts")).then(() => true, () => false)).toBe(false)
+    } finally {
+      await PackageTree.releaseIgnored(snapshot)
+      await PackageTree.releaseSnapshot(tree)
+    }
+  })
+
+  it("finds an escaping symlink anywhere in the tree as a portal", async () => {
+    await Fs.mkdir(NodePath.join(outside, "open"), { recursive: true })
+    await Fs.symlink(NodePath.join(outside, "open"), NodePath.join(root, "src", "portal"))
+    await Fs.symlink("a.ts", NodePath.join(root, "src", "inside"))
+    const snapshot = await PackageTree.snapshotPortals(root, ".flows")
+    try {
+      expect(snapshot.portals.map((portal) => portal.link)).toEqual(["src/portal"])
+    } finally {
+      await PackageTree.releasePortals(snapshot)
+    }
   })
 })
 

@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto"
 import { integrity } from "./publish-release.mjs"
 import { execFileSync, spawn } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join, relative, resolve, sep } from "node:path"
@@ -592,11 +592,10 @@ export const main = async (args) => {
       join(outputDirectory, "manifest.json"),
       `${JSON.stringify(packed, null, 2)}\n`
     )
-    const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim()
-    const changed = execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repoRoot, encoding: "utf8" }).trim()
+    const source = sourceRevision(repoRoot)
     await writeFile(join(outputDirectory, "release-manifest.json"), JSON.stringify({
       schemaVersion: 1,
-      source: { sha: sourceSha, tag: process.env.RELEASE_TAG ?? null, dirty: changed.length > 0 },
+      source: { sha: source.sha, tag: process.env.RELEASE_TAG ?? null, dirty: source.dirty },
       toolchain: { node: process.version, lockfileSha256: createHash("sha256").update(await readFile(join(repoRoot, "pnpm-lock.yaml"))).digest("hex") },
       packages: packed
     }, null, 2) + "\n")
@@ -605,6 +604,30 @@ export const main = async (args) => {
   }
 }
 
+
+/**
+ * The commit a pack is built from, and whether the checkout differs from it.
+ *
+ * A git checkout (CI colocates jj with git) answers with `HEAD` and
+ * `git status`. A `jj workspace add` checkout has no `.git`; its `HEAD` is
+ * `@-`, the commit a colocated checkout's git `HEAD` names, and it is dirty
+ * when the working-copy commit `@` changes any path.
+ */
+export const sourceRevision = (root) => {
+  const run = (command, args) => execFileSync(command, args, { cwd: root, encoding: "utf8" }).trim()
+  if (existsSync(join(root, ".git"))) {
+    return {
+      sha: run("git", ["rev-parse", "HEAD"]),
+      dirty: run("git", ["status", "--porcelain", "--untracked-files=normal"]).length > 0
+    }
+  }
+  if (existsSync(join(root, ".jj"))) {
+    const parents = run("jj", ["log", "--no-graph", "-r", "@-", "-T", "commit_id ++ \"\\n\""]).split("\n").filter(Boolean)
+    if (parents.length !== 1) throw new Error(`release source revision: @ in ${root} has ${parents.length} parents, not one`)
+    return { sha: parents[0], dirty: run("jj", ["diff", "--name-only", "-r", "@"]).length > 0 }
+  }
+  throw new Error(`release source revision: ${root} has neither .git nor .jj`)
+}
 
 if (isMain(import.meta)) {
   await main(process.argv.slice(2))

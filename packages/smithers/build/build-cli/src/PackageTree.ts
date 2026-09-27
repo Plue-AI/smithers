@@ -298,6 +298,24 @@ export const runCommand = (
     )
   })
 
+/**
+ * Whether git can census the workspace, which needs its own `.git`.
+ *
+ * A `jj workspace add` checkout, or any tree without version control, has
+ * none. jj lists neither ignored paths nor file modes and has no
+ * checkout-style revert, so the write-set guard does not ask it: the
+ * ignored census walks the whole tree from the filesystem instead, holds
+ * every file in its stash, and restores from there. The git status census
+ * is then empty, because every path is already the ignored census's.
+ */
+const censusedByGit = (root: string): boolean => NodeFs.existsSync(NodePath.join(root, ".git"))
+
+/** `git status --porcelain -z` of the workspace, or no rows when git cannot census it. */
+const statusZ = (root: string, ignored: boolean = false): Promise<string> =>
+  censusedByGit(root) ?
+    runGit(root, ["status", "--porcelain", "-z", "--untracked-files=all", ...(ignored ? ["--ignored=matching"] : [])])
+    : Promise.resolve("")
+
 /** One `git status --porcelain -z` row. */
 interface StatusEntry {
   readonly status: string
@@ -424,7 +442,7 @@ export const snapshotTree = async (root: string, cacheDirectory: string): Promis
   // ({@link snapshotIgnored}), which carries its own ceilings: hashing the
   // whole ignored tree here, with the build artifacts among it, would be a
   // per-run cost out of all proportion to the dirty source set this measures.
-  const raw = await runGit(root, ["status", "--porcelain", "-z", "--untracked-files=all"])
+  const raw = await statusZ(root)
   const states = new Map<string, PathState>()
   const stashDirectory = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-writeset-"))
   try {
@@ -459,7 +477,7 @@ export const changedSinceSnapshot = async (
   snapshot: TreeSnapshot,
   cacheDirectory: string
 ): Promise<ReadonlyArray<string>> => {
-  const raw = await runGit(snapshot.root, ["status", "--porcelain", "-z", "--untracked-files=all"])
+  const raw = await statusZ(snapshot.root)
   const after = new Map<string, PathState>()
   for (const entry of parseStatusZ(raw)) {
     if (skipStatusPath(cacheDirectory, entry.path)) continue
@@ -890,7 +908,7 @@ const walkIgnored = async (
     return
   }
   for (const dirent of dirents) {
-    const path = `${directory}/${dirent.name}`
+    const path = directory === "" ? dirent.name : `${directory}/${dirent.name}`
     if (skipStatusPath(cacheDirectory, path, hostTrees)) continue
     if (dirent.isDirectory()) {
       await walkIgnored(root, cacheDirectory, path, entries, limits, hostTrees)
@@ -922,8 +940,14 @@ const listIgnored = async (
   // leaves the walk under each matched directory to `walkIgnored`, which
   // skips host state at any depth. A path reported with a trailing slash is
   // a directory; every other one is a file or a symlink.
-  const raw = await runGit(root, ["status", "--porcelain", "-z", "--untracked-files=all", "--ignored=matching"])
+  //
+  // Without a local `.git` the whole tree is walked (see `censusedByGit`).
   const entries = new Map<string, IgnoredEntry>()
+  if (!censusedByGit(root)) {
+    await walkIgnored(root, cacheDirectory, "", entries, limits, hostTrees)
+    return entries
+  }
+  const raw = await statusZ(root, true)
   for (const status of parseStatusZ(raw)) {
     if (!status.status.startsWith("!!")) continue
     const directory = status.path.endsWith("/")
@@ -1234,6 +1258,8 @@ const walkPortalTarget = async (realTarget: string): Promise<Map<string, PathSta
 }
 
 const listTrackedSymlinks = async (root: string): Promise<Array<string>> => {
+  // Without a local `.git` every link comes from the whole-tree census.
+  if (!censusedByGit(root)) return []
   // Same rule as the ignored census: an unmeasured portal set is a disarmed
   // guard, so the failure reaches the target rather than reading as no links.
   const raw = await runGit(root, ["ls-files", "-s", "-z"])
@@ -1276,7 +1302,7 @@ export const snapshotPortals = async (
 ): Promise<PortalSnapshot> => {
   const realRoot = await Fs.realpath(root)
   const candidates = new Set<string>(await listTrackedSymlinks(root))
-  const statusRaw = await runGit(root, ["status", "--porcelain", "-z", "--untracked-files=all"])
+  const statusRaw = await statusZ(root)
   for (const entry of parseStatusZ(statusRaw)) {
     const path = entry.path.endsWith("/") ? entry.path.slice(0, -1) : entry.path
     if (path !== "") candidates.add(path)

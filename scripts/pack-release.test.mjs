@@ -20,6 +20,7 @@ import {
   publishedPackages,
   readWorkspaceManifests,
   releaseGroups,
+  sourceRevision,
   workspaceDependencies,
   workspaces
 } from "./pack-release.mjs"
@@ -920,3 +921,52 @@ test("pack boundary refuses stale artifacts without a build script", () => stale
   delete manifest.scripts.build
   await assert.rejects(assertBuilt(directory, manifest), /release package has no build script/)
 }))
+
+const jjAvailable = (() => {
+  try {
+    execFileSync("jj", ["--version"], { stdio: "ignore" })
+    return true
+  } catch {
+    return false
+  }
+})()
+
+/**
+ * A lane made with `jj workspace add` has `.jj` and no `.git`, so asking git
+ * for HEAD failed there (or answered for an unrelated ancestor repository).
+ * Its HEAD is `@-`, the same commit a colocated checkout's git HEAD names.
+ */
+test("the release source revision reads a jj workspace without .git as git reads the colocated checkout", { skip: !jjAvailable }, async () => {
+  const base = await mkdtemp(join(tmpdir(), "smthrs-pack-revision-"))
+  try {
+    const colocated = join(base, "colocated")
+    const lane = join(base, "lane")
+    await mkdir(colocated)
+    const env = { ...process.env, JJ_USER: "Release Test", JJ_EMAIL: "release@example.invalid", JJ_CONFIG: join(base, "jj-config.toml") }
+    const jj = (cwd, ...args) => execFileSync("jj", args, { cwd, env, encoding: "utf8" })
+    jj(colocated, "git", "init", "--colocate")
+    await writeFile(join(colocated, "a.txt"), "a\n")
+    jj(colocated, "commit", "-m", "one")
+    jj(colocated, "workspace", "add", lane)
+    assert.equal(existsSync(join(lane, ".git")), false)
+
+    const head = sourceRevision(colocated)
+    assert.match(head.sha, /^[0-9a-f]{40}$/)
+    assert.deepEqual(head, { sha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: colocated, encoding: "utf8" }).trim(), dirty: false })
+    assert.deepEqual(sourceRevision(lane), head)
+
+    await writeFile(join(lane, "b.txt"), "b\n")
+    assert.deepEqual(sourceRevision(lane), { sha: head.sha, dirty: true })
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test("the release source revision refuses a tree with neither .git nor .jj", async () => {
+  const base = await mkdtemp(join(tmpdir(), "smthrs-pack-revision-"))
+  try {
+    assert.throws(() => sourceRevision(base), /neither \.git nor \.jj/)
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
