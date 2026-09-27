@@ -66,22 +66,18 @@ The directory supplies the flow's name. The starter requests file reads,
 file writes, and process spawning for its editing and testing instructions;
 narrow those capabilities when the task needs less authority.
 
-If no provider key was set when `init` ran, the line names the default seat and
-the variable to set for it. Set that variable now, because a launch with no
-resolvable seat is refused rather than run:
+Connect a subscription and choose its model in the flow's `model:` field:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+codex login
+export SMITHERS_OPENAI_AUTH=chatgpt
 ```
 
-An agent run also needs `AI_GATEWAY_API_KEY`. The loop's last brake on a
-completion asks Jev whether the claim the run wrote matches the evidence the
-run produced, and it never falls back, so without the key a run fails at its
-first completion with `completion_unjudged`:
-
-```bash
-export AI_GATEWAY_API_KEY=vck_...
-```
+For Codex, use `model: openai:gpt-6-astra`. Claude subscription seats use
+`ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`. Team hosts use their
+connected accounts. The completion judge uses the same subscription resolver;
+no provider API key or gateway key is required. Missing seats and invalid
+judgments fail the run without an API-key fallback.
 
 Confirm the flow is discoverable:
 

@@ -12,7 +12,7 @@ import type * as Sandbox from "@smthrs/harness/Sandbox"
 import type * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as Auth from "@smthrs/model/Auth"
 import * as Endpoint from "@smthrs/model/Endpoint"
-import type * as Evaluator from "@smthrs/model/Evaluator"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as ModelError from "@smthrs/model/ModelError"
 import * as OpenAIChatGPT from "@smthrs/model/OpenAIChatGPT"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
@@ -47,8 +47,8 @@ const apiKeyVariable: Readonly<Record<string, string>> = {
 const openaiAuthVariable = "SMITHERS_OPENAI_AUTH"
 
 /**
- * The Claude subscription bearer variables, read in order when
- * `ANTHROPIC_API_KEY` is unset: the SDK's name, then the Claude Code CLI's.
+ * The Claude subscription bearer variables, read before any API key:
+ * the SDK's name, then the Claude Code CLI's.
  */
 const anthropicSubscriptionVariables = ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] as const
 
@@ -136,7 +136,7 @@ const withAliases = (base: SeatResolver.Service): SeatResolver.Service =>
  *
  * `openai` runs in the mode `SMITHERS_OPENAI_AUTH` selects: a key, or the
  * ChatGPT session behind the model proxy or on this machine. A Claude
- * subscription stands in for the Anthropic key when no key is set. An empty
+ * subscription takes precedence over an ambient Anthropic key. An empty
  * variable is an unset one. An account pool with accounts for the provider's
  * route signs ahead of all of these; see {@link poolRouteOf}.
  */
@@ -186,7 +186,7 @@ const credential = (provider: string, host: Providers.Host): Credential => {
       ? refused((seat) => `Sign in with \`codex login\` to run the ${seat} seat: no ChatGPT credentials at ${file}`)
       : { _tag: "Session", file }
   }
-  const subscription = provider === "anthropic" && key === undefined
+  const subscription = provider === "anthropic"
     ? anthropicSubscriptionVariables.map((name) => environment[name]).find((token) =>
       token !== undefined && token.length > 0
     )
@@ -206,6 +206,7 @@ const poolRouteOf = (
 ): AccountPoolRoute | undefined => {
   if (provider === "anthropic") return "anthropic"
   if (provider !== "openai") return undefined
+  if (origin(Environment_.read(environment, accountPoolVariable)) !== undefined) return "chatgpt"
   const configured = Environment_.read(environment, openaiAuthVariable)
   return configured === undefined || configured === "" || configured === "chatgpt" ? "chatgpt" : undefined
 }
@@ -216,16 +217,15 @@ const providerSeats = (
 ): SeatResolver.Service => {
   const pool = accountPoolOf(environment)
   let served: { readonly until: number; readonly routes: ReadonlyArray<string> } | undefined
-  // The pool route serving `route` for this seat, or undefined when the pool
-  // has no accounts for it (the seat keeps its own credential).
+  // A configured pool owns this route. An empty or unavailable pool refuses
+  // resolution; it never falls through to an ambient provider key.
   const pooled = (route: AccountPoolRoute, modelId: string) =>
     Effect.gen(function*() {
       if (pool === undefined || !pool.routes.includes(route)) return undefined
       const now = yield* Clock.currentTimeMillis
       if (served === undefined || served.until <= now) {
         // Only an answer that lists the route sends a seat to the pool: a
-        // pool that does not answer leaves every seat on its own credential
-        // until the next ask.
+        // pool that does not answer refuses its seats until the next ask.
         const routes = yield* accountPoolRoutes(pool, executor, modelId).pipe(
           Effect.orElseSucceed((): ReadonlyArray<string> => [])
         )
@@ -253,6 +253,12 @@ const providerSeats = (
         // pool owns the credential: it picks an account per request and signs
         // it. The host holds only the pool credential.
         const poolRoute = poolRouteOf(provider, environment)
+        if (
+          poolRoute !== undefined && origin(Environment_.read(environment, accountPoolVariable)) !== undefined &&
+          pool === undefined
+        ) {
+          return yield* new Seat.SeatUnresolved({ seat, message: "The subscription pool configuration is incomplete." })
+        }
         const accounts = poolRoute === undefined ? undefined : yield* pooled(poolRoute, modelId)
         if (accounts !== undefined) {
           return yield* poolRoute === "anthropic"
@@ -271,6 +277,12 @@ const providerSeats = (
               seat,
               modelId
             )
+        }
+        if (pool !== undefined && poolRoute !== undefined) {
+          return yield* new Seat.SeatUnresolved({
+            seat,
+            message: "The configured subscription pool has no available account for this seat."
+          })
         }
         const signed = credential(provider, host)
         switch (signed._tag) {
@@ -441,7 +453,7 @@ export const seatCandidates = (host: Providers.Host): ReadonlyArray<SeatRouter.C
     // A route the pool is configured for is offered: the pool is asked which
     // routes have accounts when the seat resolves.
     const route = poolRouteOf(provider, host.environment)
-    if (pool !== undefined && route !== undefined && pool.routes.includes(route)) return true
+    if (pool !== undefined && route !== undefined) return pool.routes.includes(route)
     return credential(provider, host)._tag !== "Refused"
   })
   return offered
@@ -464,6 +476,54 @@ export const layerSeatCatalog = (
     candidates: Effect.sync(() => seatCandidates({ environment, homeDirectory: homedir(), readFile: readText })),
     variants: SeatRouter.defaultVariants
   })
+
+/** The native judge uses the existing subscription resolver, never a gateway key.
+ * Resolve at evaluation time so newly connected pool accounts work after startup.
+ * @since 1.0.0
+ * @private
+ */
+export const layerSeatEvaluator = (
+  environment: Readonly<Record<string, string | undefined>>
+): Layer.Layer<Evaluator.Evaluator, never, RequestExecutor.RequestExecutor> =>
+  Layer.effect(Evaluator.Evaluator)(Effect.gen(function*() {
+    const executor = yield* RequestExecutor.RequestExecutor
+    const resolver = seatResolver(environment, executor)
+    const host = { environment, homeDirectory: homedir(), readFile: readText }
+    return Evaluator.Evaluator.of({
+      evaluate: (request) =>
+        Effect.gen(function*() {
+          const pool = accountPoolOf(environment)
+          const routes = pool === undefined ? [] : yield* accountPoolRoutes(pool, executor, "subscription-judge").pipe(
+            Effect.mapError(() =>
+              new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
+            )
+          )
+          const candidate = seatCandidates(host).find(({ id }) => {
+            const provider = Providers.expandSeat(id).split(":")[0]!
+            const route = poolRouteOf(provider, environment)
+            if (pool !== undefined && route !== undefined && pool.routes.includes(route)) return routes.includes(route)
+            const signed = credential(provider, host)
+            return signed._tag === "Session" || signed._tag === "Subscription" || signed._tag === "Pooled"
+          })
+          if (candidate === undefined) {
+            return yield* Effect.fail(
+              new Evaluator.EvaluatorError({
+                code: "unreachable",
+                message: "Connect a subscription seat to judge this run."
+              })
+            )
+          }
+          const seat = yield* resolver.resolve(candidate.id).pipe(
+            Effect.mapError(() =>
+              new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
+            )
+          )
+          return yield* Effect.flatMap(Evaluator.Evaluator, (judge) => judge.evaluate(request)).pipe(
+            Effect.provide(Evaluator.layerFromSeat(seat))
+          )
+        })
+    })
+  }))
 
 /**
  * The explicit sandbox budget every locally executed cell runs under. Never
@@ -618,7 +678,7 @@ export const checkpointStore = (
  * The runner's container is added to the same context, so the suite reaches the
  * image through the transport `bash` already uses. The `Evaluator` comes in
  * with it: the flow attributes a non-zero exit with Jev, and the host builds
- * that judge once, with `Evaluator.layerFromEnvironment`, for this flow and
+ * that judge through `layerSeatEvaluator`, for this flow and
  * for the completion brake alike.
  *
  * @category constructors

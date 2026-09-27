@@ -664,13 +664,12 @@ approval or authorizes a remedy.
 The one registered checker that reads semantic activity, bound by the ID
 `jev.session`. See [Configure observational health](./guides/observe-health.md).
 
-`makeJevSessionChecker(options)` builds it over an explicit `env`, `fetch`, `url`,
-and `timeoutMs`; `jevSessionChecker` is the instance `makeRegistry` admits, reading
-the host process. The probe asks Jev, through the Vercel AI Gateway at
-`jevEvaluationUrl` as model `jevModelId`, one choice question over `working`,
-`idle`, and `needs-input` and one boolean question about whether the output ends
-waiting for a person. State is the session's `alive`, `exitCode`, and the newest
-`jevStateTailCharacters` of output, sent with zero data retention.
+`makeJevSessionChecker({ evaluator, timeoutMs })` uses the host's existing
+subscription judge. `Health.makeRegistry(config, kind, evaluator)` binds it to
+`jev.session`. It asks one choice question over `working`, `idle`, and
+`needs-input`, plus a boolean question about waiting for a person. Evidence is
+`alive`, `exitCode`, and the newest `jevStateTailCharacters` of output.
+It reads no gateway key and has no separate authentication path.
 
 An answer becomes a report only at confidence `jevConfidenceFloor` or above:
 `needs-input` reports reason `prompt-detected`, `working` and `idle` report `ok`.
@@ -680,14 +679,13 @@ A reading below the floor is Jev's own answer and reports
 There is no fallback to another model or to a healthy-looking answer. An
 unexposed output tail and a session that is not alive keep the lifecycle report,
 because there is nothing to ask about. Every other way the probe cannot ask
-fails it with `JevProbeError`, whose `reason` is `unconfigured` (no
-`AI_GATEWAY_API_KEY`), `http` (with the gateway's `status`), `timeout`,
+fails it with `JevProbeError`, whose `reason` is `unconfigured` (no host evaluator), `http` (with the provider's `status`), `timeout`,
 `unreachable`, or `malformed` (a body that does not answer the question asked).
 `Health.evaluate` records a failing probe as `outcome: "error"` with reason
 `probe-error` and no report, so `rollup` reads the subject `stale`, activity
 `unknown`, health `unknown`, reason `probe-error`, never healthy, and
 `CheckPolicy.backoff` spaces the retries. A host that binds `jev.session` must
-supply the key.
+supply its evaluator through `Health.makeRegistry(config, kind, evaluator)`.
 
 `jevRequestTimeoutMs` is the deadline on the call and `jevProbeTimeoutMs` the
 wider probe budget this checker asks a binding for, so the typed `timeout`

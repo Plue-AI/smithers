@@ -84,7 +84,7 @@ The root entry point exports these namespaces. Each is also importable from
 - **`Endpoint`**: The credential-free HTTP target of a model route, and its validation.
   `Endpoint`, `MakeOptions`, `make`, `render`
 - **`Evaluator`**: The transport a classifier asks: one JSON state and a map of typed questions go out, one typed raw answer per question comes back.
-  `EvaluatorErrorCode`, `EvaluatorError`, `BooleanQuestion`, `ChoiceQuestion`, `ScoreQuestion`, `Question`, `RawBooleanAnswer`, `RawChoiceAnswer`, `RawScoreAnswer`, `RawAnswer`, `RawAnswers`, `Request`, `Usage`, `Response`, `Evaluator`, `defaultBaseUrl`, `defaultModel`, `defaultTimeoutMs`, `defaultAttempts`, `retryBackoffMs`, `protocolVersion`, `specificationVersion`, `VercelGatewayOptions`, `layerVercelGateway`, `ScriptedAnswer`, `Script`, `layerScripted`, `environmentKey`, `layerFromEnvironment`, `layerUnavailable`
+  `EvaluatorErrorCode`, `EvaluatorError`, `BooleanQuestion`, `ChoiceQuestion`, `ScoreQuestion`, `Question`, `RawBooleanAnswer`, `RawChoiceAnswer`, `RawScoreAnswer`, `RawAnswer`, `RawAnswers`, `Request`, `Usage`, `Response`, `Evaluator`, `defaultBaseUrl`, `defaultModel`, `defaultTimeoutMs`, `defaultAttempts`, `retryBackoffMs`, `protocolVersion`, `specificationVersion`, `VercelGatewayOptions`, `layerVercelGateway`, `layerFromSeat`, `ScriptedAnswer`, `Script`, `layerScripted`, `environmentKey`, `layerFromEnvironment`, `layerUnavailable`
 - **`Framing`**: Byte-stream framing, chosen independently of the protocol that interprets the frames.
   `Framing`, `sse`, `ndjson`
 - **`FailureCopy`**: Safe headlines and actions for typed model and harness failures.

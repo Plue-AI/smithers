@@ -74,13 +74,18 @@ A cell is handed exactly one authority: `ctx.call(flowName, input)`. There is no
 
 `@smthrs/agent/Agent` is the assembled production entry point that composes all of this over the durable engine.
 
-## Running an agent needs `AI_GATEWAY_API_KEY`
+## Running an agent needs a configured judge
 
 The sixth brake on a completion asks Jev, TypeSafe's decision model, whether the claim the run wrote matches the evidence the run produced, through the `Evaluator` service of [`@smthrs/model`](https://model.smithers.sh). It never falls back. A completion nothing could judge fails the turn as `HarnessError` `completion_unjudged` carrying the reason, the way `read_only_cap` fails it, rather than standing unjudged: a brake that goes quiet when its model is down is a brake that is only there when it is not needed.
 
 It never goes quiet either. Every completion with a claim is read, `claimCap` (3) is the number of frames the run is given to prove one, and a claim with no bounce left fails the turn as `claim_unproven` carrying both probabilities. `claimCap: 0` is the one way out and it is the host's, taken at composition time the way zero disarms every other budget: nothing is read, nothing is journaled, nothing here can fail a run. No shipped host takes it; `smithers run` leaves the cap at 3. The cap used to end the brake instead of the run, so the second claim stood unread: on a real seat a run bounced once re-claimed the identical sentence and finished `stop` on it while the served repository's own test exited 1.
 
-So `Evaluator.Evaluator` is a required service of `CellTurn.run` and of `Agent.run` above it. Every host chooses a real or deliberately scripted judge at composition time. `Evaluator.layerFromEnvironment(process.env, "my host")` reads `AI_GATEWAY_API_KEY` and refuses immediately when it is missing, empty or blank, before databases, sockets or processes open. A host missing a judge now fails to boot instead of failing every completion. This blocks a bad deployment loudly and immediately. A judge that later stops answering still ends the run as `completion_unjudged`; that disposition is unchanged. The five deterministic brakes run first, and a claim they bounced never reaches Jev.
+`Evaluator.Evaluator` is required by `CellTurn.run` and `Agent.run`.
+`Evaluator.layerFromSeat(seat)` uses a seat the host already resolved, including
+Codex and Claude subscriptions. Native hosts use their existing subscription
+resolver with no gateway key. Missing seats, provider errors and malformed
+verdicts fail closed as `completion_unjudged`. The deterministic brakes run
+first; claims they reject never reach the judge.
 
 An offline host binds `Evaluator.layerScripted` deliberately, dispatches by question id, and computes answers from the evidence. Constant approval disarms the brake. One evaluator serves all the host's classifiers; see the [whole-host scripted judge](https://github.com/smithersai/smithers/blob/main/flows/test/fixtures/scripted-judge.ts). `Evaluator.layerUnavailable()` remains an outage fixture for classifier tests, not a host default.
 

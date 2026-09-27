@@ -40,15 +40,12 @@ downgrade to a 0.x `latest`.
 - A project directory. Commands that touch durable state resolve a project
   root and write `.flows/` under it. See
   [The project and its state](./concepts/project-and-state.md).
-- A provider credential, for flows that call a model. `smthrs doctor` reports
-  which of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
-  `MOONSHOT_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and `CEREBRAS_API_KEY` are set, and names any that are exported but empty. The
-  doctor check reports presence without printing credential values.
-- `AI_GATEWAY_API_KEY`, to run an agent. The agent loop's last brake on a
-  completion asks Jev whether the claim the run wrote matches the evidence the
-  run produced, and it never falls back: without the key every run fails at its
-  first completion with `completion_unjudged`. Flows that call no agent do not
-  need it.
+- A configured subscription seat for model flows and their completion judge.
+  For Codex, run `codex login` and set `SMITHERS_OPENAI_AUTH=chatgpt`.
+  Claude uses `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`.
+  Team hosts use connected accounts through the existing account pool.
+  No provider API key or gateway key is required; a failed subscription never
+  falls back to an API key.
 
 ## Runners
 

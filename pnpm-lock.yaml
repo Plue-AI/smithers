@@ -3904,6 +3904,9 @@ importers:
       '@smthrs/journal':
         specifier: 1.0.0-rc.1
         version: link:../flows/journal
+      '@smthrs/model':
+        specifier: 1.0.0-rc.1
+        version: link:../agent/model
       '@smthrs/notifications':
         specifier: 1.0.0-rc.1
         version: link:../notifications

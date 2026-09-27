@@ -3,9 +3,10 @@
  */
 
 import * as Sha256 from "@smthrs/crypto/Sha256"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Cause, Effect, Metric, Schema } from "effect"
 import type { ControlEvent, RunSummary } from "./ControlSchema.ts"
-import { jevSessionChecker } from "./JevSessionChecker.ts"
+import { jevSessionChecker, makeJevSessionChecker } from "./JevSessionChecker.ts"
 
 /** Authoritative subject lifecycle.
  * @category schemas
@@ -335,11 +336,17 @@ const invalid = (reason: HealthConfigurationError["reason"]): never => {
  * @category constructors
  * @since 1.0.0
  */
-export const makeRegistry = (config: HealthConfig = {}, kind: "run" | "session" = "run"): Registry => {
+export const makeRegistry = (
+  config: HealthConfig = {},
+  kind: "run" | "session" = "run",
+  evaluator?: Evaluator.Evaluator
+): Registry => {
   const fallback = kind === "run" ? lifecycleRunChecker : lifecycleSessionChecker
   const checkers = new Map<string, ResolvedCheck["checker"]>([
     [fallback.id, fallback],
-    ...registeredCheckers.map((checker) => [checker.id, checker] as const)
+    ...registeredCheckers.map((checker) =>
+      [checker.id, checker.id === "jev.session" ? makeJevSessionChecker({ evaluator }) : checker] as const
+    )
   ])
   for (const checker of config.checkers ?? []) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$/.test(checker.id) || checkers.has(checker.id)) invalid("invalid-checker")

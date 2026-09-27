@@ -55,7 +55,7 @@ const health: Health.HealthConfig = {
 }
 ```
 
-The desktop local server writes that binding itself: with `AI_GATEWAY_API_KEY` set
+The desktop local server writes that binding itself: with a subscription evaluator configured
 in its process it binds `jev.session` with `exposeOutput: true` for every session
 subject it resolves, so a session's output tail is sent to the gateway with zero
 data retention; without the key its configuration is exactly what a caller passed,
@@ -78,16 +78,16 @@ A reading below the floor is Jev's own answer and stays `unknown`.
 
 ## When Jev cannot answer
 
-There is no fallback. A host that binds `jev.session` must supply
-`AI_GATEWAY_API_KEY`, read from the host process by `Health.registeredCheckers`'
-instance or passed explicitly to
-`JevSessionChecker.makeJevSessionChecker({ env, fetch })`. Without it the probe
-opens no connection and fails with `JevProbeError({ reason: "unconfigured" })`,
-so the subject reads `probe-error`, not healthy.
+A host that binds `jev.session` supplies its existing evaluator through
+`Health.makeRegistry(config, kind, evaluator)` or
+`JevSessionChecker.makeJevSessionChecker({ evaluator })`. Native hosts resolve
+that judge from their subscription seats. No separate gateway credential is
+read. Without a judge the probe fails with `unconfigured` and remains
+`probe-error`.
 
-A bad key, a plan refusal, a rate limit, a dead socket, an unreadable body and
-the call's own 1.5 s deadline fail the probe the same way, with the reason that
-names the fault: `http` carrying the gateway's status, `unreachable`, `timeout`,
+An unavailable subscription, a plan refusal, a rate limit, a dead socket, an unreadable body and
+the call's own 45 s deadline fail the probe the same way, with the reason that
+names the fault: `http` carrying the provider's status, `unreachable`, `timeout`,
 or `malformed`. `Health.evaluate` records any failing probe as `outcome: "error"`
 with reason `probe-error` and no report, so the rollup reads the subject `stale`
 with activity `unknown`, health `unknown`, and reason `probe-error`, and the

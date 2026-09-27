@@ -4,6 +4,7 @@
 
 import { Control, Health, Monitor } from "@smthrs/control"
 import type { Journal } from "@smthrs/journal"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import { Cause, Effect, FiberMap, Metric, type Scope, Semaphore } from "effect"
 import { randomUUID } from "node:crypto"
 
@@ -82,6 +83,7 @@ export const watch = (
  */
 export const start = (config?: Health.HealthConfig) =>
   Effect.gen(function*() {
-    const registry = yield* Effect.sync(() => Health.makeRegistry(config, "run"))
+    const evaluator = yield* Evaluator.Evaluator
+    const registry = yield* Effect.sync(() => Health.makeRegistry(config, "run", evaluator))
     yield* Effect.forkScoped(watch(registry))
   })

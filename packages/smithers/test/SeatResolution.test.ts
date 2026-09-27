@@ -327,14 +327,14 @@ describe("NodeControl.seatResolver Claude subscription tokens", () => {
     }
   )
 
-  it("prefers ANTHROPIC_API_KEY over a subscription token", async () => {
+  it("uses the Claude subscription even when an API key is present", async () => {
     const resolved = await Effect.runPromise(
       resolve({ ANTHROPIC_API_KEY: "api-key", ANTHROPIC_AUTH_TOKEN: "sk-ant-oat01-x" }, "anthropic:claude-sonnet-4-6")
     )
     const request = await prepared(resolved, resolved.modelId)
 
-    expect(request.publicHeaders["anthropic-beta"]).toBeUndefined()
-    expect(JSON.parse(request.bodyText).system).toBeUndefined()
+    expect(request.publicHeaders["anthropic-beta"]).toBe("oauth-2025-04-20")
+    expect(JSON.parse(request.bodyText).system[0].text).toContain("Claude Code")
   })
 })
 
@@ -393,13 +393,12 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     }])
   })
 
-  it("keeps a provider without accounts on its own credential, and the first account connected later serves the next seat", async () => {
+  it("refuses an empty pool without API-key fallback, then uses a newly connected account", async () => {
     let routes: ReadonlyArray<string> = []
     const { asked, executor } = poolExecutor(() => routes)
-    const before = await Effect.runPromise(resolveWith(pooled, executor, "openai:gpt-6-luna"))
-    expect((await prepared(before, before.modelId)).url).toBe(
-      "https://cloud.example.test/model-proxy/openai/v1/responses"
-    )
+    await expect(Effect.runPromise(resolveWith(pooled, executor, "openai:gpt-6-luna"))).rejects.toMatchObject({
+      _tag: "@smthrs/agent/Seat/SeatUnresolved"
+    })
 
     // No restart: a resolver built after the connect asks the pool again.
     routes = ["chatgpt"]
@@ -412,7 +411,7 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
 
   it("never takes a route the host did not offer, and never asks without the pool key", async () => {
     const { asked, executor } = poolExecutor(() => ["anthropic", "chatgpt"])
-    const repositoryKeyed = await Effect.runPromise(resolveWith(
+    await expect(Effect.runPromise(resolveWith(
       {
         SMITHERS_ACCOUNT_POOL_URL: pool,
         SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
@@ -421,9 +420,8 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
       },
       executor,
       "anthropic:claude-sonnet-4-6"
-    ))
-    expect((await prepared(repositoryKeyed, repositoryKeyed.modelId)).url).toBe("https://api.anthropic.com/v1/messages")
-    const keyless = await Effect.runPromise(resolveWith(
+    ))).rejects.toMatchObject({ _tag: "@smthrs/agent/Seat/SeatUnresolved" })
+    await expect(Effect.runPromise(resolveWith(
       {
         SMITHERS_ACCOUNT_POOL_URL: pool,
         SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic",
@@ -431,12 +429,11 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
       },
       executor,
       "anthropic:claude-sonnet-4-6"
-    ))
-    expect((await prepared(keyless, keyless.modelId)).url).toBe("https://api.anthropic.com/v1/messages")
+    ))).rejects.toMatchObject({ _tag: "@smthrs/agent/Seat/SeatUnresolved" })
     expect(asked).toEqual([])
   })
 
-  it("keeps every seat on its own credential while the pool does not answer", async () => {
+  it("refuses every pooled seat while the pool does not answer", async () => {
     let calls = 0
     const unreachable = RequestExecutor.RequestExecutor.of({
       execute: () => {
@@ -445,24 +442,21 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
       }
     })
     const resolver = NodeControl.seatResolver(pooled, unreachable)
-    const anthropic = await Effect.runPromise(Effect.scoped(resolver.resolve("anthropic:claude-sonnet-4-6")))
-    const openai = await Effect.runPromise(Effect.scoped(resolver.resolve("openai:gpt-6-luna")))
-    expect((await prepared(anthropic, anthropic.modelId)).url).toBe(
-      "https://cloud.example.test/model-proxy/anthropic/v1/messages"
-    )
-    expect((await prepared(openai, openai.modelId)).url).toBe(
-      "https://cloud.example.test/model-proxy/openai/v1/responses"
-    )
+    for (const id of ["anthropic:claude-sonnet-4-6", "openai:gpt-6-luna"]) {
+      await expect(Effect.runPromise(Effect.scoped(resolver.resolve(id)))).rejects.toMatchObject({
+        _tag: "@smthrs/agent/Seat/SeatUnresolved"
+      })
+    }
     expect(calls).toBe(1)
   })
 
-  it("keeps an explicit api-key openai seat off the ChatGPT pool", async () => {
+  it("keeps a configured pool on subscriptions even with stale api-key mode", async () => {
     const { executor } = poolExecutor(() => ["anthropic", "chatgpt"])
     const resolved = await Effect.runPromise(
       resolveWith({ ...pooled, SMITHERS_OPENAI_AUTH: "api-key" }, executor, "openai:gpt-6-luna")
     )
     expect((await prepared(resolved, resolved.modelId)).url).toBe(
-      "https://cloud.example.test/model-proxy/openai/v1/responses"
+      "https://cloud.example.test/provider-pool/chatgpt/codex/responses"
     )
   })
 
@@ -473,18 +467,18 @@ describe("NodeControl.seatResolver behind SMITHERS_ACCOUNT_POOL_URL", () => {
     const urls = await Effect.runPromise(
       Effect.gen(function*() {
         const url = (seat: Seat.Seat) => Effect.promise(async () => (await prepared(seat, seat.modelId)).url)
-        const first = yield* Effect.scoped(resolver.resolve("openai:gpt-6-luna"))
+        const first = yield* Effect.flip(Effect.scoped(resolver.resolve("openai:gpt-6-luna")))
         routes = ["chatgpt"]
         yield* TestClock.adjust("20 seconds")
-        const cached = yield* Effect.scoped(resolver.resolve("openai:gpt-6-luna"))
+        const cached = yield* Effect.flip(Effect.scoped(resolver.resolve("openai:gpt-6-luna")))
         yield* TestClock.adjust("11 seconds")
         const next = yield* Effect.scoped(resolver.resolve("openai:gpt-6-luna"))
-        return [yield* url(first), yield* url(cached), yield* url(next)]
+        return [first._tag, cached._tag, yield* url(next)]
       }).pipe(Effect.provide(TestClock.layer()))
     )
     expect(urls).toEqual([
-      "https://cloud.example.test/model-proxy/openai/v1/responses",
-      "https://cloud.example.test/model-proxy/openai/v1/responses",
+      "@smthrs/agent/Seat/SeatUnresolved",
+      "@smthrs/agent/Seat/SeatUnresolved",
       "https://cloud.example.test/provider-pool/chatgpt/codex/responses"
     ])
     expect(asked).toHaveLength(2)

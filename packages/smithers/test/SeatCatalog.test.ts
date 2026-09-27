@@ -83,8 +83,11 @@ describe("NodeControl.seatCandidates", () => {
     ])
     expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" }))
       .toEqual(["sol", "astra", "luna"])
-    // `api-key` pins the openai seat to its own key, which is absent here.
+    // The configured subscription pool takes precedence over stale API-key mode.
     expect(ids({ ...pool, SMITHERS_ACCOUNT_POOL_KEY: "pool-credential", SMITHERS_OPENAI_AUTH: "api-key" })).toEqual([
+      "sol",
+      "astra",
+      "luna",
       "opus",
       "fable"
     ])

@@ -127,12 +127,6 @@ export const platform: NativeControl.Platform = {
   runtime: NodeFlowsRuntime.layer,
   jj: NodeJj.layerAt,
   requestExecutor: layerRequestExecutor,
-  // The record's own HTTP client, four lines below the transport that already
-  // reads the environment. A host serving inside a default-deny sandbox reaches
-  // the network only through the proxy its environment names, and everything
-  // this record hands `HttpClient` to — the judge in `flows/coding/host.ts`
-  // most of all — inherits that decision from here.
-  httpClient: EgressHttpClient.layer(process.env),
   gateway: NodeGateway.layer,
   bearerPrincipal: NodeGateway.bearerPrincipal
 }

@@ -18,7 +18,7 @@
  * A third thing is answered on the way out: whether a non-zero exit is the
  * tree's failure at all, or the command failing to resolve a name. Jev decides
  * it through `Probe.classify`, so the flow needs an `Evaluator` and a host
- * needs `AI_GATEWAY_API_KEY`. A judge that does not answer fails the call with
+ * uses its configured subscription seat. A judge that does not answer fails the call with
  * the code `Probe.unjudged` names, because a run nobody judged is not a run
  * this flow can report on.
  *

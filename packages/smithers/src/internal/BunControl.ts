@@ -32,7 +32,6 @@ export const platform: NativeControl.Platform = {
   // Bun's fetch client exposes no replaceable dispatcher. The existing fixed
   // RequestExecutor transport is explicit about that platform limitation.
   requestExecutor: RequestExecutor.layer.pipe(Layer.provide(BunHttpClient.layer)),
-  httpClient: BunHttpClient.layer,
   gateway: Gateway.layer,
   bearerPrincipal: Gateway.bearerPrincipal
 }

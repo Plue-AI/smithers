@@ -79,24 +79,19 @@ wires its `ask` through the control plane this way; see
 
 ## Jev needs a transport
 
-**`AI_GATEWAY_API_KEY` is required to run an agent unless the host deliberately
-binds a scripted judge.** The harness asks Jev whether each completion claim
-matches the recorded evidence. If that evaluation fails, the run still fails
-as `completion_unjudged`; the brake never falls back.
-
-`Agent.run` and every `AgentAction` layer require `Evaluator.Evaluator`, so
-omitting the service is a type error. Select the judge while composing the host,
-before any database, socket or process is opened:
+**Every agent needs a configured evaluator.** Bind a judge through the existing
+seat resolver:
 
 ```ts
-const judge = Evaluator.layerFromEnvironment(process.env, "my host")
+const judgeSeat = yield* resolver.resolve("openai:gpt-6-astra")
+const judge = Evaluator.layerFromSeat(judgeSeat)
 ```
 
-Missing, empty or blank `AI_GATEWAY_API_KEY` now **fails to boot**, with a
-refusal naming the host and both remedies. This blocks a bad deployment
-immediately instead of accepting work that fails at every completion. A
-configured gateway that later stops answering still fails the run closed.
-`Evaluator.layerUnavailable()` is a classifier outage fixture, never a host default.
+Codex and Claude subscriptions need no provider API key or gateway key.
+Native hosts select a configured subscription seat automatically. A missing
+seat, unavailable provider or invalid judgment fails as `completion_unjudged`;
+there is no API-key fallback. `Agent.run` and every `AgentAction` layer require
+`Evaluator.Evaluator`, so omitting the service is a type error.
 
 For an offline host, deliberately bind `Evaluator.layerScripted(request => ...)`.
 Dispatch by question id and compute answers from the supplied evidence. One

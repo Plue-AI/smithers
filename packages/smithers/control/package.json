@@ -390,6 +390,7 @@
     "test:matrix": "node ../flows/database/scripts/test-matrix.mjs"
   },
   "dependencies": {
+    "@smthrs/model": "1.0.0-rc.1",
     "@smthrs/canonical": "1.0.0-rc.1",
     "@smthrs/crypto": "1.0.0-rc.1",
     "@smthrs/database": "1.0.0-rc.1",

@@ -1,29 +1,23 @@
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
-import { Layer } from "effect"
+import * as Evaluator from "@smthrs/model/Evaluator"
+import * as RequestExecutor from "@smthrs/model/RequestExecutor"
+import { Effect, Layer } from "effect"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { afterEach, expect, it, vi } from "vitest"
-import * as CliError from "../src/CliError.ts"
 import * as NativeControl from "../src/internal/NativeControl.ts"
+import { layerSeatEvaluator } from "../src/internal/NativeEquipment.ts"
 import { platform } from "../src/internal/NodeControlHost.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
 afterEach(() => vi.unstubAllEnvs())
 
-it("refuses every local native entry before constructing or acquiring a database", () => {
+it("composes native hosts without provider keys", () => {
   vi.stubEnv("AI_GATEWAY_API_KEY", "")
-  let databases = 0
-  const host = NativeControl.make({
-    ...platform,
-    database: () => {
-      databases++
-      return Layer.empty as never
-    }
-  })
-  expect(() => host.layerHost({ root: "/unused" })).toThrow(CliError.UsageError)
-  expect(() => host.layerControl({ root: "/unused" })).toThrow(/smithers run\/serve needs AI_GATEWAY_API_KEY,/)
-  expect(databases).toBe(0)
-  // The public Node wrapper used to materialize the stores before delegating.
-  expect(() => NodeControl.layer({ root: "/unused" })).toThrow(CliError.UsageError)
-  expect(() => NodeControl.layerControl({ root: "/unused" })).toThrow(CliError.UsageError)
+  const host = NativeControl.make(platform)
+  expect(() => host.layerHost({ root: "/unused" })).not.toThrow()
+  expect(() => host.layerControl({ root: "/unused" })).not.toThrow()
+  expect(() => NodeControl.layer({ root: "/unused" })).not.toThrow()
+  expect(() => NodeControl.layerControl({ root: "/unused" })).not.toThrow()
 })
 
 it("accepts an explicitly scripted judge without reading credentials", () => {
@@ -50,13 +44,79 @@ it("does not demand local credentials from a remote control client", () => {
   expect(() => NodeControl.layerControl({ remote: "http://127.0.0.1:5300" })).not.toThrow()
 })
 
-it("preserves failures unrelated to evaluator configuration", () => {
-  const failure = new Error("environment lookup failed")
-  const environment = {
-    get AI_GATEWAY_API_KEY(): string {
-      throw failure
-    }
+it.each(["chatgpt", "anthropic"] as const)(
+  "judges through a %s provider_connections pool seat without provider keys",
+  async (route) => {
+    const sent: string[] = []
+    const answer = JSON.stringify({ answers: { complete: { type: "boolean", probability: 0.95 } } })
+    const executor = RequestExecutor.RequestExecutor.of({
+      execute: (request) => {
+        sent.push(request.url)
+        if (request.url.endsWith("/routes")) {
+          return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ routes: [route] })))
+        }
+        const events = route === "chatgpt" ?
+          [
+            { type: "response.output_text.delta", item_id: "answer", output_index: 0, content_index: 0, delta: answer },
+            { type: "response.completed", response: { id: "response", status: "completed", usage: {} } }
+          ] :
+          [
+            { type: "message_start", message: { id: "response", role: "assistant", content: [], usage: {} } },
+            { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+            { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: answer } },
+            { type: "content_block_stop", index: 0 },
+            { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {} },
+            { type: "message_stop" }
+          ]
+        return Effect.succeed(HttpClientResponse.fromWeb(
+          request,
+          new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+            headers: { "content-type": "text/event-stream" }
+          })
+        ))
+      }
+    })
+    const result = await Effect.runPromise(
+      Effect.flatMap(Evaluator.Evaluator, (judge) =>
+        judge.evaluate({
+          state: "proof",
+          questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
+        })).pipe(
+          Effect.provide(
+            layerSeatEvaluator({
+              SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
+              SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
+              SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic,chatgpt"
+            }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+          )
+        )
+    )
+    expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
+    expect(sent.at(-1)).toBe(
+      route === "chatgpt"
+        ? "https://pool.example/chatgpt/codex/responses"
+        : "https://pool.example/anthropic/v1/messages"
+    )
+    expect(sent.every((url) => url.startsWith("https://pool.example/"))).toBe(true)
   }
-  const host = NativeControl.make(platform)
-  expect(() => host.evaluatorFor(environment)).toThrow(failure)
+)
+
+it("does not use ambient API keys for a native judgment", async () => {
+  const executor = RequestExecutor.RequestExecutor.of({
+    execute: () => Effect.die("must not call an API-key provider")
+  })
+  await expect(
+    Effect.runPromise(
+      Effect.flatMap(Evaluator.Evaluator, (judge) => judge.evaluate({ state: {}, questions: {} })).pipe(
+        Effect.provide(
+          layerSeatEvaluator({
+            AI_GATEWAY_API_KEY: "unused",
+            OPENAI_API_KEY: "unused",
+            ANTHROPIC_API_KEY: "unused",
+            CODEX_HOME: "/nonexistent"
+          }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+        )
+      )
+    )
+  ).rejects.toMatchObject({ code: "unreachable" })
 })

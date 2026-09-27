@@ -103,8 +103,8 @@ const run = Effect.gen(function*() {
   Effect.provide(QuotaPolicy.layerDefault()),
   Effect.provide(Budget.layerUnbounded()),
   // The completion brake never falls back, so every host binds a transport.
-  // Select before opening host resources; missing configuration refuses startup.
-  Effect.provide(Evaluator.layerFromEnvironment(process.env, "my host"))
+  // Resolve judgeSeat through the host's existing subscription seat resolver.
+  Effect.provide(Evaluator.layerFromSeat(judgeSeat))
 )
 ```
 
@@ -118,12 +118,12 @@ host that accepts mid-run messages provides its own `Steering.layer` instead.
 
 The third service a run leaves to the host is the `Evaluator` from
 [`@smthrs/model`](/api/model), and it is not in `layerDefaults` because it is
-a host-owned judge decision. Export `AI_GATEWAY_API_KEY` or deliberately bind
-`Evaluator.layerScripted` with an evidence-based judge. Select
-`Evaluator.layerFromEnvironment(process.env, "my host")` before opening any
-database, socket or process: a missing key now fails to boot instead of failing
-every completion. A gateway outage during a run still fails as
-`completion_unjudged`. Scripts must dispatch by question id and read the
+a host-owned judge decision. Bind `Evaluator.layerFromSeat(judgeSeat)` using
+an existing resolved subscription seat. Native hosts select a subscription
+through their seat resolver; no provider API key or gateway key is required.
+An unavailable seat or invalid judgment fails as `completion_unjudged`.
+Offline tests deliberately bind `Evaluator.layerScripted` with an
+evidence-based judge. Scripts must dispatch by question id and read the
 supplied evidence; see the [whole-host fixture](https://github.com/smithersai/smithers/blob/main/flows/test/fixtures/scripted-judge.ts).
 The completion-only `ScriptedJudge.layer` fixture rejects named commands missing
 from the record and refuses questions it does not understand. Neither it nor

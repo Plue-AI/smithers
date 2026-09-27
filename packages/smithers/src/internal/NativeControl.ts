@@ -43,7 +43,6 @@ import * as Journal from "@smthrs/journal/Journal"
 import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
-import type * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import type * as KernelJj from "@smthrs/kernel/Jj"
 import * as KernelPath from "@smthrs/kernel/Path"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
@@ -78,7 +77,6 @@ import { randomUUID } from "node:crypto"
 import { hostname } from "node:os"
 import { join, resolve } from "node:path"
 import type * as Application from "../Application.ts"
-import * as CliError from "../CliError.ts"
 import * as Serve from "../Serve.ts"
 import * as AuthoredRebuild from "./AuthoredRebuild.ts"
 import * as ControlDatabasePath from "./ControlDatabasePath.ts"
@@ -93,6 +91,7 @@ import {
   cellLimits,
   checkpointStore,
   layerSeatCatalog,
+  layerSeatEvaluator,
   layerSeatResolver,
   sealedContainer,
   testFlows,
@@ -209,24 +208,11 @@ export interface Platform {
   ) => Effect.Effect<FileSystem.FileSystem>
   readonly requestExecutor: Layer.Layer<RequestExecutor.RequestExecutor>
   /**
-   * The plain HTTP client this platform speaks, for the calls that are not
-   * model requests: today, the Vercel gateway call behind the completion
-   * brake. It is separate from {@link Platform.requestExecutor} because that
-   * one owns a replaceable connection pool a run rebuilds, and undici's
-   * dispatcher does not run under Bun at all.
-   */
-  readonly httpClient: Layer.Layer<KernelHttpClient.HttpClient>
-  /**
    * The judge this platform binds, when it is not the one its environment
    * names.
    *
-   * A deployed host leaves this out and gets
-   * `Evaluator.layerFromEnvironment(process.env, "smithers run/serve")` over
-   * {@link Platform.httpClient}: Jev through the Vercel gateway when
-   * `AI_GATEWAY_API_KEY` is set, and a startup refusal when it is not. An offline composition names a scripted
-   * reading here instead, because the completion brake never falls back: a
-   * claim nothing could judge fails the run, so a keyless host cannot finish
-   * an agent turn at all, and `process.env` is not a seam a test owns.
+   * A deployed host uses the existing subscription seat resolver. An offline
+   * composition supplies an evidence-based scripted judge explicitly.
    */
   readonly evaluator?: Layer.Layer<Evaluator.Evaluator> | undefined
   readonly gateway: typeof NodeGateway.layer
@@ -278,32 +264,18 @@ export const make = (
     { source: "project", root: join(root, "flows"), naming: "path" }
   ]
 
-  // Select before materializeEngine: a failed sibling layer is too late to
-  // prevent database acquisition. Every classifier and the brake share it.
-  //
-  // `startsRuns` is what scopes the refusal to the hosts it protects. A host
-  // that cannot start or resume a run cannot reach a completion, so requiring
-  // its judge refused every listing, diagnosis and log read in a project with
-  // no gateway key. It takes the unreachable judge instead, and
-  // `layerExecutor` makes that unreachability structural rather than a
-  // classification anyone has to trust.
+  // Resolve the shared subscription judge lazily. Pure flows and observing
+  // hosts need no provider; a model judgment without a seat fails closed.
   const evaluatorFor = (
     environment: Readonly<Record<string, string | undefined>>,
     supplied?: Layer.Layer<Evaluator.Evaluator>,
     startsRuns = true
   ) => {
-    try {
-      return supplied ?? native.evaluator ?? (
-        startsRuns
-          ? Evaluator.layerFromEnvironment(environment, "smithers run/serve").pipe(
-            Layer.provide(native.httpClient)
-          )
-          : Evaluator.layerUnavailable()
-      )
-    } catch (error) {
-      if (error instanceof Evaluator.EvaluatorError) throw new CliError.UsageError({ message: error.message })
-      throw error
-    }
+    return supplied ?? native.evaluator ?? (
+      startsRuns
+        ? layerSeatEvaluator(environment).pipe(Layer.provide(native.requestExecutor))
+        : Evaluator.layerUnavailable()
+    )
   }
 
   /**
@@ -992,9 +964,8 @@ export const make = (
           StandardFlows.shell(shellServices, container, { sealedTo }),
           StandardFlows.memory(memoryServices, judge),
           // The same judge the completion brake and `test` use, offered to the
-          // cell directly. A host that starts runs always holds a live judge
-          // (`evaluatorFor` refuses to boot without one), so the flow is never
-          // a stub here; a judge that fails is the call's own typed failure.
+          // cell directly. Subscription availability is checked at dispatch;
+          // an unavailable judge is the call's own typed failure.
           StandardFlows.jev(judge),
           ...testFlows(Context.merge(shellServices, judge), container, runner),
           ...mcp
@@ -1010,8 +981,7 @@ export const make = (
             : { ...cellLimits, callMs: native.agentLimits.toolMs, totalMs: native.agentLimits.taskMs },
           modelCallMs: native.agentLimits?.modelCallMs,
           flows: sources,
-          // A host that starts runs holds a real judge: `evaluatorFor`
-          // refuses to boot one without it.
+          // Subscription judgments fail closed on missing seats or invalid answers.
           judged: true,
           supervisor: supervisorOptions,
           approvalChannel: options.approvalChannel
@@ -1222,11 +1192,7 @@ export const make = (
         // between a run that can prove fails-before without reverting its own
         // work and one that cannot.
         Checkpoints.layerGit(checkpointStore(environment, workspaceRoot)),
-        // Jev. One binding answers both readers: the `test` flow attributes a
-        // non-zero exit with it, and the completion brake judges every claim
-        // with it. Without `AI_GATEWAY_API_KEY` every evaluation is refused,
-        // so a `test` call fails saying so and a run fails at its first
-        // completion, rather than either reporting something nothing judged.
+        // One subscription judge handles attribution and completion.
         evaluator,
         // The seat resolver, and the catalog an undeclared or `auto` seat is
         // routed over at run start.
@@ -1338,6 +1304,7 @@ export const make = (
       config.startsRuns !== false
     ).pipe(Layer.tap((context) =>
       config.remote !== undefined ? Effect.void : HealthHost.start(config.health).pipe(
+        Effect.provide(evaluatorFor(process.env, config.evaluator, config.startsRuns)),
         Effect.provideService(Control.Control, Context.get(context, Control.Control)),
         Effect.provide(engine.journal)
       )

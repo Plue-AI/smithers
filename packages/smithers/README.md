@@ -107,7 +107,7 @@ The root entry point exports the following namespaces; each is also available fr
 
 The existing Effect embedding API remains supported:
 
-A local host that can start or resume a run requires `AI_GATEWAY_API_KEY` for its completion judge, or an explicitly supplied evidence-based evaluator on the host configuration. Missing configuration refuses startup before opening the stores; it no longer boots a host that fails every completion. That is `run`, `up`, `approve`, `deny` and `serve`, which is what `Application.Config.startsRuns` says: a verb that lists, diagnoses or reads a log reaches no completion, so it opens with no gateway key and its executor refuses a launch. Remote clients use the server's judge.
+The native host runs flows and completion judgments on configured subscription seats. Use `SMITHERS_OPENAI_AUTH=chatgpt` after `codex login`, a Claude subscription token, or the backend's connected account pool. No provider API key or gateway key is required. An unavailable subscription or invalid judgment fails closed; subscription routes never fall back to API keys. Remote clients use the server's configured seats.
 
 ```ts
 import { Command, NodeControl, Version } from "@smthrs/cli"

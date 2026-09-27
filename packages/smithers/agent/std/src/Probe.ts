@@ -213,7 +213,7 @@ export const unjudged = (error: Classifier.ClassifierError): StdError.StdError =
   new StdError.StdError({
     code: unjudgedCode[error.code],
     message:
-      `This result was not judged: the attribution judge answered ${error.code}. ${error.message} Nothing here says whether the non-zero exit is the code's failure or the command's, and a guess at that is worth less than no answer. Bind an evaluator with AI_GATEWAY_API_KEY set, then run the command again.`
+      `This result was not judged: the attribution judge answered ${error.code}. ${error.message} Nothing here says whether the non-zero exit is the code's failure or the command's, and a guess at that is worth less than no answer. Connect a subscription seat for the evaluator, then run the command again.`
   })
 
 /**

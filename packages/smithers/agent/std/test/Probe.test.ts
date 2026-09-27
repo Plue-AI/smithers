@@ -177,7 +177,7 @@ describe("Probe.classify", () => {
     const error = failure(await classify({ exitCode: 1 }, refusing(code)))
     expect(Probe.unjudged(error).code).toBe(expected)
     expect(Probe.unjudged(error).message).toContain(code)
-    expect(Probe.unjudged(error).message).toContain("AI_GATEWAY_API_KEY")
+    expect(Probe.unjudged(error).message).toContain("subscription seat")
   })
 
   it("fails rather than guessing when no evaluator is installed", async () => {
