@@ -58,10 +58,6 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	environment["SMITHERS_API_KEY"] = launch.Credential
 	environment["SMITHERS_GATEWAY_ID"] = launch.Binding.ID
 	environment["SMITHERS_OWNER_GENERATION"] = strconv.FormatInt(launch.Binding.OwnerGeneration, 10)
-	if environment["SMITHERS_POSTGRES_URL"] != "" {
-		// Stable across host generations, isolated by workspace and catalog.
-		environment["SMITHERS_POSTGRES_SCHEMA"] = "flows_" + strings.ReplaceAll(launch.Binding.WorkspaceID, "-", "") + "_" + launch.Catalog.Family
-	}
 	environment["SMITHERS_FLOW_ARTIFACT_SHA256"] = launch.Binding.RuntimeArtifactDigest
 	environment["SMITHERS_SOURCE_REVISION"] = launch.Binding.SourceRevision
 	switch launch.Catalog.Family {

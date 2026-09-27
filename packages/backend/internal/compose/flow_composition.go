@@ -74,13 +74,6 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 			ModelProxyURL:       modelProxyURL, ModelSeats: modelSeats, AccountPoolURL: accountPoolURL,
 		},
 	}
-	// Self-hosted flow processes may share the backend PostgreSQL server. Hosted
-	// sandbox credentials remain the private deployment's responsibility.
-	if !options.topology.hosted() {
-		for i := range catalogs {
-			catalogs[i].Environment["SMITHERS_POSTGRES_URL"] = cfg.Database.URL
-		}
-	}
 	bindings, err := flowhost.NewStore(pool, codec)
 	if err != nil {
 		return nil, fmt.Errorf("Flow host bindings: %w", err)

@@ -66,11 +66,10 @@ SQL records; artifacts, native process state, and workspaces still need durable
 host storage.
 
 The self-hosted Go backend accepts `SMITHERS_DATABASE_URL` or its
-`DATABASE_URL` fallback, with the prefixed variable taking precedence. It
-passes the resolved URL to flow-host catalogs as `SMITHERS_POSTGRES_URL`.
-Each host receives a stable `SMITHERS_POSTGRES_SCHEMA` derived from workspace
-ID and catalog family. Host generations reuse those schemas. Hosted topology
-does not pass the backend database credential into sandbox catalogs.
+`DATABASE_URL` fallback, with the prefixed variable taking precedence. That
+credential stays in the backend: flow hosts share their workspace with
+repository commands, so they keep their stores on SQLite in the workspace
+state directory and never receive a database URL.
 
 ## Transactions and SQL behavior
 

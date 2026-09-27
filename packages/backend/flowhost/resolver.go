@@ -33,6 +33,14 @@ var reservedEnvironment = map[string]struct{}{
 	AccountPoolURLEnv:          {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
 }
 
+// A host shares its workspace with repository commands, so a database
+// credential in its environment is readable by that repository. Hosts keep
+// their stores in the workspace state directory.
+var databaseEnvironment = map[string]struct{}{
+	"SMITHERS_POSTGRES_URL": {}, "SMITHERS_POSTGRES_SCHEMA": {}, "DATABASE_URL": {},
+	"SMITHERS_DATABASE_URL": {}, "SMITHERS_BACKEND": {},
+}
+
 type Resolver struct {
 	store    BindingStore
 	targets  TargetResolver
@@ -99,6 +107,9 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 		}
 		if _, reserved := reservedEnvironment[name]; reserved {
 			return Catalog{}, fmt.Errorf("flow host catalog %q environment replaces reserved identity %s", catalog.Key, name)
+		}
+		if _, database := databaseEnvironment[name]; database {
+			return Catalog{}, fmt.Errorf("flow host catalog %q environment carries database configuration %s", catalog.Key, name)
 		}
 		copyEnvironment[name] = value
 	}
