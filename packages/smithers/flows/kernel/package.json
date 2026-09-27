@@ -52,6 +52,7 @@
     "./JournalGrantStore": "./src/JournalGrantStore.ts",
     "./Path": "./src/Path.ts",
     "./ProcessLedger": "./src/ProcessLedger.ts",
+    "./Rooted": "./src/Rooted.ts",
     "./Workspace": "./src/Workspace.ts",
     "./index": "./src/index.ts",
     "./test/HostContract": "./src/test/HostContract.ts",
@@ -235,6 +236,16 @@
         "require": {
           "types": "./dist/cjs/ProcessLedger.d.ts",
           "default": "./dist/cjs/ProcessLedger.js"
+        }
+      },
+      "./Rooted": {
+        "import": {
+          "types": "./dist/esm/Rooted.d.ts",
+          "default": "./dist/esm/Rooted.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Rooted.d.ts",
+          "default": "./dist/cjs/Rooted.js"
         }
       },
       "./Workspace": {

@@ -816,7 +816,11 @@ capability answers rather than vanishing.
 ### ChildProcessSpawner.layer
 
 ```ts
-const layer: Layer.Layer<ChildProcessSpawner, never, ChildProcessSpawner | GrantStore>
+const layer: Layer.Layer<
+  ChildProcessSpawner,
+  never,
+  ChildProcessSpawner | GrantStore | Path.Path | Workspace
+>
 ```
 
 The decorator. The check is suspended into the spawn itself, so building a
@@ -826,6 +830,8 @@ directory, environment overrides, and pipeline `from`/`to` routing are not part
 of what a grant authorizes. `cwd` and the **names** of overridden environment
 variables reach an attended surface as display metadata; the values do not. A
 command that cannot be snapshotted fails with an `InvalidData` `PlatformError`.
+A command with no `cwd`, or a relative one, runs in `Workspace.root`, never the
+process's own directory, and the check sees that resolved directory.
 
 ## ChildProcessEnvironment
 
@@ -1196,12 +1202,38 @@ Smithers owns this service, so its interface names
 ```ts
 type Path = EffectPath.Path
 const Path = EffectPath.Path
-const layer: Layer.Layer<Path, never, Path>
+const layer: Layer.Layer<Path, never, Path | Workspace>
 ```
 
-Effect's path service, re-provided transparently. Path manipulation is pure and
-lexical, so it requires no capability check; the explicit layer proves that
-every member of the closed list has a kernel decision.
+Effect's path service with relative paths resolved against `Workspace.root`.
+Path manipulation is pure and lexical, so it requires no capability check; the
+explicit layer proves that every member of the closed list has a kernel
+decision.
+
+## Rooted
+
+```ts
+const path: (base: Path.Path, root: string) => Path.Path
+const fileSystem: (base: FileSystem.FileSystem, rooted: Path.Path) => FileSystem.FileSystem
+const command: (value: ChildProcess.Command, rooted: Path.Path) => ChildProcess.Command
+const spawner: (
+  base: ChildProcessSpawner["Service"],
+  rooted: Path.Path
+) => ChildProcessSpawner["Service"]
+const layer: (
+  root: string
+) => Layer.Layer<
+  FileSystem.FileSystem | Path.Path | ChildProcessSpawner,
+  never,
+  FileSystem.FileSystem | Path.Path | ChildProcessSpawner
+>
+```
+
+Unguarded services bound to one directory. Every relative path, and every
+command without a `cwd`, resolves against `root`; absolute paths and symlink
+targets pass through. `spawner` keeps a contained base contained. `layer`
+decorates the services it is provided in place. `Path.layer` and
+`ChildProcessSpawner.layer` root the guarded surface with the same functions.
 
 ## Workspace
 

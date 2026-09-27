@@ -44,6 +44,7 @@ import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import type * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import type * as KernelJj from "@smthrs/kernel/Jj"
+import * as KernelPath from "@smthrs/kernel/Path"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import type * as McpClient from "@smthrs/mcp/McpClient"
@@ -900,8 +901,10 @@ export const make = (
     const engineJj = native.jj(workspaceRoot).pipe(
       Layer.provide(contain().pipe(Layer.provide(engine.journal)))
     )
-    const guarded = KernelChildProcessSpawner.layer.pipe(
-      Layer.provide(grants),
+    // Commands and relative paths resolve in the checkout the run executes in,
+    // never the process's own directory.
+    const guarded = Layer.merge(KernelChildProcessSpawner.layer, KernelPath.layer).pipe(
+      Layer.provide([grants, Workspace.layer(workspaceRoot)]),
       Layer.provideMerge(contained)
     )
     // `SMITHERS_MEMORY_DB` moves the memory store to its own SQLite file, so

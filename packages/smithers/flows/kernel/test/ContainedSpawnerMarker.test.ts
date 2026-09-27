@@ -1,11 +1,12 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Path } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { runInNewContext } from "node:vm"
 import * as GuardedSpawner from "../src/ChildProcessSpawner.ts"
 import * as ContainedSpawner from "../src/ContainedSpawner.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as ProcessLedger from "../src/ProcessLedger.ts"
+import * as Workspace from "../src/Workspace.ts"
 
 const lifecycle: ContainedSpawner.Lifecycle = (command, spawn) =>
   Effect.map(spawn(command), (handle) => ({ handle, activate: Effect.void, settled: Effect.succeed(true) }))
@@ -27,7 +28,9 @@ describe("contained service contract", () => {
           // An arbitrary replacement is not the same trusted composition.
           expect(ContainedSpawner.isContained({ ...spawner })).toBe(false)
         }).pipe(
-          Effect.provide(guarded ? GuardedSpawner.layer : Layer.empty),
+          Effect.provide(
+            guarded ? GuardedSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer])) : Layer.empty
+          ),
           Effect.provide(ContainedSpawner.layer({}, owned ? lifecycle : undefined)),
           Effect.provide(GuardedSpawner.layerNoop()),
           Effect.provide(ProcessLedger.layerMemory({ hostId: "containment-marker", ownerPid: 1 })),

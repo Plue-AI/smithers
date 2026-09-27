@@ -13,7 +13,7 @@ import * as Permission from "@smthrs/capability/Permission"
 import * as JournalModule from "@smthrs/journal/Journal"
 import { JournalError } from "@smthrs/journal/Journal"
 import * as TestJournal from "@smthrs/journal/test/TestJournal"
-import { Deferred, Effect, Fiber, Layer, Sink, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Path, Sink, Stream } from "effect"
 import * as PlatformError from "effect/PlatformError"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import {
@@ -27,6 +27,7 @@ import * as GuardedSpawner from "../src/ChildProcessSpawner.ts"
 import * as ContainedSpawner from "../src/ContainedSpawner.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as ProcessLedger from "../src/ProcessLedger.ts"
+import * as Workspace from "../src/Workspace.ts"
 
 /**
  * A host spawner that records what it was handed and reports consecutive pids.
@@ -163,7 +164,7 @@ describe("ContainedSpawner", () => {
             expect((yield* Effect.flip(start)).reason._tag).toBe("PermissionDenied")
           }
         }).pipe(
-          Effect.provide(GuardedSpawner.layer),
+          Effect.provide(GuardedSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer]))),
           Effect.provide(ContainedSpawner.layer({ graceMs: 50 }, lifecycle)),
           Effect.provide(hostSpawner(spawned, 4321, events)),
           Effect.provideService(GrantStore, store),

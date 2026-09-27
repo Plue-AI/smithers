@@ -40,6 +40,7 @@ import { Capability, GrantStore, Permission, Workspace } from "@smthrs/kernel"
 import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
+import * as KernelPath from "@smthrs/kernel/Path"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import type * as ModelError from "@smthrs/model/ModelError"
@@ -395,8 +396,8 @@ const hostFor = (
     Layer.provide([Workspace.layer(config.root), grants]),
     Layer.provideMerge(Layer.provideMerge(AtomicFileSystem.layer, NodeServices.layer))
   )
-  const guarded = KernelChildProcessSpawner.layer.pipe(
-    Layer.provide(grants),
+  const guarded = Layer.merge(KernelChildProcessSpawner.layer, KernelPath.layer).pipe(
+    Layer.provide([Workspace.layer(config.root), grants]),
     Layer.provideMerge(platform)
   )
   return Transform.hostLayer({ root: config.root, commands: config.commands }).pipe(Layer.provide(guarded))

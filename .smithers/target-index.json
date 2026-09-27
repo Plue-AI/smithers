@@ -13869,6 +13869,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/kernel/src/Rooted.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/kernel/src/Workspace.ts"
       },
       {

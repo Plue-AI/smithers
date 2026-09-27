@@ -12,6 +12,16 @@
   isolated volume or the guarded `FileSystem.layer` service for the same root
   as it is, and refuses operations that are not one atomic request.
   `isConfinable` and `requireConfinable` check a host at composition time.
+- `@smthrs/kernel/Rooted` binds unguarded `FileSystem`, `Path` and
+  `ChildProcessSpawner` services to one root directory. `Rooted.spawner` keeps
+  a contained spawner's containment mark. It replaces the TUI's private copy.
+
+### Changed
+
+- `ChildProcessSpawner.layer` and `Path.layer` now require `Workspace`. A
+  command with no or a relative `cwd` runs in `Workspace.root`, and relative
+  paths resolve there, instead of in `process.cwd()`. The grant check sees the
+  resolved directory.
 
 ### Fixed
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
-import { Deferred, Effect, Fiber, Option, type PlatformError, Sink, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Option, Path, type PlatformError, Sink, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import {
   ChildProcessSpawner as HostChildProcessSpawner,
@@ -12,6 +12,10 @@ import {
 } from "effect/unstable/process/ChildProcessSpawner"
 import * as ChildProcessSpawner from "../src/ChildProcessSpawner.ts"
 import { GrantStore } from "../src/GrantStore.ts"
+import * as Workspace from "../src/Workspace.ts"
+
+/** The kernel spawner over the process directory's workspace. */
+const guarded = ChildProcessSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer]))
 
 const itEffect = (name: string, effect: () => Effect.Effect<void, unknown, never>) => it.effect(name, () => effect())
 
@@ -75,7 +79,7 @@ describe("ChildProcessSpawner", () => {
         expect(checks).toHaveLength(length === 4096 ? 1 : 0)
         expect(invoked).toBe(false)
       }).pipe(
-        Effect.provide(ChildProcessSpawner.layer),
+        Effect.provide(guarded),
         Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "", onSpawn: () => (invoked = true) })),
         Effect.provideService(GrantStore, scriptedStore(new Set(), checks))
       )
@@ -102,7 +106,7 @@ describe("ChildProcessSpawner", () => {
       expect(invoked).toBe(false)
       expect(checks).toEqual([{ action: "proc:spawn", resource: "blocked --now" }])
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "never", onSpawn: () => (invoked = true) })
@@ -140,7 +144,7 @@ describe("ChildProcessSpawner", () => {
       })
       expect(invoked).toBe(false)
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "never", onSpawn: () => (invoked = true) })
@@ -174,7 +178,7 @@ describe("ChildProcessSpawner", () => {
       })
       expect(invoked).toBe(false)
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "never", onSpawn: () => (invoked = true) })
@@ -191,7 +195,7 @@ describe("ChildProcessSpawner", () => {
       expect(yield* spawner.string(ChildProcess.make("tool"))).toBe("out")
       expect(checks).toEqual([{ action: "proc:spawn", resource: "tool" }])
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
       Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:tool"]), checks))
     )
@@ -224,7 +228,7 @@ describe("ChildProcessSpawner", () => {
           const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
           return yield* spawner.string(command)
         }).pipe(
-          Effect.provide(ChildProcessSpawner.layer),
+          Effect.provide(guarded),
           Effect.provideService(
             HostChildProcessSpawner,
             hostSpawner({
@@ -271,7 +275,7 @@ describe("ChildProcessSpawner", () => {
       yield* Stream.runDrain(spawner.streamLines(command))
       expect(checks).toHaveLength(6)
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
       Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:tool"]), checks))
     )
@@ -290,7 +294,7 @@ describe("ChildProcessSpawner", () => {
       expect(checks).toEqual([{ action: "proc:spawn", resource: "tool" }])
       expect(delegated).toBe(true)
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "out", onSpawn: () => (delegated = true) })
@@ -314,7 +318,7 @@ describe("ChildProcessSpawner", () => {
       })
       expect(denial(failure)).toMatchObject({ code: "permission_denied" })
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
       Effect.provideService(GrantStore, scriptedStore(new Set(), checks))
     )
@@ -347,7 +351,7 @@ describe("ChildProcessSpawner", () => {
         }
       ])
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
       Effect.provideService(GrantStore, store)
     )
@@ -372,11 +376,11 @@ describe("ChildProcessSpawner", () => {
       }))
       expect(seen).toEqual([{
         capability: { action: "proc:spawn", resource: "tool" },
-        context: { cwd: undefined, env: ["A_PATH", "Z_TOKEN"] }
+        context: { cwd: process.cwd(), env: ["A_PATH", "Z_TOKEN"] }
       }])
       expect(JSON.stringify(seen)).not.toContain("secret")
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
       Effect.provideService(GrantStore, store)
     )
@@ -401,12 +405,12 @@ describe("ChildProcessSpawner", () => {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       yield* spawner.string(ChildProcess.make("tool", [], { env: environment }))
       expect(seen).toEqual([{
-        cwd: undefined,
+        cwd: process.cwd(),
         env: [...Array.from({ length: 64 }, (_, index) => `NAME_${String(index).padStart(2, "0")}`), "+7 more"]
       }])
       expect(JSON.stringify(seen)).not.toContain("value-")
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
       Effect.provideService(GrantStore, store)
     )
@@ -431,12 +435,12 @@ describe("ChildProcessSpawner", () => {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       yield* spawner.string(ChildProcess.make("tool", [], { env: environment }))
       expect(seen).toEqual([{
-        cwd: undefined,
+        cwd: process.cwd(),
         env: Array.from({ length: 64 }, (_, index) => `NAME_${String(index).padStart(2, "0")}`)
       }])
       expect(JSON.stringify(seen)).not.toContain("more")
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "out" })),
       Effect.provideService(GrantStore, store)
     )
@@ -451,7 +455,7 @@ describe("ChildProcessSpawner", () => {
       yield* spawner.exitCode(ChildProcess.make("echo", ["safe;", "run", "privileged"], { shell: true }))
       expect(checks).toEqual([{ action: "proc:spawn", resource: line }])
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "" })),
       Effect.provideService(GrantStore, scriptedStore(new Set([`proc:spawn:${line}`]), checks))
     )
@@ -466,7 +470,7 @@ describe("ChildProcessSpawner", () => {
       yield* spawner.exitCode(ChildProcess.make("echo", ["hello", "world"], { shell: "/custom/shell" }))
       expect(checks).toEqual([{ action: "proc:spawn", resource: line }])
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "" })),
       Effect.provideService(GrantStore, scriptedStore(new Set([`proc:spawn:${line}`]), checks))
     )
@@ -534,7 +538,7 @@ describe("ChildProcessSpawner", () => {
       expect((delegated as ChildProcess.PipedCommand).left).not.toBe(left)
       expect(checks).toEqual([{ action: "proc:spawn", resource: "producer safe | consumer safe" }])
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "ok", onSpawn: (command) => (delegated = command) })
@@ -551,7 +555,7 @@ describe("ChildProcessSpawner", () => {
       expect(yield* spawner.string(pipeline)).toBe("ok")
       expect(checks).toEqual([{ action: "proc:spawn", resource: "left | right" }])
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(HostChildProcessSpawner, hostSpawner({ stdout: "ok" })),
       Effect.provideService(GrantStore, scriptedStore(new Set(["proc:spawn:left | right"]), checks))
     )
@@ -627,7 +631,7 @@ describe("ChildProcessSpawner", () => {
       }
       expect(delegated).toBe(false)
     }).pipe(
-      Effect.provide(ChildProcessSpawner.layer),
+      Effect.provide(guarded),
       Effect.provideService(
         HostChildProcessSpawner,
         hostSpawner({ stdout: "never", onSpawn: () => (delegated = true) })

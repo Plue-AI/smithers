@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Permission from "@smthrs/capability/Permission"
-import { Effect, Exit, Layer, Sink, Stream } from "effect"
+import { Effect, Exit, Layer, Path, Sink, Stream } from "effect"
 import * as PlatformError from "effect/PlatformError"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, ExitCode, make, makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
@@ -8,6 +8,7 @@ import * as GuardedSpawner from "../src/ChildProcessSpawner.ts"
 import * as ContainedSpawner from "../src/ContainedSpawner.ts"
 import { GrantStore } from "../src/GrantStore.ts"
 import * as ProcessLedger from "../src/ProcessLedger.ts"
+import * as Workspace from "../src/Workspace.ts"
 
 const bytes = (text: string) => Stream.make(new TextEncoder().encode(text))
 const textOf = (stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>) =>
@@ -85,7 +86,7 @@ describe("contained pipeline wiring", () => {
         expect(checks).toEqual(["first | last"])
         expect(test.commands.map((command) => command.command)).toEqual(allowed ? ["first", "last"] : [])
       }).pipe(
-        Effect.provide(GuardedSpawner.layer),
+        Effect.provide(GuardedSpawner.layer.pipe(Layer.provide([Workspace.layerNoop, Path.layer]))),
         Effect.provide(test.layer),
         Effect.provideService(GrantStore, store),
         Effect.scoped

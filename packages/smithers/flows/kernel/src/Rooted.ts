@@ -1,17 +1,25 @@
 /**
- * The host's filesystem, path and process services, bound to its directory.
+ * Filesystem, path and process services bound to one root directory.
  *
  * Node resolves a relative path against `process.cwd()`. A host serves one
- * directory whatever the process's own, so here every relative path a flow
- * names, and every command spawned without a `cwd`, resolves against `root`.
- * Absolute paths pass through unchanged, and so does a symlink's target, which
- * is relative to the link rather than to any directory.
+ * directory whatever the process's own, so here every relative path, and every
+ * command spawned without a `cwd`, resolves against `root`. Absolute paths pass
+ * through unchanged, and so does a symlink's target, which is relative to the
+ * link rather than to any directory.
+ *
+ * @since 1.0.0
  */
 import { Context, Effect, FileSystem, Layer, Path } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner"
+import * as Containment from "./internal/Containment.ts"
 
-/** `base` with every relative path resolved against the absolute `root`. */
+/**
+ * `base` with every relative path resolved against the absolute `root`.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
 export const path = (base: Path.Path, root: string): Path.Path => {
   const resolve = (...segments: ReadonlyArray<string>) => base.resolve(root, ...segments)
   return {
@@ -22,7 +30,12 @@ export const path = (base: Path.Path, root: string): Path.Path => {
   }
 }
 
-/** `base` with every relative path resolved by `rooted`, a {@link path}. */
+/**
+ * `base` with every relative path resolved by `rooted`, a {@link path}.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
 export const fileSystem = (base: FileSystem.FileSystem, rooted: Path.Path): FileSystem.FileSystem => {
   const at = (value: string) => rooted.resolve(value)
   const temp = <O extends { readonly directory?: string | undefined }>(options: O | undefined) =>
@@ -62,21 +75,37 @@ export const fileSystem = (base: FileSystem.FileSystem, rooted: Path.Path): File
   }
 }
 
-/** `base` spawning each command in its `cwd` resolved by `rooted`, a {@link path}; in its root without one. */
+/**
+ * `value` with every stage's `cwd` resolved by `rooted`, a {@link path}; its
+ * root for a stage without one.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const command = (value: ChildProcess.Command, rooted: Path.Path): ChildProcess.Command =>
+  ChildProcess.isStandardCommand(value)
+    ? ChildProcess.setCwd(value, rooted.resolve(value.options.cwd ?? "."))
+    : ChildProcess.pipeTo(command(value.left, rooted), command(value.right, rooted), value.options)
+
+/**
+ * `base` spawning each command as {@link command} roots it. A contained `base`
+ * stays contained.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
 export const spawner = (
   base: ChildProcessSpawner.ChildProcessSpawner["Service"],
   rooted: Path.Path
-): ChildProcessSpawner.ChildProcessSpawner["Service"] => {
-  const at = (command: ChildProcess.Command): ChildProcess.Command =>
-    ChildProcess.isStandardCommand(command)
-      ? ChildProcess.setCwd(command, rooted.resolve(command.options.cwd ?? "."))
-      : ChildProcess.pipeTo(at(command.left), at(command.right), command.options)
-  return ChildProcessSpawner.make((command) => base.spawn(at(command)))
-}
+): ChildProcessSpawner.ChildProcessSpawner["Service"] =>
+  Containment.inherit(base, ChildProcessSpawner.make((value) => base.spawn(command(value, rooted))))
 
 /**
  * Decorates the `FileSystem`, `Path` and `ChildProcessSpawner` it is provided
  * in place, so everything downstream resolves against `root`.
+ *
+ * @category layers
+ * @since 1.0.0
  */
 export const layer = (
   root: string

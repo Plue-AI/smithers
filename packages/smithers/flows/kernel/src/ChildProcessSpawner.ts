@@ -22,7 +22,7 @@
  * @since 1.0.0-rc.0
  */
 import { toPlatformError } from "@smthrs/capability/Permission"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Path } from "effect"
 import { systemError } from "effect/PlatformError"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -30,6 +30,8 @@ import * as CommandLine from "./CommandLine.ts"
 import { GrantStore } from "./GrantStore.ts"
 import * as Containment from "./internal/Containment.ts"
 import { makeCapability } from "./internal/makeCapability.ts"
+import * as Rooted from "./Rooted.ts"
+import { Workspace } from "./Workspace.ts"
 
 const data = (value: object, name: PropertyKey): unknown => {
   const descriptor = Object.getOwnPropertyDescriptor(value, name)
@@ -255,14 +257,23 @@ export const layerNoop = (
  * layer with `Layer.provide` and a `ChildProcess.Command` run as a plain
  * `Effect` is checked too.
  *
+ * A command with no `cwd`, or a relative one, runs in `Workspace.root`, never
+ * the process's own directory; the check sees that resolved directory.
+ *
  * @category layers
  * @since 1.0.0-rc.0
  */
-export const layer: Layer.Layer<ChildProcessSpawner, never, ChildProcessSpawner | GrantStore> = Layer.effect(
+export const layer: Layer.Layer<
+  ChildProcessSpawner,
+  never,
+  ChildProcessSpawner | GrantStore | Path.Path | Workspace
+> = Layer.effect(
   ChildProcessSpawner,
   Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
     const grants = yield* GrantStore
+    const path = yield* Path.Path
+    const rooted = Rooted.path(path, path.resolve((yield* Workspace).root))
     const check = (command: ChildProcess.Command) => {
       const rendered = CommandLine.render(command)
       const environment = environmentNames(command)
@@ -297,7 +308,8 @@ export const layer: Layer.Layer<ChildProcessSpawner, never, ChildProcessSpawner 
                 description: "command must be an immutable supported process description"
               })
           }).pipe(
-            Effect.flatMap((snapshot) => check(snapshot).pipe(Effect.andThen(spawner.spawn(snapshot))))
+            Effect.map((snapshot) => Rooted.command(snapshot, rooted)),
+            Effect.flatMap((rooted) => check(rooted).pipe(Effect.andThen(spawner.spawn(rooted))))
           )
         )
       )

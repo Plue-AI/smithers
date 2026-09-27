@@ -20,6 +20,7 @@ describe("kernel package barrel", () => {
       "Path",
       "Permission",
       "ProcessLedger",
+      "Rooted",
       "Workspace"
     ])
   })

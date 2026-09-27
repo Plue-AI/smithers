@@ -5648,6 +5648,16 @@
             "default": "./dist/cjs/ProcessLedger.js"
           }
         },
+        "./Rooted": {
+          "import": {
+            "types": "./dist/esm/Rooted.d.ts",
+            "default": "./dist/esm/Rooted.js"
+          },
+          "require": {
+            "types": "./dist/cjs/Rooted.d.ts",
+            "default": "./dist/cjs/Rooted.js"
+          }
+        },
         "./Workspace": {
           "import": {
             "types": "./dist/esm/Workspace.d.ts",
@@ -5702,7 +5712,7 @@
       "declarations": {
         "CapabilitySet.d.ts": "509c7bb32babc07bbff86ffd7a0a1192f705dd02a9dc2fb9c1a7fbffdb301810",
         "ChildProcessEnvironment.d.ts": "5845e8dc3d0b90df08588d8b5542df5b962ac8999c15b71e262111b0076d6360",
-        "ChildProcessSpawner.d.ts": "206441d80ca5935c3360cabf9484968302e7ee29fd6fe4de369a3db822799c22",
+        "ChildProcessSpawner.d.ts": "0ff370184598f58e641856c1f572d201c79ef838137c8ed996002cb281efd799",
         "CommandLine.d.ts": "ea177a725f459e1427bfa8cf801acccd6f4d6678939a1ed21cb618484dc191b7",
         "ContainedSpawner.d.ts": "91e5a9cb914064f9658c8cd9cd59f9e3acc0ae5ffceaa95a58f715709971009e",
         "FileSystem.d.ts": "7ea120d3c9fc99dbdd81b1837bdc73a4327dd66902f3663c1acd394a77f7c951",
@@ -5710,14 +5720,15 @@
         "GrantEvent.d.ts": "35f50bbb00deffd77618f88a9ab673a77221aeafa410e2c2e8d3fc402458d24f",
         "GrantStore.d.ts": "0f73abcb9a11ba8f32017542ae6e8f1799c3a26f2f101ed0e96702b45c55b2c4",
         "HostError.d.ts": "cededa588e8c80cf61a669b062c0b98b23b54ec8bb9423b0534f965cd207e1b9",
-        "HostServices.d.ts": "3653a700aa2f90782bbba2c4dae12a93e9248b3fc0d05394ba9fea5c60ec8b6f",
+        "HostServices.d.ts": "8f68b80e032db7077d82e37bb34fd5f12a84a738eae257c3c514de2072a807c9",
         "HttpClient.d.ts": "af8cf043be7242aff27db16f9b9526e8ae55ab35751be817499a60a8610fa998",
         "Jj.d.ts": "6d4f6def4898388d9c3b1a8164c5b30e238563b9bc2ecff8e7fae6780b54712d",
         "JournalGrantStore.d.ts": "15725e7f112659b519d51c691df4ad7ed37b20a1b724304e2b147e36ffb3da9e",
-        "Path.d.ts": "17adf288c2f547ca06510f82a1dd3a20a8ea1aa2a66593bd3edfca9b9867c755",
+        "Path.d.ts": "b9e9fe4f35f27369be7e922fe4be536444117e08899a665a1df62c85d14c8bd7",
         "ProcessLedger.d.ts": "6ed8086c2d4577d3a14b7d8e88947d02a6b808a9ecf5403d4367b4f217d2c75d",
+        "Rooted.d.ts": "59931236c6b325eaca7ff397b1421376ee848751b7c68b6c4add0e7c4fb4c39a",
         "Workspace.d.ts": "a3472c7aa62c6c0d91947a2fc53405514467f728f2c0dd40f2deefa330acd447",
-        "index.d.ts": "2f918208e62ea189836fe140725473b066d527155e1820926dde87a6bfa6d72e",
+        "index.d.ts": "3e7109d298be13108b76de69d0caf690047ec140396d0b6a6197e0b99c250c8e",
         "internal/Containment.d.ts": "eb4381028e7c03e8bc1271079898d107460307cb92a9be698a28a174c01a6589",
         "internal/Pipeline.d.ts": "bf0675ab8bde8f3a755294f7da2f50dba9820cc498a7a5c51b5580354d3ad884",
         "internal/makeCapability.d.ts": "edcc4e836a71ca9f204b5b250775cb31f2d1821f69e2fbaf138f5535a62a0e19",

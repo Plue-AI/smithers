@@ -49,7 +49,8 @@ import * as Path from "./Path.ts"
  * where Smithers owns the service (`Jj`) the interface names the kernel's
  * failures directly.
  *
- * `Path` is intentionally retained as an explicit pass-through decision.
+ * `Path` is intentionally retained as an explicit decision: it checks nothing
+ * and resolves relative paths against `Workspace.root`.
  * Network access is Effect's own `HttpClient`: there is no Smithers transport
  * port beneath it, because a raw port would be a second way to reach the
  * network whose contract never mentions permission.

@@ -151,6 +151,14 @@ export * as Permission from "@smthrs/capability/Permission"
 export * as ProcessLedger from "./ProcessLedger.ts"
 
 /**
+ * Filesystem, path and process services bound to one root directory.
+ *
+ * @category namespace exports
+ * @since 1.0.0
+ */
+export * as Rooted from "./Rooted.ts"
+
+/**
  * The shared workspace-root service.
  *
  * @category namespace exports

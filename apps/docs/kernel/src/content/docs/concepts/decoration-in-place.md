@@ -88,8 +88,9 @@ stable code. Projection with the original on the cause keeps both.
 **`Path` is on the list and checks nothing.** It is pure string manipulation:
 `path.resolve` reads no directory and creates no file, so there is no
 authority to guard. The slot exists as an explicit decision rather than an
-omission, and `Path.layer` is a pass-through so the composition still names
-every port.
+omission. `Path.layer` resolves relative paths against `Workspace.root`, the
+directory `ChildProcessSpawner.layer` runs a command in when it names no
+`cwd`, so neither depends on the process's own directory.
 
 **`Clock` and `Random` are Effect core built-ins.** They are already
 port-shaped and already swappable with `Effect.provideService`, and neither
