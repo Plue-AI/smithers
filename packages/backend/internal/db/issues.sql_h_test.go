@@ -52,8 +52,11 @@ func TestIssuesSQL_H_ListWrappersRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	events, err := q.ListIssueEventsByIssue(ctx, ListIssueEventsByIssueParams{IssueID: first.ID, PageOffset: 0, PageSize: 10})
 	require.NoError(t, err)
-	require.Len(t, events, 1)
-	assert.Equal(t, event.ID, events[0].ID)
+	// Migration 0039's trg_issue_message_event journals each comment insert as an issue event.
+	require.Len(t, events, 3)
+	assert.Equal(t, "comment.created", events[0].EventType)
+	assert.Equal(t, "comment.created", events[1].EventType)
+	assert.Equal(t, event.ID, events[2].ID)
 
 	allIssues, err := q.ListIssuesByRepoFiltered(ctx, ListIssuesByRepoFilteredParams{RepositoryID: repoID, State: "", PageOffset: 0, PageSize: 10})
 	require.NoError(t, err)
