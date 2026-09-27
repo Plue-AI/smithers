@@ -211,12 +211,61 @@ test("the hosted GitHub door bypasses owner credentials and uses the selected ba
   }
 })
 
-test("a Plue bearer target reads its selected identity on a cloud host", async () => {
+for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow} browser door bypasses owner credentials and claims the selected backend identity`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  let localStatusReads = 0
+  let claimed = false
+  let popupCount = 0
+  const popup = { closed: false, opener: null, location: { href: "about:blank" }, close: () => { popup.closed = true } }
+  const globals = globalThis as unknown as { window?: unknown }
+  const hadWindow = "window" in globals
+  const previousWindow = globals.window
+  globals.window = { open: () => { popupCount++; return popup }, location: { pathname: "/", search: "" } }
+  const controller = createAppController(store, unavailableAgent, {
+    baseUrl: "https://smithers.sh",
+    bootstrap: { ...WEB, authFlow },
+    applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false }, "https://smithers.sh"),
+    localIdentity: {
+      status: async () => { localStatusReads++; return { enabled: true, initialized: true } },
+      login: async ({ username }) => ({ user: { id: 1, username } }),
+      bootstrap: async ({ username }) => ({ user: { id: 1, username } })
+    },
+    applicationIdentity: { current: async () => claimed ? { username: "handoff-owner", admin: false, scopes: null } : null },
+    handoffPollMs: 1,
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input)).pathname
+      requests.push(`${init?.method ?? "GET"} ${path}`)
+      if (path === "/api/auth/native/start") return Response.json({ handoffId: "owned-handoff", pollSecret: "owned-secret", expiresAt: Date.now() + 60_000 })
+      if (path === "/api/auth/native/claim") { claimed = true; return Response.json({ status: "ready" }) }
+      return new Response("{}", { status: 404 })
+    }
+  })
+  try {
+    await controller.adoptSession(signedOut)
+    await controller.commands.run("auth.sign-in")
+    for (let i = 0; i < 100 && store.collections.identitySessions.get("identity")?.state !== "signed-in"; i++) await settle()
+    expect(localStatusReads).toBe(0)
+    expect(controller.identityProvider).toBe("github")
+    expect(popupCount).toBe(1)
+    expect(popup.location.href).toBe("https://smithers.sh/api/auth/github/start?handoff=owned-handoff")
+    expect(requests).toContain("POST /api/auth/native/start")
+    expect(requests).toContain("POST /api/auth/native/claim")
+    expect(requests.some(path => path.includes("/api/auth/session"))).toBe(false)
+    expect(store.collections.identitySessions.get("identity")).toMatchObject({ state: "signed-in", login: "handoff-owner", provider: "github" })
+  } finally {
+    await controller.dispose()
+    if (hadWindow) globals.window = previousWindow
+    else delete globals.window
+  }
+})
+
+for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`a Plue bearer target stays separate from ${authFlow} GitHub sessions`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requested: string[] = []
   let selectedReads = 0
   const controller = createAppController(store, unavailableAgent, {
-    bootstrap: WEB,
+    bootstrap: { ...WEB, authFlow },
     applicationTarget: resolveApplicationTarget({
       apiVersion: 1, mode: "web-plue", apiOrigin: "", auth: { kind: "bearer" },
       cors: "same-origin", developerExternal: false
@@ -235,8 +284,9 @@ test("a Plue bearer target reads its selected identity on a cloud host", async (
   await controller.loadSession()
   expect(selectedReads).toBe(1)
   expect(requested).not.toContain("/api/auth/session")
+  expect(controller.identityProvider).toBe("local")
   expect(store.collections.identitySessions.get("identity")).toMatchObject({
-    state: "signed-in", login: "smithers-canary"
+    state: "signed-in", login: "smithers-canary", provider: "local"
   })
 })
 

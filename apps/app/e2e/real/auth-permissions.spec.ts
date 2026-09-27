@@ -88,7 +88,7 @@ test("a signed-out required action parks behind its durable sign-in step", scena
   await openChat(page)
   await command(page, "/billing.balance")
   const refusal = page.locator(".smithers-chat-message").filter({
-    has: page.getByText("Sign in to show your balance.", { exact: true })
+    has: page.getByText(/^Sign in(?: with GitHub)? to show your balance\.$/)
   }).last()
   const signIn = refusal.locator('button[data-flow="auth.sign-in"]')
   await expect(refusal).toBeVisible()

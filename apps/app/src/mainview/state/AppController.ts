@@ -1,4 +1,4 @@
-import { identityProviderFor, ownerCredentials } from "./IdentityProvider"
+import { identityProviderFor, ownerCredentials, signInByHandoff } from "./IdentityProvider"
 import type { IdentityProvider } from "./IdentityProvider"
 import type { ClientErrorReporter } from "./ClientErrors"
 import type { FlowSubmission } from "../flows/Commands"
@@ -9,6 +9,7 @@ import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
 import type { ApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
+import { AUTH_SIGN_IN_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
 import type { CatalogItem,CommandRegistry } from "../flows/Commands"
@@ -1024,7 +1025,7 @@ export const createAppController = (
       ? undefined
       : {
         current: applicationIdentity.current,
-        signInPath: APPLICATION_SIGN_IN_PATH,
+        signInPath: signInByHandoff(services.bootstrap) ? AUTH_SIGN_IN_PATH : APPLICATION_SIGN_IN_PATH,
         settled: reloadRepositoriesWhenSignedIn
       }
   ))

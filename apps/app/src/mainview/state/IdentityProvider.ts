@@ -9,12 +9,12 @@ export type IdentityProvider = "github" | "local"
  * never as its `host`: a self-hosted backend is a `cloud` host like the hosted
  * one (packages/rpc/src/AppBootstrap.ts) and differs only here. The Worker's
  * page resolves the default owner target, so the target alone cannot tell the
- * hosted GitHub session from owner credentials; the redirect can.
+ * hosted GitHub session from owner credentials; the advertised sign-in flow can.
  */
 
-/** The hosted GitHub session: the origin signs in by redirect and the target rides that cookie. */
+/** GitHub sessions use either a redirect or a claimed handoff; the target rides that cookie. */
 export const hostedSession = (services: Pick<AppServices, "bootstrap" | "applicationTarget">): boolean =>
-  services.bootstrap?.authFlow === "redirect" &&
+  (services.bootstrap?.authFlow === "redirect" || signInByHandoff(services.bootstrap)) &&
   (services.applicationTarget === undefined || services.applicationTarget.auth.kind === "session")
 
 /** The owner's own backend, signed in with its credentials (`/api/auth/local/*`): self-host and the owned native backend. */

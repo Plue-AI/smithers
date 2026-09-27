@@ -145,7 +145,7 @@ test(
     // The refusal includes the flow's current summary. Bind the sign-in door
     // to this command's message, so the permanent chrome cannot satisfy it.
     const refusal = page.locator(".smithers-chat-message").filter({
-      has: page.getByText(/^Sign in to create an issue(?:[.,]|$)/)
+      has: page.getByText(/^Sign in(?: with GitHub)? to create an issue(?:[.,]|$)/)
     }).last()
     const signIn = refusal.locator('button[data-flow="auth.sign-in"]')
     await expect(refusal).toBeVisible()

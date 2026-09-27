@@ -56,7 +56,7 @@ const SELF_HOST: AppBootstrap = {
 /** The same backend behind the desktop shell's relay (src/bun/NativeRendererServer.ts): one row more. */
 const SHELL_OVER_SELF_HOST: AppBootstrap = { ...SELF_HOST, capabilities: [...SELF_HOST.capabilities, "native.shell"] }
 
-/** The Worker: the hosted GitHub redirect. */
+/** GitHub redirect bootstrap; the hosted Worker's handoff variants are covered below too. */
 const WORKER: AppBootstrap = {
   apiVersion: 1, host: "cloud", version: "test", buildSha: "cloud",
   capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: false }),
@@ -118,12 +118,12 @@ describe("a self-host bootstrap never enables native-shell UI", () => {
   })
 })
 
-test("the hosted GitHub cookie session reads the selected backend identity and opens signup", async () => {
+for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`the GitHub ${authFlow} cookie session reads the selected backend identity and opens signup`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let identityReads = 0
   const requests: string[] = []
   const controller = createAppController(store, silentAgent, {
-    ...ownerSeams(WORKER),
+    ...ownerSeams({ ...WORKER, authFlow }),
     applicationIdentity: { current: async () => {
       identityReads++
       return { username: "github-owner", admin: false, scopes: null }
