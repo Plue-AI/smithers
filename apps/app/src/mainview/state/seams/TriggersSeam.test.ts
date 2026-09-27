@@ -1135,7 +1135,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
 
   /*
    * R98 F1: `Descriptor.BudgetCeiling` bounds nothing from above, so a flow
-   * may DECLARE four hours or a million tokens. Only the person's own numbers
+   * may DECLARE more than six hours or a million tokens. Only the person's own numbers
    * were held to the deployment's ceiling, so such a declaration was previewed,
    * approved, and refused upstream — the same production toast, for the same
    * reason, on a path the walk never reached because `checks/fast` declares
@@ -1149,7 +1149,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
             ? okFrame({ ...PLAN, envelope: { ...PLAN.envelope, budget } })
             : okFrame({ ...PLAN, planId: "plan-registrar", digest: "f".repeat(64), flowId: String(payload.flowId) })
       })
-    for (const budget of [{ tokens: 200_000, milliseconds: 14_400_000 }, { tokens: 5_000_000, milliseconds: 600_000 }]) {
+    for (const budget of [{ tokens: 200_000, milliseconds: 21_600_001 }, { tokens: 5_000_000, milliseconds: 600_000 }]) {
       const calls: Array<RelayCall> = []
       const { store, controller } = await readyToRegister(
         backend({ [PROJECTION]: projectionDocument(DAY_ONE), [RPC]: relayRoute(calls, declaring(budget)) })
@@ -1165,6 +1165,22 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     }
   })
 
+  test("a declared six-hour limit reaches the preview at the deployment ceiling", async () => {
+    const calls: Array<RelayCall> = []
+    const { store, controller } = await readyToRegister(
+      backend({ [PROJECTION]: projectionDocument(DAY_ONE), [RPC]: relayRoute(calls, workspaceAnswers({
+        Plan: (payload) => payload.flowId === "nightly-lint"
+          ? okFrame({ ...PLAN, envelope: { ...PLAN.envelope, budget: { tokens: 200_000, milliseconds: 21_600_000 } } })
+          : okFrame({ ...PLAN, planId: "plan-registrar", digest: "f".repeat(64), flowId: String(payload.flowId) })
+      })) })
+    )
+    expect(typeof await registrationResult(controller, REQUEST)).toBe("object")
+    const preview = [...store.collections.messages.values()].sort((left, right) => right.ordinal - left.ordinal)[0]?.text ?? ""
+    expect(preview).toContain("200000 tokens · 360 min")
+    expect(lastAction(store)?.flow).toBe("triggers.approve")
+    expect(calls.map(call => call.procedure)).toEqual(["List", "Plan"])
+  })
+
   test("limits that are not whole positive numbers are refused before the workspace is asked anything", async () => {
     const calls: Array<RelayCall> = []
     const { controller } = await readyToRegister(
@@ -1172,7 +1188,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     )
     expect(await registrationResult(controller, { ...REQUEST, tokens: "lots", minutes: "20" })).toBe(LIMIT_SHAPE)
     expect(await registrationResult(controller, { ...REQUEST, tokens: "150000", minutes: "0" })).toBe(LIMIT_SHAPE)
-    /* Smithers Cloud refuses a registration past two hours; a person's own number never earns an upstream refusal. */
+    /* Smithers Cloud refuses a registration past six hours; a person's own number never earns an upstream refusal. */
     expect(await registrationResult(controller, { ...REQUEST, tokens: "150000", minutes: "500" })).toBe(LIMIT_SHAPE)
     /* R98 F2: past the registrar's token ceiling the host refused on the registration run, after a Plue approval row existed. */
     expect(await registrationResult(controller, { ...REQUEST, tokens: "500000", minutes: "20" })).toBe(LIMIT_SHAPE)
@@ -1210,7 +1226,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     const walked = { ...REQUEST, flow: "checks/fast", input: "" }
 
     /* Half a pair, refused with zero network calls, naming the half that is missing and the range it takes. */
-    expect(await registrationResult(controller, { ...walked, tokens: "150000" })).toBe("Name the other limit: --minutes 1..120.")
+    expect(await registrationResult(controller, { ...walked, tokens: "150000" })).toBe("Name the other limit: --minutes 1..360.")
     expect(await registrationResult(controller, { ...walked, minutes: "20" })).toBe("Name the other limit: --tokens 1..200000.")
     expect(calls).toEqual([])
 
@@ -1223,7 +1239,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
       expect(sentence).not.toContain("or neither")
     }
     expect(otherLimitSentence("tokens")).toBe("Name the other limit: --tokens 1..200000.")
-    expect(otherLimitSentence("minutes")).toBe("Name the other limit: --minutes 1..120.")
+    expect(otherLimitSentence("minutes")).toBe("Name the other limit: --minutes 1..360.")
 
     /* The door's own rule: a number out of range still earns the range; a half-named pair earns silence. */
     expect(limitsRefusal({ tokens: "150000" })).toBeUndefined()
@@ -1242,12 +1258,12 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
    */
   test("every limits refusal names the range the register door takes", () => {
     expect(unboundedFlowSentence("checks/fast")).toBe(
-      `Set token and time limits: "checks/fast" declares none. --tokens 1..200000, --minutes 1..120.`
+      `Set token and time limits: "checks/fast" declares none. --tokens 1..200000, --minutes 1..360.`
     )
     expect(overBoundFlowSentence("checks/fast")).toBe(
-      `Set token and time limits: "checks/fast" declares more than --tokens 1..200000, --minutes 1..120.`
+      `Set token and time limits: "checks/fast" declares more than --tokens 1..200000, --minutes 1..360.`
     )
-    expect(LIMIT_SHAPE).toBe("Token and time limits are whole numbers: --tokens 1..200000, --minutes 1..120.")
+    expect(LIMIT_SHAPE).toBe("Token and time limits are whole numbers: --tokens 1..200000, --minutes 1..360.")
   })
 
   /*
@@ -1480,7 +1496,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     expect(calls.map((call) => call.procedure)).toEqual(["List", "Plan"])
   })
 
-  /* The same door, the same bound: a flow's own four hours is refused here too, so no approval row is written for it. */
+  /* The same door, the same bound: a flow's own limit just over six hours is refused here too, so no approval row is written for it. */
   test("an approval whose flow declares more than the ceiling never reaches the approval or Smithers Cloud", async () => {
     const calls: Array<RelayCall> = []
     const receipts: Array<unknown> = []
@@ -1490,7 +1506,7 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
         [RPC]: relayRoute(calls, workspaceAnswers({
           Plan: (payload) =>
             payload.flowId === "nightly-lint"
-              ? okFrame({ ...PLAN, envelope: { ...PLAN.envelope, budget: { tokens: 200_000, milliseconds: 14_400_000 } } })
+              ? okFrame({ ...PLAN, envelope: { ...PLAN.envelope, budget: { tokens: 200_000, milliseconds: 21_600_001 } } })
               : okFrame({ ...PLAN, planId: "plan-registrar", digest: "f".repeat(64), flowId: String(payload.flowId) })
         })),
         [APPROVAL]: async (request) => {

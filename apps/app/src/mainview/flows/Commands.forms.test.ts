@@ -211,7 +211,7 @@ describe("THE FORM LAW — the slash door and the button door", () => {
     expect(outcome.status).toBe("form")
     const card = formOf(store, "triggers.register")
     expect(card?.payload.draft).toEqual({ tokens: "500000" })
-    expect(card?.payload.error).toBe("Token and time limits are whole numbers: --tokens 1..200000, --minutes 1..120.")
+    expect(card?.payload.error).toBe("Token and time limits are whole numbers: --tokens 1..200000, --minutes 1..360.")
     await controller.dispose()
   })
 
