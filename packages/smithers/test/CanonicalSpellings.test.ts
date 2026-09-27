@@ -64,7 +64,12 @@ const sources = (): ReadonlyArray<string> => {
 const hole = "\u2026"
 
 const printedTexts = (file: string): ReadonlyArray<{ readonly line: number; readonly text: string }> => {
-  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true)
+  const contents = readFileSync(file, "utf8")
+  // Every finding needs a literal spelling `smthrs`, so a file that never
+  // spells it has nothing to read. Parsing only the files that do keeps the
+  // scan of ~2,000 sources inside the test budget on a loaded runner.
+  if (!contents.includes("smthrs")) return []
+  const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true)
   const texts: Array<{ line: number; text: string }> = []
   const literal = (node: ts.Node): string | undefined =>
     ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined
