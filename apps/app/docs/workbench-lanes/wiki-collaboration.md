@@ -150,8 +150,11 @@ base64 overhead; see `apps/server/docs/wiki-collaboration.md`.
 These are implementation references, not claims of feature parity. This slice
 does not implement presence cursors, collaborative selection/undo, an editor
 binding to ProseMirror's operation stream, or generated-prose semantic validation.
-External changes use the existing echo-suppressed Markdown replacement handle;
-that can move the caret during a peer update. The outline and source line state
+External changes use the echo-suppressed Markdown replacement handle. The rich
+editor applies Milkdown document diffs, ignores generated heading IDs when
+comparing content, and maps the local selection and undo through the changed
+ranges. A peer revision retains editor focus without taking it from Chat;
+peer changes do not enter the local undo history. The outline and source line state
 what is actually recorded, and never claim that a page is semantically fresh
 because a transport request succeeded. Semantic freshness belongs to the
 dependency-bound Wiki workflow.
@@ -172,3 +175,9 @@ the composer visible in that test host. The current shell separately owns
 Command-K visibility and keyboard focus. Backend native/Postgres tests and proxy bounds tests are
 owned by their respective implementations; browser fixtures do not substitute
 for a deployed two-client canary.
+
+The held-acknowledgement Wiki browser cases pause native typing, insert peer
+text before and after it, then resume a caret or backwards selection in both
+Chromium and WebKit. A separate case moves to Chat before the peer reply and
+checks its focus and draft. These use real browser persistence with controlled
+Wiki/Yjs responses; they do not establish hosted multi-account authorization.

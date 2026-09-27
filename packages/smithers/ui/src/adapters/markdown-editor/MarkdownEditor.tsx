@@ -22,8 +22,8 @@ import { crepeThemeCss } from "./crepeTheme.generated";
  * store, router, or draft-reconciliation logic. Two data directions:
  *  - LOCAL edits stream out through `onChange`.
  *  - EXTERNAL updates (multiplayer, resets, programmatic seeds) apply through
- *    the imperative {@link MarkdownEditorHandle.setMarkdown}, which rebuilds the
- *    document via Milkdown's `replaceAll` macro and suppresses the resulting
+ *    the imperative {@link MarkdownEditorHandle.setMarkdown}, which applies changed
+ *    ProseMirror ranges and suppresses the resulting
  *    `markdownUpdated` echo so it never loops back out as a local edit.
  *
  * Because the Crepe editor is a heavy `@milkdown/*` dependency it lives in the
@@ -54,7 +54,8 @@ export type MarkdownEditorHandle = {
   /**
    * Replace the whole document from an external update. Echo-suppressed: the
    * resulting change does NOT fire `onChange`, so callers can seed multiplayer
-   * or reset content without it looping back as a local edit.
+   * or reset content without it looping back as a local edit. The rich editor
+   * maps selection and undo through changed ranges and retains focus ownership.
    */
   setMarkdown: (markdown: string) => void;
   /**
@@ -88,7 +89,7 @@ export type MarkdownEditorError = {
  */
 export type MarkdownEditorModule = {
   readonly Crepe: new(options: { root: HTMLElement; defaultValue: string }) => CrepeInstance;
-  readonly replaceAll: (markdown: string, flush?: boolean) => unknown;
+  readonly replaceAll: (markdown: string) => unknown;
   /** Register a ProseMirror transaction listener before the editor is created. */
   readonly listenImmediately?: (editor: CrepeInstance, handler: (markdown: string) => void) => void;
 };
@@ -300,17 +301,18 @@ const renderedHeadingFor = (host: HTMLElement, markdown: string, line: number): 
   return byText ?? rendered[headings.length - 1] ?? null;
 };
 
-/** The default module loader: the two `@milkdown/*` dynamic imports. */
+/** Load the rich editor and its transaction adapter only when needed. */
 const loadMilkdown = async (): Promise<MarkdownEditorModule> => {
-  const [{ Crepe }, { replaceAll, $prose }, { serializerCtx }, { Plugin }] = await Promise.all([
+  const [{ Crepe }, { $prose }, { serializerCtx }, { Plugin }, { replaceMarkdown }] = await Promise.all([
     import("@milkdown/crepe"),
     import("@milkdown/kit/utils"),
     import("@milkdown/kit/core"),
     import("@milkdown/kit/prose/state"),
+    import("./replaceMarkdown"),
   ]);
   return {
     Crepe: Crepe as unknown as MarkdownEditorModule["Crepe"],
-    replaceAll,
+    replaceAll: replaceMarkdown,
     listenImmediately: (editor, handler) => {
       editor.editor.use?.($prose((ctx) => new Plugin({
         view: () => ({
@@ -403,7 +405,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         if (!crepe || !readyRef.current || !replaceAll) return;
         suppressEchoRef.current += 1;
         try {
-          crepe.editor.action(replaceAll(markdown, true));
+          crepe.editor.action(replaceAll(markdown));
         } finally {
           // Release on the next tick — replaceAll's markdownUpdated fires
           // synchronously within the action, but be tolerant of async flushes.
@@ -541,7 +543,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         if (lastMarkdownRef.current !== seed) {
           suppressEchoRef.current += 1;
           try {
-            editor.editor.action(replaceAll(lastMarkdownRef.current, true));
+            editor.editor.action(replaceAll(lastMarkdownRef.current));
           } finally {
             setTimeout(() => {
               suppressEchoRef.current = Math.max(0, suppressEchoRef.current - 1);

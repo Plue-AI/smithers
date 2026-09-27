@@ -14,7 +14,7 @@ const send = async (page: Page, text: string) => {
   await page.getByTestId("composer-send").click()
 }
 
-test("collaborative Wiki stays embedded, edits through the flow, and restores the same view after reload", async ({ page }, testInfo) => {
+const wikiFixture = async (page: Page) => {
   const doc = new Y.Doc()
   doc.getText("markdown").insert(
     0,
@@ -23,6 +23,7 @@ test("collaborative Wiki stays embedded, edits through the flow, and restores th
   let revision = 1
   const posts: Array<{ update_id: string; update: string; page_id: number }> = []
   const accepted = new Map<string, number>()
+  let beforeAcknowledge: (() => Promise<void>) | undefined
   const bootstrap = () => ({
     page: {
       id: pageId,
@@ -59,10 +60,32 @@ test("collaborative Wiki stays embedded, edits through the flow, and restores th
       Y.applyUpdate(doc, new Uint8Array(Buffer.from(input.update, "base64")))
       accepted.set(input.update_id, ++revision)
     }
+    const held = beforeAcknowledge
+    beforeAcknowledge = undefined
+    await held?.()
     return route.fulfill(
       json({ document: bootstrap(), update_id: input.update_id, accepted_revision: accepted.get(input.update_id) })
     )
   })
+  return {
+    doc, posts, bootstrap,
+    holdNextAcknowledgement: () => {
+      let release!: () => void
+      const gate = new Promise<void>(resolve => { release = resolve })
+      beforeAcknowledge = () => gate
+      return release
+    },
+    insertPeer: (text: string) => {
+      const markdown = doc.getText("markdown")
+      markdown.insert(0, text)
+      markdown.insert(markdown.length, "\n\nPeer ending.")
+      revision++
+    }
+  }
+}
+
+test("collaborative Wiki stays embedded, edits through the flow, and restores the same view after reload", async ({ page }, testInfo) => {
+  const { doc, posts, bootstrap } = await wikiFixture(page)
   await page.goto("/")
   await send(page, `/wiki.cloud ${repo}`)
   const index = page.getByTestId(`card-wiki-index-${repo}`)
@@ -104,3 +127,66 @@ test("collaborative Wiki stays embedded, edits through the flow, and restores th
   await expect(card).toHaveAttribute("data-maximized", "false")
   doc.destroy()
 })
+
+for (const target of ["caret", "selection", "chat"] as const) {
+  test(`a peer Wiki revision preserves the human's ${target} between keystrokes`, async ({ page }) => {
+    const fixture = await wikiFixture(page)
+    await page.goto("/")
+    await send(page, `/wiki.cloud ${repo}`)
+    const index = page.getByTestId(`card-wiki-index-${repo}`)
+    await expect(index).toBeVisible()
+    await page.getByTestId("composer-input").press("Escape")
+    await index.getByRole("button", { name: "Open page", exact: true }).click()
+    const card = page.getByTestId(`card-${cardId}`)
+    await card.getByRole("button", { name: "Document", exact: true }).click()
+    const editor = card.locator('.ProseMirror[contenteditable="true"]')
+    await expect(editor).toBeVisible()
+    await editor.click()
+    await page.keyboard.press("ControlOrMeta+End")
+    const release = fixture.holdNextAcknowledgement()
+    try {
+      await page.keyboard.press("Enter")
+      await page.keyboard.type("Colla")
+      await expect.poll(() => fixture.posts.length).toBe(1)
+      await expect(editor).toContainText("Colla")
+      await expect(editor).toBeFocused()
+      if (target === "selection") {
+        await page.keyboard.press("Shift+ArrowLeft")
+        await page.keyboard.press("Shift+ArrowLeft")
+        await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toBe("la")
+      } else if (target === "chat") {
+        // The editor's spotlight consumes an outside click to release it.
+        // Use the app's native Chat shortcut to move directly to its input.
+        await page.keyboard.press("ControlOrMeta+k")
+        await expect(page.getByTestId("composer-input")).toBeFocused()
+        await page.keyboard.type("Keep writing here")
+      }
+      fixture.insertPeer("Peer note.\n\n")
+      release()
+      await expect(editor).toContainText("Peer note.")
+      if (target === "chat") {
+        await expect(page.getByTestId("composer-input")).toBeFocused()
+        await page.keyboard.type(" too")
+        await expect(page.getByTestId("composer-input")).toHaveValue("Keep writing here too")
+      } else {
+        await expect(editor).toBeFocused()
+        if (target === "selection") {
+          await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toBe("la")
+          await page.keyboard.type("laboration works.")
+        } else {
+          await page.keyboard.type("boration works.")
+        }
+        await expect.poll(() => fixture.bootstrap().page.body).toContain("Collaboration works.")
+      }
+      await expect(card).toContainText("No pending edits")
+      expect(fixture.bootstrap().page.body).toContain("Peer note.")
+      expect(fixture.bootstrap().page.body).toContain("Peer ending.")
+      await page.reload()
+      await expect(card.locator(".ProseMirror")).toContainText("Peer note.")
+      await expect(card.locator(".ProseMirror")).toContainText(target === "chat" ? "Colla" : "Collaboration works.")
+    } finally {
+      release()
+      fixture.doc.destroy()
+    }
+  })
+}
