@@ -39,6 +39,7 @@ const authoringSource = (name: string) => `../${name}/flow.mdx`
 const issueFlows = ["issue/repro", "issue/poc"] as const
 const policySources = [
   "schema.ts",
+  "approved-text.ts",
   "remote.ts",
   "inspection.ts",
   "jobs.ts",

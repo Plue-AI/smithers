@@ -3,6 +3,7 @@ import { Context, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/unstable/http"
 import type { Options as RepositoryBinding } from "../coding/landing.ts"
 import { CodingError } from "../coding/schema.ts"
+import { approvedText, pinApprovedSubject } from "./approved-text.ts"
 import type { Event, Job, Record, SourceStatus } from "./schema.ts"
 
 export interface RemoteOptions extends RepositoryBinding {
@@ -418,7 +419,17 @@ export const makeRemote = (options: RemoteOptions) =>
             if (
               githubEvent && (object(direct.head).sha !== head || object(direct.base).sha !== baseSHA)
             ) return yield* failed("The selected PR changed; capture its latest event before review")
-            return { payload: { ...original, pull_request: { ...pr, source: "github" } }, sourceRevision: head }
+            return {
+              payload: {
+                ...original,
+                // Only the event's own PR carries its snapshot; a PR a trial's
+                // issue links to is read as it is.
+                pull_request: githubEvent && original.issue === undefined && direct.number === pr.number
+                  ? pinApprovedSubject(approvedText(event), { ...pr, source: "github" })
+                  : { ...pr, source: "github" }
+              } as Schema.Json,
+              sourceRevision: head
+            }
           }
           if (source !== "smithers-cloud") return yield* failed("Select GitHub or Smithers as the PR source")
           const landing = object(yield* send(HttpClientRequest.get(`${base}/landings/${number}`))),

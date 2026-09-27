@@ -13,6 +13,7 @@ import {
 } from "../coding/immutable-source.ts"
 import { normalizePath } from "../coding/planning-sources.ts"
 import { CodingError } from "../coding/schema.ts"
+import { approvedText, pinApprovedRecords, pinApprovedSubject } from "./approved-text.ts"
 import { ProposalStep } from "./changes.ts"
 import { CheckStep, reviewCheck } from "./checks.ts"
 import { captureCiPolicy, composeCiChecks, inheritsCiPolicy, revalidateCiPolicy } from "./ci-policy.ts"
@@ -216,13 +217,20 @@ export const captureJobSource = (options: ImmutableSourceOptions, input: typeof 
     const review = needsPR && Option.isSome(available) && available.value.resolveReview
       ? yield* available.value.resolveReview(input.event) :
       undefined
+    // The subject's approved snapshot is the task text (a review pins its own
+    // live PR read); a live read that differs is recorded as drift.
+    const key = payload.issue !== undefined ? "issue" : "pull_request"
+    const subjectPayload = review?.payload ??
+      (payload[key] === undefined
+        ? normalized.payload
+        : json({ ...payload, [key]: pinApprovedSubject(approvedText(input.event), object(payload[key])) }))
     if (needsPR && !review && !(input.event.type === "pull_request" && typeof head.sha === "string")) {
       return yield* invalid("Select the actual PR and immutable candidate for review")
     }
     const sourceRevision = review?.sourceRevision ?? normalized.sourceRevision ??
       (typeof head.sha === "string" ? head.sha : undefined)
     if (sourceRevision !== undefined) {
-      yield* ensureSource(options, input.event, review?.payload ?? normalized.payload, yield* currentExecutionId)
+      yield* ensureSource(options, input.event, subjectPayload, yield* currentExecutionId)
     }
     // The one place the event's own untrusted text becomes model evidence.
     // Jev reads it here, before any prompt is built, and what it withholds is
@@ -230,7 +238,7 @@ export const captureJobSource = (options: ImmutableSourceOptions, input: typeof 
     const screened = yield* screenEvent({
       repo: input.repo,
       event: input.event,
-      payload: review?.payload ?? normalized.payload
+      payload: subjectPayload
     })
     const evidence = yield* captureRepository(
       options,
@@ -243,7 +251,17 @@ export const captureJobSource = (options: ImmutableSourceOptions, input: typeof 
         ? "immutable"
         : "snapshot"
     )
-    return { ...evidence, subject: screened.payload, intake: screened.screening }
+    const pinned = pinApprovedRecords(input.event, evidence.records)
+    const subject = object(screened.payload)
+    return {
+      ...evidence,
+      records: [...pinned.records],
+      sources: [...evidence.sources, ...pinned.sources],
+      subject: pinned.drift && subject[key] !== undefined
+        ? json({ ...subject, [key]: { ...object(subject[key]), approvedTextDrift: true } })
+        : screened.payload,
+      intake: screened.screening
+    }
   }).pipe(
     Effect.timeoutOrElse({
       duration: Math.max(1, (input.deadlineAt ?? Date.now() + input.configuration.budgetMinutes * 60_000) - Date.now()),
@@ -516,10 +534,14 @@ export const executionLayers = (
         }
         const replies = Array.isArray(original.authorReplies) ? original.authorReplies : []
         if (replies.some((prior) => object(prior).id === comment.id)) return null
+        // The launch's approved snapshot stays the task text; a reply's own
+        // snapshot names the text at reply time, not the approved one.
+        const { approvedText: _replySnapshot, ...answered } = event
         return {
           ...input,
           event: {
-            ...event,
+            ...answered,
+            ...(input.event.approvedText === undefined ? {} : { approvedText: input.event.approvedText }),
             ...(input.event.manualStep === undefined ? {} : {
               type: "manual",
               action: `manual:${input.event.manualStep}`,

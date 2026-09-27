@@ -93,7 +93,11 @@ export const Event = Schema.Struct({
   issueNumber: Schema.optionalKey(Schema.Int),
   trial: Schema.optionalKey(Schema.Boolean),
   manualStep: Schema.optionalKey(text(100)),
-  payload: Schema.Json
+  payload: Schema.Json,
+  /** The subject's text as the backend approved it for this run. */
+  approvedText: Schema.optionalKey(
+    Schema.Struct({ title: Schema.String, body: Schema.String, revision: Schema.String })
+  )
 })
 export const JobInput = Schema.Struct({
   repo: Schema.NonEmptyString,

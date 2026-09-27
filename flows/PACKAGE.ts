@@ -300,6 +300,7 @@ const egress = Smithers.NodeTest({
 const fixture = (name: string) => Smithers.file(`//flows/test/${name}`)
 const repositoryFixtures = [
   "apply-proof",
+  "approved-text",
   "budget",
   "check-context",
   "check-receipt",
