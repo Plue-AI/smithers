@@ -2532,7 +2532,7 @@ Repository and runtime [extensions](/docs/tui/extend/) add keys under their owne
 https://smithers.sh/docs/tui/cli/
 
 ```text
-smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny]
+smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny] [--budget-tokens n]
 ```
 
 From a source checkout, use `bun run tui` with the same arguments.
@@ -2547,6 +2547,7 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--approve all` | | Run edits, commands, and network calls. The default. |
 | `--approve ask` | | Ask first. Interactive only. |
 | `--approve deny` | | Refuse them. |
+| `--budget-tokens n` | | Stop each turn and worker at `n` tokens. Unbounded by default. |
 | `--help` | `-h` | Show options. |
 
 ## One answer
@@ -2607,6 +2608,7 @@ The TUI reads everything from the environment.
 | `SMITHERS_TUI_WORKER_SEATS` | Fallback models for workers, comma-separated. |
 | `SMITHERS_TUI_WORKERS` | Six workers at once; more wait in order. |
 | `SMITHERS_TUI_APPROVE` | `all`; also `ask`, `deny`. `--approve` wins. |
+| `SMITHERS_TUI_BUDGET_TOKENS` | Unbounded. A token ceiling per turn and worker; `--budget-tokens` wins. |
 | `SMITHERS_TUI_SESSION_DIR` | Where conversations are stored. |
 | `VISUAL`, then `EDITOR` | Editor for Ctrl+G; falls back to `nano`. |
 | `SMITHERS_TUI_BIN`, `SMITHERS_BUN` | Which TUI build and Bun the launcher uses. |
@@ -51191,6 +51193,7 @@ Options:
   --resume, -r              Pick a session to continue
   --print, -p <string>      Answer one prompt, print it, and exit
   --approve <all|ask|deny>  Consequential calls: all, ask, or deny
+  --budget-tokens <string>  Token ceiling per turn and worker; unbounded by default
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

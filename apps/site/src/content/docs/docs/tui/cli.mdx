@@ -8,7 +8,7 @@ sidebar:
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
 ```text
-smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny]
+smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny] [--budget-tokens n]
 ```
 
 From a source checkout, use `bun run tui` with the same arguments.
@@ -23,6 +23,7 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--approve all` | | Run edits, commands, and network calls. The default. |
 | `--approve ask` | | Ask first. Interactive only. |
 | `--approve deny` | | Refuse them. |
+| `--budget-tokens n` | | Stop each turn and worker at `n` tokens. Unbounded by default. |
 | `--help` | `-h` | Show options. |
 
 ## One answer

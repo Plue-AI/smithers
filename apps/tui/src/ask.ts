@@ -5,6 +5,7 @@
  */
 import { appendFileSync, writeFileSync } from "node:fs"
 import * as Approvals from "./approvals.ts"
+import * as Budget from "./budget.ts"
 import * as Host from "./host.ts"
 import * as Models from "./models.ts"
 
@@ -22,7 +23,17 @@ if (typeof approvals === "object") {
   console.error(approvals.error)
   process.exit(2)
 }
-const host = Host.make({ cwd: process.cwd(), environment: available.environment, approvals })
+const budget = Budget.policy(process.env)
+if (budget !== undefined && "error" in budget) {
+  console.error(budget.error)
+  process.exit(2)
+}
+const host = Host.make({
+  cwd: process.cwd(),
+  environment: available.environment,
+  approvals,
+  ...(budget === undefined ? {} : { budget })
+})
 const turn = host.run({
   prompt,
   seat: process.argv[3] ?? available.defaultSeat ?? "openai:gpt-6-sol",

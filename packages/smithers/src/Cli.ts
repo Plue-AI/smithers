@@ -268,7 +268,8 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
         continue: z.boolean().default(false).describe("Continue the latest session in the directory"),
         resume: z.boolean().default(false).describe("Pick a session to continue"),
         print: z.string().optional().describe("Answer one prompt, print it, and exit"),
-        approve: z.enum(["all", "ask", "deny"]).optional().describe("Consequential calls: all, ask, or deny")
+        approve: z.enum(["all", "ask", "deny"]).optional().describe("Consequential calls: all, ask, or deny"),
+        budgetTokens: z.string().optional().describe("Token ceiling per turn and worker; unbounded by default")
       }),
       alias: { model: "m", continue: "c", resume: "r", print: "p" },
       run: (c) =>

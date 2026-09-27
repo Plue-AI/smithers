@@ -37,6 +37,10 @@ type ErrorRecord = {
   readonly retryAfterMillis?: unknown
   readonly seat?: unknown
   readonly route?: unknown
+  readonly budget?: unknown
+  readonly scope?: unknown
+  readonly used?: unknown
+  readonly max?: unknown
 }
 const record = (value: unknown): ErrorRecord | undefined =>
   typeof value === "object" && value !== null ? value : undefined
@@ -136,13 +140,28 @@ export const describe = (error: unknown, seat?: string): Description => {
   }
   let current: unknown = error
   let found: ErrorRecord | undefined
+  let budget: ErrorRecord | undefined
   const seen = new Set<unknown>()
   while (current !== undefined && !seen.has(current)) {
     seen.add(current)
     const value = record(current)
     if (value === undefined) break
     if (value._tag === "flows/model/ModelError" || value._tag === "/harness/HarnessError") found = value
+    // A spent run budget, reported at the refused call or at a later skipped one.
+    if (value._tag === "flows/agent/BudgetExceeded") budget = value
+    if (value._tag === "flows/agent/Skipped") budget = record(value.budget)
     current = value.cause
+  }
+  if (budget !== undefined) {
+    const tokens = budget.scope !== "latency"
+    return {
+      headline: tokens ? "Token budget reached" : "Time budget reached",
+      fault: "user",
+      line: typeof budget.used === "number" && typeof budget.max === "number"
+        ? `${Math.round(budget.used)} of ${budget.max} ${tokens ? "tokens" : "ms"} used.`
+        : "The run spent its budget.",
+      actions: ["resume", "details"]
+    }
   }
   const code = found?.code
   if (found?._tag === "flows/model/ModelError" && typeof code === "string" && code in model) {

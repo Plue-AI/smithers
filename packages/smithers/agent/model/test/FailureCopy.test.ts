@@ -20,6 +20,25 @@ describe("FailureCopy.describe", () => {
     expect(FailureCopy.describe(error, "openai:gpt-6-sol").headline).not.toContain("secret")
   })
 
+  it("names a spent run budget through a harness wrapper and a skipped call", () => {
+    // Shapes of `@smthrs/agent/Budget` failures, which this package cannot import.
+    const exceeded = { _tag: "flows/agent/BudgetExceeded", scope: "tokens", used: 600, max: 1000 }
+    const wrapped = { _tag: "/harness/HarnessError", code: "model_failed", cause: exceeded }
+    const expected = {
+      headline: "Token budget reached",
+      fault: "user",
+      line: "600 of 1000 tokens used.",
+      actions: ["resume", "details"]
+    }
+    expect(FailureCopy.describe(wrapped)).toEqual(expected)
+    expect(FailureCopy.describe({ _tag: "flows/agent/Skipped", budget: exceeded })).toEqual(expected)
+    expect(FailureCopy.describe({ ...exceeded, scope: "latency", used: 12.4, max: 10 })).toMatchObject({
+      headline: "Time budget reached",
+      line: "12 of 10 ms used."
+    })
+    expect(FailureCopy.describe({ _tag: "flows/agent/BudgetExceeded" }).line).toBe("The run spent its budget.")
+  })
+
   it("uses a generic bug headline for an unknown error", () => {
     expect(FailureCopy.describe(new Error("private stack detail"))).toMatchObject({
       headline: "Worker stopped unexpectedly",

@@ -11,6 +11,7 @@ Options:
   --resume, -r              Pick a session to continue
   --print, -p <string>      Answer one prompt, print it, and exit
   --approve <all|ask|deny>  Consequential calls: all, ask, or deny
+  --budget-tokens <string>  Token ceiling per turn and worker; unbounded by default
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

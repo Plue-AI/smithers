@@ -196,6 +196,8 @@ export const make = (options: {
   readonly totalMs?: number
   /** Test seam for the judge; the environment's gateway key when absent. */
   readonly judge?: Layer.Layer<Evaluator.Evaluator>
+  /** Each turn's and worker's spend ceiling; see `budget.ts`. Unbounded when absent. */
+  readonly budget?: Budget.Policy
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
   const env = options.environment
@@ -207,16 +209,19 @@ export const make = (options: {
   const catalog = routing(available, env, judged)
   // The operator's stance, validated where `smithers run` validates it.
   const stance = NodeControl.supervisorStance(env)
-  const layer = Layer.mergeAll(
-    // The local TUI runs without an approved envelope, so no spend ceiling exists.
+  // The local TUI runs without an approved envelope, so it is unbounded unless the operator sets a ceiling.
+  const budget = options.budget === undefined
     // eslint-disable-next-line no-restricted-syntax -- no envelope, see above
-    Agent.layer.pipe(Layer.provide(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layerUnbounded()))),
+    ? Budget.layerUnbounded()
+    // `budget.ts` validated the policy; a refusal here is a defect.
+    : Layer.orDie(Budget.layer(options.budget))
+  const layer = Layer.mergeAll(
+    Agent.layer.pipe(Layer.provide(Layer.mergeAll(QuotaPolicy.layerDefault(), budget))),
     Agent.layerDefaults,
     NodeControl.layerSeatResolver(env).pipe(Layer.provide(executor)),
     judge,
     QuotaPolicy.layerDefault(),
-    // eslint-disable-next-line no-restricted-syntax -- no envelope, see above
-    Budget.layerUnbounded(),
+    budget,
     FlowEngine.layerMemory,
     snapshots,
     // Measures the tree at both ends of every worker frame. Without it a sealed read

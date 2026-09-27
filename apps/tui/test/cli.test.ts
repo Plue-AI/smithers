@@ -32,9 +32,9 @@ it("refuses invalid options and ignored extra inputs before changing directory",
 })
 
 it("resolves a relative workspace and keeps prompt and model flags", () => {
-  expect(Cli.parse(["tmp", "-m", "replay:recording", "-p", "hello"], "/")).toMatchObject({
+  expect(Cli.parse(["tmp", "-m", "replay:recording", "-p", "hello", "--budget-tokens", "5000"], "/")).toMatchObject({
     cwd: "/tmp",
-    values: { model: "replay:recording", print: "hello" }
+    values: { model: "replay:recording", print: "hello", "budget-tokens": "5000" }
   })
 })
 
@@ -73,3 +73,14 @@ it.each([{ args: ["--help"] }, { args: ["--print", "ping"] }])(
   },
   12_000
 )
+
+it("refuses an invalid budget before starting a model", () => {
+  const app = resolve(import.meta.dir, "../src/main.tsx")
+  const result = spawnSync("bun", [app, "--budget-tokens", "0", "--print", "ping"], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, SMITHERS_TUI_REPLAY: resolve(import.meta.dir, "fixtures/pong.jsonl") },
+    timeout: 10_000
+  })
+  expect(result.status).toBe(1)
+  expect(result.stderr).toBe("--budget-tokens must be a positive whole number\n")
+})

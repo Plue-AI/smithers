@@ -45,6 +45,8 @@ export interface Options {
   readonly resume?: boolean | undefined
   readonly print?: string | undefined
   readonly approve?: "all" | "ask" | "deny" | undefined
+  /** Validated by the TUI. */
+  readonly budgetTokens?: string | undefined
 }
 
 /**
@@ -59,6 +61,7 @@ export const argv = (options: Options): Array<string> => [
   ...(options.resume === true ? ["--resume"] : []),
   ...(options.print === undefined ? [] : ["--print", options.print]),
   ...(options.approve === undefined ? [] : ["--approve", options.approve]),
+  ...(options.budgetTokens === undefined ? [] : ["--budget-tokens", options.budgetTokens]),
   ...(options.directory === undefined ? [] : [options.directory])
 ]
 

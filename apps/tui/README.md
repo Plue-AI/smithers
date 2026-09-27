@@ -56,6 +56,11 @@ Edits, shell commands, and network calls run without asking. `--approve ask`
 (or `SMITHERS_TUI_APPROVE=ask`) makes each wait for **y**/**n**; `deny` refuses
 them. The flag wins over the variable, and `-p` cannot `ask`.
 
+Spending is unbounded by default. `--budget-tokens <n>` (or
+`SMITHERS_TUI_BUDGET_TOKENS=<n>`) stops each chat turn and each worker before a
+model call would take it past `n` tokens; the tab shows **Token budget
+reached**. The flag wins over the variable.
+
 ## Keys
 
 Queue operations and worker action eligibility are shared with the GUI through
