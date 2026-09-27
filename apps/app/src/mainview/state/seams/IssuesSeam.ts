@@ -19,7 +19,6 @@ export type IssueState = "open" | "fixed" | "verified" | "closed"
 
 export interface IssuesSeam {
   /** Intent metadata (smithers-ui-DESIGN.md §3.2): PATCH one field on the issue. */
-  readonly setIssueTask: (number: number, field: "owner" | "due" | "priority" | "parent", value: string, repo?: string) => Promise<string | void>
   readonly submitConversation: (text: string, turnId: string, repo: string, owner: string) => Promise<boolean>
 
   readonly draftIssueComment: (cardId: string, text: string) => Promise<string | void>
@@ -67,19 +66,11 @@ const taskPersonOf = (value: unknown): PersonaRef | undefined => {
   return { id: login, name: login, ...(avatar === undefined ? {} : { iconUrl: avatar }) }
 }
 
-/** Intent metadata the issue carries, when it carries any (owner, due, priority, parent, fixer, verifier). */
+/** Intent metadata the issue carries, when it carries any: the backend's fixer and verifier (`fixed_by`, `verified_by`). */
 const taskOf = (value: Record<string, unknown>): IssueListRow["task"] => {
-  const owner = taskPersonOf(value.owner)
   const fixedBy = taskPersonOf(value.fixed_by)
   const verifiedBy = taskPersonOf(value.verified_by)
-  const priority = asInt(value.priority)
-  const parentNumber = isRecord(value.parent) ? asInt(value.parent.number) : asInt(value.parent_number)
-  const due = asText(value.due) ?? asText(value.due_at)
   const task = {
-    ...(owner === undefined ? {} : { owner }),
-    ...(due === undefined ? {} : { due }),
-    ...(priority === null || priority < 0 || priority > 3 ? {} : { priority: priority as 0 | 1 | 2 | 3 }),
-    ...(parentNumber === null ? {} : { parent: { number: parentNumber, ...(isRecord(value.parent) && asText(value.parent.title) !== undefined ? { title: value.parent.title as string } : {}) } }),
     ...(fixedBy === undefined ? {} : { fixedBy }),
     ...(verifiedBy === undefined ? {} : { verifiedBy })
   }
@@ -926,22 +917,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       return refreshDetail("Sync mapped", repo, number)
     },
     listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all")), { preload: listView.preload }),
-    setIssueTask: async (number, field, value, explicitRepo) => {
-      const target = resolveTargetRepo(ctx.store, explicitRepo)
-      if ("error" in target) return target.error
-      const { repo } = target
-      let response: Response
-      try {
-        response = await ctx.http(`${issuesPath(repo)}/${number}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ [field]: value }) })
-      } catch (error) { return unreachable(`set ${field} on issue #${number} in ${repo}`, error) }
-      if (!response.ok) {
-        if (response.status === 404) return explain404(response, `Issue #${number} in ${repo} was not found`)
-        return readErrorMessage(response, `Setting ${field} on issue #${number} failed (${response.status})`)
-      }
-      await response.body?.cancel().catch(() => {})
-      return refreshDetail(`Issue #${number} ${field} set`, repo, number)
-    },
-
     viewIssue: Object.assign(async (number: number, explicitRepo?: string, source?: "smithers-cloud" | "github") => {
       const target = resolveTargetRepo(ctx.store, explicitRepo)
       if ("error" in target) return target.error

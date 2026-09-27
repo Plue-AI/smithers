@@ -52,13 +52,7 @@
 .thread-state[data-state="fixed"] { color: var(--warning); }
 .thread-state[data-state="verified"] { color: var(--success); }
 .thread-state[data-state="closed"] { color: var(--text-muted); }
-.thread-due,
-.thread-priority,
-.thread-parent,
 .thread-by { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-muted); white-space: nowrap; }
-.thread-due[data-past="true"] { color: var(--danger); font-weight: 600; }
-.thread-priority[data-priority="0"],
-.thread-priority[data-priority="1"] { color: var(--danger); }
 .thread-by { display: inline-flex; align-items: center; gap: 0.3rem; }
 .thread-ref {
 	padding: 0;

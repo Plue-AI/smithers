@@ -129,21 +129,6 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ cardId, requestId }) => actions.retryIssueComment(cardId, requestId)
   }),
   flow({
-    name: "issues.set",
-    form: { args: payload => JSON.stringify(payload) },
-    summary: "Set an issue's owner, due date, priority or parent",
-    runtimeAny: ["cloud"],
-    args: "<json {number, field, value, repo}>",
-    requires: ["repo-read"],
-    input: Schema.Struct({
-      number: Schema.Number,
-      field: Schema.Literals(["owner", "due", "priority", "parent"]),
-      value: Schema.String,
-      repo: Schema.optional(Schema.String)
-    }),
-    handler: ({ number, field, value, repo }) => actions.setIssueTask(number, field, value, repo)
-  }),
-  flow({
     name: "issues.comment",
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } } },
     summary: "Comment on an issue",

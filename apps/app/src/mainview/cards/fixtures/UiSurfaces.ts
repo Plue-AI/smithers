@@ -51,7 +51,7 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
         },
         {
           number: 2101, title: "Fix wiki staleness banner", state: "fixed", author: "owner", comments: 5, updatedAt: iso(-45), source: "smithers-cloud",
-          kind: "chat", task: { owner: ENGINEER, due: iso(24 * 60), priority: 1, parent: { number: 2088 }, fixedBy: ENGINEER },
+          kind: "chat", task: { fixedBy: ENGINEER },
           last: { persona: ENGINEER, text: "Tests pass.", at: iso(-45) }
         },
         {
@@ -70,7 +70,7 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
     payload: {
       repo: REPO, number: 2101, title: "Fix wiki staleness banner", state: "fixed", author: "owner", issueBody: "The wiki banner still says stale after a refresh.",
       labels: [], kind: "chat", source: "smithers-cloud",
-      task: { owner: ENGINEER, due: iso(24 * 60), priority: 1, parent: { number: 2088, title: "Wiki freshness" }, fixedBy: ENGINEER },
+      task: { fixedBy: ENGINEER },
       visibility: "private",
       sync: { provider: "slack", connectionId: "slack", scopeId: "T0000000000", conversationId: "C0000000000", threadId: "1700000000.000100", state: "synced" },
       comments: [

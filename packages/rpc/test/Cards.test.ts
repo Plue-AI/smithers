@@ -1228,15 +1228,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         htmlUrl: "https://github.com/smithersai/smithers/issues/1634",
         kind: "chat",
         task: {
-          owner: {
-            id: "assistant",
-            name: "Assistant",
-            iconUrl: "https://example.com/assistant.png",
-            agentId: "assistant"
-          },
-          due: "2026-09-27",
-          priority: 1,
-          parent: { number: 1600, title: "CI" },
           fixedBy: {
             id: "assistant",
             name: "Assistant",
@@ -1289,15 +1280,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       kind: "chat",
       visibility: "private",
       task: {
-        owner: {
-          id: "assistant",
-          name: "Assistant",
-          iconUrl: "https://example.com/assistant.png",
-          agentId: "assistant"
-        },
-        due: "2026-09-27",
-        priority: 0,
-        parent: { number: 1600 },
         fixedBy: {
           id: "assistant",
           name: "Assistant",

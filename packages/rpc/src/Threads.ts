@@ -48,17 +48,15 @@ export const ThreadStateSchema = z.enum(["open", "fixed", "verified", "closed"])
 export type ThreadState = z.infer<typeof ThreadStateSchema>
 
 /**
- * Intent metadata on a task; every field is optional because a chat carries none.
+ * Intent metadata on a task: who fixed and who verified it, the facts the
+ * backend records (`fixed_by`, `verified_by`). Every field is optional because
+ * a chat carries none. Owner, due, priority and parent are not stored by the
+ * backend and so are not on the wire (#2186).
  *
  * @since 1.0.0
  * @category schemas
  */
 export const TaskMetaSchema = z.object({
-  owner: PersonaRefSchema.optional(),
-  /** ISO date. */
-  due: z.string().optional(),
-  priority: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
-  parent: z.object({ number: z.number().int().positive(), title: z.string().optional() }).optional(),
   fixedBy: PersonaRefSchema.optional(),
   verifiedBy: PersonaRefSchema.optional()
 })

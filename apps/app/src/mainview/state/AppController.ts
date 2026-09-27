@@ -520,7 +520,6 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly editIssueComment: IssuesSeam["editIssueComment"]
   readonly deleteIssueComment: IssuesSeam["deleteIssueComment"]
   readonly commentOnIssue: IssuesSeam["commentOnIssue"]
-  readonly setIssueTask: IssuesSeam["setIssueTask"]
   readonly listIntegrations: IntegrationsSeam["listIntegrations"]
   readonly listLandings: LandingsSeam["listLandings"]
   readonly viewLanding: LandingsSeam["viewLanding"]
@@ -1855,7 +1854,6 @@ export const createAppController = (
     mapIssueSync: issuesSeam.mapIssueSync,
     editIssueComment: issuesSeam.editIssueComment,
     deleteIssueComment: issuesSeam.deleteIssueComment,
-    setIssueTask: issuesSeam.setIssueTask,
     listIntegrations: integrationsSeam.listIntegrations,
     listLandings: landingsSeam.listLandings,
     viewLanding: landingsSeam.viewLanding,

@@ -382,7 +382,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
       
       "../cards/IssueCards.tsx": 10, // + the detail's comment box submit (issues.comment), the thread rows and the kind chips
-      "../cards/IssueThread.tsx": 5, // The chat body: composer submit and send, reaction toggles, Retry, the state acts.
+      "../cards/IssueThread.tsx": 4, // The chat body: composer submit and send, reaction toggles, Retry, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
       "../cards/FileCards.tsx": 3,
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */

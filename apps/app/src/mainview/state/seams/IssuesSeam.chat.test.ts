@@ -51,7 +51,7 @@ describe("conversations and issues through the issues seam", () => {
     const controller = createAppController(store, unavailableAgent, backend({
       "GET /api/repos/will/flows/issues": json(200, [
         chatIssue,
-        { number: 8, title: "Land the fence", state: "fixed", owner: { login: "engineer" }, priority: 1, fixed_by: { login: "engineer" }, author: { login: "will" }, labels: [], updated_at: "2026-09-26T08:00:00Z" },
+        { number: 8, title: "Land the fence", state: "fixed", fixed_by: { login: "engineer" }, author: { login: "will" }, labels: [], updated_at: "2026-09-26T08:00:00Z" },
         { number: 9, title: "Plain issue", state: "open", author: { login: "will" }, labels: [], updated_at: "2026-09-25T08:00:00Z" }
       ]),
       "POST /api/repos/will/flows/issues": json(201, { ...chatIssue, number: 10 }),
@@ -66,7 +66,7 @@ describe("conversations and issues through the issues seam", () => {
     const list = found
     expect(list.payload.kind).toBe("issue")
     expect(list.payload.issues.map((issue) => issue.number)).toEqual([8, 9])
-    expect(list.payload.issues[0]!.task).toMatchObject({ owner: { id: "engineer" }, priority: 1, fixedBy: { id: "engineer" } })
+    expect(list.payload.issues[0]!.task).toEqual({ fixedBy: { id: "engineer", name: "engineer" } })
     await controller.commands.run("issues.list", `all --kind conversation ${REPO}`)
     expect(calls.some((call) => call.line === "GET /api/repos/will/flows/issues?kind=chat")).toBe(true)
     const created = await controller.commands.run("issues.create", `Ask the assistant ${REPO} --kind conversation`)
