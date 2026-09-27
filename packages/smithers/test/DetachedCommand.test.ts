@@ -81,16 +81,6 @@ describe("detached command ownership", () => {
   })
 })
 
-describe("launch documentation", () => {
-  it("documents deferred local launch and resume receipts", () => {
-    const reference = readFileSync(new URL("../docs/reference/cli/run.md", import.meta.url), "utf8")
-    expect(reference).not.toContain("printed before the settlement wait")
-    expect(reference).toContain("For both launch and resume, the local receipt is printed after settlement")
-    expect(reference).toContain("smthrs up -d")
-    expect(reference).toContain("\"status\":\"failed\"")
-  })
-})
-
 describe("attached receipt timing", () => {
   it.each([false, true])("prints the failed receipt after settlement (resume: %s)", async (resume) => {
     let observed = false

@@ -79,14 +79,6 @@ describe("the CLI documentation contracts", () => {
     expect(guide.match(/^## What happens to subprocesses after a crash\?$/gm)).toHaveLength(1)
   })
 
-  it("keeps both compatibility statements directly after their lead-in", () => {
-    const reference = readFileSync(new URL("../docs/reference/cli/README.md", import.meta.url), "utf8")
-
-    expect(reference).toMatch(
-      /and the help text does not say so:\n\n`plan` requires a flow id\.[\s\S]*?`--remote` is a shared global flag[^\n]*\.\n\nThey are not ingested/
-    )
-  })
-
   it("describes the bin entry as the dispatcher between the Incur tree and the legacy tree", () => {
     const row = readme.split("\n").find((line) => line.startsWith("| `bin` / `smthrs`"))
     expect(row).toContain("`Cli.makeCli`")

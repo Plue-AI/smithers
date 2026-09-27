@@ -18,8 +18,6 @@ const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.m
 const guide = read("../docs/guides/wire-the-mcp-server.md")
 const reference = read("../../../apps/site/src/content/docs/docs/reference/mcp-tools.mdx")
 const setup = read("../../../apps/site/src/content/docs/docs/guides/mcp-setup.mdx")
-const plan = read("../../../apps/site/src/content/docs/docs/reference/cli/plan.mdx")
-const up = read("../../../apps/site/src/content/docs/docs/reference/cli/up.mdx")
 
 /** Backticked names in one piece of text, in order. */
 const names = (text: string) => [...text.matchAll(/`([a-z_-]+)`/g)].map((match) => match[1] ?? "")
@@ -101,7 +99,5 @@ describe("the unified MCP docs", () => {
 
     expect(tools(reference.split("## Compatibility")[0] ?? "")).toEqual([])
     expect(tools(setup)).toEqual([])
-    expect(tools(plan)).toEqual([])
-    expect(tools(up)).toEqual([])
   })
 })

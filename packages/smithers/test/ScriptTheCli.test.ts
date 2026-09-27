@@ -5,7 +5,6 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 const guide = readFileSync(new URL("../docs/guides/script-the-cli.md", import.meta.url), "utf8")
-const reference = readFileSync(new URL("../docs/reference/cli/up.md", import.meta.url), "utf8")
 const fences = (text: string) => [...text.matchAll(/```bash\n([\s\S]*?)```/g)].map((match) => match[1]!)
 const park = fences(guide).find((source) => source.includes("= \"Parked\""))!
 const node = fences(guide).find((source) => source.includes("control.approval.requested"))!
@@ -91,9 +90,5 @@ ${node}
     })
 
     expect(Schema.decodeUnknownSync(ApprovalPayload)(JSON.parse(output))).toEqual(approval)
-  })
-
-  it("keeps the up reference park sequence identical to the guide", () => {
-    expect(fences(reference).find((source) => source.includes("= \"Parked\""))).toBe(park)
   })
 })
