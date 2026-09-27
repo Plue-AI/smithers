@@ -1,5 +1,5 @@
 import { repositoryScope } from "../RepositoryContext"
-import { readResult } from "../seams/SeamContext"
+import { captureCloudOwner, readResult } from "../seams/SeamContext"
 import type { SeamContext } from "../seams/SeamContext"
 import { readRepositoryUpdate } from "../seams/RepositoryUpdateSource"
 import { processRepositoryEvents } from "../RepositoryNotifications"
@@ -11,9 +11,9 @@ export function repositoryUpdateScope(ctx: SeamContext, repo: string): string {
   return repositoryScope(ctx.store, repo)
 }
 export function createRepositoryUpdate(ctx: SeamContext, disposed: () => boolean = () => false) {
-  const pending = new Map<string, Promise<string | { value: string }>>()
+  const pending = new Map<string, { current: () => boolean; work: Promise<string | { value: string }> }>()
   const readUpdate = async (explicit?: string, show = false): Promise<string | { value: string }> => {
-    if (disposed()) return "The controller is closed."
+    if (disposed() || ctx.isDisposed?.()) return "The controller is closed."
     const target = resolveTargetRepo(ctx.store, explicit)
     if ("error" in target) return target.error
     const { repo } = target
@@ -21,15 +21,22 @@ export function createRepositoryUpdate(ctx: SeamContext, disposed: () => boolean
     const session = ctx.store.session()
     const conversation = conversationTabIdOf(session)
     const context = JSON.stringify([scope, conversation, session.activeRepoKey, session.activeWorkspaceId, session.activeBranchId])
+    const ownerCurrent = captureCloudOwner(ctx, false)
+    const retired = (): string | undefined => {
+      if (disposed() || ctx.isDisposed?.()) return "The controller is closed."
+      const current = ctx.store.session()
+      if (!ownerCurrent() || JSON.stringify([repositoryUpdateScope(ctx, repo), conversationTabIdOf(current), current.activeRepoKey, current.activeWorkspaceId, current.activeBranchId]) !== context) {
+        return "The repository or account changed while its update was loading."
+      }
+    }
     const key = JSON.stringify([scope, repo, conversation])
     const pendingKey = JSON.stringify([key, show])
     const prior = pending.get(pendingKey)
-    if (prior) return prior
+    if (prior?.current()) return prior.work
     const work = (async () => {
       const snapshot = await readRepositoryUpdate(ctx, repo)
-      if (disposed()) return "The controller is closed."
-      const current = ctx.store.session()
-      if (JSON.stringify([repositoryUpdateScope(ctx, repo), conversationTabIdOf(current), current.activeRepoKey, current.activeWorkspaceId, current.activeBranchId]) !== context) return "The repository or account changed while its update was loading."
+      const readRefusal = retired()
+      if (readRefusal) return readRefusal
       const at = Date.now()
       const processed = processRepositoryEvents(scope, repo, [...snapshot.issues.events, ...snapshot.prs.events, ...snapshot.notifications.events], [...ctx.store.collections.repositoryNotifications.values()], at)
       const fresh = processed.fresh
@@ -55,7 +62,8 @@ export function createRepositoryUpdate(ctx: SeamContext, disposed: () => boolean
       await ctx.dispatch({ type: "repo.update.observed", actor: ctx.actor(),
         context: { id: key, scope, conversation, data }, notifications: processed.rows
       }).isPersisted.promise
-      if (disposed()) return "The controller is closed."
+      const observedRefusal = retired()
+      if (observedRefusal) return observedRefusal
       if (!show) return readResult(JSON.stringify(data))
       const id = `repo-update-${encodeURIComponent(key)}`
       const existing = ctx.store.collections.cards.get(id)
@@ -77,10 +85,13 @@ export function createRepositoryUpdate(ctx: SeamContext, disposed: () => boolean
       await ctx.dispatch({ type: "repo.update.published", actor: ctx.actor(), card,
         notifications: processed.rows.map(row => announced.has(row.id) ? { ...row, announcedVersion: row.version } : row)
       }).isPersisted.promise
+      const publishedRefusal = retired()
+      if (publishedRefusal) return publishedRefusal
       return readResult(`${summary}\n${items.map(row => `${row.kind}${row.number ? ` #${row.number}` : ""}: ${row.title}`).join("\n")}${problems.length ? `\nPartial update: ${problems.join(" ")}` : ""}`)
     })()
-    pending.set(pendingKey, work)
-    try { return await work } finally { pending.delete(pendingKey) }
+    const entry = { current: () => retired() === undefined, work }
+    pending.set(pendingKey, entry)
+    try { return await work } finally { if (pending.get(pendingKey) === entry) pending.delete(pendingKey) }
   }
   const markUpdateRead = async (cardId: string): Promise<string | void> => {
     const card = ctx.store.collections.cards.get(cardId)
