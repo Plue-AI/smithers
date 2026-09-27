@@ -14,10 +14,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
 // DefaultUpstreamDenyCIDRs are the destinations the proxy must never dial on
@@ -85,6 +88,10 @@ type Spec struct {
 	// UpstreamDenyCIDRs overrides DefaultUpstreamDenyCIDRs when non-nil.
 	UpstreamDenyCIDRs []string
 	Secrets           []SecretBinding
+	// HostRules narrows hosts: a host a rule names is reachable only by the
+	// requests its rules match. Its entries leave the domain list, and an
+	// "any host" list stops matching it.
+	HostRules []sandbox.EgressHostRule
 	// MaxRequestBodyBytes bounds buffered request bodies. LLM prompts are
 	// routinely larger than iron-proxy's 1 MiB default.
 	MaxRequestBodyBytes int64
@@ -144,8 +151,17 @@ type Transform struct {
 }
 
 type AllowlistConfig struct {
-	Domains []string `yaml:"domains,omitempty"`
-	CIDRs   []string `yaml:"cidrs,omitempty"`
+	Domains []string     `yaml:"domains,omitempty"`
+	CIDRs   []string     `yaml:"cidrs,omitempty"`
+	Rules   []RuleConfig `yaml:"rules,omitempty"`
+}
+
+// RuleConfig is one allowlist rule: an exact host, and the methods (any when
+// empty) and paths it admits.
+type RuleConfig struct {
+	Host    string   `yaml:"host"`
+	Methods []string `yaml:"methods,omitempty"`
+	Paths   []string `yaml:"paths,omitempty"`
 }
 
 type SecretsConfig struct {
@@ -221,6 +237,10 @@ func Render(spec Spec) (Config, error) {
 	if len(domains) == 0 && len(spec.AllowCIDRs) == 0 {
 		domains = []string{"*"}
 	}
+	domains, rules, err := narrowHosts(domains, spec.HostRules)
+	if err != nil {
+		return Config{}, err
+	}
 	maxBody := spec.MaxRequestBodyBytes
 	if maxBody <= 0 {
 		maxBody = defaultMaxRequestBodyBytes
@@ -248,7 +268,7 @@ func Render(spec Spec) (Config, error) {
 		TLS:     TLSConfig{Mode: "mitm", CACert: spec.CACertPath, CAKey: spec.CAKeyPath},
 		Transforms: []Transform{{
 			Name:   "allowlist",
-			Config: AllowlistConfig{Domains: domains, CIDRs: append([]string(nil), spec.AllowCIDRs...)},
+			Config: AllowlistConfig{Domains: domains, CIDRs: append([]string(nil), spec.AllowCIDRs...), Rules: rules},
 		}},
 		Log: LogConfig{Level: level},
 	}
@@ -311,6 +331,116 @@ func renderSecrets(bindings []SecretBinding) ([]SecretEntry, error) {
 		})
 	}
 	return entries, nil
+}
+
+// narrowHosts renders the host rules and removes every way the domain list
+// would still admit a narrowed host in full. iron-proxy matches the request's
+// Host without its port, case-insensitively, so a trailing-dot spelling is
+// narrowed too. A glob that matches a narrowed host fails closed, except "*",
+// which becomes globs matching every other host name.
+func narrowHosts(domains []string, hostRules []sandbox.EgressHostRule) ([]string, []RuleConfig, error) {
+	if len(hostRules) == 0 {
+		return domains, nil, nil
+	}
+	rules := make([]RuleConfig, 0, len(hostRules))
+	narrowed := map[string]struct{}{}
+	for _, rule := range hostRules {
+		if err := rule.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidSpec, err)
+		}
+		host := strings.ToLower(strings.TrimSpace(rule.Host))
+		methods := make([]string, 0, len(rule.Methods))
+		for _, method := range rule.Methods {
+			methods = append(methods, strings.ToUpper(method))
+		}
+		rules = append(rules, RuleConfig{Host: host, Methods: methods, Paths: append([]string(nil), rule.Paths...)})
+		narrowed[host], narrowed[host+"."] = struct{}{}, struct{}{}
+	}
+	names := make([]string, 0, len(narrowed))
+	for name := range narrowed {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	// iron-proxy checks a tunnel's CONNECT (method CONNECT, no path) against
+	// the same rules before it checks each request inside the tunnel.
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".") {
+			rules = append(rules, RuleConfig{Host: name, Methods: []string{http.MethodConnect}})
+		}
+	}
+	kept := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		domain = strings.ToLower(domain)
+		if _, ok := narrowed[domain]; ok {
+			continue
+		}
+		if domain == "*" {
+			kept = append(kept, globsExcept(names)...)
+			continue
+		}
+		for _, name := range names {
+			if domainGlobMatches(domain, name) {
+				return nil, nil, fmt.Errorf("%w: allowlist entry %q admits narrowed host %s", ErrInvalidSpec, domain, name)
+			}
+		}
+		kept = append(kept, domain)
+	}
+	return cleanList(kept), rules, nil
+}
+
+// domainGlobMatches is iron-proxy's host glob (internal/hostmatch.MatchGlob).
+func domainGlobMatches(pattern, name string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*.") {
+		return strings.HasSuffix(name, pattern[1:]) || name == pattern[2:]
+	}
+	matched, _ := path.Match(pattern, name)
+	return matched
+}
+
+// globsExcept returns path.Match globs that together match every non-empty
+// host name except names (lower case, glob-free). Along the names' prefix
+// tree each node admits itself when it is not a name, any continuation whose
+// next character leaves the tree, and, at a leaf, any longer name.
+func globsExcept(names []string) []string {
+	var globs []string
+	var walk func(prefix string, below []string)
+	walk = func(prefix string, below []string) {
+		exact := false
+		next := map[byte][]string{}
+		for _, name := range below {
+			if len(name) == len(prefix) {
+				exact = true
+				continue
+			}
+			next[name[len(prefix)]] = append(next[name[len(prefix)]], name)
+		}
+		if prefix != "" && !exact {
+			globs = append(globs, prefix)
+		}
+		if len(next) == 0 {
+			globs = append(globs, prefix+"?*")
+			return
+		}
+		chars := make([]byte, 0, len(next))
+		for char := range next {
+			chars = append(chars, char)
+		}
+		sort.Slice(chars, func(i, j int) bool { return chars[i] < chars[j] })
+		var class strings.Builder
+		for _, char := range chars {
+			class.WriteByte('\\')
+			class.WriteByte(char)
+		}
+		globs = append(globs, prefix+"[^"+class.String()+"]*")
+		for _, char := range chars {
+			walk(prefix+string(char), next[char])
+		}
+	}
+	walk("", names)
+	return globs
 }
 
 // Marshal renders config as YAML.

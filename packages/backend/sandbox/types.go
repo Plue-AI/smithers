@@ -359,6 +359,7 @@ func (s EgressProxySecret) Validate() error {
 
 var (
 	egressSecretNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	egressMethodPattern     = regexp.MustCompile(`^[A-Za-z]+$`)
 	egressHostPattern       = regexp.MustCompile(`^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 )
 
@@ -388,6 +389,70 @@ type EgressProxyPolicy struct {
 	// at the proxy regardless of this list.
 	AllowDomains []string            `json:"allowDomains,omitempty"`
 	Secrets      []EgressProxySecret `json:"secrets,omitempty"`
+	// HostRules narrows hosts: a host a rule names is reachable only by the
+	// methods and paths its rules match, whatever the allowlist says.
+	HostRules []EgressHostRule `json:"hostRules,omitempty"`
+}
+
+// EgressHostRule admits requests to one exact host whose method (any when
+// Methods is empty) and path match. Paths use the proxy's syntax: path.Match
+// globs ("?*" is one non-empty segment), or a literal prefix ending in "/*".
+type EgressHostRule struct {
+	Host    string   `json:"host"`
+	Methods []string `json:"methods,omitempty"`
+	Paths   []string `json:"paths"`
+}
+
+// Validate rejects a rule the proxy could not enforce exactly: a wildcard or
+// CIDR host, or a rule with no path.
+func (r EgressHostRule) Validate() error {
+	host := strings.ToLower(strings.TrimSpace(r.Host))
+	if strings.HasPrefix(host, "*.") || !ValidEgressHost(host) {
+		return fmt.Errorf("egress host rule host %q is not an exact host name", r.Host)
+	}
+	if _, _, err := net.ParseCIDR(host); err == nil {
+		return fmt.Errorf("egress host rule host %q is not an exact host name", r.Host)
+	}
+	if len(r.Paths) == 0 {
+		return fmt.Errorf("egress host rule for %s has no path", host)
+	}
+	for _, path := range r.Paths {
+		if !strings.HasPrefix(path, "/") {
+			return fmt.Errorf("egress host rule for %s path %q must start with /", host, path)
+		}
+		// The proxy reads a trailing "/*" as a literal prefix: a wildcard
+		// before it would match only itself.
+		if strings.HasSuffix(path, "/*") && strings.ContainsAny(path[:len(path)-2], "*?[\\") {
+			return fmt.Errorf("egress host rule for %s path %q mixes a glob with a /* prefix", host, path)
+		}
+	}
+	for _, method := range r.Methods {
+		if !egressMethodPattern.MatchString(method) {
+			return fmt.Errorf("egress host rule for %s method %q is invalid", host, method)
+		}
+	}
+	return nil
+}
+
+// ConversationWithheldHostRules is the egress of a workspace that ran work
+// started from an outsider's approved text: that work reads its pinned copy,
+// never the live issue, so GitHub is reachable only for git fetches,
+// repository metadata, releases and archives. No issue, comment, pull
+// request, search or GraphQL endpoint of any repository matches.
+func ConversationWithheldHostRules() []EgressHostRule {
+	read := []string{"GET", "HEAD"}
+	return []EgressHostRule{
+		{Host: "api.github.com", Methods: read, Paths: []string{
+			"/repos/?*/?*", "/repos/?*/?*/releases", "/repos/?*/?*/releases/?*", "/repos/?*/?*/releases/tags/?*",
+			"/repos/?*/?*/releases/assets/?*", "/repos/?*/?*/tags", "/repos/?*/?*/branches", "/repos/?*/?*/tarball/?*",
+			"/repos/?*/?*/zipball/?*", "/repos/?*/?*/commits/?*", "/rate_limit", "/meta",
+		}},
+		{Host: "github.com", Methods: read, Paths: []string{
+			"/?*/?*/info/refs", "/?*/?*/releases/download/?*/?*", "/?*/?*/releases/latest/download/?*",
+			"/?*/?*/archive/?*", "/?*/?*/archive/refs/tags/?*", "/?*/?*/archive/refs/heads/?*",
+		}},
+		{Host: "github.com", Methods: []string{"POST"}, Paths: []string{"/?*/?*/git-upload-pack"}},
+	}
 }
 
 // Validate checks every bound secret and rejects duplicate names, which would
@@ -406,6 +471,11 @@ func (p *EgressProxyPolicy) Validate() error {
 			return fmt.Errorf("egress proxy secret %s is bound twice", name)
 		}
 		seen[name] = struct{}{}
+	}
+	for _, rule := range p.HostRules {
+		if err := rule.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
