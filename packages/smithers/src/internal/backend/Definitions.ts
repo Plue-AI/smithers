@@ -1092,8 +1092,17 @@ export const definitions = {
     args: z.object({ "name": z.string().describe("Secret name") }),
     options: z.object({
       "body-stdin": z.boolean().describe("Read the secret value from stdin").default(false),
+      "main-only": z.boolean().describe("Only trusted runs on the default bookmark receive it").default(false),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional()
     })
+  },
+  "secret scope": {
+    description: "Limit a secret to trusted runs on the default bookmark, or give it to every run",
+    args: z.object({
+      "name": z.string().describe("Secret name"),
+      "scope": z.enum(["main-only", "all"]).describe("main-only or all")
+    }),
+    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
   "ssh-key add": {
     description: "Add an SSH key",

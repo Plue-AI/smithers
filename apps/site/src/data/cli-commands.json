@@ -8927,6 +8927,44 @@
       }
     },
     {
+      "name": "secret scope",
+      "description": "Limit a secret to trusted runs on the default bookmark, or give it to every run",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Secret name"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "main-only",
+                "all"
+              ],
+              "description": "main-only or all"
+            }
+          },
+          "required": [
+            "name",
+            "scope"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "secret set",
       "description": "Set a secret",
       "schema": {
@@ -8951,13 +8989,19 @@
               "type": "boolean",
               "description": "Read the secret value from stdin"
             },
+            "main-only": {
+              "default": false,
+              "type": "boolean",
+              "description": "Only trusted runs on the default bookmark receive it"
+            },
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
             }
           },
           "required": [
-            "body-stdin"
+            "body-stdin",
+            "main-only"
           ],
           "additionalProperties": false
         }

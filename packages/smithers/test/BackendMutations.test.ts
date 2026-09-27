@@ -45,6 +45,20 @@ describe("resource mutations", () => {
       value: "private-value"
     })
   })
+  it("marks a secret main-only on set or on its own", async () => {
+    const { c, request } = await fixture()
+    vi.spyOn(c, "stdin").mockResolvedValue("private-value")
+    await resources["secret set"]!(c, { name: "KEY" }, { ...options, "body-stdin": true, "main-only": true })
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/repos/owner/repo/secrets", {
+      name: "KEY",
+      value: "private-value",
+      main_only: true
+    })
+    await resources["secret scope"]!(c, { name: "DEPLOY KEY", scope: "main-only" }, options)
+    expect(request).toHaveBeenLastCalledWith("PATCH", "/api/repos/owner/repo/secrets/DEPLOY%20KEY", { main_only: true })
+    await resources["secret scope"]!(c, { name: "KEY", scope: "all" }, options)
+    expect(request).toHaveBeenLastCalledWith("PATCH", "/api/repos/owner/repo/secrets/KEY", { main_only: false })
+  })
   it("connects Linear with OAuth credentials, rejecting an API-key-shaped payload", async () => {
     const { c, request } = await fixture(), stdin = vi.spyOn(c, "stdin")
     await expect(resources["extension linear install"]!(c, {}, options)).rejects.toThrow("stdin")

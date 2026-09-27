@@ -130,8 +130,17 @@ for (const kind of ["secret", "variable"]) {
 }
 add("secret set", async (c, a, o) => {
   if (!o["body-stdin"]) throw new Error("Secret values require --body-stdin")
-  return c.request("POST", repo(c, o, "/secrets"), { name: a.name, value: await c.stdin("Secret") })
+  const value = await c.stdin("Secret")
+  return c.request("POST", repo(c, o, "/secrets"), {
+    name: a.name,
+    value,
+    ...(o["main-only"] ? { main_only: true } : {})
+  })
 })
+add(
+  "secret scope",
+  (c, a, o) => c.request("PATCH", repo(c, o, `/secrets/${esc(a.name)}`), { main_only: a.scope === "main-only" })
+)
 add("variable get", (c, a, o) => c.request("GET", repo(c, o, `/variables/${esc(a.name)}`)))
 add("variable set", (c, a, o) => c.request("POST", repo(c, o, "/variables"), { name: a.name, value: str(o.body) }))
 add("ssh-key list", (c) => c.request("GET", "/api/user/keys"))
