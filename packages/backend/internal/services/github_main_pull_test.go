@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -395,6 +396,7 @@ func TestGitHubMainPullFastForwardsOnlyMainToGitHubsCurrentTip(t *testing.T) {
 	assert.Equal(t, pullOld, h.host.bookmarks["smithers/landing-7"], "landing bookmarks are untouched")
 	require.Len(t, h.host.meta, 1)
 	assert.Equal(t, "github", h.host.meta[0].PusherLogin)
+	assert.Equal(t, middleware.CredentialPlatform, h.host.meta[0].PusherCredential, "the main pull is the platform's own verified write")
 	assert.Equal(t, "refs/heads/main", h.host.meta[0].RefName)
 	status, err := h.service.Status(context.Background(), 19)
 	require.NoError(t, err)

@@ -1681,6 +1681,11 @@ type ReceivePackMetadata struct {
 	CommitSHA   string
 	PusherID    int64
 	PusherLogin string
+	// PusherCredential is the kind of credential the API authenticated for
+	// this push. Repo-host refuses an agent run's write of the default
+	// bookmark, and the push event carries it so a system credential's push
+	// never starts a cache-saving run.
+	PusherCredential middleware.CredentialKind
 	// WorkspaceID names the workspace a workspace-bound credential pushes
 	// for (RFD-004); repo-host lets that push touch only that workspace's
 	// head ref under refs/smithers/workspaces/.
@@ -1690,6 +1695,9 @@ type ReceivePackMetadata struct {
 	// is set only in-process, never from a client request.
 	ControlPlane bool
 }
+
+// PusherCredentialHeader carries ReceivePackMetadata.PusherCredential.
+const PusherCredentialHeader = "X-Smithers-Pusher-Credential"
 
 // ProxyReceivePack streams a git receive-pack RPC to repo-host,
 // forwarding pusher identity and ref metadata as HTTP headers.
@@ -1858,6 +1866,9 @@ func (c *Client) proxyGitRPCWithMeta(
 	}
 	if meta.PusherLogin != "" {
 		req.Header.Set("X-Smithers-Pusher-Login", meta.PusherLogin)
+	}
+	if meta.PusherCredential != "" {
+		req.Header.Set(PusherCredentialHeader, string(meta.PusherCredential))
 	}
 	if meta.WorkspaceID != "" {
 		req.Header.Set("X-Smithers-Workspace-Id", meta.WorkspaceID)

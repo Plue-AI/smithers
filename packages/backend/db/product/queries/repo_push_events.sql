@@ -1,10 +1,10 @@
 -- name: InsertRepoPushEvent :execrows
 -- A duplicate delivery_id inserts nothing and reports zero rows.
 INSERT INTO repo_push_events (
-    delivery_id, repository_id, owner, repo, ref_name, before_sha, commit_sha, pusher_id, pusher_login
+    delivery_id, repository_id, owner, repo, ref_name, before_sha, commit_sha, pusher_id, pusher_login, pusher_credential
 ) VALUES (
     sqlc.arg(delivery_id), sqlc.arg(repository_id), sqlc.arg(owner), sqlc.arg(repo), sqlc.arg(ref_name),
-    sqlc.arg(before_sha), sqlc.arg(commit_sha), sqlc.arg(pusher_id), sqlc.arg(pusher_login)
+    sqlc.arg(before_sha), sqlc.arg(commit_sha), sqlc.arg(pusher_id), sqlc.arg(pusher_login), sqlc.arg(pusher_credential)
 )
 ON CONFLICT (delivery_id) DO NOTHING;
 

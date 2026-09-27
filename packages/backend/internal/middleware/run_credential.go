@@ -2,14 +2,88 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 
 	apierrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
+// CredentialKind says who holds an access token.
+type CredentialKind string
+
+const (
+	// CredentialPerson is a token a person created (a personal access token
+	// or the one behind an OAuth2 grant).
+	CredentialPerson CredentialKind = "person"
+	// CredentialAgentRun is a system-issued token handed to a computer that
+	// runs code or instructions nobody has reviewed: an agent computer, a
+	// workspace, a workflow job, a gateway. It is the kind every
+	// system-issued token has unless it is issued as CredentialSync.
+	CredentialAgentRun CredentialKind = "run"
+	// CredentialSync is a system-issued token only the platform's own
+	// GitHub import and mirror code holds, on the server, to copy a GitHub
+	// repository's refs. No agent or workflow ever receives one.
+	CredentialSync CredentialKind = "sync"
+	// CredentialPlatform is not a token: it marks the API's own verified
+	// write of the default bookmark, the GitHub main pull's fast-forward to
+	// GitHub's reviewed tip.
+	CredentialPlatform CredentialKind = "platform"
+)
+
+// syncCredentialScope marks a system-issued token as CredentialSync. Like the
+// other binding entries it grants no permission (ParseTokenScopes drops it),
+// and a person cannot request it (it is not a TokenScope). It counts only on a
+// system-issued token.
+const syncCredentialScope = "credential:sync"
+
+// SyncCredentialScope returns the scopes-list entry that issues a
+// system token as CredentialSync.
+func SyncCredentialScope() string { return syncCredentialScope }
+
+// TokenCredentialKind classifies an access token from its stored fields.
+func TokenCredentialKind(systemIssued bool, rawScopes string) CredentialKind {
+	if !systemIssued {
+		return CredentialPerson
+	}
+	for _, part := range tokenScopeEntries(rawScopes) {
+		if strings.EqualFold(strings.TrimSpace(part), syncCredentialScope) {
+			return CredentialSync
+		}
+	}
+	return CredentialAgentRun
+}
+
+// ParseCredentialKind reads a kind another service recorded. Empty stays
+// empty (unattributed); an unknown value is read as an agent run's, the most
+// restricted kind.
+func ParseCredentialKind(raw string) CredentialKind {
+	switch kind := CredentialKind(strings.TrimSpace(raw)); kind {
+	case "", CredentialPerson, CredentialAgentRun, CredentialSync, CredentialPlatform:
+		return kind
+	default:
+		return CredentialAgentRun
+	}
+}
+
+// Reviewed reports whether a write with this kind is a person's or the
+// API's own verified one. Every other kind, unattributed included, runs no
+// cache-saving workflow and applies no administrator setting.
+func (k CredentialKind) Reviewed() bool {
+	return k == CredentialPerson || k == CredentialPlatform
+}
+
+// CredentialKind reports who holds the request's credential. A session, and
+// any request without a token, is a person's.
+func (a *AuthInfo) CredentialKind() CredentialKind {
+	if a == nil || !a.IsTokenAuth {
+		return CredentialPerson
+	}
+	return TokenCredentialKind(a.TokenSystemIssued, a.RawScopes)
+}
+
 // IsRunCredential reports whether the request authenticated with a
-// system-issued run credential: the per-run token an agent computer holds, or
-// a clone or landing credential. It acts as the user who owns the run, but
-// the run executes code and instructions nobody has reviewed.
+// system-issued credential of either kind: an agent run's token, or the
+// platform's sync token. It acts as the user who owns the run or the import,
+// but no person is making the request.
 func (a *AuthInfo) IsRunCredential() bool {
 	return a != nil && a.IsTokenAuth && a.TokenSystemIssued
 }

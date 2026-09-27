@@ -882,10 +882,16 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	}
 	// The API sets X-Smithers-Pusher-Id from the credential it authenticated;
 	// it names whose refs/smithers/users/<id>/ namespace this push may write.
-	pusherID := pushHookSenderFromHeaders(r.Header).PusherID
+	sender := pushHookSenderFromHeaders(r.Header)
+	pusherID := sender.PusherID
 	if msg := repohost.ControlPlaneRefViolation(commands, r.Header.Get("X-Smithers-Workspace-Id"),
 		pusherID, r.Header.Get("X-Smithers-Control-Plane") == "mythical"); msg != "" {
 		return forbidden(msg)
+	}
+	if sender.PusherCredential == jjmiddleware.CredentialAgentRun {
+		if err := refuseAgentRunDefaultBookmark(r.Context(), gitDir, commands); err != nil {
+			return err
+		}
 	}
 	// #1968: a push that writes a user ref first expires stale ones, then
 	// may not leave its pusher over the ref limit, and its pack is capped.
@@ -943,7 +949,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	// is rolled back rather than published without them.
 	var outboxPaths []string
 	if shouldDispatchPushHooks {
-		payloads := pushHookPayloadsFromRefDiff(beforeRefs, afterRefs, owner, repo, pushHookSenderFromHeaders(r.Header))
+		payloads := pushHookPayloadsFromRefDiff(beforeRefs, afterRefs, owner, repo, sender)
 		if len(payloads) > 0 {
 			outboxPaths, err = s.pushOutbox.persist(payloads)
 			if err != nil {

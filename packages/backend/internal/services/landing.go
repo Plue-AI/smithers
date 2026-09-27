@@ -886,7 +886,7 @@ func (s *LandingService) SetLandingRequestAutoLand(ctx context.Context, actor *d
 	if err != nil {
 		return LandingRequestResponse{}, err
 	}
-	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+	if err := s.requireLandAccess(ctx, repository, actor); err != nil {
 		return LandingRequestResponse{}, err
 	}
 	current, err := s.getLandingByNumber(ctx, repository.ID, number)
@@ -930,7 +930,7 @@ func (s *LandingService) ClearLandingRequestAutoLand(ctx context.Context, actor 
 	if err != nil {
 		return err
 	}
-	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+	if err := s.requireLandAccess(ctx, repository, actor); err != nil {
 		return err
 	}
 	current, err := s.getLandingByNumber(ctx, repository.ID, number)
@@ -1103,7 +1103,7 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 	if err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
-	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+	if err := s.requireLandAccess(ctx, repository, actor); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
 
@@ -3659,11 +3659,11 @@ func (s *LandingService) requireWriteAccess(ctx context.Context, repository db.R
 	return nil
 }
 
-func (s *LandingService) requireAdminAccess(ctx context.Context, repository db.Repository, actor *db.User) error {
+func (s *LandingService) requireLandAccess(ctx context.Context, repository db.Repository, actor *db.User) error {
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
-	allowed, err := s.canAdminRepo(ctx, repository, actor.ID)
+	allowed, err := canLandRepo(ctx, s.queries, repository, actor.ID)
 	if err != nil {
 		return err
 	}
@@ -3679,10 +3679,6 @@ func (s *LandingService) canReadRepo(ctx context.Context, repository db.Reposito
 
 func (s *LandingService) canWriteRepo(ctx context.Context, repository db.Repository, userID int64) (bool, error) {
 	return canWriteRepo(ctx, s.queries, repository, userID)
-}
-
-func (s *LandingService) canAdminRepo(ctx context.Context, repository db.Repository, userID int64) (bool, error) {
-	return canAdminRepo(ctx, s.queries, repository, userID)
 }
 
 func isAllowedLandingState(state string) bool {

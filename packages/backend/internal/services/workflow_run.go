@@ -207,6 +207,20 @@ type WorkflowRunService interface {
 }
 
 // DispatchForEventInput carries the trigger event details for workflow dispatch.
+// SystemPushTriggerEvent is the trigger a run records when a push by a
+// system-issued credential started it (DispatchForEventInput.SystemPush).
+const SystemPushTriggerEvent = "system_push"
+
+// replayedEventType is the event a rerun of a run with this recorded trigger
+// evaluates: a system_push run replays its push (and records system_push
+// again through DispatchForEventInput.SystemPush).
+func replayedEventType(recorded string) string {
+	if recorded == SystemPushTriggerEvent {
+		return "push"
+	}
+	return recorded
+}
+
 type DispatchForEventInput struct {
 	RepositoryID         int64
 	UserID               int64
@@ -214,6 +228,10 @@ type DispatchForEventInput struct {
 	UseLoadedDefinitions bool
 	LoadedDefinitions    []LoadedWorkflowDefinition
 	WorkflowDefinitionID *int64 // If set, only dispatch for this specific definition
+	// SystemPush marks a push event whose credential was system-issued (an
+	// agent run's or the platform's sync). Its runs record
+	// SystemPushTriggerEvent: they restore workflow caches and save none.
+	SystemPush bool
 	// AlertRemediationBinding is set only by the trusted alert worker. The run
 	// and this exact job/attempt binding are committed atomically.
 	AlertRemediationBinding *AlertRemediationRunBinding
@@ -818,11 +836,15 @@ func createWorkflowRunRows(
 	createPendingCommitStatus bool,
 ) (WorkflowRunResult, db.WorkflowRun, error) {
 	result := WorkflowRunResult{WorkflowDefinitionID: def.ID}
+	triggerEvent := input.Event.Type
+	if input.SystemPush {
+		triggerEvent = SystemPushTriggerEvent
+	}
 	run, err := queries.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
 		RepositoryID:         input.RepositoryID,
 		WorkflowDefinitionID: def.ID,
 		Status:               "queued",
-		TriggerEvent:         input.Event.Type,
+		TriggerEvent:         triggerEvent,
 		TriggerRef:           triggerRef,
 		TriggerCommitSha:     input.Event.CommitSHA,
 		DispatchInputs:       dispatchInputs,
@@ -1429,11 +1451,12 @@ func (s *workflowRunService) RerunRun(ctx context.Context, input RerunInput) (*W
 		RepositoryID: input.RepositoryID,
 		UserID:       input.UserID,
 		Event: TriggerEvent{
-			Type:      originalRun.TriggerEvent,
+			Type:      replayedEventType(originalRun.TriggerEvent),
 			Ref:       originalRun.TriggerRef,
 			CommitSHA: originalRun.TriggerCommitSha,
 			Inputs:    inputs,
 		},
+		SystemPush: originalRun.TriggerEvent == SystemPushTriggerEvent,
 	})
 	if err != nil {
 		return nil, err

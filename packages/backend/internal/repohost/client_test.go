@@ -16,6 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 func cursorForPage(page, perPage int) string {
@@ -560,10 +562,13 @@ func TestClient_ProxyReceivePack_SendsPushMetadataHeaders(t *testing.T) {
 		PusherID:     42,
 		PusherLogin:  "alice",
 		AllowedPaths: []string{"src/**", "README.md"},
+
+		PusherCredential: middleware.CredentialAgentRun,
 	}
 
 	err := client.ProxyReceivePack(context.Background(), "alice", "demo", bytes.NewReader(nil), io.Discard, meta)
 	require.NoError(t, err)
+	assert.Equal(t, "run", capturedHeaders.Get(PusherCredentialHeader))
 
 	assert.Equal(t, "refs/heads/main", capturedHeaders.Get("X-Smithers-Push-Ref"))
 	assert.Equal(t, "abc123def456", capturedHeaders.Get("X-Smithers-Push-Commit-Sha"))

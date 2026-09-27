@@ -405,40 +405,11 @@ func (s *LinearIntegrationService) resolveLinearIntegrationRepository(ctx contex
 }
 
 func (s *LinearIntegrationService) canAdminLinearIntegrationRepository(ctx context.Context, userID int64, repo db.Repository) (bool, error) {
-	if repo.UserID.Valid && repo.UserID.Int64 == userID {
-		return true, nil
-	}
-	if repo.OrgID.Valid {
-		isOwner, err := s.repositoryQueries.IsOrgOwnerForRepoUser(ctx, db.IsOrgOwnerForRepoUserParams{
-			RepositoryID: repo.ID,
-			UserID:       userID,
-		})
-		if err != nil {
-			return false, pkgerrors.Internal("failed to resolve repository permissions").WithCause(err)
-		}
-		if isOwner {
-			return true, nil
-		}
-		permission, err := s.repositoryQueries.GetHighestTeamPermissionForRepoUser(ctx, db.GetHighestTeamPermissionForRepoUserParams{
-			RepositoryID: repo.ID,
-			UserID:       userID,
-		})
-		if err != nil {
-			return false, pkgerrors.Internal("failed to resolve repository permissions").WithCause(err)
-		}
-		if strings.EqualFold(strings.TrimSpace(permission), "admin") {
-			return true, nil
-		}
-	}
-
-	permission, err := s.repositoryQueries.GetCollaboratorPermissionForRepoUser(ctx, db.GetCollaboratorPermissionForRepoUserParams{
-		RepositoryID: repo.ID,
-		UserID:       pgtype.Int8{Int64: userID, Valid: true},
-	})
+	allowed, err := canAdminRepo(ctx, s.repositoryQueries, repo, userID)
 	if err != nil {
 		return false, pkgerrors.Internal("failed to resolve repository permissions").WithCause(err)
 	}
-	return strings.EqualFold(strings.TrimSpace(permission), "admin"), nil
+	return allowed, nil
 }
 
 func (s *LinearIntegrationService) canonicalLinearIntegrationRepositoryName(ctx context.Context, repo db.Repository) (string, string, error) {

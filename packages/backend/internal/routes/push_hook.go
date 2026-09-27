@@ -105,6 +105,9 @@ type PushHookEventRequest struct {
 	CommitSHA   string `json:"commit_sha"`
 	PusherID    int64  `json:"pusher_id"`
 	PusherLogin string `json:"pusher_login"`
+	// PusherCredential is the kind of credential behind the push
+	// (middleware.CredentialKind); empty when unattributed.
+	PusherCredential string `json:"pusher_credential,omitempty"`
 }
 
 // Push event side effects. Each one that succeeds is recorded on the event
@@ -160,6 +163,9 @@ func (h *InternalPushHookHandler) PostPushEvent(w http.ResponseWriter, r *http.R
 		CommitSha:    req.CommitSHA,
 		PusherID:     req.PusherID,
 		PusherLogin:  req.PusherLogin,
+		// Repo-host forwards the kind the API authenticated; an unknown
+		// value is recorded as an agent run's.
+		PusherCredential: string(middleware.ParseCredentialKind(req.PusherCredential)),
 	})
 	if err != nil {
 		// A non-2xx answer keeps the event in repo-host's outbox for replay.
@@ -188,6 +194,8 @@ func (h *InternalPushHookHandler) ProcessRepoPushEvent(ctx context.Context, even
 		CommitSHA:   event.CommitSha,
 		PusherID:    event.PusherID,
 		PusherLogin: event.PusherLogin,
+
+		PusherCredential: event.PusherCredential,
 	}
 	repoID := event.RepositoryID
 	steps := map[string]func(context.Context) error{}
@@ -348,7 +356,10 @@ func (h *InternalPushHookHandler) handleWorkflowsForPush(ctx context.Context, re
 		// the repo. Otherwise a low-privilege collaborator could push a
 		// .smithers/config.yml (or protected-bookmarks.yml) to escalate — e.g.
 		// flip the repo public or disable branch protection.
-		if !h.pusherCanAdmin(ctx, repoID, req.PusherID) {
+		// Only a person's push applies administrator settings: a
+		// system-issued credential acts for its user but never as their
+		// administrator (middleware.capCredentialPermission).
+		if !middleware.ParseCredentialKind(req.PusherCredential).Reviewed() || !h.pusherCanAdmin(ctx, repoID, req.PusherID) {
 			slog.Warn("skipping config sync after push: pusher lacks repo admin permission",
 				"repo_id", repoID, "pusher_id", req.PusherID, "commit_sha", req.CommitSHA)
 		} else {
@@ -375,6 +386,7 @@ func (h *InternalPushHookHandler) handleWorkflowsForPush(ctx context.Context, re
 				Ref:       req.Ref,
 				CommitSHA: req.CommitSHA,
 			},
+			SystemPush: !middleware.ParseCredentialKind(req.PusherCredential).Reviewed(),
 		}
 		if loadedDefinitions {
 			input.UseLoadedDefinitions = true

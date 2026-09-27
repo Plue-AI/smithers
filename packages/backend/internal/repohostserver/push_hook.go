@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -31,11 +32,15 @@ type PushHookPayload struct {
 	CommitSHA   string `json:"commit_sha"`
 	PusherID    int64  `json:"pusher_id"`
 	PusherLogin string `json:"pusher_login"`
+	// PusherCredential is the kind of credential the API authenticated for
+	// the push; empty when unattributed.
+	PusherCredential middleware.CredentialKind `json:"pusher_credential,omitempty"`
 }
 
 type PushHookSender struct {
-	PusherID    int64
-	PusherLogin string
+	PusherID         int64
+	PusherLogin      string
+	PusherCredential middleware.CredentialKind
 }
 
 func sendPushHook(ctx context.Context, client *http.Client, cfg Config, payload PushHookPayload) error {
@@ -111,8 +116,9 @@ func pushHookSenderFromHeaders(headers http.Header) PushHookSender {
 		_, _ = fmt.Sscan(value, &pusherID)
 	}
 	return PushHookSender{
-		PusherID:    pusherID,
-		PusherLogin: headers.Get("X-Smithers-Pusher-Login"),
+		PusherID:         pusherID,
+		PusherLogin:      headers.Get("X-Smithers-Pusher-Login"),
+		PusherCredential: middleware.ParseCredentialKind(headers.Get(repohost.PusherCredentialHeader)),
 	}
 }
 
@@ -151,13 +157,14 @@ func pushHookPayloadsFromRefDiff(beforeRefs, afterRefs map[string]string, owner,
 			continue
 		}
 		payloads = append(payloads, PushHookPayload{
-			Owner:       owner,
-			Repo:        repo,
-			RefName:     refName,
-			BeforeSHA:   beforeSHA,
-			CommitSHA:   afterSHA,
-			PusherID:    sender.PusherID,
-			PusherLogin: sender.PusherLogin,
+			Owner:            owner,
+			Repo:             repo,
+			RefName:          refName,
+			BeforeSHA:        beforeSHA,
+			CommitSHA:        afterSHA,
+			PusherID:         sender.PusherID,
+			PusherLogin:      sender.PusherLogin,
+			PusherCredential: sender.PusherCredential,
 		})
 	}
 

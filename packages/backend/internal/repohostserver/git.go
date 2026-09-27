@@ -252,6 +252,45 @@ func listGitRefs(ctx context.Context, gitDir string) (map[string]string, error) 
 	return refs, nil
 }
 
+// gitDefaultBookmark returns the repository's default bookmark: the owner's
+// persisted choice (setGitDefaultBookmark), else the bookmark HEAD names.
+func gitDefaultBookmark(ctx context.Context, gitDir string) (string, error) {
+	if raw, err := os.ReadFile(filepath.Join(gitDir, "smithers-default-bookmark")); err == nil {
+		if name := strings.TrimSpace(string(raw)); name != "" {
+			return name, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read default Git bookmark: %w", err)
+	}
+	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "symbolic-ref", "--quiet", "HEAD").Output()
+	if err != nil {
+		return "", fmt.Errorf("read git HEAD: %w", err)
+	}
+	name, ok := strings.CutPrefix(strings.TrimSpace(string(output)), "refs/heads/")
+	if !ok || name == "" {
+		return "", fmt.Errorf("git HEAD names no bookmark")
+	}
+	return name, nil
+}
+
+// refuseAgentRunDefaultBookmark refuses a push the API attributed to an agent
+// run when it writes the default bookmark. It fails closed: a default that
+// cannot be read refuses the push.
+func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands []repohost.ReceivePackCommand) error {
+	defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
+	if err != nil {
+		return forbidden("an agent run's push is refused: the default bookmark cannot be read")
+	}
+	for _, command := range commands {
+		// Case-insensitive: on a case-insensitive filesystem a loose ref
+		// differing only in case is the same file.
+		if strings.EqualFold(strings.TrimSpace(command.RefName), "refs/heads/"+defaultBookmark) {
+			return forbidden("an agent run cannot write the default bookmark; land its changes instead")
+		}
+	}
+	return nil
+}
+
 // setGitDefaultBookmark updates the bare repository's HEAD symref. Git permits
 // an unborn target, which is useful while configuring an empty repository; as
 // soon as refs/heads/<bookmark> exists, upload-pack advertises both HEAD and

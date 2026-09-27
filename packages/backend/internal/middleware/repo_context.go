@@ -192,8 +192,6 @@ func LoadRepoContext(queries RepoContextQuerier) func(http.Handler) http.Handler
 				return
 			}
 
-			permission = capRepositoryBoundTokenPermission(r.Context(), repository.ID, permission)
-
 			repoCopy := repository
 			ctx := ContextWithRepoContext(r.Context(), &RepoContext{
 				Owner:             owner,
@@ -323,6 +321,14 @@ func ResolveRepoPermission(ctx context.Context, queries RepoPermissionQuerier, r
 }
 
 func resolveRepoPermission(ctx context.Context, queries RepoPermissionQuerier, repository db.Repository, user *db.User) (PermissionLevel, *apierrors.APIError) {
+	permission, err := resolveUserRepoPermission(ctx, queries, repository, user)
+	if err != nil {
+		return permission, err
+	}
+	return capCredentialPermission(ctx, repository.ID, user, permission), nil
+}
+
+func resolveUserRepoPermission(ctx context.Context, queries RepoPermissionQuerier, repository db.Repository, user *db.User) (PermissionLevel, *apierrors.APIError) {
 	if user == nil {
 		if repository.IsPublic {
 			return PermissionRead, nil
@@ -408,14 +414,18 @@ func permissionRank(permission PermissionLevel) int {
 	}
 }
 
-// capRepositoryBoundTokenPermission bounds a repository-restricted token
-// (per-run sandbox/agent token, repo:<id>) at PermissionWrite on the repository
-// it names. The token is issued for one run's writes; the owner's admin and
-// owner authority (delete, archive, visibility, hooks, deploy keys, secrets)
-// must not travel with a token that lives inside a sandbox.
-func capRepositoryBoundTokenPermission(ctx context.Context, repositoryID int64, permission PermissionLevel) PermissionLevel {
+// capCredentialPermission bounds the request's own user at PermissionWrite
+// when it authenticated with a system-issued credential (an agent run's
+// token, or the platform's sync token) or a token bound to this repository.
+// Such a token is issued for writes; the owner's admin and owner authority
+// (bookmark protection, the default bookmark and every other setting, delete,
+// archive, hooks, deploy keys, secrets) must not travel with it.
+func capCredentialPermission(ctx context.Context, repositoryID int64, user *db.User, permission PermissionLevel) PermissionLevel {
 	authInfo := AuthInfoFromContext(ctx)
-	if authInfo == nil || authInfo.RepositoryRestriction() != repositoryID {
+	if authInfo == nil || user == nil || authInfo.User == nil || authInfo.User.ID != user.ID {
+		return permission
+	}
+	if !authInfo.IsRunCredential() && authInfo.RepositoryRestriction() != repositoryID {
 		return permission
 	}
 	if permissionRank(permission) > permissionRank(PermissionWrite) {

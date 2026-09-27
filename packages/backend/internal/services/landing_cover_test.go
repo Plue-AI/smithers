@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/webhooks"
@@ -430,11 +431,18 @@ func TestLanding_Cov_ResolveAndPermissionBranches(t *testing.T) {
 	assert.False(t, owner)
 	assert.NoError(t, svc.requireReadAccess(context.Background(), orgRepo, actor))
 	assert.NoError(t, svc.requireWriteAccess(context.Background(), orgRepo, actor))
-	assert.NoError(t, svc.requireAdminAccess(context.Background(), orgRepo, actor))
+	assert.NoError(t, svc.requireLandAccess(context.Background(), orgRepo, actor))
+	// The coding flow lands with its run credential; that credential is
+	// never its user's administrator anywhere else.
+	runCtx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: actor, IsTokenAuth: true, TokenSystemIssued: true})
+	assert.NoError(t, svc.requireLandAccess(runCtx, orgRepo, actor))
+	admin, err := canAdminRepo(runCtx, svc.queries, orgRepo, actor.ID)
+	require.NoError(t, err)
+	assert.False(t, admin)
 
 	noAccessSvc := NewLandingService(&mockLandingQuerier{}, &mockLandingRepoHostClient{})
 	assert.Equal(t, http.StatusUnauthorized, landingAPIStatus(t, noAccessSvc.requireWriteAccess(context.Background(), orgRepo, nil)))
-	assert.Equal(t, http.StatusUnauthorized, landingAPIStatus(t, noAccessSvc.requireAdminAccess(context.Background(), orgRepo, nil)))
+	assert.Equal(t, http.StatusUnauthorized, landingAPIStatus(t, noAccessSvc.requireLandAccess(context.Background(), orgRepo, nil)))
 }
 
 func TestLanding_Cov_DispatchPayloadsAndFailures(t *testing.T) {

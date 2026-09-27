@@ -25,7 +25,7 @@ SET status = 'processing',
     updated_at = NOW()
 FROM claimed
 WHERE e.id = claimed.id
-RETURNING e.id, e.delivery_id, e.repository_id, e.owner, e.repo, e.ref_name, e.before_sha, e.commit_sha, e.pusher_id, e.pusher_login, e.status, e.steps_done, e.attempts, e.error, e.available_at, e.processed_at, e.created_at, e.updated_at
+RETURNING e.id, e.delivery_id, e.repository_id, e.owner, e.repo, e.ref_name, e.before_sha, e.commit_sha, e.pusher_id, e.pusher_login, e.status, e.steps_done, e.attempts, e.error, e.available_at, e.processed_at, e.created_at, e.updated_at, e.pusher_credential
 `
 
 func (q *Queries) ClaimPendingRepoPushEvents(ctx context.Context, claimLimit int32) ([]RepoPushEvent, error) {
@@ -56,6 +56,7 @@ func (q *Queries) ClaimPendingRepoPushEvents(ctx context.Context, claimLimit int
 			&i.ProcessedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PusherCredential,
 		); err != nil {
 			return nil, err
 		}
@@ -69,24 +70,25 @@ func (q *Queries) ClaimPendingRepoPushEvents(ctx context.Context, claimLimit int
 
 const insertRepoPushEvent = `-- name: InsertRepoPushEvent :execrows
 INSERT INTO repo_push_events (
-    delivery_id, repository_id, owner, repo, ref_name, before_sha, commit_sha, pusher_id, pusher_login
+    delivery_id, repository_id, owner, repo, ref_name, before_sha, commit_sha, pusher_id, pusher_login, pusher_credential
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, $7, $8, $9
+    $6, $7, $8, $9, $10
 )
 ON CONFLICT (delivery_id) DO NOTHING
 `
 
 type InsertRepoPushEventParams struct {
-	DeliveryID   string `json:"delivery_id"`
-	RepositoryID int64  `json:"repository_id"`
-	Owner        string `json:"owner"`
-	Repo         string `json:"repo"`
-	RefName      string `json:"ref_name"`
-	BeforeSha    string `json:"before_sha"`
-	CommitSha    string `json:"commit_sha"`
-	PusherID     int64  `json:"pusher_id"`
-	PusherLogin  string `json:"pusher_login"`
+	DeliveryID       string `json:"delivery_id"`
+	RepositoryID     int64  `json:"repository_id"`
+	Owner            string `json:"owner"`
+	Repo             string `json:"repo"`
+	RefName          string `json:"ref_name"`
+	BeforeSha        string `json:"before_sha"`
+	CommitSha        string `json:"commit_sha"`
+	PusherID         int64  `json:"pusher_id"`
+	PusherLogin      string `json:"pusher_login"`
+	PusherCredential string `json:"pusher_credential"`
 }
 
 // A duplicate delivery_id inserts nothing and reports zero rows.
@@ -101,6 +103,7 @@ func (q *Queries) InsertRepoPushEvent(ctx context.Context, arg InsertRepoPushEve
 		arg.CommitSha,
 		arg.PusherID,
 		arg.PusherLogin,
+		arg.PusherCredential,
 	)
 	if err != nil {
 		return 0, err

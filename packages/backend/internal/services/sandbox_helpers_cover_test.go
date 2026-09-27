@@ -17,7 +17,7 @@ func TestSandboxHelpers_Cov_TokenErrorsAndPushScope(t *testing.T) {
 	store := sandboxHelperTokenStore{createFn: func(context.Context, db.CreateAccessTokenParams) (db.AccessToken, error) {
 		return db.AccessToken{}, errors.New("insert failed")
 	}}
-	if _, err := issueTemporaryRepoPushToken(context.Background(), store, 5, "push"); err == nil || !strings.Contains(err.Error(), "insert failed") {
+	if _, err := issueTemporarySyncPushToken(context.Background(), store, 5, 9, "push"); err == nil || !strings.Contains(err.Error(), "insert failed") {
 		t.Fatalf("create err = %v", err)
 	}
 
@@ -26,8 +26,8 @@ func TestSandboxHelpers_Cov_TokenErrorsAndPushScope(t *testing.T) {
 		scopes = arg.Scopes
 		return db.AccessToken{ID: 12}, nil
 	}}
-	token, err := issueTemporaryRepoPushToken(context.Background(), store, 5, "push")
-	if err != nil || token.ID != 12 || scopes != "write:repository" {
+	token, err := issueTemporarySyncPushToken(context.Background(), store, 5, 9, "push")
+	if err != nil || token.ID != 12 || scopes != "write:repository,repo:9,credential:sync" {
 		t.Fatalf("token=%+v scopes=%q err=%v", token, scopes, err)
 	}
 }

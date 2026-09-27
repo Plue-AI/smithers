@@ -1674,24 +1674,25 @@ type RepoConnection struct {
 }
 
 type RepoPushEvent struct {
-	ID           int64              `json:"id"`
-	DeliveryID   string             `json:"delivery_id"`
-	RepositoryID int64              `json:"repository_id"`
-	Owner        string             `json:"owner"`
-	Repo         string             `json:"repo"`
-	RefName      string             `json:"ref_name"`
-	BeforeSha    string             `json:"before_sha"`
-	CommitSha    string             `json:"commit_sha"`
-	PusherID     int64              `json:"pusher_id"`
-	PusherLogin  string             `json:"pusher_login"`
-	Status       string             `json:"status"`
-	StepsDone    []string           `json:"steps_done"`
-	Attempts     int32              `json:"attempts"`
-	Error        string             `json:"error"`
-	AvailableAt  time.Time          `json:"available_at"`
-	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
-	CreatedAt    time.Time          `json:"created_at"`
-	UpdatedAt    time.Time          `json:"updated_at"`
+	ID               int64              `json:"id"`
+	DeliveryID       string             `json:"delivery_id"`
+	RepositoryID     int64              `json:"repository_id"`
+	Owner            string             `json:"owner"`
+	Repo             string             `json:"repo"`
+	RefName          string             `json:"ref_name"`
+	BeforeSha        string             `json:"before_sha"`
+	CommitSha        string             `json:"commit_sha"`
+	PusherID         int64              `json:"pusher_id"`
+	PusherLogin      string             `json:"pusher_login"`
+	Status           string             `json:"status"`
+	StepsDone        []string           `json:"steps_done"`
+	Attempts         int32              `json:"attempts"`
+	Error            string             `json:"error"`
+	AvailableAt      time.Time          `json:"available_at"`
+	ProcessedAt      pgtype.Timestamptz `json:"processed_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+	PusherCredential string             `json:"pusher_credential"`
 }
 
 type Repository struct {

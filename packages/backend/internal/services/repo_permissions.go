@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -176,8 +177,22 @@ func canWriteRepo(ctx context.Context, q RepoPermQuerier, repository db.Reposito
 	return permission == "write" || permission == "admin", nil
 }
 
-// canAdminRepo returns true when userID has admin or owner access to the repository.
+// canAdminRepo returns true when userID has admin or owner access to the
+// repository. A request that authenticated as userID with a system-issued
+// credential never has it (middleware.capCredentialPermission).
 func canAdminRepo(ctx context.Context, q RepoPermQuerier, repository db.Repository, userID int64) (bool, error) {
+	if actsThroughRunCredential(ctx, userID) {
+		return false, nil
+	}
+	return canLandRepo(ctx, q, repository, userID)
+}
+
+// canLandRepo returns true when userID may land into the repository's
+// bookmarks: admin or owner access, whatever credential the request used.
+// Landing is how an agent's work reaches a bookmark (the coding flow lands
+// with its run credential); protected-bookmark policy applies inside the
+// landing, and a landing records no push, so its runs never save caches.
+func canLandRepo(ctx context.Context, q RepoPermQuerier, repository db.Repository, userID int64) (bool, error) {
 	permission, isOwner, err := repoPermissionForUser(ctx, q, repository, userID)
 	if err != nil {
 		return false, err
@@ -190,11 +205,21 @@ func canAdminRepo(ctx context.Context, q RepoPermQuerier, repository db.Reposito
 
 // canOwnRepo returns true only when userID is the direct owner of the repository.
 func canOwnRepo(ctx context.Context, q RepoPermQuerier, repository db.Repository, userID int64) (bool, error) {
+	if actsThroughRunCredential(ctx, userID) {
+		return false, nil
+	}
 	_, isOwner, err := repoPermissionForUser(ctx, q, repository, userID)
 	if err != nil {
 		return false, err
 	}
 	return isOwner, nil
+}
+
+// actsThroughRunCredential reports whether the request authenticated as
+// userID with a system-issued credential.
+func actsThroughRunCredential(ctx context.Context, userID int64) bool {
+	info := middleware.AuthInfoFromContext(ctx)
+	return info.IsRunCredential() && info.User != nil && info.User.ID == userID
 }
 
 // CanAdminRepo reports whether userID has admin or owner access to repository.

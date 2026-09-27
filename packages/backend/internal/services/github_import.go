@@ -1691,7 +1691,7 @@ func (s *GitHubImportService) runFreshImport(ctx context.Context, userID int64, 
 	// the created row's name, which diverges from the source name when the
 	// import was deduped around a same-name collision (ensureLocalRepo).
 	mirrorName := repository.Name
-	token, err := issueTemporaryRepoPushToken(ctx, s.tokenDB, userID, "github-import-push")
+	token, err := issueTemporarySyncPushToken(ctx, s.tokenDB, userID, repository.ID, "github-import-push")
 	if err != nil {
 		s.observeFailure("auth", err)
 		return WorkspaceResponse{}, fmt.Errorf("create import push token: %w", err)
@@ -1781,7 +1781,7 @@ func (s *GitHubImportService) finishReusedImport(ctx context.Context, userID int
 
 	// Refresh BEFORE resolving the default-branch bookmark so the resolved change
 	// reflects the just-refreshed GitHub head. Best-effort: never fails the reopen.
-	s.refreshReusedMirror(ctx, userID, sourceOwner, repo, localOwner, mirrorName, jobID, githubCloneToken)
+	s.refreshReusedMirror(ctx, userID, repository.ID, sourceOwner, repo, localOwner, mirrorName, jobID, githubCloneToken)
 
 	s.setStage(ctx, jobID, importStageCreatingBookmark)
 	targetChangeID, err := s.importedBookmarkTarget(ctx, localOwner, mirrorName, defaultBranch)
@@ -1834,9 +1834,9 @@ func (s *GitHubImportService) finishReusedImport(ctx context.Context, userID int
 // mirror.reuse.refresh_failed and degrades to serving the existing (stale)
 // mirror. It NEVER deletes the pre-existing repo (this is not the fresh path;
 // the e60d6f8beb compensation only applies to freshly-created repos).
-func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID int64, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken string) {
+func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID, repositoryID int64, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken string) {
 	started := time.Now()
-	if err := s.refreshMirrorFromGitHub(ctx, userID, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken); err != nil {
+	if err := s.refreshMirrorFromGitHub(ctx, userID, repositoryID, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken); err != nil {
 		// Degrade to the stale mirror: the user still gets their repo, staleness
 		// is the fallback, not the norm. Not surfaced, not fatal, no cleanup.
 		slog.Warn("mirror.reuse.refresh_failed", "import_job_id", jobID, "repo_owner", localOwner, "repo_name", mirrorName, "error", err)
@@ -1856,8 +1856,8 @@ func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID in
 // bookmarks tracking updated git refs move forward while jjhub-only bookmarks are
 // left untouched. Returns an error on any failure; the best-effort wrapper
 // (refreshReusedMirror) decides that a failure degrades rather than fails.
-func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userID int64, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken string) error {
-	token, err := issueTemporaryRepoPushToken(ctx, s.tokenDB, userID, "github-import-refresh-push")
+func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userID, repositoryID int64, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken string) error {
+	token, err := issueTemporarySyncPushToken(ctx, s.tokenDB, userID, repositoryID, "github-import-refresh-push")
 	if err != nil {
 		return fmt.Errorf("create refresh push token: %w", err)
 	}

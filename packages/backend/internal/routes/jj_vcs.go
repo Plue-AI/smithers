@@ -253,6 +253,10 @@ func (h *JJVCSHandler) CreateBookmark(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
+	if err := requireAgentRunOffDefaultBookmark(r, name); err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
 
 	bookmark, err := h.RepoHost.CreateBookmark(r.Context(), owner, repoName, repohost.CreateBookmarkRequest{
 		Name:           name,
@@ -275,6 +279,21 @@ func (h *JJVCSHandler) CreateBookmark(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// requireAgentRunOffDefaultBookmark applies
+// services.RequireAgentRunOffDefaultBookmark to the request's credential and
+// repository.
+func requireAgentRunOffDefaultBookmark(r *http.Request, bookmark string) error {
+	kind := middleware.AuthInfoFromContext(r.Context()).CredentialKind()
+	if kind != middleware.CredentialAgentRun {
+		return nil
+	}
+	repository := middleware.RepoFromContext(r.Context())
+	if repository == nil {
+		return errors.Internal("repository context is not loaded")
+	}
+	return services.RequireAgentRunOffDefaultBookmark(kind, repository.DefaultBookmark, bookmark)
 }
 
 // DeleteBookmark handles DELETE /api/repos/{owner}/{repo}/bookmarks/{name}.
@@ -303,6 +322,10 @@ func (h *JJVCSHandler) DeleteBookmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := services.RequireBookmarkNotProtected(r.Context(), h.RepoResolver, repo.ID, name); err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	if err := requireAgentRunOffDefaultBookmark(r, name); err != nil {
 		writeRouteError(w, r, err)
 		return
 	}

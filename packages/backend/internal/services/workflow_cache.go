@@ -1058,10 +1058,11 @@ func containsControlRune(s string) bool {
 // save. Unknown events save nothing.
 //
 // The trigger is provenance the server recorded, never a caller's label: the
-// push hook records push, the scheduler schedule, and the dispatch routes
-// workflow_dispatch only for a person, since they refuse run credentials
-// (middleware.RefuseRunCredentials). Invoke records invoke whatever its body
-// says.
+// push hook records push only for a person's push or the GitHub main pull
+// (a system-issued credential's push records system_push), the scheduler
+// schedule, and the dispatch routes workflow_dispatch only for a person,
+// since they refuse run credentials (middleware.RefuseRunCredentials).
+// Invoke records invoke whatever its body says.
 func workflowCachePublisher(triggerEvent string) bool {
 	switch NormalizeTriggerName(triggerEvent) {
 	case "push", "schedule", "workflow_dispatch":

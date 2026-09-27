@@ -31,6 +31,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	apierrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -1230,9 +1231,12 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 	// context so SSH session context cancellation cannot abort the HTTP request.
 	proxyCtx, cancel := context.WithTimeout(context.Background(), s.receivePackTimeout())
 	defer cancel()
+	// SSH authenticates a person's key or a deploy key an administrator
+	// added; the platform issues neither to a run.
 	meta := repohost.ReceivePackMetadata{
-		PusherID:    userID,
-		PusherLogin: pusher.Username,
+		PusherID:         userID,
+		PusherLogin:      pusher.Username,
+		PusherCredential: middleware.CredentialPerson,
 	}
 	proxyErr := s.RepoHostClient.ProxyReceivePack(proxyCtx, owner, repo, pipeReader, sess, meta)
 	if proxyErr != nil {

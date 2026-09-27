@@ -248,6 +248,8 @@ func TestPushHook_Cov_WorkflowAndPermissionHelpers(t *testing.T) {
 			CommitSHA:   "abc123",
 			PusherID:    7,
 			PusherLogin: "alice",
+
+			PusherCredential: "person",
 		})
 
 		assert.True(t, syncer.loadCalled)

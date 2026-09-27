@@ -467,7 +467,7 @@ func TestLinearIntegrationHandler_ConfigureLinearIntegration_AllowsOrgOwnedRepoF
 		},
 		getCollaboratorPermissionFn: func(ctx context.Context, arg db.GetCollaboratorPermissionForRepoUserParams) (string, error) {
 			assert.Equal(t, int64(55), arg.RepositoryID)
-			assert.Equal(t, int64(7), arg.UserID)
+			assert.Equal(t, int64(7), arg.UserID.Int64)
 			return "", nil
 		},
 	}

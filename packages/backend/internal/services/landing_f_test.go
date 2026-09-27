@@ -921,7 +921,7 @@ func TestLanding_F_PermissionHelpers(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, landingAPIStatus(t, svcErr.requireReadAccess(ctx, priv, viewer)))
 	assert.Equal(t, http.StatusInternalServerError, landingAPIStatus(t, svcErr.requireWriteAccess(ctx, priv, viewer)))
-	assert.Equal(t, http.StatusInternalServerError, landingAPIStatus(t, svcErr.requireAdminAccess(ctx, priv, viewer)))
+	assert.Equal(t, http.StatusInternalServerError, landingAPIStatus(t, svcErr.requireLandAccess(ctx, priv, viewer)))
 
 	svcDeny := landingFSvc(&mockLandingQuerier{})
 	assert.Equal(t, http.StatusForbidden, landingAPIStatus(t, svcDeny.requireReadAccess(ctx, priv, viewer)))

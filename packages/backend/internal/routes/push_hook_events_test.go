@@ -59,6 +59,8 @@ func pushEventFromInsert(id int64, row db.InsertRepoPushEventParams) db.RepoPush
 		CommitSha:    row.CommitSha,
 		PusherID:     row.PusherID,
 		PusherLogin:  row.PusherLogin,
+
+		PusherCredential: row.PusherCredential,
 	}
 }
 

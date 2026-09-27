@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -37,6 +38,18 @@ func RequireBookmarkNotProtected(ctx context.Context, q BookmarkProtectionQuerie
 		if matches {
 			return pkgerrors.Forbidden(fmt.Sprintf("bookmark %q is protected; changes must go through a landing request", bookmark))
 		}
+	}
+	return nil
+}
+
+// RequireAgentRunOffDefaultBookmark refuses an agent run's credential any
+// direct write of the default bookmark: an agent's work reaches it only
+// through a landing, the stack service or the GitHub main pull. A person's and
+// the platform's sync credential are not affected; the mythical bookmark is
+// refused to everyone by RequireBookmarkNotProtected.
+func RequireAgentRunOffDefaultBookmark(kind middleware.CredentialKind, defaultBookmark, bookmark string) error {
+	if kind == middleware.CredentialAgentRun && strings.EqualFold(bookmark, defaultBookmark) {
+		return pkgerrors.Forbidden(fmt.Sprintf("an agent run cannot write the default bookmark %q; land its changes instead", bookmark))
 	}
 	return nil
 }
@@ -220,10 +233,10 @@ func (s *ProtectedBookmarkService) requireAdminAccess(ctx context.Context, repos
 	if user == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
-	if user.IsAdmin {
-		return nil
+	if actsThroughRunCredential(ctx, user.ID) {
+		return pkgerrors.Forbidden("admin access required")
 	}
-	if repository.UserID.Valid && repository.UserID.Int64 == user.ID {
+	if user.IsAdmin {
 		return nil
 	}
 	isAdmin, err := canAdminRepo(ctx, s.queries, repository, user.ID)

@@ -122,6 +122,8 @@ func TestInternalPushHookHandler_PostPushEvent_DispatchesPushEvent(t *testing.T)
 		Ref:         "refs/heads/main",
 		PusherID:    42,
 		PusherLogin: "bob",
+
+		PusherCredential: "person",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -493,6 +495,8 @@ func TestInternalPushHookHandler_PostPushEvent_LoadsPersistsAndDispatchesDefault
 		CommitSHA:   "abc123",
 		PusherID:    42,
 		PusherLogin: "bob",
+
+		PusherCredential: "person",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -589,6 +593,8 @@ func TestInternalPushHookHandler_PostPushEvent_NonAdminPusherSkipsConfigSync(t *
 		CommitSHA:   "abc123",
 		PusherID:    42,
 		PusherLogin: "bob",
+
+		PusherCredential: "person",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -662,6 +668,8 @@ func TestInternalPushHookHandler_PostPushEvent_NonDefaultBookmarkSkipsPersistenc
 		CommitSHA:   "branch123",
 		PusherID:    42,
 		PusherLogin: "bob",
+
+		PusherCredential: "person",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -817,6 +825,8 @@ func TestInternalPushHookHandler_PostPushEvent_WorkflowSyncContextHasDeadline(t 
 		CommitSHA:   "abc123",
 		PusherID:    42,
 		PusherLogin: "bob",
+
+		PusherCredential: "person",
 	}
 	body, _ := json.Marshal(payload)
 

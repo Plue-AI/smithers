@@ -40,7 +40,9 @@ type workflowRunSupersedeQuerier interface {
 // is a tick that nothing replaces, so neither is ever auto-cancelled and
 // neither ever cancels anything.
 func workflowCancelsSupersededRuns(configJSON json.RawMessage, triggerEvent string) bool {
-	if NormalizeTriggerName(triggerEvent) != "push" {
+	// A system credential's push (system_push) supersedes only the earlier
+	// system pushes to its ref: the listing matches the recorded trigger.
+	if trigger := NormalizeTriggerName(triggerEvent); trigger != "push" && trigger != SystemPushTriggerEvent {
 		return false
 	}
 	if concurrency := parseWorkflowConcurrency(configJSON); concurrency != nil && concurrency.CancelSuperseded != nil {

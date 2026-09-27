@@ -96,11 +96,18 @@ func issueTemporaryBoundRepoCloneToken(ctx context.Context, store accessTokenSto
 	return issueTemporaryRepoToken(ctx, store, userID, name, scopes)
 }
 
-// issueTemporaryRepoPushToken mints a short-lived token that can PUSH (write) to
-// a user's jjhub repos. The github mirror import uses it to push the cloned refs
-// into the freshly-created local repo (a read-only token gets a 403 on push).
-func issueTemporaryRepoPushToken(ctx context.Context, store accessTokenStore, userID int64, name string) (temporaryRepoCloneToken, error) {
-	return issueTemporaryRepoToken(ctx, store, userID, name, string(middleware.ScopeWriteRepository))
+// issueTemporarySyncPushToken mints the platform's short-lived sync
+// credential (middleware.CredentialSync): it can PUSH (write) to one
+// repository, the default bookmark included. Only the GitHub import and its
+// refresh hold it, on the server, to push the refs they cloned from GitHub; it
+// is never handed to an agent, workspace or workflow. The pushes it makes
+// start no cache-saving run (SystemPushTriggerEvent).
+func issueTemporarySyncPushToken(ctx context.Context, store accessTokenStore, userID, repositoryID int64, name string) (temporaryRepoCloneToken, error) {
+	if repositoryID <= 0 {
+		return temporaryRepoCloneToken{}, fmt.Errorf("sync push token requires a repository binding")
+	}
+	return issueTemporaryRepoToken(ctx, store, userID, name, string(middleware.ScopeWriteRepository)+","+
+		middleware.RepositoryRestrictionScope(repositoryID)+","+middleware.SyncCredentialScope())
 }
 
 // issueTemporaryRepoAPIToken mints a short-lived write-scoped token that a

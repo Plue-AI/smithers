@@ -81,9 +81,6 @@ func (h *LinearIntegrationHandler) userCanAdminRepo(ctx context.Context, user *d
 	if user == nil {
 		return false, nil
 	}
-	if repo.UserID.Valid && repo.UserID.Int64 == user.ID {
-		return true, nil
-	}
 	if h.Repos == nil {
 		return false, errors.Internal("repository access checker is not configured")
 	}

@@ -131,14 +131,15 @@ func (s *GitHTTPProxyService) ProxyReceivePack(
 	stdin io.Reader,
 	stdout io.Writer,
 ) error {
-	user, scopes, allowedPaths, workspaceID, err := s.authenticateTokenWithPaths(ctx, token, owner, repo)
+	credential, err := s.authenticateTokenWithPaths(ctx, token, owner, repo)
 	if err != nil {
 		return err
 	}
+	user := credential.user
 	if user == nil {
 		return errors.Unauthorized("authentication required")
 	}
-	if err := requireScopeForMode(scopes, AccessModeWrite); err != nil {
+	if err := requireScopeForMode(credential.scopes, AccessModeWrite); err != nil {
 		return err
 	}
 
@@ -155,21 +156,22 @@ func (s *GitHTTPProxyService) ProxyReceivePack(
 		return errors.BadRequest("malformed git receive-pack request")
 	}
 	stdin = rebuilt
-	if err := s.rejectProtectedBookmarkPush(ctx, owner, repo, commands); err != nil {
+	if err := s.rejectProtectedBookmarkPush(ctx, owner, repo, credential.kind, commands); err != nil {
 		return err
 	}
 	// RFD-004: refs/smithers/ is the control plane's namespace. A workspace
 	// credential may write only its own head ref; a user credential only its
 	// own refs/smithers/users/<id>/ (#1964); nothing else may write there.
-	if msg := repohost.ReservedRefViolation(commands, workspaceID, user.ID); msg != "" {
+	if msg := repohost.ReservedRefViolation(commands, credential.workspaceID, user.ID); msg != "" {
 		return errors.Forbidden(msg)
 	}
 
 	meta := repohost.ReceivePackMetadata{
-		PusherID:     user.ID,
-		PusherLogin:  user.Username,
-		AllowedPaths: allowedPaths,
-		WorkspaceID:  workspaceID,
+		PusherID:         user.ID,
+		PusherLogin:      user.Username,
+		PusherCredential: credential.kind,
+		AllowedPaths:     credential.allowedPaths,
+		WorkspaceID:      credential.workspaceID,
 	}
 	if err := s.repoHost.ProxyReceivePack(ctx, owner, repo, stdin, stdout, meta); err != nil {
 		return gitProxyFailure(ctx, "receive-pack", owner, repo, err)
@@ -179,8 +181,9 @@ func (s *GitHTTPProxyService) ProxyReceivePack(
 
 // rejectProtectedBookmarkPush fails a receive-pack request when any of its
 // ref-update commands targets a bookmark matching a protected-bookmark
-// pattern. Non-branch refs (tags, ...) are not subject to bookmark protection.
-func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, owner, repo string, commands []repohost.ReceivePackCommand) error {
+// pattern, or, for an agent run's credential, the default bookmark.
+// Non-branch refs (tags, ...) are not subject to bookmark protection.
+func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, owner, repo string, kind middleware.CredentialKind, commands []repohost.ReceivePackCommand) error {
 	if len(commands) == 0 || s.queries == nil {
 		return nil
 	}
@@ -209,6 +212,9 @@ func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, o
 		if err := RequireBookmarkNotProtected(ctx, s.queries, repository.ID, bookmark); err != nil {
 			return err
 		}
+		if err := RequireAgentRunOffDefaultBookmark(kind, repository.DefaultBookmark, bookmark); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -219,22 +225,32 @@ func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, o
 // the request targets any repository other than the one it is bound to, so a
 // leaked token cannot read private — or push to any — other repositories.
 func (s *GitHTTPProxyService) authenticateToken(ctx context.Context, token, owner, repo string) (*db.User, middleware.ScopeSet, error) {
-	user, scopes, _, _, err := s.authenticateTokenWithPaths(ctx, token, owner, repo)
-	return user, scopes, err
+	credential, err := s.authenticateTokenWithPaths(ctx, token, owner, repo)
+	return credential.user, credential.scopes, err
+}
+
+// gitHTTPCredential is what a git request's token authenticates: its user
+// (nil when anonymous), grants and bindings, and who holds it.
+type gitHTTPCredential struct {
+	user         *db.User
+	scopes       middleware.ScopeSet
+	allowedPaths []string
+	workspaceID  string
+	kind         middleware.CredentialKind
 }
 
 func (s *GitHTTPProxyService) authenticateTokenWithPaths(
 	ctx context.Context,
 	token string,
 	owner, repo string,
-) (*db.User, middleware.ScopeSet, []string, string, error) {
+) (gitHTTPCredential, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return nil, nil, nil, "", nil
+		return gitHTTPCredential{}, nil
 	}
 
 	if s.queries == nil {
-		return nil, nil, nil, "", errors.Internal("token auth is not configured")
+		return gitHTTPCredential{}, errors.Internal("token auth is not configured")
 	}
 
 	hash := sha256.Sum256([]byte(token))
@@ -243,9 +259,9 @@ func (s *GitHTTPProxyService) authenticateTokenWithPaths(
 	authRow, err := s.queries.GetAuthInfoByTokenHash(ctx, tokenHash)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, nil, "", errors.Unauthorized("invalid or expired token")
+			return gitHTTPCredential{}, errors.Unauthorized("invalid or expired token")
 		}
-		return nil, nil, nil, "", errors.Internal("failed to authenticate token").WithCause(err)
+		return gitHTTPCredential{}, errors.Internal("failed to authenticate token").WithCause(err)
 	}
 
 	user := db.User{
@@ -268,20 +284,25 @@ func (s *GitHTTPProxyService) authenticateTokenWithPaths(
 	}
 	if s.ownerBoundary != nil {
 		if err := s.ownerBoundary.AuthorizeOwner(ctx, user.ID); err != nil {
-			return nil, nil, nil, "", err
+			return gitHTTPCredential{}, err
 		}
 	}
 	if err := s.queries.UpdateAccessTokenLastUsed(ctx, authRow.TokenID); err != nil {
-		return nil, nil, nil, "", errors.Internal("failed to update token last used timestamp").WithCause(err)
+		return gitHTTPCredential{}, errors.Internal("failed to update token last used timestamp").WithCause(err)
 	}
 
 	if restriction := middleware.ParseTokenRepositoryRestriction(authRow.TokenScopes); restriction != 0 &&
 		!s.tokenBoundToRepo(ctx, restriction, owner, repo) {
-		return nil, nil, nil, "", nil
+		return gitHTTPCredential{}, nil
 	}
 
-	scopes := middleware.ParseTokenScopes(authRow.TokenScopes)
-	return &user, scopes, middleware.ParseTokenPathRestrictions(authRow.TokenScopes), middleware.ParseTokenWorkspaceRestriction(authRow.TokenScopes), nil
+	return gitHTTPCredential{
+		user:         &user,
+		scopes:       middleware.ParseTokenScopes(authRow.TokenScopes),
+		allowedPaths: middleware.ParseTokenPathRestrictions(authRow.TokenScopes),
+		workspaceID:  middleware.ParseTokenWorkspaceRestriction(authRow.TokenScopes),
+		kind:         middleware.TokenCredentialKind(authRow.TokenSystemIssued, authRow.TokenScopes),
+	}, nil
 }
 
 // tokenBoundToRepo reports whether the repository named by owner/repo is the
