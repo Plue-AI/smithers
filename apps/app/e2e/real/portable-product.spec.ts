@@ -135,14 +135,14 @@ const landOwnedChange = async (page: Page, request: APIRequestContext, door: "sl
 
 authenticatedTest("a pushed local change opens and lands through the slash command", scenario("landings.local-change-land", {
   capabilities: ["identity"],
-  coverage: ["action:prs.create", "action:prs.land", "host:local", "host:production", "path:success", "path:persistence", "door:slash", "surface:landing-api", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
+  coverage: ["action:prs.create", "action:prs.land", "host:local", "host:production", "path:success", "path:persistence", "door:slash", "dimension:reload", "surface:landing-api", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
 }), async ({ page, request }) => {
   await landOwnedChange(page, request, "slash")
 })
 
 authenticatedTest("a pushed local change lands through the change card with the keyboard", scenario("landings.change-card-land", {
   capabilities: ["identity"],
-  coverage: ["action:prs.create", "action:change.view", "action:change.land", "host:local", "host:production", "path:success", "path:persistence", "path:keyboard", "door:button", "surface:change-card", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
+  coverage: ["action:prs.create", "action:change.view", "action:change.land", "host:local", "host:production", "path:success", "path:persistence", "path:keyboard", "door:button", "dimension:keyboard", "dimension:reload", "surface:change-card", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
 }), async ({ page, request }) => {
   await landOwnedChange(page, request, "button")
 })
