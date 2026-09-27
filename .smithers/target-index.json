@@ -15557,10 +15557,6 @@
       },
       {
         "kind": "file",
-        "path": "packages/smithers/src/McpServer.ts"
-      },
-      {
-        "kind": "file",
         "path": "packages/smithers/src/NodeControl.ts"
       },
       {
@@ -38354,6 +38350,42 @@
     "dependencies": [],
     "source": {
       "file": "scripts/repo-contract/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:apiBaseline",
+    "package": "scripts",
+    "name": "apiBaseline",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/check-api-baseline.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
     }
   },
   {

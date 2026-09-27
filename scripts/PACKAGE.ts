@@ -245,6 +245,23 @@ const releasePack = Smithers.NodeBinary({
 })
 
 /**
+ * Every public package's declarations hash to the reviewed
+ * `scripts/fixtures/public-api-baseline.json`.
+ *
+ * The same `lib` edge as {@link releasePack}, so on CI the libraries this
+ * reads are the ones the pack already built, and a declaration change that
+ * skips the baseline review fails on the push that made it, not at release.
+ *
+ * @since 1.0.0
+ * @category test
+ */
+const apiBaseline = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/check-api-baseline.mjs")),
+  srcs: sources,
+  deps: [Smithers.Target.subtree("//packages/...", "lib")]
+})
+
+/**
  * Installs the packed artifacts into a scratch project and imports every
  * published entry point, ESM and CJS.
  *
@@ -599,6 +616,7 @@ const commit = Smithers.NodeTest({
 
 export const Package = Smithers.Package({
   targets: {
+    apiBaseline,
     commit,
     conformanceCheck,
     repositoryConformance,
