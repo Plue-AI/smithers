@@ -196,7 +196,7 @@ owner's subscription login (`SMITHERS_OPENAI_AUTH=chatgpt`, the codex login in
 | `character/profile.ts` | Composes a profile's system segments: the host's turn contract, shared instructions, charter, skills, with byte caps. |
 | `character/event.ts` | Renders the event that starts a turn: time, where it arrived, the conversation so far, the new message. |
 | `character/subject.ts` | Runs one turn through `Agent` on a live subscription seat or a replay seat. |
-| `character/score.ts` | Deterministic checks (`@smthrs/scorers` `Checks`): voice rules on text Will reads, leakage on text agents read, expected calls, booking rules. |
+| `character/score.ts` | Deterministic checks (`@smthrs/scorers` `Checks`): jargon, forbidden phrases and truncation on every human-read message (replies, DMs, digest items, posts, requests to Will, handoff briefs, questions, notes, wiki pages, issue comments, new issues, pull requests); openers, bare paths and unlinked references on what Will reads directly; leakage on what other people read; expected calls; booking rules. |
 | `character/rubric.ts` | The seven-criterion rubric judge (`@smthrs/scorers` `Rubric`) on a subscription seat. |
 | `character/suite.ts` | Loads `suite.yaml` and `cases/*.yaml`. |
 | `character/run.ts` | Runs cases through `@smthrs/evals` (`Suite`, `Runner`, `Trials`), prints pass@1, pass@k and pass^k, and writes results and a regression log for live runs. |

@@ -14,3 +14,4 @@ golden:
   reply: "Marketing has it and will ship it today; I'll send you the link."
 counterexamples:
   - { label: wrong owner, calls: [{ tool: handoff, input: { to: engineering, brief: "Fix pricing" } }], reply: "Engineering has it." }
+  - { label: jargon in the brief, calls: [{ tool: handoff, input: { to: marketing, brief: "Deliverable: readback of the pricing page at $12." } }], reply: "Marketing has it." }

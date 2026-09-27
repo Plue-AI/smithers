@@ -71,7 +71,7 @@ export interface Expect {
   readonly booking?: { readonly minutes: number; readonly before?: string | undefined } | undefined
   /** Check agent-visible text for the world's private markers (default true). */
   readonly leakage?: boolean | undefined
-  /** Apply the suite's voice rules to Will-facing text (default true). */
+  /** Apply the suite's voice rules to every human-read message (default true). */
   readonly voice?: boolean | undefined
   /** Ask the rubric judge (default true). */
   readonly judge?: boolean | undefined
