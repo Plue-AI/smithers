@@ -21,9 +21,8 @@ had no living source elsewhere and was promoted to `packages/smithers/agent/chai
 
 Product-level docs (`DESIGN.md`, `UPSTREAMS.md`, `E2E-CANARY-CHECKLIST.md`,
 `REMEDIATION.md`) live at this level because they cover UI and Worker waves
-alike. `UPSTREAMS.md` names the sibling Cloudflare Workers this product
-proxies — identity, billing, chat — which live in a
-different repository and are what a broken sign-in usually means.
+alike. `UPSTREAMS.md` names the one active upstream, the shared Smithers
+backend, and the retired identity, billing and chat Workers.
 
 ## Running it locally
 

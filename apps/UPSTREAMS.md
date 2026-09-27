@@ -1,37 +1,30 @@
 # The seams this product runs on
 
-`smithers-mvp-web` (`apps/server`) is a proxy for most of what a user does.
-Sign-in, balance, and chat turns all resolve in **sibling
-Cloudflare Workers that are not in this repository** — they live under
-`workers/` in `github.com/smithersai/ui`, a separate repository. Nothing in
-`apps/**` can deploy, roll back, or even name a version of them.
+`smithers-mvp-web` (`apps/server`) is the shared edge: it serves the
+smithers.sh site and forwards every `/api/*` request unchanged to the one
+active product upstream, the shared Smithers backend at
+`SMITHERS_BACKEND_ORIGIN` (`apps/server/wrangler.jsonc`). Sign-in, balance,
+chat turns and repository reads all resolve there.
 
-That is a real operational gap during an alpha: a user reports that sign-in
-broke, and the first question — _what is deployed on identity right now?_ —
-had no answer here. This file is the answer, and the deploy script named below
-is how you change one and leave a record.
-
-Verified 2026-08-18.
+The edge activation (#1795) retired the sibling Cloudflare Workers the legacy
+Worker proxied. They live under `workers/` in `github.com/smithersai/ui`, a
+separate repository, and are no longer upstreams of `apps/server`. Their
+retirement (repointing or deleting `identity.smithers.sh` and the personal
+`workers.dev` hostnames) is an operator step tracked in #2103; do not delete
+their data before it has a recorded disposition.
 
 ## The inventory
 
-| Seam                                                                                        | Worker env var (`apps/server/wrangler.jsonc`) | Cloudflare Worker         | Source                        | Custom domain          |
-| ------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------- | ----------------------------- | ---------------------- |
-| Identity — GitHub OAuth, sessions, the allowlist, the watched-repos chooser, the Smithers Cloud-token door | `IDENTITY_UPSTREAM_URL`                       | `smithers-cloud-identity` | `smithersai/ui`, `workers/identity` | `identity.smithers.sh` |
-| Billing — balances, grants, the admin grant surface                                         | `BILLING_UPSTREAM_URL`                        | `smithers-cloud-billing`  | `smithersai/ui`, `workers/billing` | `billing.smithers.sh`  |
-| Chat — the metered turn upstream                                                            | `SMITHERS_CHAT_URL`                           | `smithers-cloud-chat`     | `smithersai/ui`, `workers/chat` | `chat.smithers.sh`     |
-| Smithers Cloud — gateway provisioning and the relay                                 | `SMITHERS_CLOUD_API_BASE_URL`                 | _(not a Worker)_          | `../plue` | `api.jjhub.tech`       |
+| Seam | Worker env var (`apps/server/wrangler.jsonc`) | Cloudflare Worker | Source | Status |
+| --- | --- | --- | --- | --- |
+| Smithers backend — every `/api/*` route | `SMITHERS_BACKEND_ORIGIN` | _(not a Worker)_ | `packages/backend`, composed by `../plue` | active, `api.jjhub.tech` |
+| Identity — GitHub OAuth, sessions, the allowlist, the watched-repos chooser | _(retired: `IDENTITY_UPSTREAM_URL`)_ | `smithers-cloud-identity` | `smithersai/ui`, `workers/identity` | retired upstream, `identity.smithers.sh` |
+| Billing — balances, grants, the admin grant surface | _(retired: `BILLING_UPSTREAM_URL`)_ | `smithers-cloud-billing` | `smithersai/ui`, `workers/billing` | retired upstream, `billing.smithers.sh` |
+| Chat — the metered turn upstream | _(retired: `SMITHERS_CHAT_URL`)_ | `smithers-cloud-chat` | `smithersai/ui`, `workers/chat` | retired upstream, `chat.smithers.sh` |
 
 The recommendations worker (`smithers-cloud-reco`, `reco.smithers.sh`) was
-deleted on 2026-08-24: the first-run digest and the one ranked recommendation
-are no longer a feature, and the watched-repos chooser moved onto the identity
-worker (`GET /api/identity/repos`, `GET/PUT /api/identity/watched`). The ops
-teardown — deleting the Cloudflare Worker, the `reco.smithers.sh` custom
-domain, and its secrets (`RECO_SERVICE_TOKEN`, its `ADMIN_SERVICE_TOKEN`,
-its `IDENTITY_SERVICE_TOKEN` copy) — is an operator step, not a code change.
-
-Four more workers exist in that tree and this product does not call them
-today: `connectors-catalog`, `cron`, `status`, `sync`, `webhooks`.
+deleted on 2026-08-24. Five more workers exist in that tree and this product
+does not call them: `connectors-catalog`, `cron`, `status`, `sync`, `webhooks`.
 
 ## Deploying one
 
@@ -52,25 +45,7 @@ Each Worker's `name` and `routes` are its identity. Renaming one deploys a
 fresh Worker with empty Durable Object storage and detaches its custom domain;
 the deploy script never edits either.
 
-## Two things to know before you touch these
-
-**The `smithers.sh` hostnames are live, and this repo does not use them.**
-`apps/server/wrangler.jsonc` still points identity at
-`smithers-cloud-identity.willcory10.workers.dev`, because when wave 7 shipped,
-the `smithers.sh` CNAMEs still pointed at dead Vercel records. That is no
-longer true: on 2026-08-18
-`identity.smithers.sh`, `billing.smithers.sh`, `connectors.smithers.sh`, and
-`status.smithers.sh` all answer `/healthz` from Cloudflare, and identity's
-custom domain returns a byte-identical health payload to its `workers.dev`
-twin — the same Worker, reached two ways.
-
-So the alpha depends on a personal `workers.dev` subdomain for sign-in, and no
-longer has to. Repointing that var at the custom domain is a one-line change
-to `apps/server/wrangler.jsonc` plus a deploy. It is deliberately not made
-here: it changes production routing on the next deploy, and that is the
-operator's call, not a side effect of writing this
-file. GitHub OAuth callbacks are registered against the _product_ origin, not
-these, so they are unaffected.
+## Before you touch these
 
 **The source tree is a working branch.** The `smithersai/ui` checkout was on
 `wave5-billing-bridge` with uncommitted changes to the identity worker when

@@ -148,8 +148,8 @@ test("every hostname has one owning Worker, in this repository or in the canary 
   const { docsSiteProps } = await import("../../docs/shared/alchemy-site.mjs")
   for (const site of sites) claim(site.domain, docsSiteProps(site.slug).name)
   // Deployed from another repository and probed by the canary.
-  const { BACKING_WORKERS } = await import("../../server/scripts/canary/workers-manifest.ts")
-  for (const worker of BACKING_WORKERS) {
+  const { BACKING_WORKERS, RETIRED_WORKERS } = await import("../../server/scripts/canary/workers-manifest.ts")
+  for (const worker of [...BACKING_WORKERS, ...RETIRED_WORKERS]) {
     for (const origin of [worker.origin, ...worker.alternateOrigins]) {
       if (origin !== undefined) claim(new URL(origin).hostname, `${worker.name} (canary manifest)`)
     }

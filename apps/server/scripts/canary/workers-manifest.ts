@@ -1,58 +1,13 @@
-/*
- * The backing services the product runs on (E2E-CANARY-CHECKLIST CN-18).
- *
- * The Workers are deployed from smithersai/ui; the Cloud API is deployed
- * from Plue (see apps/UPSTREAMS.md). Their health is checked externally. This
- * file is the only place the deployment's shape is written down where CI can
- * read it. apps/site/scripts/deployment.test.mjs fails when a Worker in this
- * repository claims one of these hostnames.
- *
- * These origins are addresses, not credentials. Four of them are already
- * committed in apps/server/wrangler.jsonc, all resolve in public DNS, and
- * this probe sends no token. The list is committed on purpose: a GitHub secret
- * cannot be diffed, so a wrong origin hidden in one would probe nothing and
- * report PASS. $CANARY_WORKER_ORIGINS overrides it per deployment.
- *
- * Eight Workers and the Cloud API, eleven routes: identity and chat each answer on both a
- * custom domain and the workers.dev hostname apps/server/wrangler.jsonc
- * actually points at, and both routes are probed (see alternateOrigins).
- *
- * Two contracts, because the Workers do not all offer the same surface:
- *
- *   ok-json  HTTP 200 with a JSON body whose `ok` is true. This is the same
- *            contract apps/server/src/index.ts's readServiceHealth already
- *            applies when it composes the admin health card.
- *   responds A response below HTTP 500 whose body came from the Worker rather
- *            than from Cloudflare's edge. Three Workers expose no health route
- *            at all, so the only honest assertion left is that the Worker is
- *            deployed and routable: a transport failure, a 5xx, or an edge
- *            error page is the failure. The body check is load-bearing, not
- *            decoration — a *.workers.dev hostname with nothing deployed
- *            behind it answers HTTP 404, exactly like the live chat Worker
- *            does at /, so a status-only assertion reported a deleted Worker
- *            as healthy (CN-18, proved live 2026-08-19). See
- *            cloudflareEdgeError in workers-health.ts.
- *
- *            This is still weaker than ok-json: it proves a Worker answered,
- *            not that its dependencies are up. Promote a Worker to ok-json as
- *            soon as it exposes a health route, and not before — asserting a
- *            route that does not exist would fail forever. Landing one is
- *            work for whoever owns smithersai/ui workers/: the chat Worker needs
- *            an unauthenticated GET /healthz returning HTTP 200 and
- *            {"ok":true,...}, reachable without an allowed Origin header, the
- *            same shape identity, billing, connectors, status and sync
- *            already serve.
- *
- * Contracts measured live on 2026-08-18, and the responds bodies again on
- * 2026-08-19, against every origin below.
- */
+/* Active dependencies of the shared application edge. Retired authority hosts
+ * stay reserved below; the cutover gate verifies their fences separately. */
 
 /** @see BACKING_WORKERS for which Worker carries which contract. */
 /**
  * status-ok-json is Plue's /healthz (packages/backend/internal/routes/healthz.go):
- * HTTP 200, `status: "ok"`, and every entry of `checks` "ok".
+ * HTTP 200, `status: "ok"`, and every entry of `checks` "ok". application-bootstrap
+ * is the shared backend's canonical `/api/bootstrap` contract.
  */
-export type HealthContract = "ok-json" | "status-ok-json" | "responds"
+export type HealthContract = "ok-json" | "status-ok-json" | "responds" | "application-bootstrap"
 
 export interface BackingWorker {
   readonly name: string
@@ -79,14 +34,14 @@ export interface BackingWorker {
   readonly note: string
 }
 
-export const BACKING_WORKERS: ReadonlyArray<BackingWorker> = [
+const DEPLOYED_SERVICES: ReadonlyArray<BackingWorker> = [
   {
-    name: "cloud-api",
+    name: "application",
     origin: "https://api.jjhub.tech",
     alternateOrigins: [],
-    path: "/healthz",
-    contract: "status-ok-json",
-    note: "repositories, workspaces and gateway provisioning; SMITHERS_CLOUD_API_BASE_URL"
+    path: "/api/bootstrap",
+    contract: "application-bootstrap",
+    note: "canonical shared application backend; SMITHERS_BACKEND_ORIGIN"
   },
   {
     name: "identity",
@@ -156,6 +111,11 @@ export const BACKING_WORKERS: ReadonlyArray<BackingWorker> = [
       "inbound webhooks; no health route and every path is origin-gated (403 without an allowed Origin), so routability is the whole assertion"
   }
 ]
+
+const activeNames = new Set(["application", "connectors-catalog", "status"])
+export const BACKING_WORKERS = DEPLOYED_SERVICES.filter(service => activeNames.has(service.name))
+/** Reserved host ownership only. These services must remain fenced after cutover. */
+export const RETIRED_WORKERS = DEPLOYED_SERVICES.filter(service => !activeNames.has(service.name))
 
 export const ORIGIN_OVERRIDE_ENV = "CANARY_WORKER_ORIGINS"
 

@@ -6,7 +6,7 @@
  *
  *   bun scripts/deploy.ts --dry-run
  *     Runs the real site build, then `wrangler deploy --dry-run`, which
- *     bundles src/index.ts, reads the assets directory and prints the
+ *     bundles src/edge.ts, reads the assets directory and prints the
  *     bindings it would upload without touching the account. Nothing is
  *     published. Receipt lands in deploy-receipts/dry-run/.
  *
@@ -19,7 +19,7 @@
  *     on every push to main; see DEPLOY.md.
  *
  * The Worker identity (name `smithers-mvp-web`, the canary.smithers.sh domain,
- * the apex route, the five Durable Objects) is frozen in src/workerIdentity.ts
+ * the apex route, the six Durable Objects) is frozen in src/workerIdentity.ts
  * and held to wrangler.jsonc by src/workerIdentity.test.ts; see
  * apps/server/DEPLOY.md. This script never changes it; it only builds and
  * deploys what's there.
@@ -44,7 +44,7 @@ import { fileURLToPath } from "node:url"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
 import { judgeRevision, readRevisionFacts, wranglerDeployArgs } from "./deployRevision"
 import { readWranglerConfig } from "../src/wranglerConfig"
-import { artifactDigest, authorizeActivation, classifyLocal, DeployGuardRefusal, liveFactsFromCloudflare, preflightDeploy, sha256, verifyActivated, type ActivationAuthorization, type GuardDecision } from "./deployGuard"
+import { artifactDigest, classifyLocal, DeployGuardRefusal, liveFactsFromCloudflare, preflightDeploy, sha256, verifyActivated, type GuardDecision } from "./deployGuard"
 
 const dryRun = process.argv.includes("--dry-run")
 const serverDir = fileURLToPath(new URL("..", import.meta.url))
@@ -58,9 +58,10 @@ let capturedIdentity: Awaited<ReturnType<typeof readLive>> | undefined
  * Cutover interlock (scripts/deployGuard.ts). The first act of a real deploy,
  * before any revision read, build or wrangler spawn: this checkout's entry
  * against the live version's entry and annotations. Normal CI cannot undo a
- * live cutover-installer version, cannot bring the legacy writer back over the
- * shared edge, and cannot activate the edge except over the final fence with
- * the release gate's authorization. Anything unrecognized refuses.
+ * live cutover-installer version and cannot bring the legacy writer back over
+ * the shared edge. The edge replaces the live legacy Worker only as the direct
+ * switch the committed owner record (cutover/activation.json) admits.
+ * Anything unrecognized refuses.
  */
 const guardRefused = (error: unknown): never => {
   console.error(`[deploy] cutover interlock refused: ${error instanceof DeployGuardRefusal ? error.message : "DEPLOY_GUARD_UNCLASSIFIED"}`)
@@ -76,6 +77,8 @@ try {
       return capturedIdentity
     })
     console.log(`[deploy] cutover interlock: ${guard.mode} (local ${guard.local}, live ${guard.live} ${guard.liveVersion})`)
+    if (guard.mode === "activation")
+      console.log(`[deploy] edge activation admitted by owner record ${guard.record.sha256} (${guard.record.decision}, ${guard.record.owner}, ${guard.record.decidedAt})`)
   }
 } catch (error) { guardRefused(error) }
 
@@ -175,8 +178,7 @@ const wranglerEnv = { CLOUDFLARE_ACCOUNT_ID: accountId }
 
 let versionId: string | null = null
 let rolloutReceipt: RolloutReceipt | null = null
-let activation: (ActivationAuthorization & { readonly artifactSHA256: string }) | null = null
-let dryRunArtifactSHA256: string | null = null
+let activation: { readonly recordSHA256: string; readonly artifactSHA256: string } | null = null
 let rehearsalChecks: Awaited<ReturnType<typeof dryRunChecks>> | null = null
 const inviteConfigured = Boolean(process.env.IDENTITY_SERVICE_TOKEN || process.env.CANARY_ALLOWLIST_LOGINS)
 
@@ -189,9 +191,6 @@ if (dryRun) {
     process.exit(plan.exitCode)
   }
   console.log("[deploy] the dry run reads no live script; run `bun scripts/adopt-durable-objects.ts` for the identity verdict.")
-  // The digest an edge activation must match: the release gate records it from this rehearsal.
-  dryRunArtifactSHA256 = artifactDigest(Object.fromEntries(readdirSync(outdir).filter(name => name.endsWith(".js")).map(name => [name, sha256(readFileSync(join(outdir, name)))])))
-  console.log(`[deploy] artifact ${dryRunArtifactSHA256}`)
   rehearsalChecks = await dryRunChecks({ run, serverDir, accountId, inviteConfigured })
 } else {
   if (apiToken === undefined || apiToken === "") {
@@ -199,10 +198,10 @@ if (dryRun) {
     process.exit(1)
   }
   /*
-   * Edge activation replaces the final fence with the exact artifact the
-   * release gate rehearsed: bundle it, digest its code modules, and ask the
-   * gate, which holds the production lease and the verified cutover and
-   * import receipts. No authorization, no deploy.
+   * Edge activation: bundle the exact artifact first and digest its code
+   * modules, so the publication can be verified against it afterwards. A
+   * failed check restores the captured legacy version exactly; the legacy
+   * Durable Object state was retained, not migrated, so nothing forks.
    */
   if (guard?.mode === "activation") {
     const outdir = mkdtempSync(join(tmpdir(), "smithers-mvp-web-activation-"))
@@ -212,11 +211,8 @@ if (dryRun) {
       process.exit(bundle.exitCode)
     }
     const artifactSHA256 = artifactDigest(Object.fromEntries(readdirSync(outdir).filter(name => name.endsWith(".js")).map(name => [name, sha256(readFileSync(join(outdir, name)))])))
-    try {
-      activation = { ...authorizeActivation({ schema: "smithers-edge-activation-request/v1", worker: WORKER_IDENTITY.name, smithersRevision: gitSha, artifactSHA256,
-        liveVersion: guard.liveVersion, cutoverExecutionID: guard.executionID }), artifactSHA256 }
-    } catch (error) { guardRefused(error) }
-    console.log(`[deploy] edge activation authorized by lease ${activation!.lockTag} for artifact ${artifactSHA256}`)
+    activation = { recordSHA256: guard.record.sha256, artifactSHA256 }
+    console.log(`[deploy] edge activation artifact ${artifactSHA256}`)
   }
   console.log("[deploy] identity preflight (scripts/adopt-durable-objects.ts)...")
   const preflight = await run(["bun", "scripts/adopt-durable-objects.ts"], { cwd: serverDir, env: wranglerEnv })
@@ -230,12 +226,10 @@ if (dryRun) {
   } catch (error) { guardRefused(error) }
   // Read the build stamp inside capture: even an unreadable baseline gets a receipt.
   rolloutReceipt = await rollout(workerRolloutHost({
-    previous: async () => ({ version: guard!.liveVersion,
-      revision: guard!.mode === "activation" ? guard!.executionID : await readPreviousRevision() }),
+    previous: async () => ({ version: guard!.liveVersion, revision: await readPreviousRevision() }),
     identity: { accountId, worker: WORKER_IDENTITY.name, target: capturedIdentity! },
     serverDir, accountId, worker: WORKER_IDENTITY.name, token: apiToken,
     inviteConfigured,
-    ...(guard!.mode === "activation" ? { fenceExecution: guard!.executionID } : {}),
     run,
     record: async receipt => {
       writeRolloutReceipt(join(serverDir, "deploy-receipts", "rollout"), receipt)
@@ -277,7 +271,7 @@ const receipt = {
   versionTag: verdict.tag,
   versionMessage: verdict.message,
   runUrl,
-  artifactSHA256: dryRun ? dryRunArtifactSHA256 : activation?.artifactSHA256 ?? null,
+  artifactSHA256: activation?.artifactSHA256 ?? null,
   cutoverInterlock: guard === null ? null : { ...guard, activation }
 }
 

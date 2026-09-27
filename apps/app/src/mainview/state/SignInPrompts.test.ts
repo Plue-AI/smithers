@@ -162,7 +162,7 @@ test("an owner backend names its credential door without promising GitHub", asyn
   })
 })
 
-test("the hosted GitHub door bypasses owner credentials and uses the selected backend OAuth route", async () => {
+test("the web-Plue session uses the selected backend identity and canonical OAuth route", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const assigned: string[] = []
   let localStatusReads = 0
@@ -181,7 +181,7 @@ test("the hosted GitHub door bypasses owner credentials and uses the selected ba
     bootstrap: WEB,
     applicationTarget: resolveApplicationTarget({
       apiVersion: 1,
-      mode: "web-selfhost",
+      mode: "web-plue",
       apiOrigin: "",
       auth: { kind: "session" },
       cors: "same-origin",
@@ -197,13 +197,13 @@ test("the hosted GitHub door bypasses owner credentials and uses the selected ba
     }
   })
   try {
-    await controller.adoptSession(signedOut)
+    await controller.loadSession()
     await controller.commands.run("auth.sign-in")
     await settle()
 
     expect(assigned).toEqual(["/api/auth/github"])
     expect(localStatusReads).toBe(0)
-    expect(applicationIdentityReads).toBe(0)
+    expect(applicationIdentityReads).toBe(1)
   } finally {
     await controller.dispose()
     if (hadWindow) globals.window = previousWindow
@@ -387,4 +387,30 @@ test("requesting access after a reauthentication prompt is not a new sign-in obs
   expect(h.store.collections.messages.get(prompt.id)?.action).toEqual(prompt.action)
   await h.signIn()
   expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
+})
+
+test("a hosted-session reset signs out through the backend and never asks the PAT session's route", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  let signedInNow = true
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: WEB,
+    applicationTarget: resolveApplicationTarget({
+      apiVersion: 1, mode: "web-plue", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false
+    }, "https://smithers.sh"),
+    applicationIdentity: { current: async () => signedInNow ? { username: "codeplanesmithers", admin: false, scopes: null } : null },
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "https://smithers.sh").pathname
+      requests.push(`${init?.method ?? "GET"} ${path}`)
+      if (path === "/api/auth/logout") { signedInNow = false; return new Response(null, { status: 204 }) }
+      return Response.json({}, { status: 404 })
+    }
+  })
+  await controller.loadSession()
+  await settle()
+  expect(store.collections.identitySessions.get("identity")?.state).toBe("signed-in")
+  await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "codeplanesmithers", expiresAt: null, scopes: null }).isPersisted.promise
+  expect(await controller.debugReset()).toBeUndefined()
+  expect(requests).toContain("POST /api/auth/logout")
+  expect(requests.filter(request => request.includes("/api/cloud-auth/"))).toEqual([])
 })

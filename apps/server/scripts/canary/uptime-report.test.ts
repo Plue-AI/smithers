@@ -26,7 +26,7 @@ let mode: "healthy" | "spa-down" | "turn-open" | "admin-session" = "healthy"
 /*
  * The scoped-down account the metered half must be (RULINGS 35). The probe
  * reads its own session back before it spends anything, so the fake answers
- * /api/auth/session the way the deployment does — and `admin-session` answers
+ * /api/user the way the deployment does — and `admin-session` answers
  * as an admin, which is the cookie the probe must refuse.
  */
 const SCOPED_LOGIN = "smithers-canary"
@@ -43,10 +43,10 @@ beforeAll(() => {
           ? new Response("upstream failure", { status: 503 })
           : new Response("<html>smithers</html>", { status: 200 })
       }
-      if (url.pathname === "/api/auth/scopes") return new Response("{\"scopes\":[]}", { status: 200 })
-      if (url.pathname === "/api/auth/session") {
+      if (url.pathname === "/api/bootstrap") return Response.json({ apiVersion: 1, host: "cloud", version: "1", buildSha: "a".repeat(40), capabilities: ["agent", "identity"], authFlow: "redirect", sandbox: null })
+      if (url.pathname === "/api/user") {
         if (request.headers.get("cookie") === null) return new Response("{\"status\":\"signed-out\"}", { status: 200 })
-        return Response.json({ login: SCOPED_LOGIN, allowlisted: true, admin: mode === "admin-session" })
+        return Response.json({ username: SCOPED_LOGIN, is_admin: mode === "admin-session" })
       }
       if (url.pathname === "/api/agent/turn") {
         if (mode === "turn-open") return new Response("streaming to anyone", { status: 200 })

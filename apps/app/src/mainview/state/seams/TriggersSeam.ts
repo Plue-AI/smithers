@@ -10,8 +10,8 @@
  * A mirror that holds no projection yet answers 404, and that is "no rules
  * declared", not an error.
  *
- * The REGISTRATIONS are the repository's schedules on Smithers Cloud
- * (GET /api/workflow/trigger-registrations). The seam asks for them only for
+ * The REGISTRATIONS are the repository's `flow:<slug>` schedules on Smithers
+ * Cloud (GET /api/repos/{o}/{r}/repository-jobs). The seam asks for them only for
  * a signed-in session; a signed-out card carries no registered rows and no
  * placeholders for them.
  */
@@ -42,14 +42,9 @@ export const NO_RULES_SENTENCE = "No rules declared yet"
 export const registerUnavailableSentence = (repo: string): string =>
   `A schedule cannot be registered on ${repo} from here yet: this workspace has no repository/trigger flow.`
 
-/*
- * The Worker's generic-trigger routes (apps/server repositoryTriggers.ts).
- * They address `flow:<slug>` repository jobs on Smithers Cloud, which the
- * shared route table does not name yet.
- */
-const TRIGGER_REGISTRATIONS_PATH = "/api/workflow/trigger-registrations"
-const TRIGGER_PAUSE_PATH = "/api/workflow/trigger-pause"
-const TRIGGER_APPROVAL_PATH = "/api/workflow/trigger-approval"
+/** The backend's repository-job routes; a schedule is the job `flow:<slug>`. */
+const jobPath = (repo: string, slug?: string): string =>
+  `/api/repos/${repo.split("/").map(encodeURIComponent).join("/")}/repository-jobs${slug === undefined ? "" : `/flow:${encodeURIComponent(slug)}`}`
 
 /** The workspace built-in that registers a repository flow on a schedule. */
 const REGISTRAR_FLOW = "repository/trigger"
@@ -274,18 +269,19 @@ interface LiveList {
 const NO_LIVE: LiveList = { live: false, triggers: [] }
 
 /**
- * One `flow:*` registration as the Worker publishes it (E9), read into the
+ * One canonical `flow:*` repository-job registration, read into the
  * dispatcher's own row shape. `cron` is the registration's schedule, which is
  * what a generic trigger always carries; a repository schedule may name its IANA zone.
  */
 const registrationRow = (value: unknown): TriggerRow | undefined => {
   if (!isRecord(value)) return undefined
-  if (typeof value.slug !== "string" || typeof value.flowId !== "string" || typeof value.schedule !== "string") return undefined
-  const next = typeof value.nextFireAt === "string" ? Date.parse(value.nextFireAt) : Number.NaN
+  if (typeof value.job !== "string" || !/^flow:[a-z0-9][a-z0-9-]{0,63}$/.test(value.job) ||
+    typeof value.id !== "string" || typeof value.flow_id !== "string" || typeof value.schedule !== "string" || typeof value.enabled !== "boolean") return undefined
+  const next = typeof value.next_fire_at === "string" ? Date.parse(value.next_fire_at) : Number.NaN
   return {
-    id: typeof value.registrationId === "string" ? value.registrationId : value.slug,
-    slug: value.slug,
-    flowId: value.flowId,
+    id: value.id,
+    slug: value.job.slice("flow:".length),
+    flowId: value.flow_id,
     cron: value.schedule,
     timezone: value.schedule.startsWith("CRON_TZ=") ? value.schedule.split(/\s+/)[0]!.slice("CRON_TZ=".length) : "UTC",
     enabled: value.enabled === true,
@@ -294,7 +290,7 @@ const registrationRow = (value: unknown): TriggerRow | undefined => {
 }
 
 /**
- * The repository's generic trigger registrations, through the Worker. A route
+ * The repository's generic trigger registrations. A route
  * that did not answer is "no registrations read", never an empty listing
  * pretending the schedules were retired.
  *
@@ -303,9 +299,9 @@ const registrationRow = (value: unknown): TriggerRow | undefined => {
  * merge in `listTriggers`, which asks for a row.
  */
 export const readTriggerRegistrations = async (ctx: Pick<SeamContext, "http" | "baseUrl">, repo: string): Promise<LiveList> => {
-  const answer = await readJson(ctx, `${ctx.baseUrl}${TRIGGER_REGISTRATIONS_PATH}?repo=${encodeURIComponent(repo)}`)
-  if (answer.status !== 200 || !isRecord(answer.body) || answer.body.status !== "ok") return NO_LIVE
-  const triggers = (Array.isArray(answer.body.rows) ? answer.body.rows : [])
+  const answer = await readJson(ctx, `${ctx.baseUrl}${jobPath(repo)}`)
+  if (answer.status !== 200 || !Array.isArray(answer.body)) return NO_LIVE
+  const triggers = answer.body
     .map(registrationRow)
     .filter((row): row is TriggerRow => row !== undefined)
   return { live: true, triggers }
@@ -375,24 +371,24 @@ const relayTo = async (
   return { ok: false, message: "The workspace refused the call." }
 }
 
-/** One of the Worker's own trigger routes, with its typed refusal kept whole. */
-const workerCall = async (
+/** One canonical repository-job action, with its typed refusal kept whole. */
+const jobCall = async (
   ctx: Pick<SeamContext, "http" | "baseUrl">,
   path: string,
-  body: unknown
-): Promise<{ readonly ok: true; readonly value: Record<string, unknown> } | { readonly ok: false; readonly message: string }> => {
+  body?: unknown
+): Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly message: string }> => {
   let response: Response
   try {
     response = await ctx.http(`${ctx.baseUrl}${path}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body)
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
     })
   } catch (error) {
     return { ok: false, message: unreachableSentence("Smithers Cloud", error) }
   }
   const answer: unknown = await response.json().catch(() => undefined)
-  if (!response.ok || !isRecord(answer) || answer.status !== "ok") {
+  if (!response.ok) {
     return { ok: false, message: refusalSentence(refusalOf({ body: answer, status: response.status, message: errorMessage(answer, "Smithers Cloud didn't answer.") })) }
   }
   return { ok: true, value: answer }
@@ -625,12 +621,15 @@ export const prepareTriggerRegistration = async (
   })
   if (!current()) return superseded()
   if (!approved.ok) return refuse(approved.message)
-  const receipt = await workerCall(ctx, TRIGGER_APPROVAL_PATH, {
-    repo, slug: request.slug, flowId: request.flow, planId: request.planId, planDigest: request.planDigest,
+  const receipt = await jobCall(ctx, `${jobPath(repo, request.slug)}/approvals`, {
+    flow_id: request.flow, plan_id: request.planId, plan_digest: request.planDigest,
     envelope: reviewedEnvelope(envelope, limits)
   })
   if (!current()) return superseded()
   if (!receipt.ok) return refuse(receipt.message)
+  if (!isRecord(receipt.value) || typeof receipt.value.approved_at !== "string" || typeof receipt.value.approved_by !== "number") {
+    return refuse("Smithers Cloud did not state who approved this plan.")
+  }
   return { input: { requestId: request.requestId, operation: "register", repo, slug: request.slug, flow: request.flow,
     schedule: request.schedule, input, budget: { tokens: limits.tokens, milliseconds: limits.milliseconds },
     approvedPlanId: request.planId, approvedPlanDigest: request.planDigest } }
@@ -688,11 +687,11 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
         } else {
           await savePause(repo, { ...request, phase: "sending" })
           if (!current()) return TOAST_SUPERSEDED
-          const result = await workerCall(ctx, TRIGGER_PAUSE_PATH, { repo, slug: request.slug })
+          /* The receipt lists the registrations it stopped; a name it does not hold stops none. */
+          const result = await jobCall(ctx, `${jobPath(repo, request.slug)}/pause`)
           failure = !result.ok ? result.message
-            : result.value.paused === 0 ? `No schedule "${request.slug}" is registered on ${repo}.`
-            : typeof result.value.paused !== "number" || !Number.isSafeInteger(result.value.paused) || result.value.paused < 1
-            ? "Smithers Cloud did not confirm Pause." : undefined
+            : !Array.isArray(result.value) ? "Smithers Cloud did not confirm Pause."
+            : result.value.length === 0 ? `No schedule "${request.slug}" is registered on ${repo}.` : undefined
         }
         if (!current()) return TOAST_SUPERSEDED
         pauses.versions.set(repo, (pauses.versions.get(repo) ?? 0) + 1)

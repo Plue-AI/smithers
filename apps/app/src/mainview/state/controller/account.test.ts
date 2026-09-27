@@ -6,7 +6,7 @@ import { createAccountController } from "./account"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
 
-const fixture = async (provider: "github" | "local" = "github", storage = memoryStorage()) => {
+const fixture = async (provider: "github" | "local" = "github", storage = memoryStorage(), readsScopes = true) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   const identity = (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login,
     provider, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
@@ -19,7 +19,7 @@ const fixture = async (provider: "github" | "local" = "github", storage = memory
   } })
   Object.assign(ctx, createFailureController(ctx))
   const actors = createActorBindings(ctx.onDispose)
-  const account = actors.pair(ctx, context => createAccountController(context, { provider, nextOrdinal: store.nextOrdinal, promptSignIn: () => {} }))
+  const account = actors.pair(ctx, context => createAccountController(context, { provider, readsScopes, nextOrdinal: store.nextOrdinal, promptSignIn: () => {} }))
   return { store, ctx, account, agentShow: () => actors.select(account.showAccount)(), reads, identity, dispose: async () => {
     for (const read of reads) read.resolve(Response.json({ scopes: [] }))
     await ctx.dispose(); await store.dispose?.()
@@ -176,5 +176,17 @@ test("a disposed Account controller starts no read or write", async () => {
     await t.store.settled?.()
     expect(t.reads).toHaveLength(0)
     expect(t.store.collections.cards.has("account")).toBe(false)
+  } finally { await t.dispose() }
+})
+
+test("a selected backend identity shows the GitHub account without the identity worker's scopes read", async () => {
+  const t = await fixture("github", memoryStorage(), false)
+  try {
+    expect(await t.account.showAccount()).toEqual({ value: "account: @old-owner; access allowed; 0 box(es) listed" })
+    await settle()
+    expect(t.reads).toHaveLength(0)
+    const card = t.store.collections.cards.get("account")
+    expect(card?.kind === "account" ? card.payload : undefined).toMatchObject({ login: "old-owner", provider: "github", scopes: [] })
+    expect(card?.kind === "account" ? card.payload.refresh : "missing").toBeUndefined()
   } finally { await t.dispose() }
 })

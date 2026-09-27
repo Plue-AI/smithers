@@ -121,6 +121,7 @@ for (const mode of selectedModes) {
         }),
       SMITHERS_REAL_E2E_MODE: mode,
       ...(mode === "local-own" && process.env.SMITHERS_LOCAL_GIT_ORIGIN ? { SMITHERS_REAL_GIT_ORIGIN: process.env.SMITHERS_LOCAL_GIT_ORIGIN } : {}),
+      ...(MODE_DESCRIPTORS[mode].provider === "plue" ? { SMITHERS_REAL_GIT_ORIGIN: modeConfig.endpoint } : {}),
       SMITHERS_REAL_E2E_HOST: MODE_DESCRIPTORS[mode].legacyHost,
       // Every Plue scenario must run against the deployment readiness certified.
       ...(MODE_DESCRIPTORS[mode].provider === "plue" && state.buildSha ? { SMITHERS_REAL_E2E_BUILD_SHA: state.buildSha } : {}),

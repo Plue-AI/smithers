@@ -8,7 +8,7 @@ import { catalogDocumentPath, comingSoonDocumentPath, DEFAULT_APP_DOCUMENT_PATH,
 import { withIsolationHeaders } from "./Responses"
 
 // Storage identities survive the authority change. These classes have no product
-// handlers, alarm work, or deletion path. Activation requires the migration receipt.
+// handlers, alarm work, or deletion path. The state is retained unmigrated (cutover/activation.json).
 export { AccountModelVault, ClientErrorLog, GatewaySessionRegistry, RecommendLog, TurnCancelRegistry, TurnRateLimiter } from "./retainedDurableObjects"
 
 export interface EdgeEnv {

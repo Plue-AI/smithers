@@ -73,7 +73,7 @@ try {
     page.setDefaultTimeout(15_000)
     await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
     await (await fixture(suite))(page)
-    await page.route("**/api/auth/session", (route) => route.fulfill(json({ login: "docs-example", allowlisted: true, admin: false })))
+    await page.route("**/api/user", (route) => route.fulfill(json({ id: 1, username: "docs-example", is_admin: false })))
     if (name === "run") {
       await page.route("**/api/workflow/rpc", (route) => {
         const call = route.request().postDataJSON()
@@ -84,10 +84,10 @@ try {
     if (name === "box") {
       const repo = "smithersai/smithers"
       const box = { id: "ws-1", repo_full_name: repo, name: "docs-review", target_bookmark: "main", status: "running", provisioning_stage: null, suspended_at: null, created_at: "2026-09-01T00:00:00Z" }
-      await page.route(new RegExp(`/api/cloud/api/repos/${repo}/workspaces(\\?.*)?$`), (r) => r.fulfill(json(r.request().method() === "POST" ? box : [box])))
-      await page.route(`**/api/cloud/api/repos/${repo}/workspaces/ws-1`, (r) => r.fulfill(json(box)))
-      await page.route(`**/api/cloud/api/repos/${repo}/workspace-snapshots`, (r) => r.fulfill(json([{ id: "snapshot-example", name: "before-docs-edit", workspace_id: "ws-1", created_at: "2026-09-01T00:00:00Z" }])))
-      await page.route(`**/api/cloud/api/repos/${repo}/workspace/sessions`, (r) => r.fulfill(json([])))
+      await page.route(new RegExp(`/api/repos/${repo}/workspaces(\\?.*)?$`), (r) => r.fulfill(json(r.request().method() === "POST" ? box : [box])))
+      await page.route(`**/api/repos/${repo}/workspaces/ws-1`, (r) => r.fulfill(json(box)))
+      await page.route(`**/api/repos/${repo}/workspace-snapshots`, (r) => r.fulfill(json([{ id: "snapshot-example", name: "before-docs-edit", workspace_id: "ws-1", created_at: "2026-09-01T00:00:00Z" }])))
+      await page.route(`**/api/repos/${repo}/workspace/sessions`, (r) => r.fulfill(json([])))
     }
     try {
       await page.goto(`${origin}/smithersai/smithers`)

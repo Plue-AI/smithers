@@ -185,9 +185,11 @@ jobs:
           exit 1
       - name: Require Plue matrix target
         env:
+          SMITHERS_MODE_MATRIX_PLUE_WEB_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_WEB_URL }}
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
           SMITHERS_MODE_MATRIX_PLUE_TOKEN: ${{ secrets.SMITHERS_MODE_MATRIX_PLUE_TOKEN }}
         run: |
+          test -n "$SMITHERS_MODE_MATRIX_PLUE_WEB_URL" || { echo 'SMITHERS_MODE_MATRIX_PLUE_WEB_URL is required for release' >&2; exit 1; }
           test -n "$SMITHERS_MODE_MATRIX_PLUE_URL" || { echo 'SMITHERS_MODE_MATRIX_PLUE_URL is required for release' >&2; exit 1; }
           test -n "$SMITHERS_MODE_MATRIX_PLUE_TOKEN" || { echo 'SMITHERS_MODE_MATRIX_PLUE_TOKEN is required for release' >&2; exit 1; }
       # This guard is inline so the workflow can validate an older source SHA
@@ -589,6 +591,7 @@ jobs:
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
           SMITHERS_MODE_MATRIX_IMAGE: smithers-distribution:release
+          SMITHERS_MODE_MATRIX_PLUE_WEB_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_WEB_URL }}
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
           SMITHERS_MODE_MATRIX_PLUE_TOKEN: ${{ secrets.SMITHERS_MODE_MATRIX_PLUE_TOKEN }}
       - name: Upload product deployment mode matrix receipt

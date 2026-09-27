@@ -1,0 +1,29 @@
+{
+	"schema": "smithers-edge-activation/v1",
+	"worker": "smithers-mvp-web",
+	"transition": { "from": "legacy", "to": "edge", "entry": "src/edge.ts" },
+	"owner": "Will (roninjin10)",
+	"decidedAt": "2026-09-29",
+	"decision": "direct-switch",
+	"source": "https://github.com/smithersai/plue/issues/531",
+	"importDisposition": {
+		"users": "none",
+		"legacyDurableObjectState": "retained-unmigrated",
+		"identities": "unchanged",
+		"retainedDurableObjects": [
+			{ "binding": "TURN_CANCELS", "className": "TurnCancelRegistry" },
+			{ "binding": "GATEWAY_SESSIONS", "className": "GatewaySessionRegistry" },
+			{ "binding": "TURN_LIMITS", "className": "TurnRateLimiter" },
+			{ "binding": "CLIENT_ERRORS", "className": "ClientErrorLog" },
+			{ "binding": "RECOMMEND_LOG", "className": "RecommendLog" },
+			{ "binding": "MODEL_VAULTS", "className": "AccountModelVault" }
+		],
+		"note": "No users exist. Legacy Durable Object state is neither migrated nor deleted; it stays under its unchanged namespace identities for a later export if one is ever needed."
+	},
+	"backendBootstrap": {
+		"date": "2026-09-27",
+		"kind": "no-user-backend-bootstrap",
+		"plueRevision": "0453975821e593aa5718ad7658629d7ed6a034c2",
+		"recorded": "retroactive"
+	}
+}

@@ -38,7 +38,7 @@ export const WORKER_IDENTITY = {
   name: "smithers-mvp-web",
   accountId: "dd3525a4132493566aeb38de533c8827",
   /** The entry wrangler bundles (wrangler.jsonc `main`): the native adapter over the router. */
-  entry: "src/index.ts",
+  entry: "src/edge.ts",
   compatibility: { date: "2026-08-01", flags: ["nodejs_compat"] as ReadonlyArray<string> },
   /** The canary custom domain (wrangler: `routes[0]`, `custom_domain: true`). */
   domain: { name: "canary.smithers.sh", zoneId: "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
@@ -97,11 +97,7 @@ export const WORKER_IDENTITY = {
   ] as ReadonlyArray<MigrationIdentity>,
   /** The plain vars, bound as `plain_text` (wrangler.jsonc `vars`). */
   vars: {
-    IDENTITY_UPSTREAM_URL: "https://smithers-cloud-identity.willcory10.workers.dev",
-    BILLING_UPSTREAM_URL: "https://billing.smithers.sh",
-    SMITHERS_CLOUD_API_BASE_URL: "https://api.jjhub.tech",
-    SMITHERS_CHAT_URL: "https://smithers-cloud-chat-canary.willcory10.workers.dev/chat",
-    SMITHERS_CHAT_ORIGIN: "https://canary.smithers.sh"
+    SMITHERS_BACKEND_ORIGIN: "https://api.jjhub.tech"
   } as Readonly<Record<string, string>>,
   /**
    * Every secret the Worker reads (src/Config.ts). Each is set once on the
@@ -112,21 +108,23 @@ export const WORKER_IDENTITY = {
    * and both print `absent`. MODEL_VAULT_KEY is an optional knob, not listed
    * here: absent disables account enrollment alone.
    */
+  // Legacy credentials remain bound for the migration and rollback window.
+  // The stateless entrypoint neither reads nor requires any of them.
   secrets: {
-    SMITHERS_CHAT_AUTH_TOKEN: { required: true, absent: "the chat forward carries no bearer, so every turn comes back chat's 401" },
-    CHAT_PRODUCT_SERVICE_TOKEN: { required: false, absent: "signed-in turns meter onto the deployment account, not the user's" },
-    IDENTITY_SERVICE_TOKEN: { required: true, absent: "the Cloud token door answers not_configured and identity rate-limits every sign-in as one address" },
-    PLUE_WORKER_EXCHANGE_TOKEN: { required: false, absent: "client-error export skipped; /api/client-errors still answers 202 and logs `skipped: unconfigured`" },
-    IDENTITY_ADMIN_TOKEN: { required: false, absent: "POST /api/admin/allowlist and GET /api/admin/requests answer 501" },
-    BILLING_AUTH_TOKEN: { required: false, absent: "the admin charge summary reads no charges" },
-    BILLING_PRODUCT_SERVICE_TOKEN: { required: false, absent: "signed-in balance reads and POST /api/admin/grant answer 501" },
-    BILLING_ADMIN_TOKEN: { required: false, absent: "POST /api/admin/grant answers 501" },
-    ANONYMOUS_TURN_SALT: { required: false, absent: "anonymous turn buckets hash addresses unsalted" },
-    CEREBRAS_API_KEY: { required: true, absent: "Librarian and Flows agent turns answer 503" },
-    AI_GATEWAY_API_KEY: { required: true, absent: "Jev refuses, so POST /api/recommend, POST /api/jev and every turn's front door answer 503" },
-    SMITHERS_GITHUB_APP_ID: { required: false, absent: "catalog stats read GitHub without the App (GITHUB_TOKEN, else anonymous at 60 requests an hour)" },
-    SMITHERS_GITHUB_APP_PRIVATE_KEY: { required: false, absent: "the GitHub App cannot sign, so catalog stats read with GITHUB_TOKEN, else anonymously" },
-    GITHUB_TOKEN: { required: false, absent: "catalog stats read as the GitHub App, else anonymously" }
+    SMITHERS_CHAT_AUTH_TOKEN: { required: false, absent: "SMITHERS_CHAT_AUTH_TOKEN is retained only for migration and rollback" },
+    CHAT_PRODUCT_SERVICE_TOKEN: { required: false, absent: "CHAT_PRODUCT_SERVICE_TOKEN is retained only for migration and rollback" },
+    IDENTITY_SERVICE_TOKEN: { required: false, absent: "IDENTITY_SERVICE_TOKEN is retained only for migration and rollback" },
+    PLUE_WORKER_EXCHANGE_TOKEN: { required: false, absent: "PLUE_WORKER_EXCHANGE_TOKEN is retained only for migration and rollback" },
+    IDENTITY_ADMIN_TOKEN: { required: false, absent: "IDENTITY_ADMIN_TOKEN is retained only for migration and rollback" },
+    BILLING_AUTH_TOKEN: { required: false, absent: "BILLING_AUTH_TOKEN is retained only for migration and rollback" },
+    BILLING_PRODUCT_SERVICE_TOKEN: { required: false, absent: "BILLING_PRODUCT_SERVICE_TOKEN is retained only for migration and rollback" },
+    BILLING_ADMIN_TOKEN: { required: false, absent: "BILLING_ADMIN_TOKEN is retained only for migration and rollback" },
+    ANONYMOUS_TURN_SALT: { required: false, absent: "ANONYMOUS_TURN_SALT is retained only for migration and rollback" },
+    CEREBRAS_API_KEY: { required: false, absent: "CEREBRAS_API_KEY is retained only for migration and rollback" },
+    AI_GATEWAY_API_KEY: { required: false, absent: "AI_GATEWAY_API_KEY is retained only for migration and rollback" },
+    SMITHERS_GITHUB_APP_ID: { required: false, absent: "SMITHERS_GITHUB_APP_ID is retained only for migration and rollback" },
+    SMITHERS_GITHUB_APP_PRIVATE_KEY: { required: false, absent: "SMITHERS_GITHUB_APP_PRIVATE_KEY is retained only for migration and rollback" },
+    GITHUB_TOKEN: { required: false, absent: "GITHUB_TOKEN is retained only for migration and rollback" },
   } as Readonly<Record<string, SecretIdentity>>,
   /**
    * Optional knobs, and the optional secrets a working canary does without.

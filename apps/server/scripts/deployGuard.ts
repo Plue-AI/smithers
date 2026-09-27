@@ -1,7 +1,7 @@
 /**
- * Deploy interlock for `smithers-mvp-web` across the one-time shared-backend cutover.
+ * Deploy interlock for `smithers-mvp-web` across the one-time switch to the shared edge.
  *
- * The one deploy path (scripts/deploy.ts, run by CI on every push to main) asks
+ * The one deploy path (scripts/deploy.ts, run on every push to main) asks
  * this module first, before it reads the revision, builds, or spawns wrangler.
  * It compares what the checkout would deploy with what is live, both named by
  * facts the provider and the checkout state directly:
@@ -11,26 +11,27 @@
  *   live   the entry module of the single 100% version (content/v2 CF-Entrypoint),
  *          cross-checked against that version's own annotations.
  *
- * | local \ live | legacy | edge   | cutover admission / maintenance export | cutover fence |
- * |--------------|--------|--------|----------------------------------------|---------------|
- * | legacy       | normal | refuse | refuse                                 | refuse        |
- * | edge         | refuse | normal | refuse                                 | activation    |
+ * | local \ live | legacy     | edge   | cutover admission / fence / maintenance export |
+ * |--------------|------------|--------|------------------------------------------------|
+ * | legacy       | normal     | refuse | refuse                                         |
+ * | edge         | activation | normal | refuse                                         |
  *
- * Normal CI can therefore never undo a live installer version, never resurrect
- * the legacy writer over migrated state, and never activate the edge early.
- * Activation replaces the final fence only, and only with a fresh authorization
- * from the release gate's hook (SMITHERS_EDGE_ACTIVATION_AUTHORIZE). The hook
- * holds the production lease and names the verified cutover and import receipts.
- * The authorization is bound to this sha, this live fence execution and this
- * exact built artifact. There is no override flag. Anything unrecognized refuses.
+ * Normal CI can therefore never undo a live installer version and never bring
+ * the legacy writer back over the edge. The edge replaces the live legacy
+ * Worker as a direct switch whenever legacy is live and the committed owner record
+ * (cutover/activation.json, ACTIVATION_RECORD_PATH) validates: the owner's
+ * decision, the no-user import disposition with the legacy Durable Object
+ * state retained unmigrated under unchanged identities, and the retroactive
+ * record of the backend bootstrap. CI cannot return legacy afterwards, so
+ * after the switch every deploy is normal. The record is data in the deployed commit, not an input:
+ * there is no override flag or environment switch. Anything unrecognized refuses.
  */
 import { createHash } from "node:crypto"
 import * as Data from "effect/Data"
 import { z } from "zod"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
-import { lstatSync } from "node:fs"
-import { isAbsolute } from "node:path"
-import { spawnSync } from "node:child_process"
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { accountURL, api } from "./cutover/cloudflare"
 
 export type LocalIdentity = "legacy" | "edge"
@@ -59,7 +60,7 @@ export interface LiveFacts {
 }
 const CUTOVER_MESSAGE = /^smithers-cutover ([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}) (admission|fence)$/
 /** The live version's identity. Entry module decides; annotations must not contradict it. */
-export const classifyLive = (facts: LiveFacts): { identity: LiveIdentity; executionID: string | null } => {
+export const classifyLive = (facts: LiveFacts): LiveIdentity => {
   const message = facts.annotations["workers/message"] ?? ""
   const cutover = CUTOVER_MESSAGE.exec(message)
   const only = (...names: string[]) => facts.modules.every(m => names.includes(m) || names.some(n => m === `${n}.map`))
@@ -69,33 +70,84 @@ export const classifyLive = (facts: LiveFacts): { identity: LiveIdentity; execut
     case "cutover-fence-entry.js": {
       const action = facts.entry === "cutover-fence-entry.js" ? "fence" : "admission"
       if (!cutover || cutover[2] !== action) return contradict()
-      return { identity: action === "fence" ? "cutover-fence" : "cutover-admission", executionID: cutover[1]! }
+      return action === "fence" ? "cutover-fence" : "cutover-admission"
     }
     case "sealed-export-entry.js":
       if (cutover) return contradict()
-      return { identity: "maintenance-export", executionID: null }
+      return "maintenance-export"
     case "index.js":
       if (cutover || facts.annotations["workers/tag"] === "sealed-state-inventory" || !only("index.js")) return contradict()
-      return { identity: "legacy", executionID: null }
+      return "legacy"
     case "edge.js":
       if (cutover || !only("edge.js")) return contradict()
-      return { identity: "edge", executionID: null }
+      return "edge"
     default:
       return refuse("DEPLOY_GUARD_LIVE_UNKNOWN", `live version ${facts.versionId} runs unrecognized entry ${facts.entry}`)
   }
 }
 
+// ---- The owner record that admits the legacy-to-edge switch ----
+/** The committed owner disposition record. Its path is fixed; nothing relocates it. */
+export const ACTIVATION_RECORD_PATH = fileURLToPath(new URL("../cutover/activation.json", import.meta.url))
+const DurableObjectRow = z.strictObject({ binding: z.string(), className: z.string() })
+const sameIdentities = (rows: ReadonlyArray<z.infer<typeof DurableObjectRow>>) =>
+  rows.length === WORKER_IDENTITY.durableObjects.length &&
+  WORKER_IDENTITY.durableObjects.every((o, i) => rows[i]!.binding === o.binding && rows[i]!.className === o.className)
+/**
+ * Strict at every level: an unknown key (an import receipt digest, an override)
+ * invalidates the record. The import disposition is its own field and states
+ * that nothing was imported; no receipt check exists for it to satisfy.
+ */
+const ActivationRecordSchema = z.strictObject({
+  schema: z.literal("smithers-edge-activation/v1"),
+  worker: z.literal(WORKER_IDENTITY.name),
+  transition: z.strictObject({ from: z.literal("legacy"), to: z.literal("edge"), entry: z.literal("src/edge.ts") }),
+  owner: z.literal("Will (roninjin10)"),
+  decidedAt: z.iso.date(),
+  decision: z.literal("direct-switch"),
+  source: z.literal("https://github.com/smithersai/plue/issues/531"),
+  importDisposition: z.strictObject({
+    users: z.literal("none"),
+    legacyDurableObjectState: z.literal("retained-unmigrated"),
+    identities: z.literal("unchanged"),
+    retainedDurableObjects: z.array(DurableObjectRow).refine(sameIdentities, "must equal WORKER_IDENTITY.durableObjects"),
+    note: z.string().min(1)
+  }),
+  backendBootstrap: z.strictObject({
+    date: z.iso.date(),
+    kind: z.literal("no-user-backend-bootstrap"),
+    plueRevision: z.string().regex(/^[0-9a-f]{40}$/),
+    recorded: z.literal("retroactive")
+  })
+})
+export type ActivationRecord = z.infer<typeof ActivationRecordSchema> & { readonly sha256: string }
+/** Validate the record's exact bytes; `undefined` means the file does not exist. */
+export const parseActivationRecord = (text: string | undefined): ActivationRecord => {
+  if (text === undefined) return refuse("DEPLOY_GUARD_EDGE_BEFORE_CUTOVER", "the legacy Worker is live and no owner activation record authorizes the switch to the edge")
+  let json: unknown
+  try { json = JSON.parse(text) } catch { return refuse("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED", "the owner activation record is not JSON") }
+  const parsed = ActivationRecordSchema.safeParse(json)
+  if (!parsed.success) return refuse("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED", `the owner activation record is invalid: ${parsed.error.issues.map(i => `${i.path.join(".") || "<root>"} ${i.message}`).join("; ")}`)
+  return { ...parsed.data, sha256: sha256(text) }
+}
+export const readActivationRecord = (): ActivationRecord => {
+  let text: string | undefined
+  try { text = readFileSync(ACTIVATION_RECORD_PATH, "utf8") } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return refuse("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED", "the owner activation record is unreadable")
+  }
+  return parseActivationRecord(text)
+}
+
 export type GuardDecision =
   | { readonly mode: "normal"; readonly local: LocalIdentity; readonly live: LiveIdentity; readonly liveVersion: string }
-  | { readonly mode: "activation"; readonly local: "edge"; readonly live: "cutover-fence"; readonly liveVersion: string; readonly executionID: string }
-export const decideDeploy = (local: LocalIdentity, live: LiveFacts): GuardDecision => {
-  const { identity, executionID } = classifyLive(live)
+  | { readonly mode: "activation"; readonly local: "edge"; readonly live: "legacy"; readonly liveVersion: string; readonly record: ActivationRecord }
+export const decideDeploy = (local: LocalIdentity, live: LiveFacts, activationRecord: () => ActivationRecord = readActivationRecord): GuardDecision => {
+  const identity = classifyLive(live)
   if (local === identity) return { mode: "normal", local, live: identity, liveVersion: live.versionId }
-  if (local === "edge" && identity === "cutover-fence") return { mode: "activation", local, live: identity, liveVersion: live.versionId, executionID: executionID! }
   if (identity === "cutover-admission" || identity === "cutover-fence" || identity === "maintenance-export")
-    return refuse("DEPLOY_GUARD_LIVE_CUTOVER", `live ${identity} version ${live.versionId} belongs to the cutover installer; only its restore or the authorized edge activation may replace it`)
-  if (local === "legacy") return refuse("DEPLOY_GUARD_LEGACY_OVER_EDGE", "the shared edge is live; the legacy writer must never return over migrated state through CI")
-  return refuse("DEPLOY_GUARD_EDGE_BEFORE_CUTOVER", "the legacy Worker is live; the edge activates only over the verified cutover fence")
+    return refuse("DEPLOY_GUARD_LIVE_CUTOVER", `live ${identity} version ${live.versionId} belongs to the cutover installer; only its own restore may replace it`)
+  if (local === "legacy") return refuse("DEPLOY_GUARD_LEGACY_OVER_EDGE", "the shared edge is live; the legacy writer must never return over it through CI")
+  return { mode: "activation", local, live: "legacy", liveVersion: live.versionId, record: activationRecord() }
 }
 
 /** Evidence comes only from the exclusively owned deployment receipt store. */
@@ -152,39 +204,14 @@ export const readLiveFacts = async (worker: string, get: Get, content: Content, 
   return { versionId, entry: body.entry, modules: body.modules, annotations, digests: body.digests }
 }
 export const sha256 = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex")
-/** Digest of a module set: the exact built artifact the gate rehearsed. */
+/** Digest of a module set: the exact built artifact an activation publishes. */
 export const artifactDigest = (modules: Record<string, string>): string =>
   sha256(JSON.stringify(Object.keys(modules).sort().map(name => [name, modules[name]])))
 
-// ---- Activation: a fresh, exact, delegated decision from the release gate ----
-export interface ActivationRequest {
-  readonly schema: "smithers-edge-activation-request/v1"
-  readonly worker: string
-  readonly smithersRevision: string
-  readonly artifactSHA256: string
-  readonly liveVersion: string
-  readonly cutoverExecutionID: string
-}
-export interface ActivationAuthorization { readonly authorizationSHA256: string; readonly lockTag: string; readonly cutoverReceiptSHA256: string; readonly importReceiptSHA256: string }
-export const authorizeActivation = (request: ActivationRequest, hook = process.env.SMITHERS_EDGE_ACTIVATION_AUTHORIZE, now = Date.now()): ActivationAuthorization => {
-  if (!hook || !isAbsolute(hook)) return refuse("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED", "no release-gate activation authorizer is configured")
-  const st = lstatSync(hook)
-  if (!st.isFile() || st.isSymbolicLink() || (st.mode & 0o022) !== 0 || (st.mode & 0o100) === 0) refuse("DEPLOY_GUARD_AUTHORIZER_UNSAFE", "the activation authorizer is not an owner-controlled executable")
-  const run = spawnSync(hook, ["authorize-edge"], { input: JSON.stringify(request), timeout: 120_000, encoding: "utf8", maxBuffer: 65_536 })
-  let answer: Record<string, unknown> = {}
-  try { answer = run.status === 0 ? JSON.parse(String(run.stdout).trim()) : {} } catch { answer = {} }
-  const issued = Date.parse(String(answer.issuedAt)), lock = answer.deploymentLock as { tag?: unknown; token?: unknown } | undefined
-  const hex = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v)
-  if (run.status !== 0 || answer.schema !== "smithers-edge-activation-authorization/v1" || answer.decision !== "authorized" ||
-    (Object.keys(request) as Array<keyof ActivationRequest>).some(k => k !== "schema" && answer[k] !== request[k]) ||
-    !Number.isFinite(issued) || issued < now - 60_000 || issued > now + 5_000 ||
-    typeof lock?.tag !== "string" || !lock.tag || typeof lock.token !== "string" || !lock.token ||
-    !hex(answer.cutoverReceiptSHA256) || !hex(answer.importReceiptSHA256)) refuse("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED", "the release gate did not authorize this exact activation")
-  return { authorizationSHA256: sha256(String(run.stdout)), lockTag: lock!.tag as string, cutoverReceiptSHA256: answer.cutoverReceiptSHA256 as string, importReceiptSHA256: answer.importReceiptSHA256 as string }
-}
-/** After an activation, the live version must serve exactly the authorized modules. */
+// ---- Activation: the published edge must be exactly the bundled artifact ----
+/** After an activation, the live version must serve exactly the modules bundled before publication. */
 export const verifyActivated = (live: LiveFacts & { digests: Record<string, string> }, authorizedArtifact: string): void => {
-  if (classifyLive(live).identity !== "edge" || artifactDigest(codeModules(live.digests)) !== authorizedArtifact) refuse("DEPLOY_GUARD_ARTIFACT_DRIFT", "the live edge is not the authorized artifact; restore through the release gate")
+  if (classifyLive(live) !== "edge" || artifactDigest(codeModules(live.digests)) !== authorizedArtifact) refuse("DEPLOY_GUARD_ARTIFACT_DRIFT", "the live edge is not the bundled activation artifact; the rollout restores the captured legacy version")
 }
 
 // ---- Wiring used by scripts/deploy.ts ----

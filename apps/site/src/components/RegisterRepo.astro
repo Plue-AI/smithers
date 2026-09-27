@@ -1,7 +1,8 @@
 ---
+import { APPLICATION_SIGN_IN_PATH } from "../../../../packages/rpc/src/ApplicationAuth"
 /* Registration is two steps: sign in with GitHub, then install the Smithers
    GitHub App on the repository. Installing the app is what registers the repo. */
-const signInUrl = `/api/auth/github/start?return_to=${encodeURIComponent(Astro.url.pathname)}`
+const signInUrl = `${APPLICATION_SIGN_IN_PATH}?return_to=${encodeURIComponent(Astro.url.pathname)}`
 const installUrl = "https://github.com/apps/smitherspreviewrelease/installations/new"
 ---
 

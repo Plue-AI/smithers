@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
 import { appEntryPath } from "../../e2e/real/support/app-entry"
+import { buildShaFromHtml } from "../../../server/scripts/canary/BuildStamp"
 
 export interface PlueSession {
   readonly modeConfig: ModeConfig
@@ -42,8 +43,10 @@ const observeDeployment = async (origin: string): Promise<string> => {
   return body.buildSha
 }
 
-const observeDocument = async (origin: string, path: string): Promise<void> => {
-  if (!(await (await get(origin, path)).text()).includes('<div id="root"')) throw new Error(`${origin}${path} did not serve the app document`)
+const observeDocument = async (origin: string, path: string): Promise<string> => {
+  const html = await (await get(origin, path)).text()
+  if (!html.includes('<div id="root"')) throw new Error(`${origin}${path} did not serve the app document`)
+  return html
 }
 
 const writeReceipt = (outputDir: string, receipt: Omit<ExecutionReceipt, "observedAt">, tokenEnvironment: string): ModeConfig => {
@@ -53,13 +56,17 @@ const writeReceipt = (outputDir: string, receipt: Omit<ExecutionReceipt, "observ
 }
 
 /** web-plue runs nothing from this checkout: the receipt records the deployed build and page the Worker served. */
-export const startWebPlue = async (outputDir: string, target: string, tokenEnvironment: string): Promise<PlueSession> => {
+export const startWebPlue = async (outputDir: string, target: string, tokenEnvironment: string, apiTarget: string): Promise<PlueSession> => {
   const origin = plueOrigin(target)
+  const endpoint = plueOrigin(apiTarget)
   const buildSha = await observeDeployment(origin)
-  await observeDocument(origin, appEntryPath("production"))
+  if (await observeDeployment(endpoint) !== buildSha) throw new Error("web and API backend revisions differ")
+  if (buildShaFromHtml(await observeDocument(origin, appEntryPath("production"))) !== buildSha) {
+    throw new Error("web renderer and backend revisions differ")
+  }
   return {
     modeConfig: writeReceipt(outputDir, {
-      mode: "web-plue", revision: buildSha, origin, endpoint: origin, ready: true, startedRoles: ["web"],
+      mode: "web-plue", revision: buildSha, origin, endpoint, ready: true, startedRoles: ["web"],
       freshLaunch: false, restarted: false, dataPreserved: false
     }, tokenEnvironment),
     close: async () => undefined

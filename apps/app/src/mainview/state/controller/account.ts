@@ -25,6 +25,13 @@ export interface AccountController {
 
 export interface AccountControllerDeps {
   readonly provider: "github" | "local"
+  /**
+   * Whether this origin serves the identity worker's scopes read
+   * (GET /api/auth/scopes). A selected backend identity (the canonical user
+   * API, `services.applicationIdentity`) has no such route, so its card
+   * states the sign-in scope alone and asks nothing more.
+   */
+  readonly readsScopes: boolean
   /** The next transcript ordinal — the card surfaces at the end, never mid-history. */
   readonly nextOrdinal: () => number
   /** auth.prompt's renderer: the sign-in step as a message whose action is the sign-in button. */
@@ -57,6 +64,7 @@ const REQUESTED = { value: "Requested" } as const
 
 export const createAccountController = (ctx: ControllerContext, deps: AccountControllerDeps): AccountController => {
   const { store } = ctx
+  const refreshes = deps.provider === "github" && deps.readsScopes
   const reads = actorSharedState(ctx, "account.reads", () => ({ flight: undefined as Flight | undefined }))
   const card = (): AccountCard | undefined => {
     const row = store.collections.cards.get(ACCOUNT_CARD_ID)
@@ -117,7 +125,7 @@ export const createAccountController = (ctx: ControllerContext, deps: AccountCon
   }
 
   const resumeAccount = (): void => {
-    if (ctx.disposed || deps.provider !== "github") return
+    if (ctx.disposed || !refreshes) return
     const identity = store.collections.identitySessions.get("identity"), current = card()
     if (identity?.state !== "signed-in" || identity.login === null || current?.payload.login !== identity.login ||
         current.payload.provider !== deps.provider || current.payload.refresh?.state !== "requested") return
@@ -138,8 +146,8 @@ export const createAccountController = (ctx: ControllerContext, deps: AccountCon
     }
     const current = card()
     if (reads.flight && owns(reads.flight) &&
-        (deps.provider !== "github" || current?.payload.refresh?.id === reads.flight.id)) return reads.flight.admission
-    if (deps.provider === "github" && current?.payload.provider === "github" && current.payload.login === identity.login && current.payload.refresh?.state === "requested") {
+        (!refreshes || current?.payload.refresh?.id === reads.flight.id)) return reads.flight.admission
+    if (refreshes && current?.payload.provider === "github" && current.payload.login === identity.login && current.payload.refresh?.state === "requested") {
       resumeAccount()
       return REQUESTED
     }
@@ -152,14 +160,14 @@ export const createAccountController = (ctx: ControllerContext, deps: AccountCon
       .sort((left, right) => left.repoId.localeCompare(right.repoId) || left.name.localeCompare(right.name))
     const next: AccountCard = { id: ACCOUNT_CARD_ID, kind: "account", title: `Account · @${identity.login}`, status: "active", createdAt: Date.now(), ordinal: deps.nextOrdinal(),
       payload: { login: identity.login, provider: deps.provider, scopes: [], allowlisted: identity.allowlisted, accessRequested: identity.accessRequested, boxes,
-        ...(deps.provider === "github" ? { refresh: { id: flight.id, state: "requested" as const } } : {}) } }
+        ...(refreshes ? { refresh: { id: flight.id, state: "requested" as const } } : {}) } }
     try {
       flight.admission = store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: next }).isPersisted.promise.then(() => {
-        if (!owns(flight) || (deps.provider === "github" && card()?.payload.refresh?.id !== flight.id)) {
+        if (!owns(flight) || (refreshes && card()?.payload.refresh?.id !== flight.id)) {
           if (reads.flight === flight) reads.flight = undefined
           return superseded()
         }
-        if (deps.provider === "github") { launch(flight); return REQUESTED }
+        if (refreshes) { launch(flight); return REQUESTED }
         reads.flight = undefined
         return { value: `account: @${identity.login}; access ${identity.allowlisted ? "allowed" : identity.accessRequested ? "requested" : "not yet allowed"}; ${boxes.length} box(es) listed` }
       }).catch(error => {

@@ -17,7 +17,7 @@ const bridge = readWranglerConfig()
 describe("the Worker identity stays frozen", () => {
   test("the name, the entry module, and the account", () => {
     expect(WORKER_IDENTITY.name).toBe("smithers-mvp-web")
-    expect(WORKER_IDENTITY.entry).toBe("src/index.ts")
+    expect(WORKER_IDENTITY.entry).toBe("src/edge.ts")
     expect(bridge.main).toBe(WORKER_IDENTITY.entry)
     expect(WORKER_IDENTITY.accountId).toBe("dd3525a4132493566aeb38de533c8827")
   })
@@ -72,11 +72,7 @@ describe("the Worker identity stays frozen", () => {
 
   test("the plain vars", () => {
     expect(WORKER_IDENTITY.vars).toEqual({
-      IDENTITY_UPSTREAM_URL: "https://smithers-cloud-identity.willcory10.workers.dev",
-      BILLING_UPSTREAM_URL: "https://billing.smithers.sh",
-      SMITHERS_CLOUD_API_BASE_URL: "https://api.jjhub.tech",
-      SMITHERS_CHAT_URL: "https://smithers-cloud-chat-canary.willcory10.workers.dev/chat",
-      SMITHERS_CHAT_ORIGIN: "https://canary.smithers.sh"
+      SMITHERS_BACKEND_ORIGIN: "https://api.jjhub.tech"
     })
   })
 
@@ -93,18 +89,8 @@ describe("the Worker identity stays frozen", () => {
     expect(new Set(absent).size).toBe(absent.length)
   })
 
-  test("AI_GATEWAY_API_KEY is a required secret: Jev is the main model and neither seam that spends it has a fallback", () => {
-    // src/recommend.ts (the composer pills) and src/frontDoor.ts (the turn
-    // route's front door) both refuse without it, so a canary without it is
-    // a canary with two dead seams, not a canary with one knob unset.
-    expect(WORKER_IDENTITY.secrets.AI_GATEWAY_API_KEY?.required).toBe(true)
-    expect(WORKER_IDENTITY.optionalVars).not.toContain("AI_GATEWAY_API_KEY")
-    // The Cerebras key stays required for the cloud roles, and its recommender
-    // model override went with the recommender's Cerebras path.
-    expect(WORKER_IDENTITY.secrets.CEREBRAS_API_KEY?.required).toBe(true)
-    expect(WORKER_IDENTITY.optionalVars).toContain("CEREBRAS_MODEL_LIBRARIAN")
-    expect(WORKER_IDENTITY.optionalVars).toContain("CEREBRAS_MODEL_FLOWS")
-    expect(WORKER_IDENTITY.optionalVars).not.toContain("CEREBRAS_MODEL")
+  test("the stateless edge requires no product credentials", () => {
+    expect(Object.values(WORKER_IDENTITY.secrets).every(secret => !secret.required)).toBe(true)
   })
 })
 

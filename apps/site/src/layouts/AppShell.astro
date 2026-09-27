@@ -9,6 +9,7 @@
  */
 import project from "../data/project.json"
 import { metaTags } from "virtual:smithers-build-stamp"
+import { applicationTarget } from "../lib/applicationTarget"
 interface Props {
   title: string
   description?: string
@@ -20,6 +21,7 @@ const { title, description = project.description } = Astro.props
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="smithers-application-target" content={JSON.stringify(applicationTarget)} />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" href="/favicon.png" />

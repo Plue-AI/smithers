@@ -4,6 +4,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { APPLICATION_SIGN_IN_PATH } from "../../../packages/rpc/src/ApplicationAuth.ts"
+
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const origin = "https://smithers.sh"
 const decode = (value) => value.replaceAll("&amp;", "&").replaceAll("&#39;", "'").replaceAll("&quot;", "\"")
@@ -157,8 +159,8 @@ export async function releaseReferences(repoRoot) {
 }
 
 /**
- * `appPaths` are same-site paths the static build cannot contain: the app
- * Worker (apps/server, `smithers-mvp-web`) answers /api/* before it looks at
+ * `appPaths` are same-site paths the static build cannot contain: the edge
+ * (apps/server/src/edge.ts) forwards /api/* to the backend before it looks at
  * this build's files, which is also why public/_redirects carries no /api/
  * rule: an asset-layer redirect under that prefix would never run, and the
  * pre-Starlight /api/<package> docs URLs it used to recover now belong to the
@@ -269,7 +271,7 @@ export function checkRepositoryPages(root, available, comingSoon) {
       const signIn = [...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>\s*Sign in with GitHub\s*<\/a>/gi)]
         .some((match) => {
           const url = new URL(decode(match[1]), origin)
-          return url.origin === origin && url.pathname === "/api/auth/github/start" && url.searchParams.get("return_to") === path
+          return url.origin === origin && url.pathname === APPLICATION_SIGN_IN_PATH && url.searchParams.get("return_to") === path
         })
       if (!signIn) return [`${file}: sign-in must start OAuth and return to ${path}`]
     }
@@ -295,7 +297,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       ...await releaseReferences(resolve(siteRoot, "../..")),
       ...legacy.paths.flatMap((path) => path === "/" ? [path] : [path, path + "/"])
     ],
-    [PUBLIC_REPOS_PATH, "/api/auth/github/start"]
+    [PUBLIC_REPOS_PATH, APPLICATION_SIGN_IN_PATH]
   )
   // The files the app Worker's assets need beyond the pages: one prerendered
   // app page per available catalog repository, the 404 page the asset

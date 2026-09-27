@@ -613,11 +613,13 @@ const options = (over: Partial<ProbeOptions> = {}): ProbeOptions => ({
  * signed-in login with no admin claim (RULINGS 35). `allowlisted` is true
  * because open sign-in makes identity answer true for every login.
  */
-const SCOPED_SESSION = "{\"login\":\"smithers-visitor\",\"allowlisted\":true,\"admin\":false}"
+const SCOPED_SESSION = "{\"username\":\"smithers-visitor\",\"allowlisted\":true,\"is_admin\":false}"
 
+const bootstrap = { apiVersion: 1, host: "cloud", version: "1", buildSha: "a".repeat(40), capabilities: ["agent", "identity"], authFlow: "redirect", sandbox: null }
 const healthy = (url: string): Response => {
+  if (url.endsWith("/api/bootstrap")) return Response.json(bootstrap)
   if (url.endsWith("/api/agent/turn")) return new Response("Unauthorized", { status: 401 })
-  if (url.endsWith("/api/auth/session")) return new Response(SCOPED_SESSION, { status: 200 })
+  if (url.endsWith("/api/user")) return new Response(SCOPED_SESSION, { status: 200 })
   return new Response("ok", { status: 200 })
 }
 
@@ -685,7 +687,7 @@ describe("runUptimeProbe", () => {
 
   test("a dead endpoint fails uptime, its latency and the error rate together", async () => {
     const { deps } = makeDeps(20, (url) => {
-      if (url.endsWith("/api/auth/scopes")) throw new Error("connect ECONNREFUSED")
+      if (url.endsWith("/api/bootstrap")) throw new Error("connect ECONNREFUSED")
       return healthy(url)
     })
     const report = await runUptimeProbe(deps, options())
@@ -844,7 +846,7 @@ describe("runUptimeProbe", () => {
    */
   test("the error-rate verdict carries its scope caveat into the alert issue body", async () => {
     const { deps } = makeDeps(20, (url) => {
-      if (url.endsWith("/api/auth/scopes")) throw new Error("connect ECONNREFUSED")
+      if (url.endsWith("/api/bootstrap")) throw new Error("connect ECONNREFUSED")
       return healthy(url)
     })
     const report = await runUptimeProbe(deps, options())
@@ -910,22 +912,22 @@ describe("the scheduled workflow invokes the probe with an origin", () => {
  */
 describe("parseSessionRead", () => {
   test("reads a plain signed-in account", () => {
-    expect(parseSessionRead(200, "{\"login\":\"visitor\",\"allowlisted\":true,\"admin\":false}")).toEqual({
+    expect(parseSessionRead(200, "{\"username\":\"visitor\",\"allowlisted\":true,\"is_admin\":false}")).toEqual({
       state: "known",
       login: "visitor",
       admin: false,
-      allowlisted: true
+      allowlisted: undefined
     })
   })
 
-  test("treats both signed-out shapes the same, because the Worker restates the 401 as a 200", () => {
+  test("requires the canonical signed-out status", () => {
     expect(parseSessionRead(401, "{\"error\":\"Unauthorized\"}")).toEqual({ state: "signed-out" })
-    expect(parseSessionRead(200, "{\"status\":\"signed-out\"}")).toEqual({ state: "signed-out" })
+    expect(parseSessionRead(200, "{\"status\":\"signed-out\"}").state).toBe("unreadable")
   })
 
   test("an absent admin field is 'not stated', never a quiet false", () => {
-    const read = parseSessionRead(200, "{\"login\":\"visitor\",\"allowlisted\":true}")
-    expect(read).toEqual({ state: "known", login: "visitor", admin: undefined, allowlisted: true })
+    const read = parseSessionRead(200, "{\"username\":\"visitor\",\"allowlisted\":true}")
+    expect(read).toEqual({ state: "known", login: "visitor", admin: undefined, allowlisted: undefined })
   })
 
   test("a non-200, a non-JSON body and a body with no login are unreadable, not answers", () => {
@@ -1000,8 +1002,8 @@ describe("scopedIdentityVerdict", () => {
 
 describe("runUptimeProbe refuses to spend under a privileged cookie", () => {
   const adminDeployment = (url: string): Response => {
-    if (url.endsWith("/api/auth/session")) {
-      return new Response("{\"login\":\"smithers-visitor\",\"allowlisted\":true,\"admin\":true}", { status: 200 })
+    if (url.endsWith("/api/user")) {
+      return new Response("{\"username\":\"smithers-visitor\",\"allowlisted\":true,\"is_admin\":true}", { status: 200 })
     }
     return healthy(url)
   }
@@ -1035,4 +1037,10 @@ describe("runUptimeProbe refuses to spend under a privileged cookie", () => {
     expect(report.checks.some((check) => check.id === SCOPED_IDENTITY_CHECK_ID)).toBe(false)
     expect(byId(report.checks, "latency:turn-first-frame").detail).toContain("$CANARY_SESSION_COOKIE is unset")
   })
+})
+
+test("a legacy health body cannot certify canonical bootstrap", async () => {
+  const { deps } = makeDeps(1, url => url.endsWith("/api/bootstrap") ? Response.json({ ok: true }) : healthy(url))
+  const report = await runUptimeProbe(deps, options())
+  expect(report.failed).toBe(true)
 })

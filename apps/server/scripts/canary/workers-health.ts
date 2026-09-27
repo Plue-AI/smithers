@@ -340,6 +340,13 @@ export const workerHealthVerdict = (observation: HealthObservation): HealthVerdi
   if (observation.body.kind !== "json") {
     return { name, state: "unhealthy", detail: `${name} ${target} answered HTTP 200 but no JSON body was read.` }
   }
+  if (worker.contract === "application-bootstrap") {
+    const body = observation.body.value
+    const valid = isRecord(body) && body.apiVersion === 1 && typeof body.host === "string" &&
+      typeof body.version === "string" && Array.isArray(body.capabilities) &&
+      body.capabilities.includes("agent") && body.capabilities.includes("identity")
+    return { name, state: valid ? "healthy" : "unhealthy", detail: `${name} ${target} ${valid ? "answered canonical application bootstrap" : "did not answer the canonical application contract"}` }
+  }
   if (worker.contract === "status-ok-json") {
     const body = observation.body.value
     const checks = isRecord(body) && isRecord(body.checks) ? Object.entries(body.checks) : undefined

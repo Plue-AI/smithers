@@ -1,13 +1,11 @@
 {
-	// THE DEPLOY CONFIGURATION. `scripts/deploy.ts` builds the site and runs
-	// `wrangler deploy` over this file; src/workerIdentity.test.ts holds every
-	// identity field here to src/workerIdentity.ts, and
-	// scripts/adopt-durable-objects.ts compares both with the live script before
-	// a deploy. Secrets are not in this file: they are set once with
-	// `wrangler secret put` and every deploy keeps them (DEPLOY.md "Secrets").
-	// Read DEPLOY.md "Frozen identity" before changing a binding or a class.
+	// THE DEPLOY CONFIGURATION: the shared edge. `scripts/deploy.ts` builds the site
+	// and runs `wrangler deploy` over this file; src/workerIdentity.test.ts holds every
+	// identity field here to src/workerIdentity.ts. The edge serves the site and
+	// forwards /api unchanged to the shared backend (DEPLOY.md).
+	// Secrets are not in this file; every deploy keeps them (DEPLOY.md "Secrets").
 	"name": "smithers-mvp-web",
-	"main": "src/index.ts",
+	"main": "src/edge.ts",
 	"compatibility_date": "2026-08-01",
 	"compatibility_flags": ["nodejs_compat"],
 	// Workers Logs: without this the live script records nothing, so an outage
@@ -45,7 +43,7 @@
 		"directory": "../site/dist",
 		"binding": "ASSETS",
 		// The build carries a 404 page, and the app document is the Worker's to
-		// serve (src/index.ts), so no path falls back to a SPA shell.
+		// serve (src/edge.ts), so no path falls back to a SPA shell.
 		"not_found_handling": "404-page",
 		// Every request reaches the Worker: repository slugs and their casing
 		// cannot be enumerated by owner, and HTML headers / HTTPS / www redirects
@@ -53,29 +51,15 @@
 		// The Worker delegates site pages, legacy redirects, and chunks to ASSETS.
 		"run_worker_first": ["/*"]
 	},
-	// Server-side turn kill (B-3): cancellation state per runId lives in this
-	// Durable Object; the cancel route flips it and the streaming turn handler
-	// observes it between NDJSON chunks (cross-request AbortController use is
-	// forbidden by workerd).
+	// Retained namespace identities only: inert classes keep the storage for
+	// rollback (docs/shared-edge-cutover.md). No deletion migration.
 	"durable_objects": {
 		"bindings": [
 			{ "name": "TURN_CANCELS", "class_name": "TurnCancelRegistry" },
-			// Wave 11: per-user gateway session records (relay tokens, server-side only), keyed by login.
 			{ "name": "GATEWAY_SESSIONS", "class_name": "GatewaySessionRegistry" },
-			// A per-login ceiling on turns: an abuse guard on a seam that is
-			// comped by design, so a runaway client or a lifted session cookie
-			// cannot spend the alpha budget unobserved (src/turnLimit.ts).
 			{ "name": "TURN_LIMITS", "class_name": "TurnRateLimiter" },
-			// The bounded client-error log, read back at GET /api/admin/errors.
-			// Without it a browser crash lives only in a wrangler tail nobody
-			// is watching (src/clientErrorLog.ts).
 			{ "name": "CLIENT_ERRORS", "class_name": "ClientErrorLog" },
-			// The command recommender's log: one row per recommendation (tail
-			// digest, the ordered answer, the command the user ran next), a ring
-			// of the newest 5000, read back at GET /api/admin/recommend/log for
-			// scoring (src/recommend.ts). Needs the AI_GATEWAY_API_KEY secret below.
 			{ "name": "RECOMMEND_LOG", "class_name": "RecommendLog" },
-			// Account-scoped ciphertext and immutable provider pins. MODEL_VAULT_KEY is optional.
 			{ "name": "MODEL_VAULTS", "class_name": "AccountModelVault" }
 		]
 	},
@@ -86,86 +70,11 @@
 		{ "tag": "v4", "new_sqlite_classes": ["RecommendLog"] },
 		{ "tag": "v5", "new_sqlite_classes": ["AccountModelVault"] }
 	],
+	// Secrets remain bound for rollback; this edge reads none of the retired
+	// product credentials.
 	"vars": {
-		// Wave 7 canary upstreams. identity lives on workers.dev until will
-		// proxies its stale Vercel CNAME; billing is on its public hostname.
-		// IDENTITY_UPSTREAM_URL is the identity worker (GitHub OAuth + allowlist); it
-		// proxies /api/auth/* and /api/identity/*. Setting it also ARMS the turn gate:
-		// /api/agent/turn and its cancel then require a validated, allowlisted session
-		// (they spend the model credential and meter real dollars, and the same-origin
-		// guard does not stop a curl). BILLING_UPSTREAM_URL is the billing worker; it
-		// proxies /api/billing/* with the validated login as context.
-		"IDENTITY_UPSTREAM_URL": "https://smithers-cloud-identity.willcory10.workers.dev",
-		"BILLING_UPSTREAM_URL": "https://billing.smithers.sh",
-		// Wave 11: Smithers Cloud API — the per-user gateway provision route
-		// (POST /api/repos/{owner}/{repo}/gateway) lives here; the Cloud token comes
-		// from the identity worker's /api/identity/cloud-token door (wave-11b).
-		"SMITHERS_CLOUD_API_BASE_URL": "https://api.jjhub.tech",
-		// Canary chat (same source as prod chat, own metering queue pair): the
-		// metering token pair could not be completed on prod chat without
-		// touching its config, which wave 7 is not authorized to do.
-		"SMITHERS_CHAT_URL": "https://smithers-cloud-chat-canary.willcory10.workers.dev/chat",
-		"SMITHERS_CHAT_ORIGIN": "https://canary.smithers.sh"
-		// Optional knobs (the defaults are the alpha's):
-		//   UPSTREAM_TIMEOUT_MS        — how long any one upstream gets to answer, in ms
-		//                                (default 20000). Bounds the wait for HEADERS only, so a
-		//                                streaming answer is never cut off. Raise it behind a slow
-		//                                sibling rather than letting a route hang.
-		//   BILLING_PORTAL_ENABLED     — "1" opens POST /api/billing/portal independently of checkout.
-		//   BILLING_CHECKOUT_ENABLED   — "1" opens POST /api/billing/checkout. Unset is
-		//                                the closed-alpha state; this route refuses without contacting Stripe.
-		// Backend seams. These are Cloudflare secrets (`wrangler secret put`), not
-		// vars, and an unset one makes its route answer an honest 501:
-		//   SMITHERS_CHAT_AUTH_TOKEN — the deployment bearer the chat upstream authenticates turns with
-		//                              (workers/chat accepts only authorization: Bearer; unset = the forward
-		//                              can only ever come back the upstream's honest 401)
-		//   IDENTITY_SERVICE_TOKEN   — service token for the product Worker → /api/identity/validate call
-		//   PLUE_WORKER_EXCHANGE_TOKEN — backend telemetry bearer; matches SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN
-		//   BILLING_PRODUCT_SERVICE_TOKEN — billing's PRODUCT_SERVICE_TOKEN (the wave-5 bridge key): a validated
-		//                              session's billing reads authenticate AS THE USER (x-smithers-service-token +
-		//                              x-user-login); the deployment bearer below is only the signed-out/native fallback
-		//   BILLING_AUTH_TOKEN       — the Smithers Cloud user bearer billing authenticates the account with
-		//                              (billing reads no x-user-* claim; unset = the seam answers 501, never a doomed forward)
-		//   CHAT_PRODUCT_SERVICE_TOKEN — the chat worker's PRODUCT_SERVICE_TOKEN: a session-gated turn vouches
-		//                              the validated login so the turn's comped charge lands on the user's OWN account
-		//   ANONYMOUS_TURN_SALT      (secret) salts the per-address buckets under the anonymous turn ceiling
-		//                              (PUBLIC-REPOSITORIES.md "Anonymous turns"); unset = unsalted hashes, still no raw address
-		//   CEREBRAS_API_KEY         (secret) the Cerebras key the CLOUD ROLES spend: a turn asking the Librarian
-		//                              or the Flows agent is answered by this Worker on Cerebras and never reaches
-		//                              the chat upstream (src/cloudRoleTurn.ts); unset = those turns answer an
-		//                              honest 503. CEREBRAS_MODEL_LIBRARIAN / CEREBRAS_MODEL_FLOWS (optional knobs)
-		//                              override the served model ids. It is NOT spent on command suggestions.
-		//   AI_GATEWAY_API_KEY       (secret, REQUIRED) the Vercel AI Gateway key POST /api/recommend and the turn
-		//                              route's front door spend on Jev, the TypeSafe AI decision model (src/jev.ts).
-		//                              Jev is the main model and there is no fallback: unset, or a Jev that refuses
-		//                              or misses its 1.5 s deadline, and both answer a typed refusal rather than
-		//                              asking an LLM instead. The client keeps its own rule-based pills.
-		//   MODEL_VAULT_KEY          (secret, OPTIONAL) base64 of 32 random bytes for AES-256-GCM account values.
-		//                              Unset/malformed = vault_unavailable; all deployment credentials still work.
-		//   SMITHERS_GITHUB_APP_ID   (secret, SET) the numeric id of the GitHub App smitherspreviewrelease
-		//                              (4163546, owned by the smithersai org). With the private key below,
-		//                              GET /api/public/repos authenticates its api.github.com stats reads as
-		//                              that App's installation (src/githubApp.ts) instead of as a person's
-		//                              token: no PAT to mint, rotate, or leak.
-		//   SMITHERS_GITHUB_APP_PRIVATE_KEY (secret, SET) the App's PEM private key, stored exactly as GitHub
-		//                              issues it (PKCS#1, "BEGIN RSA PRIVATE KEY"); a PKCS#8 key works too.
-		//                              The Worker signs a 9-minute RS256 JWT with it, exchanges that for an
-		//                              installation token, and caches the token for 55 minutes. Unimportable
-		//                              or uninstalled = one warning line and an anonymous read, never a throw.
-		//   GITHUB_TOKEN             (secret, optional) a GitHub token GET /api/public/repos sends as a bearer on
-		//                              its api.github.com stats reads (src/publicRepos.ts). It OVERRIDES the
-		//                              GitHub App above when both are set. Either credential raises GitHub's
-		//                              ceiling from 60 to 5000 requests an hour; the token needs no scopes,
-		//                              since every catalog repository is public. Neither = unauthenticated reads.
-		// The identity and billing workers both gate on the browser Origin, so their
-		// ALLOWED_ORIGINS must list this Worker's own origin — it is what the proxy sends.
-		// The legacy GATEWAY_UPSTREAM_URL / GATEWAY_AUTH_TOKEN / GATEWAY_SESSION_USER_*
-		// static proxy was removed in 1.0. Raw /rpc, /projections, /sync and /health
-		// return 410. Product clients use the session-validated /api/workflow/*
-		// relay and GATEWAY_SESSIONS binding above. Remove leftover legacy secrets.
-		//   IDENTITY_ADMIN_TOKEN     — identity's ADMIN_SERVICE_TOKEN, spent by POST /api/admin/allowlist and GET /api/admin/requests
-		//   BILLING_ADMIN_TOKEN      — billing's ADMIN_SERVICE_TOKEN, spent by POST /api/admin/grant
-		// Every /api/admin/* route first validates the session as admin:true through identity;
-		// anyone else gets the canonical unknown-route 404, byte-identical (never 403).
+		"SMITHERS_BACKEND_ORIGIN": "https://api.jjhub.tech"
+		// Cloudflare secrets remain bound for migration/rollback, never active edge use:
+		//   MODEL_VAULT_KEY — decrypts the legacy export only inside the old authority.
 	}
 }

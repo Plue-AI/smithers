@@ -71,24 +71,18 @@ describe("compareVars", () => {
     expect(pass?.detail).toContain("keeps it")
   })
 
-  /*
-   * A deploy keeps every live secret, so a missing one was already missing.
-   * A required one means a core route refuses every user, and the preflight
-   * must not print GREEN over that: live, AI_GATEWAY_API_KEY missing would
-   * have left Jev, and so every turn's front door, answering 503.
-   */
-  test("a required secret that is not live is a FAIL that says what refuses", () => {
+  // The shared backend, not this edge, holds active model credentials.
+  test("retained model credentials are not dependencies of the stateless edge", () => {
     const fail = compareVars(plain).find((f) => f.check === "secret AI_GATEWAY_API_KEY")
-    expect(fail?.level).toBe("FAIL")
-    expect(fail?.detail).toContain("front door")
+    expect(fail?.level).toBe("INFO")
+    expect(fail?.detail).toContain("retained only for migration and rollback")
     expect(fail?.detail).toContain("wrangler secret put")
   })
 
   test("an optional secret that is not live is an INFO stating its own absent state", () => {
-    // Client-error export never answers 501/503: it skips the export and logs.
     const info = compareVars(plain).find((f) => f.check === "secret PLUE_WORKER_EXCHANGE_TOKEN")
     expect(info?.level).toBe("INFO")
-    expect(info?.detail).toContain("client-error export skipped")
+    expect(info?.detail).toContain("retained only for migration and rollback")
     expect(info?.detail).not.toContain("501")
   })
 
@@ -112,8 +106,8 @@ describe("compareVars", () => {
   })
 
   test("a frozen var whose live value differs is a FAIL", () => {
-    const drifted = plain.map((b) => (b.name === "BILLING_UPSTREAM_URL" ? { ...b, text: "https://elsewhere" } : b))
-    expect(compareVars(drifted).find((f) => f.check === "var BILLING_UPSTREAM_URL")?.level).toBe("FAIL")
+    const drifted = plain.map((b) => (b.name === "SMITHERS_BACKEND_ORIGIN" ? { ...b, text: "https://elsewhere" } : b))
+    expect(compareVars(drifted).find((f) => f.check === "var SMITHERS_BACKEND_ORIGIN")?.level).toBe("FAIL")
   })
 
   test("a frozen var missing live is a WARN the deploy resolves", () => {

@@ -13,7 +13,6 @@ export interface WorkerRolloutOptions {
   worker: string
   token: string
   inviteConfigured: boolean
-  fenceExecution?: string
   beforePublish?(): Promise<void>
   publish(): Promise<Release>
   record(receipt: WorkerRolloutReceipt): Promise<void>
@@ -43,7 +42,6 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
   return {
     checks,
     rollbackChecks: ["CN-1", "site", "CN-24"],
-    ...(options.fenceExecution ? { previousChecks: ["CN-24", "cutover-fence"] } : {}),
     skippedChecks: options.inviteConfigured ? [] : ["CN-23"],
     capture: async () => {
       previous = typeof options.previous === "function" ? await options.previous() : options.previous
@@ -75,11 +73,6 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
         const live = parseDeployedVersions(await get(`${base}/deployments`))
         passed = target.success === true && target.result?.id === (previous ?? release).version && live.ok &&
           live.value.length === 1 && live.value[0]?.id === release.version && live.value[0]?.percentage === 100
-      } else if (name === "cutover-fence") {
-        const response = await fetch(`${origin}/api/user`, { signal: AbortSignal.timeout(30_000), redirect: "error" })
-        const body = await response.json() as { code?: string; executionID?: string }
-        passed = response.status === 503 && response.headers.get("cache-control") === "no-store" &&
-          body.code === "cutover_maintenance" && body.executionID === options.fenceExecution
       } else {
         const args = name === "CN-1" ? ["scripts/canary/build-probe.ts", origin, "--sha", release.revision]
           : name === "site" ? ["scripts/canary/site-probe.ts", "canary.smithers.sh"]

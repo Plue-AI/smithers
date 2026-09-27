@@ -52,6 +52,7 @@ if (externalPath !== undefined) {
 }
 
 const plueTarget = process.env.SMITHERS_MODE_MATRIX_PLUE_URL?.trim()
+const plueWebTarget = process.env.SMITHERS_MODE_MATRIX_PLUE_WEB_URL?.trim()
 const plueTokenEnvironment = "SMITHERS_MODE_MATRIX_PLUE_TOKEN"
 if (plueTarget && process.env[plueTokenEnvironment]?.trim() && (wants("web-plue") || wants("local-plue")) &&
   external.modes.some(({ mode }) => mode === "web-plue" || mode === "local-plue")) {
@@ -102,7 +103,10 @@ try {
     console.error(`web-selfhost launch failed: ${error instanceof Error ? error.message : String(error)}`)
   }
   if (plueTarget && process.env[plueTokenEnvironment]?.trim() && (wants("web-plue") || wants("local-plue"))) {
-    if (wants("web-plue")) try { plueSessions.push(await startWebPlue(outputDir, plueTarget, plueTokenEnvironment)) }
+    if (wants("web-plue")) try {
+      if (!plueWebTarget) throw new Error("web-plue requires SMITHERS_MODE_MATRIX_PLUE_WEB_URL and SMITHERS_MODE_MATRIX_PLUE_URL")
+      plueSessions.push(await startWebPlue(outputDir, plueWebTarget, plueTokenEnvironment, plueTarget))
+    }
     catch (error) {
       launchFailure = error
       console.error(`web-plue launch failed: ${error instanceof Error ? error.message : String(error)}`)

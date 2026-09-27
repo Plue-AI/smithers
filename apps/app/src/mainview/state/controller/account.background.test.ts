@@ -15,7 +15,7 @@ const fixture = async (storage = memoryStorage()) => {
   } })
   Object.assign(ctx, createFailureController(ctx))
   const actors = createActorBindings(ctx.onDispose)
-  const account = actors.pair(ctx, context => createAccountController(context, { provider: "github", nextOrdinal: store.nextOrdinal, promptSignIn: () => {} }))
+  const account = actors.pair(ctx, context => createAccountController(context, { provider: "github", readsScopes: true, nextOrdinal: store.nextOrdinal, promptSignIn: () => {} }))
   const card = () => { const row = store.collections.cards.get("account"); return row?.kind === "account" ? row : undefined }
   return { storage, store, ctx, account, reads, card, agentShow: () => actors.select(account.showAccount)(), dispose: async () => {
     await ctx.dispose(); for (const read of reads) read.resolve(Response.json({ scopes: [] })); await store.dispose?.()

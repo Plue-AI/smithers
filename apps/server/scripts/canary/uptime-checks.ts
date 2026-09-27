@@ -19,7 +19,9 @@
  * fails only the error rate. An endpoint that is up and reliable but slow fails
  * only latency. Collapsing them would lose which of the three is true.
  */
-import { AUTH_SCOPES_PATH, AUTH_SESSION_PATH, TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { AUTHENTICATED_USER_PATH, ApplicationUserSchema, CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "@smthrs/rpc/ApplicationAuth"
+import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import { resolveOrigin } from "./BuildStamp.ts"
 
@@ -312,7 +314,7 @@ export const uptimeVerdict = (samples: ReadonlyArray<Sample>): Check => {
  * every check while the deployment refuses everyone else, which is exactly the
  * permission bug this probe is supposed to surface.
  *
- * So the probe reads its own session back through AUTH_SESSION_PATH before it
+ * So the probe reads its own session back through AUTHENTICATED_USER_PATH before it
  * spends anything, and refuses to spend under a privileged one. That read is
  * free: it reaches no model and no upstream beyond the identity Worker.
  *
@@ -344,14 +346,13 @@ const preview = (body: string): string => {
 }
 
 /**
- * Read AUTH_SESSION_PATH's body. The product Worker restates identity's 401 as
- * a 200 naming the signed-out state (`probeAuthSession`, apps/server/src/index.ts),
- * so both shapes mean one thing here: the cookie authenticated nobody.
+ * Read the canonical application identity. A401 is signed out; malformed
+ * successful responses never become authenticated identities.
  */
 export const parseSessionRead = (status: number, body: string): SessionRead => {
   if (status === 401) return { state: "signed-out" }
   if (status !== 200) {
-    return { state: "unreadable", detail: `HTTP ${status} from ${AUTH_SESSION_PATH}: ${preview(body)}` }
+    return { state: "unreadable", detail: `HTTP ${status} from ${AUTHENTICATED_USER_PATH}: ${preview(body)}` }
   }
   let parsed: unknown
   try {
@@ -359,23 +360,23 @@ export const parseSessionRead = (status: number, body: string): SessionRead => {
   } catch {
     return {
       state: "unreadable",
-      detail: `${AUTH_SESSION_PATH} answered 200 with a body that is not JSON: ${preview(body)}`
+      detail: `${AUTHENTICATED_USER_PATH} answered 200 with a body that is not JSON: ${preview(body)}`
     }
   }
   const record = typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : undefined
-  if (record?.status === "signed-out") return { state: "signed-out" }
-  const login = record?.login
+  const identity = ApplicationUserSchema.safeParse(record)
+  const login = identity.success ? identity.data.username : undefined
   if (typeof login !== "string" || login === "") {
     return {
       state: "unreadable",
-      detail: `${AUTH_SESSION_PATH} answered 200 with no login: ${preview(body)}`
+      detail: `${AUTHENTICATED_USER_PATH} answered 200 with no login: ${preview(body)}`
     }
   }
   return {
     state: "known",
     login,
-    admin: typeof record?.admin === "boolean" ? record.admin : undefined,
-    allowlisted: typeof record?.allowlisted === "boolean" ? record.allowlisted : undefined
+    admin: identity.success ? identity.data.is_admin : undefined,
+    allowlisted: undefined
   }
 }
 
@@ -435,7 +436,7 @@ export const scopedIdentityVerdict = (read: SessionRead, expectation: ScopedIden
   }
   if (read.admin === undefined && expected === undefined) {
     reasons.push(
-      `${AUTH_SESSION_PATH} stated no admin field and no account is declared, so nothing here could tell an admin's cookie from a visitor's — set $CANARY_SESSION_LOGIN`
+      `${AUTHENTICATED_USER_PATH} stated no admin field and no account is declared, so nothing here could tell an admin's cookie from a visitor's — set $CANARY_SESSION_LOGIN`
     )
   }
   return reasons.length === 0
@@ -672,6 +673,7 @@ export interface Endpoint {
 export const turnRequestBody = (runId: string): string =>
   JSON.stringify({
     runId,
+    journal: { version: 1, legId: `${runId}-leg`, token: crypto.randomUUID().replaceAll("-", "") },
     messages: [{ role: "user", content: "Say the word ok and nothing else." }],
     instructions: "Answer briefly."
   })
@@ -681,7 +683,7 @@ export const endpointPlan = (runId: string): ReadonlyArray<Endpoint> => [
   {
     label: "scopes",
     method: "GET",
-    path: AUTH_SCOPES_PATH,
+    path: APP_BOOTSTRAP_PATH,
     expectedStatus: 200,
     budgetMs: LATENCY_BUDGETS_MS.scopes,
     body: undefined
@@ -793,13 +795,17 @@ const takeSample = async (deps: ProbeDeps, options: ProbeOptions, endpoint: Endp
     const elapsedMs = deps.now() - started
     // Drain rather than read: nothing here inspects the body, and an
     // undrained response holds a connection open for the whole run.
-    await response.body?.cancel()
+    let contractError: string | undefined
+    if (endpoint.path === APP_BOOTSTRAP_PATH && response.status === 200) {
+      const parsed = AppBootstrapSchema.safeParse(await response.json())
+      if (!parsed.success) contractError = "invalid canonical bootstrap"
+    } else await response.body?.cancel()
     return {
       label: endpoint.label,
       status: response.status,
       expectedStatus: endpoint.expectedStatus,
       elapsedMs,
-      transportError: undefined
+      transportError: contractError
     }
   } catch (error) {
     return {
@@ -823,7 +829,7 @@ const takeSample = async (deps: ProbeDeps, options: ProbeOptions, endpoint: Endp
  */
 const readSessionIdentity = async (deps: ProbeDeps, options: ProbeOptions, cookie: string): Promise<SessionRead> => {
   try {
-    const response = await deps.fetch(`${options.origin}${AUTH_SESSION_PATH}`, {
+    const response = await deps.fetch(`${options.origin}${AUTHENTICATED_USER_PATH}`, {
       method: "GET",
       headers: { cookie },
       signal: AbortSignal.timeout(options.requestTimeoutMs)
@@ -846,12 +852,18 @@ const readSessionIdentity = async (deps: ProbeDeps, options: ProbeOptions, cooki
  * $CANARY_SESSION_COOKIE is set, and the scheduled workflow supplies that
  * cookie on the hourly tick only — 24 short turns a day, not 96.
  */
+export const csrfHeaders = (cookie: string): Record<string, string> => {
+  const value = cookie.split(";").map(part => part.trim()).find(part => part.startsWith(`${CSRF_COOKIE_NAME}=`))?.slice(CSRF_COOKIE_NAME.length + 1)
+  if (!value) return {}
+  try { return { [CSRF_HEADER_NAME]: decodeURIComponent(value) } } catch { return {} }
+}
+
 export const meteredTurnSample = async (deps: ProbeDeps, options: ProbeOptions, cookie: string): Promise<Sample> => {
   const started = deps.now()
   try {
     const response = await deps.fetch(`${options.origin}${TURN_PATH}`, {
       method: "POST",
-      headers: { "content-type": "application/json", cookie },
+      headers: { "content-type": "application/json", cookie, ...csrfHeaders(cookie) },
       body: turnRequestBody(`${options.runId}-metered`),
       signal: AbortSignal.timeout(options.requestTimeoutMs)
     })

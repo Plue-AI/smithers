@@ -1,5 +1,6 @@
 ---
 import { Font } from "astro:assets"
+import { applicationTarget } from "../lib/applicationTarget"
 import "../styles/site.css"
 import "../styles/navigation.css"
 interface Props {
@@ -15,6 +16,7 @@ const { title, description, header = true, footer = true } = Astro.props
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="smithers-application-target" content={JSON.stringify(applicationTarget)} />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />

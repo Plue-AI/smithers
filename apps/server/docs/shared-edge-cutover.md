@@ -1,13 +1,18 @@
-# Shared application edge cutover — prepared, not activated
+# Shared application edge cutover — activated by direct switch
 
-The live Worker still owns product state. The candidate entry `src/edge.ts`
-serves assets and forwards `/api` unchanged to `SMITHERS_BACKEND_ORIGIN`.
-Authentication, provider credentials, chat, recommendations and product jobs
-belong to the shared Smithers backend. There is no fallback or dual write.
-Its configuration is `wrangler.edge.jsonc`; `wrangler.jsonc` stays on the
-legacy `src/index.ts` and the hosted documents declare no application target
-until the gates below pass (`src/deployGeneration.test.ts` holds this). The
-activation steps are in `shared-edge-deploy.md`.
+`src/edge.ts` serves assets and forwards `/api` unchanged to
+`SMITHERS_BACKEND_ORIGIN`. Authentication, provider credentials, chat,
+recommendations and product jobs belong to the shared Smithers backend. There
+is no fallback or dual write. `wrangler.jsonc` is the edge, and the hosted
+documents declare the session application target.
+
+On 2026-09-29 the owner (Will) ruled that there are no users and that the
+cutover is a direct switch through the normal deploy path: no rehearsal, fence,
+export/import or staged cutover (smithersai/plue#531). The first edge deploy
+replaces the live legacy version, admitted by the committed owner record
+`../cutover/activation.json` (`../DEPLOY.md` "Cutover interlock"). The record
+also states the import disposition and retroactively records the 2026-09-27
+no-user backend bootstrap (plue `0453975821e593aa5718ad7658629d7ed6a034c2`).
 
 ## Evidence and retained state
 
@@ -42,7 +47,7 @@ Billing also had three KV keys. The live chat Worker has a metering queue and
 billing service credential. None of those rows or queue entries has been
 exported, changed, drained or reconciled by this candidate.
 
-| Store | Source keys / authority | Required handling |
+| Store | Source keys / authority | Handling if an export is ever needed |
 | --- | --- | --- |
 | AccountModelVault | `model-vault:v1`, login, immutable provider origins, encrypted entries, receipts | Encrypted export; verified identity mapping; import through canonical owner-model store and codec; compare provider pins/receipts/defaults |
 | TurnCancelRegistry | `state`; `turn-journal:v1:head`; `turn-journal:v1:batch:<sequence>`; seven-day expiry alarm | Drain producers; export all remaining heads/batches/tombstones; validate hash chains and owner scope; import eligible history and erasures before changing access |
@@ -52,87 +57,20 @@ exported, changed, drained or reconciled by this candidate.
 | Recommendation/client-error logs | recommendation ring sequence and rows; `reports` | Sealed archive and agreed canonical retention/import; do not silently discard |
 | TurnRateLimiter | transient `window` state | Snapshot alongside source; expire only under documented retention after active request drain |
 
-The candidate's six exported classes in `retainedDurableObjects.ts` preserve
-namespace identities, return 410, and perform no alarm work. That is appropriate
-only **after** state migration and drain. Deploying them beforehand would make
-history inaccessible and stop setup work. Existing live classes and alarms
-remain untouched while this candidate is unlanded. No DO deletion migration is
-included.
+## Import disposition: retained, not migrated
 
-## One-time export and import protocol
+Nothing in the tables above was exported, imported, drained or deleted. The
+legacy Durable Object state stays under its unchanged namespace identities: the
+six classes in `retainedDurableObjects.ts` keep the storage, return 410 and do
+no alarm work. No `deleted_classes` migration exists. The retained secrets stay
+bound (`keep_bindings`). The sibling identity, billing and chat Workers keep
+their own storage until their retirement has a recorded disposition (#2103).
 
-This is the reviewable maintenance design, not a claim that a migration ran.
-Cloudflare's public object-list API supplies object IDs and `hasStoredData`,
-not object storage values. Actual row inventory requires a temporary maintenance
-version of each owning Worker; it cannot be obtained by the counts script.
-
-1. Record immutable source Worker versions, namespace/class/binding identities,
-   canonical backend revision and migration version. Generate an export
-   recipient key in the operator's secret store; only its public key reaches
-   maintenance Workers. Keep the old model-vault key bound for recovery.
-2. Prepare a temporary authenticated maintenance export that enumerates every
-   known object by ID through its original namespace. Read paginated storage
-   under the object's input gate. Export the original keys, values, object ID,
-   alarm timestamp, namespace identity and source version into per-object
-   authenticated encrypted envelopes. Encrypt in the owning isolate before
-   any bytes leave it; no raw body, transcript or credential logs. Bind the
-   envelope to migration ID, namespace, object ID, page number and hash of the
-   previous page, and require an authenticated final page. Verify every page
-   and the final manifest with the [bounded export protocol](../scripts/cutover/PAGED-EXPORT.md).
-   Write files with mode 0600 outside
-   the repository. Existing vault ciphertext remains ciphertext inside the
-   encrypted archive.
-3. Take a rehearsal snapshot while the old authority serves users. An initial
-   cross-object copy is not a consistent cutover snapshot. Review redacted
-   aggregate inventory: document types, row counts, active jobs, credential
-   entry counts, tombstones, and mapped/unmapped ownership counts. Never print
-   keys, login values, journals, payment rows or provider secrets.
-4. Resolve identities using verified provider IDs. The identity source at
-   `smithersai/ui@ace5abee0acd668a3545c72906fde7356f33b29c` records numeric GitHub
-   IDs from authenticated `/user` in `account:<id>` and confirms the login
-   binding in `loginid:<login>`. Require both records to agree, then join
-   canonical `oauth_accounts(provider='github', provider_user_id=<id>)`.
-   Missing/conflicting bindings block import; matching a username alone is
-   insufficient. Never create an account for an anonymous transcript.
-5. The canonical importer runs as a one-time maintenance command, with no
-   public compatibility route. It consumes sealed envelopes in memory and
-   commits only to canonical tables through their validated store contracts.
-   Preserve source IDs and content hashes in a migration ledger so retry is
-   idempotent and a changed duplicate fails. Roll back the object transaction
-   on malformed payload, identity mismatch, hash gap or immutable provider-pin
-   conflict. Test against a disposable database and verify round-trip reads
-   with the canonical application client before importing production.
-6. For credentials, decrypt the original AES-256-GCM only in the maintenance
-   process, using AAD `JSON.stringify([1, login, name, origin])`, then encrypt
-   with the canonical owner-model `SecretCodec` before database persistence.
-   Plaintext never reaches disk/logs. Preserve provider origin pins and receipt
-   identity; report only counts and match verdicts. Keep encrypted backup and
-   source key until restore has been tested and retention is decided.
-7. For history, validate the existing canonical turn protocol and full batch
-   hash chain. Canonical storage uses `chat_turns`, `chat_turn_batches`, and
-   `chat_turn_erasures`; tombstones cannot be resurrected. Account owner hashes
-   may map through verified identities. Anonymous owner hashes derived from
-   the journal capability cannot be relabelled as an account: retain sealed
-   copies and require an explicit disposition or a supported canonical
-   capability migration if actual unexpired anonymous rows exist. Do not add
-   a permanent anonymous-history bridge.
-8. Stop **new** legacy admissions in a coordinated maintenance window while
-   preserving reads and letting accepted jobs settle. Drain chat producers
-   and billing metering; reconcile reservations/usage exactly.
-   Capture the final consistent export after drain. Do not synthesize terminal
-   success, cancel jobs by deleting state, or enqueue imported accepted turns
-   as new work. Import final records once, verify canonical reads/access and
-   record source/export/import hash and count receipts.
-9. Activate backend, client metadata and edge as one matching candidate only
-   when all receipts pass. Retain source namespaces, encrypted backup and old
-   deployment version. Rollback after canonical writes requires an explicit
-   write/ledger reconciliation plan; routing users back blindly would fork
-   state. Remove the temporary maintenance surface after verification. Secret
-   and source-data retirement is a later, explicitly recorded action.
-
-Actual stored ownership is still unknown. No human disposition question can be
-precise until step 3 has classified real rows. No credential, transcript, balance
-or history was removed while preparing this change.
+If an export is ever needed, the sealed-inventory and paged-export tooling in
+`../scripts/cutover/` reads the retained namespaces
+([bounded export protocol](../scripts/cutover/PAGED-EXPORT.md),
+`sealed-state-inventory.md`). That is a later, separately decided operation,
+not part of the activation.
 
 ## Client and backend contracts
 
@@ -158,7 +96,7 @@ not migrated; the backend has no record of them, so a reload's observation
 answers 404 and the UI settles the request as failed with Retry, which asks
 again under a new request id.
 
-## Acceptance receipts required before activation
+## Acceptance receipts after activation
 
 - Exact backend `/api/bootstrap` build and required capabilities via the
   eventual edge origin; direct and forwarded canonical failures agree.
@@ -181,8 +119,6 @@ again under a new request id.
   provider/model substitution. Websocket and streaming transport receipts.
 - No-start reads, immediate setup acknowledgment, durable running/completion
   toast, reload, duplicate launch and failure receipts with unresolved work.
-- Sealed export/import/restore receipts, all ownership gaps resolved, active
-  setup/chat drained, billing queue/reservations/ledger reconciled.
 - Opus and Astra final review of the integrated candidate, and all six actual
   mode receipts required by the campaign. These are not satisfied by unit
   tests or an application-token browser matrix alone.

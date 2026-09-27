@@ -253,11 +253,11 @@ test("the landing page's Get started for free opens the tutorial, through Astro'
 
 test("the build requires every coming-soon page with coming-soon copy and no app island", (t) => {
   const repos = [{ name: "Effect-TS/effect" }, { name: "withastro/starlight" }]
-  const missing = fixture(t, { "effect-ts/effect/index.html": '<h1>Effect — Coming soon</h1><a href="/api/auth/github/start?return_to=%2Feffect-ts%2Feffect%2F">Sign in with GitHub</a>' })
+  const missing = fixture(t, { "effect-ts/effect/index.html": '<h1>Effect — Coming soon</h1><a href="/api/auth/github?return_to=%2Feffect-ts%2Feffect%2F">Sign in with GitHub</a>' })
   assert.deepEqual(checkRepositoryPages(missing, [], repos), ["withastro/starlight/index.html: missing from the build"])
   const app = fixture(t, { "effect-ts/effect/index.html": '<astro-island>Coming soon</astro-island>' })
   assert.deepEqual(checkRepositoryPages(app, [], [repos[0]]), ["effect-ts/effect/index.html: expected a coming-soon site page"])
-  const healthy = fixture(t, Object.fromEntries(repos.map((repo) => [`${repo.name.toLowerCase()}/index.html`, `<h1>Coming soon</h1><a href="/api/auth/github/start?return_to=${encodeURIComponent(`/${repo.name.toLowerCase()}/`)}">Sign in with GitHub</a>`])))
+  const healthy = fixture(t, Object.fromEntries(repos.map((repo) => [`${repo.name.toLowerCase()}/index.html`, `<h1>Coming soon</h1><a href="/api/auth/github?return_to=${encodeURIComponent(`/${repo.name.toLowerCase()}/`)}">Sign in with GitHub</a>`])))
   assert.deepEqual(checkRepositoryPages(healthy, [], repos), [])
 })
 
@@ -271,7 +271,7 @@ test("built pages reject the retired GitHub App installation URL", (t) => {
 
 test("coming-soon sign-in must start OAuth and return to that repository page", (t) => {
   const repo = { name: "wevm/incur" }
-  for (const href of ["https://smithers.sh/", "/api/auth/github/start", "/api/auth/github/start?return_to=%2Fpricing%2F", "https://elsewhere.test/api/auth/github/start?return_to=%2Fwevm%2Fincur%2F"]) {
+  for (const href of ["/api/auth/github/start?return_to=%2Fwevm%2Fincur%2F", "https://smithers.sh/", "/api/auth/github", "/api/auth/github?return_to=%2Fpricing%2F", "https://elsewhere.test/api/auth/github?return_to=%2Fwevm%2Fincur%2F"]) {
     const root = fixture(t, { "wevm/incur/index.html": `<h1>Coming soon</h1><a href="${href}">Sign in with GitHub</a>` })
     assert.match(checkRepositoryPages(root, [], [repo]).join("\n"), /sign-in.*return.*\/wevm\/incur\//i)
   }
@@ -300,7 +300,7 @@ test("registration prose opens the app or starts sign-in instead of the marketin
     const href = registration.match(/sign in (?:with GitHub on|to) \[[^\]]+\]\(([^)]+)\)/i)?.[1]
     const url = new URL(href, "https://smithers.sh")
     assert.equal(url.origin, "https://smithers.sh")
-    assert.ok(["/api/auth/github/start", "/smithersai/smithers"].includes(url.pathname), `${path}: ${href}`)
+    assert.ok(["/api/auth/github", "/smithersai/smithers"].includes(url.pathname), `${path}: ${href}`)
   }
 })
 

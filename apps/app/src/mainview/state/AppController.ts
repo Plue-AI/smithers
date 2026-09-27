@@ -1499,7 +1499,8 @@ export const createAppController = (
   const account = actors.pair(ctx, (context) =>
     createAccountController(context, {
       nextOrdinal: store.nextOrdinal, promptSignIn,
-      provider: identityProviderFor(services)
+      provider: identityProviderFor(services),
+      readsScopes: services.applicationIdentity === undefined
     }))
   const signup = actors.pair(ctx, (context) => createSignupController(context))
 
