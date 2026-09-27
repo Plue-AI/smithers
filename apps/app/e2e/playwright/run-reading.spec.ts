@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./browserTest"
+import { controlTabKey, expect, test, type Locator, type Page } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 import { preparedCodingJournal } from "../../src/mainview/cards/fixtures/CodingJournal"
 
@@ -20,7 +20,7 @@ const journal = [
 const tabTo = async (page: Page, target: Locator) => {
   for (let index = 0; index < 120; index++) {
     if (await target.evaluate(node => node === document.activeElement)) return
-    await page.keyboard.press("Tab")
+    await page.keyboard.press(controlTabKey(page))
   }
   throw new Error("The run control was not reachable with Tab")
 }

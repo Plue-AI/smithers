@@ -1,4 +1,4 @@
-import { expect, test } from "./browserTest"
+import { controlTabKey, expect, test } from "./browserTest"
 import { signedOutVisitor } from "./identity"
 import { fillComposer } from "./composer"
 
@@ -42,7 +42,7 @@ for (const path of ["/", "/smithersai/smithers/"]) {
       else if (trigger === "Tab and Enter") {
         await input.focus()
         for (let stop = 0; stop < 20 && !(await signIn.evaluate(button => button === document.activeElement)); stop++) {
-          await page.keyboard.press("Tab")
+          await page.keyboard.press(controlTabKey(page))
         }
         await expect(signIn).toBeFocused()
         await page.keyboard.press("Enter")

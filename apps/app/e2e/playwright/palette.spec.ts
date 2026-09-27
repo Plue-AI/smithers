@@ -1,4 +1,4 @@
-import { expect, test } from "./browserTest"
+import { controlTabKey, expect, test } from "./browserTest"
 
 for (const path of ["/smithersai/smithers/", "/smithersai/smithers/?tutorial"]) {
   test(`arrow navigation keeps the palette selection visible and Tab leaves the input: ${path}`, async ({ page }) => {
@@ -15,12 +15,12 @@ for (const path of ["/smithersai/smithers/", "/smithersai/smithers/?tutorial"]) 
       await expect(palette.locator('[aria-selected="true"]')).toBeInViewport({ ratio: 1 })
       await expect(input).toBeFocused()
     }
-    await input.press("Tab")
+    await input.press(controlTabKey(page))
     await expect(page.getByRole("button", { name: "Queue", exact: true })).toBeFocused()
-    await page.keyboard.press("Tab")
+    await page.keyboard.press(controlTabKey(page))
     await expect(page.getByTestId("composer-send")).toBeFocused()
-    await page.keyboard.press("Shift+Tab")
-    await page.keyboard.press("Shift+Tab")
+    await page.keyboard.press(controlTabKey(page, true))
+    await page.keyboard.press(controlTabKey(page, true))
     await expect(input).toBeFocused()
   })
 }

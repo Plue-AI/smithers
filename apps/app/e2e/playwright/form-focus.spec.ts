@@ -1,5 +1,5 @@
 import type { Locator, Page } from "./browserTest"
-import { expect, test } from "./browserTest"
+import { controlTabKey, expect, test } from "./browserTest"
 
 /*
  * THE FORM LAW meets the keyboard rule (apps/app/AGENTS.md). CT005 on live
@@ -49,9 +49,9 @@ test("T1: the slash door hands the keyboard to the missing Path field, and Tab s
   await page.keyboard.type("README.md")
   await expect(path).toHaveValue("README.md")
   await expect(form.getByTestId("flow-form-submit")).toBeEnabled()
-  await page.keyboard.press("Tab")
+  await page.keyboard.press(controlTabKey(page))
   await expect(form.getByTestId("flow-form-cancel")).toBeFocused()
-  await page.keyboard.press("Tab")
+  await page.keyboard.press(controlTabKey(page))
   await expect(form.getByTestId("flow-form-submit")).toBeFocused()
   await page.reload()
   await expect(page.getByTestId("flow-form-path")).toHaveValue("README.md")
@@ -133,9 +133,9 @@ test("T1: delayed file options keep the focused path field usable from the keybo
     await expect(path).toHaveValue("README.md")
     // The draft commits through form.set, so Submit becomes a tab stop only once the card holds it.
     await expect(form.getByTestId("flow-form-submit")).toBeEnabled()
-    await page.keyboard.press("Tab")
+    await page.keyboard.press(controlTabKey(page))
     await expect(form.getByTestId("flow-form-cancel")).toBeFocused()
-    await page.keyboard.press("Tab")
+    await page.keyboard.press(controlTabKey(page))
     await expect(form.getByTestId("flow-form-submit")).toBeFocused()
     await page.keyboard.press("Enter")
     await expect(form).toBeFocused()
