@@ -3,18 +3,27 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 type recordingBoxes struct {
-	prepared []string
-	retired  []string
-	awake    []string
-	env      map[string]string
+	prepared  []string
+	retired   []string
+	awake     []string
+	restarted []string
+	lost      error
+	env       map[string]string
+}
+
+func (b *recordingBoxes) RestartLostBox(_ context.Context, workspaceID string, _, _ int64) error {
+	b.restarted = append(b.restarted, workspaceID)
+	return b.lost
 }
 
 func (b *recordingBoxes) KeepBoxAwake(_ context.Context, workspaceID string) {
@@ -92,4 +101,29 @@ type stopFailingTransport struct{ refusingHostTransport }
 
 func (stopFailingTransport) StopFlowHost(context.Context, flowhost.Binding) error {
 	return errors.New("box is unreachable")
+}
+
+type stoppedBoxTransport struct{ refusingHostTransport }
+
+func (stoppedBoxTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
+	return flowhost.Connection{}, fmt.Errorf("%w: box", workspaceapi.ErrWorkspaceStopped)
+}
+
+// After a backend restart the runtime holds no workspace running. Inspecting
+// a progressing run's host starts the box the product still holds running
+// and reports the host not running, so the resolver restarts it and the run
+// carries on; a box stopped on purpose keeps its refusal (#2131).
+func TestBoxHostLauncherRestartsALostBox(t *testing.T) {
+	boxes := &recordingBoxes{}
+	launcher := newBoxHostLauncher(stoppedBoxTransport{}, boxes)
+	launch := flowhost.HostLaunch{Binding: flowhost.Binding{ID: "host-1", UserID: 9, WorkspaceID: "box"}, Authority: flowhost.Authority{WorkspaceID: "box", RepositoryID: 3, UserID: 9}}
+	_, err := launcher.InspectFlowHost(context.Background(), launch)
+	require.ErrorIs(t, err, flowhost.ErrHostNotRunning)
+	require.Equal(t, []string{"box"}, boxes.restarted)
+
+	boxes.lost = errors.New("workspace is not held running")
+	_, err = launcher.InspectFlowHost(context.Background(), launch)
+	require.ErrorIs(t, err, workspaceapi.ErrWorkspaceStopped)
+	require.NotErrorIs(t, err, flowhost.ErrHostNotRunning)
+	require.Empty(t, boxes.awake)
 }

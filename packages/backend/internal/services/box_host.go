@@ -13,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -163,6 +164,21 @@ func (s *WorkspaceService) KeepBoxAwake(ctx context.Context, workspaceID string)
 }
 
 const boxHostActivityInterval = time.Minute
+
+// RestartLostBox starts again a box the product holds running whose runtime
+// no longer runs it: a backend restart stops every workspace. A box stopped,
+// suspended or deleted on purpose is refused, never woken by its host.
+func (s *WorkspaceService) RestartLostBox(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
+	workspace, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
+	if err != nil {
+		return err
+	}
+	if workspace.UserID != userID || workspace.Status != "running" || s.runtime == nil {
+		return pkgerrors.Conflict("workspace is not held running")
+	}
+	_, err = s.ensureRuntimeWorkspaceRunning(ctx, workspace, userID)
+	return err
+}
 
 // retireBoxHostCredentials revokes every landing credential minted for a
 // box's coding hosts when the box stops, suspends or is destroyed: its host

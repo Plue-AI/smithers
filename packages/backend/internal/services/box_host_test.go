@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -125,4 +126,31 @@ func TestKeepBoxAwakeWritesAtMostOncePerInterval(t *testing.T) {
 	}
 	svc.KeepBoxAwake(context.Background(), "other")
 	require.Equal(t, 2, q.touches)
+}
+
+// A backend restart stops every workspace in the runtime. A box the product
+// still holds running is started again for its host; one stopped or
+// suspended on purpose is refused and never touched (#2131).
+func TestRestartLostBoxStartsOnlyABoxHeldRunning(t *testing.T) {
+	startReached := errors.New("runtime start reached")
+	for _, status := range []string{"running", "suspended", "stopped"} {
+		t.Run(status, func(t *testing.T) {
+			row := sampleDBWorkspace("ws-lost-box")
+			row.Status = status
+			q := &mockWorkspaceQuerier{
+				getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) { return row, nil },
+				getWorkspaceFn:       func(context.Context, string) (db.Workspace, error) { return row, nil },
+			}
+			runtime := &admissionWorkspaceRuntime{startErr: startReached}
+			service := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(&countedResumePolicy{}), WithWorkspaceRuntime(runtime))
+			err := service.RestartLostBox(context.Background(), row.ID, row.RepositoryID, row.UserID)
+			if status == "running" {
+				require.ErrorContains(t, err, startReached.Error())
+				require.Equal(t, 1, runtime.starts)
+				return
+			}
+			require.Error(t, err)
+			require.Zero(t, runtime.starts)
+		})
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // Admission is rechecked by the worker immediately before a managed host start.
@@ -56,6 +57,7 @@ type boxHostPreparer interface {
 	PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error)
 	RetireBoxHostCredential(ctx context.Context, hostID string, userID int64)
 	KeepBoxAwake(ctx context.Context, workspaceID string)
+	RestartLostBox(ctx context.Context, workspaceID string, repositoryID, userID int64) error
 }
 
 // boxHostLauncher gives the box's coding host what the box's own services
@@ -82,10 +84,19 @@ func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer) *boxHostLau
 
 // InspectFlowHost keeps the box awake while its host is in use: every call to
 // the host, and every observation of a progressing run, inspects it first.
+//
+// A box the product holds running but whose runtime lost it (the backend
+// restarted, which stops every workspace) is started again, and its host
+// reported not running, so the resolver restarts the host on the same state
+// and the run carries on (#2131). A box stopped or suspended on purpose stays so.
 func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	connection, err := l.Launcher.InspectFlowHost(ctx, launch)
 	if err == nil {
 		l.boxes.KeepBoxAwake(ctx, launch.Binding.WorkspaceID)
+	}
+	if errors.Is(err, workspaceapi.ErrWorkspaceStopped) &&
+		l.boxes.RestartLostBox(ctx, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID) == nil {
+		return flowhost.Connection{}, flowhost.ErrHostNotRunning
 	}
 	return connection, err
 }
