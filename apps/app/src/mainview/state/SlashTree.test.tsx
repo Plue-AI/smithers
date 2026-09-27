@@ -71,10 +71,6 @@ const rows = (host: HTMLElement): Array<string> =>
     option.dataset["namespace"] !== undefined ? `${option.dataset["namespace"]}/` : option.dataset["flow"] ?? ""
   )
 
-/* The shell's live registry manifest (App.tsx `data-flows`). */
-const manifest = (host: HTMLElement): Array<string> =>
-  (host.querySelector<HTMLElement>("[data-flows]")?.dataset["flows"] ?? "").split(" ")
-
 const press = async (view: View, key: string): Promise<void> => {
   await view.act(() => {
     textarea(view.host)?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
@@ -125,29 +121,5 @@ describe("the slash menu is a tree", () => {
     await press(view, "Enter")
     expect(view.controller.store.session().draft).toBe("")
     expect(view.controller.store.session().recentCommands?.[0]).toBe("appearance.dark-mode")
-  })
-})
-
-/*
- * The menu is a live read of the registry, and the experimental namespace is
- * registered live off the session switch (flows/Commands.ts `entries`): the
- * listing has to follow a toggle the AGENT made, with no keystroke of the
- * human's to refresh it.
- */
-describe("the slash menu follows the experimental switch", () => {
-  test("a toggle with no keystroke adds and removes the branch's rows", async () => {
-    const view = await mount()
-    await view.controller.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in",
-      login: "operator", allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
-    await view.act(() => view.controller.changeDraft("/experimental."))
-    expect(rows(view.host)).toEqual([])
-    await view.controller.commands.run("app.experimental", "on")
-    await view.act(() => {})
-    expect(rows(view.host)).toContain("experimental.plan")
-    expect(manifest(view.host)).toContain("experimental.plan")
-    await view.controller.commands.run("app.experimental", "off")
-    await view.act(() => {})
-    expect(rows(view.host)).toEqual([])
-    expect(manifest(view.host)).not.toContain("experimental.plan")
   })
 })

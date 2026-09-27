@@ -97,7 +97,6 @@ export const APP_TRANSITION_SCHEMAS = {
   "frame.navigated": z.object({ "type": z.literal("frame.navigated"), "actor": z.enum(["user", "system"]), "workspaceId": z.string(), "branchId": z.string(), "frameId": z.string() }).strict(),
   "frame.forked": z.object({ "type": z.literal("frame.forked"), "actor": z.literal("user"), "branch": BranchSchema, "rootFrame": FrameSchema, "selectedFrame": FrameSchema }).strict(),
   "devtools.toggled": z.object({ "type": z.literal("devtools.toggled"), "actor": z.literal("user"), "open": z.boolean() }).strict(),
-  "experimental.toggled": z.object({ type: z.literal("experimental.toggled"), actor: z.literal("user"), on: z.boolean() }).strict(),
   "verbose.toggled": z.object({ "type": z.literal("verbose.toggled"), "actor": z.literal("user"), "on": z.boolean() }).strict(),
   "flow.invoked": z.object({ "type": z.literal("flow.invoked"), "actor": ActorSchema, "name": z.string(), "args": z.union([z.string(), z.null()]), "hidden": z.boolean(), "outcome": z.enum(["executed", "failed", "unknown-command", "deferred", "confirm-requested", "form"]), "detail": z.union([z.string(), z.null()]), "durationMs": z.number().finite() }).strict(),
   "surfaces-menu.toggled": z.object({ "type": z.literal("surfaces-menu.toggled"), "actor": z.literal("user"), "open": z.boolean() }).strict(),

@@ -110,8 +110,6 @@ function AppContent() {
       paletteLastQuery: session.paletteLastQuery,
       resetConfirmOpen: session.resetConfirmOpen,
       verbose: session.verbose,
-      /* The registry registers the experimental namespace off this switch, and the shell's `data-flows` manifest names it. */
-      experimental: session.experimental,
       activeRepoKey: session.activeRepoKey,
       repositoryEntry: session.repositoryEntry
     }))

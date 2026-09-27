@@ -155,7 +155,7 @@ const declarationStub = (): CommandActions => new Proxy({}, {
 }) as unknown as CommandActions
 
 export const declaredFlowNames = (): ReadonlySet<string> =>
-  /* The same composition `Commands.ts` builds the registry from, minus the experimental namespace a session turns on. */
+  /* The same composition `Commands.ts` builds the registry from. */
   new Set([...baseFlows(declarationStub()), ...guideFlows(declarationStub()), ...adminFlows(declarationStub())].map(nameOf))
 
 const memoryStorage = (): StorageApi => {

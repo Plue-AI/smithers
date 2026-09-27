@@ -5,7 +5,7 @@ import { smithersUiCss } from "@smthrs/ui"
 import { PALETTES } from "../../src/mainview/state/AppState"
 
 const read = (path: string) => readFileSync(new URL(`../../src/mainview/${path}`, import.meta.url), "utf8")
-const css = ["tokens", "base", "chat", "cards", "github-cards", "surfaces", "chrome", "experimental"]
+const css = ["tokens", "base", "chat", "cards", "github-cards", "surfaces", "chrome"]
   .map(name => read(`styles/${name}.css`)).join("\n") + read("SessionShell.css") + smithersUiCss
 let browser: Browser
 let page: Page

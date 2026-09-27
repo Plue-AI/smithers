@@ -427,12 +427,6 @@ const numberedChangeRef = (name: string, field: string, what: string, args: stri
 }
 
 const GRAMMAR: Readonly<Record<string, Grammar>> = {
-  "app.experimental": args => {
-    const value = trimmed(args)
-    return value === "" ? NONE : value === "on" || value === "off"
-      ? ok({ on: value === "on" }) : no("Choose on or off")
-  },
-  "experimental.set": args => setupObject(args),
   "issues.fix": (args) => numberedTarget("issues.fix", args),
   "issues.verify": (args) => numberedTarget("issues.verify", args),
   "issues.comment.react": jsonObject("issues.comment.react"),

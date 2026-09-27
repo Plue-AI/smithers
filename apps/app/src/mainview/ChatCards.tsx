@@ -9,7 +9,7 @@ import { flowAction, flowProps } from "./flows/FlowAction"
  */
 import { Button, StatusPill } from "@smthrs/ui"
 import { ArrowLeft, ArrowRight, GitFork, Maximize2, Minimize2, PanelTop } from "lucide-react"
-import { memo, useCallback, useRef, useSyncExternalStore } from "react"
+import { memo, useCallback, useRef } from "react"
 import type { CardActions } from "./cards/CardFamily"
 import { isRetiredCard, pillStatus, renderCardBody } from "./cards/CardRenderers"
 import { Component, type ErrorInfo, type ReactNode } from "react"
@@ -93,18 +93,10 @@ export const CardView = memo(function CardView({
   fileCards,
   projectionStore,
   pluginLibrary,
-  experimental: experimentalProp,
-  experimentalSnapshot,
   signedOut,
   admin,
   presentation
 }: CardViewProps) {
-  const subscribeExperimental = useCallback((notify: () => void) => {
-    const subscription = projectionStore?.collections.sessions?.subscribeChanges(notify)
-    return () => subscription?.unsubscribe()
-  }, [projectionStore])
-  const readExperimental = experimentalSnapshot ?? (() => experimentalProp === true)
-  const experimental = useSyncExternalStore(subscribeExperimental, readExperimental, readExperimental)
   /*
    * Maximize and minimize replace each other in the header, so the button
    * the pointer just pressed unmounts and focus falls to <body> — outside
@@ -283,7 +275,6 @@ export const CardView = memo(function CardView({
         <div className="smithers-card-body">
           <CardBodyBoundary cardId={card.id} onRunCommand={onRunCommand}>
           {card.loading && card.kind !== "workspace" ? <ViewSkeleton /> : renderCardBody(card, {
-            experimental,
             onDecideApproval,
             onGrantConfirm,
             onGrantCancel,

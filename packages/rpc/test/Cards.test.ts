@@ -2643,10 +2643,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
   "plugin-library": {
     minimal: { tutorial: false },
     full: { tutorial: true }
-  },
-  experimental: {
-    minimal: { pane: "flow-graph" },
-    full: { pane: "flow-graph", props: { runId: "run_1" } }
   }
 }
 

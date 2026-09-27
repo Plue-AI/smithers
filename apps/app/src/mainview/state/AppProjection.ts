@@ -201,7 +201,6 @@ export const APP_TRANSITION_TYPES = {
   "frame.forked": true,
   "devtools.toggled": true,
   "verbose.toggled": true,
-  "experimental.toggled": true,
   "flow.invoked": true,
   "surfaces-menu.toggled": true,
   "connect-menu.toggled": true,
@@ -1804,12 +1803,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           })
           break
 
-        case "experimental.toggled":
-          collections.sessions.update(SESSION_ID, (draft) => {
-            draft.experimental = transition.on
-          })
-          break
-
         case "verbose.toggled": {
           // Off removes every trace line: the transcript reads exactly as it
           // would have without verbose. The transition log keeps the records.
@@ -2418,11 +2411,13 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           if (transition.patch.kind !== undefined && transition.patch.kind !== existing.kind) return
           const decoded = CardPatchSchema.safeParse({ ...transition.patch, kind: existing.kind })
           if (!decoded.success) return
+          /* The card is spread as a plain record: TypeScript's arithmetic over the spread of every kind's payload exceeds its union limit. */
+          const held = existing as unknown as Record<string, unknown> & { readonly payload: Record<string, unknown> }
           const candidate = CardSchema.safeParse({
-            ...existing,
+            ...held,
             ...decoded.data,
-            payload: decoded.data.payload === undefined ? existing.payload :
-              { ...existing.payload, ...decoded.data.payload }
+            payload: decoded.data.payload === undefined ? held.payload :
+              { ...held.payload, ...decoded.data.payload }
           })
           if (!candidate.success) return
           let patch: typeof transition.patch = candidate.data

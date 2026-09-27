@@ -12,7 +12,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { adminFlows, baseFlows, experimentalFlows, guideFlows, type CommandActions } from "../../src/mainview/flows/Flows"
+import { adminFlows, baseFlows, guideFlows, type CommandActions } from "../../src/mainview/flows/Flows"
 import { nameOf } from "../../src/mainview/flows/registry"
 import type { ShowcaseRecord } from "./showcase"
 
@@ -29,15 +29,14 @@ export const UNAVAILABLE: Readonly<Record<string, string>> = {
   "billing.upgrade": "external Stripe checkout",
   "billing.portal": "external Stripe portal",
   "cloud.sign-in": "native app only (host-held Cloud session)",
-  "cloud.sign-out": "native app only (host-held Cloud session)",
-  "experimental.*": "admin-only panes over mock data"
+  "cloud.sign-out": "native app only (host-held Cloud session)"
 }
 
 const inert = (flags: { readonly pluginLibrary: boolean }): CommandActions =>
   new Proxy({}, { get: (_, key) => key === "snapshot" ? () => flags : () => undefined }) as CommandActions
 
 const registered = (actions: CommandActions) =>
-  [...baseFlows(actions), ...adminFlows(actions), ...experimentalFlows(actions), ...guideFlows(actions)]
+  [...baseFlows(actions), ...adminFlows(actions), ...guideFlows(actions)]
 
 export interface CatalogFlow {
   readonly name: string
@@ -98,7 +97,7 @@ export const coverage = (records: ReadonlyArray<ShowcaseRecord>): Coverage => {
       shownBy.set(name, [...shownBy.get(name) ?? [], record.id])
     }
   }
-  // What the test host actually registered across the recorded sessions (admin, experimental and
+  // What the test host actually registered across the recorded sessions (admin and
   // host-scoped flows register only for some sessions or hosts).
   const registered = new Set(records.flatMap(record => record.registered))
   const rows = catalog.map((flow): CoverageRow => {

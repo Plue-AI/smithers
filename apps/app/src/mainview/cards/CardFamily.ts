@@ -48,7 +48,6 @@ export interface CardProjectionAuthority {
  */
 export interface CardActions {
   readonly pluginLibrary?: boolean
-  readonly experimental?: boolean
   /** Read authority for derived decorations; absent only in isolated static previews. */
   readonly projectionStore?: CardProjectionAuthority
   /** Structured answers carry what the human wrote, already shaped for the question. */
@@ -77,7 +76,6 @@ export interface CardActions {
    * raw journal, a debug surface) exists only where verbose does.
    */
   readonly debugVerbose?: boolean
-  readonly experimentalSnapshot?: () => boolean
   /** Existing source-qualified catalog cards; never a second availability store. */
   readonly workflowCatalogs?: ReadonlyArray<Extract<Card, { kind: "workflow-list" }>>
   /** Existing dispatcher listings, so a plan card names the schedules that fire it without a second read of the box. */

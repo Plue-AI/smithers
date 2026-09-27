@@ -124,13 +124,11 @@ open; (b) open the streaming mounts; (c) drive the graph off the already-live
 turn NDJSON stream for the current turn and poll for the rest.
 *Do not write liveness into the design doc before this is ruled.*
 
-### D-014 — The first version is an experimental pane, not a shipped surface. PROPOSED
-`apps/app/src/mainview/experimental/` already exists behind
-`VITE_SMITHERS_EXPERIMENTAL`, with reserved panes `Plan`, `Flows`, `TimeTravel`,
-`StepCache` that still read "Not drawn yet." Cost of a first canvas: one file
-under `experimental/panes/`, one line in `Registry.ts`. Its own doc says "NO
-INVENTION does not bind a mock the way it binds a shipped surface: a mock is a
-proposal."
+### D-014 — The first version is an experimental pane, not a shipped surface. RETIRED
+The experimental mock namespace (`apps/app/src/mainview/experimental/`,
+`VITE_SMITHERS_EXPERIMENTAL`, `/app.experimental`) was deleted on 2026-09-27:
+NO INVENTION and zero tech debt settle it, so a first canvas is a real card
+over real data or nothing.
 
 ### D-015 — Revive the retired `graph` card kind rather than mint a new one. PROPOSED
 Kinds `graph` and `run-timeline` still exist in the wire schema

@@ -26,7 +26,6 @@ import { changeCardFamily } from "./ChangeCards"
 import { commitCardFamily } from "./CommitCards"
 import { conversationCardFamily } from "./ConversationCards"
 import { envCardFamily } from "./EnvCard"
-import { experimentalCardFamily } from "./ExperimentalCard"
 import { fileCardFamily } from "./FileCards"
 import { flowFormCardFamily } from "./FlowFormCards"
 import { flowPlanCardFamily } from "./FlowPlanCard"
@@ -75,7 +74,6 @@ export const isRetiredCard = (card: Card): card is Extract<Card, { kind: Retired
 export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   repositoryHomeCardFamily,
   repositorySetupCardFamily,
-  experimentalCardFamily,
   turnCardFamily,
   approvalCardFamily,
   billingCardFamily,
@@ -116,7 +114,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
 export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...repositoryHomeCardFamily,
   ...repositorySetupCardFamily,
-  ...experimentalCardFamily,
   ...turnCardFamily,
   ...approvalCardFamily,
   ...billingCardFamily,

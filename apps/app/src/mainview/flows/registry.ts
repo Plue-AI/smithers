@@ -42,7 +42,6 @@ import * as connector from "./entries/connector"
 import * as debug from "./entries/debug"
 import * as egress from "./entries/egress"
 import * as env from "./entries/env"
-import * as experimental from "./entries/experimental"
 import * as feature from "./entries/feature"
 import * as files from "./entries/files"
 import * as findings from "./entries/findings"
@@ -358,8 +357,6 @@ export interface CommandState {
   readonly hasConnectors: boolean
   /** The plugins installed on this workspace (the session's shelf); optional so state fixtures stay minimal. */
   readonly pluginLibrary?: boolean
-  /** VITE_SMITHERS_EXPERIMENTAL: the hidden mock namespace registers only then. */
-  readonly experimental?: boolean
   readonly plugins?: ReadonlyArray<string>
   /** The validated session carries admin:true; the admin plugin registers only then. */
   readonly admin: boolean
@@ -506,7 +503,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   frame.namespace,
   approval.namespace,
   debug.namespace,
-  experimental.namespace,
   app.namespace,
   signup.namespace,
   smithers.namespace,

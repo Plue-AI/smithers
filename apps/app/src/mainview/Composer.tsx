@@ -59,14 +59,7 @@ export function Composer({
         activeTabId: session.activeTabId,
         activeRepoKey: session.activeRepoKey,
         paletteOpen: session.paletteOpen,
-        paletteActionsRef: session.paletteActionsRef,
-        /*
-         * The registry's own listing is live: the experimental namespace is
-         * registered off this switch (flows/Commands.ts `entries`), so the
-         * menu below reads it through this subscription — a toggle the AGENT
-         * made re-renders the rows without a keystroke to refresh them.
-         */
-        experimental: session.experimental
+        paletteActionsRef: session.paletteActionsRef
       }))
   )
   /*

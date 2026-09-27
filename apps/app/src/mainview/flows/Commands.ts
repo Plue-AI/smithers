@@ -27,7 +27,7 @@ import type { AgentToolCall, AgentToolSpec } from "./agentTools"
 import { agentFailureText, agentToolSpecs, executeAgentToolCall, userOnlyError } from "./agentTools"
 import type { AppTransition } from "../state/AppState"
 import type { CommandActions } from "./Flows"
-import { adminFlows, baseFlows, experimentalFlows, guideFlows } from "./Flows"
+import { adminFlows, baseFlows, guideFlows } from "./Flows"
 import { repositoryFlowLeaves } from "./entries/flow"
 import type { CatalogItem, CommandState, FlowEntry, MissingDoor, SlashItem, SlashRow } from "./registry"
 import {
@@ -124,11 +124,9 @@ export const refusalSentence = (refusal: CommandRefusal): string => {
 /**
  * The door classes an exact miss resolves to. `cloud.session` refines
  * `cloud.pat`: the flows that ARE the PAT session (the `cloud.` namespace),
- * which on the web the GitHub sign-in already answers. `experimental` is the
- * one door that is a SWITCH rather than a host: the flow is declared and this
- * session has it turned off.
+ * which on the web the GitHub sign-in already answers.
  */
-export type AbsentDoor = MissingDoor | "cloud.session" | "experimental"
+export type AbsentDoor = MissingDoor | "cloud.session"
 
 export interface AbsentExplanation {
   readonly door: AbsentDoor
@@ -148,8 +146,6 @@ export const absentReason = (name: string, door: AbsentDoor): string => {
       return `/${name} is not in the web app — on the web your GitHub sign-in is your Smithers Cloud sign-in.`
     case "origin":
       return `/${name} is not available on this origin yet.`
-    case "experimental":
-      return `/${name} is not currently available — /app.experimental turns experimental panes on.`
   }
 }
 
@@ -293,7 +289,6 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   }
   const base = baseFlows(actions)
   const admin = adminFlows(actions)
-  const experimental = experimentalFlows(actions)
   const guide = guideFlows(actions)
   /*
    * The repository's own flows, derived from its factory projection each
@@ -308,15 +303,14 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     const catalog = actions.repositoryFlows()
     if (catalog === undefined) return []
     if (leafCache !== undefined && leafCache.repo === catalog.repo && leafCache.loadedAt === catalog.loadedAt) return leafCache.leaves
-    const taken = new Set([...base, ...experimental, ...guide, ...admin].map(nameOf))
+    const taken = new Set([...base, ...guide, ...admin].map(nameOf))
     const built = repositoryFlowLeaves(actions, catalog.repo, catalog.flows).filter((entry) => !taken.has(nameOf(entry)))
     leafCache = { repo: catalog.repo, loadedAt: catalog.loadedAt, leaves: built }
     return built
   }
   let agentEntries: ReadonlyArray<FlowEntry> | undefined
   const agentEntry = (name: string): FlowEntry | undefined => {
-    if (name.startsWith("experimental.") && !actions.snapshot().experimental) return undefined
-    agentEntries ??= agentActions === actions ? [...base, ...experimental, ...guide, ...admin] : [...baseFlows(agentActions), ...experimentalFlows(agentActions), ...guideFlows(agentActions), ...adminFlows(agentActions)]
+    agentEntries ??= agentActions === actions ? [...base, ...guide, ...admin] : [...baseFlows(agentActions), ...guideFlows(agentActions), ...adminFlows(agentActions)]
     const declared = agentEntries.find((candidate) => nameOf(candidate) === name)
     if (declared !== undefined) return declared
     if (agentActions === actions) return leaves().find((candidate) => nameOf(candidate) === name)
@@ -338,7 +332,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   }
 
   const entries = (): ReadonlyArray<FlowEntry> =>
-    [...base, ...(actions.snapshot().experimental ? experimental : []), ...guide,
+    [...base, ...guide,
       ...(actions.snapshot().admin ? admin : []), ...leaves()].filter(available)
 
   const items = (): ReadonlyArray<CatalogItem> => entries().map(itemOf)
@@ -353,17 +347,6 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
    * Only a name absent from the declarations stays unknown-command.
    */
   const explainAbsent = (name: string): AbsentExplanation | undefined => {
-    /*
-     * A door that is a SWITCH, not a host: the experimental namespace is
-     * registered live off the session setting, so a name it declares is
-     * absent because the switch is off — never because no such flow exists.
-     * A mid-turn toggle-off left a model that had just been given the name
-     * reading "no command has that name". Only an operator has the switch;
-     * for everyone else a pane name resolves exactly like a typo.
-     */
-    if (actions.snapshot().admin && !actions.snapshot().experimental && experimental.some((entry) => nameOf(entry) === name)) {
-      return { door: "experimental", reason: absentReason(name, "experimental") }
-    }
     const bootstrap = actions.bootstrap
     if (bootstrap === undefined || find(name) !== undefined) return undefined
     const declared = base.find((entry) => nameOf(entry) === name) ?? leaves().find((entry) => nameOf(entry) === name)

@@ -165,9 +165,11 @@ export const createTurnController = (
       console.warn("Smithers dropped a card.update frame for an unknown or invalid card", frame.id)
       return
     }
-    const merged = CardSchema.safeParse({ ...existing, ...patch.data, id: existing.id,
-      payload: patch.data.payload === undefined ? existing.payload :
-        { ...existing.payload, ...patch.data.payload }
+    /* The card is spread as a plain record: TypeScript's arithmetic over the spread of every kind's payload exceeds its union limit. */
+    const held = existing as unknown as Record<string, unknown> & { readonly id: string; readonly payload: Record<string, unknown> }
+    const merged = CardSchema.safeParse({ ...held, ...patch.data, id: held.id,
+      payload: patch.data.payload === undefined ? held.payload :
+        { ...held.payload, ...patch.data.payload }
     })
     if (!merged.success) {
       console.warn("Smithers dropped a card.update frame that fails schema", merged.error)

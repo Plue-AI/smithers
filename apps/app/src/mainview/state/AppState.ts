@@ -848,7 +848,6 @@ export const SessionSchema = z.object({
    * Optional (missing = off) so sessions persisted before the field parse.
    */
   verbose: z.boolean().optional(),
-  experimental: z.boolean().optional(),
   /*
    * The note `/world.delete` is asking about (§10.6, §28.4). Deleting is not
    * undoable, so the flow ASKS and the answer is an act of its own — and the
@@ -1304,11 +1303,6 @@ export type AppTransition =
     type: "devtools.toggled"
     actor: "user"
     open: boolean
-  }
-  | {
-    type: "experimental.toggled"
-    actor: "user"
-    on: boolean
   }
   | {
     /* The /verbose switch flips; the reducer states it in the transcript. */

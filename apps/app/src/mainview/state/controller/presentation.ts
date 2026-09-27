@@ -32,8 +32,6 @@ export interface PresentationController {
   readonly openBrowser: (url: string) => Promise<string | void | { readonly value: string }>
   readonly toggleTheme: () => void
   readonly setPalette: (args: string) => string | void
-  readonly openExperimentalPane: (pane: string) => void
-  readonly setExperimentalProp: (cardId: string, key: string, value: string) => string | void
 }
 
 export const createPresentationController = (
@@ -447,43 +445,6 @@ export const createPresentationController = (
     })
   }
 
-  /*
-   * One hidden mock, as a card at the transcript's tail (experimental/Pane.ts).
-   * Upserted by pane id so running `/experimental.plan` twice moves the card
-   * it already wrote instead of stacking a second copy, the same rule the
-   * theme picker follows.
-   */
-  const openExperimentalPane = (pane: string): void => {
-    const id = `experimental:${pane}`
-    const existing = ctx.store.collections.cards.get(id)
-    let highest = -1
-    for (const message of ctx.store.collections.messages.values()) highest = Math.max(highest, message.ordinal)
-    for (const card of ctx.store.collections.cards.values()) highest = Math.max(highest, card.ordinal)
-    ctx.store.dispatch({
-      type: "card.upsert",
-      actor: ctx.commandActor,
-      card: {
-        id,
-        kind: "experimental",
-        title: pane,
-        status: "active",
-        createdAt: existing?.createdAt ?? Date.now(),
-        ordinal: highest + 1,
-        payload: existing?.kind === "experimental" ? { ...existing.payload, pane } : { pane }
-      }
-    })
-  }
-
-  const setExperimentalProp = (cardId: string, key: string, value: string): string | void => {
-    const card = ctx.store.collections.cards.get(cardId)
-    if (card?.kind !== "experimental") return "Experimental card not found."
-    ctx.store.dispatch({
-      type: "card.upsert",
-      actor: ctx.commandActor,
-      card: { ...card, payload: { ...card.payload, props: { ...card.payload.props, [key]: value } } }
-    })
-  }
-
   const setPalette = (args: string): string | void => {
     const requested = args.trim().toLowerCase()
     const current = ctx.store.session().palette ?? DEFAULT_PALETTE
@@ -530,8 +491,6 @@ export const createPresentationController = (
     debugSeams,
     openBrowser,
     toggleTheme,
-    setPalette,
-    openExperimentalPane,
-    setExperimentalProp
+    setPalette
   }
 }

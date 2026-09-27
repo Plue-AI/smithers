@@ -28,7 +28,7 @@ import { accountFlows } from "./entries/account"
 import { adminOperatorFlows, adminResetFlows, adminToolFlows } from "./entries/admin"
 import { agentFlows, tutorialChangeFlows } from "./entries/agent"
 import { agentSessionFlows } from "./entries/agentSession"
-import { appExperimentalFlows, appFlows } from "./entries/app"
+import { appFlows } from "./entries/app"
 import { signupFlows } from "./entries/signup"
 import { appearanceFlows } from "./entries/appearance"
 import { approvalFlows } from "./entries/approval"
@@ -45,7 +45,6 @@ import { cloudFlows } from "./entries/cloud"
 import { connectSurfaceFlows } from "./entries/connector"
 import { debugFlows, debugVerboseFlows } from "./entries/debug"
 import { egressFlows } from "./entries/egress"
-export { experimentalFlows } from "./entries/experimental"
 export { guideFlows } from "./entries/guide"
 import { envFlows } from "./entries/env"
 import { featureFlows } from "./entries/feature"
@@ -208,6 +207,5 @@ export const adminFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   ...adminResetFlows(actions),
   ...adminToolFlows(actions),
   ...debugFlows(actions),
-  ...adminOperatorFlows(actions),
-  ...appExperimentalFlows(actions)
+  ...adminOperatorFlows(actions)
 ]

@@ -271,9 +271,6 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly toggleTheme: () => void
   /** Wear a color theme (/theme) — the axis orthogonal to light/dark. */
   readonly setPalette: (args: string) => string | void
-  /** Opens one hidden mock as a card (experimental/Registry.ts); no flow reaches it without the flag. */
-  readonly openExperimentalPane: (pane: string) => void
-  readonly setExperimentalProp: (cardId: string, key: string, value: string) => string | void
   /** Archive locally and start fresh; model-generated notes are opt-in. */
   readonly clearConversation: (options?: { readonly summarize?: boolean }) => Promise<string | void>
   /* The browser tool + surface (§2d/§2d′). */
@@ -480,7 +477,6 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly noteCommandRun: (name: string) => void
   /** The /verbose switch: trace every flow and background transition in the transcript. */
   readonly toggleVerbose: () => void
-  readonly toggleExperimental: (on?: boolean) => { readonly value: string }
   /** Record one settled flow invocation (every trigger) — the verbose trace's source. */
   readonly traceFlow: (record: Extract<AppTransition, { type: "flow.invoked" }>) => void
   /**
@@ -774,8 +770,6 @@ export interface AppServices {
 export interface AppFeatures {
   readonly pluginLibrary?: boolean
   readonly suggestionPills?: boolean
-  /** The hidden mock namespace (experimental/Manifest.ts). */
-  readonly experimental?: boolean
 }
 
 /**
@@ -787,10 +781,7 @@ export const createAppController = (
   agent: AgentPort,
   services: AppServices = {}
 ): AppController => {
-  const experimental = services.features?.experimental === true || import.meta.env?.VITE_SMITHERS_EXPERIMENTAL === "true"
-  const ctx = createControllerContext(store, agent, {
-    ...services, features: { ...services.features, experimental }
-  })
+  const ctx = createControllerContext(store, agent, services)
   const actors = createActorBindings(ctx.onDispose)
   const privacyActions = createPrivacyActions(ctx)
   if (store.dispose !== undefined) ctx.onDispose(store.dispose)
@@ -804,7 +795,6 @@ export const createAppController = (
   const { baseUrl, http } = ctx
   const features: Required<AppFeatures> = {
     pluginLibrary: services.features?.pluginLibrary ?? false,
-    experimental,
     suggestionPills: services.features?.suggestionPills ?? services.bootstrap?.host === "cloud"
   }
   if (!features.pluginLibrary && store.session().surface === "plugins") {
@@ -821,12 +811,10 @@ export const createAppController = (
     const identity = store.collections.identitySessions.get("identity")
     return (identity?.state === "signed-in" && identity.admin) || (import.meta.env?.DEV as boolean | string | undefined) === true
   }
-  /* The panes are mocks with invented data: the session switch counts only for an operator. */
-  const experimentalEnabled = (): boolean => features.experimental || (adminSession() && store.session().experimental === true)
   const reconcileUnavailableCards = (): void => {
     const restored = store.session()
     const restoredCardAvailable = (kind: string): boolean =>
-      knowledgeCardAvailable(kind, features) && (kind !== "experimental" || experimentalEnabled())
+      knowledgeCardAvailable(kind, features)
     const maximized = restored.maximizedCardId === null ? undefined : store.collections.cards.get(restored.maximizedCardId)
     if (maximized && !restoredCardAvailable(maximized.kind)) store.dispatch({ type: "frame.navigated", actor: "system",
       workspaceId: restored.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID, branchId: restored.activeBranchId ?? DEFAULT_BRANCH_ID,
@@ -1060,9 +1048,7 @@ export const createAppController = (
     debugSeams,
     openBrowser,
     toggleTheme,
-    setPalette,
-    openExperimentalPane,
-    setExperimentalProp
+    setPalette
   } = actors.pair(ctx, (context, select) => createPresentationController(context, select(adminHealth)))
 
   const {
@@ -1324,12 +1310,6 @@ export const createAppController = (
     store.dispatch({ type: "palette.item.opened", actor: "user", ref: item.ref, kind: item.kind, at: Date.now() })
   }
   const paletteRecent = (): { readonly value: string } => ({ value: JSON.stringify({ items: store.session().paletteRecents ?? [] }) })
-
-  const toggleExperimental = (on?: boolean): { readonly value: string } => {
-    store.dispatch({ type: "experimental.toggled", actor: "user", on: on ?? !experimentalEnabled() })
-    reconcileUnavailableCards()
-    return { value: experimentalEnabled() ? "on" : "off" }
-  }
 
   const toggleVerbose = (): void => {
     store.dispatch({ type: "verbose.toggled", actor: "user", on: store.session().verbose !== true })
@@ -1806,8 +1786,6 @@ export const createAppController = (
     debugSeams,
     toggleTheme,
     setPalette,
-    openExperimentalPane,
-    setExperimentalProp,
     adoptSession,
     loadSession,
     signIn,
@@ -1821,7 +1799,6 @@ export const createAppController = (
     deferRepositoryCommand: repositoryReadiness.defer,
     noteCommandRun,
     toggleVerbose,
-    toggleExperimental,
     traceFlow,
     requestFlowConfirmation,
     recommend,
@@ -1993,7 +1970,6 @@ export const createAppController = (
       return {
         repositoryReadiness,
         pluginLibrary: features.pluginLibrary,
-        experimental: experimentalEnabled(),
         surface: store.session().surface,
         plugins: store.session().plugins ?? [],
         typing: store.session().phase === "responding",

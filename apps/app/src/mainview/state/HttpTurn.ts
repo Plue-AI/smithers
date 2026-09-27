@@ -94,8 +94,10 @@ export const projectHttpFrame = (prior: HttpTurn, priorLeg: HttpTurnLeg, frame: 
   } else if (frame.type === "card.update") {
     const existing = view.card(frame.id), patch = CardPatchSchema.safeParse(frame.patch)
     if (existing !== undefined && !isRuntimeOwnedCard(existing) && !view.protectedCard(frame.id) && patch.success && patch.data.kind === existing.kind) {
-      const merged = CardSchema.safeParse({ ...existing, ...patch.data, id: existing.id,
-        payload: patch.data.payload === undefined ? existing.payload : { ...existing.payload, ...patch.data.payload } })
+      /* The card is spread as a plain record: TypeScript's arithmetic over the spread of every kind's payload exceeds its union limit. */
+      const held = existing as unknown as Record<string, unknown> & { readonly id: string; readonly payload: Record<string, unknown> }
+      const merged = CardSchema.safeParse({ ...held, ...patch.data, id: held.id,
+        payload: patch.data.payload === undefined ? held.payload : { ...held.payload, ...patch.data.payload } })
       if (merged.success) transitions.push({ type: "card.updated", actor: "smithers", id: frame.id, patch: CardPatchSchema.parse(merged.data) })
     }
   } else if (frame.type === "tool_call") {

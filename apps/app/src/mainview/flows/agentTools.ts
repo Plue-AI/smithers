@@ -247,15 +247,9 @@ export const executeAgentToolCall = async (
        * answer the registry has already rendered the refusal card — the same
        * one a human's slash or button gets — so the model points at it
        * instead of retrying; for the other doors the sentence is the answer.
-       * `experimental` is the door that is a SWITCH, not a host: the flow was
-       * disclosed to this turn and has since been switched off, so the
-       * catalog the model holds is stale and the recovery is the same list
-       * action unknown-command points at.
        */
       return outcome.action === null
-        ? outcome.door === "experimental"
-          ? `failed: ${outcome.reason} Use the list action for every command callable right now`
-          : `failed: ${outcome.reason}`
+        ? `failed: ${outcome.reason}`
         : `failed: ${outcome.reason} The refusal is already rendered in the chat as a card; point the user at it`
     case "failed":
       return `failed: ${outcome.error}`

@@ -76,8 +76,6 @@ export interface FlowInput {
   readonly "review.ack": { readonly changeId: string; readonly threadId: number }
   readonly "review.reopen": { readonly changeId: string; readonly threadId: number }
 
-  readonly "app.experimental": { readonly on: boolean }
-  readonly "experimental.set": { readonly cardId: string; readonly key: string; readonly value: string }
   readonly "runs.graph.select": { readonly runId: string; readonly nodeId?: string }
   readonly "flow.plan.select": { readonly cardId: string; readonly nodeId?: string }
   readonly "runs.graph.tab": { readonly runId: string; readonly tab: "declaration" | "code" | "output" | "events" | "attempts" }
@@ -255,8 +253,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "review.ack": payload => line(token(payload, "changeId"), token(payload, "threadId")),
   "review.reopen": payload => line(token(payload, "changeId"), token(payload, "threadId")),
 
-  "app.experimental": payload => payload.on ? "on" : "off",
-  "experimental.set": payload => JSON.stringify(payload),
   "runs.graph.select": payload => graphLine(payload, "runId", "nodeId"),
   "flow.plan.select": payload => graphLine(payload, "cardId", "nodeId"),
   "runs.graph.tab": payload => graphLine(payload, "runId", "tab"),

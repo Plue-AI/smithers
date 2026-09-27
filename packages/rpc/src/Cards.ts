@@ -2837,25 +2837,13 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       message: z.string(),
       retryAt: z.string().nullable()
     })
-  }),
-  /*
-   * One kind for every hidden mock behind VITE_SMITHERS_EXPERIMENTAL
-   * (apps/app experimental/Registry.ts). A mock is a proposal, not a product
-   * surface, so it does not cost the wire a kind of its own: `pane` names the
-   * registry entry and `props` is whatever that mock takes. Earning a kind,
-   * a payload schema and a migration is what promotion means.
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("experimental"),
-    payload: z.object({
-      pane: z.string(),
-      props: z.record(z.string(), z.unknown()).optional()
-    })
   })
 ])
 /** Retired UI records keep their identity, without retaining executable forms or feature data. */
 const retiredFlows = new Set([
+  /* The experimental mocks' switch and prop setter left with the mocks. */
+  "app.experimental",
+  "experimental.set",
   /* Renamed to box.* (#2147): a form saved under the old name retires rather than naming a flow that no longer exists. */
   "workspace.delete",
   "workspace.desktop",
@@ -2906,7 +2894,16 @@ const retiredFlows = new Set([
   "history.fold"
 ])
 /* `history` is the retired narrative History card: the stack card is the one history view (D-20). */
-const retiredKinds = new Set(["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form", "history"])
+/* `experimental` was the one kind for the flag-gated mocks over invented data; the mocks are gone (NO INVENTION). */
+const retiredKinds = new Set([
+  "factory",
+  "repo-onboarding",
+  "repo-home",
+  "agent-models",
+  "agent-form",
+  "history",
+  "experimental"
+])
 /**
  * One persisted card, decoded by kind. The preprocessor retires a kind or a flow
  * the product no longer serves before the union sees it, so a frame stored by an
