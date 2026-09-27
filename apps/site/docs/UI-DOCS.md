@@ -11,6 +11,16 @@ the application, get a useful result, inspect it, then expand into more
 features. Keep instructions tied to actual UI labels and expected results.
 Separate task guides from technical reference.
 
+## Product words
+
+User guides, the quickstart, the overview, and visible UI labels use the
+words a user sees: Chat or conversation, issue, flow, run, change, review
+comment, wiki, and request. Internal model terms such as thread, task,
+`HumanTask`, principal, grant set, and charter leak how Smithers models
+things; use them only on pages deliberately about implementation (reference,
+concepts, package and API docs) and in type or module names. For example, the
+concept page on memory threads and `smthrs memory threads` keep the word.
+
 ## Product facts
 
 Check owning UI source and the deployed app before changing a claim. The

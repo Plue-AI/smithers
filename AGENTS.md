@@ -83,3 +83,7 @@ One shape, everywhere: a file flow lives at `flows/<name>/flow.ts` and its `expo
 ## ⚖️ MINIMAL TEXT (Will, 2026-09-15, permanent)
 
 Cards, panes, toasts, and lessons carry the fewest words needed to act. No explanatory prose about how the product works, no provenance footers, no rows whose value is "not measured yet", no summary sentence beside a button. Show a button, a count, or a picture instead of a sentence. Unrequested buttons and unrequested copy are defects (NO INVENTION); delete them on sight.
+
+## Product words (Will, 2026-09-26)
+
+User-facing docs and visible UI labels say Chat or conversation, issue, flow, run, change, review comment, wiki, and request, never internal model terms such as thread, task, HumanTask, principal, grant set, or charter. Those terms belong only in type and module names and on pages deliberately about implementation (reference, concepts, package docs).
