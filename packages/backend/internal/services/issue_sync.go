@@ -253,15 +253,24 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 	if _, err = tx.Exec(ctx, `SELECT set_config('smithers.issue_origin',$1,true)`, in.Provider); err != nil {
 		return 0, err
 	}
-	// A reaction can beat the receipt for a bot post. Refuse acknowledgment only
-	// while this admitted conversation has a create whose outcome is unsettled;
-	// SocketSource/Telegram Source retain the event identity and retry intake.
+	// A reaction can beat the receipt for a bot post. Bound that race to five
+	// seconds and to a possible message in the same thread. An unknown outcome
+	// without a message identity must not stall unrelated intake indefinitely.
+	// Slack timestamps also rule out posts that predate the dispatch window.
 	unmappedReaction := func() error {
 		if !reactionName.MatchString(in.Reaction) {
 			return IssueSyncIgnored{"invalid reaction"}
 		}
+		thread := in.ThreadID
+		if in.Provider == "telegram" {
+			thread = in.root(in.MessageID, in.UserID)
+		}
 		var awaiting bool
-		e := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE t.owner_id=$1 AND i.repository_id=$2 AND t.provider=$3 AND t.connection_id=$4 AND t.scope_id=$5 AND t.conversation_id=$6 AND e.event_type='comment.created' AND d.state IN ('dispatching','outcome_unknown'))`, actor.ID, r.ID, in.Provider, in.ConnectionID, in.ScopeID, in.ConversationID).Scan(&awaiting)
+		e := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE t.owner_id=$1 AND i.repository_id=$2 AND t.provider=$3 AND t.connection_id=$4 AND t.scope_id=$5 AND t.conversation_id=$6 AND e.event_type='comment.created'
+			AND d.updated_at > now()-interval '5 seconds'
+			AND ($7='' OR t.thread_id=$7)
+			AND ((d.state='dispatching' AND d.message_id='') OR (d.state IN ('dispatching','outcome_unknown') AND $8=ANY(string_to_array(d.message_id,','))))
+			AND (t.provider<>'slack' OR d.message_id<>'' OR $8::numeric BETWEEN extract(epoch FROM d.updated_at)-5 AND extract(epoch FROM now())+5))`, actor.ID, r.ID, in.Provider, in.ConnectionID, in.ScopeID, in.ConversationID, thread, in.MessageID).Scan(&awaiting)
 		if e != nil {
 			return e
 		}
