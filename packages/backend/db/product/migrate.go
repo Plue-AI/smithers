@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -268,7 +270,14 @@ func applyOnce(ctx context.Context, pool *pgxpool.Pool, registered []migration) 
 			}
 		}
 		started := time.Now()
-		if _, err := tx.Exec(ctx, item.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+		statement := item.sql
+		if item.version == 22 {
+			statement, err = providerRefreshMigrationSQL(ctx, tx, statement)
+			if err != nil {
+				return fmt.Errorf("adopt product migration 22: %w", err)
+			}
+		}
+		if _, err := tx.Exec(ctx, statement, pgx.QueryExecModeSimpleProtocol); err != nil {
 			return fmt.Errorf("apply product migration %d: %w", item.version, err)
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO public.smithers_product_migrations(version, checksum) VALUES ($1, $2)`, item.version, item.checksum); err != nil {
@@ -283,6 +292,37 @@ func applyOnce(ctx context.Context, pool *pgxpool.Pool, registered []migration) 
 		slog.Info("product migration applied", "version", d[0], "duration_ms", d[1])
 	}
 	return nil
+}
+
+// Earlier installations can already have the refresh lease columns. Verify
+// their exact shape before omitting only that DDL; migration 22's notification
+// backfill still runs, and the original migration checksum remains unchanged.
+func providerRefreshMigrationSQL(ctx context.Context, tx pgx.Tx, statement string) (string, error) {
+	var columns []string
+	if err := tx.QueryRow(ctx, `SELECT ARRAY(
+		SELECT a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull || ':' ||
+			COALESCE(pg_get_expr(d.adbin, d.adrelid), '') || ':' || a.attidentity::text || ':' || a.attgenerated::text
+		FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+		WHERE a.attrelid='public.provider_connections'::regclass
+			AND a.attname IN ('refresh_lease_until', 'refresh_generation') AND NOT a.attisdropped
+		ORDER BY a.attname)`).Scan(&columns); err != nil {
+		return "", err
+	}
+	if len(columns) == 0 {
+		return statement, nil
+	}
+	if !slices.Equal(columns, []string{
+		"refresh_generation:bigint:true:0::",
+		"refresh_lease_until:timestamp with time zone:false:::",
+	}) {
+		return "", errors.New("preexisting provider refresh columns differ from canonical product migration 22")
+	}
+	const ddl = "ALTER TABLE provider_connections\n    ADD COLUMN refresh_lease_until timestamptz,\n    ADD COLUMN refresh_generation bigint NOT NULL DEFAULT 0;"
+	before, after, found := strings.Cut(statement, ddl)
+	if !found {
+		return "", errors.New("product migration 22 refresh column statement changed")
+	}
+	return before + after, nil
 }
 
 // Plue's former mixed lineage already installed migration 12's table before
