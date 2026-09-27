@@ -718,7 +718,7 @@ describe("CacheStore", () => {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const store = yield* CacheStore
         yield* store.put(entry)
-        yield* sql`PRAGMA ignore_check_constraints = ON`
+        yield* TestDatabase.checks(sql, false)
         const codes: Array<string> = []
         for (const column of ["result_json", "meta_json"] as const) {
           yield* sql.unsafe(
@@ -730,7 +730,7 @@ describe("CacheStore", () => {
             `UPDATE flows_step_cache SET ${column} = '{}' WHERE key_digest = 'digest-1'`
           )
         }
-        yield* sql`PRAGMA ignore_check_constraints = OFF`
+        yield* TestDatabase.checks(sql, true)
         return codes
       }))
 
@@ -773,9 +773,9 @@ describe("CacheStore", () => {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const store = yield* CacheStore
         yield* store.put(entry)
-        yield* sql`PRAGMA ignore_check_constraints = ON`
+        yield* TestDatabase.checks(sql, false)
         const corruptions = [
-          ["created_at_ms", "'bad'", "10"],
+          ["created_at_ms", "-1", "10"],
           ["recorded_run_id", "''", "'run-1'"],
           ["recorded_event_seq", "-1", "7"]
         ] as const
@@ -790,7 +790,7 @@ describe("CacheStore", () => {
             )
             return failure.code
           }))
-        yield* sql`PRAGMA ignore_check_constraints = OFF`
+        yield* TestDatabase.checks(sql, true)
         return failures
       }))
 

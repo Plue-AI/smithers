@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Dialect from "@smthrs/database/Dialect"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Plan from "@smthrs/plan/Plan"
 import { compile, draft } from "@smthrs/plan/test/PlanFixtures"
@@ -39,7 +40,7 @@ describe("plan integrity admission", () => {
         const store = yield* PlanStore.PlanStore
         const sql = yield* SqlClient.SqlClient
         yield* store.record(plan, 0)
-        yield* sql`DROP TRIGGER flows_plan_nodes_append_only`
+        yield* TestDatabase.dropTrigger(sql, "flows_plan_nodes_append_only")
         const json = yield* Schema.encodeEffect(Schema.fromJsonString(Plan.PlanNode))({
           ...plan.nodes[0]!,
           key: key as Plan.PlanNode["key"]
@@ -68,8 +69,12 @@ describe("plan integrity admission", () => {
         const plan = yield* compile([draft("a")])
         const store = yield* PlanStore.PlanStore
         const sql = yield* SqlClient.SqlClient
-        yield* sql`CREATE TRIGGER refuse_plan_node BEFORE INSERT ON flows_plan_nodes
-        BEGIN SELECT RAISE(ABORT, 'storage constraint'); END`
+        yield* Dialect.trigger(sql, {
+          name: `refuse_plan_node`,
+          table: `flows_plan_nodes`,
+          event: `BEFORE INSERT`,
+          reject: "storage constraint"
+        })
         const failure = yield* Effect.flip(store.record(plan, 0))
         expect(failure.code).toBe("constraint")
         expect(Option.isNone(yield* store.get(plan.planId))).toBe(true)

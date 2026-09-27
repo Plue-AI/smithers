@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
+import * as Dialect from "@smthrs/database/Dialect"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { Effect, Exit, Layer, Option } from "effect"
@@ -74,7 +75,7 @@ describe("run-store durable migration upgrade", () => {
             filename,
             Effect.gen(function*() {
               const sql = yield* Effect.service(SqlClient.SqlClient)
-              const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_runs)`.withoutTransform
+              const columns = yield* Dialect.columns(sql, "flows_runs").withoutTransform
               const applied = yield* sql<{ readonly migration_id: number }>`
             SELECT migration_id FROM flows_migrations ORDER BY migration_id
           `.withoutTransform
@@ -108,7 +109,7 @@ describe("run-store durable migration upgrade", () => {
               run_id, step_key_digest, attempt, state, started_at_ms, meta_json
             ) VALUES ('missing-run', 'orphan', 0, 'running', 9, '{}')
           `)
-              const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_runs)`.withoutTransform
+              const columns = yield* Dialect.columns(sql, "flows_runs").withoutTransform
               const indexes = yield* sql<{ readonly name: string; readonly unique: number }>`
             PRAGMA index_list(flows_runs)
           `.withoutTransform

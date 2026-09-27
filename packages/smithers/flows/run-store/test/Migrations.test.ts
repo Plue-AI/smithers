@@ -32,7 +32,9 @@ describe("run-store migrations", () => {
     Effect.gen(function*() {
       const master = yield* migrated(Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
-        return yield* sql<SqliteMasterRow>`SELECT name, type, sql FROM sqlite_master WHERE name LIKE 'flows_%'`
+        return yield* sql<SqliteMasterRow>`SELECT name, type, sql FROM ${
+          TestDatabase.catalog(sql)
+        } WHERE name LIKE 'flows_%'`
       }))
 
       expect(master.filter((row) => row.type === "table").map((row) => row.name).sort()).toEqual([
@@ -50,10 +52,10 @@ describe("run-store migrations", () => {
       expect(master.find((row) => row.name === "flows_runs_lineage_idx")?.sql).toContain("UNIQUE INDEX")
       const runsSql = master.find((row) => row.name === "flows_runs")?.sql ?? ""
       const attemptsSql = master.find((row) => row.name === "flows_attempts")?.sql ?? ""
-      expect(runsSql).toContain("status IN")
+      expect(runsSql).toMatch(/status (?:IN|= ANY)/)
       expect(runsSql).toContain("status = 'running'")
       expect(runsSql).toContain("status <> 'running'")
-      expect(attemptsSql).toContain("FOREIGN KEY (run_id) REFERENCES flows_runs (run_id)")
+      expect(attemptsSql).toMatch(/FOREIGN KEY \(run_id\) REFERENCES flows_runs ?\(run_id\)/)
     }))
 
   it.effect("reserves its own migration id block so ids cannot collide", () =>
@@ -82,7 +84,9 @@ describe("run-store migrations", () => {
         }))
         expect(Exit.isFailure(exit)).toBe(true)
         expect(Exit.isFailure(exit) ? Cause.pretty(exit.cause) : "")
-          .toMatch(/CHECK constraint failed: \(\s*status = 'running' AND\s*owner_host_id IS NOT NULL/)
+          .toMatch(
+            /CHECK constraint failed: \(\s*status = 'running' AND\s*owner_host_id IS NOT NULL|violates check constraint/
+          )
       }))
   }
 

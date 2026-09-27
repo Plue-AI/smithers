@@ -5,6 +5,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -35,32 +36,32 @@ export const initial: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effect
 
   yield* sql`CREATE TABLE flows_step_cache (
     key_digest TEXT PRIMARY KEY CHECK (length(key_digest) > 0),
-    result_json TEXT NOT NULL CHECK (json_valid(result_json)),
-    meta_json TEXT NOT NULL CHECK (json_valid(meta_json)),
-    created_at_ms INTEGER NOT NULL CHECK (
-      typeof(created_at_ms) = 'integer' AND
+    result_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`result_json`)}),
+    meta_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`meta_json`)}),
+    created_at_ms ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`created_at_ms`)} AND
       created_at_ms >= 0 AND
       created_at_ms <= 9007199254740991
     ),
     recorded_run_id TEXT NOT NULL CHECK (length(recorded_run_id) > 0),
-    recorded_event_seq INTEGER NOT NULL CHECK (
-      typeof(recorded_event_seq) = 'integer' AND
+    recorded_event_seq ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`recorded_event_seq`)} AND
       recorded_event_seq >= 0 AND
       recorded_event_seq <= 9007199254740991
     )
   )`
   yield* sql`CREATE TABLE flows_step_cache_recorded (
     key_digest TEXT NOT NULL CHECK (length(key_digest) > 0),
-    result_json TEXT NOT NULL CHECK (json_valid(result_json)),
-    meta_json TEXT NOT NULL CHECK (json_valid(meta_json)),
-    created_at_ms INTEGER NOT NULL CHECK (
-      typeof(created_at_ms) = 'integer' AND
+    result_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`result_json`)}),
+    meta_json TEXT NOT NULL CHECK (${Dialect.jsonValid(sql, sql`meta_json`)}),
+    created_at_ms ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`created_at_ms`)} AND
       created_at_ms >= 0 AND
       created_at_ms <= 9007199254740991
     ),
     recorded_run_id TEXT NOT NULL CHECK (length(recorded_run_id) > 0),
-    recorded_event_seq INTEGER NOT NULL CHECK (
-      typeof(recorded_event_seq) = 'integer' AND
+    recorded_event_seq ${Dialect.integer(sql)} NOT NULL CHECK (
+      ${Dialect.isInteger(sql, sql`recorded_event_seq`)} AND
       recorded_event_seq >= 0 AND
       recorded_event_seq <= 9007199254740991
     ),

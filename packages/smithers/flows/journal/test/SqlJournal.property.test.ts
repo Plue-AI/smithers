@@ -11,7 +11,7 @@ const prop = effectProperty(it.effect)
 const params = {
   numRuns: Number(process.env.FC_NUM_RUNS ?? 100),
   ...(process.env.FC_SEED === undefined ? {} : { seed: Number(process.env.FC_SEED) }),
-  interruptAfterTimeLimit: 20_000,
+  interruptAfterTimeLimit: 60_000,
   markInterruptAsFailure: true
 } satisfies FastCheck.Parameters<unknown>
 

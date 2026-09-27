@@ -1053,9 +1053,9 @@ describe("refused arguments and failing hosts", () => {
       yield* emitMany(service, 0, 3)
       yield* service.checkpoint({ runId: run, seq: seqOf(2), state: { ok: true } }, owner)
       const sql = yield* Effect.service(SqlClient.SqlClient)
-      yield* sql`PRAGMA ignore_check_constraints = ON`
+      yield* TestDatabase.checks(sql, false)
       yield* sql`UPDATE flows_journal_checkpoints SET state_json = ${"not json"} WHERE run_id = ${run}`
-      yield* sql`PRAGMA ignore_check_constraints = OFF`
+      yield* TestDatabase.checks(sql, true)
       const failure = yield* Effect.flip(service.latestCheckpoint(run))
       expect(failure.code).toBe("decode_failed")
     }).pipe(Effect.provide(journal()), Effect.scoped))
@@ -1066,7 +1066,9 @@ describe("refused arguments and failing hosts", () => {
       yield* claim(owner)
       yield* emitMany(service, 0, 2)
       const sql = yield* Effect.service(SqlClient.SqlClient)
-      yield* sql`DROP TABLE flows_journal_checkpoints`
+      yield* sql`DROP TABLE flows_journal_checkpoints ${
+        sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+      }`
       // The floor read behind a page read, the latest-checkpoint read, and
       // the checkpoint write each map the host failure instead of leaking it.
       const page = yield* Effect.flip(service.entries({ runId: run, limit: 10 }))
@@ -1084,7 +1086,9 @@ describe("refused arguments and failing hosts", () => {
       yield* emitMany(service, 0, 3)
       yield* service.checkpoint({ runId: run, seq: seqOf(2), state: null }, owner)
       const sql = yield* Effect.service(SqlClient.SqlClient)
-      yield* sql`DROP TABLE flows_journal_events`
+      yield* sql`DROP TABLE flows_journal_events ${
+        sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+      }`
       const failure = yield* Effect.flip(service.compact({ runId: run }, owner))
       expect(failure.code).toBe("sink_failed")
     }).pipe(Effect.provide(journal()), Effect.scoped))

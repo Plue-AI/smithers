@@ -15,6 +15,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -28,7 +29,9 @@ export const lineage: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effect
   const sql = yield* SqlClient.SqlClient
 
   yield* sql`ALTER TABLE flows_runs ADD COLUMN lineage_id TEXT CHECK (lineage_id IS NULL OR length(lineage_id) > 0)`
-  yield* sql`ALTER TABLE flows_runs ADD COLUMN round_ordinal INTEGER CHECK (round_ordinal IS NULL OR (typeof(round_ordinal) = 'integer' AND round_ordinal >= 0 AND round_ordinal <= 9007199254740991))`
+  yield* sql`ALTER TABLE flows_runs ADD COLUMN round_ordinal ${Dialect.integer(sql)} CHECK (round_ordinal IS NULL OR (${
+    Dialect.isInteger(sql, sql`round_ordinal`)
+  } AND round_ordinal >= 0 AND round_ordinal <= 9007199254740991))`
 
   yield* sql`CREATE UNIQUE INDEX flows_runs_lineage_idx ON flows_runs (lineage_id, round_ordinal)`
 })

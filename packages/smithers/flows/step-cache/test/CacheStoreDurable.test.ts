@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * The cache store against a real file-backed SQLite database, with two real
  * connections.
@@ -210,7 +211,7 @@ describe("CacheStore across real connections", () => {
             Effect.provide(
               Effect.gen(function*() {
                 const sql = yield* Effect.service(SqlClient.SqlClient)
-                yield* sql`PRAGMA ignore_check_constraints = ON`
+                yield* TestDatabase.checks(sql, false)
                 yield* sql`UPDATE flows_step_cache SET result_json = 'not-json'`
               }),
               migrated(filename)

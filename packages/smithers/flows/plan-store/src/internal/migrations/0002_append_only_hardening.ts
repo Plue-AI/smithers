@@ -19,6 +19,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -33,17 +34,25 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 export const appendOnlyHardening: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
 
-  yield* sql`CREATE TRIGGER flows_plans_no_delete BEFORE DELETE ON flows_plans
-    BEGIN SELECT RAISE(ABORT, 'flows_plans is append-only'); END`
+  yield* Dialect.trigger(sql, {
+    name: `flows_plans_no_delete`,
+    table: `flows_plans`,
+    event: "BEFORE DELETE",
+    reject: "flows_plans is append-only"
+  })
 
-  yield* sql`DROP TRIGGER flows_plans_forward_only`
+  yield* Dialect.dropTrigger(sql, "flows_plans_forward_only", "flows_plans")
 
-  yield* sql`CREATE TRIGGER flows_plans_forward_only BEFORE UPDATE ON flows_plans
-    WHEN NEW.generation <= OLD.generation OR
+  yield* Dialect.trigger(sql, {
+    name: `flows_plans_forward_only`,
+    table: `flows_plans`,
+    event: "BEFORE UPDATE",
+    when: `NEW.generation <= OLD.generation OR
       NEW.base_digest <> OLD.base_digest OR
       NEW.flow <> OLD.flow OR
-      NEW.created_at_ms <> OLD.created_at_ms
-    BEGIN SELECT RAISE(ABORT, 'a plan only grows'); END`
+      NEW.created_at_ms <> OLD.created_at_ms`,
+    reject: "a plan only grows"
+  })
 
   yield* sql`CREATE UNIQUE INDEX flows_plan_nodes_ordinal ON flows_plan_nodes (plan_id, ordinal)`
 })

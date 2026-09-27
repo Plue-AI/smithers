@@ -231,8 +231,9 @@
     "build": "node scripts/build.mjs",
     "check": "tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit",
     "circular": "node scripts/circular.mjs",
-    "test": "vitest",
-    "coverage": "vitest --coverage"
+    "test": "node ../database/scripts/test-matrix.mjs",
+    "coverage": "node ../database/scripts/test-matrix.mjs",
+    "test:matrix": "node ../database/scripts/test-matrix.mjs"
   },
   "dependencies": {
     "@smthrs/database": "1.0.0-rc.1"

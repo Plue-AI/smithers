@@ -17,6 +17,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { afterCommit, DatabaseError, DurableWriter } from "@smthrs/database/DurableWriter"
 import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
@@ -1366,7 +1367,7 @@ export const layer = (
             sql<JournalRow>`
             SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
               event_type, payload_json, meta_json
-            FROM flows_journal_events INDEXED BY flows_journal_events_run_event_type_idx
+            FROM flows_journal_events ${Dialect.indexHint(sql, "flows_journal_events_run_event_type_idx")}
             WHERE run_id = ${options.runId} AND ${sql.in("event_type", options.eventTypes)} AND seq > ${after}
             ORDER BY seq ASC
             LIMIT ${options.limit + 1}
@@ -1654,7 +1655,7 @@ export const layer = (
               )
               SELECT
                 ${queued.runId},
-                (SELECT MAX(${queued.seq}, COALESCE(MAX(seq), -1) + 1)
+                (SELECT ${Dialect.greatest(sql)}(${queued.seq}, COALESCE(MAX(seq), -1) + 1)
                   FROM flows_journal_events WHERE run_id = ${queued.runId}),
                 ${queued.eventId},
                 ${queued.sourceId},

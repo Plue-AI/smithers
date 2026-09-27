@@ -14,6 +14,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -27,13 +28,17 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 export const forwardOnlyIdentity: Effect.Effect<void, unknown, SqlClient.SqlClient> = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
 
-  yield* sql`DROP TRIGGER flows_plans_forward_only`
+  yield* Dialect.dropTrigger(sql, "flows_plans_forward_only", "flows_plans")
 
-  yield* sql`CREATE TRIGGER flows_plans_forward_only BEFORE UPDATE ON flows_plans
-    WHEN NEW.plan_id <> OLD.plan_id OR
+  yield* Dialect.trigger(sql, {
+    name: `flows_plans_forward_only`,
+    table: `flows_plans`,
+    event: "BEFORE UPDATE",
+    when: `NEW.plan_id <> OLD.plan_id OR
       NEW.generation <= OLD.generation OR
       NEW.base_digest <> OLD.base_digest OR
       NEW.flow <> OLD.flow OR
-      NEW.created_at_ms <> OLD.created_at_ms
-    BEGIN SELECT RAISE(ABORT, 'a plan only grows'); END`
+      NEW.created_at_ms <> OLD.created_at_ms`,
+    reject: "a plan only grows"
+  })
 })

@@ -20,6 +20,7 @@
  *
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -33,5 +34,5 @@ export const waitingRequest: Effect.Effect<void, unknown, SqlClient.SqlClient> =
   const sql = yield* SqlClient.SqlClient
 
   yield* sql`ALTER TABLE flows_runs ADD COLUMN waiting_request TEXT
-    CHECK (waiting_request IS NULL OR json_valid(waiting_request))`
+    CHECK (waiting_request IS NULL OR ${Dialect.jsonValid(sql, sql`waiting_request`)})`
 })

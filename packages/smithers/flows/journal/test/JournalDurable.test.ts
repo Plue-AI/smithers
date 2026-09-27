@@ -204,7 +204,9 @@ describe("SqlJournal durable emission", () => {
       Effect.gen(function*() {
         const journal = yield* Journal
         const sql = yield* Effect.service(SqlClient.SqlClient)
-        yield* sql`DROP TABLE flows_journal_events`
+        yield* sql`DROP TABLE flows_journal_events ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
         const failure = yield* Effect.flip(journal.emitDurableUnfenced(input(runId("run"), sourceId("s"), "x", 1)))
         expect((failure as JournalError).code).toBe("sink_failed")
       })

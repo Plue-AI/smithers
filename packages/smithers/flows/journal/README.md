@@ -181,8 +181,8 @@ the executable state, which is not derived from journal entries; `transact` is
 what keeps the two halves consistent, because every one of them writes through
 the same `DurableWriter`.
 
-SQLite is the supported backend at `1.0.0-rc.0`. PostgreSQL and PGlite are not;
-see [storage compatibility](https://smithers.sh/docs/migration/compatibility/).
+SQLite and PostgreSQL share this journal and migration ladder; see
+[database configuration](../database/docs/concepts/sqlite-only.md).
 
 Rewinding SQL histories expose `Journal.Service.generation(runId)`, which reads
 `{ generation, afterSeq }` from `flows_journal_generations` (initially zero and
@@ -191,9 +191,6 @@ Time travel increments the generation in the archive transaction. Append-only
 adapters may omit the operation; truncating adapters must implement it. The
 `JournalGeneration.initialize` subpath shares the table installation with time
 travel without adding a migration below an already applied migration block.
-
-SQLite is the supported backend at `1.0.0-rc.0`. PostgreSQL and PGlite are not;
-see [storage compatibility](https://smithers.sh/docs/migration/compatibility/).
 
 ## Documentation
 

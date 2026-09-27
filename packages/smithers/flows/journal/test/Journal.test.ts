@@ -2025,7 +2025,7 @@ describe("Journal", () => {
       Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const journal = yield* Journal
-        yield* sql`PRAGMA ignore_check_constraints = ON`
+        yield* TestDatabase.checks(sql, false)
         yield* sql`
           INSERT INTO flows_journal_events (
             run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
@@ -2065,7 +2065,9 @@ describe("Journal", () => {
       Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const journal = yield* Journal
-        yield* sql`DROP TABLE flows_journal_events`
+        yield* sql`DROP TABLE flows_journal_events ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
         const failure = yield* Effect.flip(
           journal.entries({ runId: runId("missing-table"), limit: 1 })
         )

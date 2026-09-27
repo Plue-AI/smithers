@@ -16,7 +16,7 @@ export default defineConfig({
     // correct suites over the default wall. Raise the budget instead of
     // trimming the workload, and keep it FINITE so a genuine hang still
     // fails the run rather than hanging the gate forever.
-    testTimeout: 30_000,
+    testTimeout: 60_000,
     hookTimeout: 30_000,
     coverage: {
       enabled: true,

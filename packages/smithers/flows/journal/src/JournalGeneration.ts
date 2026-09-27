@@ -3,6 +3,7 @@
  *
  * @since 1.0.0-rc.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -19,8 +20,12 @@ export const initialize = Effect.gen(function*() {
   yield* sql`
     CREATE TABLE IF NOT EXISTS flows_journal_generations (
       run_id TEXT PRIMARY KEY NOT NULL CHECK (length(run_id) > 0),
-      generation INTEGER NOT NULL CHECK (typeof(generation) = 'integer' AND generation > 0 AND generation <= 9007199254740991),
-      after_seq INTEGER NOT NULL CHECK (typeof(after_seq) = 'integer' AND after_seq >= -1 AND after_seq <= 9007199254740991)
+      generation ${Dialect.integer(sql)} NOT NULL CHECK (${
+    Dialect.isInteger(sql, sql`generation`)
+  } AND generation > 0 AND generation <= 9007199254740991),
+      after_seq ${Dialect.integer(sql)} NOT NULL CHECK (${
+    Dialect.isInteger(sql, sql`after_seq`)
+  } AND after_seq >= -1 AND after_seq <= 9007199254740991)
     )
   `
 })

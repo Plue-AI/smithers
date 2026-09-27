@@ -64,7 +64,7 @@ const recordingDatabase = (queries: Array<string>): DatabaseDecorator =>
           apply(target, thisArgument, argumentsList) {
             const statement = Reflect.apply(target, thisArgument, argumentsList) as Statement.Statement<unknown>
             if (typeof statement.compile === "function") {
-              queries.push(statement.compile()[0])
+              queries.push(statement.compile()[0].replace(/\$\d+/g, "?"))
             }
             return statement
           }
@@ -83,7 +83,9 @@ const yieldingFloorDatabase: DatabaseDecorator = Layer.merge(
       return new Proxy(base, {
         apply(target, thisArgument, argumentsList) {
           const statement = Reflect.apply(target, thisArgument, argumentsList) as Statement.Statement<unknown>
-          if (typeof statement.compile !== "function" || !statement.compile()[0].includes("MAX(")) {
+          if (
+            typeof statement.compile !== "function" || !statement.compile()[0].replace(/\$\d+/g, "?").includes("MAX(")
+          ) {
             return statement
           }
           return statement.pipe(Effect.tap(() => Effect.yieldNow))
@@ -571,7 +573,9 @@ describe("SqlJournal dedup behind an evicted index entry", () => {
           yield* service.flush
 
           const sql = yield* Effect.service(SqlClient.SqlClient)
-          yield* sql`DROP TABLE flows_journal_events`
+          yield* sql`DROP TABLE flows_journal_events ${
+            sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+          }`
 
           // Admission still succeeds: it touches no table. The dead sink is
           // reported where the write actually happens.

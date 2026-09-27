@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Dialect from "@smthrs/database/Dialect"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Clock, Effect, Layer } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -55,13 +56,18 @@ describe("logical run rounds", () => {
       const sql = yield* SqlClient.SqlClient
       yield* store.create("root", "{}", { lineageId: "root", roundOrdinal: 0 })
       yield* store.create("next", "{}", { lineageId: "root", roundOrdinal: 1, parentRunId: "root" })
-      yield* sql`CREATE TRIGGER fail_lineage_cancel BEFORE UPDATE OF cancel_requested_at_ms ON flows_runs
-        WHEN NEW.run_id = 'next' BEGIN SELECT RAISE(ABORT, 'synthetic cancellation failure'); END`
+      yield* Dialect.trigger(sql, {
+        name: `fail_lineage_cancel`,
+        table: `flows_runs`,
+        event: `BEFORE UPDATE OF cancel_requested_at_ms`,
+        when: `NEW.run_id = 'next'`,
+        reject: "synthetic cancellation failure"
+      })
       const error = yield* Effect.flip(store.requestCancelLineage("root", 100))
       expect(error.code).toBe("constraint")
       expect((yield* store.get("root")).cancelRequestedAtMs).toBeNull()
       expect((yield* store.get("next")).cancelRequestedAtMs).toBeNull()
-      yield* sql`DROP TRIGGER fail_lineage_cancel`
+      yield* TestDatabase.dropTrigger(sql, "fail_lineage_cancel")
       expect(yield* store.requestCancelLineage("root", 200)).toEqual({ _tag: "CancelRequested", requestedAtMs: 200 })
       expect((yield* store.lineage("root")).map((row) => row.cancelRequestedAtMs)).toEqual([200, 200])
     }).pipe(Effect.provide(layer)))
@@ -204,8 +210,12 @@ describe("logical run rounds", () => {
       const store = yield* RunStore.RunStore
       const sql = yield* SqlClient.SqlClient
       yield* settledHistory(store, sql, "stuck", 2)
-      yield* sql`CREATE TRIGGER ignore_lineage_cancel BEFORE UPDATE OF cancel_requested_at_ms ON flows_runs
-        BEGIN SELECT RAISE(IGNORE); END`
+      yield* Dialect.trigger(sql, {
+        name: `ignore_lineage_cancel`,
+        table: `flows_runs`,
+        event: `BEFORE UPDATE OF cancel_requested_at_ms`,
+        ignore: true
+      })
       const error = yield* Effect.flip(store.requestCancelLineage("stuck-0", 100))
       expect(error).toMatchObject({
         method: "requestCancelLineage",
@@ -219,9 +229,9 @@ describe("logical run rounds", () => {
       const store = yield* RunStore.RunStore
       const sql = yield* SqlClient.SqlClient
       yield* settledHistory(store, sql, "odd", 2)
-      yield* sql`PRAGMA ignore_check_constraints = ON`
+      yield* TestDatabase.checks(sql, false)
       yield* sql`UPDATE flows_runs SET status = 'not-a-status', cancel_requested_at_ms = 1 WHERE run_id = 'odd-1'`
-      yield* sql`PRAGMA ignore_check_constraints = OFF`
+      yield* TestDatabase.checks(sql, true)
       const error = yield* Effect.flip(store.requestCancelLineage("odd-0", 100))
       expect(error).toMatchObject({ method: "requestCancelLineage", code: "decode_failed" })
     }).pipe(Effect.provide(layer)))

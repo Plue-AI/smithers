@@ -32,7 +32,9 @@ describe("SQL journal generations", () => {
       Effect.gen(function*() {
         const sql = yield* SqlClient.SqlClient
         const journal = yield* Journal
-        yield* sql`DROP TABLE flows_journal_generations`
+        yield* sql`DROP TABLE flows_journal_generations ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`
         expect(yield* Effect.flip(journal.generation!(runId))).toMatchObject({ code: "read_failed" })
       }).pipe(Effect.provide(Layer.provideMerge(layer, database)))
     ))
@@ -40,8 +42,13 @@ describe("SQL journal generations", () => {
   it.effect("reports a storage failure while installing the generation table", () =>
     Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
-      yield* sql`PRAGMA query_only = ON`
-      const failure = yield* Effect.flip(Effect.scoped(Effect.service(Journal).pipe(Effect.provide(layer))))
+      const failure = yield* Effect.flip(sql.withTransaction(Effect.gen(function*() {
+        yield* sql.onDialectOrElse({
+          pg: () => sql`SET TRANSACTION READ ONLY`,
+          orElse: () => sql`PRAGMA query_only = ON`
+        })
+        return yield* Effect.scoped(Effect.service(Journal).pipe(Effect.provide(layer)))
+      })))
       expect(failure).toMatchObject({ code: "read_failed" })
     }).pipe(Effect.provide(database)))
 })

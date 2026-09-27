@@ -652,7 +652,7 @@ describe("AttemptStore", () => {
           startedAtMs: 0,
           meta: {}
         }, owner)
-        yield* sql`PRAGMA ignore_check_constraints = ON`
+        yield* TestDatabase.checks(sql, false)
         const codes: Array<string> = []
         for (const column of ["checkpoint_json", "error_json", "outcome_json", "meta_json"] as const) {
           yield* sql.unsafe(
@@ -687,12 +687,12 @@ describe("AttemptStore", () => {
           heartbeatAtMs: 1,
           meta: {}
         }, owner)
-        yield* sql`PRAGMA ignore_check_constraints = ON`
+        yield* TestDatabase.checks(sql, false)
         const corruptions = [
           ["state", "''", "'running'"],
-          ["started_at_ms", "'bad'", "0"],
+          ["started_at_ms", "-1", "0"],
           ["finished_at_ms", "-1", "NULL"],
-          ["heartbeat_at_ms", "'bad'", "1"]
+          ["heartbeat_at_ms", "-1", "1"]
         ] as const
         return yield* Effect.forEach(corruptions, ([column, value, restore]) =>
           Effect.gen(function*() {

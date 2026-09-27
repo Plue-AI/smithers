@@ -9,6 +9,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { DatabaseError, DurableWriter, fromSqlError } from "@smthrs/database/DurableWriter"
 import type { OwnerId } from "@smthrs/journal/OwnerId"
 import * as Context from "effect/Context"
@@ -967,7 +968,7 @@ export const makeWith = (
             const updated = yield* sql<{ readonly attempt: number }>`
             UPDATE flows_attempts
             SET
-              heartbeat_at_ms = MAX(COALESCE(heartbeat_at_ms, ${nowMs}), ${nowMs}),
+              heartbeat_at_ms = ${Dialect.greatest(sql)}(COALESCE(heartbeat_at_ms, ${nowMs}), ${nowMs}),
               checkpoint_json = COALESCE(${checkpoint}, checkpoint_json)
             WHERE run_id = ${runId}
               AND step_key_digest = ${stepKeyDigest}

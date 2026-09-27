@@ -53,8 +53,7 @@ describe("step-cache migrations", () => {
         expect(yield* sql`SELECT result_json, recorded_run_id, recorded_event_seq FROM ${sql(table)}`).toEqual([
           { result_json: "{\"answer\":42}", recorded_run_id: "run-existing", recorded_event_seq: 7 }
         ])
-        const plan = yield* sql<{ readonly detail: string }>`
-          EXPLAIN QUERY PLAN DELETE FROM ${sql(table)} WHERE created_at_ms < ${10}`
+        const plan = yield* TestDatabase.explain(sql, sql`DELETE FROM ${sql(table)} WHERE created_at_ms < ${10}`)
         expect(plan.map((row) => row.detail).join("\n")).toContain(`${table}_created_at_idx`)
       }
     }).pipe(Effect.provide(TestDatabase.layer)))
@@ -95,10 +94,11 @@ describe("step-cache migrations", () => {
     Effect.gen(function*() {
       const plans = yield* migrated(Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
-        const head = yield* sql<{ readonly detail: string }>`
-          EXPLAIN QUERY PLAN DELETE FROM flows_step_cache WHERE created_at_ms < ${10}`
-        const ledger = yield* sql<{ readonly detail: string }>`
-          EXPLAIN QUERY PLAN SELECT key_digest FROM flows_step_cache_recorded WHERE created_at_ms < ${10}`
+        const head = yield* TestDatabase.explain(sql, sql`DELETE FROM flows_step_cache WHERE created_at_ms < ${10}`)
+        const ledger = yield* TestDatabase.explain(
+          sql,
+          sql`SELECT key_digest FROM flows_step_cache_recorded WHERE created_at_ms < ${10}`
+        )
         return [head, ledger].map((rows) => rows.map((row) => row.detail).join("\n"))
       }))
       expect(plans[0]).toContain("flows_step_cache_created_at_ms")
@@ -109,7 +109,9 @@ describe("step-cache migrations", () => {
     Effect.gen(function*() {
       const master = yield* migrated(Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
-        return yield* sql<SqliteMasterRow>`SELECT name, type, sql FROM sqlite_master WHERE name LIKE 'flows_%'`
+        return yield* sql<SqliteMasterRow>`SELECT name, type, sql FROM ${
+          TestDatabase.catalog(sql)
+        } WHERE name LIKE 'flows_%'`
       }))
 
       expect(master.filter((row) => row.type === "table").map((row) => row.name).sort()).toEqual([
@@ -120,16 +122,18 @@ describe("step-cache migrations", () => {
       for (const table of ["flows_step_cache", "flows_step_cache_recorded"]) {
         const cacheSql = master.find((row) => row.name === table)?.sql ?? ""
         expect(cacheSql).toContain("length(key_digest) > 0")
-        expect(cacheSql).toContain("json_valid(result_json)")
-        expect(cacheSql).toContain("json_valid(meta_json)")
-        expect(cacheSql).toContain("typeof(created_at_ms) = 'integer'")
+        expect(cacheSql).toMatch(/json_valid\(result_json\)|result_json IS JSON/)
+        expect(cacheSql).toMatch(/json_valid\(meta_json\)|meta_json IS JSON/)
+        expect(cacheSql).toMatch(/typeof\(created_at_ms\) = 'integer'|trunc\(created_at_ms\)/)
         expect(cacheSql).toContain("length(recorded_run_id) > 0")
-        expect(cacheSql).toContain("typeof(recorded_event_seq) = 'integer'")
+        expect(cacheSql).toMatch(/typeof\(recorded_event_seq\) = 'integer'|trunc\(recorded_event_seq\)/)
       }
       const ledgerSql = master.find((row) => row.name === "flows_step_cache_recorded")?.sql ?? ""
       expect(ledgerSql).toContain("PRIMARY KEY (key_digest, recorded_run_id, recorded_event_seq)")
       expect(
-        master.filter((row) => row.type === "index" && row.sql !== null).map((row) => row.sql?.replace(/\s+/g, " "))
+        master.filter((row) => row.type === "index" && row.sql !== null).map((row) =>
+          row.sql?.replace(/\s+/g, " ").replace(/test_[a-z0-9]+\./g, "").replace(" USING btree", "")
+        )
           .sort()
       ).toEqual([
         "CREATE INDEX flows_step_cache_created_at_ms ON flows_step_cache (created_at_ms)",

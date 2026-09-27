@@ -22,6 +22,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { afterCommit, DatabaseError, DurableWriter, fromSqlError } from "@smthrs/database/DurableWriter"
 import { OwnerId } from "@smthrs/journal/OwnerId"
 import * as ObservabilityMetric from "@smthrs/observability/Metric"
@@ -1335,10 +1336,10 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
           WHERE run_id = ${runId}
             AND status IN ('pending', 'suspended')
             AND status = ${expected.status}
-            AND owner_host_id IS ${expected.owner?.hostId ?? null}
-            AND owner_pid IS ${expected.owner?.pid ?? null}
-            AND owner_nonce IS ${expected.owner?.nonce ?? null}
-            AND heartbeat_at_ms IS ${expected.heartbeatAtMs}
+            AND owner_host_id IS NOT DISTINCT FROM ${expected.owner?.hostId ?? null}
+            AND owner_pid IS NOT DISTINCT FROM ${expected.owner?.pid ?? null}
+            AND owner_nonce IS NOT DISTINCT FROM ${expected.owner?.nonce ?? null}
+            AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
             AND claim_host_id IS NULL
             AND claim_pid IS NULL
             AND claim_nonce IS NULL
@@ -1413,10 +1414,10 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
           WHERE run_id = ${runId}
             AND status IN ('pending', 'suspended', 'running')
             AND status = ${expected.status}
-            AND owner_host_id IS ${expected.owner?.hostId ?? null}
-            AND owner_pid IS ${expected.owner?.pid ?? null}
-            AND owner_nonce IS ${expected.owner?.nonce ?? null}
-            AND heartbeat_at_ms IS ${expected.heartbeatAtMs}
+            AND owner_host_id IS NOT DISTINCT FROM ${expected.owner?.hostId ?? null}
+            AND owner_pid IS NOT DISTINCT FROM ${expected.owner?.pid ?? null}
+            AND owner_nonce IS NOT DISTINCT FROM ${expected.owner?.nonce ?? null}
+            AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
             AND claim_host_id IS NULL
             AND claim_pid IS NULL
             AND claim_nonce IS NULL
@@ -1476,10 +1477,10 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
                 claimed_at_ms = NULL
               WHERE run_id = ${runId}
                 AND status = ${expected.status}
-                AND owner_host_id IS ${expected.owner?.hostId ?? null}
-                AND owner_pid IS ${expected.owner?.pid ?? null}
-                AND owner_nonce IS ${expected.owner?.nonce ?? null}
-                AND heartbeat_at_ms IS ${expected.heartbeatAtMs}
+                AND owner_host_id IS NOT DISTINCT FROM ${expected.owner?.hostId ?? null}
+                AND owner_pid IS NOT DISTINCT FROM ${expected.owner?.pid ?? null}
+                AND owner_nonce IS NOT DISTINCT FROM ${expected.owner?.nonce ?? null}
+                AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
                 AND claim_host_id = ${claimant.hostId}
                 AND claim_pid = ${claimant.pid}
                 AND claim_nonce = ${claimant.nonce}
@@ -1636,7 +1637,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
           // `renewRangeLocked`).
           const rows = yield* sql<{ readonly runId: string }>`
           UPDATE flows_runs
-          SET heartbeat_at_ms = MAX(heartbeat_at_ms, ${nowMs})
+          SET heartbeat_at_ms = ${Dialect.greatest(sql)}(heartbeat_at_ms, ${nowMs})
           WHERE run_id = ${runId}
             AND status = 'running'
             AND owner_host_id = ${owner.hostId}
@@ -1784,10 +1785,10 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
             claimed_at_ms = ${nowMs}
           WHERE run_id = ${runId}
             AND status = ${expected.status}
-            AND owner_host_id IS ${expectedOwner.hostId}
-            AND owner_pid IS ${expectedOwner.pid}
-            AND owner_nonce IS ${expectedOwner.nonce}
-            AND heartbeat_at_ms IS ${expected.heartbeatAtMs}
+            AND owner_host_id IS NOT DISTINCT FROM ${expectedOwner.hostId}
+            AND owner_pid IS NOT DISTINCT FROM ${expectedOwner.pid}
+            AND owner_nonce IS NOT DISTINCT FROM ${expectedOwner.nonce}
+            AND heartbeat_at_ms IS NOT DISTINCT FROM ${expected.heartbeatAtMs}
             AND heartbeat_at_ms < ${nowMs - heartbeatStaleAfterMs}
             AND claim_host_id IS NULL
             AND claim_pid IS NULL

@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * Injected-defect rollback and corruption recovery on file-backed SQLite.
  *
@@ -147,7 +148,7 @@ const corrupt = (filename: string, statement: string) =>
     Effect.provide(
       Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
-        yield* sql`PRAGMA ignore_check_constraints = ON`
+        yield* TestDatabase.checks(sql, false)
         yield* sql.unsafe(statement)
       }),
       migrated(filename)

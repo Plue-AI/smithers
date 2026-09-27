@@ -454,8 +454,8 @@ describe("PlanStore", () => {
         })
       )
 
-      expect(raised(failure)).toBe(
-        "UNIQUE constraint failed: flows_plan_nodes.plan_id, flows_plan_nodes.ordinal"
+      expect(raised(failure)).toMatch(
+        /UNIQUE constraint failed: flows_plan_nodes.plan_id, flows_plan_nodes.ordinal|duplicate key value violates unique constraint/
       )
     }))
 
@@ -466,7 +466,7 @@ describe("PlanStore", () => {
         Effect.gen(function*() {
           const sql = yield* SqlClient.SqlClient
           yield* store.record(plan, 1)
-          yield* sql`DROP TRIGGER flows_plan_nodes_append_only`
+          yield* TestDatabase.dropTrigger(sql, "flows_plan_nodes_append_only")
           yield* sql`UPDATE flows_plan_nodes SET node_json = '{"id":"broken"}'`
           return yield* Effect.flip(store.get(plan.planId))
         })
@@ -509,7 +509,9 @@ describe("PlanStore", () => {
       const failure = yield* withStore((store) =>
         Effect.gen(function*() {
           const sql = yield* SqlClient.SqlClient
-          yield* sql`DROP TABLE flows_plans`
+          yield* sql`DROP TABLE flows_plans ${
+            sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+          }`
           return yield* Effect.flip(store.get("anything"))
         })
       )
@@ -525,7 +527,7 @@ describe("PlanStore", () => {
         Effect.gen(function*() {
           const sql = yield* SqlClient.SqlClient
           yield* store.record(base, 1)
-          yield* sql`DROP TRIGGER flows_plans_forward_only`
+          yield* TestDatabase.dropTrigger(sql, "flows_plans_forward_only")
           yield* sql`UPDATE flows_plans SET digest = ${other.digest} WHERE plan_id = ${base.planId}`
           return yield* Effect.flip(store.append(grown))
         })
@@ -589,7 +591,7 @@ describe("PlanStore", () => {
               }).pipe(Effect.provideService(Tracer.Tracer, tracer))
               const queries = spans.flatMap((span) => {
                 const query = span.attributes.get("db.query.text")
-                return typeof query === "string" ? [query.replace(/\s+/g, " ").trim()] : []
+                return typeof query === "string" ? [query.replace(/\$\d+/g, "?").replace(/\s+/g, " ").trim()] : []
               })
               // Observe real SQLite executions. A successful append authenticates
               // the prefix through the envelope CAS, then inserts only its new

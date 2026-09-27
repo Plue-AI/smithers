@@ -1,5 +1,6 @@
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect, Layer } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -87,19 +88,23 @@ describe.each(["memory", "file"] as const)("exact event filter (%s)", (storage) 
             entries: [],
             hasMore: false
           })
-          const query = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN
-          SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json
+          const query = yield* TestDatabase.explain(
+            sql,
+            sql`SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json
           FROM flows_journal_events INDEXED BY flows_journal_events_run_event_type_idx WHERE run_id = ${runId} AND ${
-            sql.in("event_type", ["wanted"])
-          } AND seq > ${0}
+              sql.in("event_type", ["wanted"])
+            } AND seq > ${0}
           ORDER BY seq ASC LIMIT ${3}`
+          )
           expect(query.map((row) => row.detail).join("\n")).toContain("flows_journal_events_run_event_type_idx")
           expect(query.some((row) => row.detail.includes("TEMP B-TREE"))).toBe(false)
-          const multi = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN
-            SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json
+          const multi = yield* TestDatabase.explain(
+            sql,
+            sql`SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json
             FROM flows_journal_events INDEXED BY flows_journal_events_run_event_type_idx
             WHERE run_id = ${runId} AND ${sql.in("event_type", ["wanted", "second"])} AND seq > ${0}
             ORDER BY seq ASC LIMIT ${3}`
+          )
           expect(multi.map((row) => row.detail).join("\n")).toContain("flows_journal_events_run_event_type_idx")
         }).pipe(Effect.scoped, Effect.provide(layer))
       )

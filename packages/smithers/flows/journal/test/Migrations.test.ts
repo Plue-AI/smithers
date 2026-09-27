@@ -31,7 +31,9 @@ describe("journal migrations", () => {
     Effect.gen(function*() {
       const master = yield* migrated(Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
-        return yield* sql<SqliteMasterRow>`SELECT name, type, sql FROM sqlite_master WHERE name LIKE 'flows_%'`
+        return yield* sql<SqliteMasterRow>`SELECT name, type, sql FROM ${
+          TestDatabase.catalog(sql)
+        } WHERE name LIKE 'flows_%'`
       }))
 
       expect(master.filter((row) => row.type === "table").map((row) => row.name).sort()).toEqual([

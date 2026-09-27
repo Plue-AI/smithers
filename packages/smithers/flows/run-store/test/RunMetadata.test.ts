@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Dialect from "@smthrs/database/Dialect"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Duration, Effect, Exit, Layer } from "effect"
@@ -290,8 +291,12 @@ describe("requestCancel classifies a miss inside one serialized write", () => {
         yield* store.create("run", "{}")
         // RAISE(IGNORE) drops the row change without an error, which is the only
         // way a live unrequested row can survive the UPDATE inside one writer.
-        yield* sql`CREATE TRIGGER ignore_cancel BEFORE UPDATE OF cancel_requested_at_ms ON flows_runs
-        BEGIN SELECT RAISE(IGNORE); END`
+        yield* Dialect.trigger(sql, {
+          name: `ignore_cancel`,
+          table: `flows_runs`,
+          event: `BEFORE UPDATE OF cancel_requested_at_ms`,
+          ignore: true
+        })
         const exit = yield* Effect.exit(store.requestCancel("run", 500))
         expectRunStoreFailure(exit, "requestCancel", "persistence_failed")
         expect(Exit.isFailure(exit) ? exit.cause.reasons.find((reason) => reason._tag === "Fail")?.error : undefined)
@@ -307,13 +312,13 @@ describe("requestCancel status decode failures", () => {
       const store = yield* RunStore.RunStore
       const sql = yield* Effect.service(SqlClient.SqlClient)
       yield* store.create("bad-fallback-status", "{}")
-      yield* sql`PRAGMA ignore_check_constraints = ON`
+      yield* TestDatabase.checks(sql, false)
       yield* sql`
         UPDATE flows_runs
         SET status = 'not-a-status', cancel_requested_at_ms = 1
         WHERE run_id = 'bad-fallback-status'
       `
-      yield* sql`PRAGMA ignore_check_constraints = OFF`
+      yield* TestDatabase.checks(sql, true)
       const exit = yield* Effect.exit(store.requestCancel("bad-fallback-status", 2))
       expectRunStoreFailure(exit, "requestCancel", "decode_failed")
     }))

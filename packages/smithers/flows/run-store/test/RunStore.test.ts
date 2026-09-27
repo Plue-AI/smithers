@@ -196,9 +196,9 @@ describe("RunStore", () => {
         const duplicate = yield* Effect.flip(store.create("duplicate", "{}"))
         const missing = yield* Effect.flip(store.get("missing"))
 
-        yield* sql`PRAGMA ignore_check_constraints = ON`
+        yield* TestDatabase.checks(sql, false)
         yield* store.create("corrupt-schema", "{}")
-        yield* sql`UPDATE flows_runs SET created_at_ms = 'bad' WHERE run_id = 'corrupt-schema'`
+        yield* sql`UPDATE flows_runs SET created_at_ms = -1 WHERE run_id = 'corrupt-schema'`
         const corruptSchema = yield* Effect.flip(store.get("corrupt-schema"))
 
         yield* store.create("corrupt-owner", "{}")
@@ -248,8 +248,8 @@ describe("RunStore", () => {
         UPDATE flows_runs SET state_json = 'not-json' WHERE run_id = 'corrupt-json'
       `
         const corruptJson = yield* Effect.flip(store.get("corrupt-json"))
-        yield* sql`PRAGMA ignore_check_constraints = OFF`
-        yield* sql`DROP TABLE flows_runs`
+        yield* TestDatabase.checks(sql, true)
+        yield* sql`DROP TABLE flows_runs ${sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))}`
         const persistence = yield* Effect.flip(store.create("missing-table", "{}"))
         const readPersistence = yield* Effect.flip(store.get("missing-table"))
 

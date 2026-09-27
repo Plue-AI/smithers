@@ -30,19 +30,21 @@ describe("journal startup ordering", () => {
       SELECT run_id, seq, emitted_at_ms FROM flows_journal_events
       ORDER BY emitted_at_ms DESC, run_id DESC, seq DESC LIMIT 20`
       const expected = yield* query()
-      const before = yield* sql<
-        { detail: string }
-      >`EXPLAIN QUERY PLAN SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json FROM flows_journal_events ORDER BY emitted_at_ms DESC, run_id DESC, seq DESC LIMIT 20`
-      expect(before.some((row) => row.detail.includes("TEMP B-TREE"))).toBe(true)
+      const before = yield* TestDatabase.explain(
+        sql,
+        sql`SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json FROM flows_journal_events ORDER BY emitted_at_ms DESC, run_id DESC, seq DESC LIMIT 20`
+      )
+      expect(before.some((row) => /TEMP B-TREE|Sort/.test(row.detail))).toBe(true)
       expect(yield* DatabaseMigrations.run([Migrations.set, other])).toEqual([[3, "journal_startup_index"], [
         4,
         "journal_dedup"
       ], [5, "journal_run_event_type"]])
-      const after = yield* sql<
-        { detail: string }
-      >`EXPLAIN QUERY PLAN SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json FROM flows_journal_events ORDER BY emitted_at_ms DESC, run_id DESC, seq DESC LIMIT 20`
+      const after = yield* TestDatabase.explain(
+        sql,
+        sql`SELECT run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json FROM flows_journal_events ORDER BY emitted_at_ms DESC, run_id DESC, seq DESC LIMIT 20`
+      )
       expect(after.some((row) => row.detail.includes("flows_journal_events_startup_idx"))).toBe(true)
-      expect(after.some((row) => row.detail.includes("TEMP B-TREE"))).toBe(false)
+      expect(after.some((row) => /TEMP B-TREE|Sort/.test(row.detail))).toBe(false)
       expect(yield* query()).toEqual(expected)
       expect(yield* DatabaseMigrations.run([Migrations.set, other])).toEqual([])
       expect((yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM flows_journal_events`)[0]!.count).toBe(5000)

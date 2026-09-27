@@ -276,7 +276,7 @@ describe("durable run state redaction", () => {
         const stateJson = JSON.stringify({ apiKey: secret, padding: "x".repeat(200_000) })
         const exit = yield* withStores(Effect.gen(function*() {
           const sql = yield* Effect.service(SqlClient.SqlClient)
-          yield* sql`PRAGMA ignore_check_constraints = ON`
+          yield* TestDatabase.checks(sql, false)
           yield* sql`
             INSERT INTO flows_runs (
               run_id, status, created_at_ms, owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms, state_json
@@ -284,7 +284,7 @@ describe("durable run state redaction", () => {
               'run-decode-cause-hygiene', 'suspended', 1, 'host-a', 42, 'nonce-a', 1, ${stateJson}
             )
           `
-          yield* sql`PRAGMA ignore_check_constraints = OFF`
+          yield* TestDatabase.checks(sql, true)
           const store = yield* RunStore.RunStore
           return yield* Effect.exit(store.get("run-decode-cause-hygiene"))
         }))
