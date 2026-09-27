@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
@@ -438,6 +439,7 @@ describe("EngineStore.make liveness", () => {
             deferredName: gate.name,
             exit: Exit.succeed("released")
           })
+          yield* TestDatabase.until(store.get("unkeyed-run").pipe(Effect.map((row) => row.status === "completed")))
           const value = yield* restarted.execute(LayerFlow, {
             executionId: "unkeyed-run",
             payload: {},

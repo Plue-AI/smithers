@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Action, DurableDeferred, Flow } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
@@ -7,6 +8,7 @@ import { type Ownership, RunStore } from "@smthrs/run-store"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Schema from "effect/Schema"
+import * as Scope from "effect/Scope"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
@@ -103,7 +105,8 @@ describe("deterministic replay", () => {
               isAlive: () => Effect.succeed(false)
             }).pipe(Effect.provideService(RunStore.RunStore, countingStore))
 
-            const firstEngine = yield* makeEngine
+            const firstScope = yield* Scope.make()
+            const firstEngine = yield* Scope.provide(makeEngine, firstScope)
             yield* firstEngine.register(ReplayFlow, handler)
             yield* firstEngine.execute(ReplayFlow, {
               executionId: "replay-run",
@@ -112,6 +115,7 @@ describe("deterministic replay", () => {
             })
             const suspended = yield* baseStore.get("replay-run")
 
+            yield* Scope.close(firstScope, Exit.void)
             const restartedEngine = yield* makeEngine
             yield* restartedEngine.register(ReplayFlow, handler)
             yield* restartedEngine.deferredDone(gate, {
@@ -126,6 +130,7 @@ describe("deterministic replay", () => {
               deferredName: gate.name,
               exit: Exit.succeed("winner-b")
             })
+            yield* TestDatabase.until(baseStore.get("replay-run").pipe(Effect.map((row) => row.status === "completed")))
             const value = yield* restartedEngine.execute(ReplayFlow, {
               executionId: "replay-run",
               payload: {},

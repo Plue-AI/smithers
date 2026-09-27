@@ -1,3 +1,5 @@
+import * as Dialect from "@smthrs/database/Dialect"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * Deterministic evaluation tests for the node scheduler, in the ethos of
  * Skyframe's `GraphTester`: the graph is declared as data, driven, and
@@ -1017,12 +1019,17 @@ describe("PlanScheduler admission", () => {
    * control that proves the probe discriminates.
    */
   it("never admits a reader before the node that writes what it reads settles", async () => {
-    const traced = (runId: string, plan: Plan.Plan) => {
+    const traced = (runId: string, plan: Plan.Plan, parallel = false) => {
+      const bothStarted = Latch.makeUnsafe()
       const trace: Array<string> = []
       const executor: PlanScheduler.Executor = {
         execute: ({ node }) =>
           Effect.gen(function*() {
             trace.push(`start:${node.id}`)
+            if (parallel) {
+              if (trace.length === 2) yield* bothStarted.open
+              yield* bothStarted.await
+            }
             yield* Effect.yieldNow
             trace.push(`end:${node.id}`)
             return node.id
@@ -1037,9 +1044,11 @@ describe("PlanScheduler admission", () => {
 
     const independent = await runPromise(traced(
       "run-rw-control",
-      await runPromise(compile([draft("writer", { writes: ["shared.out"] }), draft("bystander")]))
+      await runPromise(compile([draft("writer", { writes: ["shared.out"] }), draft("bystander")])),
+      true
     ))
-    expect(independent).toEqual(["start:writer", "start:bystander", "end:writer", "end:bystander"])
+    expect(independent.slice(0, 2).sort()).toEqual(["start:bystander", "start:writer"])
+    expect(independent.slice(2).sort()).toEqual(["end:bystander", "end:writer"])
 
     const ordered = await runPromise(traced(
       "run-rw-ordered",
@@ -1679,8 +1688,24 @@ describe("PlanScheduler reconciliation", () => {
     const report = await runPromise(
       Effect.gen(function*() {
         yield* activate("run-factor")
+        const journal = yield* Journal.Journal
+        const together = {
+          ...journal,
+          entries: (options: Parameters<typeof journal.entries>[0]) =>
+            Effect.gen(function*() {
+              let page = yield* journal.entries(options)
+              if (page.entries.some((entry) => entry.eventType === "flows.engine.expected-set-deviation")) {
+                yield* TestDatabase.until(Effect.gen(function*() {
+                  page = yield* journal.entries(options)
+                  return page.entries.filter((entry) => entry.eventType === "flows.engine.expected-set-deviation")
+                    .length >= 2
+                }))
+              }
+              return page
+            })
+        }
         return yield* Effect.provide(
-          scheduler({ runId: "run-factor", executor }).run(plan),
+          scheduler({ runId: "run-factor", executor }).run(plan).pipe(Effect.provideService(Journal.Journal, together)),
           harness({
             runId: "run-factor",
             executor,
@@ -1747,10 +1772,13 @@ describe("PlanScheduler elaboration", () => {
         yield* activate("run-atomic-record")
         const sql = yield* SqlClient.SqlClient
         const plans = yield* PlanStore.PlanStore
-        yield* sql`CREATE TRIGGER refuse_plan_record_event
-          BEFORE INSERT ON flows_journal_events
-          WHEN NEW.event_type = 'flows.engine.plan-recorded'
-          BEGIN SELECT RAISE(ABORT, 'refused'); END`
+        yield* Dialect.trigger(sql, {
+          name: `refuse_plan_record_event`,
+          table: `flows_journal_events`,
+          event: `BEFORE INSERT`,
+          when: `NEW.event_type = 'flows.engine.plan-recorded'`,
+          reject: "refused"
+        })
         const exit = yield* scheduler({ runId: "run-atomic-record", executor }).record(plan).pipe(Effect.exit)
         return { exit, stored: yield* plans.get(plan.planId) }
       }).pipe(
@@ -1779,10 +1807,13 @@ describe("PlanScheduler elaboration", () => {
         const plans = yield* PlanStore.PlanStore
         const service = scheduler({ runId: "run-atomic-append", executor })
         yield* service.record(base)
-        yield* sql`CREATE TRIGGER refuse_plan_append_event
-          BEFORE INSERT ON flows_journal_events
-          WHEN NEW.event_type = 'flows.engine.subgraph-appended'
-          BEGIN SELECT RAISE(ABORT, 'refused'); END`
+        yield* Dialect.trigger(sql, {
+          name: `refuse_plan_append_event`,
+          table: `flows_journal_events`,
+          event: `BEFORE INSERT`,
+          when: `NEW.event_type = 'flows.engine.subgraph-appended'`,
+          reject: "refused"
+        })
         const exit = yield* service.append(grown).pipe(Effect.exit)
         return { exit, stored: Option.getOrThrow(yield* plans.get(base.planId)) }
       }).pipe(

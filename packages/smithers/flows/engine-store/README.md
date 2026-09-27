@@ -99,16 +99,16 @@ approval, timer, or event wait. This lets a replacement engine in the same
 process resume with a new owner nonce without weakening the PID liveness
 check. Only a persisted operator cancellation closes the run as `cancelled`.
 
-## Bundles for the browser, runs on SQLite
+## Browser imports and native durable execution
 
 The entry point bundles for a browser. The two host reads it once made
 directly, `process.pid` and `randomUUID` from `node:crypto`, enter through the
 injectable `OwnerIdentity` service, and the SQL contracts it imports are
 driver-neutral.
 
-Bundling is not running. The durable backing is local SQLite, composed by the
-aggregate [`@smthrs/flows` runtime](../README.md) with native Node.js or Bun SQL
-and host adapters over these driver-neutral stores. A browser or edge deployment
+Bundling is not running. The durable backing is SQLite or PostgreSQL, composed by the
+aggregate [`@smthrs/flows` runtime](../README.md) with native Node.js or Bun
+host adapters and the selected SQL client over these driver-neutral stores. A browser or edge deployment
 can import the types and browser-safe in-memory helpers, but cannot execute
 durable flows; supplying an alternative browser SQL client is not a supported
 runtime.

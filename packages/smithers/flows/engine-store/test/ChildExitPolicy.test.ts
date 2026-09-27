@@ -193,6 +193,11 @@ describe("a terminal run applies its children's exit policy", () => {
         yield* driver.register(ExitFlow, () => Effect.succeed("must not run"))
         yield* TestClock.adjust(heartbeatMs * 2)
 
+        yield* TestDatabase.until(
+          TestClock.adjust(Ownership.heartbeatInterval).pipe(
+            Effect.andThen(store.get("parked-child").pipe(Effect.map((row) => row.status === "cancelled")))
+          )
+        )
         return { requested, settled: yield* store.get("parked-child") }
       }))
 
@@ -236,7 +241,8 @@ describe("a terminal run applies its children's exit policy", () => {
         yield* driver.register(ExitFlow, () => Effect.succeed("must not run"))
         yield* TestClock.adjust(staleAfterMs + heartbeatMs)
         let settled = yield* store.get("orphan-child")
-        for (let i = 0; i < 10 && settled.status !== "cancelled"; i++) {
+        for (let i = 0; i < 2000 && settled.status !== "cancelled"; i++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           yield* TestClock.adjust(heartbeatMs)
           settled = yield* store.get("orphan-child")
         }

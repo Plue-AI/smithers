@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Dialect from "@smthrs/database/Dialect"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
@@ -92,12 +93,17 @@ describe("PlanInputStore", () => {
       const store = yield* PlanInputStore.PlanInputStore
       const sql = yield* SqlClient.SqlClient
       yield* store.record(address, snapshot(), owner)
-      yield* sql`CREATE TRIGGER reject_inputs BEFORE INSERT ON flows_plan_input_generations
-      WHEN NEW.generation = 1 BEGIN SELECT RAISE(ABORT, 'injected input failure'); END`
+      yield* Dialect.trigger(sql, {
+        name: `reject_inputs`,
+        table: `flows_plan_input_generations`,
+        event: `BEFORE INSERT`,
+        when: `NEW.generation = 1`,
+        reject: "injected input failure"
+      })
       const next = { ...address, generation: 1 }
       expect(yield* Effect.flip(store.record(next, snapshot(1), owner))).toMatchObject({ code: "persistence_failed" })
       expect(yield* store.get(next, owner)).toEqual(Option.none())
-      yield* sql`DROP TRIGGER reject_inputs`
+      yield* TestDatabase.dropTrigger(sql, "reject_inputs")
       yield* store.record(next, snapshot(1), owner)
       expect(yield* store.get(next, owner)).toEqual(Option.some(snapshot(1)))
     })))
@@ -173,7 +179,7 @@ describe("PlanInputStore", () => {
       const store = yield* PlanInputStore.PlanInputStore
       const sql = yield* SqlClient.SqlClient
       yield* store.record(address, snapshot(), owner)
-      yield* sql`DROP TRIGGER flows_plan_input_generations_no_update`
+      yield* TestDatabase.dropTrigger(sql, "flows_plan_input_generations_no_update")
       const change = (encoded: string, hash = sha256(encoded)) =>
         sql`UPDATE flows_plan_input_generations
       SET snapshot_json = ${encoded}, checksum = ${hash} WHERE run_id = ${address.runId}`
@@ -190,7 +196,7 @@ describe("PlanInputStore", () => {
       yield* change(JSON.stringify(snapshot()))
       yield* sql`UPDATE flows_plan_input_heads SET generation = 1 WHERE run_id = ${address.runId}`
       expect(yield* Effect.flip(store.get(address, owner))).toMatchObject({ code: "corrupt_state" })
-      yield* sql`DROP TRIGGER flows_plan_input_heads_no_delete`
+      yield* TestDatabase.dropTrigger(sql, "flows_plan_input_heads_no_delete")
       yield* sql`DELETE FROM flows_plan_input_heads WHERE run_id = ${address.runId}`
       expect(yield* Effect.flip(store.get(address, owner))).toMatchObject({ code: "corrupt_state" })
     })))

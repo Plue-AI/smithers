@@ -1,3 +1,5 @@
+import * as Dialect from "@smthrs/database/Dialect"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * The durable suspected-edge store: schema round-trips, the natural key,
  * clock-pinned snapshots, and law 5 — training only moves confidence, with
@@ -242,7 +244,7 @@ describe("SelectionStore", () => {
           const store = yield* SelectionStore.SelectionStore
           const sql = yield* SqlClient.SqlClient
           yield* store.upsert([edge()])
-          yield* sql`PRAGMA ignore_check_constraints = ON`
+          yield* TestDatabase.checks(sql, false)
           yield* sql`UPDATE flows_selection_suspected_edges SET valid_from_ms = -1`
           return yield* store.list().pipe(Effect.exit)
         }).pipe(Effect.provide(storeLayer))
@@ -257,7 +259,7 @@ describe("SelectionStore", () => {
           const store = yield* SelectionStore.SelectionStore
           const sql = yield* SqlClient.SqlClient
           yield* store.upsert([edge()])
-          yield* sql`PRAGMA ignore_check_constraints = ON`
+          yield* TestDatabase.checks(sql, false)
           yield* sql`UPDATE flows_selection_suspected_edges SET confidence = 2`
           return yield* store.list().pipe(Effect.exit)
         }).pipe(Effect.provide(storeLayer))
@@ -275,15 +277,18 @@ describe("SelectionStore", () => {
         Effect.gen(function*() {
           const store = yield* SelectionStore.SelectionStore
           const sql = yield* SqlClient.SqlClient
-          yield* sql`CREATE TRIGGER selection_refuse_insert
-            BEFORE INSERT ON flows_selection_suspected_edges
-            WHEN NEW.affects = 'refuse'
-            BEGIN SELECT RAISE(ABORT, 'refused'); END`
+          yield* Dialect.trigger(sql, {
+            name: `selection_refuse_insert`,
+            table: `flows_selection_suspected_edges`,
+            event: `BEFORE INSERT`,
+            when: `NEW.affects = 'refuse'`,
+            reject: "refused"
+          })
           const exit = yield* store.upsert([
             edge({ scope: "a/**", affects: "accepted" }),
             edge({ scope: "b/**", affects: "refuse" })
           ]).pipe(Effect.exit)
-          yield* sql`DROP TRIGGER selection_refuse_insert`
+          yield* TestDatabase.dropTrigger(sql, "selection_refuse_insert")
           return { exit, listed: yield* store.list() }
         }).pipe(Effect.provide(storeLayer))
       )
@@ -300,15 +305,18 @@ describe("SelectionStore", () => {
           const accepted = edge({ scope: "a/**", affects: "accepted" })
           const refused = edge({ scope: "b/**", affects: "refuse" })
           yield* store.upsert([accepted, refused])
-          yield* sql`CREATE TRIGGER selection_refuse_update
-            BEFORE UPDATE ON flows_selection_suspected_edges
-            WHEN NEW.affects = 'refuse'
-            BEGIN SELECT RAISE(ABORT, 'refused'); END`
+          yield* Dialect.trigger(sql, {
+            name: `selection_refuse_update`,
+            table: `flows_selection_suspected_edges`,
+            event: `BEFORE UPDATE`,
+            when: `NEW.affects = 'refuse'`,
+            reject: "refused"
+          })
           const exit = yield* store.train([
             { scope: accepted.scope, affects: accepted.affects, outcome: "hit" },
             { scope: refused.scope, affects: refused.affects, outcome: "hit" }
           ]).pipe(Effect.exit)
-          yield* sql`DROP TRIGGER selection_refuse_update`
+          yield* TestDatabase.dropTrigger(sql, "selection_refuse_update")
           return { exit, listed: yield* store.list() }
         }).pipe(Effect.provide(storeLayer))
       )
@@ -322,7 +330,9 @@ describe("SelectionStore", () => {
         Effect.gen(function*() {
           const store = yield* SelectionStore.SelectionStore
           const sql = yield* SqlClient.SqlClient
-          yield* sql`DROP TABLE flows_selection_suspected_edges`
+          yield* sql`DROP TABLE flows_selection_suspected_edges ${
+            sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+          }`
           return yield* Effect.all([
             store.upsert([edge()]).pipe(Effect.exit),
             store.list().pipe(Effect.exit),

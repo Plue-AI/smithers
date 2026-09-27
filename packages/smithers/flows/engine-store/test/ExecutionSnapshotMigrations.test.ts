@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect, Exit } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -82,7 +83,9 @@ describe("execution snapshot migration ladder", () => {
             })
             expect(observed.snapshots.every((row) => row.revision > 0)).toBe(true)
             const sql = yield* SqlClient.SqlClient
-            expect((yield* sql`SELECT name FROM sqlite_master WHERE name GLOB 'flows_runs_listing_*'`).length).toBe(32)
+            expect(
+              (yield* sql`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE name GLOB 'flows_runs_listing_*'`).length
+            ).toBe(32)
             const creationChange = yield* Effect.exit(
               sql`UPDATE flows_runs SET created_at_ms = 100 WHERE run_id = 'child'`
             )

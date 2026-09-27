@@ -1,10 +1,10 @@
 ---
 title: "@smthrs/engine-store"
-description: "The durable engine behind Smithers flows: it persists every step attempt to SQLite, fences writes to one owner, and replays a recorded result instead of running the step again."
+description: "The durable engine behind Smithers flows: it persists every step attempt to SQLite or PostgreSQL, fences writes to one owner, and replays a recorded result instead of running the step again."
 ---
 
 `@smthrs/engine-store` is the durable half of the Smithers flow engine. It
-persists every step a flow takes to a SQLite database, so a flow that crashes,
+persists every step a flow takes to a SQLite or PostgreSQL database, so a flow that crashes,
 is killed, or waits for a week resumes where it stopped instead of starting
 over.
 

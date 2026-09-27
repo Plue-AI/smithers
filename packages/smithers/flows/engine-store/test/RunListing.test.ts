@@ -4,6 +4,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as Statement from "effect/unstable/sql/Statement"
 import { DatabaseSync } from "node:sqlite"
 import * as RunCatalogRead from "../src/RunCatalogRead.ts"
+import * as TestStores from "../src/test/TestStores.ts"
 import { fixture, onFile, state } from "./ExecutionSnapshotFixture.ts"
 
 const statuses = ["pending", "running", "suspended", "completed", "failed", "cancelled"] as const
@@ -327,3 +328,38 @@ describe("bounded run listing", () => {
       )
     ))
 })
+
+it.effect("filters and paginates the injected database against an independent model", () =>
+  Effect.gen(function*() {
+    const sql = yield* SqlClient.SqlClient
+    const reference = model(100)
+    yield* sql.withTransaction(Effect.forEach(reference, (row) =>
+      sql`
+      INSERT INTO flows_runs(run_id,status,created_at_ms,state_json,parent_run_id,lineage_id,round_ordinal,waiting_reason,owner_host_id,owner_pid,owner_nonce,heartbeat_at_ms)
+      VALUES(${row.runId},${row.status},${row.createdAtMs},${
+        JSON.stringify({ version: 1, flowName: row.flowName, payload: {} })
+      },${row.parentRunId},${row.lineageId},${row.roundOrdinal},${row.waitingReason},${
+        row.status === "running" ? "host" : null
+      },${row.status === "running" ? 1 : null},${row.status === "running" ? "nonce" : null},${
+        row.status === "running" ? 1 : null
+      })`, { discard: true }))
+    const catalog = yield* RunCatalogRead.make()
+    for (let mask = 0; mask < 32; mask++) {
+      const filters: RunCatalogRead.Filters = {
+        ...(mask & 1 ? { status: "pending" as const } : {}),
+        ...(mask & 2 ? { flowName: "flow0" } : {}),
+        ...(mask & 4 ? { parentRunId: "r00000" } : {}),
+        ...(mask & 8 ? { lineageId: "r00000" } : {}),
+        ...(mask & 16 ? { waitingReason: "timer" } : {})
+      }
+      const collected: Array<string> = []
+      let cursor: string | undefined
+      do {
+        const page = yield* catalog.listRuns({ filters, limit: 7, ...(cursor === undefined ? {} : { cursor }) })
+        collected.push(...page.runs.map((row) => row.runId))
+        expect(collected.length).toBeLessThanOrEqual(100)
+        cursor = page.cursor ?? undefined
+      } while (cursor !== undefined)
+      expect(collected).toEqual(reference.filter((row) => matches(row, filters)).map((row) => row.runId))
+    }
+  }).pipe(Effect.provide(TestStores.database), Effect.scoped))

@@ -1,3 +1,4 @@
+import * as Dialect from "@smthrs/database/Dialect"
 /**
  * Pins the backup/restore contract of `DisasterRecovery`: a hot backup is a
  * verified, manifest-described snapshot; a restore refuses anything that no
@@ -39,7 +40,7 @@ type Environment =
   | Crypto.Crypto
 
 /** The migrated in-memory database plus the real host filesystem. */
-const environment = Layer.mergeAll(TestStores.database, NodeFileSystem.layer)
+const environment = Layer.mergeAll(TestStores.databaseAt(":memory:"), NodeFileSystem.layer)
 
 const run = <A, E>(effect: Effect.Effect<A, E, Environment>) => withCrypto(Effect.provide(effect, environment))
 
@@ -186,7 +187,7 @@ describe("backup", () => {
             maxFileSizeBytes
           }).pipe(Effect.exit)
           return { exit, maxFileSizeBytes }
-        }).pipe(Effect.provide(Layer.mergeAll(TestDatabase.layer, NodeFileSystem.layer)))
+        }).pipe(Effect.provide(Layer.mergeAll(TestDatabase.sqliteLayer, NodeFileSystem.layer)))
       )
       const error = failure(result.exit)
       expect(error).toBeInstanceOf(DisasterRecovery.DisasterRecoveryError)
@@ -362,7 +363,7 @@ describe("backup", () => {
               meta_json: "{}"
             })
           }`
-          yield* sql`PRAGMA ignore_check_constraints = ON`
+          yield* TestDatabase.checks(sql, false)
           yield* sql.unsafe(
             `UPDATE flows_attempts SET ${column} = '{' WHERE run_id = 'backup-corrupt-root'`
           )
@@ -393,7 +394,7 @@ describe("backup", () => {
       const exit = yield* withCrypto(
         backup({ directory: join(root(), "backup") }).pipe(
           Effect.exit,
-          Effect.provide(Layer.mergeAll(TestDatabase.layer, NodeFileSystem.layer))
+          Effect.provide(Layer.mergeAll(TestDatabase.sqliteLayer, NodeFileSystem.layer))
         )
       )
       expect(failure(exit).code).toBe("sql")
@@ -743,7 +744,7 @@ describe("fence", () => {
             `
             return yield* backup({ directory: backupDirectory })
           }).pipe(Effect.provide(Layer.mergeAll(
-            Layer.provideMerge(Layer.effectDiscard(DatabaseMigrations.run(previous)), TestDatabase.layer),
+            Layer.provideMerge(Layer.effectDiscard(DatabaseMigrations.run(previous)), TestDatabase.sqliteLayer),
             NodeFileSystem.layer
           )))
         )
@@ -772,7 +773,7 @@ describe("fence", () => {
           `
           expect(applied.map((row) => row.migration_id)).toEqual([...historicalIds, ...omitted].sort((a, b) => a - b))
           // This column is installed by 3006, proving the schema changed too.
-          const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(flows_runs)`
+          const columns = yield* Dialect.columns(sql, "flows_runs")
           expect(columns.map((column) => column.name)).toContain("execution_parent_id")
           const runs = yield* RunStore.make
           const row = yield* runs.get("upgrade-run")

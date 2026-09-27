@@ -709,7 +709,7 @@ describe("active-wait deferred admission on SQLite", () => {
  * is what the reader does with a row it did not write.
  */
 describe("a malformed sweep row is skipped, not fatal (B-08)", () => {
-  const migratedDatabase = Layer.provideMerge(Migrations.layer, TestDatabase.layer)
+  const migratedDatabase = Layer.provideMerge(Migrations.layer, TestDatabase.sqliteLayer)
 
   /** A run row, so the sweep's run-status join has something live to find. */
   const seedRun = (sql: SqlClient.SqlClient, runId: string) =>

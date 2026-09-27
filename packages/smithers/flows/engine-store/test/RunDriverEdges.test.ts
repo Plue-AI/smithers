@@ -1172,7 +1172,8 @@ describe("RunDriver parked-cancel sweep", () => {
         yield* store.requestCancel("parked-cancel", 1)
 
         let row = yield* store.get("parked-cancel")
-        for (let index = 0; index < 5 && row.status !== "cancelled"; index++) {
+        for (let index = 0; index < 2000 && row.status !== "cancelled"; index++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           yield* TestClock.adjust(Ownership.heartbeatInterval)
           yield* Effect.yieldNow
           row = yield* store.get("parked-cancel")

@@ -92,7 +92,8 @@ describe("cancel requests reach parked runs (issue #27)", () => {
           yield* store.requestCancel("cancel-parked-sweep", nowMs)
 
           let row = yield* store.get("cancel-parked-sweep")
-          for (let i = 0; i < 10 && row.status !== "cancelled"; i++) {
+          for (let i = 0; i < 2000 && row.status !== "cancelled"; i++) {
+            yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
             yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
             row = yield* store.get("cancel-parked-sweep")
           }

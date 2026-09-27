@@ -263,7 +263,7 @@ describe("SQL durable state encoding failures", () => {
           const sql = yield* Effect.service(SqlClient.SqlClient)
           const state = yield* DurableEngineState.make
           const missing = yield* state.deferred(address)
-          yield* sql`PRAGMA ignore_check_constraints = ON`
+          yield* TestDatabase.checks(sql, false)
           yield* sql`
           INSERT INTO flows_deferred_completions (
             flow_name, execution_id, deferred_name, exit_json, metadata_json, completed_at_ms

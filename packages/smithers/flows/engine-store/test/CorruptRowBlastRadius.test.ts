@@ -33,7 +33,7 @@ import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as Migrations from "../src/Migrations.ts"
 import { withCrypto } from "./Sha256.ts"
 
-const migratedDatabase = Layer.provideMerge(Migrations.layer, TestDatabase.layer)
+const migratedDatabase = Layer.provideMerge(Migrations.layer, TestDatabase.sqliteLayer)
 
 const flowName = "CorruptRow/Flow"
 

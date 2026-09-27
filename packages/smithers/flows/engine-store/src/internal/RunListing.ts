@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { RunStatus } from "@smthrs/run-store/RunStore"
 import { Cause, Effect, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -145,7 +146,7 @@ export const make = () =>
             for (const [index, [column, value]] of equalities.entries()) {
               if (value === undefined) continue
               mask |= 1 << index
-              predicates.push(`r.${column} IS ?`)
+              predicates.push(`r.${column} IS NOT DISTINCT FROM ?`)
               values.push(value)
             }
             if (filters.createdAfterMs !== undefined) {
@@ -161,8 +162,11 @@ export const make = () =>
               values.push(cursor.createdAtMs, cursor.runId)
             }
             values.push(limit + 1)
-            const rows = yield* sql.unsafe(
-              `SELECT ${Read.selectColumns} FROM flows_runs r INDEXED BY flows_runs_listing_${mask}
+            const rows = yield* Dialect.query(
+              sql,
+              `SELECT ${Read.selectColumns} FROM flows_runs r ${
+                Dialect.isPostgres(sql) ? "" : `INDEXED BY flows_runs_listing_${mask}`
+              }
         LEFT JOIN flows_run_changes c ON c.run_id = r.run_id
         ${
                 predicates.length === 0

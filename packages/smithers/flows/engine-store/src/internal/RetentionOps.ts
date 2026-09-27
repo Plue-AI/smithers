@@ -49,6 +49,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Journal from "@smthrs/journal/Journal"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
@@ -491,7 +492,7 @@ export interface DeletionReport {
 
 /** Reads the installed SQLite table names once for inventory decisions. */
 const installedTableNames = (sql: SqlClient.SqlClient): Effect.Effect<ReadonlySet<string>, RetentionError> =>
-  sql<{ readonly name: string }>`SELECT name FROM sqlite_master WHERE type = 'table'`.pipe(
+  Dialect.tables(sql).pipe(
     Effect.map((rows) => new Set(rows.map((row) => row.name))),
     Effect.mapError(scanning("the schema catalog"))
   )

@@ -250,8 +250,8 @@ describe("PlanMergeStore", () => {
           expect(yield* Effect.flip(operation)).toMatchObject({ code: "corrupt_state" })
         }
       })
-      yield* sql`DROP TRIGGER flows_plan_merge_intents_no_update`
-      yield* sql`DROP TRIGGER flows_plan_merge_completions_no_update`
+      yield* TestDatabase.dropTrigger(sql, "flows_plan_merge_intents_no_update")
+      yield* TestDatabase.dropTrigger(sql, "flows_plan_merge_completions_no_update")
       const changeIntent = (value: unknown, checksum?: string) => {
         const json = JSON.stringify(value)
         return sql`UPDATE flows_plan_merge_intents SET intent_json = ${json}, checksum = ${checksum ?? sha256(json)}`
@@ -304,7 +304,7 @@ describe("PlanMergeStore", () => {
       expect(
         Exit.isFailure(yield* sql`UPDATE flows_plan_merge_intents SET checksum = ${"0".repeat(64)}`.pipe(Effect.exit))
       ).toBe(true)
-      yield* sql`DROP TRIGGER flows_plan_input_heads_no_delete`
+      yield* TestDatabase.dropTrigger(sql, "flows_plan_input_heads_no_delete")
       yield* sql`DELETE FROM flows_plan_input_heads`
       expect(yield* Effect.flip(merges.list(identity, owner))).toMatchObject({ code: "corrupt_state" })
       yield* sql`DELETE FROM flows_runs WHERE run_id = ${runId}`
@@ -384,7 +384,9 @@ describe("PlanMergeStore", () => {
       yield* merges.intend(identity, intent, owner)
       const sql = yield* SqlClient.SqlClient
       const writer = yield* DurableWriter
-      yield* sql`DROP TABLE flows_plan_merge_completions`
+      yield* sql`DROP TABLE flows_plan_merge_completions ${
+        sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+      }`
       for (
         const operation of [
           merges.list(identity, owner).pipe(Effect.asVoid),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Action, DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
@@ -10,6 +11,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
@@ -47,10 +49,20 @@ const withRestart = <A>(
     Effect.scoped(
       Effect.gen(function*() {
         const store = yield* RunStore.RunStore
-        const makeEngine = EngineStore.make({
-          owner: { hostId: "deferred-restart-host" },
-          journalSource: "deferred-restart-test",
-          isAlive: () => Effect.succeed(false)
+        let previous: Scope.Closeable | undefined
+        const makeEngine = Effect.gen(function*() {
+          if (previous !== undefined) yield* Scope.close(previous, Exit.void)
+          const scope = yield* Scope.make()
+          previous = scope
+          yield* Effect.addFinalizer((exit) => Scope.close(scope, exit))
+          return yield* Scope.provide(
+            EngineStore.make({
+              owner: { hostId: "deferred-restart-host" },
+              journalSource: "deferred-restart-test",
+              isAlive: () => Effect.succeed(false)
+            }),
+            previous
+          )
         })
         return yield* body(makeEngine as any, store)
       }).pipe(
@@ -131,6 +143,11 @@ describe("durable deferred outcomes across a restart", () => {
               deferredName: gate.name,
               exit: options.exit as any
             })
+            yield* TestDatabase.until(
+              store.get("restart-run").pipe(
+                Effect.map((row) => ["completed", "failed", "cancelled"].includes(row.status))
+              )
+            )
             const exit = yield* Effect.exit(
               restarted.execute(flow as any, {
                 executionId: "restart-run",
@@ -541,7 +558,7 @@ describe("partial dependency readiness across a restart", () => {
           // coalesced by the coordinator) must finish the run on its own
           let final = yield* store.get("mid-resume-run")
           for (let count = 0; count < 400 && final.status !== "completed"; count++) {
-            yield* Effect.sleep("25 millis")
+            yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
             final = yield* store.get("mid-resume-run")
           }
           return { suspendedRow, inFlight, final }

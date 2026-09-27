@@ -662,11 +662,12 @@ describe("a durable lineage", () => {
         const store = yield* RunStore.RunStore
         const state = yield* DurableEngineState.DurableEngineState
         const { calls, wiring } = yield* incarnation("park-host", [Opening, Gate])
+        const registered = yield* Layer.build(wiring)
 
         yield* Opening.execute({ value: 0 }, {
           executionId: "park-lineage",
           discard: true
-        }).pipe(Effect.provide(wiring))
+        }).pipe(Effect.provide(registered))
 
         const readPark = state.transaction(Effect.gen(function*() {
           return {
@@ -678,12 +679,12 @@ describe("a durable lineage", () => {
         // Handoff also enqueues its successor; a concurrent queued wake can be
         // running when discard returns. Assert one coherent settled park.
         for (let attempt = 0; attempt < 2_000 && snapshot.parked.status !== "suspended"; attempt++) {
-          yield* Effect.yieldNow
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           snapshot = yield* readPark
         }
         const { parked, waiting } = snapshot
 
-        yield* Gate.resume(roundId("park-lineage", 1)).pipe(Effect.provide(wiring))
+        yield* Gate.resume(roundId("park-lineage", 1)).pipe(Effect.provide(registered))
 
         const resumed = yield* store.get(roundId("park-lineage", 1))
         const beyond = yield* Effect.exit(store.get(roundId("park-lineage", 2)))

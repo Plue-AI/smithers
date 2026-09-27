@@ -2,6 +2,7 @@
  * Bind source observations to the runtime identity that admitted them.
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
@@ -15,10 +16,18 @@ export const planEnvironment: Effect.Effect<void, unknown, SqlClient.SqlClient> 
   const sql = yield* SqlClient.SqlClient
   yield* sql`ALTER TABLE flows_plan_input_heads ADD COLUMN environment_digest TEXT
     CHECK (environment_digest IS NULL OR length(environment_digest) > 0)`
-  yield* sql`CREATE TRIGGER flows_plan_input_heads_environment_required
-    BEFORE INSERT ON flows_plan_input_heads WHEN NEW.environment_digest IS NULL
-    BEGIN SELECT RAISE(ABORT, 'new plan input heads require an environment identity'); END`
-  yield* sql`CREATE TRIGGER flows_plan_input_heads_environment_immutable
-    BEFORE UPDATE ON flows_plan_input_heads WHEN NEW.environment_digest IS NOT OLD.environment_digest
-    BEGIN SELECT RAISE(ABORT, 'plan input environment identity is immutable'); END`
+  yield* Dialect.trigger(sql, {
+    name: `flows_plan_input_heads_environment_required`,
+    table: `flows_plan_input_heads`,
+    event: "BEFORE INSERT",
+    when: `NEW.environment_digest IS NULL`,
+    reject: "new plan input heads require an environment identity"
+  })
+  yield* Dialect.trigger(sql, {
+    name: `flows_plan_input_heads_environment_immutable`,
+    table: `flows_plan_input_heads`,
+    event: "BEFORE UPDATE",
+    when: `NEW.environment_digest IS DISTINCT FROM OLD.environment_digest`,
+    reject: "plan input environment identity is immutable"
+  })
 })

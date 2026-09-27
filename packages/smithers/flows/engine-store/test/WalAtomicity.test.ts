@@ -37,7 +37,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
@@ -324,7 +324,9 @@ describe("run lifecycle history is atomic with the run row", () => {
       const result = yield* run(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
         const terminal = (args: ReadonlyArray<unknown>): boolean => args[2] === "completed"
+        const crashingScope = yield* Scope.make()
         const crashingDriver = yield* makeDriver("crasher").pipe(
+          Scope.provide(crashingScope),
           Effect.provideService(
             RunStore.RunStore,
             Notifying.wrap(store, crashAt("transitionOwned", "after", terminal))
@@ -339,11 +341,13 @@ describe("run lifecycle history is atomic with the run row", () => {
         const rowAfterCrash = yield* store.get(executionId)
         const decisionsAfterCrash = yield* eventsOf(executionId, "flows.engine.run-decision")
 
+        yield* Scope.close(crashingScope, Exit.void)
         // A restarted worker steals the stale-running row and finalizes it.
         const driver = yield* makeDriver("healthy")
         yield* driver.register(DriverFlow, () => Effect.succeed("done"))
         yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatStaleAfter) + 1)
         yield* driver.execute(DriverFlow, { executionId, payload: {}, discard: true })
+        yield* TestDatabase.until(store.get(executionId).pipe(Effect.map((row) => row.status === "completed")))
         const decisions = yield* eventsOf(executionId, "flows.engine.run-decision")
         return {
           crashed,

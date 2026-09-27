@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Issue #59: the retry verdict is durable. A persisted `failed` attempt row
@@ -198,6 +199,9 @@ describe("non-retryable verdict durability across resume", () => {
             // Let the attempt run and durably fail; the fiber is now parked in
             // the post-finish hook.
             yield* Effect.yieldNow
+            yield* TestDatabase.until(
+              attempts.get(attemptId).pipe(Effect.map((row) => Option.isSome(row) && row.value.state === "failed"))
+            )
             const row = yield* attempts.get(attemptId)
             expect(Option.isSome(row) && row.value.state === "failed").toBe(true)
           }))

@@ -8,7 +8,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Action, Flow, RetryPolicy } from "@smthrs/flow"
-import { SqlJournal } from "@smthrs/journal"
+import { Journal, SqlJournal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
 import { Node } from "@smthrs/plan"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
@@ -95,8 +95,14 @@ describe("durable schedule-to-close origin", () => {
               payload: {},
               discard: true
             }).pipe(Effect.forkChild({ startImmediately: true }))
-            yield* TestClock.adjust("25 seconds")
-            yield* Effect.yieldNow
+            yield* TestDatabase.until(Effect.sync(() => dispatches >= 1))
+            yield* TestDatabase.until(TestClock.adjust("100 millis").pipe(Effect.map(() => dispatches >= 2)))
+            const journal = yield* Journal.Journal
+            yield* TestDatabase.until(
+              journal.entries({ runId: "retry-origin" as never, limit: 200 }).pipe(Effect.map((page) =>
+                page.entries.filter((entry) => entry.eventType === "flows.engine.attempt-finished").length >= 2
+              ))
+            )
           }))
           const store = yield* RunStore.RunStore
           const dispatchesBeforeRestart = dispatches
@@ -107,14 +113,16 @@ describe("durable schedule-to-close origin", () => {
           yield* TestClock.adjust("500 seconds")
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
-            yield* engine.register(OriginFlow, () => flaky as never)
+            yield* engine.register(OriginFlow, () =>
+              flaky as never)
             const fiber = yield* engine.execute(OriginFlow, {
               executionId: "retry-origin",
               payload: {},
               discard: true
             }).pipe(Effect.forkChild({ startImmediately: true }))
-            yield* TestClock.adjust("30 seconds")
-            yield* Effect.yieldNow
+            yield* TestDatabase.until(
+              TestClock.adjust("100 millis").pipe(Effect.map(() => fiber.pollUnsafe() !== undefined))
+            )
             yield* Fiber.await(fiber)
           }))
           return {
@@ -188,8 +196,16 @@ describe("durable schedule-to-close origin", () => {
               payload: {},
               discard: true
             }).pipe(Effect.forkChild({ startImmediately: true }))
-            yield* TestClock.adjust("25 seconds")
-            yield* Effect.yieldNow
+            yield* TestDatabase.until(Effect.sync(() => dispatches >= 1))
+            yield* TestDatabase.until(TestClock.adjust("100 millis").pipe(Effect.map(() => dispatches >= 2)))
+            const journal = yield* Journal.Journal
+            yield* TestDatabase.until(
+              journal.entries({ runId: "retry-origin-pruned" as never, limit: 200 }).pipe(
+                Effect.map((page) =>
+                  page.entries.filter((entry) => entry.eventType === "flows.engine.attempt-finished").length >= 2
+                )
+              )
+            )
           }))
           const dispatchesBeforeRestart = dispatches
 
@@ -206,8 +222,9 @@ describe("durable schedule-to-close origin", () => {
               payload: {},
               discard: true
             }).pipe(Effect.forkChild({ startImmediately: true }))
-            yield* TestClock.adjust("30 seconds")
-            yield* Effect.yieldNow
+            yield* TestDatabase.until(
+              TestClock.adjust("100 millis").pipe(Effect.map(() => fiber.pollUnsafe() !== undefined))
+            )
             yield* Fiber.await(fiber)
           }))
           const store = yield* RunStore.RunStore

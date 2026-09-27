@@ -10,6 +10,7 @@
  *
  * @since 0.1.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { afterCommit, DatabaseError, DurableWriter } from "@smthrs/database/DurableWriter"
 import type { OwnerId } from "@smthrs/run-store/Ownership"
 import * as Cause from "effect/Cause"
@@ -1206,7 +1207,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
       FROM flows_clock_deadlines
       WHERE completed_at_ms IS NULL
         AND execution_id = ${scope.executionId}
-        AND (${scope.flowName ?? null} IS NULL OR flow_name = ${scope.flowName ?? null})
+        AND ${scope.flowName === undefined ? sql`1 = 1` : sql`flow_name = ${scope.flowName}`}
         AND EXISTS (
           SELECT 1 FROM flows_runs
           WHERE flows_runs.run_id = flows_clock_deadlines.execution_id
@@ -1398,7 +1399,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         FROM flows_runs child
         JOIN tree ON child.execution_parent_id = tree.run_id
         WHERE tree.depth < ${waitingTreeMaxDepth}
-          AND COALESCE(json_extract(child.state_json, '$.onParentExit'), 'cancel') <> 'detach'
+          AND COALESCE(${Dialect.jsonText(sql, sql`child.state_json`, "$.onParentExit")}, 'cancel') <> 'detach'
       )
       SELECT
         parked.run_id AS "runId",
@@ -1502,7 +1503,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         AND heartbeat_at_ms IS NOT NULL
         AND heartbeat_at_ms < ${staleBeforeMs}
       ORDER BY heartbeat_at_ms, run_id
-      LIMIT ${limit ?? -1}
+      LIMIT ${limit ?? (Dialect.isPostgres(sql) ? null : -1)}
     `.pipe(
       Effect.orDie,
       Effect.map((rows) => rows.map((row) => String(row.runId)))

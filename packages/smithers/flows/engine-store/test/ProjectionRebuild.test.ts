@@ -1,4 +1,5 @@
 import { DurableWriter } from "@smthrs/database/DurableWriter"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { EngineEvent, Journal, JournalEvent } from "@smthrs/journal"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
 import { Effect, Option, Schema } from "effect"
@@ -181,7 +182,8 @@ describe("attempt projection rebuild from retained typed SQLite history", () => 
               const journal = yield* Journal.Journal
               const sql = yield* SqlClient.SqlClient
               const writer = yield* DurableWriter
-              expect(yield* sql`SELECT name FROM sqlite_master WHERE name = 'a2_attempt_projection'`).toEqual([])
+              expect(yield* sql`SELECT name FROM ${TestDatabase.catalog(sql)} WHERE name = 'a2_attempt_projection'`)
+                .toEqual([])
               const checkpoint = yield* journal.latestCheckpoint(runId)
               if (compacted) expect((yield* Effect.flip(journal.entries({ runId, limit: 17 }))).code).toBe("compacted")
               const fold = AttemptLifecycle.projection(consumer)
@@ -244,7 +246,7 @@ describe("attempt projection rebuild from retained typed SQLite history", () => 
             sql`CREATE TRIGGER a2_refuse_event BEFORE INSERT ON flows_journal_events BEGIN SELECT RAISE(ABORT, 'injected journal failure'); END`
           )
           expect((yield* Effect.exit(commit(0)))._tag).toBe("Failure")
-          yield* writer.write(sql`DROP TRIGGER a2_refuse_event`)
+          yield* writer.write(TestDatabase.dropTrigger(sql, "a2_refuse_event"))
           expect(
             (yield* Effect.exit(
               journal.transact(commit(1).pipe(Effect.andThen(Effect.fail("abort after both writes"))))

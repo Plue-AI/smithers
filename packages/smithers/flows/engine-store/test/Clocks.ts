@@ -26,7 +26,7 @@ export const clockAt = (millis: number): Clock.Clock => {
     currentTimeNanos: Effect.succeed(nanos),
     monotonicTimeNanosUnsafe: () => nanos,
     monotonicTimeNanos: Effect.succeed(nanos),
-    sleep: () => Effect.void
+    sleep: (duration) => Clock.Clock.defaultValue().sleep(duration)
   }
 }
 

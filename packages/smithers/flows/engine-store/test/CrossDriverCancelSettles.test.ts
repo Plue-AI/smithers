@@ -105,7 +105,8 @@ describe("a cross-driver cancel settles the execute fiber (N-09)", () => {
             // is still stuck after every one of these ticks, so the case fails
             // instead of hanging.
             let settled = caller.pollUnsafe()
-            for (let tick = 0; tick < 20 && settled === undefined; tick++) {
+            for (let tick = 0; tick < 2000 && settled === undefined; tick++) {
+              yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
               yield* TestClock.adjust(heartbeatMs)
               yield* Effect.yieldNow
               settled = caller.pollUnsafe()

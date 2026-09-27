@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Cause, Effect, Exit, Layer } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -301,7 +302,7 @@ describe("execution snapshots", () => {
         Effect.gen(function*() {
           const sql = yield* SqlClient.SqlClient
           const reader = yield* ExecutionSnapshot.make()
-          yield* sql`PRAGMA ignore_check_constraints = ON`
+          yield* TestDatabase.checks(sql, false)
           const corruptions = [
             "status = 'unknown'",
             "status = 'running'",

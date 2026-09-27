@@ -27,7 +27,7 @@ const migratedDatabase = Layer.provideMerge(Migrations.layer, TestDatabase.layer
 const schemaObjects = Effect.gen(function*() {
   const sql = yield* Effect.service(SqlClient.SqlClient)
   const rows = yield* sql<{ readonly name: string }>`
-    SELECT name AS "name" FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'
+    SELECT name AS "name" FROM ${TestDatabase.catalog(sql)} WHERE name NOT LIKE 'sqlite_%'
   `.pipe(Effect.orDie)
   return new Set(rows.map((row) => String(row.name)))
 })

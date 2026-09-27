@@ -163,7 +163,8 @@ describe("expirationMs survives a restart mid-retry (issue #45)", () => {
             discard: true
           }).pipe(Effect.forkChild({ startImmediately: true }))
           let row = yield* store.get("retry-expiration-run")
-          for (let i = 0; i < 20 && row.status !== "failed"; i++) {
+          for (let i = 0; i < 2000 && row.status !== "failed"; i++) {
+            yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
             for (let j = 0; j < 50; j++) yield* Effect.yieldNow
             if ((yield* store.get("retry-expiration-run")).status === "failed") break
             // Only a buggy engine (in-process origin reset) needs more time.

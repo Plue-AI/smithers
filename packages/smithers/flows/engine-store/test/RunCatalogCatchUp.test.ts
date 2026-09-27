@@ -183,7 +183,8 @@ describe("run catalog catch-up", () => {
       const exit = yield* onFile(filename)(Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const catalog = yield* RunCatalogOps.make()
-        yield* sql`DROP TABLE flows_runs`.pipe(Effect.orDie)
+        yield* sql`DROP TABLE flows_runs ${sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))}`
+          .pipe(Effect.orDie)
         return yield* Effect.exit(catalog.listRunIds())
       }))
 

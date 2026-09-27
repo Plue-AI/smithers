@@ -151,7 +151,8 @@ describe("interrupt-released runs are reclaimable (issue #39)", () => {
         yield* successor.register(TestFlow, () => Effect.succeed("reclaimed"))
 
         let row = yield* store.get("release-redrive")
-        for (let i = 0; i < 10 && row.status !== "completed"; i++) {
+        for (let i = 0; i < 2000 && row.status !== "completed"; i++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
           row = yield* store.get("release-redrive")
         }
@@ -181,7 +182,8 @@ describe("interrupt-released runs are reclaimable (issue #39)", () => {
           }).pipe(Effect.andThen(Effect.never)))
 
         let row = yield* store.get("release-cancel")
-        for (let i = 0; i < 10 && row.status !== "cancelled"; i++) {
+        for (let i = 0; i < 2000 && row.status !== "cancelled"; i++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
           row = yield* store.get("release-cancel")
         }

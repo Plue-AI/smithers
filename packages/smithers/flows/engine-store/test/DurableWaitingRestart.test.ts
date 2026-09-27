@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
+import * as PersistentDatabase from "./fixtures/PersistentDatabase.ts"
 
 const fixture = fileURLToPath(new URL("./fixtures/durable-wait-child.ts", import.meta.url))
 const repositoryRoot = fileURLToPath(new URL("../../../../../", import.meta.url))
@@ -183,7 +184,7 @@ afterEach(async () => {
 describe("durable waiting across process loss", () => {
   it("picks up a pending deferred wait after a hard process kill", async () => {
     const directory = await mkdtemp(join(tmpdir(), "flows-durable-wait-"))
-    const filename = join(directory, "wait.sqlite")
+    const filename = PersistentDatabase.filename(join(directory, "wait.sqlite"))
     const executionId = "hard-kill-wait"
     const first = startChild("wait-start", filename, executionId)
     try {
@@ -213,13 +214,14 @@ describe("durable waiting across process loss", () => {
       if (first.exitCode === null && first.signalCode === null) {
         await killHard(first)
       }
+      await PersistentDatabase.remove(filename)
       await rm(directory, { recursive: true, force: true })
     }
   }, restartBudget)
 
   it("re-arms a future timer after restart and fires at its stored deadline", async () => {
     const directory = await mkdtemp(join(tmpdir(), "flows-durable-timer-"))
-    const filename = join(directory, "timer.sqlite")
+    const filename = PersistentDatabase.filename(join(directory, "timer.sqlite"))
     const executionId = "future-timer"
     const first = startChild("timer-start", filename, executionId)
     try {
@@ -237,13 +239,14 @@ describe("durable waiting across process loss", () => {
       if (first.exitCode === null && first.signalCode === null) {
         await killHard(first)
       }
+      await PersistentDatabase.remove(filename)
       await rm(directory, { recursive: true, force: true })
     }
   }, restartBudget)
 
   it("allows only one deferred completion winner across two processes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "flows-durable-race-"))
-    const filename = join(directory, "race.sqlite")
+    const filename = PersistentDatabase.filename(join(directory, "race.sqlite"))
     const executionId = "process-race"
     try {
       await runChild("state-init", filename, executionId)
@@ -263,13 +266,14 @@ describe("durable waiting across process loss", () => {
       ])
       expect(outcomes[0]?.row).toEqual(outcomes[1]?.row)
     } finally {
+      await PersistentDatabase.remove(filename)
       await rm(directory, { recursive: true, force: true })
     }
   }, restartBudget)
 
   it("kills a child that misses its deadline and rejects with its output", async () => {
     const directory = await mkdtemp(join(tmpdir(), "flows-durable-deadline-"))
-    const filename = join(directory, "deadline.sqlite")
+    const filename = PersistentDatabase.filename(join(directory, "deadline.sqlite"))
     let pid: number | undefined
     try {
       // `wait-start` suspends and then waits forever, so it cannot finish.
@@ -285,6 +289,7 @@ describe("durable waiting across process loss", () => {
       expect(() => process.kill(pid as number, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }))
       expect(liveChildren.size).toBe(0)
     } finally {
+      await PersistentDatabase.remove(filename)
       await rm(directory, { recursive: true, force: true })
     }
   }, restartBudget)

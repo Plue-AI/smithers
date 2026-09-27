@@ -1,3 +1,5 @@
+import * as Dialect from "@smthrs/database/Dialect"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * Retention over the real durable engine schema.
  *
@@ -870,15 +872,18 @@ describe("retention", () => {
 
         // ABORT rolls back only the failing statement. Attempts and journal
         // rows have already been deleted when this late inventory entry fires.
-        yield* sql`CREATE TRIGGER refuse_retention_archive
-          BEFORE DELETE ON flows_time_travel_archive
-          WHEN OLD.run_id = 'aged'
+        yield* Dialect.trigger(sql, {
+          name: `refuse_retention_archive`,
+          table: `flows_time_travel_archive`,
+          event: `BEFORE DELETE`,
+          when: `OLD.run_id = 'aged'
             AND NOT EXISTS (SELECT 1 FROM flows_attempts WHERE run_id = 'aged')
-            AND NOT EXISTS (SELECT 1 FROM flows_journal_events WHERE run_id = 'aged')
-          BEGIN SELECT RAISE(ABORT, 'late retention delete'); END`.pipe(Effect.orDie)
+            AND NOT EXISTS (SELECT 1 FROM flows_journal_events WHERE run_id = 'aged')`,
+          reject: "late retention delete"
+        }).pipe(Effect.orDie)
         const snapshot = Effect.gen(function*() {
           const tables = yield* sql<{ readonly name: string }>`
-            SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name
+            SELECT name FROM ${TestDatabase.catalog(sql)} WHERE type = 'table' ORDER BY name
           `
           const rows: Record<string, ReadonlyArray<string>> = {}
           for (const { name } of tables) {
@@ -898,7 +903,7 @@ describe("retention", () => {
           error: { code: "delete_failed", message: "flows_time_travel_archive could not be collected" }
         })
         expect(yield* snapshot).toEqual(before)
-        yield* sql`DROP TRIGGER refuse_retention_archive`.pipe(Effect.orDie)
+        yield* TestDatabase.dropTrigger(sql, "refuse_retention_archive").pipe(Effect.orDie)
         expect((yield* retain.retain({ olderThanMs: thresholdMs, limit: 1 })).runIds).toEqual(["aged"])
         expect((yield* footprint("aged")).runs).toBe(0)
         expect((yield* footprint("survivor")).journal).toBe(1)
@@ -917,7 +922,9 @@ describe("retention", () => {
         yield* activate("aged")
         yield* finish("aged", "completed")
         yield* TestClock.adjust(agingMs)
-        yield* sql`DROP TABLE flows_attempts`.pipe(Effect.orDie)
+        yield* sql`DROP TABLE flows_attempts ${
+          sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))
+        }`.pipe(Effect.orDie)
 
         const exit = yield* Effect.exit(retain.retain({ olderThanMs: thresholdMs }))
 
@@ -942,7 +949,8 @@ describe("retention", () => {
         yield* activate("aged")
         yield* finish("aged", "completed")
         yield* TestClock.adjust(agingMs)
-        yield* sql`DROP TABLE flows_runs`.pipe(Effect.orDie)
+        yield* sql`DROP TABLE flows_runs ${sql.literal(sql.onDialectOrElse({ pg: () => "CASCADE", orElse: () => "" }))}`
+          .pipe(Effect.orDie)
 
         const exit = yield* Effect.exit(retain.retain({ olderThanMs: thresholdMs }))
 

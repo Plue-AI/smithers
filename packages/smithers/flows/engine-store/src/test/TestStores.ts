@@ -19,6 +19,7 @@ import * as PlanStore from "@smthrs/plan-store/PlanStore"
 import * as AttemptStore from "@smthrs/run-store/AttemptStore"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import * as CacheStore from "@smthrs/step-cache/CacheStore"
+import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as DurableEngineState from "../DurableEngineState.ts"
 import * as Migrations from "../Migrations.ts"
@@ -78,23 +79,37 @@ export const layer = (options?: TestStoresOptions) =>
   ).pipe(Layer.provide(database), Layer.merge(OwnerIdentity.layer))
 
 /**
- * The same schema over a named SQLite database, with the connection exposed.
+ * The same schema over a named SQLite database or PostgreSQL URL, with the connection exposed.
  *
  * {@link database} hides `SqlClient` behind the stores it provisions, which is
  * right for a case that only needs an engine. Two other shapes need the
  * connection itself: a composition that adds another SQL-backed service over
  * the same database (a control runtime, for one), and a case that has to prove
- * cross-process durability, which needs a real FILE rather than the private
+ * cross-process durability, which needs a persistent identity rather than the private
  * in-memory database each `:memory:` connection gets to itself.
  *
  * @category layers
  * @since 0.1.0
  */
-export const databaseAt = (filename: string) =>
-  Layer.provideMerge(
-    Migrations.layer,
-    Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))
-  )
+export const databaseAt = (filename: string) => {
+  const url = /^postgres(?:ql)?:/.test(filename) ? new URL(filename) : undefined
+  const schema = url?.searchParams.get("schema") ?? undefined
+  url?.searchParams.delete("schema")
+  const database = url === undefined ?
+    NodeDatabase.layer({ filename }) :
+    Layer.unwrap(
+      Effect.promise(() => import("@smthrs/database/postgres/PostgresDatabase")).pipe(
+        Effect.map((PostgresDatabase) =>
+          PostgresDatabase.layer({
+            url: url.toString(),
+            schema,
+            postgres: { connectTimeout: Infinity, idleTimeout: Infinity, connectionTTL: Infinity }
+          })
+        )
+      )
+    )
+  return Layer.provideMerge(Migrations.layer, Layer.provideMerge(DurableWriter.layer(), database))
+}
 
 /**
  * Every durable engine service over one named database, connection included.

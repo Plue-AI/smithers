@@ -113,6 +113,11 @@ describe("the parked-run sweep fetches only actionable rows (issue #68)", () => 
             for (let i = 0; i < 5; i++) {
               yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
             }
+            yield* TestDatabase.until(
+              Effect.sync(() =>
+                (getCounts.get("actionable-cancel") ?? 0) > 0 && (getCounts.get("actionable-released") ?? 0) > 0
+              )
+            )
             return {
               neutralQuota: getCounts.get("neutral-quota") ?? 0,
               neutralEvent: getCounts.get("neutral-event") ?? 0,

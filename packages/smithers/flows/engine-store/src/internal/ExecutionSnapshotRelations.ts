@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { RunStoreError } from "@smthrs/run-store/RunStore"
 import { Effect, Schema } from "effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -94,7 +95,7 @@ export const make = (
             : `SELECT run_id, COALESCE(round_ordinal, 0) AS ordinal FROM flows_runs
          WHERE execution_lineage = (SELECT execution_lineage FROM flows_runs WHERE run_id = ?)
          ${after} ORDER BY COALESCE(round_ordinal, 0), run_id LIMIT ?`
-          const rows = yield* sql.unsafe(query, values)
+          const rows = yield* Dialect.query(sql, query, values)
           const decoded = yield* Effect.forEach(rows, (row) => Read.decode(Relation, row))
           const selected = decoded.slice(0, limit)
           const batch = yield* read(selected.map((row) => row.run_id))

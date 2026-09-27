@@ -30,6 +30,7 @@
  *
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -94,9 +95,7 @@ export interface Options {
 const hasTable = (table: string): Effect.Effect<boolean, SqlError, SqlClient.SqlClient> =>
   Effect.gen(function*() {
     const sql = yield* SqlClient.SqlClient
-    const rows = yield* sql<{ readonly name: string }>`
-      SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${table}
-    `
+    const rows = yield* Dialect.tables(sql).pipe(Effect.map((rows) => rows.filter((row) => row.name === table)))
     return rows.length > 0
   })
 

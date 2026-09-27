@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
 import { KeyMaterial, Plan, StepKey } from "@smthrs/plan"
@@ -275,7 +276,7 @@ describe("merge recovery across independent SQLite openings", () => {
             expect((yield* sql`SELECT * FROM flows_plan_merge_intents`).length).toBe(frontier === "intent" ? 0 : 1)
             expect(yield* sql`SELECT * FROM flows_journal_events WHERE event_type = 'flows.engine.subgraph-appended'`)
               .toEqual([])
-            yield* sql`DROP TRIGGER fail_merge`
+            yield* TestDatabase.dropTrigger(sql, "fail_merge")
           })
         )
         expect(calls).toEqual(["a", "b"])

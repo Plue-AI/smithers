@@ -11,7 +11,9 @@ import { AttemptStore } from "@smthrs/run-store/AttemptStore"
 import { RunStore } from "@smthrs/run-store/RunStore"
 import { CacheStore } from "@smthrs/step-cache/CacheStore"
 import { Effect, Option } from "effect"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
 import * as TestStores from "../src/test/TestStores.ts"
+import * as PersistentDatabase from "./fixtures/PersistentDatabase.ts"
 
 describe("TestStores", () => {
   it.effect("provides the complete production service bundle over in-memory SQLite", () =>
@@ -91,4 +93,30 @@ describe("TestStores", () => {
       expect(Option.getOrThrow(result.cache).result).toEqual({ value: "ok" })
       expect(result.entries.entries.map((entry) => entry.seq)).toEqual([0])
     }))
+})
+
+it("reopens a named database with the same migrated state", async () => {
+  if (!process.env.SMITHERS_TEST_PG_URL) return
+  const filename = PersistentDatabase.filename(":memory:")
+  const check = Effect.gen(function*() {
+    const sql = yield* SqlClient
+    return yield* sql<{ name: string }>`SELECT name FROM flows_migrations ORDER BY migration_id`
+  }).pipe(Effect.provide(TestStores.databaseAt(filename)))
+  try {
+    const first = await Effect.runPromise(check)
+    expect(first.length).toBeGreaterThan(0)
+    expect(await Effect.runPromise(check)).toEqual(first)
+    // A URL without a schema delegates to the adapter's documented default.
+    const url = new URL(filename)
+    url.searchParams.delete("schema")
+    const defaultSchema = await Effect.runPromise(
+      Effect.gen(function*() {
+        const sql = yield* SqlClient
+        return yield* sql<{ schema: string }>`SELECT current_schema() AS schema`
+      }).pipe(Effect.provide(TestStores.databaseAt(url.toString())))
+    )
+    expect(defaultSchema[0]?.schema).toBe("smithers_flows")
+  } finally {
+    await PersistentDatabase.remove(filename)
+  }
 })

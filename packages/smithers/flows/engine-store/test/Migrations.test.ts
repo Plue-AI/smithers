@@ -38,6 +38,9 @@ const rejectedBy = (exit: Exit.Exit<unknown, unknown>): string => {
 const migrated = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
   run(effect.pipe(Effect.provide(Migrations.layer), Effect.provide(TestDatabase.layer)))
 
+const sqliteMigrated = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
+  run(effect.pipe(Effect.provide(Migrations.layer), Effect.provide(TestDatabase.sqliteLayer)))
+
 describe("durable engine migrations", () => {
   it.effect("migrates a fresh database and reruns idempotently", () =>
     Effect.gen(function*() {
@@ -49,11 +52,11 @@ describe("durable engine migrations", () => {
 
   it.effect("creates the expected schema without interpreter columns", () =>
     Effect.gen(function*() {
-      const schema = yield* migrated(Effect.gen(function*() {
+      const schema = yield* sqliteMigrated(Effect.gen(function*() {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const master = yield* sql<
           SqliteMasterRow
-        >`SELECT name, type, sql FROM sqlite_master WHERE name LIKE 'flows_%'`
+        >`SELECT name, type, sql FROM ${TestDatabase.catalog(sql)} WHERE name LIKE 'flows_%'`
         const tables = Object.fromEntries(
           yield* Effect.forEach(
             master.filter((row) => row.type === "table"),
@@ -298,7 +301,9 @@ describe("durable engine migrations", () => {
       // row would otherwise satisfy.
       expect(outcomes.partial).toEqual(partialOwners.map(([label]) => [
         label,
-        expect.stringContaining("CHECK constraint failed: ( status = 'running' AND owner_host_id IS NOT NULL")
+        expect.stringMatching(
+          /CHECK constraint failed: \( status = 'running' AND owner_host_id IS NOT NULL|violates check constraint/
+        )
       ]))
     }))
 

@@ -218,9 +218,9 @@ describe("waitingTree", () => {
         // park a sweeper has to see.
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const writer = yield* DurableWriter.DurableWriter
-        yield* writer.write(sql`PRAGMA ignore_check_constraints = ON`)
+        yield* writer.write(TestDatabase.checks(sql, false))
         yield* writer.write(sql`UPDATE flows_runs SET waiting_request = 'not json' WHERE run_id = 'torn'`)
-        yield* writer.write(sql`PRAGMA ignore_check_constraints = OFF`)
+        yield* writer.write(TestDatabase.checks(sql, true))
 
         const tree = yield* state.waitingTree("torn")
         expect(tree.map((row) => row.runId)).toEqual(["torn"])

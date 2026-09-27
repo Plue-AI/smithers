@@ -3,6 +3,7 @@
  *
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import type { RunStoreError } from "@smthrs/run-store/RunStore"
 import { Context, Effect, Layer, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -117,7 +118,8 @@ export const make = (): Effect.Effect<Service, never, SqlClient.SqlClient> =>
             Effect.gen(function*() {
               const at = yield* Read.position(sql)
               if (ids.length === 0) return { ...at, snapshots: [] }
-              const rows = yield* sql.unsafe(
+              const rows = yield* Dialect.query(
+                sql,
                 `SELECT ${Read.selectColumns} FROM flows_runs r
             LEFT JOIN flows_run_changes c ON c.run_id = r.run_id
             WHERE r.run_id IN (${ids.map(() => "?").join(",")})`,
@@ -128,7 +130,8 @@ export const make = (): Effect.Effect<Service, never, SqlClient.SqlClient> =>
                 const value = yield* Read.observed(row, at)
                 snapshots.set(value.runId, value)
               }
-              const changes = yield* sql.unsafe<{ run_id: string; revision: number; deleted: number }>(
+              const changes = yield* Dialect.query<{ run_id: string; revision: number; deleted: number }>(
+                sql,
                 `SELECT run_id, revision, deleted FROM flows_run_changes WHERE run_id IN (${
                   ids.map(() => "?").join(",")
                 })`,

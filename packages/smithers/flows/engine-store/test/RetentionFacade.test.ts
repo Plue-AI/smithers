@@ -1,3 +1,4 @@
+import * as Dialect from "@smthrs/database/Dialect"
 /**
  * `Retention.collect`, the host-facing pass `smithers gc` runs over one file.
  *
@@ -237,14 +238,34 @@ describe("Retention.collect", () => {
       // The driver's BEGIN IMMEDIATE reserves a write lock even for reads, so
       // PRAGMA query_only would reject the transaction before the pass runs.
       // Check persisted changes and both schemas, not the lock mode it uses.
-      const changes = yield* sql`SELECT total_changes() AS total`
-      const schema = yield* sql`SELECT name, sql FROM sqlite_master UNION ALL SELECT name, sql FROM sqlite_temp_master`
+      const changes = yield* sql.onDialectOrElse({
+        pg: () => sql`SELECT * FROM flows_runs ORDER BY run_id`,
+        orElse: () => sql`SELECT total_changes() AS total`
+      })
+      const schema = yield* sql`SELECT name, sql FROM ${TestDatabase.catalog(sql)} ${
+        sql.literal(sql.onDialectOrElse({
+          pg: () => "",
+          orElse: () => "UNION ALL SELECT name, sql FROM sqlite_temp_master"
+        }))
+      }`
       const report = yield* Retention.collect({ olderThanMs: 500, dryRun: true })
       expect(report.runs).toEqual(["old-result"])
       expect(report.deleted).toEqual({})
       expect(yield* count("flows_runs")).toBe(1)
-      expect(yield* sql`SELECT total_changes() AS total`).toEqual(changes)
-      expect(yield* sql`SELECT name, sql FROM sqlite_master UNION ALL SELECT name, sql FROM sqlite_temp_master`)
+      expect(
+        yield* sql.onDialectOrElse({
+          pg: () => sql`SELECT * FROM flows_runs ORDER BY run_id`,
+          orElse: () => sql`SELECT total_changes() AS total`
+        })
+      ).toEqual(changes)
+      expect(
+        yield* sql`SELECT name, sql FROM ${TestDatabase.catalog(sql)} ${
+          sql.literal(sql.onDialectOrElse({
+            pg: () => "",
+            orElse: () => "UNION ALL SELECT name, sql FROM sqlite_temp_master"
+          }))
+        }`
+      )
         .toEqual(schema)
     })))
 
@@ -427,8 +448,12 @@ describe("Retention.collect", () => {
       // every later sweep.
       yield* sql`CREATE TABLE control_runs (run_id TEXT NOT NULL)`
       yield* sql`INSERT INTO control_runs ${sql.insert({ run_id: "old" })}`
-      yield* sql`CREATE TRIGGER control_runs_refuse BEFORE DELETE ON control_runs
-        BEGIN SELECT RAISE(ABORT, 'refused'); END`
+      yield* Dialect.trigger(sql, {
+        name: `control_runs_refuse`,
+        table: `control_runs`,
+        event: `BEFORE DELETE`,
+        reject: "refused"
+      })
 
       const exit = yield* Effect.exit(Retention.collect({ olderThanMs: 500 }))
 
@@ -592,19 +617,24 @@ describe("Retention.collect", () => {
       // retention leaks forever. Listing is deliberate, so this pins the list
       // against the catalog rather than trusting it.
       const sql = yield* SqlClient.SqlClient
-      const rows = yield* sql<{ readonly table_name: string; readonly column_name: string }>`
-        SELECT m.name AS table_name, c.name AS column_name
-        FROM sqlite_master AS m, pragma_table_info(m.name) AS c
-        WHERE m.type = 'table'
-          AND (c.name LIKE '%run_id' OR c.name IN ('execution_id', 'child_id', 'parent_id'))
-      `
-      const cascades = new Set(
-        (yield* sql<{ readonly table_name: string }>`
-          SELECT m.name AS table_name
+      const rows: Array<{ table_name: string; column_name: string }> = []
+      for (const table of yield* Dialect.tables(sql)) {
+        for (const column of yield* Dialect.columns(sql, table.name)) {
+          if (column.name.endsWith("run_id") || ["execution_id", "child_id", "parent_id"].includes(column.name)) {
+            rows.push({ table_name: table.name, column_name: column.name })
+          }
+        }
+      }
+      const cascades = new Set((yield* sql.onDialectOrElse({
+        pg: () =>
+          sql<{ table_name: string }>`SELECT rel.relname AS table_name
+          FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid
+          WHERE con.confrelid = 'flows_runs'::regclass AND con.confdeltype = 'c'`,
+        orElse: () =>
+          sql<{ table_name: string }>`SELECT m.name AS table_name
           FROM sqlite_master AS m, pragma_foreign_key_list(m.name) AS f
-          WHERE m.type = 'table' AND f."table" = 'flows_runs' AND f.on_delete = 'CASCADE'
-        `).map((row) => row.table_name)
-      )
+          WHERE m.type = 'table' AND f."table" = 'flows_runs' AND f.on_delete = 'CASCADE'`
+      })).map((row) => row.table_name))
       const inventory = new Set(Retention.runScopedTables.map((entry) => `${entry.table}.${entry.column}`))
       const exempt = new Set([
         // The run row itself, deleted last in generation order.

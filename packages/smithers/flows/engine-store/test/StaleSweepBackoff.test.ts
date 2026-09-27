@@ -181,8 +181,12 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
         // Cross the staleness horizon so every row is sweepable, then take
         // exactly two sweep ticks.
         yield* TestClock.adjust(staleAfterMs + heartbeatMs)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 64))
+        yield* TestDatabase.until(refusalsOf(runIdOf(64)).pipe(Effect.map((rows) => rows.length === 1)))
         const afterFirstTick = [...probed]
         yield* TestClock.adjust(heartbeatMs)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 65))
+        yield* TestDatabase.until(refusalsOf(runIdOf(65)).pipe(Effect.map((rows) => rows.length === 1)))
         const afterSecondTick = [...probed]
 
         // Then keep ticking well past the first backoff: the refusals repeat,
@@ -247,8 +251,12 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
         // Three refusals in a row: the wait doubles each time, so by the third
         // the row is deferred for several ticks.
         yield* TestClock.adjust(staleAfterMs + heartbeatMs)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 1))
+        yield* TestDatabase.until(refusalsOf(runIdOf(1)).pipe(Effect.map((rows) => rows.length === 1)))
         yield* TestClock.adjust(heartbeatMs * 2)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 2))
         yield* TestClock.adjust(heartbeatMs * 4)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 3))
         const afterThreeRefusals = probed.length
 
         // The owner starts heartbeating again, so the row leaves the stale
@@ -263,6 +271,7 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
         // rather than waiting out a backoff it did not earn.
         yield* setHeartbeat((yield* Clock.currentTimeMillis) - staleAfterMs - 1)
         yield* TestClock.adjust(heartbeatMs)
+        yield* TestDatabase.until(Effect.sync(() => probed.length >= 4))
         return { afterThreeRefusals, whileFresh, afterNewLease: probed.length }
       }))
 
@@ -321,6 +330,9 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
           // so the stale sweep arbitrates the SAME (run, owner, lease) with a
           // probe instead.
           yield* TestClock.adjust(staleAfterMs + heartbeatMs)
+          yield* TestDatabase.until(
+            refusalEvidenceOf("contested").pipe(Effect.map((values) => values.includes("probe")))
+          )
           const afterSweep = yield* refusalEvidenceOf("contested")
 
           // A caller joining the run must be told to wait, not be killed by
@@ -507,6 +519,7 @@ describe("two drivers over one database arbitrate by pid (B-09)", () => {
         // Past the lease window, which is the only thing the old code had to
         // go on. The row is sweepable and driver A is alive.
         yield* TestClock.adjust(staleAfterMs + heartbeatMs)
+        yield* TestDatabase.until(refusalsOf("contested").pipe(Effect.map((rows) => rows.length === 1)))
         const whileAlive = {
           executions,
           row: yield* store.get("contested"),
@@ -520,6 +533,7 @@ describe("two drivers over one database arbitrate by pid (B-09)", () => {
 
         // Past the first refusal's backoff, which is two ticks.
         yield* TestClock.adjust(heartbeatMs * 3)
+        yield* TestDatabase.until(store.get("contested").pipe(Effect.map((row) => row.status === "completed")))
         return {
           whileAlive,
           afterExit: { executions, row: yield* store.get("contested") },

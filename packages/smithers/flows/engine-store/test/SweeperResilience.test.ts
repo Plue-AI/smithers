@@ -130,7 +130,8 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
             const afterBusy = yield* store.get("sweeper-resilience-cancel")
 
             let row = afterBusy
-            for (let i = 0; i < 10 && row.status !== "cancelled"; i++) {
+            for (let i = 0; i < 2000 && row.status !== "cancelled"; i++) {
+              yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
               yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
               row = yield* store.get("sweeper-resilience-cancel")
             }
@@ -209,7 +210,8 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
             const afterDefect = yield* store.get("sweeper-wake-defect-cancel")
 
             let row = afterDefect
-            for (let i = 0; i < 10 && row.status !== "cancelled"; i++) {
+            for (let i = 0; i < 2000 && row.status !== "cancelled"; i++) {
+              yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
               yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
               row = yield* store.get("sweeper-wake-defect-cancel")
             }

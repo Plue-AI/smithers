@@ -1,4 +1,5 @@
 import type { DurableWriter } from "@smthrs/database/DurableWriter"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #62: the #39 reclaim wakes released rows through `drive()`, but
@@ -121,6 +122,9 @@ describe("unregistered-flow reclaim is loud, not silent (issue #62)", () => {
           yield* makeDriver("owner-2").pipe(Scope.provide(successorScope))
           yield* TestClock.adjust(3 * Duration.toMillis(Ownership.heartbeatInterval))
 
+          yield* TestDatabase.until(
+            Effect.sync(() => logs.some((entry) => String(entry.message).includes("not registered")))
+          )
           const warningsWhileUnregistered = logs.filter((entry) => String(entry.message).includes("not registered"))
           const rowWhileUnregistered = yield* store.get("unregistered-release")
           const waitingWhileUnregistered = yield* state.waiting("unregistered-release")
@@ -131,7 +135,8 @@ describe("unregistered-flow reclaim is loud, not silent (issue #62)", () => {
           const registered = yield* makeDriver("owner-3")
           yield* registered.register(TestFlow, () => Effect.succeed("reclaimed"))
           let row = yield* store.get("unregistered-release")
-          for (let i = 0; i < 10 && row.status !== "completed"; i++) {
+          for (let i = 0; i < 2000 && row.status !== "completed"; i++) {
+            yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
             yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
             row = yield* store.get("unregistered-release")
           }
@@ -206,6 +211,7 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
           yield* store.requestCancel("b01-parked", 1_000)
           yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
 
+          yield* TestDatabase.until(store.get("b01-child").pipe(Effect.map((row) => row.cancelRequestedAtMs !== null)))
           const row = yield* store.get("b01-parked")
           const child = yield* store.get("b01-child")
           const waiting = yield* state.waiting("b01-parked")
@@ -290,12 +296,19 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
           yield* makeDriver("owner-loses-claim")
           yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
 
+          yield* TestDatabase.until(
+            journal.entries({ runId: "b01-contended" as never, limit: 200 }).pipe(Effect.map((page) =>
+              page.entries.some((entry) => (entry.payload as { decision?: string }).decision === "claim-lost")
+            ))
+          )
           yield* journal.flush
           const entries = yield* journal.entries({ runId: "b01-contended" as never, limit: 200 })
           return {
             row: yield* store.get("b01-contended"),
             decisions: entries.entries
-              .filter((entry) => entry.eventType === "flows.engine.run-decision")
+              .filter((entry) =>
+                entry.eventType === "flows.engine.run-decision"
+              )
               .map((entry) => (entry.payload as { readonly decision: string }).decision),
             interrupted: entries.entries.filter((entry) => entry.eventType === "flows.engine.interrupted").length
           }

@@ -65,12 +65,12 @@ describe("SQL DurableEngineState", () => {
       yield* Migrations.run
       expect(yield* Migrations.run).toEqual([])
       yield* state.recordRunParent("child", "parent")
-      const plan = yield* sql<{ detail: string }>`
-        EXPLAIN QUERY PLAN SELECT COALESCE(MAX(seq), 0) + 1 FROM flows_run_parents WHERE TRUE
+      const plan = yield* TestDatabase.explain(
+        sql,
+        sql`SELECT COALESCE(MAX(seq), 0) + 1 FROM flows_run_parents WHERE TRUE
       `
-      expect(plan.map((row) => row.detail)).toEqual([
-        "SEARCH flows_run_parents USING COVERING INDEX flows_run_parents_seq_idx"
-      ])
+      )
+      expect(plan.map((row) => row.detail).join("\n")).toContain("flows_run_parents_seq_idx")
       expect(yield* state.runParents("child")).toEqual([{ childId: "child", parentId: "parent", seq: 2 }])
     }).pipe(Effect.provide(TestDatabase.layer)))
 
@@ -254,7 +254,7 @@ describe("SQL DurableEngineState", () => {
           yield* DurableEngineState.make
           const sql = yield* Effect.service(SqlClient.SqlClient)
           const indexes = yield* sql<{ readonly name: string }>`
-          SELECT name FROM sqlite_master
+          SELECT name FROM ${TestDatabase.catalog(sql)}
           WHERE type = 'index' AND tbl_name = 'flows_runs'
         `
           return indexes.map((row) => row.name)

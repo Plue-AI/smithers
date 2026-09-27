@@ -1,4 +1,5 @@
 import type { DurableWriter } from "@smthrs/database/DurableWriter"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * A durable cancellation must reach the linked children of the run it
  * cancelled, and must release the flow scope a parked run retained.
@@ -303,6 +304,14 @@ describe("cancelling a parked flow closes its retained scope", () => {
       const finalizedWhileParked = [...finalized]
 
       yield* cancel(driver, store)
+      yield* TestDatabase.until(
+        TestClock.adjust(Ownership.heartbeatInterval).pipe(
+          Effect.andThen(
+            store.get(executionId).pipe(Effect.map((row) => row.status === "cancelled" && finalized.length === 1))
+          )
+        )
+      )
+      yield* TestDatabase.until(driver.retainedRuns.pipe(Effect.map((runs) => runs.size === 0)))
 
       return {
         parkedStatus: parked.status,
@@ -368,6 +377,14 @@ describe("cancelling a parked flow closes its retained scope", () => {
           yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
           yield* Effect.yieldNow
         }
+        yield* TestDatabase.until(
+          TestClock.adjust(Ownership.heartbeatInterval).pipe(
+            Effect.andThen(
+              store.get("parked-defective-finalizer").pipe(Effect.map((row) => row.status === "cancelled"))
+            )
+          )
+        )
+        yield* TestDatabase.until(driver.retainedRuns.pipe(Effect.map((runs) => runs.size === 0)))
         return {
           retained: [...(yield* driver.retainedRuns)],
           row: yield* store.get("parked-defective-finalizer")

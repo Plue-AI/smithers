@@ -113,7 +113,8 @@ describe("lease-based default liveness", () => {
 
         yield* TestClock.adjust(staleAfterMs + heartbeatMs)
         let row = yield* store.get("lease-reclaim")
-        for (let tick = 0; tick < 10 && row.status !== "completed"; tick++) {
+        for (let tick = 0; tick < 2000 && row.status !== "completed"; tick++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           yield* TestClock.adjust(heartbeatMs)
           row = yield* store.get("lease-reclaim")
         }

@@ -49,8 +49,8 @@ const jj = Jj.make({
 const completed = (store: RunStore.Service, runId: string) =>
   Effect.gen(function*() {
     let row = yield* store.get(runId)
-    for (let attempt = 0; attempt < 100 && row.status !== "completed"; attempt++) {
-      yield* Effect.yieldNow
+    for (let attempt = 0; attempt < 2000 && row.status !== "completed"; attempt++) {
+      yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
       yield* TestClock.adjust("10 millis")
       row = yield* store.get(runId)
     }

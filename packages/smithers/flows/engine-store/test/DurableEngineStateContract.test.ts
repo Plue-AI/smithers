@@ -70,9 +70,9 @@ const sqlHarness: Harness = {
               // Disable the test database's foreign keys briefly so this
               // contract can leave those rows behind and exercise the
               // run-existence join itself.
-              yield* sql`PRAGMA foreign_keys = OFF`
+              yield* TestDatabase.foreignKeys(sql, false)
               yield* sql`DELETE FROM flows_runs WHERE run_id = ${runId}`
-              yield* sql`PRAGMA foreign_keys = ON`
+              yield* TestDatabase.foreignKeys(sql, true)
             }).pipe(Effect.orDie)
         }
         return yield* body(context)

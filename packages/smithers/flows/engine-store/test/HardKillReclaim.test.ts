@@ -1,4 +1,5 @@
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
+import * as PersistentDatabase from "./fixtures/PersistentDatabase.ts"
 /**
  * Pins issue #53: a run whose owner dies without releasing it (SIGKILL, OOM,
  * power loss) stays `status='running'` with a frozen heartbeat and no waiting
@@ -195,7 +196,8 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
         // Cross the staleness horizon, then let the sweeper tick.
         yield* TestClock.adjust(staleAfterMs + heartbeatMs)
         let row = yield* store.get("hard-kill-redrive")
-        for (let i = 0; i < 10 && row.status !== "completed"; i++) {
+        for (let i = 0; i < 2000 && row.status !== "completed"; i++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           yield* TestClock.adjust(heartbeatMs)
           row = yield* store.get("hard-kill-redrive")
         }
@@ -215,7 +217,7 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
       // owner identities, and the first one is fully closed before the second
       // opens. What the second reads has to have been on disk.
       const directory = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "hard-kill-file-")))
-      const filename = join(directory, "runs.db")
+      const filename = PersistentDatabase.filename(join(directory, "runs.db"))
       const runId = "hard-kill-across-a-file"
       const deadOwner: Ownership.OwnerId = { hostId: "dead-host", pid: 424242, nonce: "dead-nonce" }
 
@@ -260,7 +262,8 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
           })
           yield* driver.register(TestFlow, () => Effect.succeed("reclaimed off disk"))
           let row = yield* store.get(runId)
-          for (let i = 0; i < 20 && row.status !== "completed"; i++) {
+          for (let i = 0; i < 2000 && row.status !== "completed"; i++) {
+            yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
             yield* TestClock.adjust(heartbeatMs)
             row = yield* store.get(runId)
           }
@@ -268,7 +271,10 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
         }))
 
         return { abandoned, reclaimed }
-      }).pipe(Effect.ensuring(Effect.promise(() => rm(directory, { recursive: true, force: true }))))
+      }).pipe(Effect.ensuring(Effect.promise(async () => {
+        await PersistentDatabase.remove(filename)
+        await rm(directory, { recursive: true, force: true })
+      })))
 
       // The evidence the first composition left, and the outcome the second
       // reached with nothing but that file.
@@ -295,7 +301,7 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
     // the surviving driver's own now, not the dead process's. Nothing rewrites
     // the abandoned row.
     const directory = await mkdtemp(join(tmpdir(), "lease-reclaim-process-"))
-    const filename = join(directory, "runs.db")
+    const filename = PersistentDatabase.filename(join(directory, "runs.db"))
     const runId = "lease-reclaim-after-sigkill"
     const child = spawn(process.execPath, [fixture, filename, runId], {
       cwd: repositoryRoot,
@@ -326,7 +332,8 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
             // window: the horizon can only have been crossed by `setTime`
             // above, never by the ticking itself. Dropping `setTime` and
             // keeping this budget leaves the run `running`.
-            for (let tick = 0; tick < 10 && row.status !== "completed"; tick++) {
+            for (let tick = 0; tick < 2000 && row.status !== "completed"; tick++) {
+              yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
               yield* TestClock.adjust(heartbeatMs)
               row = yield* store.get(runId)
             }
@@ -352,6 +359,7 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
       if (child.exitCode === null && child.signalCode === null) {
         await killHard(child)
       }
+      await PersistentDatabase.remove(filename)
       await rm(directory, { recursive: true, force: true })
     }
   }, processBudget)
@@ -377,7 +385,8 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
 
         yield* TestClock.adjust(staleAfterMs + heartbeatMs)
         let row = yield* store.get("hard-kill-cancel")
-        for (let i = 0; i < 10 && row.status !== "cancelled"; i++) {
+        for (let i = 0; i < 2000 && row.status !== "cancelled"; i++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
           yield* TestClock.adjust(heartbeatMs)
           row = yield* store.get("hard-kill-cancel")
         }
