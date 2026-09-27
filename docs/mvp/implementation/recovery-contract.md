@@ -19,12 +19,12 @@ Historical candidate browsing, recovery of never-submitted local edits, and cros
 | --- | --- | --- |
 | Plue `GET /api/repos/{owner}/{repo}/repository-jobs` | Actual registration ID, activator, workspace, mode, revision, digest, source revision, reviewed configuration and enabled state | Repo-wide read access is not authority to execute through another activator’s workspace |
 | Plue `GET /api/repos/{owner}/{repo}/repository-jobs/{job}/dispatches` | Actual admitted job dispatches and observed run IDs | Does not prove setup evals or trial success |
-| Worker `GET /api/repository-setup/request?requestId=…&repo=…&job=…` | The caller’s exact durable setup receipt and completed result | Requires an already-known request ID; its ordinary nonterminal read can advance admission and must not be used for recovered work |
-| Login-scoped setup DO records | Original submitted draft and operation, bound workspace, actual receipt/result | Completed requests leave the pending queue; new admissions retain a separate deterministic repo/job pointer |
+| Backend `GET /api/repository-setup/request?requestId=…&repo=…&job=…` | The caller’s exact durable setup receipt and completed result | Requires an already-known request ID; a read never starts work |
+| Backend `repository_setup_requests` rows | Original submitted draft and operation, bound workspace, actual receipt/result | The latest row per user, repository and job is what `state` recovers |
 
 Plue stores `mode: "enabled"` plus `enabled: false` for a paused registration. A `mode: "trial"` row is never general activation. `configuration.input` holds the reviewed draft; recovery must parse it with the shared schema and verify its candidate digest before using it as an editable draft.
 
-Source: [Worker route](../../../apps/server/src/repositorySetup.ts), [DO record storage](../../../apps/server/src/repositorySetupStore.ts), [storage adapter](../../../apps/server/src/DurableStorage.ts). Backend: `~/plue/cmd/server/router.go:1320`, `internal/services/repository_jobs.go:79,221,284`, `db/queries/repository_jobs.sql`.
+Source: [backend route](../../../packages/backend/internal/compose/repository_setup.go), [durable requests](../../../packages/backend/internal/services/repository_setup.go) (the Worker DO store is retired, #2198). Backend: `~/plue/cmd/server/router.go:1320`, `internal/services/repository_jobs.go:79,221,284`, `db/queries/repository_jobs.sql`.
 
 ## Smallest new contract
 

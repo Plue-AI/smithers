@@ -14,7 +14,7 @@ export function runFailure(detail = "") {
 /** The workspace built-in that registers a repository flow on a schedule. */
 const REGISTRAR_FLOW = "repository/trigger"
 
-/** The bridge every repository setup operation runs under (apps/server/src/repositorySetupExecution.ts). */
+/** The bridge every repository setup operation runs under (packages/backend services/repository_setup.go). */
 const SETUP_FLOW = "repository/setup"
 
 /**

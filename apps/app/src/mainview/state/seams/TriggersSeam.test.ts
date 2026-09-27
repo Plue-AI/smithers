@@ -1213,10 +1213,8 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
   })
 
   /*
-   * A workspace that idle-suspended is resuming, and the relay answers that
-   * state as HTTP 200 with its own sentence (apps/server workflows.ts
-   * gatewayCallResponse: provisioning, no-capacity, quota-exceeded,
-   * no-cloud-identity, no-cloud-repo). Since the register door always
+   * A workspace that idle-suspended is resuming, and the flow route answers
+   * that state as HTTP 200 `provisioning`. Since the register door always
    * addresses the repository-jobs box, this is the ordinary first press after
    * the box has been idle.
    */

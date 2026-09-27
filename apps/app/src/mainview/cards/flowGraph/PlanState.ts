@@ -12,10 +12,9 @@
  * different amounts of type behind them, and the card is handed the least of
  * them:
  *
- *  - The relay's workspace states — `provisioning`, `no-capacity`,
- *    `quota-exceeded` (apps/server/src/workflows.ts) — cross the wire as
- *    typed statuses and are collapsed into their `message` by the provision
- *    poll (state/controller/workflows.ts), which answers `true | string`.
+ *  - The box's provision states — `ready`, `provisioning`, or a refusal —
+ *    are collapsed into a sentence by the provision poll
+ *    (state/controller/workflows.ts), which answers `true | string`.
  *  - A control-plane refusal carries a `code` on the seam's own result
  *    (state/controller/gateway.ts `GatewayResult`), which the plan settle
  *    does not keep.

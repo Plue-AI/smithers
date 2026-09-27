@@ -6,8 +6,8 @@
  * provision reached the product host and answered `502 upstream_refused`,
  * which the door then read out as the Worker's bare words. Both halves are
  * pinned here: which box the provision asks for, and what a refusal says.
- * That the Worker sends prose rather than plue's JSON is pinned beside it, in
- * `apps/server/src/gateway.test.ts`.
+ * That the Worker restates a refusal as prose with its code is pinned in
+ * `apps/server/src/index.test.ts`.
  */
 import { expect, test } from "bun:test"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"

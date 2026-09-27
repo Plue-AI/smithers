@@ -81,9 +81,8 @@ describe("the vendored plue failure registry", () => {
   })
 
   test("every code this repository already reads off the wire by name has a row", () => {
-    // These are the codes Smithers itself branches on — workflows.ts and
-    // gateway.ts in apps/server, repositorySetupExecution.ts, WorkspaceSeam.ts
-    // in apps/app. Vendoring that lags plue leaves them as `rawCode` strings
+    // These are the codes Smithers itself branches on — WorkspaceSeam.ts
+    // and the flow controllers in apps/app. Vendoring that lags plue leaves them as `rawCode` strings
     // with the verdict guessed from the status, which is the exact thing this
     // table exists to stop; a row here is what makes them codes.
     expect(PLUE_FAILURES.plan_limit_exceeded).toEqual({ fault: "user", status: 402, retryAfter: 0 })

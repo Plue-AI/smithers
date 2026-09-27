@@ -134,10 +134,8 @@ describe("a plan card states every ending it has", () => {
   })
 
   /*
-   * The four sentences the seam can hand a plan card: the relay's three
-   * workspace states (`apps/server/src/workflows.ts` answers `provisioning`,
-   * `no-capacity` and `quota-exceeded` with a message each), and the control
-   * plane's own refusal. The card is handed the sentence, so what is pinned
+   * The four sentences the seam can hand a plan card: three workspace
+   * states, each with a message, and the control plane's own refusal. The card is handed the sentence, so what is pinned
    * is that each one lands on the card with the door that asks again.
    */
   test.each([
