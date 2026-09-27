@@ -36,6 +36,12 @@ A successful read does not imply that the run succeeded. Read its status field. 
 
 Use each command's `--help` or `--schema` for its exact arguments. [Steer a run](/docs/guides/steering/) explains the difference between steering, signals, and cancellation.
 
+## Receipts and exit codes
+
+Control commands print one receipt: `Accepted`, `AlreadyApplied` (an identical signal was already delivered), `Parked`, `Conflict`, or `Terminal` with the status of a run that had already settled. The exit code follows the receipt: `Terminal` cancelled exits `130`, `Terminal` failed or `Conflict` exits `1`, `Parked` exits `3`, and the rest exit `0`. So `runs cancel` exits `130` once the run is cancelled.
+
+`runs steer` mints a fresh message id per call, so two calls deliver two messages. `runs output` names nodes `<flow>#<n>` plus `result`; a call that never settled is `pending`. `runs logs` prints a transcript with one `=== turn N ===` header per model turn; `--follow --format jsonl` prints one event per line.
+
 Current-state commands accept the connection options `--root` and `--remote`, and read the bearer from `SMITHERS_API_KEY`. `--credential` is a compatibility flag that warns on stderr because process listings and shell history expose its value. Historical operations below require the local host that owns the run state.
 
 ## Inspect history

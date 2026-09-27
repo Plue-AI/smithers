@@ -62,3 +62,5 @@ smthrs runs logs <run-id> --limit 100 --format jsonl
 ```
 
 Save the output with the CI system's artifact facility. Log exports help diagnosis but cannot resume a run; for resumable state, see [Back up and retain run state](/docs/guides/retention/).
+
+Before relying on the job, confirm that a failed or parked flow fails it and that the evidence step still runs.

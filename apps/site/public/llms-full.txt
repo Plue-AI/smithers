@@ -4310,7 +4310,7 @@ This program drives the engine directly. `smthrs runs output` reads the control 
 # Remember facts across runs
 https://smithers.sh/docs/tutorials/memory/
 
-In this tutorial you'll build a notebook step that records three facts in one run, recalls them in a later run, and then lists the namespace with the Smithers CLI..
+In this tutorial you'll build a notebook step that records three facts in one run, recalls them in a later run, and then lists the namespace with the Smithers CLI.
 
 A memory policy decides which banks a flow tree reads and writes, whether recall runs at all, the budget recall answers within, and whether writes are kept. It is attached to the flow declaration with `WithMemory.withMemory`, and every flow that declaration names inherits it. [Memory](/docs/concepts/memory/) explains the model.
 
@@ -5319,10 +5319,10 @@ Choose the command by the change you need: `cancel` stops the run, `signal` deli
 
 | To... | Use |
 | --- | --- |
-| End one run, including one parked at `waiting-approval` | [`smthrs runs cancel`]/docs/reference/cli/runs/ |
-| Deliver a JSON value a named wait consumes | [`smthrs runs signal`]/docs/reference/cli/runs/ |
-| Redirect the agent mid-run with a text message | [`smthrs runs steer`]/docs/reference/cli/runs/ |
-| End every non-terminal run in the project | [`smthrs runs cancel-all`]/docs/reference/cli/runs/ |
+| End one run, including one parked at `waiting-approval` | [`smthrs runs cancel`](/docs/reference/cli/runs/) |
+| Deliver a JSON value a named wait consumes | [`smthrs runs signal`](/docs/reference/cli/runs/) |
+| Redirect the agent mid-run with a text message | [`smthrs runs steer`](/docs/reference/cli/runs/) |
+| End every non-terminal run in the project | [`smthrs runs cancel-all`](/docs/reference/cli/runs/) |
 
 A signal and a steering message are not interchangeable. A signal completes a wait point the flow declared by name; a flow with no matching wait cannot take it. A steering message reaches the agent at its next turn boundary whether or not the run parked. [Durable waits](/docs/guides/durable-waits/) covers the wait-point model.
 
@@ -7537,6 +7537,8 @@ smthrs runs logs <run-id> --limit 100 --format jsonl
 
 Save the output with the CI system's artifact facility. Log exports help diagnosis but cannot resume a run; for resumable state, see [Back up and retain run state](/docs/guides/retention/).
 
+Before relying on the job, confirm that a failed or parked flow fails it and that the evidence step still runs.
+
 ---
 
 # Define triggers
@@ -8853,6 +8855,12 @@ Global Options:
 | `runs steer <run> --message <text>` | Sends new steering instructions. |
 
 Use each command's `--help` or `--schema` for its exact arguments. [Steer a run](/docs/guides/steering/) explains the difference between steering, signals, and cancellation.
+
+## Receipts and exit codes
+
+Control commands print one receipt: `Accepted`, `AlreadyApplied` (an identical signal was already delivered), `Parked`, `Conflict`, or `Terminal` with the status of a run that had already settled. The exit code follows the receipt: `Terminal` cancelled exits `130`, `Terminal` failed or `Conflict` exits `1`, `Parked` exits `3`, and the rest exit `0`. So `runs cancel` exits `130` once the run is cancelled.
+
+`runs steer` mints a fresh message id per call, so two calls deliver two messages. `runs output` names nodes `<flow>#<n>` plus `result`; a call that never settled is `pending`. `runs logs` prints a transcript with one `=== turn N ===` header per model turn; `--follow --format jsonl` prints one event per line.
 
 Current-state commands accept the connection options `--root` and `--remote`, and read the bearer from `SMITHERS_API_KEY`. `--credential` is a compatibility flag that warns on stderr because process listings and shell history expose its value. Historical operations below require the local host that owns the run state.
 
@@ -47870,7 +47878,7 @@ The parser accepts exactly these keys, in the order the run reads them.
 | `name` | string | no | the directory path below `flows/` | A project's flows take their id from the directory path, so a `name` key is ignored with a `name_field_ignored` discovery warning. |
 | `description` | string | yes | none | One line describing the flow. A flow with a missing or empty description is not discovered; one over 1024 characters earns an `invalid_description` warning. |
 | `model` | string | no | none | The model seat the flow runs on, for example `openai:gpt-6-sol`. An empty value reads as absent, and `smthrs flow start` cannot launch a prompt flow that declares no seat. |
-| `capabilities` | string array | no | `["*"]` | The capability patterns that bound what the run may do. A space-separated string is accepted with a warning. Any other non-array value earns an `invalid_capabilities` warning that names the value, and the flow is not discovered. An absent key grants `"*"`, which as an envelope pattern matches every capability; `smthrs up` refuses to approve a `"*"` envelope, so review it with `smthrs plan` and sign it with `smthrs approve`. Declare only the patterns the task requires. |
+| `capabilities` | string array | no | `["*"]` | The capability patterns that bound what the run may do. A space-separated string is accepted with a warning. Any other non-array value earns an `invalid_capabilities` warning that names the value, and the flow is not discovered. An absent key grants `"*"`, which as an envelope pattern matches every capability; `smthrs flow start` refuses to approve a `"*"` envelope, so review it with `smthrs flow plan` and sign it with `smthrs approvals approve`. Declare only the patterns the task requires. |
 | `budget` | object | no | none (unbounded) | The ceilings a control plane approves for one run: `tokens` and `milliseconds`, each a positive safe integer. An absent key is no ceiling, not zero; a malformed budget is dropped with a warning rather than tightened. |
 | `flows` | string array | no | none | Flow ids this flow may delegate to. A space-separated string is also accepted. When both spellings are present, `flows` wins over `allowed-tools`. |
 | `allowed-tools` | string or string array | no | none | The Agent Skills spelling of `flows`. |
@@ -49962,7 +49970,7 @@ smthrs migrate [path] [--scan] [--apply] [--seat <seat>] [--allow-unsafe <name,.
 
 ## Description
 
-`smthrs migrate` converts a Smithers 0.x project to the 1.0 authoring model: it rewrites application source onto `Flow`, `Action`, and Effect, archives the old sources, and records every decision in an auditable report. It is the same tool `npx @smthrs/migrate@next` runs, reachable as a verb from this CLI. It never recreates the JSX runtime, and it never rewrites or resumes 0.x run state. The 0.x `--to` flag was removed: storage is SQLite only ([the databases section](/docs/migration/1.0/#databases)).
+`smthrs migrate` converts a Smithers 0.x project to the 1.0 authoring model: it rewrites application source onto `Flow`, `Action`, and Effect, archives the old sources, and records every decision in an auditable report. It is the same tool as the `smithers-migrate` executable in `@smthrs/migrate`. It never recreates the JSX runtime, and it never rewrites or resumes 0.x run state. The 0.x `--to` flag was removed: storage is SQLite only ([the databases section](/docs/migration/1.0/#databases)).
 
 The verb has three modes. With neither flag, the mode is `plan`; when both are passed, `--scan` wins.
 
@@ -51001,21 +51009,21 @@ smthrs update
 
 ## Description
 
-`update` reads the npm registry's dist-tags for `@smthrs/cli` (at `https://registry.npmjs.org/-/package/@smthrs/cli/dist-tags`) and compares them with the installed version. A release candidate publishes under the `next` tag, so the check compares `next` first and `latest` second, which keeps an rc install from being told to downgrade to an older stable. Reach for it before you upgrade the CLI. It prints the install command and never installs anything itself.
+`update` reads the npm registry's dist-tags for `@smthrs/cli` (at `https://registry.npmjs.org/-/package/@smthrs/cli/dist-tags`) and compares them with the installed version. It compares the `next` tag first and `latest` second, so a release candidate is never told to downgrade to an older stable. It never installs anything.
 
 ## Output
 
 When the installed build is current, the command prints one line:
 
 ```text
-@smthrs/cli 1.0.0-rc.1 is current.
+@smthrs/cli <version> is current.
 ```
 
 When a later tag exists, it prints which version is available under which tag, then the install command:
 
 ```text
-@smthrs/cli 1.0.0-rc.1 is available (next); you have 1.0.0-rc.0.
-npm install -g @smthrs/cli@1.0.0-rc.1
+@smthrs/cli <newer> is available (<tag>); you have <version>.
+npm install -g @smthrs/cli@<newer>
 ```
 
 `--json` prints the same text as a quoted JSON string. A registry the command cannot reach exits 1.
@@ -51602,7 +51610,7 @@ Smithers 1.0.0-rc.0 is a source migration, not a compatible upgrade. A 0.x proje
 | --- | --- |
 | `<Workflow>` and the other JSX components | A module flow at `flows/<name>/flow.ts`, which `export default`s `Flow.make(tag, { description, payload, success, error, body })`. The JSX root has no counterpart; the flow declaration is the root. |
 | Markdown agent steps (MDX prompts) | `flows/<name>/flow.mdx`, or a `prompt: (payload) => string` template on an agent action. `{props.x}` becomes `${payload.x}`. |
-| `createSmithers` and `runWorkflow` | `Flow.make(tag, { payload, success, error, body })` and `flow.execute(payload, { executionId })`, run by a host that provides its action implementations and engine. `smthrs up` executes a module flow's own body, and a markdown agent flow's prompt, directly. |
+| `createSmithers` and `runWorkflow` | `Flow.make(tag, { payload, success, error, body })` and `flow.execute(payload, { executionId })`, run by a host that provides its action implementations and engine. `smthrs flow start` executes a module flow's own body, and a markdown agent flow's prompt, directly. |
 | `.smithers/workflows/` | `flows/`. A workflow keeps its position: `.smithers/workflows/pipelines/ci-fast.tsx` becomes `flows/pipelines/ci-fast/flow.ts`. |
 | `smithers.config.ts` | No 1.0 equivalent. `repoCommands.test` seeds the migration's test command (override it with `--verify-test`), `backend` is recorded in the report, and the file is deleted after the final unit. |
 | `smithers` binary | Both spellings still work. `@smthrs/cli` installs `smthrs`, with `smithers` as an alias of the same executable. |
@@ -51697,7 +51705,7 @@ Three notes on the set:
 
 - Run the project's own checks the way the migration verified each unit: install, format, typecheck, and tests.
 - Run `smthrs doctor`. It reports registry, database, runtime, and provider readiness.
-- Run `smthrs ls`. It lists the flows discovered under the project, and the migrated flows should appear under their kept positions, such as `pipelines/ci-fast` for `.smithers/workflows/pipelines/ci-fast.tsx`. See [Flow discovery](/docs/guides/flow-discovery/).
+- Run `smthrs flow list`. It lists the flows discovered under the project, and the migrated flows should appear under their kept positions, such as `pipelines/ci-fast` for `.smithers/workflows/pipelines/ci-fast.tsx`. See [Flow discovery](/docs/guides/flow-discovery/).
 - Execute each migrated module flow through its application host, with its action layers registered. Discovery and a successful CLI plan do not establish that the flow executes: the CLI leaves module flows `pending`. [Module flows](/docs/guides/module-flows/) describes this boundary; [the durable flow tutorial](/docs/tutorials/first-flow/) provides a complete executable host.
 
 ## Removed commands and flags
@@ -51762,11 +51770,11 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### hijack
 
-**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs hijack`, and the flag `smthrs steer --takeover` (hijack is not available; `steer --message` is the only mode). **1.0 path:** control a live run with `smthrs steer`, `smthrs signal`, `smthrs approve`, `smthrs deny`, or `smthrs cancel`, and resume a parked one with `smthrs run --resume`; see [Steering runs](/docs/guides/steering/).
+**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs hijack`, and the flag `smthrs steer --takeover` (hijack is not available; `steer --message` is the only mode). **1.0 path:** control a live run with `smthrs runs steer`, `smthrs runs signal`, `smthrs approvals approve`, `smthrs approvals deny`, or `smthrs runs cancel`, and resume a parked one with `smthrs runs resume`; see [Steering runs](/docs/guides/steering/).
 
 ### pause
 
-**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs pause`. **1.0 path:** `smthrs cancel` ends a run and `smthrs run --resume` resumes a parked one; see [Steering runs](/docs/guides/steering/).
+**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs pause`. **1.0 path:** `smthrs runs cancel` ends a run and `smthrs runs resume` resumes a parked one; see [Steering runs](/docs/guides/steering/).
 
 **Old gateway and UI hosting.**
 
@@ -51790,15 +51798,15 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### supervise
 
-**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** `smthrs supervise`. **1.0 path:** recovery is owned by the run driver; watch runs with `smthrs ps` and `smthrs status`; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** `smthrs supervise`. **1.0 path:** recovery is owned by the run driver; watch runs with `smthrs runs list` and `smthrs runs show`; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 ### supervisor
 
-**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** `smthrs supervisor`. **1.0 path:** recovery is owned by the run driver; watch runs with `smthrs ps` and `smthrs status`; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** `smthrs supervisor`. **1.0 path:** recovery is owned by the run driver; watch runs with `smthrs runs list` and `smthrs runs show`; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 ### top
 
-**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** `smthrs top`. **1.0 path:** recovery is owned by the run driver; watch runs with `smthrs ps` and `smthrs status`; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** `smthrs top`. **1.0 path:** recovery is owned by the run driver; watch runs with `smthrs runs list` and `smthrs runs show`; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 **Evaluation and optimization.**
 
@@ -51814,19 +51822,19 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### chat
 
-**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs chat`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs up`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
+**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs chat`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs flow start`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
 
 ### chat-create
 
-**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs chat-create`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs up`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
+**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs chat-create`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs flow start`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
 
 ### what
 
-**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs what`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs up`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
+**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs what`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs flow start`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
 
 ### ask
 
-**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs ask`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs up`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
+**Reason:** Removed with the JSX inline workflow. **Removed:** `smthrs ask`. **1.0 path:** author the flow as `flows/<name>/flow.mdx` or `flows/<name>/flow.ts` and run it with `smthrs flow start`; see [Markdown flows](/docs/guides/markdown-flows/) and [Module flows](/docs/guides/module-flows/).
 
 **Accounts and providers.**
 
@@ -51910,27 +51918,27 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### workflow
 
-**Reason:** JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`. **Removed:** `smthrs workflow run`, `smthrs workflow path`, `smthrs workflow create`, `smthrs workflow inspect`, `smthrs workflow skills`, and `smthrs workflow doctor`. **1.0 path:** bare `smthrs workflow` is removed too, and `smthrs workflow list` survives as the `ls` alias. `smthrs ls` lists flows, `smthrs up` runs one, and `smthrs doctor` checks readiness; see [Flow discovery](/docs/guides/flow-discovery/).
+**Reason:** JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`. **Removed:** `smthrs workflow run`, `smthrs workflow path`, `smthrs workflow create`, `smthrs workflow inspect`, `smthrs workflow skills`, and `smthrs workflow doctor`. **1.0 path:** bare `smthrs workflow` is removed too, and `smthrs workflow list` survives as a hidden alias. `smthrs flow list` lists flows, `smthrs flow start` runs one, and `smthrs doctor` checks readiness; see [Flow discovery](/docs/guides/flow-discovery/).
 
 **Human requests.**
 
 ### human
 
-**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs human list` and `smthrs human resolve`. **1.0 path:** list parked approvals with `smthrs ps --status waiting-approval`, then answer them with `smthrs approve` or `smthrs deny`; see [Human approval](/docs/tutorials/human-approval/).
+**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs human list` and `smthrs human resolve`. **1.0 path:** list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
 
 ### ask-human
 
-**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs ask-human`. **1.0 path:** the run parks at the approval; list parked approvals with `smthrs ps --status waiting-approval`, then answer them with `smthrs approve` or `smthrs deny`; see [Human approval](/docs/tutorials/human-approval/).
+**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs ask-human`. **1.0 path:** the run parks at the approval; list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
 
 **Node detail.**
 
 ### node
 
-**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs node`. **1.0 path:** `smthrs output` prints one registered node output and `smthrs logs --json` renders the events; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs node`. **1.0 path:** `smthrs runs output` prints one registered node output and `smthrs runs logs --format json` renders the events; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 ### tail
 
-**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs tail`. **1.0 path:** `smthrs logs --follow` streams future events and `smthrs output` prints one registered node output; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs tail`. **1.0 path:** `smthrs runs logs --follow` streams future events and `smthrs runs output` prints one registered node output; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 **Release.**
 
@@ -51942,35 +51950,35 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### list-runs
 
-**Reason:** Use `ps`. **Removed:** `smthrs list-runs`. **1.0 path:** `smthrs ps`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `ps`. **Removed:** `smthrs list-runs`. **1.0 path:** `smthrs runs list`; see [CLI reference](/docs/reference/cli/).
 
 ### list
 
-**Reason:** Use `ls`. **Removed:** `smthrs list`. **1.0 path:** `smthrs ls`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `ls`. **Removed:** `smthrs list`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
 
 ### workflows
 
-**Reason:** Use `ls`. **Removed:** `smthrs workflows`. **1.0 path:** `smthrs ls`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `ls`. **Removed:** `smthrs workflows`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
 
 ### stop
 
-**Reason:** Use `cancel`. **Removed:** `smthrs stop`. **1.0 path:** `smthrs cancel`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `cancel`. **Removed:** `smthrs stop`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
 
 ### kill
 
-**Reason:** Use `cancel`. **Removed:** `smthrs kill`. **1.0 path:** `smthrs cancel`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `cancel`. **Removed:** `smthrs kill`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
 
 ### start
 
-**Reason:** Use `up`. **Removed:** `smthrs start`. **1.0 path:** `smthrs up`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `up`. **Removed:** `smthrs start`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
 
 ### exec
 
-**Reason:** Use `up`. **Removed:** `smthrs exec`. **1.0 path:** `smthrs up`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `up`. **Removed:** `smthrs exec`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
 
 ### log
 
-**Reason:** Use `logs`. **Removed:** `smthrs log`. **1.0 path:** `smthrs logs`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `logs`. **Removed:** `smthrs log`. **1.0 path:** `smthrs runs logs`; see [CLI reference](/docs/reference/cli/).
 
 ### help
 
@@ -51980,7 +51988,7 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### supervision
 
-**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** the flags `smthrs up --force`, `smthrs up --steal-ownership`, `smthrs up --resume-claim-owner`, `smthrs up --resume-claim-heartbeat`, `smthrs up --resume-restore-owner`, and `smthrs up --resume-restore-heartbeat`. **1.0 path:** `smthrs run --resume` resumes a parked run, and the run driver owns takeover and recovery; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** The run driver's heartbeat sweep owns recovery. **Removed:** the flags `smthrs up --force`, `smthrs up --steal-ownership`, `smthrs up --resume-claim-owner`, `smthrs up --resume-claim-heartbeat`, `smthrs up --resume-restore-owner`, and `smthrs up --resume-restore-heartbeat`. **1.0 path:** `smthrs runs resume` resumes a parked run, and the run driver owns takeover and recovery; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 **Plan admission flags.**
 
@@ -52004,7 +52012,7 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### flows
 
-This anchor is not a removal. Verbs that take a flow id refuse the reserved `system/*` ids: a reserved system flow id carries no body in 1.0.0-rc.0, so a launch would park with nothing to run. **1.0 path:** name a flow from `smthrs ls`; see [Flow discovery](/docs/guides/flow-discovery/).
+This anchor is not a removal. Verbs that take a flow id refuse the reserved `system/*` ids: a reserved system flow id carries no body in 1.0.0-rc.0, so a launch would park with nothing to run. **1.0 path:** name a flow from `smthrs flow list`; see [Flow discovery](/docs/guides/flow-discovery/).
 
 ## Runtime state does not carry over
 

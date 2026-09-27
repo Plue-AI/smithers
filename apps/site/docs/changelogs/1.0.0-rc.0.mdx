@@ -9,18 +9,12 @@ Smithers 1.0 replaces the 0.x JSX workflow engine with typed flows and actions o
 
 ## Install
 
-Use the [installation guide](/docs/installation/) for the source-checkout route while the rewrite is unreleased. The configured candidate release channel is `next`:
-
-```sh
-npm install --global @smthrs/cli@next
-```
-
-That registry command applies once a candidate is published. The CLI requires Node.js `^22.19.0 || >=24.11.0`. Effect and its platform packages are pinned to exactly `4.0.0-rc.115`; use the same physical Effect instance throughout a composition. Install the CLI locally beside target declaration dependencies when running target commands in a project.
+The release is not on npm; install from the source checkout ([Installation](/docs/installation/)). The CLI requires Node.js 26.4.0 or later, and Effect and its platform packages are pinned to exactly `4.0.0-rc.115`. See the [support matrix](/docs/reference/support-matrix/).
 
 ## Authoring and execution
 
 - `Flow.make`, `Action.make`, `Interpreter.layer`, and Effect replace JSX workflow components. Action declarations and their implementations are separate.
-- Markdown agent flows run through `smthrs up` with a configured model seat. TypeScript module flows can be discovered and planned by the CLI, but execution remains `pending` until a host registers the flow, provides its action layers, and drives it. See [module flows](/docs/guides/module-flows/).
+- Markdown agent flows run through `smthrs flow start` with a configured model seat. TypeScript module flows can be discovered and planned by the CLI, but execution remains `pending` until a host registers the flow, provides its action layers, and drives it. See [module flows](/docs/guides/module-flows/).
 - `WORKSPACE.ts` and `PACKAGE.ts` declare the target graph. `smthrs test`, `build`, and `lint` select targets; declared inputs and execution identities control caching. [The first-target tutorial](/docs/tutorials/first-target/) exercises a cache hit and input invalidation.
 - The agent runtime evaluates model-authored cells in QuickJS with declared flow tools and budgets. Typed output schemas validate values before downstream steps consume them.
 
@@ -32,13 +26,13 @@ SQLite on Node.js is the supported durable runtime. The control plane uses `.flo
 | --- | --- |
 | Durable waits | Deferred values, timers, signals, and human tasks survive engine restarts. |
 | Retry and ownership | Retry bounds are recorded with attempts. Claims, leases, and same-host process probes prevent a live peer's run from being stolen. |
-| Run control | `cancel`, `steer`, `signal`, `approve`, `deny`, and `run --resume`, subject to the host's authorization policy. |
+| Run control | `runs cancel`, `runs steer`, `runs signal`, `runs resume`, `approvals approve`, and `approvals deny`, subject to the host's authorization policy. |
 | Execution history | `smthrs runs inspect`, `replay`, `fork`, and `rewind`, plus the `@smthrs/time-travel` library. Replay reads history without dispatching actions. Forks may repeat external effects; eligible sealed results require an explicitly shared cache environment. |
 | Compensable writes | A real snapshot boundary is required. Host snapshots do not provide generic rollback for external services. |
 | Memory | Structured facts and FTS recall over SQLite; namespaces and memory policy determine visibility. |
 | Backup | `@smthrs/engine-store/DisasterRecovery`; source checkout script `packages/smithers/flows/engine-store/scripts/flows-backup.mjs backup\|verify\|restore`. |
 
-See the [support matrix](/docs/reference/support-matrix/) for runtime ranges, tested toolchain pins, platform boundaries, storage, and hosting requirements. Bun has a limited non-durable package scope. Browser bundling does not establish durable browser, Deno, or edge execution. Windows is unsupported; macOS CI is advisory.
+See the [support matrix](/docs/reference/support-matrix/) for runtime ranges, tested toolchain pins, platform boundaries, storage, and hosting requirements. Bun has a limited non-durable package scope. Browser bundling does not establish durable browser, Deno, or edge execution. Windows is best effort; macOS CI is advisory.
 
 ## Hosting and credentials
 

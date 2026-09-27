@@ -14,21 +14,21 @@ smthrs update
 
 ## Description
 
-`update` reads the npm registry's dist-tags for `@smthrs/cli` (at `https://registry.npmjs.org/-/package/@smthrs/cli/dist-tags`) and compares them with the installed version. A release candidate publishes under the `next` tag, so the check compares `next` first and `latest` second, which keeps an rc install from being told to downgrade to an older stable. Reach for it before you upgrade the CLI. It prints the install command and never installs anything itself.
+`update` reads the npm registry's dist-tags for `@smthrs/cli` (at `https://registry.npmjs.org/-/package/@smthrs/cli/dist-tags`) and compares them with the installed version. It compares the `next` tag first and `latest` second, so a release candidate is never told to downgrade to an older stable. It never installs anything.
 
 ## Output
 
 When the installed build is current, the command prints one line:
 
 ```text
-@smthrs/cli 1.0.0-rc.1 is current.
+@smthrs/cli <version> is current.
 ```
 
 When a later tag exists, it prints which version is available under which tag, then the install command:
 
 ```text
-@smthrs/cli 1.0.0-rc.1 is available (next); you have 1.0.0-rc.0.
-npm install -g @smthrs/cli@1.0.0-rc.1
+@smthrs/cli <newer> is available (<tag>); you have <version>.
+npm install -g @smthrs/cli@<newer>
 ```
 
 `--json` prints the same text as a quoted JSON string. A registry the command cannot reach exits 1.
