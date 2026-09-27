@@ -281,17 +281,23 @@ describe("the run card as a trace", () => {
     expect(selected.host.textContent).toContain("At #8")
   })
 
-  test("a historical cursor hides later output and child navigation until the result was recorded", () => {
+  test("a spawned child run is a subagent card once its spawn was recorded, and opens as its run card", () => {
     const events = [
       stamp(1, "control.agent.turn-opened", {}, 1),
       stamp(2, "control.agent.cell-call-started", { flowName: "agent/spawn", input: { flow: "review" } }, 2),
       stamp(3, "control.agent.cell-call-settled", { flowName: "agent/spawn", outcome: "success", value: { child: "run-1/child/review" } }, 3)
     ]
-    const before = renderTrace({ events, traceView: "turns", selection: "call-1", cursorSeq: 2, liveTail: false })
+    const before = renderRun({ events, traceView: "turns", selection: "call-1", cursorSeq: 2, liveTail: false })
     expect(before.host.querySelector("[data-flow='runs.open']")).toBeNull()
-    expect(before.host.textContent).not.toContain("run-1/child/review")
-    const after = renderTrace({ events, traceView: "turns", selection: "call-1", cursorSeq: 3, liveTail: false })
-    click(after.host.querySelector("[data-flow='runs.open']"))
+    expect(before.host.querySelector(".subagent-card")).toBeNull()
+    expect(before.host.textContent).not.toContain("Inspect child run")
+    const after = renderRun({ events, traceView: "turns", selection: "call-1", cursorSeq: 3, liveTail: false })
+    const child = after.host.querySelector<HTMLElement>(".subagent-card")!
+    expect(child.querySelector(".subagent-title")?.textContent).toMatch(/^[◐◓◑◒] review$/)
+    expect(after.host.querySelector(".subagent-header")?.textContent).toContain("Running 1 subagent")
+    // Unobserved, the child has no stop door of its own yet.
+    expect(child.querySelector(".subagent-stop")).toBeNull()
+    click(child)
     expect(after.dispatched).toEqual([{ name: "runs.open", args: "sourceCard=flow-run-run-1 run-1/child/review smithersai/smithers" }])
   })
   test("a run of kind prototype wears the never-promoted banner, offers all | messages | failed, and has no Steer row", () => {

@@ -95,8 +95,6 @@ export interface CardActions {
   readonly signedOut?: boolean
   /** Which frame the body is mounted in. Absent in static previews, which read as embedded. */
   readonly presentation?: "embedded" | "maximized"
-  /** True only for an embedded card whose transcript rows are in the chat timeline. */
-  readonly timelineRowsShown?: boolean
 }
 
 /** How one card kind renders and which pill it wears. */

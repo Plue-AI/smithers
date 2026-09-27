@@ -183,6 +183,7 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../cards/WorkflowCards.tsx": ["sendRunCommand("], // the original onRunCommand prop, before the frame wrapper
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
   "../cards/ApprovalAnswer.tsx": ["onAnswer(", "onClick={send}"], // the answer is a value, not a flow argument; both mounts bind onAnswer to the controller
+  "../SubagentGrid.tsx": ["setFilesOpen("], // a card's files list is a disclosure with no address
 }
 
 const routesThroughRegistry = (context: string): boolean =>
@@ -312,6 +313,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../LocalAuthPanel.tsx": 3,
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, bootstrap Retry, backend chooser, and credential submission.
       "../StorageRecoveryButton.tsx": 1,
+    "../SubagentGrid.tsx": 4,
       "../FlowsSurface.tsx": 2,
       "../WorldSurface.tsx": 6,
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.
@@ -420,7 +422,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
-      "../cards/RunTraceCard.tsx": 13, // Includes the graph view door and the Steps view door.
+      "../cards/RunTraceCard.tsx": 12, // Includes the graph view door and the Steps view door.
       "../cards/RunTraceSteps.tsx": 1, // Each step row selects its span.
       "../cards/RunTracePhaseStrip.tsx": 3,
       "../cards/RunTraceSummary.tsx": 2,

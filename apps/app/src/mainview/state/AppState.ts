@@ -892,8 +892,16 @@ export const SessionSchema = z.object({
   turnId: z.string().nullable().optional(),
   tabMenuOpen: z.boolean().optional(),
   pendingTabCloseId: z.string().nullable().optional(),
-  /** Durable chat log filter; absent means every source and kind is shown. */
-  chatFilter: z.object({ sources: z.array(z.string()), kinds: z.array(z.enum(CHAT_KINDS)), query: z.string() }).optional(),
+  /**
+   * Durable chat log filter; absent means every source and kind is shown.
+   * A kind this build no longer has (the retired "subagent rows") drops on read.
+   */
+  chatFilter: z.object({
+    sources: z.array(z.string()),
+    kinds: z.array(z.enum(CHAT_KINDS)).catch(({ value }) =>
+      Array.isArray(value) ? value.filter((kind): kind is typeof CHAT_KINDS[number] => (CHAT_KINDS as ReadonlyArray<unknown>).includes(kind)) : []),
+    query: z.string()
+  }).optional(),
   chatFilterMenuOpen: z.boolean().optional(),
   /*
    * The search palette (Search and Command Palette Spec 2026-09-07 §3, §5):

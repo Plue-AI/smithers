@@ -5,7 +5,7 @@ import { DEFAULT_PALETTE,isPalette,PALETTES,WIKI_DISPLAY_NAME } from "../AppStat
 import { THEME_PICKER_CARD_ID } from "../AppStore"
 import { parseDiagnosticQuery,readDiagnostics } from "../Diagnostics"
 import type { ControllerContext,NetEntry } from "./context"
-import { all as allChat, CHAT_KINDS, lanesFromCards, toggle as toggleChat } from "../ChatTimeline"
+import { all as allChat, CHAT_KINDS, subagentsFromCards, toggle as toggleChat } from "../ChatTimeline"
 
 export interface PresentationController {
   readonly showChat: () => void
@@ -112,8 +112,8 @@ export const createPresentationController = (
     return { value: open ? "Filter opened." : "Filter closed." }
   }
   const toggleChatFilter = (target: string): string | { readonly value: string } => {
-    const lanes = lanesFromCards([...ctx.store.collections.cards.values()])
-    const valid = ["chat", ...lanes.map(lane => lane.id), ...CHAT_KINDS]
+    const subagents = subagentsFromCards([...ctx.store.collections.cards.values()])
+    const valid = ["chat", ...subagents.map(subagent => subagent.id), ...CHAT_KINDS]
     if (!valid.includes(target)) return `Choose one of: ${valid.join(", ")}`
     const filter = toggleChat(ctx.store.session().chatFilter ?? allChat, target)
     ctx.store.dispatch({ type: "chat-filter.changed", actor: ctx.commandActor,

@@ -3,16 +3,16 @@ import type { KeyboardEvent } from "react"
 import { flowAction, flowProps } from "./flows/FlowAction"
 import type { FlowName } from "./flows/FlowName"
 import { rovingKeyDown } from "./RovingKeyDown"
-import { active, CHAT_KINDS, type ChatFilter, type Lane } from "./state/ChatTimeline"
+import { active, CHAT_KINDS, type ChatFilter, type ChatSubagent } from "./state/ChatTimeline"
 
 interface Props {
   readonly open: boolean
   readonly filter: ChatFilter
-  readonly lanes: ReadonlyArray<Lane>
+  readonly subagents: ReadonlyArray<ChatSubagent>
   readonly onRunCommand: (name: FlowName, args?: string) => void
 }
 
-export const ChatFilterMenu = ({ open, filter, lanes, onRunCommand }: Props) => {
+export const ChatFilterMenu = ({ open, filter, subagents, onRunCommand }: Props) => {
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const mountMenu = useCallback((node: HTMLDivElement | null): void => {
@@ -20,8 +20,8 @@ export const ChatFilterMenu = ({ open, filter, lanes, onRunCommand }: Props) => 
     if (node !== null) requestAnimationFrame(() => node.querySelector<HTMLButtonElement>("[role^=menuitem]")?.focus())
   }, [])
   const [highlighted, setHighlighted] = useState(0)
-  const items = ["Show all", "Chat", ...lanes.map(lane => lane.title), ...CHAT_KINDS]
-  const targets = ["", "chat", ...lanes.map(lane => lane.id), ...CHAT_KINDS]
+  const items = ["Show all", "Chat", ...subagents.map(each => each.subagent.title), ...CHAT_KINDS]
+  const targets = ["", "chat", ...subagents.map(each => each.id), ...CHAT_KINDS]
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.target instanceof HTMLInputElement && event.key !== "Escape") return
     if ((event.key === "Enter" || event.key === " ") && event.target instanceof HTMLButtonElement) {
@@ -55,7 +55,7 @@ export const ChatFilterMenu = ({ open, filter, lanes, onRunCommand }: Props) => 
           aria-checked={index === 0 ? undefined : !hidden} tabIndex={highlighted === index ? 0 : -1}
           onFocus={() => setHighlighted(index)}
           {...flowAction(onRunCommand, index === 0 ? "chat.filter.reset" : "chat.filter.toggle", target)}>
-          {index > 1 && index < lanes.length + 2 && <span className="chat-filter-swatch" data-lane-color={lanes[index - 2]!.color} />}
+          {index > 1 && index < subagents.length + 2 && <span className="chat-filter-swatch" data-lane-color={subagents[index - 2]!.color} />}
           {label}
         </button>
       })}

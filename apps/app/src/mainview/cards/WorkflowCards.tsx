@@ -15,9 +15,10 @@ import type { KeyboardEvent } from "react"
 import type { Card, FlowDurationsRow } from "../state/AppState"
 import { timeLabel as clockLabel } from "../Timestamps"
 import { rovingKeyDown } from "../RovingKeyDown"
-import type { CardFamily, RunCommand } from "./CardFamily"
+import type { CardFamily, CardProjectionAuthority, RunCommand } from "./CardFamily"
 import { defaultPill, settledPill } from "./CardFamily"
 import { RunTraceBody, TERMINAL_RUN_PHASES } from "./RunTraceCard"
+import { ChildRuns } from "../SubagentGrid"
 import { flowArgs } from "../flows/FlowArgs"
 import { runFailureOf } from "../state/RunFailure"
 
@@ -38,7 +39,7 @@ export const WorkflowRunCardBody = ({
   workflowCatalogs,
   flowDurations,
   fileCards,
-  timelineRowsShown = false
+  childCards
 }: {
   readonly card: Extract<Card, { kind: "run-trace" }>
   readonly onStopRun: (cardId: string) => void
@@ -50,7 +51,8 @@ export const WorkflowRunCardBody = ({
   readonly flowDurations?: ReadonlyArray<FlowDurationsRow>
   /** The files already read into this conversation; the graph's Code tab renders the declared one. */
   readonly fileCards?: ReadonlyArray<Extract<Card, { kind: "file" }>>
-  readonly timelineRowsShown?: boolean
+  /** The cards the child runs' own run cards are read from; absent in static previews. */
+  readonly childCards?: CardProjectionAuthority["collections"]["cards"]
 }) => {
   const onRunCommand = runSourceCommand(card.id, sendRunCommand)
   const request = workflowLaunchOf(card)
@@ -90,8 +92,9 @@ export const WorkflowRunCardBody = ({
         flowDurations={flowDurations}
         fileCards={fileCards}
       />
+      <ChildRuns card={card} collection={childCards} onRunCommand={onRunCommand} />
       {facetRequest?.state === "failed" ? <p className="sui-approval-error" role="alert">{facetRequest.error}</p> : null}
-      {facet === "transcript" && !timelineRowsShown && !facetUnready ?
+      {facet === "transcript" && !facetUnready ?
         card.payload.transcriptRows === undefined || card.payload.transcriptRows.length === 0 ?
           <p className="smithers-card-note">The transcript is empty so far.</p> :
           (
@@ -469,7 +472,7 @@ export const workflowCardFamily: CardFamily<"run-trace" | "workflow-repo" | "wor
         workflowCatalogs={actions.workflowCatalogs}
         flowDurations={actions.flowDurations}
         fileCards={actions.fileCards}
-        timelineRowsShown={actions.timelineRowsShown}
+        childCards={actions.projectionStore?.collections.cards}
       />
     ),
     pill: (card) => {

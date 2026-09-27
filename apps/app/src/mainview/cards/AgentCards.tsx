@@ -71,6 +71,9 @@ export const AgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCa
 }
 
 /*
+ * In the conversation an agent card draws as its subagent card
+ * (SubagentGrid.tsx); these bodies are the agent's own tab (tab.card).
+ *
  * The cloud variant (UI-COVERAGE-GAPS.md "agents · Cloud agent sessions"): a
  * cloud agent session that Smithers Cloud runs in a sandbox — the header
  * carries session · repository · provider · state, the transcript rows append
@@ -86,12 +89,10 @@ type AgentCloudCard = Omit<AgentCard, "payload"> & {
 
 const CloudAgentCardBody = ({
   card,
-  onRunCommand,
-  timelineRowsShown = false
+  onRunCommand
 }: {
   readonly card: AgentCloudCard
   readonly onRunCommand: RunCommand
-  readonly timelineRowsShown?: boolean
 }) => {
   const { displayName, sessionId, repo, provider, state, task, transcript, error } = card.payload
   const live = state === "active"
@@ -101,7 +102,7 @@ const CloudAgentCardBody = ({
         session {sessionId} · {repo}{provider === null ? "" : ` · ${provider}`} · {state}
       </p>
       {task !== undefined && task !== displayName ? <p className="smithers-card-note agent-card-task">Request: {task}</p> : null}
-      {timelineRowsShown || transcript.length === 0 ? null : (
+      {transcript.length === 0 ? null : (
         <ol className="world-card-list" data-testid="agent-session-transcript">
           {transcript.map((row) => (
             <li key={row.id} className="world-card-row" data-role={row.role}>
@@ -149,14 +150,12 @@ const CloudAgentCardBody = ({
  */
 const AgentCardBody = ({
   card,
-  onRunCommand,
-  timelineRowsShown
+  onRunCommand
 }: {
   readonly card: Extract<Card, { kind: "agent" }>
   readonly onRunCommand: RunCommand
-  readonly timelineRowsShown?: boolean
 }) => {
-  if ("cloud" in card.payload) return <CloudAgentCardBody card={{ ...card, payload: card.payload }} onRunCommand={onRunCommand} timelineRowsShown={timelineRowsShown} />
+  if ("cloud" in card.payload) return <CloudAgentCardBody card={{ ...card, payload: card.payload }} onRunCommand={onRunCommand} />
   const { displayName, cwd, phase, exitCode, tabId, roleId, task } = card.payload
   // The purpose rode the card at launch (a custom agent's is in no table); older cards fall back to the built-in row.
   const purpose = card.payload.purpose ?? (roleId === undefined ? undefined : findAgentRole(roleId)?.purpose)
@@ -211,7 +210,7 @@ const ExplainCardBody = ({ card }: { readonly card: Extract<Card, { kind: "expla
 
 export const agentCardFamily: CardFamily<"agent" | "explain" | "agents"> = {
   agent: {
-    render: (card, actions) => <AgentCardBody card={card} onRunCommand={actions.onRunCommand} timelineRowsShown={actions.timelineRowsShown} />,
+    render: (card, actions) => <AgentCardBody card={card} onRunCommand={actions.onRunCommand} />,
     /*
      * A subagent's pill is its process: running, done on a clean exit, failed
      * otherwise. A null exit code is the unknown outcome (Cards.ts: "null when

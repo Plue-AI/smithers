@@ -2,6 +2,8 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { useController } from "../ControllerContext"
 import { MAIN_TAB_ID } from "../state/AppState"
 import { ConfirmDialog } from "../SurfaceChrome"
+import { SubagentCrumb, subagentCrumbOf } from "../SubagentGrid"
+import { useCardRows } from "../state/useCardRows"
 import { CardTabBody } from "./CardTabBody"
 import { TerminalView } from "./TerminalView"
 
@@ -28,6 +30,8 @@ export function TabBodies() {
   )
   const session = sessionRows[0]
   const activeTabId = session?.activeTabId ?? MAIN_TAB_ID
+  // A local subagent's terminal wears the breadcrumb back to the conversation.
+  const cards = useCardRows(collections.cards)
   const pendingClose = tabRows.find((tab) => tab.id === (session?.pendingTabCloseId ?? null))
 
   return (
@@ -42,7 +46,8 @@ export function TabBodies() {
             data-testid={`tab-body-${tab.id}`}
             hidden={tab.id !== activeTabId}
           >
-            {tab.kind === "card" ? <CardTabBody cardId={tab.cardId} /> : <TerminalView tab={tab} />}
+            {tab.kind === "card" ? <CardTabBody cardId={tab.cardId} /> : <TerminalCrumb cards={cards} tabId={tab.id} onRunCommand={controller.runCommand} />}
+            {tab.kind === "card" ? null : <TerminalView tab={tab} />}
           </div>
         )
       )}
@@ -60,4 +65,13 @@ export function TabBodies() {
       />
     </>
   )
+}
+
+const TerminalCrumb = ({ cards, tabId, onRunCommand }: {
+  readonly cards: Parameters<typeof subagentCrumbOf>[0]
+  readonly tabId: string
+  readonly onRunCommand: Parameters<typeof SubagentCrumb>[0]["onRunCommand"]
+}) => {
+  const crumb = subagentCrumbOf(cards, { tabId })
+  return crumb === undefined ? null : <SubagentCrumb title={crumb.title} color={crumb.color} onRunCommand={onRunCommand} />
 }

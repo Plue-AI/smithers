@@ -96,8 +96,7 @@ export const CardView = memo(function CardView({
   experimental: experimentalProp,
   experimentalSnapshot,
   signedOut,
-  presentation,
-  timelineRowsShown
+  presentation
 }: CardViewProps) {
   const subscribeExperimental = useCallback((notify: () => void) => {
     const subscription = projectionStore?.collections.sessions?.subscribeChanges(notify)
@@ -304,8 +303,7 @@ export const CardView = memo(function CardView({
             fileCards,
             projectionStore,
             signedOut,
-            presentation: presentation ?? (maximized ? "maximized" : "embedded"),
-            timelineRowsShown: timelineRowsShown && !maximized
+            presentation: presentation ?? (maximized ? "maximized" : "embedded")
           })}
           </CardBodyBoundary>
         </div>

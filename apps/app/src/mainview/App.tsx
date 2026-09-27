@@ -46,8 +46,8 @@ import { ConfirmDialog } from "./SurfaceChrome"
 import { TabBodies } from "./tabs/TabBodies"
 import { ToastStack } from "./ToastStack"
 import { TranscriptMessage } from "./TranscriptMessage"
-import { SubagentRow } from "./SubagentRow"
-import { all as allChat, lanesFromCards, merge as mergeTimeline } from "./state/ChatTimeline"
+import { agentDoors, SubagentBatch, SubagentFinished } from "./SubagentGrid"
+import { all as allChat, entryId, merge as mergeTimeline, subagentsFromCards } from "./state/ChatTimeline"
 import { ChatRunTimeline } from "./ChatRunTimeline"
 import { WikiDeleteDialog } from "./WikiDeleteDialog"
 import { WorldSurface } from "./WorldSurface"
@@ -377,12 +377,11 @@ function AppContent() {
     if (entryOrdinal(left) !== entryOrdinal(right)) return entryOrdinal(left) - entryOrdinal(right)
     return entryCreatedAt(left) - entryCreatedAt(right)
   })
-  const lanes = lanesFromCards(conversationCards)
-  const entries = mergeTimeline(mainEntries, lanes, session.chatFilter ?? allChat)
+  const subagents = subagentsFromCards(conversationCards)
+  const entries = mergeTimeline(mainEntries, subagents, session.chatFilter ?? allChat)
 
   const latestEntry = entries.at(-1)
-  const latestReadId = latestEntry?.kind === "lane" ? `${latestEntry.lane.id}:${latestEntry.row.id}` :
-    latestEntry?.kind === "card" ? latestEntry.card.id : latestEntry?.message.id
+  const latestReadId = latestEntry === undefined ? undefined : entryId(latestEntry)
   const initialReadId = signingUp ? "signup" : repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : !session.firstRunDismissed ? "first-run-actions" : undefined
 
   // Chat stays mounted when closed.
@@ -538,7 +537,7 @@ function AppContent() {
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
               requestId: readRequestRef.current,
               userMessageId: messages.filter(message => message.role === "user").at(-1)?.id,
-              version: latestEntry?.kind === "lane" ? latestReadId :
+              version: latestEntry?.kind === "subagents" ? latestEntry.subagents.map(each => `${each.id}:${each.subagent.status}:${each.subagent.entries.length}`).join(" ") :
                 latestEntry?.kind === "card" ? `${latestEntry.card.ordinal}:${latestEntry.card.kind}` : undefined }}>
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
             <MessageScrollerViewport fade>
@@ -551,9 +550,10 @@ function AppContent() {
             {!signingUp && !repositoryNotice && !appsHome && !session.firstRunDismissed && <MessageScrollerItem messageId="first-run-actions"><FirstRunActions commands={flows} /></MessageScrollerItem>}
             {session.firstRunDismissed && entries.length === 0 && !homeCard && <EmptyState className="transcript-empty" icon={<Sparkles size={20} />}
               title="Nothing here yet" description="Ask Smithers anything to get started." />}
-            {entries.map((entry) => <MessageScrollerItem key={entry.kind === "lane" ? `${entry.lane.id}:${entry.row.id}` : entry.kind === "card" ? entry.card.id : entry.message.id}
-              messageId={entry.kind === "lane" ? `${entry.lane.id}:${entry.row.id}` : entry.kind === "card" ? entry.card.id : entry.message.id} style={{ contentVisibility: "visible" }}>
-              {entry.kind === "lane" ? <SubagentRow lane={entry.lane} row={entry.row} first={entry.first} /> :
+            {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
+              {entry.kind === "subagents" ?
+                <SubagentBatch onRunCommand={controller.runCommand} items={entry.subagents.map(each => ({ id: each.id, color: each.color, subagent: each.subagent, ...agentDoors(each.card) }))} /> :
+              entry.kind === "finished" ? <SubagentFinished subagent={entry.subagent.subagent} color={entry.subagent.color} /> :
               entry.kind === "card" ?
                 (
                   <CardView
@@ -567,7 +567,6 @@ function AppContent() {
                     triggerCatalogs={triggerCatalogs}
                     flowDurations={flowDurations}
                     fileCards={fileCards}
-                    timelineRowsShown={lanes.some(lane => lane.id === entry.card.id && lane.rows.length > 0)}
                     {...cardActions(controller, entry.card)}
                   />
                 ) :
@@ -614,7 +613,7 @@ function AppContent() {
           composerWrapRef.current?.querySelector("textarea")?.focus()
         }}>Chat</GuideButton></FirstSightHint>
         <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />
-        <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} lanes={lanes} onRunCommand={controller.runCommand} />
+        <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />
       </footer>
       </div>
 

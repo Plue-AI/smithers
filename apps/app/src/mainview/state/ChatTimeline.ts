@@ -1,7 +1,10 @@
+import type { Subagent } from "@smthrs/rpc/SubagentCard"
+import { live } from "@smthrs/rpc/WorkerControls"
 import type { Card, Message } from "./AppState"
 import type { InitMessage } from "../Onboarding"
+import { agentSubagent } from "./Subagents"
 
-export const CHAT_KINDS = ["messages", "cards", "subagent rows"] as const
+export const CHAT_KINDS = ["messages", "cards"] as const
 export type ChatKind = typeof CHAT_KINDS[number]
 export interface ChatFilter {
   readonly sources: ReadonlyArray<string>
@@ -21,75 +24,72 @@ export type MainEntry =
   | { readonly kind: "message"; readonly message: Message }
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
-export interface LaneRow {
+
+type AgentCard = Extract<Card, { kind: "agent" }>
+
+/** One subagent of the conversation: its card, its lane color and what its card draws. */
+export interface ChatSubagent {
   readonly id: string
-  readonly at?: number
-  readonly text: string
-  readonly role?: string
-}
-export interface Lane {
-  readonly id: string
-  readonly title: string
+  readonly card: AgentCard
   readonly color: number
-  readonly createdAt: number
-  readonly rows: ReadonlyArray<LaneRow>
+  readonly subagent: Subagent
 }
-export type TimelineEntry = MainEntry | { readonly kind: "lane"; readonly lane: Lane; readonly row: LaneRow; readonly first: boolean }
 
-/** Lane colors in creation order, so the first six lanes never share one. */
+export type TimelineEntry =
+  | MainEntry
+  /** Adjacent subagents share one header and one grid. */
+  | { readonly kind: "subagents"; readonly id: string; readonly subagents: ReadonlyArray<ChatSubagent> }
+  /** `◉ {title} finished`, under the grid the subagent settled in. */
+  | { readonly kind: "finished"; readonly id: string; readonly subagent: ChatSubagent }
+
+/** Lane colors in creation order, so the first six subagents never share one. */
 export const LANE_COLORS = 6
-const colored = (lanes: ReadonlyArray<Lane>): ReadonlyArray<Lane> =>
-  [...lanes].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-    .map((lane, index) => ({ ...lane, color: index % LANE_COLORS }))
-/** The card payload is the live window for both structured transcript sources. */
-export const lanesFromCards = (cards: ReadonlyArray<Card>): ReadonlyArray<Lane> =>
-  colored(cards.flatMap((card): ReadonlyArray<Lane> => {
-    if (card.kind === "agent") {
-      const payload = card.payload
-      return [{ id: card.id, title: payload.displayName, color: 0, createdAt: card.createdAt,
-        rows: "cloud" in payload ? [...payload.transcript].sort((a, b) => a.sequence - b.sequence).map(row => ({
-          id: String(row.id), at: row.createdAt === null ? undefined : Date.parse(row.createdAt), role: row.role,
-          text: row.parts.map(part => part.text).join("\n")
-        })) : [] }]
-    }
-    if (card.kind === "run-trace") return [{ id: card.id, title: card.title, color: 0, createdAt: card.createdAt,
-      rows: [...(card.payload.transcriptRows ?? [])].sort((a, b) => a.sequence - b.sequence)
-        .map(row => ({ id: String(row.sequence), at: row.at, role: row.kind, text: row.text })) }]
-    return []
-  }))
 
-export const text = (entry: TimelineEntry): string => entry.kind === "lane"
-  ? entry.row.text
-  : entry.kind === "card" ? `${entry.card.title}\n${entry.card.body ?? ""}` : entry.message.text ?? ""
+/** The conversation's subagents, colored by creation order so a filter never recolors one. */
+export const subagentsFromCards = (cards: ReadonlyArray<Card>): ReadonlyArray<ChatSubagent> =>
+  cards.filter((card): card is AgentCard => card.kind === "agent")
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+    .map((card, index) => ({ id: card.id, card, color: index % LANE_COLORS, subagent: agentSubagent(card) }))
 
-/** Stable per-source order, with each source's timestamps clamped like the TUI. */
-export const merge = (main: ReadonlyArray<MainEntry>, lanes: ReadonlyArray<Lane>, filter: ChatFilter = all): ReadonlyArray<TimelineEntry> => {
-  const rows: Array<{ entry: TimelineEntry; at: number; index: number }> = []
-  let mainAt = 0
-  main.forEach((entry, index) => {
-    const kind: ChatKind = entry.kind === "card" ? "cards" : "messages"
-    const source = entry.kind === "card" && (entry.card.kind === "agent" || entry.card.kind === "run-trace")
-      ? entry.card.id : "chat"
-    if (filter.sources.includes(source)) return
-    const at = entry.kind === "card" ? entry.card.createdAt : entry.message.createdAt
-    mainAt = Math.max(mainAt, Number.isFinite(at) ? at : mainAt)
-    if (!filter.kinds.includes(kind)) rows.push({ entry, at: mainAt, index })
-  })
-  lanes.forEach((lane, laneIndex) => {
-    if (filter.sources.includes(lane.id) || filter.kinds.includes("subagent rows")) return
-    let at = 0
-    lane.rows.forEach((row, index) => {
-      at = Math.max(at, row.at !== undefined && Number.isFinite(row.at) ? row.at : at)
-      rows.push({ entry: { kind: "lane", lane, row, first: false }, at, index: main.length + laneIndex * 1000000 + index })
-    })
-  })
-  rows.sort((a, b) => a.at - b.at || a.index - b.index)
+const subagentText = (subagent: Subagent): string =>
+  [subagent.title, ...subagent.entries.map(entry => entry.kind === "text" ? entry.text : `${entry.tool} ${entry.target}`)].join("\n")
+
+export const text = (entry: TimelineEntry): string =>
+  entry.kind === "subagents" ? entry.subagents.map(each => subagentText(each.subagent)).join("\n")
+    : entry.kind === "finished" ? entry.subagent.subagent.title
+    : entry.kind === "card" ? `${entry.card.title}\n${entry.card.body ?? ""}` : entry.message.text ?? ""
+
+/** The id a transcript row scrolls and reads by. */
+export const entryId = (entry: TimelineEntry): string =>
+  entry.kind === "subagents" || entry.kind === "finished" ? entry.id : entry.kind === "card" ? entry.card.id : entry.message.id
+
+/**
+ * The transcript in order, with each run of adjacent subagent cards folded
+ * into one grid and a finished row under it for every settled member. The
+ * source, kind and text filters apply to each card before it joins a grid.
+ */
+export const merge = (main: ReadonlyArray<MainEntry>, subagents: ReadonlyArray<ChatSubagent>, filter: ChatFilter = all): ReadonlyArray<TimelineEntry> => {
+  const byId = new Map(subagents.map(each => [each.id, each]))
   const query = filter.query.toLowerCase()
-  let previousLane: string | undefined
-  return rows.filter(({ entry }) => query === "" || text(entry).toLowerCase().includes(query)).map(({ entry }) => {
-    if (entry.kind !== "lane") { previousLane = undefined; return entry }
-    const first = previousLane !== entry.lane.id
-    previousLane = entry.lane.id
-    return { ...entry, first }
-  })
+  const out: Array<TimelineEntry> = []
+  let batch: Array<ChatSubagent> = []
+  const flush = (): void => {
+    if (batch.length === 0) return
+    out.push({ kind: "subagents", id: `subagents:${batch[0]!.id}`, subagents: batch })
+    for (const each of batch) if (!live(each.subagent.status)) out.push({ kind: "finished", id: `finished:${each.id}`, subagent: each })
+    batch = []
+  }
+  for (const entry of main) {
+    const subagent = entry.kind === "card" ? byId.get(entry.card.id) : undefined
+    if (filter.sources.includes(subagent?.id ?? "chat") || filter.kinds.includes(entry.kind === "card" ? "cards" : "messages")) continue
+    if (query !== "" && !(subagent === undefined ? text(entry) : subagentText(subagent.subagent)).toLowerCase().includes(query)) continue
+    if (subagent !== undefined) {
+      batch.push(subagent)
+      continue
+    }
+    flush()
+    out.push(entry)
+  }
+  flush()
+  return out
 }

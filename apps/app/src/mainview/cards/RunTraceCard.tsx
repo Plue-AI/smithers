@@ -240,7 +240,7 @@ export const RunTraceBody = ({
     </span>
   ) : null
   const detail = (
-    <TurnDetail card={card} model={model} selected={selected} scope={scope} frame={frame} onRunCommand={onRunCommand} />
+    <TurnDetail card={card} model={model} selected={selected} scope={scope} frame={frame} />
   )
   return (
     <div className="run-trace" data-testid={`run-trace-${runId}`} data-kind={kind} data-view={planOnly ? "plan" : view}>
@@ -472,7 +472,6 @@ export const RunTraceBody = ({
                 )}
               {frame !== undefined ? <TurnSource scope={scope} /> : null}
               <SpanPane span={selected} model={model} runId={runId} />
-              <ChildRunDoor span={selected} repo={card.payload.repo} onRunCommand={onRunCommand} />
             </div>
           </div>
         </>
@@ -618,28 +617,13 @@ const TurnSource = ({ scope }: { readonly scope: ReadonlyArray<TraceSpan> }) => 
   )
 }
 
-/** A detached child run, only once the journal recorded its id. */
-const ChildRunDoor = ({ span, repo, onRunCommand }: { readonly span: TraceSpan; readonly repo: string; readonly onRunCommand: RunCommand }) =>
-  span.detail.childRunId !== undefined && span.detail.childRunId !== "" && !/\s/.test(span.detail.childRunId) ?
-    (
-      <button
-        type="button"
-        className="run-trace-filter"
-        {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { runId: span.detail.childRunId, repo }))}
-      >
-        Inspect child run
-      </button>
-    ) :
-    null
-
 /** A selected row opens its recorded code, model response and call evidence in place. */
-const TurnDetail = ({ card, model, selected, scope, frame, onRunCommand }: {
+const TurnDetail = ({ card, model, selected, scope, frame }: {
   readonly card: RunTraceCard
   readonly model: TraceModel
   readonly selected: TraceSpan
   readonly scope: ReadonlyArray<TraceSpan>
   readonly frame: TraceSpan | undefined
-  readonly onRunCommand: RunCommand
 }) => {
   const { runId } = card.payload
   return (
@@ -655,7 +639,6 @@ const TurnDetail = ({ card, model, selected, scope, frame, onRunCommand }: {
         </div>
       ))}
       {selected.kind === "execution" || selected.kind === "event" || selected.kind === "run" ? <SpanPane span={selected} model={model} runId={runId} /> : null}
-      <ChildRunDoor span={selected} repo={card.payload.repo} onRunCommand={onRunCommand} />
     </>
   )
 }

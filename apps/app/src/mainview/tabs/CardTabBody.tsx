@@ -3,6 +3,7 @@ import { useMemo } from "react"
 import { cardActions } from "../cards/CardActions"
 import { CardView } from "../ChatCards"
 import { useController } from "../ControllerContext"
+import { SubagentCrumb, subagentCrumbOf } from "../SubagentGrid"
 import { useCardRows, useFileCardRows, useFlowDurationRows, useTriggerListRows, useWorkflowCatalogRows } from "../state/useCardRows"
 
 /*
@@ -39,8 +40,10 @@ export function CardTabBody({ cardId }: { readonly cardId: string }) {
     // The card left the transcript (a /clear, a sign-out): the tab states it and offers nothing else.
     return <p className="card-tab-gone">This card is no longer in the conversation.</p>
   }
+  const crumb = subagentCrumbOf(cardRows, { card })
   return (
     <div className="card-tab">
+      {crumb === undefined ? null : <SubagentCrumb title={crumb.title} color={crumb.color} onRunCommand={controller.runCommand} />}
       <CardView
         card={card}
         maximized={sessionRows[0]?.maximizedCardId === card.id}
