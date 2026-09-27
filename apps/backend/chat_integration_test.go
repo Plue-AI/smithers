@@ -200,17 +200,28 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 			}
 			return json.NewDecoder(response.Body).Decode(&current) == nil && current.Status == "running"
 		}, 2*time.Minute, 500*time.Millisecond)
-		ready := post("/api/workflow/provision", tokenResult.Token, map[string]any{
-			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID,
-		})
-		require.Contains(t, string(ready), `"status":"ready"`)
+		// Provision starts the box's coding host in the background and answers
+		// "provisioning" until it is live, as the app polls (ff084303de).
+		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(500 * time.Millisecond) {
+			var answer struct {
+				Status string `json:"status"`
+			}
+			require.NoError(t, json.Unmarshal(post("/api/workflow/provision", tokenResult.Token, map[string]any{
+				"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID,
+			}), &answer))
+			if answer.Status == "ready" {
+				break
+			}
+			require.Equal(t, "provisioning", answer.Status)
+			require.True(t, time.Now().Before(deadline), "the box's coding host did not become ready")
+		}
 		missing := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
 			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": "Plan",
 			"payload": map[string]any{"flowId": "missing/flow", "input": map[string]any{}},
 		})
 		require.Contains(t, string(missing), `"ok":false`)
 		require.Contains(t, string(missing), `No flow`)
-		// Planning starts the admitted host; subsequent catalog reads only reconnect.
+		// Catalog reads reconnect to the host provision started.
 		catalog := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
 			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": "List", "payload": map[string]string{"_tag": "flows"},
 		})
