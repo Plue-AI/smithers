@@ -73,7 +73,6 @@ describe("KnownRed.parse", () => {
       JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r", issue: 7 }] }),
       /"issue"/
     ],
-    [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r" }] }), /"issue"/],
     [
       JSON.stringify({
         entries: [
@@ -92,6 +91,15 @@ describe("KnownRed.parse", () => {
     ]
   ])("rejects %s", (content, message) => {
     expect(() => KnownRed.parse("list.json", content)).toThrow(message)
+  })
+
+  it("rejects an entry without an issue", () => {
+    const content = JSON.stringify({
+      entries: [{ label: "//a:t", owner: "o", reason: "r", expires: "2026-10-09" }]
+    })
+    expect(() => KnownRed.parse("list.json", content)).toThrow(
+      "list.json entries[0]: \"issue\" must be a non-empty string"
+    )
   })
 
   it("allows the same label once per distinct platform set", () => {
