@@ -138,8 +138,10 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\
 const literal = /^\/(.+)\/([a-z]*)$/su
 
 /**
- * Compiles one forbidden entry: `/source/flags` is a regular expression, and
- * anything else a case-insensitive whole word or phrase.
+ * Compiles one entry: `/source/flags` is a regular expression, `stem*` a
+ * case-insensitive word or phrase that may continue into a longer last word
+ * (`renew*` finds "renewal"), and anything else a case-insensitive whole word
+ * or phrase.
  */
 const phrase = (entry: string): RegExp => {
   const regex = literal.exec(entry)
@@ -147,9 +149,12 @@ const phrase = (entry: string): RegExp => {
     const flags = regex[2]!
     return new RegExp(regex[1]!, flags.includes("g") ? flags : `${flags}g`)
   }
-  const before = wordChar.test(entry.charAt(0)) ? "(?<![\\p{L}\\p{N}_])" : ""
-  const after = wordChar.test(entry.charAt(entry.length - 1)) ? "(?![\\p{L}\\p{N}_])" : ""
-  return new RegExp(`${before}${escape(entry).replace(/\s+/g, "\\s+")}${after}`, "giu")
+  const stem = entry.endsWith("*")
+  const word = stem ? entry.slice(0, -1) : entry
+  if (word.length === 0) return /(?!)/gu
+  const before = wordChar.test(word.charAt(0)) ? "(?<![\\p{L}\\p{N}_])" : ""
+  const after = stem ? "[\\p{L}\\p{N}_]*" : wordChar.test(word.charAt(word.length - 1)) ? "(?![\\p{L}\\p{N}_])" : ""
+  return new RegExp(`${before}${escape(word).replace(/\s+/g, "\\s+")}${after}`, "giu")
 }
 
 const hits = (text: string, entry: string): ReadonlyArray<string> =>
@@ -237,18 +242,21 @@ export const length = (
 }
 
 /**
- * Requires every entry as a case-insensitive substring. An array entry is an
- * any-of group: one member present satisfies it. Typographic quotes and
- * apostrophes match their ASCII forms.
+ * Requires every entry, matched the way {@link excludes} matches: a
+ * case-insensitive whole word or phrase (a boundary is required at each end
+ * that is a letter, digit, or underscore, so "No" is not found in "not"), a
+ * stem written `renew*` (the last word may continue, so "renewal" counts), or
+ * a regular expression written `/source/flags`. An array entry is an any-of
+ * group: one member present satisfies it. Typographic quotes and apostrophes
+ * match their ASCII forms.
  *
  * @category checks
  * @since 0.1.0
  */
 export const includes = (text: string, required: ReadonlyArray<string | ReadonlyArray<string>>): Check => {
-  const lower = fold(text).toLowerCase()
   const missing = required
     .map((entry) => typeof entry === "string" ? [entry] : entry)
-    .filter((group) => !group.some((member) => lower.includes(fold(member).toLowerCase())))
+    .filter((group) => !group.some((member) => hits(text, member).length > 0))
     .map((group) => group.map(quote).join(" | "))
   return missing.length === 0
     ? check("includes", true, "all present")
@@ -258,9 +266,10 @@ export const includes = (text: string, required: ReadonlyArray<string | Readonly
 /**
  * Forbids words or phrases, matched case-insensitively as whole words: a
  * boundary is required at each end that is a letter, digit, or underscore.
- * Typographic quotes and apostrophes match their ASCII forms.
- * An entry written `/source/flags` is a regular expression with its own
- * flags; an invalid one throws a `SyntaxError`. Empty entries are ignored.
+ * Typographic quotes and apostrophes match their ASCII forms. An entry
+ * written `receipt*` is a stem whose last word may continue ("receipts"). An
+ * entry written `/source/flags` is a regular expression with its own flags;
+ * an invalid one throws a `SyntaxError`. Empty entries are ignored.
  *
  * @category checks
  * @since 0.1.0

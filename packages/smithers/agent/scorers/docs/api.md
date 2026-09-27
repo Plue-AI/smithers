@@ -342,8 +342,10 @@ Links are read in three forms: Slack `<url|label>` and `<url>`, markdown
 links (a bracketed label followed by the URL in parentheses), and bare
 `http(s)://` URLs. `words`, `questions`, `barePaths`,
 and `linkedReferences` read link labels as prose and skip link URLs.
-`excludes` and `leakage` match whole words and phrases case-insensitively; an
-entry written `/source/flags` is a regular expression. `requiredLinks` ignores
+`includes`, `excludes` and `leakage` match whole words and phrases
+case-insensitively, so "No" is not found in "not"; an entry written `renew*`
+is a stem whose last word may continue ("renewal"), and one written
+`/source/flags` is a regular expression. `requiredLinks` ignores
 scheme and host case, a trailing slash, and a fragment, and accepts a found URL
 that extends the required one with a path or query. `linkedReferences` accepts
 `/pull/` for a template containing `/issues/`. `count` defaults to at least one
@@ -363,7 +365,7 @@ call when no bound is set.
 | `Checks.ScorerOptions`    | interface | models       | Scorer id, version, name, config, and the checks function.                     |
 | `Checks.words`            | const     | measuring    | Counts words, reading link labels and skipping link URLs.                      |
 | `Checks.length`           | const     | checks       | Word count within inclusive `min` and `max`.                                   |
-| `Checks.includes`         | const     | checks       | Every entry present, case-insensitively; an array is any-of.                   |
+| `Checks.includes`         | const     | checks       | Every whole word, phrase, or `/regex/flags` present; an array is any-of.       |
 | `Checks.excludes`         | const     | checks       | No forbidden whole word, phrase, or `/regex/flags` match.                      |
 | `Checks.opener`           | const     | checks       | The message does not open with a listed phrase.                                |
 | `Checks.truncated`        | const     | checks       | No cut-off word, trailing ellipsis, or unclosed code fence.                    |

@@ -39,6 +39,31 @@ describe("Checks.includes", () => {
       detail: "missing: \"deployed\" | \"shipped\", \"tests\""
     })
   })
+
+  it("matches whole words and phrases, so \"No\" is not found in \"not\"", () => {
+    expect(Checks.includes("It is not fixed yet.", ["No"])).toEqual({
+      id: "includes",
+      pass: false,
+      detail: "missing: \"No\""
+    })
+    expect(Checks.includes("I know it's not fixed.", [["No", "nope"]]).pass).toBe(false)
+    expect(Checks.includes("No, the fix is in review.", ["No"]).pass).toBe(true)
+    expect(Checks.includes("Not yet: PR #91 is a draft.", [["not yet", "No"], "#91"]).pass).toBe(true)
+    expect(Checks.includes("Shipped in 0.9.3 to Fernhill", ["0.9.3", "Fernhill"]).pass).toBe(true)
+    expect(Checks.includes("Shipped in 0.9.31", ["0.9.3"]).pass).toBe(false)
+    expect(Checks.includes("costs $12 per seat", ["$12"]).pass).toBe(true)
+    expect(Checks.includes("costs $120 per seat", ["$12"]).pass).toBe(false)
+  })
+
+  it("accepts stems written word* and /pattern/flags entries", () => {
+    expect(Checks.includes("Sam's renewal is Oct 31", ["renew*"]).pass).toBe(true)
+    expect(Checks.includes("Sam's renewal is Oct 31", ["renew"]).pass).toBe(false)
+    expect(Checks.includes("takes 14 minutes", ["14 min*"]).pass).toBe(true)
+    expect(Checks.includes("unrenewed", ["renew*"]).pass).toBe(false)
+    expect(Checks.includes("anything", ["*"]).pass).toBe(false)
+    expect(Checks.includes("Ready by Wed", ["/\\b(Wed|Wednesday)\\b/"]).pass).toBe(true)
+    expect(Checks.includes("Ready by Thu", ["/\\b(Wed|Wednesday)\\b/"]).pass).toBe(false)
+  })
 })
 
 describe("Checks.excludes", () => {
@@ -57,6 +82,15 @@ describe("Checks.excludes", () => {
     expect(Checks.excludes("costs $5 (approx.)", ["(approx.)"]).pass).toBe(false)
     expect(Checks.excludes("a.b", ["a*b"]).pass).toBe(true)
     expect(Checks.excludes("see --verbose", ["--verbose"]).pass).toBe(false)
+  })
+
+  it("treats a trailing * as a stem", () => {
+    expect(Checks.excludes("three receipts", ["receipt*"])).toEqual({
+      id: "excludes",
+      pass: false,
+      detail: "found: \"receipts\""
+    })
+    expect(Checks.excludes("three receipts", ["receipt"]).pass).toBe(true)
   })
 
   it("treats /pattern/flags entries as regular expressions and lists every hit", () => {

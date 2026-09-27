@@ -82,7 +82,7 @@ order. Signatures, bounds, and the reasoning behind each rule are on the
 | `Checks.ScorerOptions`               | interface | models       | Scorer id, version, name, config, and the checks function.                                    |
 | `Checks.words`                       | const     | measuring    | Counts words, reading link labels and skipping link URLs.                                     |
 | `Checks.length`                      | const     | checks       | Word count within inclusive `min` and `max`.                                                  |
-| `Checks.includes`                    | const     | checks       | Every entry present, case-insensitively; an array is any-of.                                  |
+| `Checks.includes`                    | const     | checks       | Every whole word, phrase, or `/regex/flags` present; an array is any-of.                      |
 | `Checks.excludes`                    | const     | checks       | No forbidden whole word, phrase, or `/regex/flags` match.                                     |
 | `Checks.opener`                      | const     | checks       | The message does not open with a listed phrase.                                               |
 | `Checks.truncated`                   | const     | checks       | No cut-off word, trailing ellipsis, or unclosed code fence.                                   |

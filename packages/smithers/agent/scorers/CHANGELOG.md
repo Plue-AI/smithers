@@ -23,6 +23,11 @@ are history, not the release that carries it.
 
 ### Fixed
 
+- `Checks.includes` matches whole words and phrases, the way `Checks.excludes`
+  does, and accepts `/source/flags` entries. It matched substrings, so a
+  required "No" was satisfied by "not" or "know". Both checks read a trailing
+  `*` as a stem (`renew*` finds "renewal") for the cases that want a prefix.
+
 - `RunnerLive.layer` logs a warning with the count of queued jobs a closing
   scope discards; they used to vanish with no trace.
 
