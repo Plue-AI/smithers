@@ -255,7 +255,7 @@ type ciTestSchedulerStore struct {
 func (s *ciTestSchedulerStore) ClaimQueuedWorkflowRuns(ctx context.Context, limit int32) ([]runtimeports.ClaimQueuedWorkflowRunsRow, error) {
 	rows, err := s.pool.Query(ctx, `UPDATE workflow_runs SET status = 'running', started_at = NOW(), updated_at = NOW()
 		WHERE id IN (SELECT id FROM workflow_runs WHERE status = 'queued' AND execution_plane = 'sandbox' ORDER BY id LIMIT $1)
-		RETURNING id, repository_id, workflow_definition_id, trigger_ref, trigger_commit_sha`, limit)
+		RETURNING id, repository_id, workflow_definition_id, trigger_ref, trigger_commit_sha, trigger_event`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +263,7 @@ func (s *ciTestSchedulerStore) ClaimQueuedWorkflowRuns(ctx context.Context, limi
 	var out []runtimeports.ClaimQueuedWorkflowRunsRow
 	for rows.Next() {
 		var row runtimeports.ClaimQueuedWorkflowRunsRow
-		if err := rows.Scan(&row.ID, &row.RepositoryID, &row.WorkflowDefinitionID, &row.TriggerRef, &row.TriggerCommitSha); err != nil {
+		if err := rows.Scan(&row.ID, &row.RepositoryID, &row.WorkflowDefinitionID, &row.TriggerRef, &row.TriggerCommitSha, &row.TriggerEvent); err != nil {
 			return nil, err
 		}
 		_, _ = rand.Read(row.ClaimToken.Bytes[:])

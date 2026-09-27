@@ -892,6 +892,14 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     }
     return ok({ id, direction })
   },
+  "secrets.scope": (args, known) => {
+    const { rest, repo } = splitTrailingRepo(args, known)
+    const [name, scope, ...extra] = tokensOf(rest)
+    if (name === undefined || (scope !== "main-only" && scope !== "all") || extra.length > 0) {
+      return no("secrets.scope takes a secret name and main-only or all")
+    }
+    return ok(repo === undefined ? { name, scope } : { name, scope, repo })
+  },
   "secrets.list": (args) => repoOnly("secrets.list", args),
   "model.show": (args) => modelName("model.show", args),
   "model.edit": (args) => modelName("model.edit", args),

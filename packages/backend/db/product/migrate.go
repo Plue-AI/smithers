@@ -94,6 +94,7 @@ var migrationRegistry = []migrationSpec{
 	{56, "migrations/0056_native_maintainer.sql"},
 	{57, "migrations/0057_outsider_egress.sql"},
 	{58, "migrations/0058_document_sync.sql"},
+	{59, "migrations/0059_main_only_secrets.sql"},
 }
 
 type migration struct {

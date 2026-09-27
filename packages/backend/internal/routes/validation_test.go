@@ -180,7 +180,11 @@ type mockSecretService struct {
 	deleteSecretFn func(ctx context.Context, actor *db.User, owner, repo, name string) error
 }
 
-func (m *mockSecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string) (services.SecretResponse, error) {
+func (m *mockSecretService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
+	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
+}
+
+func (m *mockSecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool) (services.SecretResponse, error) {
 	if m.setSecretFn != nil {
 		return m.setSecretFn(ctx, actor, owner, repo, name, value)
 	}

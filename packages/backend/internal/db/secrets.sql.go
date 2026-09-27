@@ -42,21 +42,30 @@ func (q *Queries) CreateOrUpdateOrgSecret(ctx context.Context, arg CreateOrUpdat
 }
 
 const createOrUpdateSecret = `-- name: CreateOrUpdateSecret :one
-INSERT INTO repository_secrets (repository_id, name, value_encrypted)
-VALUES ($1, $2, $3)
+INSERT INTO repository_secrets (repository_id, name, value_encrypted, main_only)
+VALUES ($1, $2, $3, COALESCE($4::boolean, false))
 ON CONFLICT (repository_id, name)
-DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_flagged_at = NULL, updated_at = NOW()
-RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at
+DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_flagged_at = NULL,
+    main_only = COALESCE($4::boolean, repository_secrets.main_only), updated_at = NOW()
+RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only
 `
 
 type CreateOrUpdateSecretParams struct {
-	RepositoryID   int64  `json:"repository_id"`
-	Name           string `json:"name"`
-	ValueEncrypted []byte `json:"value_encrypted"`
+	RepositoryID   int64       `json:"repository_id"`
+	Name           string      `json:"name"`
+	ValueEncrypted []byte      `json:"value_encrypted"`
+	MainOnly       pgtype.Bool `json:"main_only"`
 }
 
+// A new secret is main-only only when asked; replacing a value keeps its
+// scope unless the write names one.
 func (q *Queries) CreateOrUpdateSecret(ctx context.Context, arg CreateOrUpdateSecretParams) (RepositorySecret, error) {
-	row := q.db.QueryRow(ctx, createOrUpdateSecret, arg.RepositoryID, arg.Name, arg.ValueEncrypted)
+	row := q.db.QueryRow(ctx, createOrUpdateSecret,
+		arg.RepositoryID,
+		arg.Name,
+		arg.ValueEncrypted,
+		arg.MainOnly,
+	)
 	var i RepositorySecret
 	err := row.Scan(
 		&i.ID,
@@ -66,6 +75,7 @@ func (q *Queries) CreateOrUpdateSecret(ctx context.Context, arg CreateOrUpdateSe
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.SubscriptionTokenFlaggedAt,
+		&i.MainOnly,
 	)
 	return i, err
 }
@@ -195,7 +205,7 @@ func (q *Queries) ListOrgSecrets(ctx context.Context, organizationID int64) ([]L
 }
 
 const listSecretValues = `-- name: ListSecretValues :many
-SELECT name, value_encrypted
+SELECT name, value_encrypted, main_only
 FROM repository_secrets
 WHERE repository_id = $1
 ORDER BY name
@@ -204,6 +214,7 @@ ORDER BY name
 type ListSecretValuesRow struct {
 	Name           string `json:"name"`
 	ValueEncrypted []byte `json:"value_encrypted"`
+	MainOnly       bool   `json:"main_only"`
 }
 
 func (q *Queries) ListSecretValues(ctx context.Context, repositoryID int64) ([]ListSecretValuesRow, error) {
@@ -215,7 +226,7 @@ func (q *Queries) ListSecretValues(ctx context.Context, repositoryID int64) ([]L
 	items := []ListSecretValuesRow{}
 	for rows.Next() {
 		var i ListSecretValuesRow
-		if err := rows.Scan(&i.Name, &i.ValueEncrypted); err != nil {
+		if err := rows.Scan(&i.Name, &i.ValueEncrypted, &i.MainOnly); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -230,6 +241,7 @@ const listSecretValuesForRepo = `-- name: ListSecretValuesForRepo :many
 SELECT name, value_encrypted
 FROM repository_secrets
 WHERE repository_id = $1
+  AND NOT main_only
 ORDER BY name
 `
 
@@ -238,6 +250,7 @@ type ListSecretValuesForRepoRow struct {
 	ValueEncrypted []byte `json:"value_encrypted"`
 }
 
+// An agent run's secrets: never a main-only one.
 func (q *Queries) ListSecretValuesForRepo(ctx context.Context, repositoryID int64) ([]ListSecretValuesForRepoRow, error) {
 	rows, err := q.db.Query(ctx, listSecretValuesForRepo, repositoryID)
 	if err != nil {
@@ -259,7 +272,7 @@ func (q *Queries) ListSecretValuesForRepo(ctx context.Context, repositoryID int6
 }
 
 const listSecrets = `-- name: ListSecrets :many
-SELECT id, repository_id, name, created_at, updated_at, subscription_token_flagged_at
+SELECT id, repository_id, name, created_at, updated_at, subscription_token_flagged_at, main_only
 FROM repository_secrets
 WHERE repository_id = $1
 ORDER BY name
@@ -272,6 +285,7 @@ type ListSecretsRow struct {
 	CreatedAt                  time.Time          `json:"created_at"`
 	UpdatedAt                  time.Time          `json:"updated_at"`
 	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
+	MainOnly                   bool               `json:"main_only"`
 }
 
 func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSecretsRow, error) {
@@ -290,6 +304,7 @@ func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSe
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.SubscriptionTokenFlaggedAt,
+			&i.MainOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -299,4 +314,33 @@ func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSe
 		return nil, err
 	}
 	return items, nil
+}
+
+const setSecretMainOnly = `-- name: SetSecretMainOnly :one
+UPDATE repository_secrets
+SET main_only = $1, updated_at = NOW()
+WHERE repository_id = $2 AND name = $3
+RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only
+`
+
+type SetSecretMainOnlyParams struct {
+	MainOnly     bool   `json:"main_only"`
+	RepositoryID int64  `json:"repository_id"`
+	Name         string `json:"name"`
+}
+
+func (q *Queries) SetSecretMainOnly(ctx context.Context, arg SetSecretMainOnlyParams) (RepositorySecret, error) {
+	row := q.db.QueryRow(ctx, setSecretMainOnly, arg.MainOnly, arg.RepositoryID, arg.Name)
+	var i RepositorySecret
+	err := row.Scan(
+		&i.ID,
+		&i.RepositoryID,
+		&i.Name,
+		&i.ValueEncrypted,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubscriptionTokenFlaggedAt,
+		&i.MainOnly,
+	)
+	return i, err
 }

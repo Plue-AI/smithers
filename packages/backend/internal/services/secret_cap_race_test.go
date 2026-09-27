@@ -24,7 +24,7 @@ func TestSecretService_CapTriggerRaceIsAQuotaRefusal(t *testing.T) {
 			return db.RepositorySecret{}, &pgconn.PgError{Code: "23514", ConstraintName: "repository_secrets_repo_cap"}
 		},
 	}, webhook.NoopSecretCodec{})
-	_, err := repoSvc.SetSecret(ctx, actor, "alice", "demo", "TOKEN", "v")
+	_, err := repoSvc.SetSecret(ctx, actor, "alice", "demo", "TOKEN", "v", nil)
 	requireAPIErrorStatus(t, err, wantStatus)
 
 	orgSvc := NewSecretService(&mockSecretQuerier{

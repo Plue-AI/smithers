@@ -141,6 +141,14 @@ func TestResolveChatModelCredentialSources(t *testing.T) {
 	binding, err = resolver.ResolveChatModel(ctx, f.owner, f.repo, request("OPENAI_API_KEY"))
 	require.NoError(t, err)
 	require.Equal(t, "repository-key", binding.CredentialValue)
+	// A main-only repository secret (D-24) never reaches a chat turn.
+	_, err = f.pool.Exec(ctx, `UPDATE repository_secrets SET main_only = true WHERE repository_id = $1 AND name = 'OPENAI_API_KEY'`, f.repo)
+	require.NoError(t, err)
+	binding, err = resolver.ResolveChatModel(ctx, f.owner, f.repo, request("OPENAI_API_KEY"))
+	require.NoError(t, err)
+	require.Equal(t, "owner-key", binding.CredentialValue)
+	_, err = f.pool.Exec(ctx, `UPDATE repository_secrets SET main_only = false WHERE repository_id = $1 AND name = 'OPENAI_API_KEY'`, f.repo)
+	require.NoError(t, err)
 
 	// A custom credential is pinned to its enrolled origin.
 	require.Equal(t, true, f.credential(t, "enroll", "enroll-1002", "CUSTOM_KEY", "https://models.example", "custom-key")["ok"])

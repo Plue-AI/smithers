@@ -397,4 +397,7 @@ describe("the model grammars", () => {
 test("coding connection revocation decodes its ID and requires a missing ID", () => {
   expect(payloadFor("secrets.revoke", "conn-1")).toEqual({ payload: { id: "conn-1" } })
   expect(payloadFor("secrets.revoke", undefined)).toEqual({ error: "Choose a coding connection" })
+  expect(payloadFor("secrets.scope", "DEPLOY main-only")).toEqual({ payload: { name: "DEPLOY", scope: "main-only" } })
+  expect(payloadFor("secrets.scope", "DEPLOY all will/flows")).toEqual({ payload: { name: "DEPLOY", scope: "all", repo: "will/flows" } })
+  expect(payloadFor("secrets.scope", "DEPLOY")).toEqual({ error: "secrets.scope takes a secret name and main-only or all" })
 })

@@ -1904,6 +1904,7 @@ type RepositorySecret struct {
 	CreatedAt                  time.Time          `json:"created_at"`
 	UpdatedAt                  time.Time          `json:"updated_at"`
 	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
+	MainOnly                   bool               `json:"main_only"`
 }
 
 type RepositorySetupRequest struct {

@@ -74,78 +74,10 @@ func (s *SecretInjector) ValidateRepository(ctx context.Context, repositoryID in
 	return err
 }
 
-// RepositorySecrets returns only the decrypted secret values for the repository,
-// without variables. Use this map with RedactSecretValues to avoid accidentally
-// masking non-sensitive variable values in log output.
-func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int64) (map[string]string, error) {
-	if repositoryID <= 0 {
-		return nil, fmt.Errorf("repository id must be positive")
-	}
-	if s == nil || s.queries == nil {
-		return map[string]string{}, nil
-	}
-
-	repository, err := s.queries.GetRepoByID(ctx, repositoryID)
-	if err != nil {
-		return nil, fmt.Errorf("load repository: %w", err)
-	}
-
-	secrets := map[string]string{}
-	if repository.OrgID.Valid {
-		orgRows, err := s.queries.ListOrgSecretValues(ctx, repository.OrgID.Int64)
-		if err != nil {
-			return nil, fmt.Errorf("list organization secrets: %w", err)
-		}
-		for _, row := range orgRows {
-			name := strings.TrimSpace(row.Name)
-			if !IsInjectedSecretName(name) {
-				return nil, fmt.Errorf("organization secret %q is not a valid environment variable name", row.Name)
-			}
-			value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
-			if err != nil {
-				return nil, fmt.Errorf("decrypt organization secret %q: %w", name, err)
-			}
-			if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "organization secret", name, value); err != nil {
-				return nil, err
-			}
-			if value == "" {
-				continue
-			}
-			secrets[name] = value
-		}
-	}
-
-	rows, err := s.queries.ListSecretValues(ctx, repositoryID)
-	if err != nil {
-		return nil, fmt.Errorf("list repository secrets: %w", err)
-	}
-
-	for _, row := range rows {
-		name := strings.TrimSpace(row.Name)
-		if !IsInjectedSecretName(name) {
-			return nil, fmt.Errorf("repository secret %q is not a valid environment variable name", row.Name)
-		}
-		value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
-		if err != nil {
-			return nil, fmt.Errorf("decrypt repository secret %q: %w", name, err)
-		}
-		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "repository secret", name, value); err != nil {
-			return nil, err
-		}
-		if value == "" {
-			continue
-		}
-		secrets[name] = value
-	}
-
-	if err := validateInjectedEnvBudget(secrets); err != nil {
-		return nil, err
-	}
-	return secrets, nil
-}
-
+// RepositoryEnvironment is the environment of a run that is not a trusted
+// run on the default bookmark: it never holds a main-only secret.
 func (s *SecretInjector) RepositoryEnvironment(ctx context.Context, repositoryID int64) (map[string]string, error) {
-	env, _, err := s.RepositoryEnvironmentAndSecrets(ctx, repositoryID)
+	env, _, err := s.RepositoryEnvironmentAndSecrets(ctx, repositoryID, false)
 	return env, err
 }
 
@@ -153,8 +85,10 @@ func (s *SecretInjector) RepositoryEnvironment(ctx context.Context, repositoryID
 // and derives both the injected environment and the redaction-only secret map
 // from the same decrypted rows. Callers that build an execution environment
 // must use this method so a concurrent secret rotation cannot inject one value
-// while marking/redacting a different value.
-func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, repositoryID int64) (map[string]string, map[string]string, error) {
+// while marking/redacting a different value. A main-only repository secret is
+// included only for mainTrusted, a trusted run on the default bookmark
+// (workflowRunOnTrustedMain); an agent's run never is one.
+func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, repositoryID int64, mainTrusted bool) (map[string]string, map[string]string, error) {
 	if repositoryID <= 0 {
 		return nil, nil, fmt.Errorf("repository id must be positive")
 	}
@@ -246,6 +180,9 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 		name := strings.TrimSpace(row.Name)
 		if !IsInjectedSecretName(name) {
 			return nil, nil, fmt.Errorf("repository secret %q is not a valid environment variable name", row.Name)
+		}
+		if row.MainOnly && !mainTrusted {
+			continue
 		}
 
 		value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))

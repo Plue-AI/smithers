@@ -32,7 +32,7 @@ func TestSecretInjection_Cov_NilInjectorAndValidation(t *testing.T) {
 	if err != nil || len(env) != 0 {
 		t.Fatalf("nil RepositoryEnvironment = %#v, %v", env, err)
 	}
-	secrets, err := nilInjector.RepositorySecrets(context.Background(), 1)
+	_, secrets, err := nilInjector.RepositoryEnvironmentAndSecrets(context.Background(), 1, false)
 	if err != nil || len(secrets) != 0 {
 		t.Fatalf("nil RepositorySecrets = %#v, %v", secrets, err)
 	}
@@ -74,7 +74,7 @@ func TestSecretInjection_Cov_OrgAndRepoPrecedenceAndErrors(t *testing.T) {
 		t.Fatalf("env = %#v, want repo overrides", env)
 	}
 
-	secrets, err := injector.RepositorySecrets(context.Background(), 8)
+	_, secrets, err := injector.RepositoryEnvironmentAndSecrets(context.Background(), 8, false)
 	if err != nil {
 		t.Fatalf("RepositorySecrets returned error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestSecretInjection_Cov_OrgAndRepoPrecedenceAndErrors(t *testing.T) {
 			return []db.ListSecretValuesRow{{Name: "BROKEN", ValueEncrypted: []byte("bad")}}, nil
 		},
 	}, secretInjectionCovCodec{errOn: "bad"})
-	_, err = failing.RepositorySecrets(context.Background(), 9)
+	_, _, err = failing.RepositoryEnvironmentAndSecrets(context.Background(), 9, false)
 	if err == nil || !strings.Contains(err.Error(), `decrypt repository secret "BROKEN"`) {
 		t.Fatalf("decrypt err = %v", err)
 	}

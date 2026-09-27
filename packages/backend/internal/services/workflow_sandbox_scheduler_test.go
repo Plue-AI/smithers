@@ -174,6 +174,7 @@ func testWorkflowSandboxClaimRow(run db.WorkflowRun) runtimeports.ClaimQueuedWor
 		WorkflowDefinitionID: run.WorkflowDefinitionID,
 		TriggerRef:           run.TriggerRef,
 		TriggerCommitSha:     run.TriggerCommitSha,
+		TriggerEvent:         run.TriggerEvent,
 		ClaimToken:           stringToUUID("00000000-0000-4000-8000-000000000001"),
 		ClaimGeneration:      1,
 		ClaimLeaseExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(2 * time.Minute), Valid: true},
@@ -1628,4 +1629,54 @@ func TestWorkflowSandboxLogStoresBinaryOutputAsText(t *testing.T) {
 	worker := &WorkflowSandboxSchedulerWorker{queries: queries}
 	require.NoError(t, worker.appendLog(context.Background(), 1, 2, "stdout", "ok\x00\xff done"))
 	assert.Equal(t, "ok\uFFFD\uFFFD done", stored)
+}
+
+// A main-only repository secret (D-24) reaches a sandbox run only when its
+// claimed trigger is a trusted one on exactly the default bookmark.
+func TestWorkflowSandboxSchedulerInjectsMainOnlySecretsOnlyIntoTrustedMainRuns(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		event, ref string
+		trusted    bool
+	}{
+		{"push", "refs/heads/main", true},
+		{"schedule", "main", true},
+		{"push", "refs/heads/feature", false},
+		{"landing_request", "main", false},
+		{"", "main", false},
+	} {
+		queries := &mockWorkflowSandboxSchedulerQuerier{
+			claimQueuedWorkflowRunsFn: func(_ context.Context, _ int32) ([]db.WorkflowRun, error) {
+				return []db.WorkflowRun{{ID: 99, RepositoryID: 100, WorkflowDefinitionID: 7, TriggerRef: tc.ref, TriggerEvent: tc.event}}, nil
+			},
+			getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
+				return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
+			},
+			getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
+				return db.Repository{ID: id, Name: "demo", DefaultBookmark: "main", UserID: pgtype.Int8{Int64: 11, Valid: true}}, nil
+			},
+			getUserByIDFn: func(_ context.Context, _ int64) (db.User, error) { return db.User{ID: 11, Username: "alice"}, nil },
+			listWorkflowStepsByRunIDFn: func(_ context.Context, _ int64) ([]db.WorkflowStep, error) {
+				return []db.WorkflowStep{{ID: 21, WorkflowRunID: 99, Status: "queued"}}, nil
+			},
+		}
+		injector := NewSecretInjector(&mockSecretInjectionQuerier{
+			getRepoFn: func(_ context.Context, id int64) (db.Repository, error) { return db.Repository{ID: id}, nil },
+			listSecretValuesFn: func(_ context.Context, _ int64) ([]db.ListSecretValuesRow, error) {
+				return []db.ListSecretValuesRow{{Name: "DEPLOY_TOKEN", ValueEncrypted: []byte("deploy"), MainOnly: true}, {Name: "LINT_TOKEN", ValueEncrypted: []byte("lint")}}, nil
+			},
+		}, webhook.NoopSecretCodec{})
+		sandboxClient := &mockWorkflowSandboxVMClient{}
+		worker := NewWorkflowSandboxSchedulerWorker(queries, sandboxClient,
+			WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
+			WithWorkflowSandboxSchedulerAPIBaseURL("https://api.smithers.test/api"),
+			WithWorkflowSandboxSchedulerSecretInjector(injector))
+		require.NoError(t, worker.PollOnce(context.Background()))
+		require.NotEmpty(t, sandboxClient.createCalls, "%s on %q", tc.event, tc.ref)
+		require.NotNil(t, sandboxClient.createCalls[0].Init)
+		env := sandboxClient.createCalls[0].Init.Services[0].Env
+		assert.Equal(t, "lint", env["LINT_TOKEN"], "%s on %q", tc.event, tc.ref)
+		_, got := env["DEPLOY_TOKEN"]
+		assert.Equal(t, tc.trusted, got, "%s on %q", tc.event, tc.ref)
+	}
 }

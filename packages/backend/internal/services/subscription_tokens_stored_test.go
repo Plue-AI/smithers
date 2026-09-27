@@ -54,19 +54,19 @@ func TestStoredSubscriptionTokenSecretsAreRefusedWhenUsed(t *testing.T) {
 	type use func(allowed bool) error
 	for name, fn := range map[string]use{
 		"repository secret, injected": func(allowed bool) error {
-			_, _, err := injector(allowed, []db.ListSecretValuesRow{{Name: "OK", ValueEncrypted: []byte(apiKey)}, {Name: "ANTHROPIC_AUTH_TOKEN", ValueEncrypted: []byte(cipher)}}, nil, nil).RepositoryEnvironmentAndSecrets(ctx, 42)
+			_, _, err := injector(allowed, []db.ListSecretValuesRow{{Name: "OK", ValueEncrypted: []byte(apiKey)}, {Name: "ANTHROPIC_AUTH_TOKEN", ValueEncrypted: []byte(cipher)}}, nil, nil).RepositoryEnvironmentAndSecrets(ctx, 42, false)
 			return err
 		},
 		"repository secret, redaction map": func(allowed bool) error {
-			_, err := injector(allowed, []db.ListSecretValuesRow{{Name: "ANTHROPIC_AUTH_TOKEN", ValueEncrypted: []byte(cipher)}}, nil, nil).RepositorySecrets(ctx, 42)
+			_, _, err := injector(allowed, []db.ListSecretValuesRow{{Name: "ANTHROPIC_AUTH_TOKEN", ValueEncrypted: []byte(cipher)}}, nil, nil).RepositoryEnvironmentAndSecrets(ctx, 42, false)
 			return err
 		},
 		"organization secret": func(allowed bool) error {
-			_, _, err := injector(allowed, nil, []db.ListOrgSecretValuesRow{{Name: "CLAUDE_CODE_OAUTH_TOKEN", ValueEncrypted: []byte(cipher)}}, nil).RepositoryEnvironmentAndSecrets(ctx, 42)
+			_, _, err := injector(allowed, nil, []db.ListOrgSecretValuesRow{{Name: "CLAUDE_CODE_OAUTH_TOKEN", ValueEncrypted: []byte(cipher)}}, nil).RepositoryEnvironmentAndSecrets(ctx, 42, false)
 			return err
 		},
 		"repository variable": func(allowed bool) error {
-			_, _, err := injector(allowed, nil, nil, []db.RepositoryVariable{{Name: "ANTHROPIC_AUTH_TOKEN", Value: token}}).RepositoryEnvironmentAndSecrets(ctx, 42)
+			_, _, err := injector(allowed, nil, nil, []db.RepositoryVariable{{Name: "ANTHROPIC_AUTH_TOKEN", Value: token}}).RepositoryEnvironmentAndSecrets(ctx, 42, false)
 			return err
 		},
 		"repository secret, direct": func(allowed bool) error {

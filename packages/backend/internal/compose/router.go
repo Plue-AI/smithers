@@ -1351,6 +1351,7 @@ func buildRouter(
 				if secretHandler != nil {
 					r.With(append(writeRepo, gateSecrets)...).Get("/secrets", secretHandler.ListSecrets)
 					r.With(append(adminRepo, gateSecrets)...).Post("/secrets", secretHandler.SetSecret)
+					r.With(append(adminRepo, gateSecrets)...).Patch("/secrets/{name}", secretHandler.SetSecretScope)
 					r.With(append(adminRepo, gateSecrets)...).Delete("/secrets/{name}", secretHandler.DeleteSecret)
 					// Agent workspace environment secrets are a distinct setup-only
 					// resource and never enter the long-lived agent environment.

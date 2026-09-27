@@ -16,7 +16,7 @@ import type { Card } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
 import { readEnvironment } from "./EnvironmentSeam"
 import type { SeamContext } from "./SeamContext"
-import { captureCloudOwner, readResult } from "./SeamContext"
+import { captureCloudOwner, readErrorMessage, readResult } from "./SeamContext"
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { FailureController } from "../controller/failures"
 import { TOAST_SUPERSEDED } from "../controller/failures"
@@ -78,6 +78,8 @@ const deviceOf = (raw: unknown): Device | undefined => {
 
 export interface SecretsSeam {
   readonly listSecrets: ViewAction<[repo?: string]>
+  /** Mark a repository secret main-only (D-24), or give it to every run again. */
+  readonly scopeSecret: (name: string, scope: "main-only" | "all", repo?: string) => Promise<{ readonly value: string } | string>
   readonly connectCodingProvider: (gesture?: CommandGesture) => Promise<{ readonly value: string } | string>
   readonly connectCodex: () => Promise<{ readonly value: string } | string>
   readonly listCodingProviders: () => Promise<{ readonly value: string } | string>
@@ -562,5 +564,27 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     } }
   })
 
-  return { listSecrets, connectCodingProvider, connectCodex, listCodingProviders, revokeCodingProvider, moveCodingProvider, resumeCodingProviders }
+  /*
+   * A main-only repository secret reaches only trusted runs on the default
+   * bookmark. The platform answers with the stored mark, which the reply names.
+   */
+  const scopeSecret: SecretsSeam["scopeSecret"] = async (name, scope, repo) => {
+    const target = resolveTargetRepo(ctx.store, repo)
+    if ("error" in target) return target.error
+    const [owner = "", repoName = ""] = target.repo.split("/")
+    let response: Response
+    try {
+      response = await ctx.http(
+        `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}/secrets/${encodeURIComponent(name)}`,
+        { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ main_only: scope === "main-only" }) }
+      )
+    } catch {
+      return `${name} couldn't be changed in ${target.repo} — the platform didn't answer.`
+    }
+    if (!response.ok) return readErrorMessage(response, `${name} couldn't be changed in ${target.repo} (HTTP ${response.status}).`)
+    const stored = await response.json().catch(() => undefined) as { main_only?: unknown } | undefined
+    return { value: `${name}: ${stored?.main_only === true ? "main only" : "every run"}` }
+  }
+
+  return { listSecrets, scopeSecret, connectCodingProvider, connectCodex, listCodingProviders, revokeCodingProvider, moveCodingProvider, resumeCodingProviders }
 }

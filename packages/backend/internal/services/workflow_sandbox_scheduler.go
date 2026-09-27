@@ -284,6 +284,7 @@ func workflowSandboxRunClaimFromRow(row runtimeports.ClaimQueuedWorkflowRunsRow)
 			WorkflowDefinitionID: row.WorkflowDefinitionID,
 			TriggerRef:           row.TriggerRef,
 			TriggerCommitSha:     row.TriggerCommitSha,
+			TriggerEvent:         row.TriggerEvent,
 		},
 		Token:          UUIDString(row.ClaimToken),
 		Generation:     row.ClaimGeneration,
@@ -599,7 +600,7 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 	secrets := map[string]string{}
 	if w.secretInjector != nil {
 		var repoSecrets map[string]string
-		secrets, repoSecrets, err = w.secretInjector.RepositoryEnvironmentAndSecrets(runCtx, run.RepositoryID)
+		secrets, repoSecrets, err = w.secretInjector.RepositoryEnvironmentAndSecrets(runCtx, run.RepositoryID, workflowRunOnTrustedMain(run, repository))
 		if err != nil {
 			message := "failed to load repository secrets"
 			var apiErr *pkgerrors.APIError

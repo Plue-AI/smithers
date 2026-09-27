@@ -17,12 +17,16 @@ type BindAlertRemediationJobWorkflowRunAtAttemptParams struct {
 	ExpectedAttempts int32       `json:"expected_attempts"`
 }
 
+// ClaimQueuedWorkflowRunsRow is one claimed sandbox run. TriggerEvent is its
+// recorded trigger, which decides whether it receives main-only repository
+// secrets; a claim without it receives none.
 type ClaimQueuedWorkflowRunsRow struct {
 	ID                   int64              `json:"id"`
 	RepositoryID         int64              `json:"repository_id"`
 	WorkflowDefinitionID int64              `json:"workflow_definition_id"`
 	TriggerRef           string             `json:"trigger_ref"`
 	TriggerCommitSha     string             `json:"trigger_commit_sha"`
+	TriggerEvent         string             `json:"trigger_event"`
 	ClaimToken           pgtype.UUID        `json:"claim_token"`
 	ClaimGeneration      int64              `json:"claim_generation"`
 	ClaimLeaseExpiresAt  pgtype.Timestamptz `json:"claim_lease_expires_at"`

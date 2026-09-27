@@ -546,6 +546,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly connectCodex: SecretsSeam["connectCodex"]
   readonly moveCodingProvider: SecretsSeam["moveCodingProvider"]
   readonly listSecrets: SecretsSeam["listSecrets"]
+  readonly scopeSecret: SecretsSeam["scopeSecret"]
   /* The mythical stack (#1745), the repository history (D-20): the History card, its admin writes, and the live snapshots its views read. */
   readonly showStack: StackSeam["showStack"]
   readonly bootstrapStack: StackSeam["bootstrapStack"]
@@ -1859,6 +1860,7 @@ export const createAppController = (
     connectCodex: secretsSeam.connectCodex,
     moveCodingProvider: secretsSeam.moveCodingProvider,
     listSecrets: secretsSeam.listSecrets,
+    scopeSecret: secretsSeam.scopeSecret,
     showStack: stackSeam.showStack,
     bootstrapStack: stackSeam.bootstrapStack,
     backfillStack: stackSeam.backfillStack,

@@ -182,7 +182,7 @@ func TestSecretInjector_SecretsPassedButNotLogged(t *testing.T) {
 	// the full environment. This ensures variable values remain visible in logs
 	// while secret values are masked. Mixing both would redact innocuous variable
 	// values from log output.
-	secretsOnly, err := injector.RepositorySecrets(context.Background(), 505)
+	_, secretsOnly, err := injector.RepositoryEnvironmentAndSecrets(context.Background(), 505, false)
 	require.NoError(t, err)
 
 	// Simulate a log line that accidentally echoes a secret value.
@@ -248,7 +248,7 @@ func TestSecretInjector_RepositorySecrets_RejectsOverEntryBudget(t *testing.T) {
 		},
 	}, webhook.NoopSecretCodec{})
 
-	_, err := injector.RepositorySecrets(context.Background(), 808)
+	_, _, err := injector.RepositoryEnvironmentAndSecrets(context.Background(), 808, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds budget")
 }

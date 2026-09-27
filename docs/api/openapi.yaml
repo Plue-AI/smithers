@@ -2498,6 +2498,51 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+    patch:
+      summary: PATCH /api/repos/{owner}/{repo}/secrets/{name}
+      description: 'Marks a repository secret main-only (`{"main_only": true}`) or clears the mark, without its value. A main-only secret reaches only a trusted run on the default bookmark: a person''s push to it, a schedule, or a person''s dispatch. Admin only.'
+      operationId: patch_api_repos_owner_repo_secrets_name
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/stacks/active:
     delete:
       summary: DELETE /api/repos/{owner}/{repo}/stacks/active

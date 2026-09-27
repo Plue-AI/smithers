@@ -20,9 +20,15 @@ type mockSecretRouteService struct {
 	setSecretFn    func(ctx context.Context, actor *db.User, owner, repo, name, value string) (services.SecretResponse, error)
 	listSecretsFn  func(ctx context.Context, actor *db.User, owner, repo string) ([]services.SecretResponse, error)
 	deleteSecretFn func(ctx context.Context, actor *db.User, owner, repo, name string) error
+	mainOnly       *bool
 }
 
-func (m *mockSecretRouteService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string) (services.SecretResponse, error) {
+func (m *mockSecretRouteService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
+	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
+}
+
+func (m *mockSecretRouteService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool) (services.SecretResponse, error) {
+	m.mainOnly = mainOnly
 	if m.setSecretFn != nil {
 		return m.setSecretFn(ctx, actor, owner, repo, name, value)
 	}
@@ -180,4 +186,34 @@ func TestSecretHandler_SetSecret_InvalidJSON(t *testing.T) {
 	h.SetSecret(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// A secret is marked main-only on set, or by itself without its value.
+func TestSecretHandler_MainOnlyScope(t *testing.T) {
+	t.Parallel()
+	service := &mockSecretRouteService{}
+	h := &SecretHandler{Service: service}
+	serve := func(method, body string, handler func(http.ResponseWriter, *http.Request)) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/api/repos/alice/demo/secrets/DEPLOY", strings.NewReader(body))
+		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "name": "DEPLOY"})
+		req = withAuth(req, 1, "alice")
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		return rec
+	}
+	rec := serve(http.MethodPost, `{"name":"DEPLOY","value":"v","main_only":true}`, h.SetSecret)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	require.NotNil(t, service.mainOnly)
+	assert.True(t, *service.mainOnly)
+	rec = serve(http.MethodPost, `{"name":"DEPLOY","value":"v"}`, h.SetSecret)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Nil(t, service.mainOnly, "an omitted scope keeps the stored one")
+
+	rec = serve(http.MethodPatch, `{"main_only":true}`, h.SetSecretScope)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got services.SecretResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, services.SecretResponse{Name: "DEPLOY", MainOnly: true}, got)
+	rec = serve(http.MethodPatch, `{}`, h.SetSecretScope)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 }

@@ -216,6 +216,7 @@ func secretCommand() *incur.Cli {
 		ArgsSchema:  objectSchema([]string{"name"}, map[string]*incur.JSONSchema{"name": stringSchema("Secret name")}),
 		OptionsSchema: objectSchema(nil, map[string]*incur.JSONSchema{
 			"body-stdin": booleanSchema("Read the secret value from stdin", false),
+			"main-only":  booleanSchema("Only trusted runs on the default bookmark receive it", false),
 			"repo":       stringSchema("Repository (OWNER/REPO)"),
 		}),
 		Handler: func(ctx *incur.CommandContext) (any, error) {
@@ -230,9 +231,28 @@ func secretCommand() *incur.Cli {
 			if err != nil {
 				return nil, err
 			}
-			return APIRequest("POST", fmt.Sprintf("/api/repos/%s/%s/secrets", owner, repo), map[string]any{
-				"name":  stringValue(ctx.Args["name"]),
-				"value": value,
+			body := map[string]any{"name": stringValue(ctx.Args["name"]), "value": value}
+			if ctx.Options["main-only"] == true {
+				body["main_only"] = true
+			}
+			return APIRequest("POST", fmt.Sprintf("/api/repos/%s/%s/secrets", owner, repo), body, nil)
+		},
+	})
+	cmd.Command("scope", &incur.CommandDef{
+		Description: "Limit a secret to trusted runs on the default bookmark, or give it to every run",
+		ArgsSchema: objectSchema([]string{"name", "scope"}, map[string]*incur.JSONSchema{
+			"name":  stringSchema("Secret name"),
+			"scope": enumSchema("main-only or all", []string{"main-only", "all"}, ""),
+		}),
+		OptionsSchema: objectSchema(nil, map[string]*incur.JSONSchema{"repo": stringSchema("Repository (OWNER/REPO)")}),
+		Handler: func(ctx *incur.CommandContext) (any, error) {
+			owner, repo, err := ResolveRepoRef(stringValue(ctx.Options["repo"]))
+			if err != nil {
+				return nil, err
+			}
+			name := stringValue(ctx.Args["name"])
+			return APIRequest("PATCH", fmt.Sprintf("/api/repos/%s/%s/secrets/%s", owner, repo, url.PathEscape(name)), map[string]any{
+				"main_only": stringValue(ctx.Args["scope"]) == "main-only",
 			}, nil)
 		},
 	})

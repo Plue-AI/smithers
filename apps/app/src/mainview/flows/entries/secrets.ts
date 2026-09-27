@@ -11,6 +11,10 @@ import type { CommandActions } from "./Declare"
 /** The `secrets` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "secrets", label: "Secrets", summary: "Secrets a repository's sessions may use" }
 
+/** The repository a secrets.scope names, or the active one. */
+const scopeRepo = (actions: CommandActions, payload: Record<string, unknown>): string | undefined =>
+  (typeof payload["repo"] === "string" ? payload["repo"] : undefined) ?? actions.activeRepository() ?? undefined
+
 /** The `secrets` flows registered as one aggregator block. */
 export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
@@ -41,6 +45,27 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     requires: ["signed-in"], args: "<id>", input: Schema.Struct({ id: Schema.String }),
     confirm: payload => `revoke coding connection ${String(payload["id"])}`,
     handler: ({ id }) => actions.revokeCodingProvider(id)
+  }),
+  flow({
+    name: "secrets.scope",
+    summary: "Limit a repository secret to trusted runs on main, or give it to every run",
+    runtime: ["cloud"],
+    args: "<name> <main-only|all> [owner/repo]",
+    requires: ["signed-in"],
+    input: Schema.Struct({ name: Schema.String, scope: Schema.Literals(["main-only", "all"]), repo: Schema.optional(Schema.String) }),
+    /*
+     * Giving a main-only secret to every run hands it to agent runs, so the
+     * agent may only ask; the human confirms, for the repository named at
+     * ask time.
+     */
+    confirm: payload => payload["scope"] === "all"
+      ? `give ${String(payload["name"])} to every run in ${scopeRepo(actions, payload) ?? "the selected repository"}`
+      : undefined,
+    confirmArgs: payload => {
+      const repo = scopeRepo(actions, payload)
+      return repo === undefined ? undefined : `${String(payload["name"])} ${String(payload["scope"])} ${repo}`
+    },
+    handler: ({ name, scope, repo }) => actions.scopeSecret(name, scope, repo)
   }),
   flow({
     name: "secrets.list",

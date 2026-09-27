@@ -70,7 +70,7 @@ func TestSecretService_Integration_RepositoryRoundTripAndAuthorization(t *testin
 
 	const secretName = "CONNECTOR_TOKEN"
 	const plaintext = "connector-token-for-unattended-run"
-	created, err := service.SetSecret(ctx, adminCollaborator, owner.Username, repoName, secretName, plaintext)
+	created, err := service.SetSecret(ctx, adminCollaborator, owner.Username, repoName, secretName, plaintext, nil)
 	require.NoError(t, err)
 	assert.Equal(t, secretName, created.Name)
 	encoded, err := json.Marshal(created)
@@ -99,12 +99,12 @@ func TestSecretService_Integration_RepositoryRoundTripAndAuthorization(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{secretName: plaintext}, decrypted)
 	runtimeEnv, runtimeSecrets, err := NewSecretInjector(db.New(pool), codec).
-		RepositoryEnvironmentAndSecrets(ctx, repositoryID)
+		RepositoryEnvironmentAndSecrets(ctx, repositoryID, false)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{secretName: plaintext}, runtimeEnv)
 	assert.Equal(t, map[string]string{secretName: plaintext}, runtimeSecrets)
 
-	_, err = service.SetSecret(ctx, stranger, owner.Username, repoName, "STRANGER_TOKEN", "denied")
+	_, err = service.SetSecret(ctx, stranger, owner.Username, repoName, "STRANGER_TOKEN", "denied", nil)
 	require.Error(t, err)
 	assert.Equal(t, 403, apiStatus(t, err))
 	_, err = service.ListSecrets(ctx, stranger, owner.Username, repoName)
@@ -122,7 +122,7 @@ func TestSecretService_Integration_RepositoryRoundTripAndAuthorization(t *testin
 	require.NoError(t, err)
 	assert.Empty(t, decrypted)
 	runtimeEnv, runtimeSecrets, err = NewSecretInjector(db.New(pool), codec).
-		RepositoryEnvironmentAndSecrets(ctx, repositoryID)
+		RepositoryEnvironmentAndSecrets(ctx, repositoryID, false)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeEnv)
 	assert.Empty(t, runtimeSecrets)

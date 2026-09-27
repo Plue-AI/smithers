@@ -12,7 +12,8 @@ import (
 )
 
 type SecretRouteService interface {
-	SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string) (services.SecretResponse, error)
+	SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool) (services.SecretResponse, error)
+	SetSecretMainOnly(ctx context.Context, actor *db.User, owner, repo, name string, mainOnly bool) (services.SecretResponse, error)
 	ListSecrets(ctx context.Context, actor *db.User, owner, repo string) ([]services.SecretResponse, error)
 	DeleteSecret(ctx context.Context, actor *db.User, owner, repo, name string) error
 	SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string) (services.SecretResponse, error)
@@ -29,6 +30,13 @@ type SecretHandler struct {
 type setSecretRequest struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	// MainOnly limits the secret to trusted runs on the default bookmark;
+	// omitted keeps a replaced secret's scope.
+	MainOnly *bool `json:"main_only"`
+}
+
+type setSecretScopeRequest struct {
+	MainOnly *bool `json:"main_only"`
 }
 
 func (h *SecretHandler) ListSecrets(w http.ResponseWriter, r *http.Request) {
@@ -76,12 +84,47 @@ func (h *SecretHandler) SetSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := h.Service.SetSecret(r.Context(), actor, owner, repo, req.Name, req.Value)
+	secret, err := h.Service.SetSecret(r.Context(), actor, owner, repo, req.Name, req.Value, req.MainOnly)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
 	}
 	errors.WriteJSON(w, http.StatusCreated, secret)
+}
+
+// SetSecretScope marks a repository secret main-only, or clears the mark.
+func (h *SecretHandler) SetSecretScope(w http.ResponseWriter, r *http.Request) {
+	actor, err := requireRouteUser(r)
+	if err != nil {
+		errors.WriteError(w, err.(*errors.APIError))
+		return
+	}
+	owner, repo, err := repoOwnerAndName(r)
+	if err != nil {
+		errors.WriteError(w, err.(*errors.APIError))
+		return
+	}
+	name, err := routeParam(r, "name", "secret name is required")
+	if err != nil {
+		errors.WriteError(w, err.(*errors.APIError))
+		return
+	}
+	if apiErr := validateSecretVariableName(name, "Secret"); apiErr != nil {
+		h.Metrics.IncValidationRejection("Secret", "name")
+		errors.WriteError(w, apiErr)
+		return
+	}
+	var req setSecretScopeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.MainOnly == nil {
+		errors.WriteError(w, errors.BadRequest("main_only is required"))
+		return
+	}
+	secret, err := h.Service.SetSecretMainOnly(r.Context(), actor, owner, repo, name, *req.MainOnly)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	errors.WriteJSON(w, http.StatusOK, secret)
 }
 
 func (h *SecretHandler) DeleteSecret(w http.ResponseWriter, r *http.Request) {

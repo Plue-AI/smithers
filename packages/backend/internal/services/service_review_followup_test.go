@@ -179,7 +179,7 @@ func TestReservedSecretMarkerIsRejectedAcrossConfigurationBoundaries(t *testing.
 	actor := &db.User{ID: 1}
 
 	_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(
-		context.Background(), actor, "alice", "demo", SecretEnvKeysRuntimeMarker, "secret")
+		context.Background(), actor, "alice", "demo", SecretEnvKeysRuntimeMarker, "secret", nil)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiStatus(t, err))
 	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetOrgSecret(
 		context.Background(), actor, "acme", SecretEnvKeysRuntimeMarker, "secret")
@@ -199,7 +199,7 @@ func TestReservedSecretMarkerIsRejectedAcrossConfigurationBoundaries(t *testing.
 			return []db.RepositoryVariable{{Name: SecretEnvKeysRuntimeMarker, Value: "user-value"}}, nil
 		},
 	}, webhook.NoopSecretCodec{})
-	_, _, err = injector.RepositoryEnvironmentAndSecrets(context.Background(), 42)
+	_, _, err = injector.RepositoryEnvironmentAndSecrets(context.Background(), 42, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a valid environment variable name")
 }

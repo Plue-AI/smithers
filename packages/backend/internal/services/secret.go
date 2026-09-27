@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -33,6 +34,7 @@ type SecretQuerier interface {
 	GetCollaboratorPermissionForRepoUser(ctx context.Context, arg db.GetCollaboratorPermissionForRepoUserParams) (string, error)
 
 	CreateOrUpdateSecret(ctx context.Context, arg db.CreateOrUpdateSecretParams) (db.RepositorySecret, error)
+	SetSecretMainOnly(ctx context.Context, arg db.SetSecretMainOnlyParams) (db.RepositorySecret, error)
 	ListSecrets(ctx context.Context, repositoryID int64) ([]db.ListSecretsRow, error)
 	ListSecretValuesForRepo(ctx context.Context, repositoryID int64) ([]db.ListSecretValuesForRepoRow, error)
 	DeleteSecret(ctx context.Context, arg db.DeleteSecretParams) error
@@ -94,9 +96,14 @@ type SecretResponse struct {
 	// subscription token this deployment refuses to use. Replacing or
 	// deleting it clears the flag.
 	ReconnectRequired bool `json:"reconnect_required,omitempty"`
+	// MainOnly reports a repository secret that reaches only trusted runs on
+	// the default bookmark (SecretInjector.RepositoryEnvironmentAndSecrets).
+	MainOnly bool `json:"main_only"`
 }
 
-func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string) (SecretResponse, error) {
+// SetSecret stores a repository secret. mainOnly nil keeps a replaced
+// secret's scope (a new one reaches every run).
+func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool) (SecretResponse, error) {
 	if actor == nil {
 		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -142,11 +149,15 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 	var created db.RepositorySecret
 	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
 		var werr error
-		created, werr = s.queries.CreateOrUpdateSecret(ctx, db.CreateOrUpdateSecretParams{
+		params := db.CreateOrUpdateSecretParams{
 			RepositoryID:   repository.ID,
 			Name:           trimmedName,
 			ValueEncrypted: []byte(encrypted),
-		})
+		}
+		if mainOnly != nil {
+			params.MainOnly = pgtype.Bool{Bool: *mainOnly, Valid: true}
+		}
+		created, werr = s.queries.CreateOrUpdateSecret(ctx, params)
 		if isSecretCapViolation(werr, "repository_secrets_repo_cap") {
 			return repoSecretQuotaExceeded()
 		}
@@ -158,11 +169,51 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 		return SecretResponse{}, err
 	}
 
+	return repositorySecretResponse(created), nil
+}
+
+func repositorySecretResponse(secret db.RepositorySecret) SecretResponse {
 	return SecretResponse{
-		Name:      created.Name,
-		CreatedAt: created.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt: created.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-	}, nil
+		Name:      secret.Name,
+		CreatedAt: secret.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt: secret.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		MainOnly:  secret.MainOnly,
+	}
+}
+
+// SetSecretMainOnly marks a repository secret main-only, or clears the mark,
+// without its value. Only an administrator (a person: a run credential is
+// never one) changes it.
+func (s *SecretService) SetSecretMainOnly(ctx context.Context, actor *db.User, owner, repo, name string, mainOnly bool) (SecretResponse, error) {
+	if actor == nil {
+		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
+	}
+	trimmedName := strings.TrimSpace(name)
+	if !IsInjectedSecretName(trimmedName) {
+		return SecretResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Secret", Field: "name", Code: "invalid"})
+	}
+	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
+	if err != nil {
+		return SecretResponse{}, err
+	}
+	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+		return SecretResponse{}, err
+	}
+	var updated db.RepositorySecret
+	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+		var werr error
+		updated, werr = s.queries.SetSecretMainOnly(ctx, db.SetSecretMainOnlyParams{MainOnly: mainOnly, RepositoryID: repository.ID, Name: trimmedName})
+		if stdErrors.Is(werr, pgx.ErrNoRows) {
+			return pkgerrors.NotFound("secret not found")
+		}
+		if werr != nil {
+			return pkgerrors.Internal("failed to set secret scope").WithCause(werr)
+		}
+		return nil
+	}); err != nil {
+		return SecretResponse{}, err
+	}
+	return repositorySecretResponse(updated), nil
 }
 
 func (s *SecretService) ListSecrets(ctx context.Context, actor *db.User, owner, repo string) ([]SecretResponse, error) {
@@ -190,11 +241,13 @@ func (s *SecretService) ListSecrets(ctx context.Context, actor *db.User, owner, 
 			CreatedAt:         row.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			UpdatedAt:         row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 			ReconnectRequired: row.SubscriptionTokenFlaggedAt.Valid && !s.subscriptionTokens,
+			MainOnly:          row.MainOnly,
 		}
 	}
 	return result, nil
 }
 
+// ListDecryptedSecretsForRepo is an agent run's secrets: never a main-only one.
 func (s *SecretService) ListDecryptedSecretsForRepo(ctx context.Context, repositoryID int64) (map[string]string, error) {
 	if s == nil || s.queries == nil {
 		return nil, pkgerrors.Internal("secret store unavailable")

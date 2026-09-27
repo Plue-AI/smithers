@@ -2156,6 +2156,31 @@ smthrs credentials revoke github
 
 **Available now**, admin only. `POST /api/repos/{owner}/{repo}/secrets` adds one; `DELETE /api/repos/{owner}/{repo}/secrets/{name}` removes it.
 
+## Keep a secret to main
+
+A main-only repository secret reaches only a trusted run on the default bookmark: a person's push to it, a schedule, or a person's dispatch of it. Agent runs and runs of other branches, landings, and pull requests never receive it. Replacing its value keeps the mark.
+
+**GUI**
+
+**Available now.** `/secrets.scope DEPLOY_TOKEN main-only`; `all` gives it to every run again.
+
+**TUI**
+
+Use the CLI or the API.
+
+**CLI**
+
+**Available now**, admin only:
+
+```sh
+printf %s "$TOKEN" | smithers secret set DEPLOY_TOKEN --body-stdin --main-only
+smithers secret scope DEPLOY_TOKEN all
+```
+
+**API**
+
+**Available now**, admin only. `"main_only": true` in `POST /api/repos/{owner}/{repo}/secrets`, or `PATCH /api/repos/{owner}/{repo}/secrets/{name}` with `{"main_only": true}`. The list shows `main_only`.
+
 ## Next
 
 - [Work in a box](/docs/learn/boxes/): where that work runs.

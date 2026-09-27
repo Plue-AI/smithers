@@ -25,7 +25,11 @@ type secretsCovService struct {
 	deleteOrgSecretFn func(context.Context, *db.User, string, string) error
 }
 
-func (s secretsCovService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string) (services.SecretResponse, error) {
+func (s secretsCovService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
+	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
+}
+
+func (s secretsCovService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool) (services.SecretResponse, error) {
 	if s.setSecretFn != nil {
 		return s.setSecretFn(ctx, actor, owner, repo, name, value)
 	}

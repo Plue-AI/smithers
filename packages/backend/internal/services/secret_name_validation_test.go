@@ -19,7 +19,7 @@ func TestSecretAndVariableSetters_RejectNonEnvNames(t *testing.T) {
 	ctx := context.Background()
 	for _, name := range []string{"MY-KEY", "1ABC", "a b", "deploy.token"} {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", name, "v")
+			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", name, "v", nil)
 			assert.Equal(t, http.StatusUnprocessableEntity, apiStatus(t, err), "SetSecret")
 			_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetOrgSecret(ctx, actor, "acme", name, "v")
 			assert.Equal(t, http.StatusUnprocessableEntity, apiStatus(t, err), "SetOrgSecret")

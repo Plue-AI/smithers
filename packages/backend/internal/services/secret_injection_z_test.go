@@ -17,15 +17,15 @@ func TestSecretInjection_Z_RepositorySecretsErrors(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, err := NewSecretInjector(&mockSecretInjectionQuerier{}, nil).RepositorySecrets(ctx, 0)
+	_, _, err := NewSecretInjector(&mockSecretInjectionQuerier{}, nil).RepositoryEnvironmentAndSecrets(ctx, 0, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "positive")
 
-	_, err = NewSecretInjector(&mockSecretInjectionQuerier{
+	_, _, err = NewSecretInjector(&mockSecretInjectionQuerier{
 		getRepoFn: func(context.Context, int64) (db.Repository, error) {
 			return db.Repository{}, errors.New("repo failed")
 		},
-	}, nil).RepositorySecrets(ctx, 1)
+	}, nil).RepositoryEnvironmentAndSecrets(ctx, 1, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "load repository")
 
@@ -89,28 +89,28 @@ func TestSecretInjection_Z_RepositorySecretsErrors(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewSecretInjector(tc.q, tc.codec).RepositorySecrets(ctx, 1)
+			_, _, err := NewSecretInjector(tc.q, tc.codec).RepositoryEnvironmentAndSecrets(ctx, 1, false)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
 
-	env, err := NewSecretInjector(secretInjectionZOrgRepo(func(q *mockSecretInjectionQuerier) {
+	_, env, err := NewSecretInjector(secretInjectionZOrgRepo(func(q *mockSecretInjectionQuerier) {
 		q.listOrgSecretsFn = func(context.Context, int64) ([]db.ListOrgSecretValuesRow, error) {
 			return []db.ListOrgSecretValuesRow{{Name: "EMPTY_ORG_SECRET", ValueEncrypted: []byte("")}}, nil
 		}
 		q.listSecretValuesFn = func(context.Context, int64) ([]db.ListSecretValuesRow, error) {
 			return []db.ListSecretValuesRow{{Name: "EMPTY_SECRET", ValueEncrypted: []byte("")}}, nil
 		}
-	}), nil).RepositorySecrets(ctx, 1)
+	}), nil).RepositoryEnvironmentAndSecrets(ctx, 1, false)
 	require.NoError(t, err)
 	assert.Empty(t, env)
 
-	env, err = NewSecretInjector(&mockSecretInjectionQuerier{
+	_, env, err = NewSecretInjector(&mockSecretInjectionQuerier{
 		listSecretValuesFn: func(context.Context, int64) ([]db.ListSecretValuesRow, error) {
 			return []db.ListSecretValuesRow{{Name: "EMPTY_SECRET", ValueEncrypted: []byte("")}}, nil
 		},
-	}, nil).RepositorySecrets(ctx, 1)
+	}, nil).RepositoryEnvironmentAndSecrets(ctx, 1, false)
 	require.NoError(t, err)
 	assert.Empty(t, env)
 }

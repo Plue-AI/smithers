@@ -87,9 +87,9 @@ func TestLocalChatComposedModelTurn(t *testing.T) {
 	}))
 	defer provider.Close()
 	actor := &db.User{ID: ownerID, Username: "chatowner"}
-	_, err = secretService.SetSecret(ctx, actor, "chatowner", "chatrepo", "TEST_PROVIDER", providerKey)
+	_, err = secretService.SetSecret(ctx, actor, "chatowner", "chatrepo", "TEST_PROVIDER", providerKey, nil)
 	require.NoError(t, err)
-	_, err = secretService.SetSecret(ctx, actor, "chatowner", "chatrepo", "TEST_PROVIDER_ORIGIN", provider.URL)
+	_, err = secretService.SetSecret(ctx, actor, "chatowner", "chatrepo", "TEST_PROVIDER_ORIGIN", provider.URL, nil)
 	require.NoError(t, err)
 
 	workspaceRuntime, err := process.New(process.Config{Root: filepath.Join(t.TempDir(), "workspaces")})

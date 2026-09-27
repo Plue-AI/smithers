@@ -22,7 +22,7 @@ func TestSecret_Z_RepositorySecretErrorsAndPermissions(t *testing.T) {
 	other := &db.User{ID: 2}
 
 	_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).
-		SetSecret(ctx, other, "alice", "demo", "KEY", "value")
+		SetSecret(ctx, other, "alice", "demo", "KEY", "value", nil)
 	require.Error(t, err)
 	assert.Equal(t, 403, apiStatus(t, err))
 
@@ -30,7 +30,7 @@ func TestSecret_Z_RepositorySecretErrorsAndPermissions(t *testing.T) {
 		createOrUpdateFn: func(context.Context, db.CreateOrUpdateSecretParams) (db.RepositorySecret, error) {
 			return db.RepositorySecret{}, errors.New("insert failed")
 		},
-	}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "KEY", "value")
+	}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "KEY", "value", nil)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 

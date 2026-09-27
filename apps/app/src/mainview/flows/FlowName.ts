@@ -273,6 +273,7 @@ export const FLOW_NAMES = [
   "secrets.list",
   "secrets.move",
   "secrets.revoke",
+  "secrets.scope",
   "setup.ask",
   "setup.configure",
   "setup.discard",

@@ -269,3 +269,36 @@ describe("secrets seam — honest failures", () => {
     expect(secretsCard(store)).toBeUndefined()
   })
 })
+
+describe("secrets seam — secrets.scope", () => {
+  test("marks a repository secret main-only and names the stored scope", async () => {
+    const requests: Array<{ readonly method: string; readonly url: string; readonly body: unknown }> = []
+    const services: AppServices = {
+      fetchImpl: async (input, init) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+        if (!url.includes("/secrets/")) return json(404, { message: `no stub for ${url}` })
+        const body = JSON.parse(String(init?.body)) as { main_only: boolean }
+        requests.push({ method: init?.method ?? "GET", url, body })
+        if (url.endsWith("/MISSING")) return json(404, { message: "secret not found" })
+        return json(200, { name: "DEPLOY", main_only: body.main_only })
+      }
+    }
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, unavailableAgent, services)
+    await ready(store)
+    const marked = await controller.commands.run("secrets.scope", "DEPLOY main-only")
+    expect(marked).toMatchObject({ status: "executed", value: "DEPLOY: main only" })
+    expect(requests[0]).toMatchObject({ method: "PATCH", body: { main_only: true } })
+    expect(requests[0]!.url).toEndWith("/api/repos/will/flows/secrets/DEPLOY")
+    expect(await controller.commands.run("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed", value: "DEPLOY: every run" })
+    expect(requests[1]).toMatchObject({ body: { main_only: false } })
+    const missing = await controller.commands.run("secrets.scope", "MISSING main-only")
+    expect(JSON.stringify(missing)).toContain("secret not found")
+    // The agent may only ask to give a secret to every run; a human confirms.
+    const before = requests.length
+    expect(await controller.commands.runForAgent("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed" })
+    expect(requests.length).toBe(before)
+    const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.scope")
+    expect(confirmation?.action?.args).toStartWith("DEPLOY all")
+  })
+})

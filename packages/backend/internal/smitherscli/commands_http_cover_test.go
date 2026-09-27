@@ -187,7 +187,17 @@ func TestCommandsHttp_Cov_ResourceCommandsAndHelpers(t *testing.T) {
 			if body["name"] != "API_KEY" || body["value"] != "super-secret" {
 				t.Errorf("secret set body = %#v", body)
 			}
+			if mainOnly, marked := body["main_only"]; marked && mainOnly != true {
+				t.Errorf("secret set main_only = %#v", mainOnly)
+			}
 			fmt.Fprint(w, `{"name":"API_KEY"}`)
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/repos/alice/demo/secrets/API_KEY":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["main_only"] != false {
+				t.Errorf("secret scope body = %#v", body)
+			}
+			fmt.Fprint(w, `{"name":"API_KEY","main_only":false}`)
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/repos/alice/demo/secrets/API_KEY":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/repos/alice/demo/variables":
@@ -258,6 +268,10 @@ func TestCommandsHttp_Cov_ResourceCommandsAndHelpers(t *testing.T) {
 	commandsHTTPCovWithStdin(t, "super-secret", func() {
 		commandsHTTPCovServe(t, secretCommand(), []string{"set", "API_KEY", "--repo", "alice/demo", "--body-stdin", "--json"})
 	})
+	commandsHTTPCovWithStdin(t, "super-secret", func() {
+		commandsHTTPCovServe(t, secretCommand(), []string{"set", "API_KEY", "--repo", "alice/demo", "--body-stdin", "--main-only", "--json"})
+	})
+	commandsHTTPCovServe(t, secretCommand(), []string{"scope", "API_KEY", "all", "--repo", "alice/demo", "--json"})
 	commandsHTTPCovServe(t, secretCommand(), []string{"delete", "API_KEY", "--repo", "alice/demo", "--json"})
 	commandsHTTPCovServe(t, variableCommand(), []string{"list", "--repo", "alice/demo", "--json"})
 	commandsHTTPCovServe(t, variableCommand(), []string{"get", "feature flag", "--repo", "alice/demo", "--json"})
@@ -278,6 +292,7 @@ func TestCommandsHttp_Cov_ResourceCommandsAndHelpers(t *testing.T) {
 		"POST /api/repos/alice/demo/labels",
 		"DELETE /api/repos/alice/demo/labels/7",
 		"POST /api/repos/alice/demo/secrets",
+		"PATCH /api/repos/alice/demo/secrets/API_KEY",
 		"GET /api/repos/alice/demo/variables/feature%20flag",
 		"DELETE /api/user/keys/5",
 		"PATCH /api/notifications/note-1",
