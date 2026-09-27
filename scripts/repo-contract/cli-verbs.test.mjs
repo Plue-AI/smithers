@@ -15,14 +15,6 @@ import { describe, it } from "node:test"
 
 import { repoRoot as root } from "../workspace-packages.mjs"
 
-const subcommands = (source) => {
-  const table = source.match(/export const shipped:[\s\S]*?= \[([\s\S]*?)\n\]/)?.[1]
-  assert.ok(table, "packages/smithers/src/Verb.ts must declare the shipped verb table")
-  return [...table.matchAll(/(?:verb|driver)\("([^"]+)"/g)]
-    .filter((match) => match[1] !== "completions")
-    .map((match) => match[1])
-}
-
 const compare = (required, accepted, pages) => {
   const expected = new Set(required)
   const available = new Set(accepted)
@@ -55,17 +47,19 @@ const untaggedCliCommands = (source) => [...source.matchAll(/(?:npm (?:install|i
   .filter((command) => !command.includes("--filter") && /@smthrs\/cli(?=[\s";]|$)/.test(command))
 
 describe("the CLI reference", () => {
-  const verbSource = readFileSync(join(root, "packages/smithers/src/Verb.ts"), "utf8")
   const pagesDirectory = join(root, "apps/site/src/content/docs/docs/reference/cli")
   const manifest = JSON.parse(readFileSync(join(root, "apps/site/src/data/cli-commands.json"), "utf8"))
   const canonical = [...new Set(manifest.commands.map((command) => command.name.split(" ")[0]))]
-  const legacy = subcommands(verbSource)
   const help = readFileSync(join(root, "apps/site/src/data/help/smthrs.txt"), "utf8")
 
-  it("retains compatibility pages and documents the canonical durable groups", () => {
+  // d655971f6 generates one page per canonical command from --help and keeps
+  // no pages for compatibility verbs; `index` lives at index-command.mdx
+  // because index.mdx is the listing.
+  it("documents every canonical command, the durable groups among them, on its own page", () => {
     const durableGroups = ["flow", "runs", "approvals"]
     for (const group of durableGroups) assert.ok(canonical.includes(group), `${group} must be a public command`)
-    assert.deepEqual(compare([...legacy, ...durableGroups], [...legacy, ...canonical], cliPages(pagesDirectory)), [])
+    const pages = cliPages(pagesDirectory).map((page) => page === "index-command" ? "index" : page)
+    assert.deepEqual(compare(canonical, canonical, pages), [])
   })
 
   it("indexes every canonical command, including those without a dedicated page", () => {
