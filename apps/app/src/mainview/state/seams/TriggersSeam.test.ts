@@ -408,7 +408,8 @@ describe("triggers seam: the box, signed in", () => {
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }), { signedIn: true })
     const outcome = await controller.commands.run("triggers.register")
     expect(outcome.status).toBe("form")
-    if (outcome.status === "form") expect(outcome.fields).toEqual(["flow", "slug", "schedule"])
+    // One input (D-18): the flow; the name and the schedule default, and the rest is the advanced line's.
+    if (outcome.status === "form") expect(outcome.fields).toEqual(["flow"])
   })
 
   test("re-listing re-surfaces the one card at the end of the transcript instead of adding a second", async () => {
@@ -572,6 +573,10 @@ const watched = (services: AppServices): AppServices => ({
 
 const registrationToast = (store: AppStore, slug = "nightly") =>
   [...store.collections.toasts.values()].find(toast => toast.key.startsWith(`trigger.register.will/flows.${slug}.`))
+
+/** One preparation by its schedule name, before or after the dispatcher card exists. */
+const preparationOf = (store: AppStore, slug: string) =>
+  [...store.collections.cards.values()].flatMap(card => card.kind === "trigger-list" ? card.payload.preparations ?? [] : []).find(row => row.draft.slug === slug)
 
 const registrationRun = (store: AppStore, requestId: string) => {
   const card = [...store.collections.cards.values()].find(card => workflowLaunchOf(card)?.triggerRegistration?.requestId === requestId)
@@ -757,6 +762,65 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     expect(result).toBe("The registration changed since you reviewed it. Prepare it again.")
     expect(calls).toHaveLength(count)
     expect(registrationRun(store, args.requestId)).toBeUndefined()
+    await controller.dispose()
+  })
+
+  /*
+   * The Run it every night app (PRODUCT.md D-18): one press. A request naming
+   * only the flow runs nightly under the flow's own name, and the owner's
+   * press is their approval of the plan — applied through the Approve
+   * button's own path once the plan is prepared, so the registration runs
+   * with no preview prompt and one toast follows it to the real receipt.
+   */
+  test("Schedule with only a flow: nightly, the owner's approval applied on preparation, no Approve prompt, and the registration's toast settles with the run", async () => {
+    const calls: RelayCall[] = []
+    const { store, controller } = await readyToRegister(registrationBackend(calls, { status: "completed", verdict: "Registered" }, async () => {}))
+    const quick = { operation: "register" as const, repo: "will/flows", flow: "nightly-lint", input: '{"label":"nightly"}' }
+    const answer = await controller.registerTrigger(quick)
+    expect(answer).toEqual({ value: "Preparation requested for nightly-lint on will/flows." })
+    const prepared = () => preparationOf(store, "nightly-lint")
+    await waitFor(() => registrationRun(store, prepared()?.id ?? "")?.payload.phase === "completed")
+    expect(prepared()).toMatchObject({ phase: "prepared", approve: "owner", draft: { flow: "nightly-lint", slug: "nightly-lint", schedule: "0 2 * * *", input: '{"label":"nightly"}' } })
+    // No prompt: the press was the approval; the plan the owner approved is the one the registrar receives.
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "triggers.approve")).toBe(false)
+    expect(calls.filter(call => call.procedure === "Approval.Submit").map(call => (call.payload.target as { planId: string }).planId)).toContain("plan-1")
+    expect(calls.filter(call => call.procedure === "Run")).toHaveLength(1)
+    const launch = workflowLaunchOf(registrationRun(store, prepared()!.id))!
+    expect(launch.triggerRegistration).toMatchObject({ slug: "nightly-lint", flow: "nightly-lint", schedule: "0 2 * * *", planId: "plan-1" })
+    await waitFor(() => registrationToast(store, "nightly-lint")?.status === "ok")
+    expect(registrationToast(store, "nightly-lint")?.title).toBe("nightly-lint registered")
+    // Pressing again joins the registration already made: one preparation, one run.
+    await controller.registerTrigger(quick)
+    await settled()
+    expect(triggerCard(store).payload.preparations?.filter(row => row.draft.slug === "nightly-lint")).toHaveLength(1)
+    expect(calls.filter(call => call.procedure === "Run")).toHaveLength(1)
+    await controller.dispose()
+  })
+
+  test("a schedule the line names keeps the advanced path: prepare, preview, and the human's Approve", async () => {
+    const calls: RelayCall[] = []
+    const { store, controller } = await readyToRegister(registrationBackend(calls, { status: "running", verdict: "" }, async () => {}))
+    await controller.registerTrigger({ ...REQUEST, slug: undefined })
+    const prepared = () => preparationOf(store, "nightly-lint")
+    await waitFor(() => ["prepared", "failed"].includes(prepared()?.phase ?? ""))
+    expect(prepared()).toMatchObject({ phase: "prepared", draft: { schedule: "0 9 * * 1-5" } })
+    expect(prepared()?.approve).toBeUndefined()
+    expect(lastAction(store)?.flow).toBe("triggers.approve")
+    expect(calls.some(call => call.procedure === "Approval.Submit" || call.procedure === "Run")).toBe(false)
+    await controller.dispose()
+  })
+
+  test("the agent's one-flow request keeps the preview and the human's Approve: approvals belong to the human", async () => {
+    const calls: RelayCall[] = []
+    const { store, controller } = await readyToRegister(registrationBackend(calls, { status: "running", verdict: "" }, async () => {}))
+    const outcome = await controller.submitCommand({ name: "triggers.register", payload: { flow: "nightly-lint", input: '{"label":"nightly"}' }, actor: "agent" })
+    expect(outcome.status).toBe("executed")
+    const prepared = () => preparationOf(store, "nightly-lint")
+    await waitFor(() => ["prepared", "failed"].includes(prepared()?.phase ?? ""))
+    expect(prepared()).toMatchObject({ phase: "prepared", draft: { schedule: "0 2 * * *" } })
+    expect(prepared()?.approve).toBeUndefined()
+    expect(lastAction(store)?.flow).toBe("triggers.approve")
+    expect(calls.some(call => call.procedure === "Approval.Submit" || call.procedure === "Run")).toBe(false)
     await controller.dispose()
   })
 

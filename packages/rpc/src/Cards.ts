@@ -1250,6 +1250,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           minutes: z.number().optional()
         }),
         receipt: z.object({ text: z.string(), args: z.string() }).optional(),
+        /* The owner asked to schedule with one press: their approval of the plan is applied once it is prepared (no preview prompt). */
+        approve: z.literal("owner").optional(),
         error: z.string().optional()
       })).optional(),
       /** Durable HTTP pause requests; reconnect by observing before offering an explicit retry. */

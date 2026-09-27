@@ -60,6 +60,13 @@ const REGISTRAR_FLOW = "repository/trigger"
 /** A schedule's own name inside one repository (L36 §1.1). */
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/
 
+/** The schedule a flow gets when the person named none: every night at 02:00 UTC (the Run it every night app). */
+export const NIGHTLY_SCHEDULE = "0 2 * * *"
+
+/** The name a schedule gets when the person named none: the flow's own id as a slug (`checks/lint` → `checks-lint`). */
+export const flowSlug = (flow: string): string =>
+  flow.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64)
+
 /** Plue's own words for a schedule that is not five UTC cron fields. */
 export const CRON_REFUSAL = "schedule must have five cron fields in UTC"
 
@@ -1024,6 +1031,13 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
         }
         if (!current()) return TOAST_SUPERSEDED
         if (!bound()) return await fail(workspaceChanged)
+        if (request.approve === "owner") {
+          // The owner's press was the approval: apply it through the Approve button's own path, with the receipt it would carry.
+          await savePreparation(repo, { ...request, phase: "prepared", receipt, error: undefined })
+          if (!current()) return TOAST_SUPERSEDED
+          const answer = await approveTrigger({ operation: "approve", ...(JSON.parse(receipt.args) as Omit<TriggerWrite, "operation">) }, repo)
+          return typeof answer === "string" ? await fail(answer) : true
+        }
         // A crash between these commits republishes only if the durable message is absent.
         const published = [...ctx.store.collections.messages.values()].some(message =>
           message.action?.flow === "triggers.approve" && message.action.args === receipt.args)
@@ -1056,9 +1070,17 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
 
   /** Persist first. Discovery and planning produce a reviewed approval prompt in the background. */
   const prepareTrigger = async (request: TriggerWrite, repo: string): Promise<string | { readonly value: string }> => {
-    const slug = request.slug ?? ""
+    /*
+     * One press schedules (D-18): a request naming no name is named for its
+     * flow, one naming no schedule runs nightly, and when the human pressed it their press is
+     * the approval — the same approval the Approve button gives, applied by
+     * the pump once the plan is prepared. An agent's request keeps the
+     * preview and the human's Approve (approvals belong to the human).
+     */
+    const quick = (request.schedule ?? "").trim() === ""
+    const slug = request.slug ?? flowSlug(request.flow ?? "")
     if (!SLUG.test(slug)) return "A schedule name is lower-case letters, digits and dashes, up to 64 characters."
-    const schedule = (request.schedule ?? "").trim()
+    const schedule = quick ? NIGHTLY_SCHEDULE : (request.schedule ?? "").trim()
     if (schedule.split(/\s+/).filter(field => field !== "").length !== 5) return CRON_REFUSAL
     const input = (request.input ?? "").trim() || "{}"
     try { JSON.parse(input) } catch { return "Input is not valid JSON." }
@@ -1066,19 +1088,26 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     if (named && "error" in named) return named.error
     const login = owner()
     if (!login) return "Sign in to prepare a schedule."
+    const approve = quick && ctx.actor() === "user" ? { approve: "owner" as const } : {}
     const draft: Preparation["draft"] = { flow: request.flow ?? "", slug, schedule, input,
       ...(named ? { tokens: named.tokens, minutes: named.milliseconds / 60_000 } : {}) }
     const workspaceId = jobWorkspace(ctx, repo)
-    const existing = pauseCard(repo)?.payload.preparations?.find(row => row.owner === login && row.workspaceId === workspaceId
-      && JSON.stringify(row.draft) === JSON.stringify(draft) && row.phase !== "prepared")
+    const same = (row: Preparation) => row.owner === login && row.workspaceId === workspaceId && JSON.stringify(row.draft) === JSON.stringify(draft)
     const ack = { value: `Preparation requested for ${slug} on ${repo}.` }
+    // A second press of Schedule joins the registration the first one made: its approval is re-applied, and the launch path dedups on the request.
+    const scheduled = "approve" in approve ? pauseCard(repo)?.payload.preparations?.find(row => same(row) && row.phase === "prepared" && row.approve === "owner" && row.receipt !== undefined) : undefined
+    if (scheduled?.receipt !== undefined) {
+      const answer = await approveTrigger({ operation: "approve", ...(JSON.parse(scheduled.receipt.args) as Omit<TriggerWrite, "operation">) }, repo)
+      return typeof answer === "string" ? answer : ack
+    }
+    const existing = pauseCard(repo)?.payload.preparations?.find(row => same(row) && row.phase !== "prepared")
     if (existing && existing.phase !== "failed") {
       try { await ctx.store.settled?.() } catch { return "Could not save the preparation. Retry." }
       pumpPreparation(repo, existing)
       return ack
     }
-    const entry: Preparation = existing ? { ...existing, phase: existing.receipt ? "ready" : "requested", error: undefined }
-      : { id: crypto.randomUUID(), owner: login, ...(workspaceId ? { workspaceId } : {}), draft, phase: "requested" }
+    const entry: Preparation = existing ? { ...existing, ...approve, phase: existing.receipt ? "ready" : "requested", error: undefined }
+      : { id: crypto.randomUUID(), owner: login, ...(workspaceId ? { workspaceId } : {}), draft, phase: "requested", ...approve }
     const current = capturePauseOwner()
     try { await savePreparation(repo, entry, ctx.actor()) } catch { return "Could not save the preparation. Retry." }
     if (current()) pumpPreparation(repo, entry)

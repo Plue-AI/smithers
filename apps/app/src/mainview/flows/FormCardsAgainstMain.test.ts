@@ -331,8 +331,8 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     because: "An optional repository slot is skipped while the required slots behind it need every token left, so `/triggers.pause canary-w1-not-registered` fills Slug and the form asks for the repository instead of for the name the person just typed (walk W1, W1-d-doors.json pauseFormFields)."
   },
   {
-    flow: "triggers.register", kind: "card", rows: 13,
-    because: "The same skip, and the repository-shaped token that buys the slot back: three words reach Flow, Name and Schedule, while `codeplanesmithers/canary nightly` still reaches Repository and Flow (R102 follow-up)."
+    flow: "triggers.register", kind: "card", rows: 33,
+    because: "The Run it every night app (PRODUCT.md D-18): the register form is one input, the flow, and one button, Schedule; the name, schedule, input and limits are the advanced path's and ride as given (entries/triggers.ts). Every swept line's card lists one field instead of six, and a positional line fills it whole."
   },
   {
     flow: "triggers.approve", kind: "card", rows: 12,
@@ -359,8 +359,8 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     because: "The Fix an issue app (PRODUCT.md D-18) opens this form: the number field is labeled Issue and offers the repository's open issues, and the repository is the active one rather than a field (entries/issue.ts form hints). Every swept line's card lists one field instead of two, and a line the grammar refuses no longer places its owner/repo token; a line it parses still carries its repository as given."
   },
   {
-    flow: "triggers.register", kind: "sentence", rows: 6,
-    because: "A limit the LINE names meets the rule the FIELD meets: `--tokens 500000` reached the Tokens field and was told nothing on production, while 500000 typed into that field and prepared is refused with the range before any network call (walk W1 item 4c). The register form routes to TriggersSeam.limitsRefusal, so two rows that used to read the grammar's usage line read the range instead, and four that said nothing now say it."
+    flow: "triggers.register", kind: "sentence", rows: 18,
+    because: "A limit the LINE names meets the rule the FIELD meets: `--tokens 500000` reached the Tokens field and was told nothing on production, while 500000 typed into that field and prepared is refused with the range before any network call (walk W1 item 4c). The register form routes to TriggersSeam.limitsRefusal, so two rows that used to read the grammar's usage line read the range instead, and four that said nothing now say it. With the one-input form (D-18) a positional line fills its whole card, so twelve more rows keep the grammar's own sentence about a line that parsed into nothing askable (R102d B1d) where main@origin's six-field card still had a field to ask for."
   },
   ...(["review.done", "review.ack", "review.reopen"] as const).flatMap(flow => [
     {
@@ -453,7 +453,8 @@ describe("the card every slash line opens, against main@origin", () => {
     ])
     /* `here` counts only flows that still exist: the three `change.pick` rows left with the flow (#1904). */
     /* 1448: `/issues.create --nope value` and friends now read the create grammar's own --kind refusal instead of a usage line (smithers-ui-DESIGN.md §3.1). */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1448 })
+    /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1462 })
     /*
      * Two doors throw when the one token they are given is a number: the
      * render dispatches a card whose payload the event schema rejects. It is

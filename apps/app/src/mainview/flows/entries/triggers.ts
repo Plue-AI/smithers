@@ -19,8 +19,10 @@ import type { Parsed } from "../SlashPayload"
 const Registration = Schema.Struct({
   repo: Schema.optional(Schema.String),
   flow: Schema.String,
-  slug: Schema.String,
-  schedule: Schema.String,
+  /** The schedule's name; absent, the flow's own id. */
+  slug: Schema.optional(Schema.String),
+  /** Five UTC cron fields; absent, nightly (02:00 UTC), and the owner's press is the approval. */
+  schedule: Schema.optional(Schema.String),
   /** The target flow's own input, as JSON text; the seam validates it against that flow's declared schema. */
   input: Schema.optional(Schema.String),
   /**
@@ -88,19 +90,24 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
   }),
   flow({
     /*
-     * The register door: it prepares. The workspace plans the target flow with
-     * exactly the input given, the plan is previewed, and the registration is
-     * written only after the human approves that plan (triggers.approve).
+     * The register door, and the Run it every night app (PRODUCT.md D-18):
+     * one input, the flow, and one button, Schedule. With only a flow named
+     * the schedule is nightly and the owner's press is their approval of the
+     * plan: the workspace plans the flow, the seam applies the approval the
+     * way the Approve button does (TriggersSeam approveTrigger), and the
+     * registration runs. The advanced door is the same flow with a schedule
+     * (and name, input, limits) named on the line: it prepares, previews the
+     * plan, and registers only after the human approves it (triggers.approve).
      */
     name: "triggers.register",
     summary: "Register a repository flow to run on a schedule",
     runtime: ["cloud"],
-    args: "[owner/repo] --flow <id> --slug <name> --schedule <cron> [--input <json>] [--tokens <n>] [--minutes <n>]",
+    args: "[owner/repo] --flow <id> [--slug <name>] [--schedule <cron>] [--input <json>] [--tokens <n>] [--minutes <n>]",
     requires: ["signed-in"],
     workflow: "repository/trigger",
     input: Registration,
     form: {
-      submitLabel: "Prepare",
+      submitLabel: "Schedule",
       /* The limits the line named meet the registrar's rule here, in the registrar's own words. */
       refuse: limitsRefusal,
       args: payload => JSON.stringify(Object.fromEntries(Object.keys(payload).flatMap(key => {
@@ -108,12 +115,14 @@ export const triggersFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
         return value === undefined ? [] : [[key, value]]
       }))),
       fields: {
-        repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" },
-        /* The Run it every night app picks among the repository's declared flows; a flow the projection lacks is still typed. */
+        repo: { hidden: true },
+        /* The one input: the repository's declared flows; a flow the projection lacks is still typed. */
         flow: { label: "Flow", placeholder: "nightly-lint", optionsFrom: "repository-flows", kind: "text" },
-        slug: { label: "Name", placeholder: "nightly" },
-        schedule: { label: "Schedule", placeholder: "0 9 * * 1-5" },
-        input: { label: "Input", placeholder: "{}" }
+        slug: { hidden: true },
+        schedule: { hidden: true },
+        input: { hidden: true },
+        tokens: { hidden: true },
+        minutes: { hidden: true }
       }
     },
     handler: (payload) => actions.registerTrigger({ operation: "register", ...payload })

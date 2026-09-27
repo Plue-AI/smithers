@@ -122,9 +122,12 @@ describe("the Ask the codebase app", () => {
 })
 
 describe("the Run it every night app", () => {
-  test("triggers.register offers the repository's declared flows and still takes one it does not list", () => {
+  test("triggers.register is one input, the flow, and one button, Schedule; it offers the repository's declared flows and still takes one it does not list", () => {
     const app = fixture()
-    const { cardId } = app.ask("triggers.register")
+    const { cardId, missing } = app.ask("triggers.register")
+    expect(missing).toEqual(["flow"])
+    expect(app.card(cardId).payload.submitLabel).toBe("Schedule")
+    expect(app.card(cardId).payload.fields.map((field) => [field.name, field.label, field.kind])).toEqual([["flow", "Flow", "text"]])
     const flow = app.field(cardId, "flow")
     expect(flow.kind).toBe("text")
     expect(flow.options).toEqual([

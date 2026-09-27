@@ -170,10 +170,19 @@ describe("THE FORM LAW — the slash door and the button door", () => {
    */
   test("a line whose tokens the read placed over a skipped slot earns no usage sentence", async () => {
     const { store, controller } = await boot()
-    expect((await controller.commands.run("triggers.register", "one two three")).status).toBe("form")
-    const card = formOf(store, "triggers.register")
-    expect(card?.payload.draft).toEqual({ flow: "one", slug: "two", schedule: "three" })
+    expect((await controller.commands.run("model.save", "one two three four")).status).toBe("form")
+    const card = formOf(store, "model.save")
+    expect(card?.payload.draft).toMatchObject({ name: "one", protocol: "two", modelId: "three", credential: "four" })
     expect(card?.payload.error).toBeUndefined()
+    /*
+     * The register form is one input (D-18, the Run it every night app): every
+     * positional word reaches the flow, nothing is left to ask, and the line
+     * keeps the grammar's own sentence about itself (R102d B1d), as any line
+     * that fills its whole card does.
+     */
+    expect((await controller.commands.run("triggers.register", "one two three")).status).toBe("form")
+    expect(formOf(store, "triggers.register")?.payload.draft).toEqual({ flow: "one two three" })
+    expect(formOf(store, "triggers.register")?.payload.error).toContain("triggers.register takes")
     await controller.dispose()
   })
 
@@ -210,7 +219,9 @@ describe("THE FORM LAW — the slash door and the button door", () => {
     const outcome = await controller.commands.run("triggers.register", "--tokens 500000")
     expect(outcome.status).toBe("form")
     const card = formOf(store, "triggers.register")
-    expect(card?.payload.draft).toEqual({ tokens: "500000" })
+    // The limit is the advanced path's: the one-input form does not show it, but the line's value stands as given and meets the rule.
+    expect(card?.payload.draft).toEqual({})
+    expect(card?.payload.given).toEqual({ tokens: "500000" })
     expect(card?.payload.error).toBe("Token and time limits are whole numbers: --tokens 1..200000, --minutes 1..360.")
     await controller.dispose()
   })
@@ -223,7 +234,7 @@ describe("THE FORM LAW — the slash door and the button door", () => {
   test("a limit inside the range is not refused at the door", async () => {
     const { store, controller } = await boot()
     expect((await controller.commands.run("triggers.register", "--tokens 150000")).status).toBe("form")
-    expect(formOf(store, "triggers.register")?.payload.draft).toEqual({ tokens: "150000" })
+    expect(formOf(store, "triggers.register")?.payload.given).toEqual({ tokens: "150000" })
     expect(formOf(store, "triggers.register")?.payload.error).toBeUndefined()
     expect((await controller.commands.run("triggers.register", "--minutes 20")).status).toBe("form")
     expect(formOf(store, "triggers.register")?.payload.error).toBeUndefined()

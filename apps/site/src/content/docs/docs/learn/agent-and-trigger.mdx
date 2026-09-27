@@ -43,10 +43,9 @@ Run it like any flow: `/reviewer` in the app, `/agent reviewer` in the TUI, or `
 
 **Available now.**
 
-1. Select **Dispatcher** in the sidebar. It lists the repository's rules and live schedules.
-2. Select **Register a rule**.
-3. Enter the flow, a name, a cron schedule such as `0 9 * * 1-5`, and any input. Select **Prepare**.
-4. Read the plan and approve it. A toast follows the registration until it is live.
+1. On the home, open **Run it every night**, or select **Dispatcher** in the sidebar and then **Register a rule**.
+2. Pick the flow and select **Schedule**. It runs nightly (02:00 UTC) under the flow's name; a toast follows the registration until it is live.
+3. For another schedule, a name, input or limits, type the line instead: `/triggers.register --flow lint --schedule "0 9 * * 1-5"`. That path prepares the plan for you to read and approve before it registers.
 
 Each live schedule has **Run now** and **Pause**. A scheduled run needs a token and time budget; the form uses the flow's `budget`.
 
