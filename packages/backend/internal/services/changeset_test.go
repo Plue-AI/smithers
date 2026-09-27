@@ -27,7 +27,9 @@ type fakeChangesetQueries struct {
 	csMembers   map[int64][]db.ChangesetMember
 	permissions map[int64]string
 	rules       map[int64][]db.ProtectedBookmark
-	nextID      int64
+	// landings is each change's latest landing request, by change id.
+	landings map[string]db.LandingRequest
+	nextID   int64
 }
 
 func newFakeChangesetQueries() *fakeChangesetQueries {
@@ -60,7 +62,10 @@ func (q *fakeChangesetQueries) GetCollaboratorPermissionForRepoUser(context.Cont
 func (q *fakeChangesetQueries) ListAllProtectedBookmarksByRepo(_ context.Context, id int64) ([]db.ProtectedBookmark, error) {
 	return q.rules[id], nil
 }
-func (q *fakeChangesetQueries) GetLatestLandingRequestForChange(context.Context, db.GetLatestLandingRequestForChangeParams) (db.LandingRequest, error) {
+func (q *fakeChangesetQueries) GetLatestLandingRequestForChange(_ context.Context, arg db.GetLatestLandingRequestForChangeParams) (db.LandingRequest, error) {
+	if lr, ok := q.landings[arg.ChangeID]; ok {
+		return lr, nil
+	}
 	return db.LandingRequest{}, pgx.ErrNoRows
 }
 func (q *fakeChangesetQueries) GetLandingRequestWithChangeIDsByNumber(context.Context, db.GetLandingRequestWithChangeIDsByNumberParams) (db.GetLandingRequestWithChangeIDsByNumberRow, error) {
@@ -378,6 +383,13 @@ func (f *fakeChangesetRepoHost) GetSuperproject(_ context.Context, owner, repo, 
 func seedChangesetFixture(t *testing.T) (*fakeChangesetQueries, *fakeChangesetRepoHost, *ChangesetService) {
 	t.Helper()
 	q := newFakeChangesetQueries()
+	rh := newSeededChangesetRepoHost()
+	svc := NewChangesetService(q, rh, nil, nil)
+	return q, rh, svc
+}
+
+// newSeededChangesetRepoHost serves two repositories with one feature change each.
+func newSeededChangesetRepoHost() *fakeChangesetRepoHost {
 	rh := newFakeChangesetRepoHost()
 	// api: main at base-a, feature change a1; web: main at base-b, feature change b1.
 	rh.changes["acme/api/aaaa"] = repohost.Change{ChangeID: "aaaa", CommitID: strings.Repeat("a", 40)}
@@ -386,8 +398,7 @@ func seedChangesetFixture(t *testing.T) (*fakeChangesetQueries, *fakeChangesetRe
 	rh.changes["acme/web/bbbb"] = repohost.Change{ChangeID: "bbbb", CommitID: strings.Repeat("b", 40)}
 	rh.changes["acme/web/bbase"] = repohost.Change{ChangeID: "bbase", CommitID: strings.Repeat("2", 40)}
 	rh.bookmarks["acme/web/main"] = repohost.Bookmark{Name: "main", TargetChangeID: "bbase", TargetCommitID: strings.Repeat("2", 40)}
-	svc := NewChangesetService(q, rh, nil, nil)
-	return q, rh, svc
+	return rh
 }
 
 func TestChangesetService_CreateAndLand(t *testing.T) {
