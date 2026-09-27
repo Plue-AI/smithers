@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -26,24 +26,9 @@ type Service struct {
 	observationPages    int
 	runtimeCallTimeout  time.Duration
 
-	hostStartsMu sync.Mutex
-	hostStarts   map[flowruntime.Target]*hostStart
+	// hostStarts are background starts of box hosts (StartHost).
+	hostStarts background.Jobs[flowruntime.Target]
 }
-
-// hostStart is one background start of a box's host. A failed start stays
-// for hostStartFailureTTL, so the next caller learns why; err and finished
-// are written under hostStartsMu before done closes.
-type hostStart struct {
-	done     chan struct{}
-	err      error
-	finished time.Time
-}
-
-// hostStartTimeout bounds a background start past the request that asked
-// for it: longer than any catalog's readiness wait, shorter than forever.
-const hostStartTimeout = 5 * time.Minute
-
-const hostStartFailureTTL = time.Minute
 
 func New(config Config) (*Service, error) {
 	if config.Store == nil {
@@ -75,6 +60,7 @@ func New(config Config) (*Service, error) {
 		observationDelay: config.ObservationDelay, maxObservationDelay: config.MaxObservationDelay,
 		observationLimit: config.ObservationLimit,
 		observationPages: config.ObservationPages, runtimeCallTimeout: config.RuntimeCallTimeout,
+		hostStarts: background.Jobs[flowruntime.Target]{Timeout: 5 * time.Minute, FailureTTL: time.Minute},
 	}, nil
 }
 
@@ -278,10 +264,10 @@ func (service *Service) CallRPC(ctx context.Context, target flowruntime.Target, 
 // runtime_identity_changed at the worker's next observation, which rebinds
 // the same way.
 func (service *Service) StartHost(ctx context.Context, target flowruntime.Target) (bool, error) {
-	if err := service.takeStartFailure(target); err != nil {
+	if err := service.hostStarts.Failed(target); err != nil {
 		return false, err
 	}
-	if service.starting(target) {
+	if service.hostStarts.Running(target) {
 		return false, nil
 	}
 	reader, ok := service.resolver.(flowruntime.ExistingResolver)
@@ -304,58 +290,11 @@ func (service *Service) StartHost(ctx context.Context, target flowruntime.Target
 	default:
 		return false, err
 	}
-	service.hostStartsMu.Lock()
-	defer service.hostStartsMu.Unlock()
-	if _, started := service.hostStarts[target]; started {
-		return false, nil
-	}
-	if service.hostStarts == nil {
-		service.hostStarts = map[flowruntime.Target]*hostStart{}
-	}
-	start := &hostStart{done: make(chan struct{})}
-	service.hostStarts[target] = start
-	go func() {
-		startCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), hostStartTimeout)
-		defer cancel()
-		_, err := service.resolver.ResolveFlowRuntime(startCtx, target)
-		service.hostStartsMu.Lock()
-		defer service.hostStartsMu.Unlock()
-		if err == nil {
-			delete(service.hostStarts, target)
-		} else {
-			start.err, start.finished = err, time.Now()
-		}
-		close(start.done)
-	}()
+	service.hostStarts.Start(ctx, target, func(ctx context.Context) error {
+		_, err := service.resolver.ResolveFlowRuntime(ctx, target)
+		return err
+	})
 	return false, nil
-}
-
-// takeStartFailure answers a recent failed start once and forgets expired ones.
-func (service *Service) takeStartFailure(target flowruntime.Target) error {
-	service.hostStartsMu.Lock()
-	defer service.hostStartsMu.Unlock()
-	var failed error
-	for key, start := range service.hostStarts {
-		select {
-		case <-start.done:
-		default:
-			continue
-		}
-		if key == target && time.Since(start.finished) < hostStartFailureTTL {
-			failed = start.err
-		}
-		if key == target || time.Since(start.finished) >= hostStartFailureTTL {
-			delete(service.hostStarts, key)
-		}
-	}
-	return failed
-}
-
-func (service *Service) starting(target flowruntime.Target) bool {
-	service.hostStartsMu.Lock()
-	defer service.hostStartsMu.Unlock()
-	_, started := service.hostStarts[target]
-	return started
 }
 
 // RunWorker consumes only Flow bridge operations from the shared jobs table.

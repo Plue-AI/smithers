@@ -15,7 +15,12 @@ import (
 type recordingBoxes struct {
 	prepared []string
 	retired  []string
+	awake    []string
 	env      map[string]string
+}
+
+func (b *recordingBoxes) KeepBoxAwake(_ context.Context, workspaceID string) {
+	b.awake = append(b.awake, workspaceID)
 }
 
 func (b *recordingBoxes) PrepareBoxHost(_ context.Context, hostID, workspaceID string, _, _ int64) (map[string]string, error) {
@@ -57,6 +62,22 @@ func TestBoxHostLauncherMintsPerStartAndRevokes(t *testing.T) {
 
 	require.NoError(t, launcher.StopFlowHost(context.Background(), launch.Binding))
 	require.Equal(t, []string{"host-1", "host-1"}, boxes.retired)
+
+	// Using a live host keeps its box awake; a host that is not running does not.
+	_, err = launcher.InspectFlowHost(context.Background(), launch)
+	require.ErrorIs(t, err, flowhost.ErrHostNotRunning)
+	require.Empty(t, boxes.awake)
+	live := newBoxHostLauncher(liveHostTransport{}, boxes)
+	launch.Binding.WorkspaceID = "box"
+	_, err = live.InspectFlowHost(context.Background(), launch)
+	require.NoError(t, err)
+	require.Equal(t, []string{"box"}, boxes.awake)
+}
+
+type liveHostTransport struct{ refusingHostTransport }
+
+func (liveHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
+	return flowhost.Connection{Endpoint: "http://127.0.0.1:1"}, nil
 }
 
 type fixedCallbacks struct {

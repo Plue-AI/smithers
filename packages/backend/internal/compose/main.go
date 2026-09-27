@@ -35,6 +35,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -1457,15 +1458,27 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			DeploymentAdmin:    deploymentAdminRoutes},
 	)
 	if flow != nil && options.topology.servesHTTP() {
-		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
-		flowAccess := []func(http.Handler) http.Handler{
-			cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
-			middleware.JSONAllowContentType("application/json"), middleware.MaxBodySize(middleware.MaxRequestBodySize),
-			authLoader(queries, cfg.Auth), apiCSRFMiddleware, middleware.GlobalAPIRateLimit(queries),
-			middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository),
+		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
+			resumes:            background.Jobs[string]{Timeout: 5 * time.Minute, FailureTTL: time.Minute},
+			subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
+		access := func(limited bool) []func(http.Handler) http.Handler {
+			chain := []func(http.Handler) http.Handler{
+				cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
+				middleware.JSONAllowContentType("application/json"), middleware.MaxBodySize(middleware.MaxRequestBodySize),
+				authLoader(queries, cfg.Auth), apiCSRFMiddleware,
+			}
+			if limited {
+				chain = append(chain, middleware.GlobalAPIRateLimit(queries))
+			}
+			return append(chain, middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository))
 		}
-		router.With(flowAccess...).Post("/api/workflow/provision", browser.provision)
-		router.With(flowAccess...).Post("/api/workflow/rpc", browser.rpc)
+		flowAccess := access(true)
+		// A box's flow seam is polled while its runs progress (a snapshot every
+		// two seconds per run), so it stays out of the account-wide API budget,
+		// as the box's own relay always was.
+		boxFlowAccess := access(false)
+		router.With(boxFlowAccess...).Post("/api/workflow/provision", browser.provision)
+		router.With(boxFlowAccess...).Post("/api/workflow/rpc", browser.rpc)
 		setup := &repositorySetupAPI{repos: repoService, setup: repositorySetupService}
 		router.With(flowAccess...).Post("/api/repository-setup/{operation}", setup.serve)
 		setupReads := append([]func(http.Handler) http.Handler{}, flowAccess[:len(flowAccess)-1]...)

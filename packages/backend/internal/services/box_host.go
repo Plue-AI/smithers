@@ -114,3 +114,14 @@ func (s *WorkspaceService) RetireBoxHostCredential(ctx context.Context, hostID s
 		}
 	}
 }
+
+// KeepBoxAwake records activity on a box whose coding host is being used, so
+// the idle sweep does not suspend it under a run that is progressing.
+func (s *WorkspaceService) KeepBoxAwake(ctx context.Context, workspaceID string) {
+	if s.q == nil {
+		return
+	}
+	if err := s.q.TouchWorkspaceActivity(ctx, workspaceID); err != nil {
+		slog.Warn("record box host activity failed", "workspace_id", workspaceID, "error", err)
+	}
+}

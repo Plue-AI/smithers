@@ -50,6 +50,7 @@ func (l *admittedFlowLauncher) StartFlowHost(ctx context.Context, launch flowhos
 type boxHostPreparer interface {
 	PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error)
 	RetireBoxHostCredential(ctx context.Context, hostID string, userID int64)
+	KeepBoxAwake(ctx context.Context, workspaceID string)
 }
 
 // boxHostLauncher gives the box's coding host what the box's own services
@@ -69,6 +70,16 @@ func newBoxHostLauncher(launcher interface {
 	flowhost.RetirementStopper
 }, boxes boxHostPreparer) *boxHostLauncher {
 	return &boxHostLauncher{Launcher: launcher, SourceResolver: launcher, stopper: launcher, boxes: boxes}
+}
+
+// InspectFlowHost keeps the box awake while its host is in use: every call to
+// the host, and every observation of a progressing run, inspects it first.
+func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	connection, err := l.Launcher.InspectFlowHost(ctx, launch)
+	if err == nil {
+		l.boxes.KeepBoxAwake(ctx, launch.Binding.WorkspaceID)
+	}
+	return connection, err
 }
 
 func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {

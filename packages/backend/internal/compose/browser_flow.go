@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -40,6 +41,12 @@ type browserFlowAPI struct {
 		GetWorkspaceForUserRepo(context.Context, db.GetWorkspaceForUserRepoParams) (db.Workspace, error)
 	}
 	dispatcher browserFlowDispatcher
+	// boxes resumes a sleeping box (services.WorkspaceService).
+	boxes interface {
+		ResumeWorkspace(context.Context, string, int64, int64) (services.WorkspaceResponse, error)
+	}
+	// resumes are the background resumes of sleeping boxes, by box.
+	resumes background.Jobs[string]
 	// subscriptionTokens mirrors feature_flags.subscription_connections.
 	subscriptionTokens bool
 }
@@ -73,46 +80,62 @@ func browserFlowRefusal(w http.ResponseWriter, status int, message string) {
 	browserFlowJSON(w, status, map[string]any{"ok": false, "error": map[string]string{"message": message}})
 }
 
-func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provision bool) (browserFlowRequest, flowruntime.Target, bool) {
+// browserFlowTyped is a refusal a client acts on by its code, which the
+// Worker's platform proxy keeps only at the top level.
+func browserFlowTyped(w http.ResponseWriter, status int, code, message string) {
+	browserFlowJSON(w, status, map[string]any{"ok": false, "code": code, "error": map[string]string{"code": code, "message": message}})
+}
+
+// browserFlowProvisioning is the answer the app polls while a box wakes or
+// its coding host starts.
+func browserFlowProvisioning(w http.ResponseWriter) {
+	browserFlowJSON(w, http.StatusOK, map[string]any{"status": "provisioning"})
+}
+
+func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provision bool) (browserFlowRequest, flowruntime.Target, db.Workspace, bool) {
 	var request browserFlowRequest
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	// Every flow runs on a box: its coding host serves the catalog. There is
 	// no repository-level host to fall back to (#2194).
 	if decoder.Decode(&request) != nil || !browserFlowRepo.MatchString(request.Repo) || !validBrowserWorkspaceID(request.WorkspaceID) {
 		browserFlowRefusal(w, http.StatusBadRequest, "Body must name a repository and a box (workspaceId).")
-		return request, flowruntime.Target{}, false
+		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
 	if !provision && !browserFlowProcedures[request.Procedure] {
 		browserFlowRefusal(w, http.StatusBadRequest, "The workflow seam does not relay this procedure.")
-		return request, flowruntime.Target{}, false
+		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
 	user := middleware.UserFromContext(r.Context())
 	if user == nil {
 		browserFlowRefusal(w, http.StatusUnauthorized, "Sign in to run flows.")
-		return request, flowruntime.Target{}, false
+		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
 	owner, name, _ := strings.Cut(request.Repo, "/")
 	view, err := api.repos.GetRepoView(r.Context(), user, owner, name)
 	if err != nil || !view.CanWrite {
 		browserFlowRefusal(w, http.StatusNotFound, "Repository unavailable.")
-		return request, flowruntime.Target{}, false
+		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
 	workspace, err := api.queries.GetWorkspaceForUserRepo(r.Context(), db.GetWorkspaceForUserRepoParams{
 		ID: request.WorkspaceID, RepositoryID: view.Repository.ID, UserID: user.ID,
 	})
 	if err == nil && workspace.RebuildRequiredAt.Valid && !api.subscriptionTokens {
 		browserFlowRefusal(w, http.StatusConflict, browserFlowRebuildRequired)
-		return request, flowruntime.Target{}, false
+		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
-	if err != nil || workspace.Status != "running" {
+	if err != nil {
 		browserFlowRefusal(w, http.StatusNotFound, "Box unavailable.")
-		return request, flowruntime.Target{}, false
+		return request, flowruntime.Target{}, db.Workspace{}, false
+	}
+	if workspace.Status == "failed" {
+		browserFlowTyped(w, http.StatusConflict, "workspace_gone", "This box is gone. Open a new one.")
+		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
 	return request, flowruntime.Target{
 		TenantID:    "repository:" + strconv.FormatInt(view.Repository.ID, 10),
 		PrincipalID: "user:" + strconv.FormatInt(user.ID, 10),
 		WorkspaceID: workspace.ID, BindingKind: "browser-flow", BindingID: request.Repo,
-	}, true
+	}, workspace, true
 }
 
 func validBrowserWorkspaceID(value string) bool {
@@ -120,13 +143,40 @@ func validBrowserWorkspaceID(value string) bool {
 	return err == nil && id.String() == value
 }
 
-// provision is the box's provision-or-resume: it answers "ready" once the
-// box's coding host is live, so the flows list works before any run, and
-// otherwise starts the host in the background and answers "provisioning",
-// which the app polls (#2198).
+// wake answers whether the box is running. A sleeping box is resumed in the
+// background, once; a resume that failed is answered to the next caller.
+func (api *browserFlowAPI) wake(ctx context.Context, workspace db.Workspace) (bool, error) {
+	if err := api.resumes.Failed(workspace.ID); err != nil {
+		return false, err
+	}
+	switch workspace.Status {
+	case "running":
+		return true, nil
+	case "suspended", "stopped":
+		api.resumes.Start(ctx, workspace.ID, func(ctx context.Context) error {
+			_, err := api.boxes.ResumeWorkspace(ctx, workspace.ID, workspace.RepositoryID, workspace.UserID)
+			return err
+		})
+	}
+	return false, nil
+}
+
+// provision is the box's provision-or-resume (#2198): it answers "ready" once
+// the box runs and its coding host is live, so the flows list works before
+// any run. Until then it wakes the box and starts the host in the
+// background, answering "provisioning", which the app polls.
 func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
-	_, target, ok := api.prepare(w, r, true)
+	_, target, workspace, ok := api.prepare(w, r, true)
 	if !ok {
+		return
+	}
+	running, err := api.wake(r.Context(), workspace)
+	if err != nil {
+		browserFlowUnavailable(w, err, "provision")
+		return
+	}
+	if !running {
+		browserFlowProvisioning(w)
 		return
 	}
 	ready, err := api.dispatcher.StartHost(r.Context(), target)
@@ -135,7 +185,7 @@ func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ready {
-		browserFlowJSON(w, http.StatusOK, map[string]any{"status": "provisioning"})
+		browserFlowProvisioning(w)
 		return
 	}
 	browserFlowJSON(w, http.StatusOK, map[string]any{
@@ -144,8 +194,8 @@ func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
 }
 
 func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) {
-	// A plan limit that refused the box's host start is the user's own
-	// answer, with its upgrade path, not an unavailable host.
+	// A plan limit that refused the box's resume or host start is the user's
+	// own answer, with its upgrade path, not an unavailable host.
 	var refusal *pkgerrors.APIError
 	if errors.As(err, &refusal) && refusal.Code == pkgerrors.CodePlanLimitExceeded {
 		pkgerrors.WriteError(w, refusal)
@@ -154,9 +204,7 @@ func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) 
 	slog.Error("browser Flow RPC unavailable", "error", err, "procedure", procedure)
 	var failure flowruntime.Failure
 	if errors.As(err, &failure) {
-		browserFlowJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": map[string]string{
-			"code": failure.FlowRuntimeCode(), "message": "Flow host unavailable.",
-		}})
+		browserFlowTyped(w, http.StatusServiceUnavailable, failure.FlowRuntimeCode(), "Flow host unavailable.")
 	} else if errors.Is(err, pgx.ErrNoRows) {
 		browserFlowRefusal(w, http.StatusNotFound, "Flow host unavailable.")
 	} else {
@@ -164,12 +212,36 @@ func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) 
 	}
 }
 
+// rpc relays one procedure to the box's coding host. A snapshot of a box that
+// is waking, or whose host is starting, answers "provisioning", which the app
+// polls; any other procedure on a waking box is refused as workspace_starting.
 func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
-	request, target, ok := api.prepare(w, r, false)
+	request, target, workspace, ok := api.prepare(w, r, false)
 	if !ok {
 		return
 	}
+	snapshot := request.Procedure == "Projection.Snapshot"
+	running, err := api.wake(r.Context(), workspace)
+	if err != nil {
+		browserFlowUnavailable(w, err, request.Procedure)
+		return
+	}
+	if !running {
+		if snapshot {
+			browserFlowProvisioning(w)
+		} else {
+			browserFlowTyped(w, http.StatusConflict, "workspace_starting", "This box is starting.")
+		}
+		return
+	}
 	answer, err := api.dispatcher.CallRPC(r.Context(), target, request.Procedure, request.Payload)
+	var failure flowruntime.Failure
+	if snapshot && errors.As(err, &failure) && (failure.FlowRuntimeCode() == "runtime_host_not_running" || failure.FlowRuntimeCode() == "runtime_host_starting") {
+		if _, err = api.dispatcher.StartHost(r.Context(), target); err == nil {
+			browserFlowProvisioning(w)
+			return
+		}
+	}
 	if err != nil {
 		browserFlowUnavailable(w, err, request.Procedure)
 		return

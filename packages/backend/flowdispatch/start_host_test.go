@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 )
 
 // startingResolver has no live host until a start finishes. Its starts block
@@ -71,7 +72,7 @@ func waitHost(t *testing.T, service *Service, target flowruntime.Target, want bo
 // provision answers at once and starts the host once in the background (#2198).
 func TestStartHostAnswersAtOnceAndStartsTheBoxHostOnce(t *testing.T) {
 	resolver := &startingResolver{release: make(chan struct{})}
-	service := &Service{resolver: resolver}
+	service := &Service{resolver: resolver, hostStarts: background.Jobs[flowruntime.Target]{Timeout: time.Minute, FailureTTL: time.Minute}}
 	target := flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", WorkspaceID: "box", BindingKind: "browser-flow", BindingID: "o/r"}
 
 	_, err := service.CallRPC(context.Background(), target, "List", nil)
@@ -89,9 +90,7 @@ func TestStartHostAnswersAtOnceAndStartsTheBoxHostOnce(t *testing.T) {
 	require.Equal(t, int32(1), resolver.starts.Load(), "repeated provisions share one start")
 	_, err = service.CallRPC(context.Background(), target, "List", nil)
 	require.NoError(t, err)
-	service.hostStartsMu.Lock()
-	defer service.hostStartsMu.Unlock()
-	require.Empty(t, service.hostStarts, "a finished start is forgotten")
+	require.False(t, service.hostStarts.Running(target), "a finished start is forgotten")
 }
 
 // A start that fails is answered to the next provision, which may retry.
@@ -99,7 +98,7 @@ func TestStartHostReportsAFailedStartOnce(t *testing.T) {
 	release := make(chan struct{})
 	close(release)
 	resolver := &startingResolver{release: release, fail: &testRuntimeFailure{code: "runtime_start_failed", retryable: true}}
-	service := &Service{resolver: resolver}
+	service := &Service{resolver: resolver, hostStarts: background.Jobs[flowruntime.Target]{Timeout: time.Minute, FailureTTL: time.Minute}}
 	target := flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", WorkspaceID: "box", BindingKind: "browser-flow", BindingID: "o/r"}
 
 	ready, err := service.StartHost(context.Background(), target)
@@ -120,7 +119,7 @@ func TestStartHostReportsAFailedStartOnce(t *testing.T) {
 
 // Any refusal other than "not running" is the caller's answer; nothing starts.
 func TestStartHostDoesNotStartForARefusedTarget(t *testing.T) {
-	service := &Service{resolver: refusingExisting{}}
+	service := &Service{resolver: refusingExisting{}, hostStarts: background.Jobs[flowruntime.Target]{Timeout: time.Minute, FailureTTL: time.Minute}}
 	_, err := service.StartHost(context.Background(), flowruntime.Target{WorkspaceID: "box"})
 	var failure flowruntime.Failure
 	require.True(t, errors.As(err, &failure))
@@ -140,7 +139,7 @@ func (refusingExisting) ResolveFlowRuntime(context.Context, flowruntime.Target) 
 // A host another caller is starting (it holds the owner lock) is waited for,
 // never started a second time.
 func TestStartHostWaitsForAStartElsewhere(t *testing.T) {
-	service := &Service{resolver: startingElsewhere{}}
+	service := &Service{resolver: startingElsewhere{}, hostStarts: background.Jobs[flowruntime.Target]{Timeout: time.Minute, FailureTTL: time.Minute}}
 	ready, err := service.StartHost(context.Background(), flowruntime.Target{WorkspaceID: "box"})
 	require.NoError(t, err)
 	require.False(t, ready)

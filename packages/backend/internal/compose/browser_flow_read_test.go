@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
@@ -37,30 +39,34 @@ func (d *browserReadDependencies) GetWorkspaceForUserRepo(_ context.Context, par
 	return d.workspace, d.err
 }
 
-func browserFlowCall(api browserFlowAPI, body string, provision bool) (*httptest.ResponseRecorder, bool, string) {
+func browserFlowCall(api *browserFlowAPI, body string, provision bool) (*httptest.ResponseRecorder, bool, string) {
 	request := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(body))
 	request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
 	writer := httptest.NewRecorder()
-	_, target, ok := api.prepare(writer, request, provision)
+	_, target, _, ok := api.prepare(writer, request, provision)
 	return writer, ok, target.WorkspaceID
 }
 
-func TestBrowserFlowRunsOnlyOnTheNamedRunningBox(t *testing.T) {
+func TestBrowserFlowRunsOnlyOnTheNamedBox(t *testing.T) {
 	for _, procedure := range []string{"List", "Plan", "Run", "Projection.Snapshot"} {
-		for _, state := range []string{"missing", "suspended", "running"} {
+		for _, state := range []string{"missing", "failed", "suspended", "running"} {
 			t.Run(procedure+"/"+state, func(t *testing.T) {
 				deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: state}}
 				if state == "missing" {
 					deps.err = pgx.ErrNoRows
 				}
-				writer, ok, workspaceID := browserFlowCall(browserFlowAPI{repos: deps, queries: deps},
+				writer, ok, workspaceID := browserFlowCall(&browserFlowAPI{repos: deps, queries: deps},
 					`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"`+procedure+`","payload":{}}`, false)
-				require.Equal(t, state == "running", ok)
+				require.Equal(t, state == "running" || state == "suspended", ok)
 				require.Equal(t, []db.GetWorkspaceForUserRepoParams{{ID: browserBoxID, RepositoryID: 23, UserID: 17}}, deps.lookups)
-				if ok {
-					require.Equal(t, browserBoxID, workspaceID)
-				} else {
+				switch state {
+				case "missing":
 					require.Equal(t, 404, writer.Code)
+				case "failed":
+					require.Equal(t, 409, writer.Code)
+					require.Contains(t, writer.Body.String(), `"code":"workspace_gone"`)
+				default:
+					require.Equal(t, browserBoxID, workspaceID)
 				}
 			})
 		}
@@ -72,7 +78,7 @@ func TestBrowserFlowRunsOnlyOnTheNamedRunningBox(t *testing.T) {
 func TestBrowserFlowWithoutABoxIsRefused(t *testing.T) {
 	for _, provision := range []bool{false, true} {
 		deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
-		writer, ok, _ := browserFlowCall(browserFlowAPI{repos: deps, queries: deps},
+		writer, ok, _ := browserFlowCall(&browserFlowAPI{repos: deps, queries: deps},
 			`{"repo":"owner/repo","procedure":"Run","payload":{}}`, provision)
 		require.False(t, ok)
 		require.Equal(t, 400, writer.Code)
@@ -83,7 +89,7 @@ func TestBrowserFlowWithoutABoxIsRefused(t *testing.T) {
 
 func TestBrowserFlowRefusesAReaderBeforeReadingTheBox(t *testing.T) {
 	deps := &browserReadDependencies{canWrite: false}
-	writer, ok, _ := browserFlowCall(browserFlowAPI{repos: deps, queries: deps}, `{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"List"}`, false)
+	writer, ok, _ := browserFlowCall(&browserFlowAPI{repos: deps, queries: deps}, `{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"List"}`, false)
 	require.False(t, ok)
 	require.Equal(t, 404, writer.Code)
 	require.Empty(t, deps.lookups)
@@ -91,7 +97,7 @@ func TestBrowserFlowRefusesAReaderBeforeReadingTheBox(t *testing.T) {
 
 func TestBrowserFlowUnknownProcedureIsRefused(t *testing.T) {
 	deps := &browserReadDependencies{canWrite: true}
-	api := browserFlowAPI{repos: deps, queries: deps}
+	api := &browserFlowAPI{repos: deps, queries: deps}
 	request := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"Unknown"}`))
 	request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
 	writer := httptest.NewRecorder()
@@ -106,7 +112,7 @@ func (d *browserReadDependencies) GetRepoByOwnerAndLowerName(context.Context, db
 
 func TestBrowserFlowTargetIsTheBoxCodingHost(t *testing.T) {
 	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
-	_, ok, workspaceID := browserFlowCall(browserFlowAPI{repos: deps, queries: deps},
+	_, ok, workspaceID := browserFlowCall(&browserFlowAPI{repos: deps, queries: deps},
 		`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"List","payload":{}}`, false)
 	require.True(t, ok)
 	authority, err := browserFlowTarget{queries: deps}.ResolveFlowHostTarget(context.Background(), flowruntime.Target{
@@ -128,7 +134,7 @@ func TestBrowserFlowTargetIsTheBoxCodingHost(t *testing.T) {
 func TestBrowserFlowRefusesRebuildRequiredBox(t *testing.T) {
 	body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"List","payload":{}}`
 	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running", RebuildRequiredAt: pgtype.Timestamptz{Valid: true}}}
-	api := browserFlowAPI{repos: deps, queries: deps}
+	api := &browserFlowAPI{repos: deps, queries: deps}
 	writer, ok, _ := browserFlowCall(api, body, false)
 	require.False(t, ok)
 	require.Equal(t, 409, writer.Code)
@@ -192,3 +198,64 @@ type testFlowFailure string
 func (failure testFlowFailure) Error() string              { return string(failure) }
 func (failure testFlowFailure) FlowRuntimeCode() string    { return string(failure) }
 func (failure testFlowFailure) FlowRuntimeRetryable() bool { return true }
+
+type resumingBoxes struct {
+	resumed chan string
+	err     error
+}
+
+func (b *resumingBoxes) ResumeWorkspace(_ context.Context, id string, _, _ int64) (services.WorkspaceResponse, error) {
+	b.resumed <- id
+	return services.WorkspaceResponse{}, b.err
+}
+
+// A sleeping box wakes in the background: provision and a snapshot answer
+// "provisioning" at once, any other procedure is refused as starting, and a
+// resume that failed is answered to the next poll (#2198).
+func TestBrowserFlowWakesASleepingBox(t *testing.T) {
+	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "suspended", RepositoryID: 23, UserID: 17}}
+	boxes := &resumingBoxes{resumed: make(chan string, 4), err: pkgerrors.New(pkgerrors.CodePlanLimitExceeded, "Your Free plan allows 1 running sandbox.")}
+	dispatcher := &startingDispatcher{}
+	api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher, boxes: boxes,
+		resumes: background.Jobs[string]{FailureTTL: time.Minute}}
+	call := func(path, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest("POST", path, strings.NewReader(body))
+		request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
+		writer := httptest.NewRecorder()
+		if path == "/api/workflow/provision" {
+			api.provision(writer, request)
+		} else {
+			api.rpc(writer, request)
+		}
+		return writer
+	}
+	box := `"repo":"owner/repo","workspaceId":"` + browserBoxID + `"`
+	writer := call("/api/workflow/provision", `{`+box+`}`)
+	require.JSONEq(t, `{"status":"provisioning"}`, writer.Body.String())
+	require.Equal(t, browserBoxID, <-boxes.resumed)
+	require.Eventually(t, func() bool { return !api.resumes.Running(browserBoxID) }, time.Second, time.Millisecond)
+	writer = call("/api/workflow/provision", `{`+box+`}`)
+	require.Equal(t, 402, writer.Code, "the plan limit that refused the resume")
+
+	boxes.err = nil
+	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"Projection.Snapshot","payload":{}}`)
+	require.JSONEq(t, `{"status":"provisioning"}`, writer.Body.String())
+	<-boxes.resumed
+	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"Plan","payload":{}}`)
+	require.Equal(t, 409, writer.Code)
+	require.Contains(t, writer.Body.String(), `"code":"workspace_starting"`)
+	require.Empty(t, dispatcher.targets, "a sleeping box's host is not started until it runs")
+
+	// A snapshot of a running box whose host is not running starts it.
+	deps.workspace.Status = "running"
+	api.dispatcher = &hostlessDispatcher{startingDispatcher: dispatcher}
+	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"Projection.Snapshot","payload":{}}`)
+	require.JSONEq(t, `{"status":"provisioning"}`, writer.Body.String())
+	require.Len(t, dispatcher.targets, 1)
+}
+
+type hostlessDispatcher struct{ *startingDispatcher }
+
+func (d *hostlessDispatcher) CallRPC(context.Context, flowruntime.Target, string, json.RawMessage) (json.RawMessage, error) {
+	return nil, testFlowFailure("runtime_host_not_running")
+}
