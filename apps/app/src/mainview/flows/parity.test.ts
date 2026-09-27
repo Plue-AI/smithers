@@ -502,7 +502,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * pager's onSelect, the view-mode pickers (wiki.card.view), cloud
        * Open page, and Refresh (wiki.sync) — all through onRunCommand.
        */
-      "../cards/ConversationCards.tsx": 11, // The empty Wiki now offers wiki.create.
+      "../cards/ConversationCards.tsx": 12, // The empty Wiki now offers wiki.create; the connect card's integration rows carry one action each.
       /* The factory card: one Open per present infra file, one shared handler through onRunCommand (files.read). */
       /*
        * The dispatcher card's Register door, the button door of

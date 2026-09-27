@@ -152,6 +152,7 @@ export const FLOW_NAMES = [
   "history.fold",
   "history.show",
   "input.mode",
+  "integrations.list",
   "issue.add-flow",
   "issue.flows",
   "issue.implement",

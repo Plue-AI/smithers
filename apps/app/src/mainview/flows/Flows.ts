@@ -58,6 +58,7 @@ import { graphFlows } from "./entries/graph"
 import { frameFlows } from "./entries/frame"
 import { githubFlows } from "./entries/github"
 import { issuesFlows } from "./entries/issues"
+import { integrationsFlows } from "./entries/integrations"
 import { setupFlows } from "./entries/setup"
 import { modelFlows } from "./entries/model"
 import { notificationsFlows } from "./entries/notifications"
@@ -151,6 +152,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...billingPlanFlows(actions),
   ...reposImportFlows(actions),
   ...issuesFlows(actions),
+  ...integrationsFlows(actions),
   ...setupFlows(actions),
   ...prsFlows(actions),
   ...featureFlows(actions),

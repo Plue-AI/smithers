@@ -1,9 +1,10 @@
 import { ViewSkeleton } from "../ViewSkeleton"
 import { MarkdownEditorSurface } from "../ViewModules"
 import { flowArgs } from "../flows/FlowArgs"
-import { flowAction, flowProps } from "../flows/FlowAction"
+import { dynamicFlowAction, flowAction, flowProps } from "../flows/FlowAction"
 import { Badge, Button, FileTree } from "@smthrs/ui"
-import { ExternalLink, GitPullRequest, Server } from "lucide-react"
+import { BookOpen, ExternalLink, GitPullRequest, Hash, ListChecks, Server } from "lucide-react"
+import { ageLabel } from "../Timestamps"
 import { Suspense, useId, useContext } from "react"
 import { parseOutline } from "@smthrs/ui/vault"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
@@ -58,8 +59,34 @@ export const ConnectCardBody = ({
         Import
       </Button>
     </li>
+    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack, Linear, Notion for threads, tasks and the wiki, read by integrations.list. */}
+    {card.payload.integrations?.rows.map((row) => (
+      <li key={row.id} className="connect-store-row" data-integration={row.id} data-state={row.state}>
+        <span className="connect-store-icon">
+          {row.id === "slack" ? <Hash size={16} aria-hidden="true" /> : row.id === "linear" ? <ListChecks size={16} aria-hidden="true" /> : <BookOpen size={16} aria-hidden="true" />}
+        </span>
+        <span className="connect-store-text">
+          <strong>{INTEGRATION_NAMES[row.id]}</strong>
+          <span className="connect-store-detail">
+            {INTEGRATION_SYNCS[row.id]}{row.detail === undefined ? "" : <> ↔ <code>{row.detail}</code></>}
+            {row.lastSyncAt === undefined ? null : <> · synced {ageLabel(row.lastSyncAt)}</>}
+          </span>
+          {row.error === undefined ? null : <span className="connect-store-error" role="alert">{row.error}</span>}
+        </span>
+        {row.state === "connected" ? <Badge variant="success">Connected ✓</Badge>
+          : row.state === "coming-soon" ? <Badge variant="outline">Coming soon</Badge>
+          : row.state === "error" ? <Badge variant="destructive">Error</Badge>
+          : null}
+        {row.action === undefined ? null : (
+          <Button size="sm" variant="outline" {...dynamicFlowAction(onRunCommand as (name: string, args?: string) => void, row.action.flow, row.action.args)}>{row.action.label}</Button>
+        )}
+      </li>
+    ))}
   </ul>
 )
+
+const INTEGRATION_NAMES = { slack: "Slack", linear: "Linear", notion: "Notion" } as const
+const INTEGRATION_SYNCS = { slack: "threads", linear: "tasks", notion: "wiki" } as const
 
 /*
  * The world query's embedded answer card (§2c″) — the answer rides in the chat

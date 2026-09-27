@@ -53,6 +53,7 @@ import * as history from "./entries/history"
 import * as stack from "./entries/stack"
 import * as issue from "./entries/issue"
 import * as issues from "./entries/issues"
+import * as integrations from "./entries/integrations"
 import * as model from "./entries/model"
 import * as notifications from "./entries/notifications"
 import * as palette from "./entries/palette"
@@ -465,6 +466,7 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   runs.namespace,
   approvals.namespace,
   issues.namespace,
+  integrations.namespace,
   issue.namespace,
   prs.namespace,
   github.namespace,

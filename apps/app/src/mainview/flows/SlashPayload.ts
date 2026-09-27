@@ -424,6 +424,12 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
       ? ok({ on: value === "on" }) : no("Choose on or off")
   },
   "experimental.set": args => setupObject(args),
+  "issues.fix": (args) => numberedTarget("issues.fix", args),
+  "issues.verify": (args) => numberedTarget("issues.verify", args),
+  "issues.comment.react": jsonObject("issues.comment.react"),
+  "issues.comment.retry": jsonObject("issues.comment.retry"),
+  "issues.set": jsonObject("issues.set"),
+  "integrations.list": args => repoOnly("integrations.list", args),
   "issues.setup": args => repoOnly("issues.setup", args),
   "review.setup": args => repoOnly("review.setup", args),
   "ci.setup": args => repoOnly("ci.setup", args),
