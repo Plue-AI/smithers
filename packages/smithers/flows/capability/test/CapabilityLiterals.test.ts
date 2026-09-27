@@ -282,7 +282,7 @@ describe("HARDEN-2: the sweep sees each staged form and judges it", () => {
       .map((literal) => literal.text)
 
   it("reads the whole-form vocabulary off the kernel's own selectors", () => {
-    expect(namespacesOf(selectors)).toEqual(["*", "fs", "jj", "model", "net", "proc"])
+    expect(namespacesOf(selectors)).toEqual(["*", "fs", "jj", "memory", "model", "net", "proc"])
   })
 
   it("follows a namespace the kernel has not declared yet", () => {

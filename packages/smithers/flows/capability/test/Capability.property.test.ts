@@ -22,6 +22,8 @@ const exactActions = [
   "net:get",
   "net:post",
   "model:call",
+  "memory:read",
+  "memory:write",
   "proc:spawn",
   "jj:status",
   "jj:diff",
@@ -300,7 +302,8 @@ describe("Capability properties", () => {
     const concreteAction = (action: Capability.PatternAction, pick: number): Capability.Action => {
       if (action === "*") return exactActions[pick % exactActions.length]!
       if (
-        action === "fs:*" || action === "net:*" || action === "model:*" || action === "proc:*" || action === "jj:*"
+        action === "fs:*" || action === "net:*" || action === "model:*" || action === "memory:*" ||
+        action === "proc:*" || action === "jj:*"
       ) {
         const family = exactActions.filter((exact) => exact.startsWith(action.slice(0, -1)))
         return family[pick % family.length]!

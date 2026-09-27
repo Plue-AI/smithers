@@ -441,7 +441,9 @@ describe("Capability", () => {
     [capability("jj:revert", "abcdef"), "compensable"],
     [capability("jj:op-restore", "abcdef"), "compensable"],
     [capability("proc:spawn", "git status"), "irreversible"],
-    [capability("net:post", "example.test"), "irreversible"]
+    [capability("net:post", "example.test"), "irreversible"],
+    [capability("memory:read", "role/builder"), "sealed"],
+    [capability("memory:write", "role/builder"), "irreversible"]
   ])("classifies %o as %s", (value, expected) => {
     expect(Capability.tierOf(value, { workspaceRoot: "/workspace" })).toBe(expected)
   })
