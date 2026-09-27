@@ -4,6 +4,7 @@ import { access, link, readFile, realpath, unlink, writeFile } from "node:fs/pro
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { BrowserContext, BrowserType, Page } from "@playwright/test"
+import { OwnerSessionCookies, withOwnerAuthRetry, type OwnerSessionScope } from "./owner-session"
 import { nativeTarget } from "../native-target"
 import { expect, test as realTest } from "../support/test"
 import { appEntryPath, awaitBoot } from "../support"
@@ -51,6 +52,13 @@ const ownerCredentialsFromEnvironment = (): OwnerCredentials => {
   }
   return { username: candidate.username.trim(), password: candidate.password, bootstrapToken: candidate.bootstrapToken.trim() }
 }
+
+const ownerSessions = new OwnerSessionCookies()
+const ownerSessionScope = (baseURL: string): OwnerSessionScope => ({
+  appOrigin: new URL(baseURL).origin,
+  apiOrigin: new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? baseURL).origin,
+  ...ownerCredentialsFromEnvironment()
+})
 
 const profileFromEnvironment = (requiredEnvironment?: string): string => {
   if (requiredEnvironment !== undefined) {
@@ -153,6 +161,7 @@ const readSessionAtOrigin = async (context: BrowserContext, origin: string): Pro
 const establishOwnerSession = async (context: BrowserContext, page: Page, baseURL: string): Promise<AuthenticatedSession> => {
   const origin = new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? baseURL).origin
   const credentials = ownerCredentialsFromEnvironment()
+  const scope = ownerSessionScope(baseURL)
   const existing = await readSessionAtOrigin(context, baseURL)
   if (existing !== undefined) {
     if (existing.login !== credentials.username) throw new Error("The cached owner session belongs to a different user.")
@@ -161,6 +170,8 @@ const establishOwnerSession = async (context: BrowserContext, page: Page, baseUR
     await awaitBoot(page, "navigate", startedAt)
     return existing
   }
+  // A revoked/expired session is never treated as an authenticated fixture.
+  ownerSessions.forget(scope)
   const statusResponse = await context.request.get(new URL("/api/auth/local/status", origin).toString())
   const status = await statusResponse.json().catch(() => undefined) as {
     readonly enabled?: unknown
@@ -176,14 +187,14 @@ const establishOwnerSession = async (context: BrowserContext, page: Page, baseUR
   const path = status.initialized ? "/api/auth/local/login" : "/api/auth/local/bootstrap"
   // Authenticate in the renderer's cookie jar. APIRequestContext can race the
   // browser's jar when the app is simultaneously booting and reading identity.
-  const loginStatus = await page.evaluate(async ({ path, credentials, status }) => {
+  const login = await withOwnerAuthRetry(() => page.evaluate(async ({ path, credentials, status }) => {
     const response = await fetch(path, { method: "POST", credentials: "include", headers: {
       "Content-Type": "application/json",
       ...(status.initialized ? {} : { "X-Smithers-Bootstrap-Token": credentials.bootstrapToken })
     }, body: JSON.stringify({ username: credentials.username, password: credentials.password }) })
-    return response.status
-  }, { path, credentials, status })
-  if (loginStatus !== 200) throw new Error(`Owner authentication failed at ${path}: HTTP ${loginStatus}.`)
+    return { status: response.status, retryAfter: response.headers.get("retry-after") }
+  }, { path, credentials, status }))
+  if (login.status !== 200) throw new Error(`Owner authentication failed at ${path}: HTTP ${login.status}.`)
   const observed = await page.evaluate(async () => {
     const response = await fetch("/api/user", { credentials: "include" })
     return { status: response.status, body: await response.json().catch(() => undefined) }
@@ -192,6 +203,7 @@ const establishOwnerSession = async (context: BrowserContext, page: Page, baseUR
   if (session === undefined || session.login !== credentials.username) {
     throw new Error("Owner authentication returned without the configured authenticated session.")
   }
+  ownerSessions.remember(scope, await context.cookies(origin))
   const startedAt = performance.now()
   await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
   await awaitBoot(page, "navigate", startedAt)
@@ -380,7 +392,10 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
       }
       const browser = await playwright.chromium.launch({ headless: process.env.SMITHERS_REAL_HEADED !== "1" })
       const context = await browser.newContext({ baseURL, viewport: { width: 1280, height: 900 } })
-      try { await use(context) } finally {
+      try {
+        await context.addCookies(ownerSessions.read(ownerSessionScope(baseURL)))
+        await use(context)
+      } finally {
         await context.close()
         await browser.close()
       }

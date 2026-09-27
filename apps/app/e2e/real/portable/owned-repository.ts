@@ -8,6 +8,7 @@ import type { APIRequestContext, Page, Response } from "@playwright/test"
 import { expect, realApi } from "../support/test"
 import { finishFirstVisit } from "../support/first-visit"
 import { runSlash } from "../issues/local"
+import { withOwnerAuthRetry } from "../auth-permissions/owner-session"
 import { readAuthenticatedSession } from "../auth-permissions/profile"
 import { repositoryApiPath } from "../repositories-github/production"
 
@@ -81,8 +82,11 @@ const gitToken = async (page: Page, request: APIRequestContext): Promise<string>
   if (!raw) throw new Error("owner credential envelope is unavailable for the local git fixture")
   const credentials = JSON.parse(raw) as { readonly username: string; readonly password: string }
   const tokenName = fixtureProtocolId(`matrix-git-${randomUUID().slice(0, 8)}`)
-  const response = await realApi(page, request, "POST", "/api/auth/local/token", {
-    username: credentials.username, password: credentials.password, name: tokenName
+  const { response } = await withOwnerAuthRetry(async () => {
+    const response = await realApi(page, request, "POST", "/api/auth/local/token", {
+      username: credentials.username, password: credentials.password, name: tokenName
+    })
+    return { status: response.status(), retryAfter: response.headers()["retry-after"] ?? null, response }
   })
   expect(response.status()).toBe(200)
   const body = await response.json() as { readonly token?: unknown }
