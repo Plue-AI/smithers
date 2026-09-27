@@ -208,3 +208,24 @@ func routerWithAdminUserHandler(adminUserHandler *routes.AdminUserHandler, authM
 		nil, // smithersMetrics
 	)
 }
+
+// The app asks GET /api/user/orgs on every backend to classify repository
+// owners (apps/app RepositoriesSeam). Single-owner mode keeps the read and
+// answers it like the hosted backend does; only tenant provisioning is gone.
+func TestServerRouter_SelfhostServesTheUsersOwnOrgListWithoutProvisioning(t *testing.T) {
+	t.Parallel()
+
+	router := routerWithAdminUserHandler(&routes.AdminUserHandler{Service: &mockAdminUserRouteService{}}, config.AuthModeSelfHosted)
+
+	read := httptest.NewRecorder()
+	router.ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/user/orgs", nil))
+	assert.Equal(t, http.StatusUnauthorized, read.Code, "the membership read is mounted and reaches auth: %s", read.Body.String())
+
+	for _, path := range []string{"/api/orgs", "/api/admin/orgs"} {
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{"name":"acme"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
+	}
+}
