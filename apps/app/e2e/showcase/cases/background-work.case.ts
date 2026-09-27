@@ -73,7 +73,10 @@ export default showcase({
     await app.beat(2500)
 
     complete = true
-    await expect(page.locator('.toast-stack [data-toast-status="ok"]').filter({ hasText: "review-pr completed" })).toBeVisible({ timeout: 15_000 })
+    // A worker's toast reads as its subagent card: the card's title and "Done" (51d2eb7cbf).
+    const completed = page.locator('.toast-stack [data-toast-status="ok"]').filter({ hasText: "review-pr" })
+    await expect(completed).toBeVisible({ timeout: 15_000 })
+    await expect(completed.locator(".toast-title")).toContainText(/\bDone\b/)
     await expect(card).toContainText("Done")
     await app.show(card)
 

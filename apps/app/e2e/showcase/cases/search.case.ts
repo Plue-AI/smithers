@@ -15,7 +15,7 @@ export default showcase({
     await app.type(input, "?")
     await expect(page.getByTestId("palette")).toContainText("history:")
     await app.beat(1600)
-    await app.slash("/search.flows stack")
+    await app.slash("/search.flows history")
     const results = page.getByTestId("transcript").locator('.smithers-card[data-kind="search-results"]')
     await expect(results.last()).toContainText("history.show")
     await app.closeComposer()

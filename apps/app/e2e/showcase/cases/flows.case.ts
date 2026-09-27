@@ -264,6 +264,7 @@ export default showcase({
       await route.fallback()
     })
     const dispatched = page.locator('[data-kind="run-trace"]').filter({ hasText: "Run nightly-review" })
+    const dispatchToast = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Run nightly-review" })
     try {
       await app.click(dispatcher.getByTestId("trigger-run-nightly-review"))
       await expect.poll(() => reading).toBe(true)
@@ -274,12 +275,11 @@ export default showcase({
       await page.getByTestId("composer-input").fill("Chat while the schedule loads")
       await expect(page.getByTestId("composer-input")).toHaveValue("Chat while the schedule loads")
       await page.keyboard.press("Escape")
-      await expect(page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Running nightly-review" })).toHaveCount(1)
+      await expect(dispatchToast).toHaveCount(1)
     } finally { lookup.resolve() }
     await expect(dispatched).toContainText("Running", { timeout: 15_000 })
     await app.show(dispatched)
     await app.beat(500)
-    const dispatchToast = page.locator('.toast[data-toast-status="running"]').filter({ hasText: /(?:Running|Run) nightly-review/ })
     await expect(dispatchToast).toHaveCount(1)
     await expect(dispatchToast.getByRole("button", { name: "Stop", exact: true })).toBeVisible()
     await app.show(dispatcher)
@@ -314,7 +314,7 @@ export default showcase({
     await resume.focus()
     await page.keyboard.press("Enter")
     await expect(resumeCard).toHaveCount(1)
-    const resumeToast = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Resuming nightly-review" })
+    const resumeToast = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Resume nightly-review" })
     await expect(resumeToast).toHaveCount(1)
     resumed = true
     await expect(resumeCard).toContainText("Done", { timeout: 15_000 })
@@ -349,7 +349,7 @@ export default showcase({
     await expect(approveSchedule).toBeFocused()
     await expect(page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Preparing review-schedule" })).toHaveCount(0)
     const registrationCard = page.locator('[data-kind="run-trace"]').filter({ hasText: "Register review-schedule" })
-    const registrationToast = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Registering review-schedule" })
+    const registrationToast = page.locator('.toast[data-toast-status="running"]').filter({ hasText: "Register review-schedule" })
     await page.keyboard.press("Enter")
     try {
       await expect.poll(() => registrationRuns).toBe(1)
