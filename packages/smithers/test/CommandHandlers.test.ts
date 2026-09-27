@@ -567,7 +567,10 @@ describe("up", () => {
 
     expect(error).toBeInstanceOf(CliError.UsageError)
     expect((error as CliError.UsageError).message).toContain("grants every capability")
-    expect((error as CliError.UsageError).message).toContain("smthrs plan demo/skill")
+    // The hint names the canonical verbs, never the hidden `plan`/`approve` aliases.
+    expect((error as CliError.UsageError).message).toContain("smthrs flow plan")
+    expect((error as CliError.UsageError).message).toContain("smthrs approvals approve")
+    expect((error as CliError.UsageError).message).toContain("smthrs flow plan demo/skill")
   })
 
   it("carries --data into the planned input", async () => {

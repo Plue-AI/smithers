@@ -486,7 +486,7 @@ export const supportedTools: ReadonlyArray<Tool> = [
   makeTool({
     name: "resolve_approval",
     description: "Operator-only: approve or deny a serialized approval payload. MCP calls return UNAUTHORIZED for all "
-      + "scopes, including remembered; an operator must use smthrs approve or smthrs deny.",
+      + "scopes, including remembered; an operator must use smthrs approvals approve or smthrs approvals deny.",
     readOnly: false,
     schema: resolveApprovalArguments,
     call: (args) => {

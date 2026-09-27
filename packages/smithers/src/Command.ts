@@ -425,8 +425,8 @@ const up = Command.make("up", upFlags, (config) =>
     if (card.envelope.capabilities.includes("*")) {
       return yield* Effect.fail(
         new CliError.UsageError({
-          message: `up will not approve ${flowId}: its envelope grants every capability ("*"). `
-            + `Declare capabilities in the flow, or review it with \`smthrs plan ${flowId}\` and approve it with \`smthrs approve\``
+          message: `flow start will not approve ${flowId}: its envelope grants every capability ("*"). `
+            + `Declare capabilities in the flow, or review it with \`smthrs flow plan ${flowId}\` and approve it with \`smthrs approvals approve\``
         })
       )
     }
