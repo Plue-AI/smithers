@@ -794,8 +794,8 @@ export const executeEffect = (
 
     /** The outcome one node settles with; `runOne` reports it exactly once. */
     type Outcome =
-      | { readonly status: "hit" | "ran"; readonly error?: undefined }
-      | { readonly status: "failed" | "skipped"; readonly error: string }
+      | { readonly status: "hit" | "ran"; readonly error?: undefined; readonly blockedBy?: undefined }
+      | { readonly status: "failed" | "skipped"; readonly error: string; readonly blockedBy?: string }
     const fail = (error: string): Outcome => ({ status: "failed", error })
     const green = (status: "hit" | "ran"): Outcome => ({ status })
 
@@ -2880,7 +2880,9 @@ export const executeEffect = (
             return fail(`refused: gate ${redGate} is not green (gates: ${gateReport})`)
           }
           const blocked = node.dependencies.find((dependency) => notGreen.has(dependency))
-          if (blocked !== undefined) return { status: "skipped", error: `dependency ${blocked} did not succeed` }
+          if (blocked !== undefined) {
+            return { status: "skipped", error: `dependency ${blocked} did not succeed`, blockedBy: blocked }
+          }
         }
         if (node.refusal !== undefined) return fail(node.refusal)
         if (node.serviceDeps.length > 0) return yield* underServices(node, dispatch(node))
@@ -2908,7 +2910,8 @@ export const executeEffect = (
           status: outcome.status,
           durationMs: outcome.status === "skipped" ? 0 : performance.now() - started,
           key: keyFor(node),
-          ...(outcome.error === undefined ? {} : { error: outcome.error })
+          ...(outcome.error === undefined ? {} : { error: outcome.error }),
+          ...(outcome.blockedBy === undefined ? {} : { blockedBy: outcome.blockedBy })
         })
       })
     yield* Executor.scheduleEffect(planned.workList, jobs, runOne, options.signal)

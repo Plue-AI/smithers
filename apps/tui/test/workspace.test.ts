@@ -35,7 +35,13 @@ const body = (text = "Review the change."): Flows.Body => ({
   digest: "a".repeat(64)
 })
 
-const setup = (options: { readonly known?: boolean; readonly routes?: boolean } = {}) => {
+const setup = (
+  options: {
+    readonly known?: boolean
+    readonly routes?: boolean
+    readonly delegable?: ReadonlyArray<Models.DelegateModel>
+  } = {}
+) => {
   const inputs: Array<Host.TurnInput> = []
   const finishes: Array<(outcome: Host.Outcome) => void> = []
   const loads: Array<{ name: string; resolve: (body: Flows.Body) => void; reject: (error: unknown) => void }> = []
@@ -85,7 +91,8 @@ const setup = (options: { readonly known?: boolean; readonly routes?: boolean } 
     history: () => [],
     persist: (record) => records.push(record),
     agents,
-    seatOf: (declared) => Models.seatOf(declared, [])
+    seatOf: (declared) => Models.seatOf(declared, []),
+    ...(options.delegable === undefined ? {} : { delegable: options.delegable })
   })
   return {
     workspace,
@@ -100,6 +107,18 @@ const setup = (options: { readonly known?: boolean; readonly routes?: boolean } 
   }
 }
 const request = { id: "rev", title: "Review src", prompt: "Look at src.", agent: "review" }
+
+describe("delegate models", () => {
+  it("refuses a model this machine cannot reach before any tab exists", () => {
+    const f = setup({ delegable: ["sol"] })
+    expect(() => f.workspace.request({ id: "q", title: "Q", prompt: "Answer.", model: "cerebras" }))
+      .toThrow("Model cerebras is not available here; use sol or omit model")
+    expect(f.workspace.snapshot().tabs).toEqual([])
+    expect(f.workspace.request({ id: "q", title: "Q", prompt: "Answer.", model: "sol" }).status).toBe("requested")
+    expect(() => setup({ delegable: [] }).workspace.request({ id: "q", title: "Q", prompt: "A.", model: "luna" }))
+      .toThrow("Model luna is not available here; omit model")
+  })
+})
 
 describe("custom agents", () => {
   it("returns requested before the body is read and keeps chat usable while it never resolves", async () => {

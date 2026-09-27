@@ -157,6 +157,18 @@ export const seatOf = (declared: string, available: ReadonlyArray<Model>): strin
     : undefined
 }
 
+/**
+ * The delegate models this machine can reach: those whose provider serves one
+ * of the available seats. A request for any other fails at once instead of
+ * becoming a worker tab that fails on its first model call.
+ */
+export const delegable = (available: ReadonlyArray<Model>): ReadonlyArray<DelegateModel> => {
+  const providers = new Set(available.map((model) => providerOf(model.seat)))
+  return (Object.keys(delegateModels) as Array<DelegateModel>).filter((name) =>
+    providers.has(providerOf(delegateModels[name]))
+  )
+}
+
 /** A seat's display name: an available model's label, a known model's, or the seat itself. */
 export const labelOf = (seat: string, available: ReadonlyArray<Model>): string =>
   available.find((model) => model.seat === seat)?.label ??

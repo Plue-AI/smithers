@@ -58,6 +58,8 @@ export interface Entry {
  * `known` failed and is named by a live entry; `newlyRed` failed and is not;
  * `expired` names entries on this platform whose expiry has passed; `recovered`
  * names live entries whose target executed green, so the entry can go.
+ * `unrun` names unlisted targets skipped because a dependency was red: an
+ * entry excuses its own failure, never the consumers it kept from running.
  *
  * @category models
  * @since 1.0.0
@@ -66,6 +68,7 @@ export interface Verdict {
   readonly source: string
   readonly known: ReadonlyArray<string>
   readonly newlyRed: ReadonlyArray<string>
+  readonly unrun: ReadonlyArray<string>
   readonly expired: ReadonlyArray<string>
   readonly recovered: ReadonlyArray<string>
 }
@@ -170,7 +173,8 @@ export const read = async (directory: string, path: string): Promise<{
  * Judges one execution against the list.
  *
  * `today` is a `YYYY-MM-DD` UTC date. The summary's `ok` is true when every
- * failure is named by a live entry for `platform`.
+ * failure is named by a live entry for `platform` and no unlisted target was
+ * skipped for a red dependency.
  *
  * @category judging
  * @since 1.0.0
@@ -191,13 +195,17 @@ export const judge = (
   )
   const known = failed.filter((label) => live.has(label))
   const newlyRed = failed.filter((label) => !live.has(label))
+  const unrun = summary.results
+    .filter((row) => row.status === "skipped" && row.blockedBy !== undefined && !live.has(row.label))
+    .map((row) => row.label)
   return {
     ...summary,
-    ok: newlyRed.length === 0,
+    ok: newlyRed.length === 0 && unrun.length === 0,
     knownRed: {
       source: list.source,
       known,
       newlyRed,
+      unrun,
       expired,
       recovered: [...live].filter((label) => green.has(label))
     }
@@ -213,6 +221,7 @@ export const judge = (
 export const describe = (verdict: Verdict): ReadonlyArray<string> => [
   ...verdict.known.map((label) => `known red (${verdict.source}): ${label}`),
   ...verdict.newlyRed.map((label) => `newly red, not in ${verdict.source}: ${label}`),
+  ...verdict.unrun.map((label) => `not run, a dependency is red: ${label}`),
   ...verdict.expired.map((label) => `expired entry in ${verdict.source}, no longer excused: ${label}`),
   ...verdict.recovered.map((label) => `green again, remove from ${verdict.source}: ${label}`)
 ]

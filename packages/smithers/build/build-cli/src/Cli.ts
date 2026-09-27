@@ -747,7 +747,8 @@ const failureMessage = (summary: Executor.Summary): string =>
   `${summary.counts.failed} of ${summary.results.length} targets failed` +
   (summary.counts.skipped === 0 ? "" : ` (${summary.counts.skipped} skipped)`) +
   ("knownRed" in summary
-    ? `; ${(summary as KnownRed.JudgedSummary).knownRed.newlyRed.length} not on the known-red list`
+    ? `; ${(summary as KnownRed.JudgedSummary).knownRed.newlyRed.length} not on the known-red list` +
+      `, ${(summary as KnownRed.JudgedSummary).knownRed.unrun.length} not run`
     : "")
 
 /**

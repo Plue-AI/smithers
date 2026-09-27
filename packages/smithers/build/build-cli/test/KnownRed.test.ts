@@ -113,6 +113,7 @@ describe("KnownRed.judge", () => {
       source: "list.json",
       known: ["//a:test"],
       newlyRed: [],
+      unrun: [],
       expired: [],
       recovered: ["//b:test", "//c:test"]
     })
@@ -126,6 +127,24 @@ describe("KnownRed.judge", () => {
     )
     expect(judged.ok).toBe(false)
     expect(judged.knownRed.newlyRed).toEqual(["//new:test"])
+  })
+
+  it("fails when a listed target keeps an unlisted consumer from running", () => {
+    const rows = summary([["//a:build", "failed"], ["//a:test", "skipped"], ["//a:lint", "skipped"]])
+    const blocked: Executor.Summary = {
+      ...rows,
+      results: rows.results.map((row) => row.status === "skipped" ? { ...row, blockedBy: "//a:build" } : row)
+    }
+    const judged = KnownRed.judge(blocked, { source: "list.json", entries: [entry("//a:build")] }, context)
+    expect(judged.ok).toBe(false)
+    expect(judged.knownRed.unrun).toEqual(["//a:test", "//a:lint"])
+    // Listing the consumer too is how an owner accepts that it cannot run.
+    const both = KnownRed.judge(
+      blocked,
+      { source: "list.json", entries: [entry("//a:build"), entry("//a:test"), entry("//a:lint")] },
+      context
+    )
+    expect(both.ok).toBe(true)
   })
 
   it("stops excusing an entry after its expiry day", () => {
@@ -148,11 +167,13 @@ describe("KnownRed.judge", () => {
       source: "l.json",
       known: ["//k:t"],
       newlyRed: ["//n:t"],
+      unrun: ["//u:t"],
       expired: ["//e:t"],
       recovered: ["//r:t"]
     })).toEqual([
       "known red (l.json): //k:t",
       "newly red, not in l.json: //n:t",
+      "not run, a dependency is red: //u:t",
       "expired entry in l.json, no longer excused: //e:t",
       "green again, remove from l.json: //r:t"
     ])
@@ -210,7 +231,8 @@ export const Workspace = S.Workspace("fixture", {
 const good = S.Shell.Test({ shell: "true" })
 const bad = S.Shell.Test({ shell: "false" })
 const worse = S.Shell.Test({ shell: "false" })
-export const Package = S.Package({ targets: { good, bad, worse } })
+const consumer = S.Shell.Test({ shell: "true", data: [bad] })
+export const Package = S.Package({ targets: { good, bad, worse, consumer } })
 `
     )
     await write(root, "package.json", `${JSON.stringify({ name: "fixture", private: true }, undefined, 2)}\n`)
@@ -270,6 +292,14 @@ export const Package = S.Package({ targets: { good, bad, worse } })
     expect(served.exitCode).toBe(1)
     expect(served.stderr).toContain("newly red, not in known-red.json: //:worse")
     expect(served.envelope).toContain("1 not on the known-red list")
+  })
+
+  it("fails when a listed target keeps its consumer from running", async () => {
+    const root = await fixture()
+    const served = await serve(root, ["test", "//:consumer", "--known-red", "known-red.json"])
+    expect(served.exitCode).toBe(1)
+    expect(served.stderr).toContain("known red (known-red.json): //:bad")
+    expect(served.stderr).toContain("not run, a dependency is red: //:consumer")
   })
 
   it("refuses a list it cannot read", async () => {

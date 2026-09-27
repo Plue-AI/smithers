@@ -188,6 +188,7 @@ export function App(props: AppProps) {
         }, props.flows)
       }),
       seatOf: props.seatOf ?? ((declared) => Models.seatOf(declared, props.models)),
+      delegable: Models.delegable(props.models),
       contribute
     })
   const [workspace, setWorkspace] = useState(() => makeWorkspace(restored.current?.workspace))
@@ -784,7 +785,7 @@ export function App(props: AppProps) {
       workerSeat: props.workerSeat ?? props.seat,
       background: `${workspace.context()}\nFlow runs: ${runs.context()}\nMonitors: ${monitors.context()}\nAgents: ${
         Agents.context(runs.listed())
-      }`,
+      }\nDelegate models: ${Models.delegable(props.models).join(", ") || "none"}`,
       runtime: {
         publish: (contribution) => {
           if (contribution.kind !== "panel") return contribute("runtime:chat", contribution)

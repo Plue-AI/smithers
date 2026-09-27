@@ -44,6 +44,8 @@ export interface TargetReport {
   readonly durationMs: number
   readonly key: string
   readonly error?: string | undefined
+  /** The dependency whose red outcome kept a `skipped` target from running. */
+  readonly blockedBy?: string | undefined
 }
 
 /**

@@ -67,3 +67,14 @@ describe("routing", () => {
     expect(Models.routing(available, { SMITHERS_TUI_WORKER_SEAT: "openai:gpt-6-sol" }, true)).toBeUndefined()
   })
 })
+
+describe("delegable", () => {
+  test("names only the delegate models whose provider is reachable", () => {
+    const openai = [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }]
+    expect(Models.delegable(openai)).not.toContain("cerebras")
+    expect(Models.delegable(openai)).toContain("sol")
+    expect(Models.delegable([{ seat: Models.delegateModels.cerebras, label: "Qwen 3.8", provider: "Cerebras" }]))
+      .toEqual(["cerebras"])
+    expect(Models.delegable([])).toEqual([])
+  })
+})

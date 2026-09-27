@@ -120,6 +120,8 @@ export class Workspace {
       agents?: Agents.Port
       /** Resolves an agent's declared `model:`; undefined when unknown. */
       seatOf?: (declared: string) => string | undefined
+      /** Delegate models a request may name; absent, any. */
+      delegable?: ReadonlyArray<DelegateModel>
       /** A worker's status item or key, owned `runtime:<tab id>`; throws a one-line refusal. */
       contribute?: (owner: string, contribution: Extension.Contribution) => void
     }
@@ -357,6 +359,16 @@ export class Workspace {
       return { id: existing.id, status: existing.status }
     }
     if (this.options.occupied?.(request.id)) throw new Error("Request id already belongs to a flow run")
+    const delegable = this.options.delegable
+    if (
+      kept === undefined && request.model !== undefined && delegable !== undefined && !delegable.includes(request.model)
+    ) {
+      throw new Error(
+        `Model ${request.model} is not available here; ${
+          delegable.length === 0 ? "omit model" : `use ${delegable.join(", ")} or omit model`
+        }`
+      )
+    }
     // Refuses now when the listing is known; otherwise the launch re-lists and fails the tab.
     const listed = request.agent === undefined ? undefined : this.agents().listed()
     const agent = request.agent === undefined || listed === undefined

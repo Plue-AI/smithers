@@ -62,8 +62,10 @@ for required tools and possible host and cache writes.
 
 `--known-red <file>` names a JSON list of targets that already fail, each with
 an owner, a reason, and a last day. The command still runs and reports those
-targets. It exits nonzero only when a target outside the list fails, or when a
-listed target fails after its `expires` day. Paths resolve from `--workspace`.
+targets. It exits nonzero when a target outside the list fails, when a
+listed target fails after its `expires` day, or when a target outside the list
+is skipped because a dependency failed: an entry excuses its own failure, not
+the consumers it kept from running. Paths resolve from `--workspace`.
 
 ```json
 {
@@ -81,8 +83,8 @@ listed target fails after its `expires` day. Paths resolve from `--workspace`.
 ```
 
 `platforms` is optional and matches Node's `process.platform`. Each finding
-prints one line to standard error: `known red`, `newly red`, `expired entry`,
-or `green again, remove from`. Delete an entry in the change that fixes its
+prints one line to standard error: `known red`, `newly red`, `not run`,
+`expired entry`, or `green again, remove from`. Delete an entry in the change that fixes its
 target.
 
 ## Global options
