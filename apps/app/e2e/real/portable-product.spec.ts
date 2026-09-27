@@ -1,3 +1,4 @@
+import type { APIRequestContext, Page } from "@playwright/test"
 import { scenario } from "./coverage/types"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { awaitBoot, expect, productUrl, realApi, reloadApp } from "./support/test"
@@ -74,10 +75,7 @@ authenticatedTest("an owned issue remains after a reload of the same product win
   })
 })
 
-authenticatedTest("a pushed local change opens and lands through the product", scenario("landings.local-change-land", {
-  capabilities: ["identity"],
-  coverage: ["action:prs.create", "action:prs.land", "host:local", "host:production", "path:success", "door:slash", "surface:landing-api", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
-}), async ({ page, request }) => {
+const landOwnedChange = async (page: Page, request: APIRequestContext, door: "slash" | "button"): Promise<void> => {
   await withOwnedRepository(page, request, async (repo) => {
     const { commit, marker } = await pushLocalFixture(page, request, repo)
     const changesResponse = await realApi(page, request, "GET", `${repo.path}/changes?limit=100`)
@@ -100,7 +98,22 @@ authenticatedTest("a pushed local change opens and lands through the product", s
     const read = await realApi(page, request, "GET", `${repo.path}/landings/${landing.number}`)
     expect(read.status()).toBe(200)
     expect(await read.json()).toMatchObject({ number: landing.number, change_ids: [change!.change_id] })
-    const accepted = await realApi(page, request, "PUT", `${repo.path}/landings/${landing.number}/land`, { commit_id: commit })
+    if (door === "button") {
+      await runSlash(page, `/change.view ${change!.change_id}`)
+      await expect(page.getByTestId(`card-change-${repo.fullName}-${change!.change_id}`)).toBeVisible()
+    }
+    const landingResponse = page.waitForResponse((response) => response.request().method() === "PUT" && new URL(response.url()).pathname === `${repo.path}/landings/${landing.number}/land`, { timeout: 15_000 })
+    if (door === "slash") {
+      await runSlash(page, `/prs.land ${landing.number} ${repo.fullName}`)
+    } else {
+      const land = page.getByTestId(`card-change-${repo.fullName}-${change!.change_id}`).locator('button[data-flow="change.land"]')
+      await expect(land).toBeEnabled()
+      await land.focus()
+      await expect(land).toBeFocused()
+      await page.keyboard.press("Enter")
+    }
+    const accepted = await landingResponse
+    expect(accepted.request().postDataJSON()).toEqual({ commit_id: commit })
     expect(accepted.status()).toBe(202)
     await expect.poll(async () => {
       const response = await realApi(page, request, "GET", `${repo.path}/landings/${landing.number}`)
@@ -109,5 +122,27 @@ authenticatedTest("a pushed local change opens and lands through the product", s
     }, { timeout: 120_000, intervals: [500, 1_000, 2_000] }).toBe("merged")
     const file = await realApi(page, request, "GET", `${repo.path}/contents/fixture.txt?ref=main`)
     expect(file.status()).toBe(200)
+    const content = await file.json() as { readonly content?: string; readonly encoding?: string }
+    expect(["base64", "utf-8"]).toContain(content.encoding)
+    expect(content.encoding === "base64" ? Buffer.from(content.content ?? "", "base64").toString("utf8") : content.content).toBe(`${marker}\n`)
+    await reloadApp(page)
+    await runSlash(page, `/change.view ${change!.change_id}`)
+    const restored = page.getByTestId(`card-change-${repo.fullName}-${change!.change_id}`)
+    await expect(restored.locator('button[data-flow="change.land"]')).toBeDisabled()
+    await expect(restored.getByText("landed", { exact: true })).toBeVisible()
   })
+}
+
+authenticatedTest("a pushed local change opens and lands through the slash command", scenario("landings.local-change-land", {
+  capabilities: ["identity"],
+  coverage: ["action:prs.create", "action:prs.land", "host:local", "host:production", "path:success", "path:persistence", "door:slash", "surface:landing-api", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
+}), async ({ page, request }) => {
+  await landOwnedChange(page, request, "slash")
+})
+
+authenticatedTest("a pushed local change lands through the change card with the keyboard", scenario("landings.change-card-land", {
+  capabilities: ["identity"],
+  coverage: ["action:prs.create", "action:change.view", "action:change.land", "host:local", "host:production", "path:success", "path:persistence", "path:keyboard", "door:button", "surface:change-card", "dimension:local-git-source", "evidence:change-and-landed-bookmark"]
+}), async ({ page, request }) => {
+  await landOwnedChange(page, request, "button")
 })
