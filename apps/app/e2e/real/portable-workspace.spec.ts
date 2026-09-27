@@ -3,32 +3,9 @@ import { authenticatedTest } from "./auth-permissions/profile"
 import { awaitBoot, closeComposer, expect, productUrl, realApi } from "./support/test"
 import { runSlash } from "./issues/local"
 import { finishFirstVisit } from "./support/first-visit"
-import { withOwnedRepository } from "./portable/owned-repository"
-import type { APIRequestContext, Page } from "@playwright/test"
-import type { OwnedRepository } from "./portable/owned-repository"
+import { runningWorkspace, withOwnedRepository } from "./portable/owned-repository"
 
 authenticatedTest.setTimeout(240_000)
-
-const runningWorkspace = async <T>(page: Page, request: APIRequestContext, repo: OwnedRepository, use: (id: string) => Promise<T>): Promise<T> => {
-  const created = await realApi(page, request, "POST", `${repo.path}/workspaces`, { name: "matrix", source_bookmark: "main", kind: "container" })
-  expect([201, 202]).toContain(created.status())
-  const workspace = await created.json() as { readonly id?: unknown }
-  expect(workspace.id).toEqual(expect.any(String))
-  const id = workspace.id as string
-  const path = `${repo.path}/workspaces/${encodeURIComponent(id)}`
-  try {
-    await expect.poll(async () => {
-      const response = await realApi(page, request, "GET", path)
-      expect(response.status()).toBe(200)
-      return (await response.json() as { readonly status?: string }).status
-    }, { timeout: 120_000, intervals: [500, 1_000, 2_000] }).toBe("running")
-    return await use(id)
-  } finally {
-    const deleted = await realApi(page, request, "DELETE", path)
-    expect(deleted.status()).toBe(204)
-    expect((await realApi(page, request, "GET", path)).status()).toBe(404)
-  }
-}
 
 authenticatedTest("a product workspace suspends, resumes, and deletes", scenario("workspaces.product-lifecycle", {
   capabilities: ["identity", "cloud"],
