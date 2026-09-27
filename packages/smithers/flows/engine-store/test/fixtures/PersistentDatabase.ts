@@ -1,5 +1,6 @@
 /** Persistent identity shared by independent processes in the storage matrix. */
 import * as PostgresDatabase from "@smthrs/database/postgres/PostgresDatabase"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { randomUUID } from "node:crypto"
@@ -19,7 +20,7 @@ export const remove = async (filename: string): Promise<void> => {
   await Effect.runPromise(
     Effect.gen(function*() {
       const sql = yield* SqlClient
-      yield* sql`DROP SCHEMA ${sql(schema)} CASCADE`
+      yield* TestDatabase.dropSchema(sql, schema)
     }).pipe(Effect.provide(PostgresDatabase.layer({ url: url.toString(), schema })))
   )
 }

@@ -18,7 +18,7 @@ const fixture = <A, E>(body: (first: SqlClient, second: SqlClient) => Effect.Eff
     const second = yield* Layer.build(PostgresDatabase.layer({ url: url!, schema }))
     const a = Context.get(first, SqlClient)
     const b = Context.get(second, SqlClient)
-    yield* Effect.addFinalizer(() => a`DROP SCHEMA ${a(schema)} CASCADE`.pipe(Effect.orDie))
+    yield* Effect.addFinalizer(() => TestDatabase.dropSchema(a, schema).pipe(Effect.orDie))
     return yield* body(a, b)
   })))
 
@@ -107,6 +107,33 @@ describe.skipIf(!url)("PostgreSQL adapter (independent pools)", () => {
           expect((yield* Fiber.await(blocked))._tag).toBe("Failure")
         }))
         expect(yield* second.withTransaction(second`SELECT 1 AS value`)).toEqual([{ value: 1 }])
+      }))
+    )
+  })
+
+  it("drops a test schema only after an in-flight transaction on it commits", async () => {
+    await fixture((first, second) =>
+      Effect.scoped(Effect.gen(function*() {
+        yield* first`CREATE TABLE drop_order_a (id INTEGER)`
+        yield* first`CREATE TABLE drop_order_b (id INTEGER)`
+        const [row] = yield* first<{ schema: string }>`SELECT current_schema() AS schema`
+        const schema = row!.schema
+        const drop = yield* first.withTransaction(Effect.gen(function*() {
+          yield* first`SELECT id FROM drop_order_a`
+          const drop = yield* TestDatabase.dropSchema(second, schema).pipe(Effect.forkScoped)
+          // The drop queues on the schema's writer lock before any table lock,
+          // so this transaction can still reach a table it has not touched yet.
+          yield* TestDatabase.until(
+            first`SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+              AND ((classid::bigint << 32) | objid::bigint) = hashtextextended(${schema}, 2099)`.pipe(
+              Effect.map((rows) => rows.length > 0)
+            )
+          )
+          expect(yield* first`SELECT id FROM drop_order_b`).toEqual([])
+          return drop
+        }))
+        yield* Fiber.join(drop)
+        expect(yield* first`SELECT nspname FROM pg_namespace WHERE nspname = ${schema}`).toEqual([])
       }))
     )
   })

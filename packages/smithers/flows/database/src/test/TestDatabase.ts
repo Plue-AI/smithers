@@ -20,6 +20,25 @@ import * as NodeDatabase from "../node/NodeDatabase.ts"
  */
 export const sqliteLayer = Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename: ":memory:" }))
 
+/** Drops a PostgreSQL test schema in the order every product transaction locks.
+ *
+ * Each PostgreSQL transaction first takes the schema's writer advisory lock
+ * and only then touches tables. A bare `DROP SCHEMA` skips that lock and takes
+ * its table locks one by one, so a transaction still in flight on the same
+ * schema — a background fiber the case left running — could hold one table
+ * while waiting for another the drop already holds: a deadlock. Dropping
+ * inside `withTransaction` takes the writer lock first, so the drop waits for
+ * that transaction to commit and later ones wait for the drop.
+ *
+ * `sql` must be a client whose `search_path` is `schema`, which the writer
+ * lock is keyed by. Dropping an already dropped schema is a no-op.
+ *
+ * @category testing
+ * @since 1.0.0
+ */
+export const dropSchema = (sql: SqlClient.SqlClient, schema: string): Effect.Effect<void, SqlError> =>
+  sql.withTransaction(sql`DROP SCHEMA IF EXISTS ${sql(schema)} CASCADE`).pipe(Effect.asVoid)
+
 /** Isolated production database, selected by the matrix runner.
  * @category layers
  * @since 1.0.0
@@ -32,7 +51,7 @@ export const layer: Layer.Layer<DurableWriter.DurableWriter | SqlClient.SqlClien
     const schema = `test_${randomUUID().replaceAll("-", "")}`
     const cleanup = Layer.effectDiscard(Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
-      yield* Effect.addFinalizer(() => sql`DROP SCHEMA ${sql(schema)} CASCADE`.pipe(Effect.orDie))
+      yield* Effect.addFinalizer(() => dropSchema(sql, schema).pipe(Effect.orDie))
     }))
     return Layer.provideMerge(
       DurableWriter.layer(),

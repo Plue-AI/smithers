@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Effect } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { execFileSync, spawnSync } from "node:child_process"
@@ -59,7 +60,7 @@ it.skipIf(!bunInstalled).each([["node", "bun"], ["bun", "node"]] as const)(
         await Effect.runPromise(
           Effect.gen(function*() {
             const sql = yield* SqlClient
-            yield* sql`DROP SCHEMA ${sql(schema)} CASCADE`
+            yield* TestDatabase.dropSchema(sql, schema)
           }).pipe(Effect.provide(PostgresDatabase.layer({ url: postgres, schema })))
         )
       }
