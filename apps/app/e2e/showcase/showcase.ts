@@ -328,7 +328,9 @@ export const prepare = async (page: Page, recording: boolean): Promise<ShowcaseR
       if (directory === undefined) return
       await page.evaluate(() => document.fonts.ready)
       const path = `${directory}/${name}.png`
-      await (target === undefined ? page.screenshot({ path, animations: "disabled" }) : target.screenshot({ path, animations: "disabled" }))
+      // An element is clipped out of the page as the viewer sees it, so a scrolled pane never leaves it blank.
+      const clip = target === undefined ? null : await target.boundingBox()
+      await page.screenshot({ path, animations: "disabled", ...(clip === null ? {} : { clip }) })
     }
   }
   const route = async (match: (url: URL) => boolean, handler: (route: Route) => Promise<void> | void): Promise<void> => {

@@ -125,8 +125,12 @@ export default showcase({
     await expect(page.locator(".registration-status")).toContainText("In review", { timeout: 30_000 })
     // The analysis toast settles with the run reaching review, not with its launch.
     await expect(page.getByText("Analyzing acme/widgets…")).toHaveCount(0, { timeout: 30_000 })
+    await expect(page.locator(".toast")).toHaveCount(0, { timeout: 30_000 })
     await live.evaluate((element) => element.scrollIntoView({ block: "start" }))
     await app.beat(1500)
+    // The whole report fits the 1440×900 frame.
+    const frame = await live.boundingBox()
+    expect(frame !== null && frame.y + frame.height <= 900).toBe(true)
     await app.still("register")
     await app.still("register-report", live)
   }
