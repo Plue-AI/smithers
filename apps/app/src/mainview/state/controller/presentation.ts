@@ -10,6 +10,8 @@ import { all as allChat, CHAT_KINDS, subagentsFromCards, toggle as toggleChat } 
 export interface PresentationController {
   readonly showChat: () => void
   readonly showWorld: () => void
+  /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
+  readonly showWikiPane: () => void
   readonly showConnectors: () => void
   readonly toggleDevtools: () => void
   readonly toggleChatFilterMenu: () => { readonly value: string }
@@ -70,6 +72,11 @@ export const createPresentationController = (
         }
       }
       ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card })
+  }
+
+  const showWikiPane = (): void => {
+    const open = ctx.store.session().surface === "world"
+    ctx.store.dispatch({ type: "surface.changed", actor: ctx.commandActor, surface: open ? "chat" : "world" })
   }
 
   const showConnectors = (): void => {
@@ -503,6 +510,7 @@ export const createPresentationController = (
   return {
     showChat,
     showWorld,
+    showWikiPane,
     showConnectors,
     toggleDevtools,
     toggleChatFilterMenu,

@@ -150,6 +150,51 @@ export const repoTreeRowId = (copyId: string, path: string): string => `${copyId
  * A tag nothing has measured has no row; there is no shape here for an
  * unmeasured prediction.
  */
+/** A wiki space: one repository's public part or its private part (#1922). */
+export const WikiSpaceSchema = z.enum(["public", "private"])
+export type WikiSpace = z.infer<typeof WikiSpaceSchema>
+
+/** One page as the navigation index lists it: metadata and backlinks, no body. */
+export const WikiIndexPageSchema = z.object({
+  id: z.number().int().positive(),
+  slug: z.string(),
+  title: z.string(),
+  path: z.string(),
+  revision: z.number().int().positive(),
+  updatedAt: z.string(),
+  attachment: z.object({ digest: z.string(), mediaType: z.string(), size: z.number() }).optional(),
+  tags: z.array(z.string()),
+  aliases: z.array(z.string()),
+  headings: z.array(z.string()),
+  links: z.array(z.object({ target: z.string(), heading: z.string().optional(), alias: z.string().optional(), embed: z.boolean(), pageId: z.number().int().positive().optional() })),
+  backlinks: z.array(z.object({ pageId: z.number().int().positive(), path: z.string(), heading: z.string().optional(), embed: z.boolean() })),
+  error: z.string().optional()
+})
+export type WikiIndexPage = z.infer<typeof WikiIndexPageSchema>
+
+/*
+ * One space's navigation index (`GET /wiki/navigation/index`): the pages with
+ * their metadata and backlinks, the folders and the tags, one row per
+ * repository and space. A live snapshot the cloud wiki controller holds
+ * (`controller.wikiIndexes`, the way the Stack views read `stackSnapshots`),
+ * never a collection: the index is one SQL snapshot, re-read whenever the
+ * space is opened, and a saved copy would only ever be stale.
+ */
+export const WikiIndexRowSchema = z.object({
+  /** `wikiIndexRowId(repo, space)`. */
+  id: z.string(),
+  repo: z.string(),
+  space: WikiSpaceSchema,
+  pages: z.array(WikiIndexPageSchema),
+  folders: z.array(z.string()),
+  tags: z.array(z.string()),
+  /** The read's refusal, verbatim, when the index could not be read; the rows then are the last read's. */
+  error: z.string().optional(),
+  loadedAt: z.number()
+})
+export type WikiIndexRow = z.infer<typeof WikiIndexRowSchema>
+export const wikiIndexRowId = (repo: string, space: WikiSpace): string => `${repo}#${space}`
+
 export const FlowDurationsRowSchema = z.object({
   /** `flowDurationRowId(repo, flowId, actionTag, workspaceId)`. */
   id: z.string(),
@@ -820,6 +865,8 @@ export const SessionSchema = z.object({
    */
   wikiPane: z.enum(["document", "graph"]).optional(),
   wikiGraphPath: z.string().nullable().optional(),
+  /** The Wiki space the pane shows (#1922): public (repository-readable) or private (explicit access). Absent reads public. */
+  wikiSpace: WikiSpaceSchema.optional(),
   /** Repository whose disconnect confirmation is open. */
   pendingConnectorRemovalId: z.string().nullable().optional(),
   /*
@@ -1464,6 +1511,13 @@ export type AppTransition =
     path: string | null
   }
   | {
+    /* The Wiki space the pane shows: public or private (#1922). */
+    type: "wiki.space.changed"
+    actor: Actor
+    space: WikiSpace
+  }
+
+  | {
     /*
      * The delete question, asked and answered (§10.6). `id: null` is the
      * answer "no" — the dialog closes and the note stays.
@@ -1800,6 +1854,7 @@ export const initialSession = (theme: Session["theme"]): Session => ({
   verbose: false,
   pendingWorldDeleteId: null,
   wikiPane: "document",
+  wikiSpace: "public",
   wikiGraphPath: null,
   pendingConnectorRemovalId: null,
   activeTabId: MAIN_TAB_ID,

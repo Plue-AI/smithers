@@ -47,6 +47,9 @@ import type { AppShellController } from "./controller/app"
 import { createAppShellController } from "./controller/app"
 import { createAuthBillingController } from "./controller/auth-billing"
 import { createCloudWikiController } from "./controller/cloud-wiki"
+import type { CommandGesture } from "../flows/CommandGesture"
+import type { WikiSpace } from "../wiki/CloudWiki"
+import type { WikiIndexStore } from "./controller/cloud-wiki"
 import { createCommandIntentLifecycle } from "./controller/commandIntents"
 import { createPrivacyActions, PRIVACY_WRITE_PENDING, PRIVACY_WRITE_FAILED } from "./controller/privacyActions"
 import { createConnectorController } from "./controller/connectors"
@@ -200,6 +203,8 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly resumePromptQueue: () => void
   readonly showChat: () => void
   readonly showWorld: () => void
+  /** The Wiki pane beside the chat (#1922): toggles, and reads the shown space's index on opening. */
+  readonly showWikiPane: () => void
   readonly showConnectors: () => void
   /** The Library: the plugin shelf this workspace browses and installs from. */
   readonly showPlugins: () => void
@@ -216,9 +221,19 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly removeConnector: (id: string) => string | void
   readonly selectWorldDocument: (id: string) => string | void
   readonly changeWorldDocument: (id: string, body: string) => Promise<string | void>
-  readonly listCloudWiki: (repo: string, page?: number) => Promise<string | { value: string }>
-  readonly openCloudWiki: (repo: string, slug: string) => Promise<string | { value: string }>
+  readonly listCloudWiki: (repo: string, page?: number, space?: WikiSpace) => Promise<string | { value: string }>
+  readonly openCloudWiki: (repo: string, slug: string, expectedPageId?: number, space?: WikiSpace) => Promise<string | { value: string }>
   readonly retryCloudWiki: (id: string) => Promise<string | void | { value: string }>
+  /** The Wiki spaces (#1922): the switch, the space's navigation index, a page's history, and the writes the pane offers. */
+  readonly setWikiSpace: (space: string, repo?: string) => Promise<string | void>
+  readonly loadWikiIndex: (repo?: string, space?: WikiSpace, quiet?: boolean) => Promise<string | { value: string }>
+  readonly showWikiHistory: (slug: string, repo?: string, page?: number) => Promise<string | void | { value: string }>
+  readonly createCloudWikiPage: (title: string, repo?: string) => Promise<string | void | { value: string }>
+  readonly renameCloudWikiPage: (slug: string, path: string, repo?: string) => Promise<string | void>
+  readonly deleteCloudWikiPage: (slug: string, repo?: string) => Promise<string | void>
+  readonly attachCloudWiki: (slug: string, path: string, repo: string | undefined, gesture?: CommandGesture) => Promise<string | void | { value: string }>
+  /** The live wiki navigation indexes the Wiki views read (#1922), one per repository and space; never an act. */
+  readonly wikiIndexes: WikiIndexStore
   readonly attachWorldEditor: (id: string, slot: string, editor: MarkdownEditorHandle | null) => void
   readonly selectWikiCardDocument: (cardId: string, documentId: string) => string | void
   readonly setWikiCardView: (cardId: string, view: "outline" | "document") => string | void
@@ -1039,6 +1054,7 @@ export const createAppController = (
   const {
     showChat,
     showWorld,
+    showWikiPane: togglePane,
     showConnectors,
     toggleDevtools,
     toggleChatFilterMenu,
@@ -1239,7 +1255,8 @@ export const createAppController = (
   const promptQueue = createPromptQueueController(ctx, send)
   const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
-  const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor } = cloudWiki
+  const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,
+    setWikiSpace, loadWikiIndex, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
   const {
     clearConversation,
     selectWorldDocument,
@@ -1660,6 +1677,7 @@ export const createAppController = (
     enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue,
     showChat,
     showWorld,
+    showWikiPane: () => { togglePane(); if (store.session().surface === "world") void loadWikiIndex() },
     showConnectors,
     showPlugins,
     installPlugin,
@@ -1684,6 +1702,13 @@ export const createAppController = (
     openCloudWiki,
     retryCloudWiki,
     attachWorldEditor,
+    setWikiSpace,
+    loadWikiIndex,
+    showWikiHistory,
+    createCloudWikiPage,
+    renameCloudWikiPage,
+    deleteCloudWikiPage,
+    attachCloudWiki,
     selectWikiCardDocument,
     setWikiCardView,
     decideApproval,
@@ -2160,6 +2185,7 @@ export const createAppController = (
     tappedFetch: http,
     localAuth,
     stackSnapshots: stackSeam.snapshots,
+    wikiIndexes,
     commands,
     slashItems: (needle) => commands.slashItems(needle),
     slashTree: (needle) => commands.slashTree(needle),

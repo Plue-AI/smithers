@@ -29,8 +29,13 @@ export interface FlowInput {
   readonly "runs.graph.follow": { readonly runId: string; readonly follow: boolean }
   readonly "runs.coding.select": { readonly runId: string; readonly changeId: string }
   readonly "signup.set": { readonly field: string; readonly value: string }
-  readonly "wiki.cloud": { readonly repo: string; readonly page: number }
-  readonly "wiki.cloud.open": { readonly slug: string; readonly repo: string }
+  readonly "wiki.cloud": { readonly repo: string; readonly page: number; readonly space?: "public" | "private" }
+  readonly "wiki.cloud.open": { readonly slug: string; readonly repo: string; readonly space?: "public" | "private" }
+  readonly "wiki.space": { readonly space: "public" | "private"; readonly repo?: string }
+  readonly "wiki.cloud.rename": { readonly slug?: string; readonly path: string; readonly repo?: string }
+  readonly "wiki.cloud.delete": { readonly slug: string; readonly repo?: string }
+  readonly "wiki.history": { readonly slug: string; readonly repo?: string; readonly page?: number }
+  readonly "wiki.attach": { readonly slug: string; readonly path?: string; readonly repo?: string }
   readonly "wiki.card.select": { readonly cardId: string; readonly documentId: string }
   readonly "wiki.card.view": { readonly cardId: string; readonly view: string }
   readonly "prs.land": { readonly number: number; readonly repo: string }
@@ -198,8 +203,13 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "runs.graph.follow": payload => line(token(payload, "runId"), payload.follow ? "on" : "off"),
   "runs.coding.select": payload => line(token(payload, "runId"), token(payload, "changeId")),
   "signup.set": payload => `${payload.field} ${payload.value}`,
-  "wiki.cloud": payload => line(token(payload, "repo"), token(payload, "page")),
-  "wiki.cloud.open": payload => line(token(payload, "slug"), token(payload, "repo")),
+  "wiki.cloud": payload => line(token(payload, "repo"), token(payload, "page"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
+  "wiki.cloud.open": payload => line(token(payload, "slug"), token(payload, "repo"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
+  "wiki.space": payload => line(token(payload, "space"), token(payload, "repo")),
+  "wiki.cloud.rename": payload => line(token(payload, "slug"), token(payload, "path"), token(payload, "repo")),
+  "wiki.cloud.delete": payload => line(token(payload, "slug"), token(payload, "repo")),
+  "wiki.history": payload => line(token(payload, "slug"), token(payload, "page"), token(payload, "repo")),
+  "wiki.attach": payload => line(token(payload, "slug"), token(payload, "path"), token(payload, "repo")),
   "wiki.card.select": payload => fileArgs(String(payload.cardId), String(payload.documentId)),
   "wiki.card.view": payload => line(token(payload, "cardId"), token(payload, "view")),
   "prs.land": payload => line(token(payload, "number"), token(payload, "repo")),

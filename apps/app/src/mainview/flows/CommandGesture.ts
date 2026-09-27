@@ -19,6 +19,8 @@ export interface CommandGesture {
   readonly wikiEditPrepared?: PreparedWikiEdit["complete"]
   readonly hasWriteOnly?: (field: string) => boolean
   readonly takeWriteOnly?: (field: string) => string | undefined
+  /** The file the human's own dialog chose (wiki.attach); bytes never ride a serializable command. */
+  readonly takeFile?: () => File | undefined
   readonly release: () => void
 }
 export const FlowGesture = Context.Reference<CommandGesture | undefined>("ui/flows/FlowGesture", { defaultValue: () => undefined })
@@ -56,6 +58,16 @@ export const reserveBrowserCommandGesture = (name: string): CommandGesture | und
     name,
     copyText: text => { consumed = true; resolve(new Blob([text], { type: "text/plain" })); return writing },
     release: () => { if (!consumed) reject(new Error("The command was not accepted")) }
+  }
+}
+
+/** A file the human chose lives only in this one-shot closure, never in a serializable command. */
+export const fileGesture = (name: string, file: File): CommandGesture => {
+  let held: File | undefined = file
+  return {
+    name,
+    takeFile: () => { const value = held; held = undefined; return value },
+    release: () => { held = undefined }
   }
 }
 

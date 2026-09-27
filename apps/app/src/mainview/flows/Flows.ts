@@ -116,6 +116,8 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "auth.sign-in", why: "the GitHub OAuth redirect yanks the page; the human clicks (auth.prompt is the agent's door)" },
   { name: "auth.sign-out", why: "drops the human's session; the human clicks" },
   { name: "flows", why: "surface switch: the model lists flows with flow.list, which answers as an embedded card" },
+  { name: "wiki.pane", why: "surface switch: the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards" },
+  { name: "wiki.attach", why: "the file comes from the human's own file dialog; a model has no file to give" },
   { name: "plugins", why: PLUGINS_USER_ONLY_REASON },
   { name: "palette.open", why: "focus and an overlay are the human's gesture; the model searches with the search.* flows, which answer the same rows as data" }
 ]

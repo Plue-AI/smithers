@@ -32,6 +32,9 @@ export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
   })
 ]
 
+/** Why `wiki.attach` is the human's alone: the file comes from their own file dialog. */
+export const WIKI_ATTACH_USER_ONLY_REASON = "the file comes from the human's own file dialog; a model has no file to give"
+
 /** Why `wiki.ask` is the human's alone: the question is their turn, as the composer is (entries/chat.ts). */
 export const WIKI_ASK_USER_ONLY_REASON = "the question is the human's turn; the model is already the turn, and asking would nest one — it reads a page with wiki.open"
 
@@ -68,17 +71,18 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({
     name: "wiki.cloud",
     summary: "Browse the repository Wiki",
-    args: "<owner/repo> [page]",
-    input: Schema.Struct({ repo: Schema.String, page: Schema.optional(Schema.Number) }),
-    form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } } },
-    handler: ({ repo, page }) => actions.listCloudWiki(repo, page)
+    args: "<owner/repo> [page] [--space public|private]",
+    input: Schema.Struct({ repo: Schema.String, page: Schema.optional(Schema.Number), space: Schema.optional(Schema.Literals(["public", "private"])) }),
+    form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" }, space: { hidden: true } } },
+    handler: ({ repo, page, space }) => actions.listCloudWiki(repo, page, space)
   }),
   flow({
     name: "wiki.cloud.open",
     summary: "Open a collaborative repository Wiki page in the conversation",
-    args: "<slug> <owner/repo>",
-    input: Schema.Struct({ slug: Schema.String, repo: Schema.String }),
-    handler: ({ slug, repo }) => actions.openCloudWiki(repo, slug)
+    args: "<slug> <owner/repo> [--space public|private]",
+    input: Schema.Struct({ slug: Schema.String, repo: Schema.String, space: Schema.optional(Schema.Literals(["public", "private"])) }),
+    form: { fields: { space: { hidden: true } } },
+    handler: ({ slug, repo, space }) => actions.openCloudWiki(repo, slug, undefined, space)
   }),
   flow({
     name: "wiki.sync",
@@ -199,5 +203,80 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     userOnlyReason: "a confirm-dialog answer is the human's",
     input: NoPayload,
     handler: () => actions.cancelWorldDelete()
+  }),
+  flow({
+    /*
+     * The wiki spaces (#1922): one wiki per repository with a public part and
+     * a private part. The pane shows one at a time; every wiki door reads and
+     * writes the space the pane shows unless the line names one.
+     */
+    name: "wiki.space",
+    summary: "Show the public or the private part of the repository Wiki",
+    args: "public|private [owner/repo]",
+    input: Schema.Struct({ space: Schema.Literals(["public", "private"]), repo: Schema.optional(Schema.String) }),
+    form: { fields: { repo: { hidden: true } } },
+    handler: ({ space, repo }) => actions.setWikiSpace(space, repo)
+  }),
+  flow({
+    name: "wiki.cloud.new",
+    summary: "Create a page in the repository Wiki",
+    args: "<title> [owner/repo]",
+    requires: ["signed-in"],
+    input: Schema.Struct({ title: Schema.String, repo: Schema.optional(Schema.String) }),
+    form: { submitLabel: "Create", fields: { title: { label: "Title" }, repo: { hidden: true } } },
+    handler: ({ title, repo }) => actions.createCloudWikiPage(title, repo)
+  }),
+  flow({
+    name: "wiki.cloud.rename",
+    summary: "Move a Wiki page to another path",
+    args: "<slug> <path> [owner/repo]",
+    requires: ["signed-in"],
+    /* The page's button carries its slug; the form asks for the one thing it lacks, the path. A line naming no page is refused by name. */
+    input: Schema.Struct({ slug: Schema.optional(Schema.String), path: Schema.String, repo: Schema.optional(Schema.String) }),
+    form: { submitLabel: "Rename", fields: { slug: { hidden: true }, path: { label: "Path", placeholder: "Guides/Start.md" }, repo: { hidden: true } } },
+    handler: ({ slug, path, repo }) => slug === undefined || slug === "" ? "Choose a page to rename." : actions.renameCloudWikiPage(slug, path, repo)
+  }),
+  flow({
+    /* Deleting a page is consequential: the model may ask, the human confirms. Its history stays. */
+    name: "wiki.cloud.delete",
+    summary: "Delete a Wiki page; its history stays",
+    args: "<slug> [owner/repo]",
+    requires: ["signed-in"],
+    confirm: "delete the Wiki page",
+    input: Schema.Struct({ slug: Schema.String, repo: Schema.optional(Schema.String) }),
+    handler: ({ slug, repo }) => actions.deleteCloudWikiPage(slug, repo)
+  }),
+  flow({
+    name: "wiki.history",
+    summary: "Show a Wiki page's history: every revision, renames and the deletion included",
+    args: "<slug> [owner/repo]",
+    input: Schema.Struct({ slug: Schema.String, repo: Schema.optional(Schema.String), page: Schema.optional(Schema.Number) }),
+    form: { fields: { repo: { hidden: true }, page: { hidden: true } } },
+    handler: ({ slug, repo, page }) => actions.showWikiHistory(slug, repo, page)
+  }),
+  flow({
+    /* The file comes from the human's own dialog (the gesture); a model has no file to give. */
+    name: "wiki.attach",
+    summary: "Attach a file to the repository Wiki",
+    userOnly: true,
+    userOnlyReason: WIKI_ATTACH_USER_ONLY_REASON,
+    args: "<slug> [path] [owner/repo]",
+    requires: ["signed-in"],
+    input: Schema.Struct({ slug: Schema.String, path: Schema.optional(Schema.String), repo: Schema.optional(Schema.String) }),
+    handler: ({ slug, path, repo }, _signal, _call, gesture) => actions.attachCloudWiki(slug, path ?? "", repo, gesture)
+  }),
+  flow({
+    /*
+     * The Wiki pane beside the chat (#1922): the space switch, the tree, the
+     * page, its backlinks. A surface switch is the human's own act (THE
+     * EMBED LAW); the model reads the same wiki through `wiki` and the
+     * wiki.* reads, which answer as embedded cards.
+     */
+    name: "wiki.pane",
+    summary: `Open the ${WIKI_DISPLAY_NAME} beside the chat`,
+    userOnly: true,
+    userOnlyReason: "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
+    input: NoPayload,
+    handler: () => actions.showWikiPane()
   })
 ]

@@ -15,6 +15,7 @@ HarnessSchema,MessageSchema,PALETTES,
 PinnedRepoSchema,RecommendationSourceSchema,RepoSchema,RepositoryEntrySchema,RepositoryCommandEntrySchema,RepositoryFlowSchema,
 QueuedPromptSchema,SessionSchema,StarredTargetSchema,SuggestionSchema,TabSchema,ToastSchema,
 WorkingCopySchema,WorldDocumentSchema,
+  WikiSpaceSchema,
 type AppTransition,type Card,type Tab
 } from "./AppState"
 import { CommandIntentOutcomeSchema,CommandIntentSourceSchema } from "./CommandIntent"
@@ -124,6 +125,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "world.document.upserted": z.object({ "type": z.literal("world.document.upserted"), "actor": ActorSchema, recoveryScope: PendingRecoveryScopeSchema.optional(), "document": WorldDocumentSchema.omit({ "updatedAt": true, "updatedBy": true, "revision": true }), "select": z.boolean().optional() }).strict(),
   "world.document.removed": z.object({ "type": z.literal("world.document.removed"), "actor": ActorSchema, "id": z.string() }).strict(),
   "wiki.pane.changed": z.object({ "type": z.literal("wiki.pane.changed"), "actor": ActorSchema, "pane": z.enum(["document", "graph"]), "path": z.union([z.string(), z.null()]) }).strict(),
+  "wiki.space.changed": z.object({ "type": z.literal("wiki.space.changed"), "actor": ActorSchema, "space": WikiSpaceSchema }).strict(),
   "world.delete.asked": z.object({ "type": z.literal("world.delete.asked"), "actor": ActorSchema, "id": z.union([z.string(), z.null()]) }).strict(),
   "connector.local.requested": z.object({ "type": z.literal("connector.local.requested"), "actor": z.literal("user"), "access": z.enum(REPOSITORY_ACCESS_VALUES) }).strict(),
   "connector.local.cancelled": z.object({ "type": z.literal("connector.local.cancelled"), "actor": z.enum(["user", "system"]) }).strict(),

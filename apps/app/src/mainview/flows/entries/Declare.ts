@@ -51,6 +51,8 @@ export type CommandActions =
     | "localAuth"
     // Live stack snapshots are what the Stack views read, never an act.
     | "stackSnapshots"
+    // Live wiki navigation indexes are what the Wiki views read, never an act.
+    | "wikiIndexes"
     // Feature flags and the download URL are the composition root's configuration, never an action.
     | "features"
     | "downloadUrl"

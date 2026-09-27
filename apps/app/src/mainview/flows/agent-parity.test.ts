@@ -26,7 +26,7 @@ import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } fro
 import { modelInvocable, nameOf } from "./registry"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
 import { PLUGINS_USER_ONLY_REASON } from "./entries/plugins"
-import { WIKI_ASK_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "./entries/wiki"
+import { WIKI_ASK_USER_ONLY_REASON, WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "./entries/wiki"
 
 /**
  * Every user-only flow, with the reason the registry states. A flow user-only
@@ -45,6 +45,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "chat.stop": "stopping the model's own turn is the human's Escape key",
   "chat.copy-message": "the clipboard write is the human's browser gesture",
   "flows": "a surface switch; the model lists flows with flow.list, which answers as an embedded card",
+  "wiki.pane": "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
   "system.recommend": "the system's own refresh; a model must not steer what the human is offered next",
   "flow.repo.choose": "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
   "card.maximize": "maximizing a card is the human's explicit act (THE EMBED LAW)",
@@ -56,6 +57,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
   "wiki.ask": WIKI_ASK_USER_ONLY_REASON,
+  "wiki.attach": WIKI_ATTACH_USER_ONLY_REASON,
   // The hidden world.* aliases (entries/world.ts) carry their wiki.* twins' reason.
   "world.delete.confirm": "a confirm-dialog answer is the human's",
   "world.delete.cancel": "a confirm-dialog answer is the human's",

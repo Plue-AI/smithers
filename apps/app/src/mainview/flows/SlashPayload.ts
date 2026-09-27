@@ -90,6 +90,15 @@ const optional = (field: string, args: string | undefined): Parsed => {
   return ok(value === "" ? {} : { [field]: value })
 }
 
+/** The trailing `--space public|private` a wiki door may carry (#1922); the rest of the line is positional. */
+const wikiSpaceFlag = (args: string | undefined): { readonly line: string; readonly space?: "public" | "private" | { readonly error: string } } => {
+  const match = /\s*--space(?:\s+(\S+))?\s*$/.exec(trimmed(args))
+  if (match === null) return { line: trimmed(args) }
+  const value = match[1]
+  return { line: trimmed(args).slice(0, match.index).trim(),
+    space: value === "public" || value === "private" ? value : { error: "A Wiki space is public or private." } }
+}
+
 /** A repo-scoped flow that takes nothing but its optional `owner/repo` target. */
 const repoOnly = (name: string, args: string | undefined): Parsed => {
   // This grammar only accepts a repository, including one not yet imported.
@@ -670,15 +679,52 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "approval.deny": (args) => required("cardId", args, "approval.deny needs the card id"),
   "wiki.select": (args) => required("documentId", args, "wiki.select needs the document id"),
   "wiki.cloud": (args) => {
-    const [repo, page] = tokensOf(args)
+    const { line: positional, space } = wikiSpaceFlag(args)
+    if (typeof space === "object") return no(space.error)
+    const [repo, page] = tokensOf(positional)
     if (repo === undefined) return no("Choose a repository for its Wiki.")
     if (page !== undefined && !/^\d+$/.test(page)) return no("A Wiki page is a whole number.")
-    return ok({ repo, ...(page === undefined ? {} : { page: Number(page) }) })
+    return ok({ repo, ...(page === undefined ? {} : { page: Number(page) }), ...(space === undefined ? {} : { space }) })
   },
   "wiki.cloud.open": (args) => {
+    const { line: positional, space } = wikiSpaceFlag(args)
+    if (typeof space === "object") return no(space.error)
     // Both positions are explicit identifiers; inventory cannot disambiguate them.
+    const { rest, repo } = splitTrailingRepo(positional)
+    return rest === "" || repo === undefined ? no("Choose a Wiki page slug and repository.") : ok({ slug: rest, repo, ...(space === undefined ? {} : { space }) })
+  },
+  "wiki.space": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
-    return rest === "" || repo === undefined ? no("Choose a Wiki page slug and repository.") : ok({ slug: rest, repo })
+    if (rest !== "public" && rest !== "private") return no("A Wiki space is public or private.")
+    return ok({ space: rest, ...(repo === undefined ? {} : { repo }) })
+  },
+  "wiki.cloud.new": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
+    return rest === "" ? no("A page needs a title.") : ok({ title: rest, ...(repo === undefined ? {} : { repo }) })
+  },
+  "wiki.cloud.rename": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
+    const [slug, ...path] = tokensOf(rest)
+    if (slug === undefined) return no("wiki.cloud.rename takes a page slug and its new path.")
+    // The page's button carries only the slug; the form then asks for the path.
+    return ok({ slug, ...(path.length === 0 ? {} : { path: path.join(" ") }), ...(repo === undefined ? {} : { repo }) })
+  },
+  "wiki.cloud.delete": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
+    return rest === "" || /\s/.test(rest) ? no("wiki.cloud.delete takes a page slug.") : ok({ slug: rest, ...(repo === undefined ? {} : { repo }) })
+  },
+  "wiki.history": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
+    const [slug, page, ...more] = tokensOf(rest)
+    if (slug === undefined || more.length > 0) return no("wiki.history takes a page slug.")
+    if (page !== undefined && !/^\d+$/.test(page)) return no("A history page is a whole number.")
+    return ok({ slug, ...(page === undefined ? {} : { page: Number(page) }), ...(repo === undefined ? {} : { repo }) })
+  },
+  "wiki.attach": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
+    const [slug, ...path] = tokensOf(rest)
+    if (slug === undefined) return no("wiki.attach takes a page slug and the attachment's path.")
+    return ok({ slug, ...(path.length === 0 ? {} : { path: path.join(" ") }), ...(repo === undefined ? {} : { repo }) })
   },
   "wiki.sync": (args) => required("documentId", args, "wiki.sync needs the document id"),
   "wiki.card.select": (args) => {

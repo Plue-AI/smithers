@@ -237,6 +237,7 @@ export const APP_TRANSITION_TYPES = {
   "world.document.selected": true,
   "world.document.upserted": true,
   "wiki.pane.changed": true,
+  "wiki.space.changed": true,
   "world.delete.asked": true,
   "world.document.removed": true,
   "connector.local.requested": true,
@@ -2077,7 +2078,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           break
 
         case "world.document.selected":
-          if (collections.worldDocuments.get(transition.id) === undefined) return
+          /* A document, or a wiki page by its id (`wiki:<owner/repo>:<page>`; an attachment has no document — the pane shows its bytes). The door checked the page exists. */
+          if (collections.worldDocuments.get(transition.id) === undefined && !/^wiki:[^:]+:\d+$/.test(transition.id)) return
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.selectedWorldDocumentId = transition.id
           })
@@ -2116,6 +2118,13 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.wikiGraphPath = transition.path
           })
           break
+
+        case "wiki.space.changed":
+          collections.sessions.update(SESSION_ID, (draft) => {
+            draft.wikiSpace = transition.space
+          })
+          break
+
 
         case "world.delete.asked": {
           if (transition.id !== null && collections.worldDocuments.get(transition.id) === undefined) return
