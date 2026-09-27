@@ -159,8 +159,10 @@ test("the home is the question, the composer and the apps; opening one gives one
   // The tile now wears the last result, live.
   await expect(page.getByTestId("app-tile").filter({ hasText: "Review a PR" }).getByTestId("app-tile-preview")).toBeVisible()
   complete = true
-  await expect(page.locator('[data-toast-status="ok"]').filter({ hasText: "pr-triage completed" })).toBeVisible({ timeout: 15_000 })
-  await expect(card).toContainText("Done")
+  const completed = page.locator('[data-toast-status="ok"]').filter({ hasText: "pr-triage" })
+  await expect(completed).toBeVisible({ timeout: 15_000 })
+  await expect(completed.locator(".toast-title")).toContainText(/\bDone\b/)
+  await expect(card.getByText("Finished.", { exact: true })).toBeVisible()
 })
 
 test("a refused launch stays visible on the run card and the toast, and the home stays usable", async ({ page }) => {

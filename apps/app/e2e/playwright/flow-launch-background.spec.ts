@@ -70,8 +70,10 @@ test("flow launch leaves Chat usable through preparation, launch, reload and rem
   await expect(toast).toBeVisible()
   expect(calls.filter(call => call.procedure === "Run")).toHaveLength(1)
   complete = true
-  await expect(page.locator('[data-toast-status="ok"]').filter({ hasText: "review-pr completed" })).toBeVisible({ timeout: 15_000 })
-  await expect(card).toContainText("Done")
+  const completed = page.locator('[data-toast-status="ok"]').filter({ hasText: "review-pr" })
+  await expect(completed).toBeVisible({ timeout: 15_000 })
+  await expect(completed.locator(".toast-title")).toContainText(/\bDone\b/)
+  await expect(card.getByText("Finished.", { exact: true })).toBeVisible()
 })
 
 test("a launch refusal survives reload and its keyboard Retry reuses the request", async ({ page }) => {
