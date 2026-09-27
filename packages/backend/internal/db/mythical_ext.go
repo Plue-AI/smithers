@@ -314,14 +314,16 @@ func (q *Queries) ListRecentMythicalChanges(ctx context.Context, repositoryID in
 
 // MythicalItem is one issue (or chat request) moving through a stack.
 type MythicalItem struct {
-	ID                pgtype.UUID        `json:"id"`
-	RepositoryID      int64              `json:"repository_id"`
-	IssueNumber       pgtype.Int8        `json:"issue_number"`
-	IssueTitle        string             `json:"issue_title"`
-	IssueURL          string             `json:"issue_url"`
-	IssueDigest       string             `json:"issue_digest"`
-	IssueBody         string             `json:"issue_body"`
-	ApprovedDigest    string             `json:"approved_digest"`
+	ID             pgtype.UUID `json:"id"`
+	RepositoryID   int64       `json:"repository_id"`
+	IssueNumber    pgtype.Int8 `json:"issue_number"`
+	IssueTitle     string      `json:"issue_title"`
+	IssueURL       string      `json:"issue_url"`
+	IssueDigest    string      `json:"issue_digest"`
+	IssueBody      string      `json:"issue_body"`
+	ApprovedDigest string      `json:"approved_digest"`
+	// Outsider is text from a non-maintainer, approved by a maintainer's label.
+	Outsider          bool               `json:"outsider"`
 	ProposalRound     int32              `json:"proposal_round"`
 	Source            string             `json:"source"`
 	Version           int64              `json:"version"`
@@ -362,7 +364,7 @@ const mythicalItemColumns = `id, repository_id, issue_number, issue_title, issue
 source, version, state, reason, attempt,
 generation, lane, workspace_id, base_commit, candidate_base, candidate_head, candidate_verified, request_run_id, vibe_run_id, verify_run_id,
 request_outcome, vibe_outcome, verify_outcome, summary, plan, integration, checks, pr_number, pr_url, pr_state, pr_head, pr_merge_commit,
-pending_op, next_attempt_at, lane_started_at, created_at, updated_at`
+pending_op, next_attempt_at, lane_started_at, created_at, updated_at, outsider`
 
 func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error) {
 	var i MythicalItem
@@ -371,7 +373,7 @@ func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error)
 		&i.ProposalRound, &i.Source, &i.Version, &i.State,
 		&i.Reason, &i.Attempt, &i.Generation, &i.Lane, &i.WorkspaceID, &i.BaseCommit, &i.CandidateBase, &i.CandidateHead, &i.CandidateVerified,
 		&i.RequestRunID, &i.VibeRunID, &i.VerifyRunID, &i.RequestOutcome, &i.VibeOutcome, &i.VerifyOutcome, &i.Summary, &plan, &integration,
-		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt)
+		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt, &i.Outsider)
 	i.Plan, i.Integration, i.Checks, i.PendingOp = rawJSON(plan), rawJSON(integration), rawJSON(checks), rawJSON(pending)
 	return i, err
 }
@@ -433,12 +435,12 @@ func (q *Queries) GetMythicalItemByIssue(ctx context.Context, repositoryID, issu
 // issue is returned unchanged (inserted false).
 func (q *Queries) InsertMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, bool, error) {
 	created, err := scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items
-		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9)
+		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason, outsider)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9, $10)
 		ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL DO NOTHING
 		RETURNING `+mythicalItemColumns,
 		item.RepositoryID, item.IssueNumber, item.IssueTitle, item.IssueURL, item.IssueDigest, item.IssueBody, item.ApprovedDigest,
-		item.State, item.Reason))
+		item.State, item.Reason, item.Outsider))
 	if err == nil {
 		return created, true, nil
 	}
@@ -475,7 +477,7 @@ func (q *Queries) InsertMythicalChatItem(ctx context.Context, item MythicalItem)
 // writer makes it answer pgx.ErrNoRows; the caller rereads and decides again.
 func (q *Queries) SaveMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `UPDATE mythical_items SET
-		issue_body = $33, approved_digest = $34, proposal_round = $35, lane_started_at = $36,
+		issue_body = $33, approved_digest = $34, proposal_round = $35, lane_started_at = $36, outsider = $37,
 		issue_title = $3, issue_url = $4, issue_digest = $5, state = $6, reason = $7, attempt = $8, generation = $9, lane = $10,
 		workspace_id = $11, base_commit = $12, candidate_base = $13, candidate_head = $14, candidate_verified = $15,
 		request_run_id = $16, vibe_run_id = $17, verify_run_id = $18, request_outcome = $19, vibe_outcome = $20, verify_outcome = $21,
@@ -487,7 +489,7 @@ func (q *Queries) SaveMythicalItem(ctx context.Context, item MythicalItem) (Myth
 		item.Lane, item.WorkspaceID, item.BaseCommit, item.CandidateBase, item.CandidateHead, item.CandidateVerified, item.RequestRunID,
 		item.VibeRunID, item.VerifyRunID, item.RequestOutcome, item.VibeOutcome, item.VerifyOutcome, item.Summary, jsonArg(item.Plan),
 		jsonArg(item.Integration), jsonArg(item.Checks), item.PRNumber, item.PRURL, item.PRState, item.PRHead, item.PRMergeCommit,
-		jsonArg(item.PendingOp), item.NextAttemptAt, item.IssueBody, item.ApprovedDigest, item.ProposalRound, item.LaneStartedAt))
+		jsonArg(item.PendingOp), item.NextAttemptAt, item.IssueBody, item.ApprovedDigest, item.ProposalRound, item.LaneStartedAt, item.Outsider))
 }
 
 func jsonArg(value json.RawMessage) any {

@@ -165,8 +165,10 @@ func TestWorkspaceGateway_LandingCredentialIsRepositoryScopedAndNeverLogged(t *t
 	// write:repository implies read:repository (bookmarks, landing reads);
 	// repo:<id> fences a leaked credential out of the owner's other repos; no
 	// workspace:<id> restriction, which would refuse every landing route.
-	assert.Equal(t, workspaceGatewayLandingTokenScopes(101), minted.Scopes)
+	assert.Equal(t, workspaceGatewayLandingTokenScopes(101, w.ID), minted.Scopes)
 	assert.Equal(t, []string{"**"}, middleware.ParseTokenPathRestrictions(minted.Scopes))
+	assert.Equal(t, strings.ToLower(w.ID), middleware.ParseTokenLandingWorkspace(minted.Scopes), "the credential names the workspace that opens its landings")
+	assert.Empty(t, middleware.ParseTokenWorkspaceRestriction(minted.Scopes))
 	assert.True(t, landingRequestIsAgentAuthored(middleware.ContextWithAuthInfo(context.Background(),
 		&middleware.AuthInfo{IsTokenAuth: true, RawScopes: minted.Scopes})), "the actual minted credential must produce an agent-authored landing receipt")
 	assert.True(t, minted.ExpiresAt.Valid)

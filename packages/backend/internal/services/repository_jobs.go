@@ -51,6 +51,7 @@ type RepositoryJobStore interface {
 	UpsertRepositoryJobApproval(context.Context, db.UpsertRepositoryJobApprovalParams) (db.RepositoryJobApproval, error)
 	GetRepositoryJobApproval(context.Context, db.GetRepositoryJobApprovalParams) (db.RepositoryJobApproval, error)
 	ListRepositoryJobApprovals(context.Context, db.ListRepositoryJobApprovalsParams) ([]db.RepositoryJobApproval, error)
+	MarkOutsiderWorkspace(context.Context, int64, string) error
 }
 
 // The gateway authenticates a registration and executes through the existing

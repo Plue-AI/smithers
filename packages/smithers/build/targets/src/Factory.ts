@@ -208,7 +208,8 @@ export const Changes = Schema.Literals(["land", "send-upstream", "none"])
 export const GithubPolicy = Schema.TaggedStruct("GithubPolicy", {
   mirror: Mirror,
   issues: Issues,
-  changes: Changes
+  changes: Changes,
+  protectedPaths: Schema.Array(Schema.String)
 })
 
 /**
@@ -222,7 +223,11 @@ export type GithubPolicy = typeof GithubPolicy.Type
 /**
  * What a `FACTORY.ts` writes for the GitHub policy. Every field defaults to
  * the third-party posture: `mirror: "pull"`, `issues: "read"`,
- * `changes: "send-upstream"`.
+ * `changes: "send-upstream"`. `protectedPaths` adds paths to the built-in
+ * trust roots (CI, Smithers and agent configuration, and the `FACTORY.ts`,
+ * `PACKAGE.ts` and `AGENTS.md` declarations) that a change started from an
+ * outsider's issue never touches: a name without `/` matches at any depth, a
+ * path with `/` matches from the repository root down.
  *
  * @category models
  * @since 1.0.0
@@ -231,6 +236,7 @@ export interface GithubPolicyOptions {
   readonly mirror?: GithubPolicy["mirror"] | undefined
   readonly issues?: GithubPolicy["issues"] | undefined
   readonly changes?: GithubPolicy["changes"] | undefined
+  readonly protectedPaths?: ReadonlyArray<string> | undefined
 }
 
 /**
@@ -251,13 +257,21 @@ export interface GithubPolicyOptions {
  * @since 1.0.0
  */
 export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
-  const plain = Home.plainOptions("Github.Policy", options, new Set(["mirror", "issues", "changes"]))
+  const plain = Home.plainOptions("Github.Policy", options, new Set(["mirror", "issues", "changes", "protectedPaths"]))
   const policy = Home.decode("Github.Policy", GithubPolicy, {
     _tag: "GithubPolicy",
     mirror: plain["mirror"] ?? "pull",
     issues: plain["issues"] ?? "read",
-    changes: plain["changes"] ?? "send-upstream"
+    changes: plain["changes"] ?? "send-upstream",
+    protectedPaths: plain["protectedPaths"] ?? []
   })
+  for (const entry of policy.protectedPaths) {
+    if (entry.trim() !== entry || entry === "" || entry.startsWith("/") || entry.split("/").includes("..")) {
+      throw new TypeError(
+        `Github.Policy: protectedPaths entry ${JSON.stringify(entry)} is not a repository-relative path`
+      )
+    }
+  }
   if (policy.changes === "land" && policy.mirror !== "push") {
     throw new TypeError(
       `Github.Policy: changes "land" requires mirror "push"; with mirror ${
@@ -443,7 +457,8 @@ export const rules = (declaration: Declaration): ReadonlyArray<Rule> =>
 export const GithubProjection = Schema.Struct({
   mirror: Mirror,
   issues: Issues,
-  changes: Changes
+  changes: Changes,
+  protectedPaths: Schema.optionalKey(Schema.Array(Schema.String))
 })
 
 /**
@@ -488,7 +503,10 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
         github: {
           mirror: declaration.github.mirror,
           issues: declaration.github.issues,
-          changes: declaration.github.changes
+          changes: declaration.github.changes,
+          ...(declaration.github.protectedPaths.length > 0 ?
+            { protectedPaths: declaration.github.protectedPaths }
+            : {})
         }
       }),
       null,

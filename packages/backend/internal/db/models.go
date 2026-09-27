@@ -881,9 +881,10 @@ type IssueEvent struct {
 }
 
 type IssueLabel struct {
-	IssueID   int64     `json:"issue_id"`
-	LabelID   int64     `json:"label_id"`
-	CreatedAt time.Time `json:"created_at"`
+	IssueID   int64       `json:"issue_id"`
+	LabelID   int64       `json:"label_id"`
+	CreatedAt time.Time   `json:"created_at"`
+	AddedBy   pgtype.Int8 `json:"added_by"`
 }
 
 type IssueStateFact struct {

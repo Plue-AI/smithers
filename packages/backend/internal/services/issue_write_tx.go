@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -136,15 +137,16 @@ func (s *IssueService) withIssueWriteTx(ctx context.Context, fn func(tx issueWri
 }
 
 // replaceIssueAssociations applies the pre-validated assignee and label sets
-// inside tx. A nil pointer leaves that association untouched.
-func replaceIssueAssociations(ctx context.Context, tx issueWriteTx, issueID int64, assigneeIDs, labelIDs *[]int64) error {
+// inside tx. A nil pointer leaves that association untouched. actorID applied
+// any label the write adds.
+func replaceIssueAssociations(ctx context.Context, tx issueWriteTx, issueID, actorID int64, assigneeIDs, labelIDs *[]int64) error {
 	if assigneeIDs != nil {
 		if err := tx.ReplaceIssueAssignees(ctx, db.ReplaceIssueAssigneesParams{IssueID: issueID, UserIds: *assigneeIDs}); err != nil {
 			return pkgerrors.Internal("failed to update issue assignees").WithCause(err)
 		}
 	}
 	if labelIDs != nil {
-		if err := tx.ReplaceIssueLabels(ctx, db.ReplaceIssueLabelsParams{IssueID: issueID, LabelIds: *labelIDs}); err != nil {
+		if err := tx.ReplaceIssueLabels(ctx, db.ReplaceIssueLabelsParams{IssueID: issueID, AddedBy: pgtype.Int8{Int64: actorID, Valid: actorID > 0}, LabelIds: *labelIDs}); err != nil {
 			return pkgerrors.Internal("failed to update issue labels").WithCause(err)
 		}
 	}

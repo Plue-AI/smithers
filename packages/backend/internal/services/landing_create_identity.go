@@ -80,6 +80,9 @@ func (s *LandingService) createLandingIdempotent(ctx context.Context, repository
 		// Commit may have succeeded before the first HTTP response was lost. Reuse
 		// the current existing row without replaying opened notifications or children.
 		rollbackLandingTx(ctx, tx) // Release the connection and number lock before external-pool reads.
+		if err := s.recordLandingSource(ctx, previous.ID); err != nil {
+			return LandingRequestResponse{}, err
+		}
 		return s.GetLandingRequest(ctx, actor, owner, repository.Name, previous.Number)
 	}
 	if err != nil {

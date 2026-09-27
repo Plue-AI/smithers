@@ -568,3 +568,36 @@ func (g mythicalGit) writeNotes(ctx context.Context, notes map[string]string, st
 	return g.writeCommit(ctx, mythicalCommit{Tree: strings.TrimSpace(string(treeID)), Author: identity, Committer: identity,
 		Message: "Mythical history notes\n"})
 }
+
+// changedPaths lists every path whose content differs between two commits,
+// with renames split into both sides so a moved file names its origin.
+func (g mythicalGit) changedPaths(ctx context.Context, base, head string) ([]string, error) {
+	out, err := g.command(ctx, nil, "diff-tree", "-r", "-z", "--no-renames", "--name-only", base, head)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, path := range strings.Split(string(out), "\x00") {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
+}
+
+// protectedPaths reads the protected-path list from commit's factory
+// projection; a commit without one protects the built-in trust roots.
+func (g mythicalGit) protectedPaths(ctx context.Context, commit string) ([]string, error) {
+	listed, err := g.command(ctx, nil, "ls-tree", "-z", "--name-only", commit, "--", factoryProjectionPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes.TrimRight(listed, "\x00")) == 0 {
+		return protectedPaths(nil)
+	}
+	projection, err := g.command(ctx, nil, "cat-file", "blob", commit+":"+factoryProjectionPath)
+	if err != nil {
+		return nil, err
+	}
+	return protectedPaths(projection)
+}

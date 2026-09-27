@@ -78,25 +78,32 @@ func repositoryJobMatches(config RegisterRepositoryJobInput, event db.Repository
 			}
 		}
 	}
-	if !matched || config.Label == "" || config.Mode == "trial" {
-		return matched
+	if !matched {
+		return false
+	}
+	// The trial issue's authority is the registration's own scope; every
+	// other issue event needs its text approved for this job's trigger label.
+	trialIssue := config.Mode == "trial" && config.TrialIssueNumber > 0 &&
+		event.IssueNumber == config.TrialIssueNumber && event.Source == config.TrialSource
+	trigger := config.Label
+	if trigger == "" {
+		trigger = issueApprovalLabel
+	}
+	if !trialIssue && !gitHubIssueEventApproves(event.EventType, event.EventAction, event.Payload, trigger) {
+		return false
+	}
+	if config.Label == "" || config.Mode == "trial" {
+		return true
 	}
 	var payload struct {
 		Issue struct {
-			Labels []struct {
-				Name string `json:"name"`
-			} `json:"labels"`
+			Labels []gitHubLabel `json:"labels"`
 		} `json:"issue"`
 	}
 	if json.Unmarshal(event.Payload, &payload) != nil {
 		return false
 	}
-	for _, label := range payload.Issue.Labels {
-		if label.Name == config.Label {
-			return true
-		}
-	}
-	return false
+	return issueCarriesLabel(issueLabelNames(payload.Issue.Labels), config.Label)
 }
 
 func (s *RepositoryJobService) PollOnce(ctx context.Context) error {

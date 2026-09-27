@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -245,13 +246,92 @@ func TestGitHubIssueEventWorker_UntrustedAuthorsStartNothing(t *testing.T) {
 		}
 	}
 
-	// Labels, assignees and milestones can only be changed by someone with
-	// triage access, so that act is the maintainer's decision to start work on
-	// a stranger's issue.
-	job := gitHubIssueEventJob("issues", "labeled")
-	setGitHubIssueEventAssociations(t, &job, "NONE", "NONE")
-	payload, err := parseGitHubWorkflowEventPayload(job.Payload)
-	require.NoError(t, err)
-	_, supported := mapGitHubWebhookJobToTriggerEvent(job, payload)
-	assert.True(t, supported, "a maintainer's label on a stranger's issue dispatches")
+	// A maintainer's comment does not approve a stranger's issue text.
+	job := gitHubIssueEventJob("issue_comment", "created")
+	setGitHubIssueEventAssociations(t, &job, "NONE", "OWNER")
+	queries := pushJobQuerier(job)
+	queries.listWorkflowTriggersByRepositoryFn = func(context.Context, int64) ([]db.WorkflowTrigger, error) {
+		return []db.WorkflowTrigger{{WorkflowDefinitionID: 10, EventType: "issue_comment", Enabled: true}}, nil
+	}
+	dispatcher := &mockGitHubWebhookEventRunDispatcher{}
+	require.NoError(t, NewGitHubWebhookEventWorker(queries, dispatcher).PollOnce(context.Background()))
+	assert.Empty(t, dispatcher.calls, "a maintainer's comment on a stranger's issue starts nothing")
+	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", job.Payload, issueApprovalLabel))
+}
+
+func setGitHubIssueEventLabel(t *testing.T, job *db.GithubWebhookJob, label, senderType string, senderID int, issueLabels ...string) {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(job.Payload, &raw))
+	var issue map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw["issue"], &issue))
+	names := []map[string]string{}
+	for _, name := range issueLabels {
+		names = append(names, map[string]string{"name": name})
+	}
+	issue["labels"] = names
+	encode := func(value interface{}) json.RawMessage {
+		encoded, err := json.Marshal(value)
+		require.NoError(t, err)
+		return encoded
+	}
+	raw["issue"] = encode(issue)
+	raw["label"] = encode(map[string]string{"name": label})
+	raw["sender"] = encode(map[string]interface{}{"id": senderID, "login": "user" + strconv.Itoa(senderID), "type": senderType})
+	job.Payload = encode(raw)
+}
+
+// Only the trigger label, applied by a person other than the author,
+// approves a stranger's issue text; any other label, an app's label, or an
+// assignee or milestone change approves nothing. Workflow triggers configure
+// no trigger label, so a stranger's issue never starts one.
+func TestGitHubIssueEventWorker_OnlyTheTriggerLabelFromAPersonStartsAStrangersIssue(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		action, label, sender string
+		senderID              int
+		labels                []string
+		starts                bool
+	}{
+		"other label":           {"labeled", "invalid", "User", 7, []string{"invalid"}, false},
+		"other label, tagged":   {"labeled", "invalid", "User", 7, []string{"smithers", "invalid"}, false},
+		"assigned":              {"assigned", "", "User", 7, []string{"smithers"}, false},
+		"milestoned":            {"milestoned", "", "User", 7, []string{"smithers"}, false},
+		"unlabeled":             {"unlabeled", "smithers", "User", 7, nil, false},
+		"app label":             {"labeled", "smithers", "Bot", 7, []string{"smithers"}, false},
+		"author template label": {"labeled", "smithers", "User", 922, []string{"smithers"}, false},
+		"trigger label":         {"labeled", "Smithers", "User", 7, []string{"smithers"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			job := gitHubIssueEventJob("issues", tc.action)
+			setGitHubIssueEventAssociations(t, &job, "NONE", "NONE")
+			setGitHubIssueEventLabel(t, &job, tc.label, tc.sender, tc.senderID, tc.labels...)
+			queries := pushJobQuerier(job)
+			queries.listWorkflowTriggersByRepositoryFn = func(context.Context, int64) ([]db.WorkflowTrigger, error) {
+				return []db.WorkflowTrigger{{WorkflowDefinitionID: 10, EventType: "issues", Enabled: true}}, nil
+			}
+			dispatcher := &mockGitHubWebhookEventRunDispatcher{}
+			require.NoError(t, NewGitHubWebhookEventWorker(queries, dispatcher).PollOnce(context.Background()))
+			assert.Empty(t, dispatcher.calls)
+			assert.Equal(t, tc.starts, gitHubIssueEventApproves("issues", tc.action, job.Payload, issueApprovalLabel))
+			assert.Equal(t, []int64{job.ID}, queries.markDoneIDs)
+		})
+	}
+}
+
+func TestGitHubEventByOutsiderCoversEveryAuthoredPart(t *testing.T) {
+	t.Parallel()
+	for payload, outsider := range map[string]bool{
+		`{"issue":{"author_association":"OWNER"}}`:                                                       false,
+		`{"issue":{"author_association":"NONE"}}`:                                                        true,
+		`{"pull_request":{"author_association":"FIRST_TIME_CONTRIBUTOR"}}`:                               true,
+		`{"issue":{"author_association":"MEMBER"},"comment":{"author_association":"CONTRIBUTOR"}}`:       true,
+		`{"pull_request":{"author_association":"MEMBER"},"review":{"author_association":"NONE"}}`:        true,
+		`{"pull_request":{"author_association":"COLLABORATOR"},"review":{"author_association":"OWNER"}}`: false,
+		`{"ref":"refs/heads/main"}`:                                                                      false,
+	} {
+		assert.Equal(t, outsider, gitHubEventByOutsider([]byte(payload)), payload)
+	}
 }

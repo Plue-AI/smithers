@@ -78,6 +78,7 @@ var migrationRegistry = []migrationSpec{
 	{42, "migrations/0042_wiki_spaces.sql"},
 	{43, "migrations/0043_wiki_content_events.sql"},
 	{44, "migrations/0044_billing_subscription_snapshot_observed.sql"},
+	{45, "migrations/0045_outsider_provenance.sql"},
 }
 
 type migration struct {

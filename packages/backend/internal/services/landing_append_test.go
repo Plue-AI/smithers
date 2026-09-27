@@ -99,7 +99,17 @@ func TestLandingAppendPinsImmutableStackAndScopesReceipt(t *testing.T) {
 	require.ErrorContains(t, err, "append source must match")
 }
 
-type appendWorkerQueries struct{ *mockLandingWorkerQuerier }
+type appendWorkerQueries struct {
+	*mockLandingWorkerQuerier
+	outsider bool
+}
+
+func (*appendWorkerQueries) RecordLandingSourceWorkspace(context.Context, int64, string) error {
+	return nil
+}
+func (q *appendWorkerQueries) IsOutsiderLanding(context.Context, int64) (bool, error) {
+	return q.outsider, nil
+}
 
 func (*appendWorkerQueries) ListSubmittedLandingApprovals(context.Context, int64) ([]db.LandingRequestReview, error) {
 	return nil, nil
@@ -122,14 +132,15 @@ func (*appendWorkerQueries) CountCurrentAgentLandingReviewCommits(context.Contex
 
 type appendWorkerHost struct {
 	*mockWorkerRepoHostClient
-	tip string
+	tip   string
+	files []repohost.ChangeFile
 }
 
 func (h *appendWorkerHost) GetChange(_ context.Context, _, _, id string) (repohost.Change, error) {
 	return repohost.Change{ChangeID: "stable-change", CommitID: h.tip}, nil
 }
-func (*appendWorkerHost) GetChangeFiles(context.Context, string, string, string) ([]repohost.ChangeFile, error) {
-	return nil, nil
+func (h *appendWorkerHost) GetChangeFiles(context.Context, string, string, string) ([]repohost.ChangeFile, error) {
+	return h.files, nil
 }
 func (*appendWorkerHost) GetFileAtChange(context.Context, string, string, string, string) (repohost.FileContent, error) {
 	return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
@@ -139,14 +150,14 @@ func (*appendWorkerHost) ListBookmarks(context.Context, string, string, string, 
 }
 
 func TestLandingAppendWorkerReplaysExactReceiptOrRechecksPolicyAndRevision(t *testing.T) {
-	for _, mode := range []string{"new", "recovered", "old-route", "old-abi", "changed-revision", "protected", "lost-ack"} {
+	for _, mode := range []string{"new", "recovered", "old-route", "old-abi", "changed-revision", "protected", "lost-ack", "outsider", "outsider-unprotected"} {
 		t.Run(mode, func(t *testing.T) {
 			request := appendFixture()
 			raw, err := json.Marshal(request)
 			require.NoError(t, err)
 			task := workerTask(100, 88, 77)
 			task.AppendRequest = raw
-			q := &appendWorkerQueries{&mockLandingWorkerQuerier{
+			q := &appendWorkerQueries{mockLandingWorkerQuerier: &mockLandingWorkerQuerier{
 				getLandingRequestByIDFn: func(context.Context, int64) (db.LandingRequest, error) { return workerLandingRequest(88, 77), nil },
 				getRepoByIDFn:           func(context.Context, int64) (db.Repository, error) { return workerRepo(77), nil },
 				getUserByIDFn:           func(context.Context, int64) (db.User, error) { return db.User{ID: 1, Username: "alice"}, nil },
@@ -191,10 +202,19 @@ func TestLandingAppendWorkerReplaysExactReceiptOrRechecksPolicyAndRevision(t *te
 			if mode == "changed-revision" {
 				rh.tip = strings.Repeat("e", 40)
 			}
+			// A landing from a workspace that ran outsider-started work never
+			// changes a protected path.
+			if strings.HasPrefix(mode, "outsider") {
+				q.outsider = true
+				rh.files = []repohost.ChangeFile{{Path: "src/fix.ts"}, {Path: ".github/workflows/pwn.yml"}}
+				if mode == "outsider-unprotected" {
+					rh.files = rh.files[:1]
+				}
+			}
 			worker := NewLandingWorker(q, rh)
 			err = worker.executeTask(context.Background(), task)
 			switch mode {
-			case "new":
+			case "new", "outsider-unprotected":
 				require.NoError(t, err)
 				require.Equal(t, 2, calls)
 				require.True(t, q.markLandingStartedCalled)
@@ -211,6 +231,9 @@ func TestLandingAppendWorkerReplaysExactReceiptOrRechecksPolicyAndRevision(t *te
 				require.True(t, q.mergeCalled)
 			default:
 				require.Error(t, err)
+				if mode == "outsider" {
+					require.ErrorContains(t, err, "protected paths: .github/workflows/pwn.yml")
+				}
 				require.Equal(t, 1, calls)
 				require.False(t, q.markLandingStartedCalled)
 				require.False(t, q.mergeCalled)

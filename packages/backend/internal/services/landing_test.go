@@ -61,6 +61,8 @@ func (m *mockLandingDispatcher) DispatchOrgEvent(_ context.Context, _ int64, _ w
 }
 
 type mockLandingQuerier struct {
+	outsiderLanding                                bool
+	landingSourceWorkspaces                        map[int64]string
 	getRepoByOwnerAndLowerNameFn                   func(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
 	isOrgOwnerForRepoUserFn                        func(ctx context.Context, arg db.IsOrgOwnerForRepoUserParams) (bool, error)
 	getHighestTeamPermissionForRepoUserFn          func(ctx context.Context, arg db.GetHighestTeamPermissionForRepoUserParams) (string, error)
@@ -3160,4 +3162,16 @@ func TestLandingService_LandLandingRequest_DispatchesQueuedEvent(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "queued", payload.Action, "event action should be 'queued' when enqueuing, not 'landed'")
 	assert.Equal(t, "queued", payload.LandingRequest.State)
+}
+
+func (m *mockLandingQuerier) RecordLandingSourceWorkspace(_ context.Context, landingRequestID int64, workspaceID string) error {
+	if m.landingSourceWorkspaces == nil {
+		m.landingSourceWorkspaces = map[int64]string{}
+	}
+	m.landingSourceWorkspaces[landingRequestID] = workspaceID
+	return nil
+}
+
+func (m *mockLandingQuerier) IsOutsiderLanding(context.Context, int64) (bool, error) {
+	return m.outsiderLanding, nil
 }

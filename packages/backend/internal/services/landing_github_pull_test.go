@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -361,4 +362,76 @@ func TestMythicalGitHubTokensNeverCarryWorkflows(t *testing.T) {
 	password, _ := target.User.Password()
 	assert.Equal(t, "ghs_push", password)
 	assert.Equal(t, "ghs_api", gh.Token, "API calls use a token that cannot push")
+}
+
+type bookmarkedLandingRepoHost struct{ *mockLandingRepoHostClient }
+
+func (bookmarkedLandingRepoHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
+	return []repohost.Bookmark{{Name: "main", TargetChangeID: "main-tip"}}, "", nil
+}
+
+// A landing from a workspace that ran outsider-started work never reaches
+// GitHub with a protected path; main's projection adds its own entries.
+func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
+	for name, tc := range map[string]struct {
+		files   []string
+		refused string
+	}{
+		"workflow":   {[]string{"src/a.ts", ".github/workflows/pwn.yml"}, ".github/workflows/pwn.yml"},
+		"agents":     {[]string{"apps/app/AGENTS.md"}, "apps/app/AGENTS.md"},
+		"configured": {[]string{"infra/keys/prod.pem"}, "infra/keys/prod.pem"},
+		"ordinary":   {[]string{"src/a.ts"}, ""},
+		"unstacked":  {[]string{"src/a.ts"}, "unstacked"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newLandingPullFixture(t)
+			q := f.service.landings.queries.(*mockLandingQuerier)
+			rh := f.service.landings.repoHost.(*mockLandingRepoHostClient)
+			q.outsiderLanding = true
+			parents := map[string]string{"kxyz": "main-tip", "kwxy": "kxyz"}
+			rh.getChangeFn = func(_ context.Context, _, _, changeID string) (repohost.Change, error) {
+				return repohost.Change{ChangeID: changeID, CommitID: f.tip, ParentChangeIDs: []string{parents[changeID]}}, nil
+			}
+			rh.getChangeFilesFn = func(context.Context, string, string, string) ([]repohost.ChangeFile, error) {
+				files := make([]repohost.ChangeFile, 0, len(tc.files))
+				for _, path := range tc.files {
+					files = append(files, repohost.ChangeFile{Path: path})
+				}
+				return files, nil
+			}
+			rh.getFileAtChangeFn = func(_ context.Context, _, _, revision, path string) (repohost.FileContent, error) {
+				require.Equal(t, "main-tip", revision, "the list comes from the target, never the landing")
+				require.Equal(t, factoryProjectionPath, path)
+				return repohost.FileContent{Content: `{"github":{"protectedPaths":["infra/keys"]}}`}, nil
+			}
+			if tc.refused == "unstacked" {
+				parents["kxyz"] = "elsewhere"
+			}
+			f.service.landings = NewLandingService(q, bookmarkedLandingRepoHost{rh})
+			_, err := f.open()
+			if tc.refused == "" {
+				require.NoError(t, err)
+				return
+			}
+			if tc.refused == "unstacked" {
+				require.ErrorContains(t, err, "not stacked on main")
+			} else {
+				require.ErrorContains(t, err, "protected paths: "+tc.refused)
+			}
+			assert.Zero(t, f.pushes, "nothing reaches GitHub")
+			assert.Empty(t, f.pulls.creates)
+		})
+	}
+}
+
+// The landing credential names its workspace, and each landing it opens
+// records that workspace.
+func TestLandingRecordsTheWorkspaceItsCredentialServes(t *testing.T) {
+	q := &mockLandingQuerier{}
+	s := NewLandingService(q, &mockLandingRepoHostClient{})
+	scopes := workspaceGatewayLandingTokenScopes(7, "3F2B6C1E-0000-4000-8000-000000000001")
+	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{IsTokenAuth: true, RawScopes: scopes})
+	require.NoError(t, s.recordLandingSource(ctx, 12))
+	require.NoError(t, s.recordLandingSource(context.Background(), 13))
+	assert.Equal(t, map[int64]string{12: "3f2b6c1e-0000-4000-8000-000000000001"}, q.landingSourceWorkspaces)
 }

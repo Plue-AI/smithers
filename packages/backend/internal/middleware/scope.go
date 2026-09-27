@@ -119,6 +119,28 @@ func WorkspaceRestrictionScope(workspaceID string) string {
 	return workspaceRestrictionScopePrefix + strings.ToLower(strings.TrimSpace(workspaceID))
 }
 
+// landingWorkspaceScopePrefix names the workspace a landing credential was
+// minted for. It is inert: it grants and restricts nothing, and only records
+// which workspace opened a landing.
+const landingWorkspaceScopePrefix = "landing-workspace:"
+
+// LandingWorkspaceScope names the workspace a landing credential serves.
+func LandingWorkspaceScope(workspaceID string) string {
+	return landingWorkspaceScopePrefix + strings.ToLower(strings.TrimSpace(workspaceID))
+}
+
+// ParseTokenLandingWorkspace returns the workspace a landing credential
+// serves, or "".
+func ParseTokenLandingWorkspace(raw string) string {
+	for _, part := range tokenScopeEntries(raw) {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(strings.ToLower(part), landingWorkspaceScopePrefix) {
+			return strings.ToLower(strings.TrimSpace(part[len(landingWorkspaceScopePrefix):]))
+		}
+	}
+	return ""
+}
+
 // ParseTokenWorkspaceRestriction returns the workspace id a token is bound
 // to, or "" when it carries no workspace binding.
 func ParseTokenWorkspaceRestriction(raw string) string {

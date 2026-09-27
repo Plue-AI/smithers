@@ -196,8 +196,8 @@ WITH repository_lock AS MATERIALIZED (
     WHERE issue_labels.issue_id = sqlc.arg(issue_id)
       AND issue_labels.label_id <> ALL(COALESCE(sqlc.arg(label_ids)::bigint[], '{}'::bigint[]))
 )
-INSERT INTO issue_labels (issue_id, label_id)
-SELECT sqlc.arg(issue_id), w.label_id FROM wanted w, repository_lock
+INSERT INTO issue_labels (issue_id, label_id, added_by)
+SELECT sqlc.arg(issue_id), w.label_id, sqlc.narg(added_by)::bigint FROM wanted w, repository_lock
 WHERE NOT EXISTS (
     SELECT 1 FROM issue_labels il
     WHERE il.issue_id = sqlc.arg(issue_id) AND il.label_id = w.label_id

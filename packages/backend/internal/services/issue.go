@@ -435,7 +435,7 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 			if werr != nil {
 				return pkgerrors.Internal("failed to create issue").WithCause(werr)
 			}
-			return replaceIssueAssociations(ctx, tx, created.ID, assigneeSet, labelSet)
+			return replaceIssueAssociations(ctx, tx, created.ID, actor.ID, assigneeSet, labelSet)
 		})
 	}); err != nil {
 		return IssueResponse{}, err
@@ -660,7 +660,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, actor *db.User, owner, r
 		if werr != nil {
 			return pkgerrors.Internal("failed to update issue").WithCause(werr)
 		}
-		return replaceIssueAssociations(ctx, tx, updated.ID, assigneeSet, labelSet)
+		return replaceIssueAssociations(ctx, tx, updated.ID, actor.ID, assigneeSet, labelSet)
 	}); err != nil {
 		return IssueResponse{}, err
 	}

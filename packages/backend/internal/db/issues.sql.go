@@ -894,14 +894,14 @@ WITH repository_lock AS MATERIALIZED (
     WHERE i.id = $1 FOR UPDATE OF r
 ), wanted AS (
     SELECT DISTINCT l AS label_id
-    FROM UNNEST(COALESCE($2::bigint[], '{}'::bigint[])) AS l
+    FROM UNNEST(COALESCE($3::bigint[], '{}'::bigint[])) AS l
 ), removed AS (
     DELETE FROM issue_labels USING repository_lock
     WHERE issue_labels.issue_id = $1
-      AND issue_labels.label_id <> ALL(COALESCE($2::bigint[], '{}'::bigint[]))
+      AND issue_labels.label_id <> ALL(COALESCE($3::bigint[], '{}'::bigint[]))
 )
-INSERT INTO issue_labels (issue_id, label_id)
-SELECT $1, w.label_id FROM wanted w, repository_lock
+INSERT INTO issue_labels (issue_id, label_id, added_by)
+SELECT $1, w.label_id, $2::bigint FROM wanted w, repository_lock
 WHERE NOT EXISTS (
     SELECT 1 FROM issue_labels il
     WHERE il.issue_id = $1 AND il.label_id = w.label_id
@@ -910,14 +910,15 @@ ON CONFLICT DO NOTHING
 `
 
 type ReplaceIssueLabelsParams struct {
-	IssueID  int64   `json:"issue_id"`
-	LabelIds []int64 `json:"label_ids"`
+	IssueID  int64       `json:"issue_id"`
+	AddedBy  pgtype.Int8 `json:"added_by"`
+	LabelIds []int64     `json:"label_ids"`
 }
 
 // Replaces the issue's label set in one statement. Set-diff, so unchanged
 // labels fire no unlabeled/labeled journal facts or job events.
 func (q *Queries) ReplaceIssueLabels(ctx context.Context, arg ReplaceIssueLabelsParams) error {
-	_, err := q.db.Exec(ctx, replaceIssueLabels, arg.IssueID, arg.LabelIds)
+	_, err := q.db.Exec(ctx, replaceIssueLabels, arg.IssueID, arg.AddedBy, arg.LabelIds)
 	return err
 }
 

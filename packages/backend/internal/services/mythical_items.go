@@ -49,11 +49,10 @@ const (
 )
 
 var (
-	mythicalSkipLabels     = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true}
-	mythicalTrustedAuthors = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": true}
-	mythicalSettledStates  = map[string]bool{"skipped": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
-	mythicalLaneStates     = map[string]bool{"running": true, "delivering": true, "verifying": true}
-	mythicalWorkspaceID    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	mythicalSkipLabels    = map[string]bool{"question": true, "duplicate": true, "invalid": true, "wontfix": true, "epic": true, "umbrella": true, "tracking": true}
+	mythicalSettledStates = map[string]bool{"skipped": true, "cancelled": true, "landed": true, "rejected": true, "blocked": true}
+	mythicalLaneStates    = map[string]bool{"running": true, "delivering": true, "verifying": true}
+	mythicalWorkspaceID   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
 // mythicalLauncher admits canonical Flow launches (flowdispatch.Service) in
@@ -100,7 +99,7 @@ func mythicalAdmission(issue mythicalIssue, approved bool) (string, string) {
 		}
 	}
 	if !approved {
-		if mythicalLabeled(issue) {
+		if issueCarriesLabel(issue.Labels, issueApprovalLabel) {
 			return "skipped", "a maintainer re-applies the smithers label to approve this text"
 		}
 		return "skipped", "waiting for a maintainer to add the smithers label"
@@ -114,12 +113,13 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 }
 
 // ObserveIssue admits or updates one issue's item. The admitted text is
-// pinned: a lane reads the snapshot, never the live issue. A trusted author's
-// text is approved as written; an untrusted author's needs a maintainer's
-// smithers label applied to exactly this text (action "labeled"), so an edit
-// after approval needs a new label. Only an item that has not started takes
-// new text; closing cancels an item that has not started.
-func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, action string) error {
+// pinned: a lane reads the snapshot, never the live issue. Approval is
+// approvesIssueText with the smithers label; an outsider's approval holds
+// only for exactly the labeled text and only while the label stays, so an
+// edit after approval needs a new label. Only an item that has not started
+// takes new text; closing cancels an item that has not started. applied is
+// the label this event applied (zero for a sweep).
+func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
 	q := s.queries()
 	stack, err := q.GetMythicalStack(ctx, repositoryID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -129,7 +129,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		return err
 	}
 	digest := mythicalIssueDigest(issue)
-	trusted := mythicalTrustedAuthors[strings.ToUpper(issue.AuthorAssociation)]
+	outsider := !trustedGitHubAuthorAssociation(issue.AuthorAssociation)
 	body := issue.Body
 	if len(body) > mythicalPromptBytes {
 		body = body[:mythicalPromptBytes]
@@ -141,20 +141,16 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		}
 		approved := ""
 		switch {
-		case trusted:
+		case approvesIssueText(issue.AuthorAssociation, issue.Labels, applied, issueApprovalLabel):
 			approved = digest
-		// An outsider's text is approved only by the smithers label being
-		// applied to exactly this text, and only while the label stays.
-		case mythicalLabeled(issue) && strings.EqualFold(action, "labeled"):
-			approved = digest
-		case mythicalLabeled(issue) && err == nil && existing.ApprovedDigest == digest:
+		case issueCarriesLabel(issue.Labels, issueApprovalLabel) && err == nil && existing.ApprovedDigest == digest:
 			approved = digest
 		}
 		state, reason := mythicalAdmission(issue, approved == digest)
 		if errors.Is(err, pgx.ErrNoRows) {
 			item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repositoryID,
 				IssueNumber: pgtype.Int8{Int64: issue.Number, Valid: true}, IssueTitle: issue.Title, IssueURL: issue.URL,
-				IssueDigest: digest, IssueBody: body, ApprovedDigest: approved, State: state, Reason: reason})
+				IssueDigest: digest, IssueBody: body, ApprovedDigest: approved, State: state, Reason: reason, Outsider: outsider})
 			if err != nil {
 				return err
 			}
@@ -172,9 +168,10 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		case notStarted:
 			next.State, next.Reason = state, reason
 			next.IssueTitle, next.IssueURL, next.IssueDigest, next.IssueBody, next.ApprovedDigest = issue.Title, issue.URL, digest, body, approved
+			next.Outsider = outsider
 		}
 		if next.State == existing.State && next.Reason == existing.Reason && next.IssueDigest == existing.IssueDigest &&
-			next.IssueTitle == existing.IssueTitle && next.ApprovedDigest == existing.ApprovedDigest {
+			next.IssueTitle == existing.IssueTitle && next.ApprovedDigest == existing.ApprovedDigest && next.Outsider == existing.Outsider {
 			return nil
 		}
 		saved, err := q.SaveMythicalItem(ctx, next)
@@ -188,15 +185,6 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		return nil
 	}
 	return errors.New("the item changed concurrently; the next sweep observes the issue again")
-}
-
-func mythicalLabeled(issue mythicalIssue) bool {
-	for _, label := range issue.Labels {
-		if strings.EqualFold(strings.TrimSpace(label), "smithers") {
-			return true
-		}
-	}
-	return false
 }
 
 // itemChanged wakes the stack worker and the event stream.
@@ -236,7 +224,7 @@ func (s *MythicalService) Backfill(ctx context.Context, repositoryID int64) erro
 	open := make(map[int64]bool, len(issues))
 	for _, issue := range issues {
 		open[issue.Number] = true
-		if err := s.ObserveIssue(ctx, repositoryID, issue, ""); err != nil {
+		if err := s.ObserveIssue(ctx, repositoryID, issue, gitHubLabelApplication{}); err != nil {
 			return err
 		}
 	}
@@ -247,7 +235,7 @@ func (s *MythicalService) Backfill(ctx context.Context, repositoryID int64) erro
 	for _, item := range items {
 		if item.IssueNumber.Valid && !open[item.IssueNumber.Int64] && (item.State == "queued" || item.State == "retrying") {
 			if err := s.ObserveIssue(ctx, repositoryID, mythicalIssue{Number: item.IssueNumber.Int64, Title: item.IssueTitle,
-				URL: item.IssueURL, State: "closed"}, "closed"); err != nil {
+				URL: item.IssueURL, State: "closed"}, gitHubLabelApplication{}); err != nil {
 				return err
 			}
 		}
@@ -1119,6 +1107,31 @@ func (st *mythicalItemStep) deliver(ctx context.Context, item db.MythicalItem) (
 	return &saved, true, nil
 }
 
+// protectedChanges lists the protected paths an outsider-started candidate
+// changes, against main's own list. Every candidate passes integrate before
+// it is verified, pushed or proposed.
+func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.MythicalItem) ([]string, error) {
+	outsider := item.Outsider
+	if !outsider && item.WorkspaceID != "" {
+		var err error
+		if outsider, err = st.s.queries().IsOutsiderWorkspace(ctx, item.WorkspaceID); err != nil {
+			return nil, err
+		}
+	}
+	if !outsider {
+		return nil, nil
+	}
+	entries, err := st.r.g.protectedPaths(ctx, st.r.mainTip)
+	if err != nil {
+		return nil, err
+	}
+	changed, err := st.r.g.changedPaths(ctx, item.CandidateBase, item.CandidateHead)
+	if err != nil {
+		return nil, err
+	}
+	return protectedPathsTouched(changed, entries), nil
+}
+
 // integrate puts a submitted candidate onto the current tip: as is when it
 // was built on the tip, else rebased (appended candidates only) and sent to
 // coding/verify. The candidate is pinned so it outlives its lane.
@@ -1129,6 +1142,13 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {
 		return mythicalLater(item, err.Error(), st.now), false, nil
+	}
+	if refused, err := st.protectedChanges(ctx, item); err != nil {
+		return mythicalLater(item, err.Error(), st.now), false, nil
+	} else if len(refused) > 0 {
+		next := item
+		next.State, next.Reason = "blocked", "a maintainer changes protected paths: "+strings.Join(refused, ", ")
+		return &next, false, nil
 	}
 	if err := s.pin(ctx, r, item.CandidateHead); err != nil {
 		return mythicalLater(item, err.Error(), st.now), false, nil
@@ -1669,11 +1689,8 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 		return nil
 	}
 	var event struct {
-		Action string               `json:"action"`
-		Issue  *mythicalGitHubIssue `json:"issue"`
-		Label  *struct {
-			Name string `json:"name"`
-		} `json:"label"`
+		Action     string               `json:"action"`
+		Issue      *mythicalGitHubIssue `json:"issue"`
 		Repository *struct {
 			Name  string `json:"name"`
 			Owner struct {
@@ -1684,16 +1701,13 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 	if json.Unmarshal(payload, &event) != nil || event.Issue == nil || event.Repository == nil {
 		return nil
 	}
-	action := event.Action
-	if strings.EqualFold(action, "labeled") && (event.Label == nil || !strings.EqualFold(strings.TrimSpace(event.Label.Name), "smithers")) {
-		action = "labeled-other"
-	}
+	applied := gitHubLabelApplied(event.Action, payload)
 	ids, err := s.queries().ListRepositoryIDsForGitHubSource(ctx, event.Repository.Owner.Login, event.Repository.Name)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		if err := s.ObserveIssue(ctx, id, event.Issue.issue(), action); err != nil {
+		if err := s.ObserveIssue(ctx, id, event.Issue.issue(), applied); err != nil {
 			return err
 		}
 	}

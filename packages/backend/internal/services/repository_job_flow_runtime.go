@@ -131,6 +131,13 @@ func (s *RepositoryJobService) admitRepositoryJobLaunch(ctx context.Context, reg
 	if err != nil {
 		return jobs.RequestReceipt{}, err
 	}
+	// A run started from an outsider's text marks its workspace before it
+	// starts, so no landing that workspace opens changes a protected path.
+	if repositoryJobDispatchEvent(registration, dispatch)["trial"] != true && dispatch.Source != "schedule" && dispatch.EventType != "manual" && gitHubEventByOutsider(dispatch.Payload) {
+		if err := s.q.MarkOutsiderWorkspace(ctx, registration.RepositoryID, registration.WorkspaceID); err != nil {
+			return jobs.RequestReceipt{}, err
+		}
+	}
 	return s.flowDispatcher.Admit(ctx, flowdispatch.LaunchRequest{
 		Scope:     repositoryJobFlowScope(registration.RepositoryID, registration.UserID),
 		RequestID: repositoryJobFlowRequestID(dispatch.ID),

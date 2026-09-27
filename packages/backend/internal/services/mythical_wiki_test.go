@@ -243,7 +243,7 @@ func TestMythicalWikiRefreshesAfterEveryFoldAndKeepsEdits(t *testing.T) {
 	assert.Equal(t, 3.0, receipt["legacyPagesRemoved"])
 
 	// A stack request plans with the published pages.
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 7, Title: "Docs", State: "open", AuthorAssociation: "OWNER"}, ""))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 7, Title: "Docs", State: "open", AuthorAssociation: "OWNER"}, gitHubLabelApplication{}))
 	o.wake()
 	var planning struct {
 		Wiki struct {

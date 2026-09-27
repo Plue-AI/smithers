@@ -522,7 +522,7 @@ func TestIssue_Z_HelperBranches(t *testing.T) {
 		q.replaceIssueAssigneesFn = func(context.Context, db.ReplaceIssueAssigneesParams) error {
 			return boom
 		}
-	})}, 1, &assignees, nil)
+	})}, 1, 2, &assignees, nil)
 	require.Equal(t, 500, issueAPIStatus(t, err))
 	_, err = NewIssueService(zIssueBaseQuerier(func(q *mockIssueQuerier) {
 		q.getUserByLowerUsernameFn = func(context.Context, string) (db.User, error) {
@@ -535,10 +535,10 @@ func TestIssue_Z_HelperBranches(t *testing.T) {
 		q.replaceIssueLabelsFn = func(context.Context, db.ReplaceIssueLabelsParams) error {
 			return boom
 		}
-	})}, 1, nil, &labelSet)
+	})}, 1, 2, nil, &labelSet)
 	require.Equal(t, 500, issueAPIStatus(t, err))
 	untouched := zIssueBaseQuerier()
-	require.NoError(t, replaceIssueAssociations(context.Background(), nonTxIssueWriteTx{q: untouched}, 1, nil, nil))
+	require.NoError(t, replaceIssueAssociations(context.Background(), nonTxIssueWriteTx{q: untouched}, 1, 2, nil, nil))
 	require.Nil(t, untouched.lastReplaceAssigneesArg)
 	require.Nil(t, untouched.lastReplaceLabelsArg)
 	_, err = NewIssueService(zIssueBaseQuerier()).resolveLabelIDs(context.Background(), 77, []string{" "})

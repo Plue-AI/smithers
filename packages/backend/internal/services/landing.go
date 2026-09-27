@@ -748,6 +748,9 @@ func (s *LandingService) CreateLandingRequest(ctx context.Context, actor *db.Use
 // and non-transactional paths: builds the API response, dispatches the
 // "opened" webhook event, and processes @mentions in the body.
 func (s *LandingService) afterCreate(ctx context.Context, repository db.Repository, owner string, actor *db.User, created db.LandingRequest, changeIDs []string, body string) (LandingRequestResponse, error) {
+	if err := s.recordLandingSource(ctx, created.ID); err != nil {
+		return LandingRequestResponse{}, err
+	}
 	s.observeLanding("create")
 	mapped, err := s.buildCreateResponse(ctx, repository, owner, created, changeIDs)
 	if err != nil {

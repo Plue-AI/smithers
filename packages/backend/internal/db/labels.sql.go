@@ -7,6 +7,8 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addIssueLabel = `-- name: AddIssueLabel :one
@@ -14,20 +16,26 @@ WITH repository_lock AS MATERIALIZED (
     SELECT r.id FROM repositories r JOIN issues i ON i.repository_id = r.id
     WHERE i.id = $1 FOR UPDATE OF r
 )
-INSERT INTO issue_labels (issue_id, label_id)
-SELECT $1, $2 FROM repository_lock
-RETURNING issue_id, label_id, created_at
+INSERT INTO issue_labels (issue_id, label_id, added_by)
+SELECT $1, $2, $3::bigint FROM repository_lock
+RETURNING issue_id, label_id, created_at, added_by
 `
 
 type AddIssueLabelParams struct {
-	IssueID int64 `json:"issue_id"`
-	LabelID int64 `json:"label_id"`
+	IssueID int64       `json:"issue_id"`
+	LabelID int64       `json:"label_id"`
+	AddedBy pgtype.Int8 `json:"added_by"`
 }
 
 func (q *Queries) AddIssueLabel(ctx context.Context, arg AddIssueLabelParams) (IssueLabel, error) {
-	row := q.db.QueryRow(ctx, addIssueLabel, arg.IssueID, arg.LabelID)
+	row := q.db.QueryRow(ctx, addIssueLabel, arg.IssueID, arg.LabelID, arg.AddedBy)
 	var i IssueLabel
-	err := row.Scan(&i.IssueID, &i.LabelID, &i.CreatedAt)
+	err := row.Scan(
+		&i.IssueID,
+		&i.LabelID,
+		&i.CreatedAt,
+		&i.AddedBy,
+	)
 	return i, err
 }
 
@@ -36,17 +44,18 @@ WITH repository_lock AS MATERIALIZED (
     SELECT r.id FROM repositories r JOIN issues i ON i.repository_id = r.id
     WHERE i.id = $1 FOR UPDATE OF r
 )
-INSERT INTO issue_labels (issue_id, label_id)
-SELECT $1, UNNEST($2::bigint[]) FROM repository_lock
+INSERT INTO issue_labels (issue_id, label_id, added_by)
+SELECT $1, UNNEST($2::bigint[]), $3::bigint FROM repository_lock
 `
 
 type AddIssueLabelsParams struct {
-	IssueID  int64   `json:"issue_id"`
-	LabelIds []int64 `json:"label_ids"`
+	IssueID  int64       `json:"issue_id"`
+	LabelIds []int64     `json:"label_ids"`
+	AddedBy  pgtype.Int8 `json:"added_by"`
 }
 
 func (q *Queries) AddIssueLabels(ctx context.Context, arg AddIssueLabelsParams) error {
-	_, err := q.db.Exec(ctx, addIssueLabels, arg.IssueID, arg.LabelIds)
+	_, err := q.db.Exec(ctx, addIssueLabels, arg.IssueID, arg.LabelIds, arg.AddedBy)
 	return err
 }
 

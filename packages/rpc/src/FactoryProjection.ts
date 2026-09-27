@@ -94,7 +94,8 @@ export type FactoryFlow = z.infer<typeof FactoryFlowSchema>
 export const FactoryGithubSchema = z.object({
   mirror: z.enum(["push", "pull", "none"]),
   issues: z.enum(["read", "two-way", "none"]),
-  changes: z.enum(["land", "send-upstream", "none"])
+  changes: z.enum(["land", "send-upstream", "none"]),
+  protectedPaths: z.array(z.string()).optional()
 })
 
 /**

@@ -146,12 +146,13 @@ func workspaceGatewayCommand(g runtimeports.RepoGateway) string {
 // Unlike the head-reporter token it carries NO workspace:<id> restriction: a
 // workspace-bound token may only push and report that workspace's head ref and
 // is refused on every landing route.
-func workspaceGatewayLandingTokenScopes(repositoryID int64) string {
+func workspaceGatewayLandingTokenScopes(repositoryID int64, workspaceID string) string {
 	// The existing agent-authorship contract is a path-bound repository token.
 	// This host can edit the whole repository; ** preserves that boundary while
-	// distinguishing its submissions from a human PAT.
-	return strings.Join(append([]string{string(middleware.ScopeWriteRepository), middleware.RepositoryRestrictionScope(repositoryID)},
-		middleware.PathRestrictionScopes([]string{"**"})...), ",")
+	// distinguishing its submissions from a human PAT. The inert workspace
+	// entry records which workspace opens each landing.
+	return strings.Join(append([]string{string(middleware.ScopeWriteRepository), middleware.RepositoryRestrictionScope(repositoryID),
+		middleware.LandingWorkspaceScope(workspaceID)}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
 }
 
 // landingAPIBaseURL is the public API root the coding host's landing flow
@@ -173,7 +174,7 @@ func (s *RepoGatewayService) landingAPIBaseURL() string {
 // start is revoked first: only the live process may hold one. The returned
 // plaintext is passed to the service environment and never logged.
 func (s *RepoGatewayService) ensureWorkspaceGatewayLandingToken(ctx context.Context, gateway *runtimeports.RepoGateway) (string, error) {
-	if s.landingAPIBaseURL() == "" || gateway.RepositoryID <= 0 {
+	if s.landingAPIBaseURL() == "" || gateway.RepositoryID <= 0 || !gateway.WorkspaceID.Valid {
 		return "", nil
 	}
 	store, ok := s.q.(workspaceGatewayLifecycleQuerier)
@@ -183,7 +184,7 @@ func (s *RepoGatewayService) ensureWorkspaceGatewayLandingToken(ctx context.Cont
 	s.revokeWorkspaceGatewayLandingToken(ctx, *gateway)
 	gateway.LandingTokenID = pgtype.Int8{}
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, s.q, gateway.UserID, "workspace-gateway-landing-"+gateway.ID,
-		workspaceGatewayLandingTokenScopes(gateway.RepositoryID), workspaceGatewayLandingTokenTTL)
+		workspaceGatewayLandingTokenScopes(gateway.RepositoryID, uuidString(gateway.WorkspaceID)), workspaceGatewayLandingTokenTTL)
 	if err != nil {
 		return "", pkgerrors.Internal("mint workspace gateway landing token").WithCause(err)
 	}

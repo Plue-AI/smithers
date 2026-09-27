@@ -613,8 +613,12 @@ func (w *LandingWorker) recheckOwnership(ctx context.Context, repository db.Repo
 func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Repository, owner string, lr db.LandingRequest, changeIDs []string, rules []db.ProtectedBookmark, requiredHumanApprovals int64, requireAgentLGTM bool, exact *repohost.LandRequest, pinned ...map[string]string) error {
 	q, qOK := w.queries.(landingWorkerOwnershipQueries)
 	rh, rhOK := w.repoHost.(landingWorkerOwnershipRepoHost)
+	outsider, err := isOutsiderLanding(ctx, w.queries, lr.ID)
+	if err != nil {
+		return err
+	}
 	if !qOK || !rhOK {
-		if exact != nil {
+		if exact != nil || outsider {
 			return fmt.Errorf("append requires the complete ownership inspection capability")
 		}
 		return nil
@@ -720,6 +724,15 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 	}
 	if err != nil {
 		return err
+	}
+	touchedPaths := make([]string, 0, len(touched))
+	for _, file := range touched {
+		touchedPaths = append(touchedPaths, file.Path)
+	}
+	if outsider {
+		if err := refuseProtectedPaths(ctx, rh, owner, repository.Name, targetRevision, touchedPaths); err != nil {
+			return err
+		}
 	}
 	resolved, err := resolveChangeOwnership(ctx, q, rh, repository.ID, owner, repository.Name, targetRevision, touched, lr.ID, exact != nil)
 	if err != nil {

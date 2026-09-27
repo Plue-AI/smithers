@@ -59,10 +59,10 @@ WHERE repository_id = repository_lock.id AND labels.id = sqlc.arg(id);
 -- name: AddIssueLabel :one
 WITH repository_lock AS MATERIALIZED (
     SELECT r.id FROM repositories r JOIN issues i ON i.repository_id = r.id
-    WHERE i.id = $1 FOR UPDATE OF r
+    WHERE i.id = sqlc.arg(issue_id) FOR UPDATE OF r
 )
-INSERT INTO issue_labels (issue_id, label_id)
-SELECT $1, $2 FROM repository_lock
+INSERT INTO issue_labels (issue_id, label_id, added_by)
+SELECT sqlc.arg(issue_id), sqlc.arg(label_id), sqlc.narg(added_by)::bigint FROM repository_lock
 RETURNING *;
 
 -- name: AddIssueLabels :exec
@@ -70,8 +70,8 @@ WITH repository_lock AS MATERIALIZED (
     SELECT r.id FROM repositories r JOIN issues i ON i.repository_id = r.id
     WHERE i.id = sqlc.arg(issue_id) FOR UPDATE OF r
 )
-INSERT INTO issue_labels (issue_id, label_id)
-SELECT sqlc.arg(issue_id), UNNEST(sqlc.arg(label_ids)::bigint[]) FROM repository_lock;
+INSERT INTO issue_labels (issue_id, label_id, added_by)
+SELECT sqlc.arg(issue_id), UNNEST(sqlc.arg(label_ids)::bigint[]), sqlc.narg(added_by)::bigint FROM repository_lock;
 
 -- name: RemoveIssueLabel :exec
 WITH repository_lock AS MATERIALIZED (

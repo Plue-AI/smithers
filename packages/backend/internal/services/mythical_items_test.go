@@ -233,9 +233,9 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 7, Title: "Add docs", URL: "https://github.com/smithersai/smithers/issues/7",
-		State: "open", AuthorAssociation: "OWNER", Body: "Please add a docs page."}, ""))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 8, Title: "Drive-by", State: "open", AuthorAssociation: "NONE"}, ""))
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 9, Title: "A PR", State: "open", PullRequest: true}, ""))
+		State: "open", AuthorAssociation: "OWNER", Body: "Please add a docs page."}, gitHubLabelApplication{}))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 8, Title: "Drive-by", State: "open", AuthorAssociation: "NONE"}, gitHubLabelApplication{}))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 9, Title: "A PR", State: "open", PullRequest: true}, gitHubLabelApplication{}))
 	assert.Equal(t, "queued", o.item(7).State)
 	assert.Equal(t, "skipped", o.item(8).State)
 	assert.Contains(t, o.item(8).Reason, "smithers label")
@@ -341,7 +341,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	ctx := context.Background()
 	for _, number := range []int64{11, 12, 13} {
 		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Issue %d", number),
-			State: "open", AuthorAssociation: "MEMBER"}, ""))
+			State: "open", AuthorAssociation: "MEMBER"}, gitHubLabelApplication{}))
 	}
 	// Four lanes: one stays reserved for direct chat work, so three issues run.
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
@@ -495,17 +495,17 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	// An outsider's issue is approved only by a maintainer's label on that
 	// exact text; an edit afterwards needs a new label.
 	outsider := mythicalIssue{Number: 21, Title: "Outsider", Body: "do x", State: "open", AuthorAssociation: "NONE", Labels: []string{"smithers"}}
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, ""))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{}))
 	assert.Equal(t, "skipped", o.item(21).State, "a label seen only in a sweep may predate an edit")
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, "labeled"))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{Label: "smithers", SenderType: "User"}))
 	assert.Equal(t, "queued", o.item(21).State)
 	assert.Equal(t, "do x", o.item(21).IssueBody, "the admitted text is pinned")
 	edited := outsider
 	edited.Body = "do something else entirely"
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, edited, "edited"))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, edited, gitHubLabelApplication{}))
 	assert.Equal(t, "skipped", o.item(21).State)
 	assert.Contains(t, o.item(21).Reason, "re-applies the smithers label")
-	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, edited, "labeled"))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, edited, gitHubLabelApplication{Label: "smithers", SenderType: "User"}))
 	assert.Equal(t, "queued", o.item(21).State)
 	assert.Equal(t, "do something else entirely", o.item(21).IssueBody)
 
@@ -627,4 +627,71 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	retried := o.item(21)
 	assert.False(t, retried.PRNumber.Valid)
 	assert.Equal(t, "smithers/issue-21-r1", mythicalBranch(retried))
+}
+
+// An outsider's approved item never changes a protected path; a maintainer's
+// item may. main's factory projection adds its own entries.
+func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	submit := func(number int64, files map[string]string) db.MythicalItem {
+		t.Helper()
+		stack := o.wake()
+		item := o.item(number)
+		require.Equal(t, "running", item.State, item.Reason)
+		o.project(o.launcher.last("coding/request"), jobs.StateCompleted, fmt.Sprintf("run-%d", number), validatedRequest)
+		o.wake()
+		require.Equal(t, "delivering", o.item(number).State)
+		candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, files, "✨ feat: change")
+		_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+			Source: candidate, RequestRunID: fmt.Sprintf("run-%d", number), Summary: "✨ feat: change"})
+		require.NoError(t, err)
+		o.wake()
+		return o.item(number)
+	}
+
+	outsider := mythicalIssue{Number: 31, Title: "Outsider", Body: "fix ci", State: "open", AuthorAssociation: "NONE", Labels: []string{"smithers"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{Label: "smithers", SenderType: "User"}))
+	require.True(t, o.item(31).Outsider)
+	item := submit(31, map[string]string{"src/fix.ts": "fix\n", ".github/workflows/pwn.yml": "on: push\n"})
+	require.Equal(t, "blocked", item.State)
+	assert.Equal(t, "a maintainer changes protected paths: .github/workflows/pwn.yml", item.Reason)
+	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/issue-31"), "nothing is pushed")
+
+	maintainer := mythicalIssue{Number: 32, Title: "Maintainer", Body: "fix ci", State: "open", AuthorAssociation: "MEMBER"}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, maintainer, gitHubLabelApplication{}))
+	require.False(t, o.item(32).Outsider)
+	item = submit(32, map[string]string{".github/workflows/ci.yml": "on: push\n"})
+	require.Equal(t, "proposing", item.State, item.Reason)
+}
+
+func TestMythicalProtectedPathsFollowMainsProjection(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	root := t.TempDir()
+	f := &gitFixture{t: t, root: root, work: filepath.Join(root, "work")}
+	f.git(root, "init", "-q", "--initial-branch=main", f.work)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.work, ".smithers"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(f.work, "infra", "keys"), 0o700))
+	f.commit("✨ feat: one", "a.txt", "a\n")
+	f.commit("🔧 chore: factory", factoryProjectionPath, `{"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","protectedPaths":["infra/keys"]}}`)
+	f.commit("✨ feat: rename", "infra/keys/prod.pem", "k\n")
+	head := f.git(f.work, "rev-parse", "HEAD")
+	f.git(f.work, "mv", "infra/keys/prod.pem", "moved.pem")
+	f.git(f.work, "commit", "-qm", "♻️ refactor: move")
+	moved := f.git(f.work, "rev-parse", "HEAD")
+	g := mythicalGit{dir: filepath.Join(f.work, ".git")}
+	entries, err := g.protectedPaths(context.Background(), moved)
+	require.NoError(t, err)
+	assert.Contains(t, entries, "infra/keys")
+	changed, err := g.changedPaths(context.Background(), head, moved)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"infra/keys/prod.pem"}, protectedPathsTouched(changed, entries), "a move names its protected origin")
+	first := f.git(f.work, "rev-list", "--max-parents=0", "HEAD")
+	entries, err = g.protectedPaths(context.Background(), first)
+	require.NoError(t, err)
+	assert.Equal(t, protectedPathRoots, entries)
 }

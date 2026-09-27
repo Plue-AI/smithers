@@ -246,6 +246,9 @@ func (s *LandingGitHubPullService) OpenLandingGitHubPull(ctx context.Context, ac
 	if tip.CommitID != commitID {
 		return LandingGitHubPull{}, pkgerrors.Conflict("commit_id is not this landing's current tip")
 	}
+	if err := s.landings.refuseOutsiderLandingPaths(ctx, owner, repo, landing.ID, landing.ChangeIds, landing.TargetBookmark); err != nil {
+		return LandingGitHubPull{}, err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, landingGitHubPullTimeout)
 	defer cancel()

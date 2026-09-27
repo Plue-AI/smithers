@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -78,7 +79,7 @@ func TestRepositoryJobValidation(t *testing.T) {
 func TestRepositoryJobEventMatching(t *testing.T) {
 	t.Parallel()
 	input := repositoryJobTestInput()
-	event := db.RepositoryJobEvent{EventType: "issue", EventAction: "opened", Payload: json.RawMessage(`{"issue":{"labels":[{"name":"auto"}]}}`)}
+	event := db.RepositoryJobEvent{EventType: "issue", EventAction: "opened", Payload: json.RawMessage(`{"issue":{"author_association":"OWNER","labels":[{"name":"auto"}]}}`)}
 	require.True(t, repositoryJobMatches(input, event))
 	input.Events = nil
 	require.False(t, repositoryJobMatches(input, event))
@@ -91,6 +92,49 @@ func TestRepositoryJobEventMatching(t *testing.T) {
 	require.True(t, repositoryJobMatches(input, event))
 	event.EventAction = "closed"
 	require.False(t, repositoryJobMatches(input, event))
+}
+
+// A stranger's issue matches a job only through the job's trigger label (its
+// configured label, else smithers) applied by a person, on the labeled text.
+func TestRepositoryJobStrangerIssueNeedsTheTriggerLabel(t *testing.T) {
+	t.Parallel()
+	stranger := func(action, applied, sender string, labels ...string) db.RepositoryJobEvent {
+		names := make([]map[string]string, 0, len(labels))
+		for _, label := range labels {
+			names = append(names, map[string]string{"name": label})
+		}
+		payload, err := json.Marshal(map[string]interface{}{
+			"action": action, "label": map[string]string{"name": applied}, "sender": map[string]interface{}{"id": 7, "login": "maintainer", "type": sender},
+			"issue": map[string]interface{}{"number": 4, "author_association": "NONE", "labels": names, "body": "text",
+				"user": map[string]interface{}{"id": 9, "login": "stranger"}},
+		})
+		require.NoError(t, err)
+		return db.RepositoryJobEvent{Source: "github", EventType: "issues", EventAction: action, IssueNumber: 4, Payload: payload}
+	}
+	future := repositoryJobTestInput()
+	future.Events = []RepositoryJobEventRule{{Type: "issues", Actions: []string{"opened", "edited", "reopened", "labeled", "assigned"}}}
+	require.False(t, repositoryJobMatches(future, stranger("opened", "", "User")))
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", "User", "invalid")), "any label is not approval")
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", "User", "invalid", "smithers")), "a later label is not approval")
+	require.False(t, repositoryJobMatches(future, stranger("assigned", "", "User", "smithers")))
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "smithers", "Bot", "smithers")), "an app is not a maintainer")
+	byAuthor := stranger("labeled", "smithers", "User", "smithers")
+	byAuthor.Payload = json.RawMessage(strings.Replace(string(byAuthor.Payload), `"id":7`, `"id":9`, 1))
+	require.False(t, repositoryJobMatches(future, byAuthor), "an issue form's template label is the author's own")
+	require.True(t, repositoryJobMatches(future, stranger("labeled", "smithers", "User", "smithers")))
+
+	labeled := future
+	labeled.Label = "auto"
+	require.True(t, repositoryJobMatches(labeled, stranger("labeled", "auto", "User", "auto")))
+	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "invalid", "User", "auto", "invalid")))
+	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "smithers", "User", "smithers")), "the job's own label is its trigger")
+
+	trial := future
+	trial.Mode, trial.TrialIssueNumber, trial.TrialSource = "trial", 4, "github"
+	require.True(t, repositoryJobMatches(trial, stranger("opened", "", "User")), "the registration scopes its own trial issue")
+	other := stranger("labeled", "invalid", "User", "invalid")
+	other.IssueNumber = 5
+	require.False(t, repositoryJobMatches(trial, other))
 }
 
 func TestRepositoryJobTrialAuthorityComesFromRegistration(t *testing.T) {
@@ -298,9 +342,9 @@ func repositoryJobAdmit(t *testing.T, s *RepositoryJobService, repo int64, deliv
 	t.Helper()
 	comment := ""
 	if kind == "issue_comment" {
-		comment = `,"comment":{"id":91,"body":"more information","user":{"login":"author"}}`
+		comment = `,"comment":{"id":91,"body":"more information","user":{"login":"author"},"author_association":"OWNER"}`
 	}
-	body := json.RawMessage(fmt.Sprintf(`{"action":%q,"issue":{"id":100,"number":%d,"user":{"login":"author"}}%s}`, action, number, comment))
+	body := json.RawMessage(fmt.Sprintf(`{"action":%q,"issue":{"id":100,"number":%d,"user":{"login":"author"},"author_association":"OWNER"}%s}`, action, number, comment))
 	require.NoError(t, s.AdmitGitHubEvent(context.Background(), repo, db.GithubWebhookJob{DeliveryID: delivery, Payload: body}, TriggerEvent{Type: kind, Action: action}))
 }
 
@@ -782,4 +826,94 @@ func TestRepositoryJobSixHourGuard(t *testing.T) {
 			require.Error(t, err)
 		}
 	}
+}
+
+func TestProtectedPathMatching(t *testing.T) {
+	t.Parallel()
+	entries := append([]string(nil), protectedPathRoots...)
+	entries = append(entries, "deploy/keys")
+	require.Equal(t, []string{".github/workflows/pwn.yml", ".smithers/factory.json", "apps/app/AGENTS.md", "deploy/keys/prod.pem", "flows/PACKAGE.ts"},
+		protectedPathsTouched([]string{"src/fix.ts", "flows/PACKAGE.ts", ".smithers/factory.json", "apps/app/AGENTS.md",
+			".github/workflows/pwn.yml", "deploy/keys/prod.pem", "src/deploy/keys/x", "docs/github.md", "AGENTS.md.bak"}, entries))
+}
+
+// A run started from an outsider's labeled issue marks its workspace before
+// it starts; a maintainer's run does not.
+func TestRepositoryJobOutsiderRunMarksItsWorkspace(t *testing.T) {
+	_, q, service, gateway, input := repositoryJobFixture(t)
+	ctx := context.Background()
+	input.Events = []RepositoryJobEventRule{{Type: "issues", Actions: []string{"opened", "labeled"}}}
+	_, err := service.Register(ctx, "gateway", "token", "issues", input)
+	require.NoError(t, err)
+	admit := func(delivery, association, action string) {
+		body := json.RawMessage(fmt.Sprintf(`{"action":%q,"label":{"name":"smithers"},"sender":{"id":7,"login":"maintainer","type":"User"},
+			"issue":{"id":100,"number":41,"user":{"id":9,"login":"author"},"author_association":%q,"labels":[{"name":"smithers"}]}}`, action, association))
+		require.NoError(t, service.AdmitGitHubEvent(ctx, gateway.target.RepositoryID, db.GithubWebhookJob{DeliveryID: delivery, Payload: body},
+			TriggerEvent{Type: "issues", Action: action}))
+		repositoryJobPoll(t, service, gateway)
+	}
+	admit("maintainer", "MEMBER", "opened")
+	marked, err := q.IsOutsiderWorkspace(ctx, input.WorkspaceID)
+	require.NoError(t, err)
+	require.False(t, marked)
+	admit("outsider", "NONE", "labeled")
+	marked, err = q.IsOutsiderWorkspace(ctx, input.WorkspaceID)
+	require.NoError(t, err)
+	require.True(t, marked)
+}
+
+// A native issue or comment carries its author's association, so native and
+// GitHub events share one trust rule.
+func TestRepositoryJobNativeEventsCarryTheAuthorsAssociation(t *testing.T) {
+	pool, _, _, g, _ := repositoryJobFixture(t)
+	ctx := context.Background()
+	repo := g.target.RepositoryID
+	var stranger, writer int64
+	for name, id := range map[string]*int64{"stranger": &stranger, "writer": &writer} {
+		login := name + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+			login, login+"@example.invalid").Scan(id))
+	}
+	_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, writer)
+	require.NoError(t, err)
+	association := func(number int64, author int64) (string, string) {
+		var issueID int64
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO issues(repository_id,number,title,author_id) VALUES($1,$2,'native',$3) RETURNING id`,
+			repo, number, author).Scan(&issueID))
+		_, err := pool.Exec(ctx, `INSERT INTO issue_comments(issue_id,user_id,body,type) VALUES($1,$2,'more','comment')`, issueID, stranger)
+		require.NoError(t, err)
+		var issue, comment string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'issue'->>'author_association' FROM repository_job_events
+			WHERE repository_id=$1 AND issue_number=$2 AND event_type='issues'`, repo, number).Scan(&issue))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'comment'->>'author_association' FROM repository_job_events
+			WHERE repository_id=$1 AND issue_number=$2 AND event_type='issue_comment'`, repo, number).Scan(&comment))
+		return issue, comment
+	}
+	issue, comment := association(71, g.target.UserID)
+	require.Equal(t, "OWNER", issue)
+	require.Equal(t, "NONE", comment)
+	issue, _ = association(72, writer)
+	require.Equal(t, "COLLABORATOR", issue)
+	issue, _ = association(73, stranger)
+	require.Equal(t, "NONE", issue)
+
+	// A native label names who applied it: a maintainer's smithers label
+	// approves a stranger's issue, the stranger's own label does not.
+	q := db.New(pool)
+	var labelID, issueID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO labels(repository_id,name,color) VALUES($1,'smithers','ffffff') RETURNING id`, repo).Scan(&labelID))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM issues WHERE repository_id=$1 AND number=73`, repo).Scan(&issueID))
+	labeled := func(by int64) bool {
+		require.NoError(t, q.AddIssueLabels(ctx, db.AddIssueLabelsParams{IssueID: issueID, LabelIds: []int64{labelID}, AddedBy: pgtype.Int8{Int64: by, Valid: true}}))
+		var payload []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM repository_job_events WHERE repository_id=$1 AND issue_number=73
+			AND event_action='labeled'`, repo).Scan(&payload))
+		_, err := pool.Exec(ctx, `DELETE FROM repository_job_events WHERE repository_id=$1 AND issue_number=73 AND event_action='labeled'`, repo)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `DELETE FROM issue_labels WHERE issue_id=$1`, issueID)
+		require.NoError(t, err)
+		return gitHubIssueEventApproves("issues", "labeled", payload, issueApprovalLabel)
+	}
+	require.False(t, labeled(stranger))
+	require.True(t, labeled(g.target.UserID))
 }

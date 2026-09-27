@@ -788,3 +788,11 @@ func (d *timingWebhookDispatcher) DispatchEvent(ctx context.Context, repoID int6
 func (d *timingWebhookDispatcher) DispatchOrgEvent(ctx context.Context, orgID int64, eventType webhooks.EventType, payload any) error {
 	return d.inner.DispatchOrgEvent(ctx, orgID, eventType, payload)
 }
+
+func (m *mockLandingWorkerQuerier) RecordLandingSourceWorkspace(context.Context, int64, string) error {
+	return nil
+}
+
+func (m *mockLandingWorkerQuerier) IsOutsiderLanding(context.Context, int64) (bool, error) {
+	return false, nil
+}

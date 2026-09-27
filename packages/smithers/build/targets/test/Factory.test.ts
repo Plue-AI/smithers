@@ -65,11 +65,28 @@ describe("Smithers.Github.Policy", () => {
       _tag: "GithubPolicy",
       mirror: "pull",
       issues: "read",
-      changes: "send-upstream"
+      changes: "send-upstream",
+      protectedPaths: []
     })
     const ours = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land" })
-    expect(ours).toEqual({ _tag: "GithubPolicy", mirror: "push", issues: "two-way", changes: "land" })
+    expect(ours).toEqual({
+      _tag: "GithubPolicy",
+      mirror: "push",
+      issues: "two-way",
+      changes: "land",
+      protectedPaths: []
+    })
     expect(Object.isFrozen(ours)).toBe(true)
+  })
+
+  it("adds repository-relative protected paths and refuses others", () => {
+    expect(Factory.Policy({ protectedPaths: ["infra", "deploy/keys"] }).protectedPaths).toEqual([
+      "infra",
+      "deploy/keys"
+    ])
+    for (const bad of ["", " infra", "/etc", "a/../b", ".."]) {
+      expect(() => Factory.Policy({ protectedPaths: [bad] }), bad).toThrow(/protectedPaths/)
+    }
   })
 
   it("refuses two writers of main: changes land needs mirror push", () => {
@@ -199,6 +216,19 @@ describe("Smithers.Factory", () => {
     expect(Factory.parseProjection(JSON.stringify({ ...expected, github: { mirror: "push-on-land" } }))).toMatch(
       /shape/
     )
+  })
+
+  it("projects declared protected paths", () => {
+    const guarded = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land", protectedPaths: ["infra"] })
+    const projected = Factory.parseProjection(
+      Factory.renderProjection(Factory.Factory({ summary: "S.", on, github: guarded }), [])
+    )
+    expect(typeof projected === "string" ? projected : projected.github).toEqual({
+      mirror: "push",
+      issues: "two-way",
+      changes: "land",
+      protectedPaths: ["infra"]
+    })
   })
 })
 
