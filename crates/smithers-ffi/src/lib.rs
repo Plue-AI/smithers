@@ -3665,7 +3665,8 @@ pub extern "C" fn smithers_get_change(
 /// Create an unbookmarked change that reverses `revision` on top of the
 /// current `target_bookmark` and return the generated change as JSON. A
 /// non-empty `base` reverses the diff from `base` to `revision` instead of
-/// the diff from `revision`'s parents.
+/// the diff from `revision`'s parents. (Named for the `base` argument, so a
+/// Go binary built for the older four-argument symbol fails to load.)
 ///
 /// # Safety
 /// - All pointers may be NULL; NULL or invalid UTF-8 returns an error JSON
@@ -3676,7 +3677,7 @@ pub extern "C" fn smithers_get_change(
 ///   [`smithers_free_string`] exactly once.
 /// - Callers must serialize repository mutations.
 #[no_mangle]
-pub extern "C" fn smithers_backout_change(
+pub extern "C" fn smithers_backout_change_range(
     store_path: *const c_char,
     change_id: *const c_char,
     revision: *const c_char,
@@ -5054,7 +5055,7 @@ mod tests {
         assert_eq!(landed["target_commit_id"], original_commit);
 
         let reverting = unsafe {
-            take_json(smithers_backout_change(
+            take_json(smithers_backout_change_range(
                 repo_path_c.as_ptr(),
                 original_change_c.as_ptr(),
                 original_commit_c.as_ptr(),

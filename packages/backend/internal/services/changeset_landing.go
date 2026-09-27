@@ -329,7 +329,10 @@ func (s *ChangesetService) rollbackChangeset(ctx context.Context, org db.Organiz
 		}
 		// Clear the member's marker before the plan forgets the landing, so
 		// a failure here is retried by the next rollback.
-		if err := s.queries.RecordChangesetMemberLanded(rbCtx, db.RecordChangesetMemberLandedParams{ID: member.ID, LandedCommitID: ""}); err != nil {
+		markCtx, cancel := context.WithTimeout(rbCtx, 30*time.Second)
+		err := s.queries.RecordChangesetMemberLanded(markCtx, db.RecordChangesetMemberLandedParams{ID: member.ID, LandedCommitID: ""})
+		cancel()
+		if err != nil {
 			problems = append(problems, member.Repo+": failed to clear marker")
 			continue
 		}

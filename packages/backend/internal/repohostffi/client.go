@@ -100,7 +100,7 @@ enum smithers_symbol {
 // when any is missing, so a stale library never loads and then fails per call.
 static const char *const smithers_symbol_names[SYM_COUNT] = {
 	"smithers_auto_init_repo",
-	"smithers_backout_change",
+	"smithers_backout_change_range",
 	"smithers_commit_doc",
 	"smithers_commit_wiki_page",
 	"smithers_compose_superproject",

@@ -30,11 +30,11 @@ func clientCovAssertArgumentOrder(t *testing.T, client *Client) {
 	require.NoError(t, err)
 	assert.Equal(t, repohost.WikiDocumentResult{State: `{"doc":"x"}`, StateVector: "sv", Markdown: "md"}, doc)
 
-	backout, err := client.BackoutChange("store-ok", "chg", "rev", "main", "")
+	backout, err := client.BackoutChange("store-ok", "chg", "rev", "main", "base-commit")
 	require.NoError(t, err)
 	assert.Equal(t, "chg", backout.ChangeID)
 	assert.Equal(t, "rev", backout.CommitID)
-	assert.Equal(t, "main|store-ok", backout.Description)
+	assert.Equal(t, "main|base-commit", backout.Description)
 
 	split, err := client.SplitChange("store-ok", "chg", []string{"a.go", "b.go"}, "split off")
 	require.NoError(t, err)
