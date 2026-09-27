@@ -9,6 +9,10 @@
   the named snapshots machines boot from. The `Sdk` slice gains `rootDisk`, `network`, a handle's `stop` and
   `snapshot`, and `Snapshot.get`/`list`/`remove`.
 - `pruneSnapshots` takes names to retain; `removeSnapshot` removes one snapshot.
+- Snapshots are named `<family>.<member>` by `snapshotName`, and `snapshotFamily` reads the family back.
+  `captureSnapshot` takes `family` and `member` in place of `name` and returns the name it wrote;
+  `pruneSnapshots` takes the family and matches it exactly, so one family's prune can no longer remove
+  another family's snapshots whose names merely started with the same text.
 
 ### Changed
 

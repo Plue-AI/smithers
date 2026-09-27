@@ -1978,17 +1978,23 @@ describe("MicrosandboxSandbox snapshots", () => {
       const fake = fakeSdk()
       fake.plant("prepared", ownership("installation-a", "host"))
       fake.plant("parked", ownership("installation-a", "host"), "stopped")
-      expect(yield* MicrosandboxSandbox.hasSnapshot(fake.sdk, "base-1")).toBe(false)
-      yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", name: "base-1" })
-      yield* MicrosandboxSandbox.captureSnapshot({
-        sdk: fake.sdk,
-        machine: "parked",
-        name: "base-2",
-        stopTimeoutMs: 1_000
-      })
-      expect(yield* MicrosandboxSandbox.hasSnapshot(fake.sdk, "base-1")).toBe(true)
+      expect(yield* MicrosandboxSandbox.hasSnapshot(fake.sdk, "base.1")).toBe(false)
+      expect(
+        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", family: "base", member: "1" })
+      )
+        .toBe("base.1")
+      expect(
+        yield* MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "parked",
+          family: "base",
+          member: "2",
+          stopTimeoutMs: 1_000
+        })
+      ).toBe("base.2")
+      expect(yield* MicrosandboxSandbox.hasSnapshot(fake.sdk, "base.1")).toBe(true)
       expect(fake.recorded.stops).toEqual(["prepared"])
-      expect(fake.snapshots.get("base-1")?.source).toBe("prepared")
+      expect(fake.snapshots.get("base.1")?.source).toBe("prepared")
       expect([...fake.machines.keys()]).toEqual([])
       expect(fake.recorded.destroys).toEqual([
         { name: "prepared", timeoutMs: 30_000, force: true },
@@ -2004,49 +2010,96 @@ describe("MicrosandboxSandbox snapshots", () => {
       })
       fake.plant("prepared", ownership("installation-a", "host"))
       const captured = yield* Effect.flip(
-        MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", name: "base-1" })
+        MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", family: "base", member: "1" })
       )
-      expect(captured.message).toBe("microsandbox: the microVM prepared could not be captured as base-1")
+      expect(captured.message).toBe("microsandbox: the microVM prepared could not be captured as base.1")
       expect(fake.machines.has("prepared")).toBe(false)
-      const read = yield* Effect.flip(MicrosandboxSandbox.hasSnapshot(fake.sdk, "base-1"))
-      expect(read).toMatchObject({ code: "unavailable", message: "microsandbox: snapshot base-1 could not be read" })
+      const read = yield* Effect.flip(MicrosandboxSandbox.hasSnapshot(fake.sdk, "base.1"))
+      expect(read).toMatchObject({ code: "unavailable", message: "microsandbox: snapshot base.1 could not be read" })
+    }))
+
+  it.effect("refuses a family and member that do not name exactly one family's snapshot, and keeps the machine", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      for (const [family, member] of [["base", "1.2"], ["", "1"], ["base", ""]] as const) {
+        const refused = yield* Effect.flip(
+          MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", family, member })
+        )
+        expect(refused.code).toBe("unavailable")
+        expect(refused.message).toContain(
+          `family ${JSON.stringify(family)} and member ${JSON.stringify(member)} do not name`
+        )
+      }
+      expect(fake.machines.has("prepared")).toBe(true)
+      expect(fake.recorded.stops).toEqual([])
+      expect(MicrosandboxSandbox.snapshotName("base", "1.2")).toBeUndefined()
+      expect(MicrosandboxSandbox.snapshotName("smthrs-env.repo", "1")).toBe("smthrs-env.repo.1")
+      expect(MicrosandboxSandbox.snapshotFamily("smthrs-env.repo.1")).toBe("smthrs-env.repo")
+      expect(MicrosandboxSandbox.snapshotFamily("base")).toBeUndefined()
+      expect(MicrosandboxSandbox.snapshotFamily(".1")).toBeUndefined()
+      expect(MicrosandboxSandbox.snapshotFamily("base.")).toBeUndefined()
     }))
 
   it.effect("removes one snapshot, and one already gone, and names a removal that fails", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
       fake.plant("base", ownership("installation-a", "host"))
-      yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "base", name: "base" })
-      yield* MicrosandboxSandbox.removeSnapshot(fake.sdk, "base")
-      expect(fake.snapshots.has("base")).toBe(false)
-      yield* MicrosandboxSandbox.removeSnapshot(fake.sdk, "base")
+      yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "base", family: "base", member: "1" })
+      yield* MicrosandboxSandbox.removeSnapshot(fake.sdk, "base.1")
+      expect(fake.snapshots.has("base.1")).toBe(false)
+      yield* MicrosandboxSandbox.removeSnapshot(fake.sdk, "base.1")
       const broken = {
         ...fake.sdk,
         Snapshot: { ...fake.sdk.Snapshot, remove: () => Promise.reject("index locked") }
       }
-      const failure = yield* Effect.flip(MicrosandboxSandbox.removeSnapshot(broken, "base"))
+      const failure = yield* Effect.flip(MicrosandboxSandbox.removeSnapshot(broken, "base.1"))
       expect(failure).toMatchObject({
         code: "unavailable",
-        message: "microsandbox: snapshot base could not be removed"
+        message: "microsandbox: snapshot base.1 could not be removed"
       })
     }))
 
   it.effect("prunes a family down to its newest members and leaves every other snapshot", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
-      for (const name of ["fam-a", "fam-b", "fam-c", "other-a"]) {
-        fake.plant(name, ownership("installation-a", "host"))
-        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: name, name })
+      for (const [family, member] of [["fam", "a"], ["fam", "b"], ["fam", "c"], ["other", "a"]] as const) {
+        fake.plant(member, ownership("installation-a", "host"))
+        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: member, family, member })
       }
-      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "fam-", 1)).toEqual(["fam-b", "fam-a"])
-      expect([...fake.snapshots.keys()].sort()).toEqual(["fam-c", "other-a"])
-      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "other-", -1, ["other-a"])).toEqual([])
-      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "other-", -1)).toEqual(["other-a"])
+      fake.snapshots.set("fam", { name: "fam", createdAt: new Date(0), source: "bare" })
+      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "fam", 1)).toEqual(["fam.b", "fam.a"])
+      expect([...fake.snapshots.keys()].sort()).toEqual(["fam", "fam.c", "other.a"])
+      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "other", -1, ["other.a"])).toEqual([])
+      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "other", -1)).toEqual(["other.a"])
       const broken = {
         ...fake.sdk,
         Snapshot: { ...fake.sdk.Snapshot, list: () => Promise.reject(new Error("no index")) }
       }
-      const failure = yield* Effect.flip(MicrosandboxSandbox.pruneSnapshots(broken, "fam-", 1))
-      expect(failure.message).toBe("microsandbox: the snapshots named fam-* could not be pruned")
+      const failure = yield* Effect.flip(MicrosandboxSandbox.pruneSnapshots(broken, "fam", 1))
+      expect(failure.message).toBe("microsandbox: the snapshot family fam could not be pruned")
+    }))
+
+  it.effect("prunes one family and leaves another whose name extends it", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      for (
+        const [family, member] of [
+          ["smthrs-env-aaaa-repo", "old"],
+          ["smthrs-env-aaaa-repo", "new"],
+          ["smthrs-env-aaaa-repo-other", "keep"]
+        ] as const
+      ) {
+        fake.plant(member, ownership("installation-a", "host"))
+        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: member, family, member })
+      }
+      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "smthrs-env-aaaa-repo", 1)).toEqual([
+        "smthrs-env-aaaa-repo.old"
+      ])
+      expect([...fake.snapshots.keys()].sort()).toEqual(["smthrs-env-aaaa-repo-other.keep", "smthrs-env-aaaa-repo.new"])
+      expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "smthrs-env-aaaa-repo-other", 0)).toEqual([
+        "smthrs-env-aaaa-repo-other.keep"
+      ])
+      expect([...fake.snapshots.keys()]).toEqual(["smthrs-env-aaaa-repo.new"])
     }))
 })
