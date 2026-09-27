@@ -1,5 +1,6 @@
-/** The Smithers surface: every flow run, newest first, then the discovered flows. */
+/** The Smithers surface: the directory's apps, every flow run, newest first, then the discovered flows. */
 import type { Listed, Run } from "./flows.ts"
+import type * as Home from "./home.ts"
 import type * as Panels from "./panels.ts"
 
 const status = (run: Run): NonNullable<Panels.Row["status"]> =>
@@ -15,17 +16,25 @@ const text = (value: string | undefined): Array<Panels.Block> =>
 /** The panel id; the surface is `ui:smithers`, owned `plugin:smithers`. */
 export const id = "smithers"
 
-export const panel = (listed: ReadonlyArray<Listed>, runs: ReadonlyArray<Run>): Panels.Panel => {
+export const panel = (listed: ReadonlyArray<Listed>, runs: ReadonlyArray<Run>, apps: ReadonlyArray<Home.App> = []): Panels.Panel => {
   const newest = [...runs].sort((a, b) => b.startedAt - a.startedAt)
   const active = newest.filter((run) => {
     const shown = status(run)
     return shown === "running" || shown === "requested"
   })
+  const discovered = new Set(listed.map((flow) => flow.name))
   return {
     id,
     title: "Smithers",
-    summary: `${listed.length} flows · ${active.length} active`,
+    summary: `${apps.length === 0 ? "" : `${apps.length} apps · `}${listed.length} flows · ${active.length} active`,
     rows: [
+      // The apps the homepage declares (home.ts): the same list the app home shows as tiles. A row runs its flow when this directory discovers it.
+      ...apps.map((app) => ({
+        id: `app:${app.flow}`,
+        label: app.title,
+        details: text(app.flow),
+        ...(discovered.has(app.flow) ? { action: { label: app.title, action: { kind: "flow" as const, flow: app.flow } } } : {})
+      })),
       ...newest.map((run) => ({
         id: `run:${run.id}`,
         label: run.flow,

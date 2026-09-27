@@ -47,6 +47,7 @@ import * as Pickers from "./picker.ts"
 import * as Scrubber from "./scrubber.ts"
 import * as Session from "./session.ts"
 import * as Shell from "./shell.ts"
+import * as Home from "./home.ts"
 import * as Smithers from "./smithers.ts"
 import * as Steering from "./steering.ts"
 import * as Summary from "./summary.ts"
@@ -462,10 +463,11 @@ export function App(props: AppProps) {
     extensions.panels.some((each) => each.placement === "tab" && each.panel === panel)
   )
   const pluginTabs = pluginPanels.filter((panel) => surface === `ui:${panel.id}`)
-  // Built-in plugin: the Smithers surface, a `plugin:smithers` tab over the flow runs.
-  const smithersPanel = props.flows === undefined && flowRuns.length === 0
+  // Built-in plugin: the Smithers surface, a `plugin:smithers` tab over the directory's apps and the flow runs.
+  const homeApps = useMemo(() => Home.read(props.host.cwd), [props.host.cwd])
+  const smithersPanel = props.flows === undefined && flowRuns.length === 0 && homeApps.length === 0
     ? undefined
-    : Smithers.panel(runs.listed(), flowRuns)
+    : Smithers.panel(runs.listed(), flowRuns, homeApps)
   const smithersKey = smithersPanel === undefined ? "" : JSON.stringify(smithersPanel)
   useEffect(() => {
     contributions.plugin(
