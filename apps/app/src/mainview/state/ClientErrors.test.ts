@@ -242,6 +242,51 @@ describe("the client-error reporter", () => {
     expect(message).toContain("ClientErrors.test")
   })
 
+  test.each([
+    ["WebKit frames", "boot@https://smithers.sh/app.js:3:1584", "StorageError: another database may exist\nboot@https://smithers.sh/app.js:3:1584"],
+    ["Chromium heading", "StorageError: another database may exist\n    at boot (app.js:3:1584)", "StorageError: another database may exist\n    at boot (app.js:3:1584)"],
+    ["CRLF heading", "StorageError: another database may exist\r\n    at boot (app.js:3:1584)", "StorageError: another database may exist\r\n    at boot (app.js:3:1584)"],
+    ["heading without frames", "StorageError: another database may exist", "StorageError: another database may exist"],
+    ["empty stack", "", "StorageError: another database may exist"],
+    ["missing stack", undefined, "StorageError: another database may exist"]
+  ] as const)("errorMessage preserves the readable reason with %s", (_label, stack, expected) => {
+    const error = new Error("another database may exist")
+    error.name = "StorageError"
+    error.stack = stack
+    expect(errorMessage(error)).toBe(expected)
+  })
+
+  test("errorMessage keeps the full multiline reason before WebKit frames", () => {
+    const error = new Error("The app-events store exceeds the limit.\nDownload a recovery file.")
+    error.stack = "boot@https://smithers.sh/app.js:1:2"
+    expect(errorMessage(error)).toBe(`Error: ${error.message}\n${error.stack}`)
+    error.stack = `Error: ${error.message}\n    at boot (app.js:1:2)`
+    expect(errorMessage(error)).toBe(error.stack)
+  })
+
+  test("errorMessage preserves readable fields when the stack getter throws", () => {
+    const error = new Error("Could not open the database")
+    Object.defineProperty(error, "stack", { get() { throw new Error("cannot read stack") } })
+    expect(errorMessage(error)).toBe("Error: Could not open the database")
+  })
+
+  test("errorMessage preserves the stack when the message getter throws", () => {
+    const error = new Error("old message")
+    error.stack = "boot@https://smithers.sh/app.js:1:2"
+    Object.defineProperty(error, "message", { get() { throw new Error("cannot read message") } })
+    expect(errorMessage(error)).toBe("Error\nboot@https://smithers.sh/app.js:1:2")
+  })
+
+  test("errorMessage contains hostile non-Error conversions", () => {
+    expect(errorMessage(Object.create(null))).toBe("[object Object]")
+    expect(errorMessage({
+      [Symbol.toPrimitive]() { throw new Error("cannot stringify") },
+      get [Symbol.toStringTag]() { throw new Error("cannot label") }
+    })).toBe("Unknown error")
+    expect(errorMessage("plain rejection")).toBe("plain rejection")
+    expect(errorMessage(undefined)).toBe("undefined")
+  })
+
   test("reports a rejection reason that is not an Error at all", () => {
     const { sends, fetchImpl } = recordingFetch()
     createClientErrorReporter({ fetchImpl, pathname: () => "/" }).report(

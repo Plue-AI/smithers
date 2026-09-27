@@ -100,15 +100,20 @@ export interface ClientErrorReporter {
 }
 
 /*
- * A stack is the part worth reading, so it wins over the message when the
- * thrown value carries one. A rejection reason is frequently not an Error at
- * all — a string, a Response, undefined — and String() keeps those legible
- * rather than dropping them. Values with throwing conversion hooks fall back
- * to an object label, or a fixed label if even that conversion fails.
+ * Keep the reason and the stack: WebKit stacks contain only frames, while
+ * Chromium already includes the error heading. A rejection reason may not be
+ * an Error at all; String() keeps those values legible. Throwing field getters
+ * cost only their field, and hostile conversions fall back to a safe label.
  */
 export const errorMessage = (error: unknown): string => {
   try {
-    return error instanceof Error ? (error.stack ?? error.message) : String(error)
+    if (!(error instanceof Error)) return String(error)
+    const { type, message, stack } = errorDetail(error)
+    const heading = type && message ? `${type}: ${message}` : message || type
+    if (!heading) return stack || nonErrorLabel(error)
+    if (!stack) return heading
+    if (stack === heading || stack.startsWith(`${heading}\n`) || stack.startsWith(`${heading}\r\n`)) return stack
+    return `${heading}\n${stack}`
   } catch {
     return nonErrorLabel(error)
   }
