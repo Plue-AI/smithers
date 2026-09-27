@@ -18,7 +18,7 @@ import (
 // storage set. Git's public HTTP handler can be mounted separately.
 func NewLocalClient(handler http.Handler, authToken string, metrics ...RepoHostOperationDurationObserver) *Client {
 	client := NewClient(&StaticStorageSetResolver{URL: "http://repository.local"}, authToken, metrics...)
-	client.httpClient = &http.Client{Transport: &handlerTransport{handler: handler}}
+	client.httpClient = &http.Client{Transport: refusalTransport{next: &handlerTransport{handler: handler}}}
 	client.inProcess = true
 	return client
 }

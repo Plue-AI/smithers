@@ -248,6 +248,10 @@ func buildRouter(
 	if smithersMetrics != nil {
 		r.Use(middleware.HTTPMetrics(smithersMetrics))
 	}
+	// A dependency's own verdict (repo-host holding a repository) answers any
+	// generic server error its refusal caused, whichever route made the call,
+	// a panic's included.
+	r.Use(middleware.DependencyRefusals)
 	// Recovery must complete inside the metrics recorder so a panic's 500 is
 	// counted alongside ordinary responses.
 	r.Use(middleware.JSONRecoverer)

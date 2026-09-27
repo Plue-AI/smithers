@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	apierrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -390,7 +392,7 @@ func NewClient(resolver StorageSetResolver, authToken string, metrics ...RepoHos
 		authToken:   authToken,
 		readTimeout: defaultReadTimeout,
 		httpClient: &http.Client{
-			Transport: otelhttp.NewTransport(http.DefaultTransport),
+			Transport: refusalTransport{next: otelhttp.NewTransport(http.DefaultTransport)},
 		},
 	}
 	if len(metrics) > 0 {
@@ -469,6 +471,25 @@ func statusError(resp *http.Response) *StatusError {
 	}
 	retryAfter, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
 	return &StatusError{StatusCode: resp.StatusCode, Code: code, Message: upstream.Message, RetryAfter: max(retryAfter, 0)}
+}
+
+// refusalTransport records, on the calling request's context, repo-host's
+// refusal of a write to a held repository, whichever client call received it
+// and whatever the caller makes of the error: the product's error layer
+// answers with it (middleware.DependencyRefusals). It sees every response the
+// client gets, JSON and git alike.
+type refusalTransport struct{ next http.RoundTripper }
+
+func (t refusalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.next.RoundTrip(req)
+	if err == nil && resp.StatusCode == http.StatusServiceUnavailable && resp.Header.Get("X-Smithers-Error-Code") == RepositoryHeldCode {
+		refusal := apierrors.New(apierrors.CodeRepositoryHeld, "Repository is busy")
+		if retryAfter, _ := strconv.Atoi(resp.Header.Get("Retry-After")); retryAfter > 0 {
+			refusal.RetryAfter = retryAfter
+		}
+		apierrors.RecordRefusal(req.Context(), refusal)
+	}
+	return resp, err
 }
 
 func (e *StatusError) Error() string {

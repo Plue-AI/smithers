@@ -400,27 +400,10 @@ func (s *GitHTTPProxyService) authorize(ctx context.Context, userID int64, owner
 	return errors.Internal("failed to authorize repository access")
 }
 
-// heldRepositoryError is the API's answer to repo-host refusing a write to a
-// repository it holds, or nil when err is not that refusal.
-func heldRepositoryError(err error) *errors.APIError {
-	status, ok := repohost.IsStatusError(err)
-	if !ok || !status.Held() {
-		return nil
-	}
-	apiErr := errors.New(errors.CodeRepositoryHeld, status.Message)
-	if status.RetryAfter > 0 {
-		apiErr.RetryAfter = status.RetryAfter
-	}
-	return apiErr
-}
-
 // gitProxyFailure logs the repo-host error behind a failed git proxy call and
 // returns the sanitized 500 the client sees. Without the log the only trace of
 // a failed clone, fetch or push is a result=error metric with no cause.
 func gitProxyFailure(ctx context.Context, operation, owner, repo string, err error) error {
-	if held := heldRepositoryError(err); held != nil {
-		return held
-	}
 	middleware.LoggerFromContext(ctx).Error("git proxy to repo-host failed",
 		"operation", operation, "owner", owner, "repo", repo, "error", err)
 	return errors.Internal("failed to proxy git " + operation)

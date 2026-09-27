@@ -26,13 +26,6 @@ import (
 // the response body to avoid leaking internal implementation detail.
 func repohostErrToAPIErr(ctx context.Context, err error, fallbackMsg string) *errors.APIError {
 	if se, ok := repohost.IsStatusError(err); ok {
-		if se.Held() {
-			apiErr := errors.New(errors.CodeRepositoryHeld, se.Message)
-			if se.RetryAfter > 0 {
-				apiErr.RetryAfter = se.RetryAfter
-			}
-			return apiErr
-		}
 		switch se.StatusCode {
 		case http.StatusNotFound:
 			msg := se.Message

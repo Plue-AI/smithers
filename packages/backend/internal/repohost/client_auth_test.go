@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	apierrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,5 +75,32 @@ func TestClient_ProxyReceivePack_HeldRepository(t *testing.T) {
 		assert.True(t, status.Held())
 		assert.Equal(t, 5, status.RetryAfter)
 		assert.Equal(t, "repository maintenance is finishing; retry in 5s", status.Message)
+	}
+}
+
+// The client records a held refusal on its caller's context from any call,
+// with repo-host's Retry-After or the registry's.
+func TestClient_RecordsHeldRefusalOnTheCallersContext(t *testing.T) {
+	t.Parallel()
+	for _, retryAfter := range []string{"7", ""} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if retryAfter != "" {
+				w.Header().Set("Retry-After", retryAfter)
+			}
+			w.Header().Set("X-Smithers-Error-Code", RepositoryHeldCode)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		client := NewClient(&StaticStorageSetResolver{URL: server.URL}, "test-token")
+		ctx := apierrors.WithRefusalRecorder(context.Background())
+		require.Error(t, client.ImportRefs(ctx, "alice", "demo"))
+		refusal := apierrors.RecordedRefusal(ctx)
+		require.NotNil(t, refusal)
+		assert.Equal(t, apierrors.CodeRepositoryHeld, refusal.Code)
+		if retryAfter == "7" {
+			assert.Equal(t, 7, refusal.RetryAfter)
+		} else {
+			assert.Equal(t, 5, refusal.RetryAfter)
+		}
+		server.Close()
 	}
 }

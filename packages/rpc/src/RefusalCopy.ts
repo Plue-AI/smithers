@@ -227,6 +227,13 @@ const SOURCE_NOT_CONFIRMED_AGENT =
  * code that is not one of plue's does not compile.
  */
 const BY_CODE: Partial<Record<PlueFailureCode, Partial<RefusalCopyRow>>> = {
+  /* repo-host refuses writes to a repository it holds for a few seconds; the app retries. */
+  repository_held: {
+    lead: "Repository is busy, retrying.",
+    agent:
+      "fault=wait: the repository refuses writes for a few seconds while maintenance finishes; reads still work. Nothing was changed. Retry after the server's Retry-After; do not tell the user they did anything wrong.",
+    doors: ["retry"]
+  },
   /* The account is at its sandbox plan limit: the way out is an upgrade, never a retry. */
   plan_limit_exceeded: {
     lead: "Your plan is at its sandbox limit.",
