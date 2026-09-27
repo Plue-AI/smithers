@@ -15,8 +15,8 @@ export default showcase({
   id: "agent-sessions",
   order: 107,
   title: "Agent sessions",
-  summary: "A Claude session on Smithers Cloud streams into its card; follow up, stop, list.",
-  flows: ["agent.session.new", "card.maximize", "agent.session.say", "agent.session.stop", "agent.session.list", "agent.session.view"],
+  summary: "A Claude session on Smithers Cloud streams into its subagent card; follow up, stop, list.",
+  flows: ["agent.session.new", "tab.card", "agent.session.say", "agent.session.stop", "agent.session.list", "agent.session.view"],
   run: async ({ page, app, backend }) => {
     let status = "active"
     const messages = [text(41, "user", 1, TASK)]
@@ -60,17 +60,21 @@ export default showcase({
     await app.open("/")
     await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
     await app.slash(`/agent.session.new ${REPO} claude ${TASK}`)
-    const card = page.locator('[data-kind="agent"][data-testid*="0c3d0c6e"], [data-kind="agent"]').last()
-    await expect(card.getByTestId("agent-session-header")).toContainText("claude · active")
+    // In chat the session is its subagent card; opening it shows the session's own tab.
+    const grid = page.getByTestId(`subagent-agent-session-${ID}`)
+    await expect(grid).toContainText(TASK)
     await app.closeComposer()
-    await app.show(card)
-    await app.maximize(card)
-    await expect(card.getByTestId("agent-session-transcript")).toContainText("retryLane", { timeout: 15_000 })
+    await app.show(grid)
+    await expect(grid.locator(".subagent-activity")).toContainText("retryLane", { timeout: 15_000 })
+    await app.beat(1000)
+    await app.click(grid)
+    const card = page.getByTestId(`card-agent-session-${ID}`)
+    await expect(page.getByTestId("subagent-crumb").filter({ visible: true })).toContainText(`Subagent · ${TASK}`)
+    await expect(card.getByTestId("agent-session-header")).toContainText("claude · active")
     await app.beat(1000)
 
     await app.slash(`/agent.session.say ${ID} Also cover a lane retried twice`)
     await app.closeComposer()
-    if (await card.getAttribute("data-maximized") !== "true") await app.maximize(card)
     await expect(card.getByTestId("agent-session-transcript")).toContainText("bun test src/mainview", { timeout: 15_000 })
     await app.beat(1000)
 
@@ -78,18 +82,19 @@ export default showcase({
     await expect(card.getByTestId("agent-session-header")).toContainText("cancelled", { timeout: 10_000 })
     await expect(page.locator('.toast[data-toast-status="failed"]')).toHaveCount(0)
     await app.beat(900)
-    if (await card.getAttribute("data-maximized") === "true") await app.click(card.getByRole("button", { name: "Restore" }))
+    // ctrl+y is the breadcrumb's Back to the conversation.
+    await page.keyboard.press("Control+y")
+    await expect(grid.locator(".subagent-clock")).toContainText("Stopped")
+    await expect(page.getByTestId("transcript")).toContainText(`◉ ${TASK} finished`)
 
     await app.slash(`/agent.session.list ${REPO}`)
     await expect(page.getByTestId("transcript")).toContainText("Tighten stack lane seats")
     await app.closeComposer()
     await app.beat(900)
     await app.click(page.locator(`[data-session="${OLDER}"]`).getByRole("button", { name: "Open", exact: true }))
-    const older = page.locator('[data-kind="agent"]').filter({ hasText: OLDER }).last()
-    await expect(older).toContainText("completed")
-    await app.closeComposer()
+    const older = page.getByTestId(`subagent-agent-session-${OLDER}`)
+    await expect(older.locator(".subagent-clock")).toContainText("Done")
     await app.show(older)
-    await app.maximize(older)
-    await expect(older.getByTestId("agent-session-transcript")).toContainText("Seats now show the model")
+    await expect(older.locator(".subagent-activity")).toContainText("Seats now show the model")
   }
 })

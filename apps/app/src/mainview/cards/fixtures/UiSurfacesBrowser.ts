@@ -6,7 +6,8 @@ import { createAppStore } from "../../state/AppStore"
 import { createAppController } from "../../state/AppController"
 import { silentAgent } from "../../state/TestFixtures"
 import type { FlowName } from "../../flows/FlowName"
-import { fixtureCards } from "./UiSurfaces"
+import { SubagentBatch, SubagentFinished } from "../../SubagentGrid"
+import { fixtureCards, fixtureSubagents } from "./UiSurfaces"
 
 /*
  * The surfaces smithers-ui-DESIGN.md extends, mounted as the real card shell
@@ -45,6 +46,8 @@ const run = (name: FlowName, args?: string) => {
   })
 }
 const noop = () => {}
+// The subagent grid (#2162) as the chat draws it: header, cards, and the finished row.
+const subagents = fixtureSubagents(Date.now())
 const root = createRoot(document.getElementById("fixture")!)
 const render = () => {
   const cards = fixtureCards().map((seed) => store.collections.cards.get(seed.id) ?? seed).filter((card) => only === null || card.id === only)
@@ -53,6 +56,9 @@ const render = () => {
       key: card.id, card, maximized: false, onMaximize: noop, onMinimize: noop, onOpenInTab: noop,
       onDecideApproval: (id: string, decision: string) => commands.push({ name: "approval.approve" as FlowName, args: `${id} ${decision}` }),
       onRunCommand: run, onConnectGitHub: noop, worldDocuments: [], signedOut: false, projectionStore: store
-    } as unknown as CardViewProps))))
+    } as unknown as CardViewProps)),
+    ...(only === null || only === "subagents" ? [createElement("div", { key: "subagents", "data-testid": "subagents" },
+      createElement(SubagentBatch, { items: subagents, onRunCommand: run }),
+      createElement(SubagentFinished, { subagent: subagents[2]!.subagent, color: subagents[2]!.color }))] : [])))
 }
 render()
