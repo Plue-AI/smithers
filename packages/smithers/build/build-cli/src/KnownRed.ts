@@ -28,8 +28,9 @@
  * ```
  *
  * `platforms` is optional and matches `process.platform`; omitted, the entry
- * applies on every platform. `expires` is the last day, in UTC, the entry
- * holds.
+ * applies on every platform. `issue` is required: a muted failure is tracked
+ * work, so every entry names the issue that will clear it. `expires` is the
+ * last day, in UTC, the entry holds.
  *
  * @since 1.0.0
  */
@@ -48,7 +49,7 @@ export interface Entry {
   readonly platforms?: ReadonlyArray<string> | undefined
   readonly owner: string
   readonly reason: string
-  readonly issue?: string | undefined
+  readonly issue: string
   readonly expires: string
 }
 
@@ -143,7 +144,7 @@ export const parse = (source: string, content: string): ReadonlyArray<Entry> => 
       ...(platforms === undefined ? {} : { platforms }),
       owner: text(row.owner, "owner", at),
       reason: text(row.reason, "reason", at),
-      ...(row.issue === undefined ? {} : { issue: text(row.issue, "issue", at) }),
+      issue: text(row.issue, "issue", at),
       expires
     }
   })

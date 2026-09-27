@@ -6,7 +6,8 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): many suites; not yet split by cause. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
       "expires": "2026-10-10"
     },
     {
@@ -15,7 +16,8 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): agent sessions end without a completed answer (HarnessError after 1 frame). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
       "expires": "2026-10-10"
     },
     {
@@ -24,7 +26,8 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): not yet triaged. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
       "expires": "2026-10-10"
     },
     {
@@ -33,7 +36,8 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): Go toolchain and Docker executions the Windows runner cannot provide. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
       "expires": "2026-10-10"
     },
     {
@@ -42,8 +46,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): line coverage 99.36% under the 100% gate (POSIX-only branches). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-07"
     },
     {
       "label": "//packages/smithers/build/targets:test",
@@ -51,7 +56,8 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): not yet triaged. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
       "expires": "2026-10-10"
     },
     {
@@ -60,7 +66,8 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): CacheEnvironmentOption: the second run misses the step cache. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
       "expires": "2026-10-10"
     },
     {
@@ -69,8 +76,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-03"
     },
     {
       "label": "//packages/smithers/flows/artifacts:test",
@@ -78,8 +86,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-03"
     },
     {
       "label": "//packages/smithers/flows/database:test",
@@ -87,8 +96,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): NodeDatabaseGuard expects POSIX private file modes. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-07"
     },
     {
       "label": "//packages/smithers/flows/engine-store:test",
@@ -96,8 +106,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the artifact store cannot serve workspace transactions (same fsync refusal). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-03"
     },
     {
       "label": "//packages/smithers/flows/jj:test",
@@ -105,8 +116,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): EPERM renaming inside .jj while a process holds it. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-07"
     },
     {
       "label": "//packages/smithers/flows/platform-bun:bunTest",
@@ -114,8 +126,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-03"
     },
     {
       "label": "//packages/smithers/flows/platform-bun:test",
@@ -123,8 +136,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-03"
     },
     {
       "label": "//packages/smithers/flows/sandbox:bunTest",
@@ -132,8 +146,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): sandbox fs open reports os error 2 for Windows paths. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-07"
     },
     {
       "label": "//packages/smithers/flows/sandbox:test",
@@ -141,8 +156,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): spawn sh ENOENT: suites assume a POSIX shell. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-07"
     },
     {
       "label": "//packages/smithers/mcp:test",
@@ -150,7 +166,8 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): RealServer: closing the server's stdin does not fail the pending call. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
       "expires": "2026-10-10"
     },
     {
@@ -159,8 +176,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): EPERM on fchmod. Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-07"
     },
     {
       "label": "//packages/testing:test",
@@ -168,8 +186,9 @@
         "win32"
       ],
       "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
+      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): HostSuite dangling-symlink refusal (symlinks need privilege on Windows). Windows is an advisory lane.",
+      "issue": "https://github.com/smithersai/smithers/issues/1974",
+      "expires": "2026-10-07"
     }
   ]
 }

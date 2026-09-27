@@ -17,6 +17,7 @@ const entry = (label: string, extra: Partial<KnownRed.Entry> = {}): KnownRed.Ent
   label,
   owner: "will",
   reason: "red since the fixture was written",
+  issue: "https://github.com/smithersai/smithers/issues/1",
   expires: "2026-10-09",
   ...extra
 })
@@ -42,13 +43,13 @@ describe("KnownRed.parse", () => {
       "list.json",
       JSON.stringify({
         entries: [
-          { label: "//a:test", owner: "o", reason: "r", expires: "2026-10-09" },
+          { label: "//a:test", owner: "o", reason: "r", expires: "2026-10-09", issue: "#1" },
           { label: "//b:test", owner: "o", reason: "r", expires: "2026-10-09", platforms: ["win32"], issue: "#1" }
         ]
       })
     )
     expect(entries).toEqual([
-      { label: "//a:test", owner: "o", reason: "r", expires: "2026-10-09" },
+      { label: "//a:test", owner: "o", reason: "r", expires: "2026-10-09", issue: "#1" },
       { label: "//b:test", owner: "o", reason: "r", expires: "2026-10-09", platforms: ["win32"], issue: "#1" }
     ])
   })
@@ -66,17 +67,25 @@ describe("KnownRed.parse", () => {
     [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", platforms: [] }] }), /non-empty array/],
     [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", platforms: "linux" }] }), /non-empty array/],
     [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", platforms: [1] }] }), /platforms\[0\]/],
-    [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", reason: "r" }] }), /"owner"/],
+    [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", reason: "r", issue: "#1" }] }), /"owner"/],
     [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", owner: "o" }] }), /"reason"/],
     [
       JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r", issue: 7 }] }),
       /"issue"/
     ],
+    [JSON.stringify({ entries: [{ label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r" }] }), /"issue"/],
     [
       JSON.stringify({
         entries: [
-          { label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r", platforms: ["linux", "win32"] },
-          { label: "//a:t", expires: "2026-10-10", owner: "o", reason: "r", platforms: ["win32", "linux"] }
+          {
+            label: "//a:t",
+            expires: "2026-10-09",
+            owner: "o",
+            reason: "r",
+            platforms: ["linux", "win32"],
+            issue: "#1"
+          },
+          { label: "//a:t", expires: "2026-10-10", owner: "o", reason: "r", platforms: ["win32", "linux"], issue: "#1" }
         ]
       }),
       /duplicate entry for \/\/a:t/
@@ -90,8 +99,8 @@ describe("KnownRed.parse", () => {
       "list.json",
       JSON.stringify({
         entries: [
-          { label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r", platforms: ["win32"] },
-          { label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r" }
+          { label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r", platforms: ["win32"], issue: "#1" },
+          { label: "//a:t", expires: "2026-10-09", owner: "o", reason: "r", issue: "#1" }
         ]
       })
     )

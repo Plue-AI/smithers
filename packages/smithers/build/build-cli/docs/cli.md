@@ -61,7 +61,7 @@ for required tools and possible host and cache writes.
 ### Known-red targets
 
 `--known-red <file>` names a JSON list of targets that already fail, each with
-an owner, a reason, and a last day. The command still runs and reports those
+an owner, a reason, the issue that tracks the fix, and a last day. The command still runs and reports those
 targets. It exits nonzero when a target outside the list fails, when a
 listed target fails after its `expires` day, or when a target outside the list
 is skipped because a dependency failed: an entry excuses its own failure, not
