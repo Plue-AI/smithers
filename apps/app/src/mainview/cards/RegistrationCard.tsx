@@ -7,7 +7,6 @@
  * so the same recorded answers animate again, launching nothing.
  */
 import { Button } from "@smthrs/ui"
-import { Plus } from "lucide-react"
 import type { CSSProperties, ReactNode } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { flowArgs } from "../flows/FlowArgs"
@@ -50,14 +49,13 @@ const Question = ({ label, options, chosen, index }: {
   </div>
 )
 
-const Tile = ({ label, aside, index, wide, children }: {
+const Tile = ({ label, aside, index, children }: {
   readonly label: string
   readonly aside?: ReactNode
   readonly index: number
-  readonly wide?: boolean
   readonly children: ReactNode
 }) => (
-  <section className={wide ? "registration-tile registration-wide" : "registration-tile"} style={delay(index)}>
+  <section className="registration-tile" style={delay(index)}>
     <div className="registration-label registration-tile-head">
       <span>{label}</span>
       {aside === undefined ? null : <span>{aside}</span>}
@@ -65,6 +63,26 @@ const Tile = ({ label, aside, index, wide, children }: {
     {children}
   </section>
 )
+
+/** What to fix, and the one clear action that asks Smithers to fix it. */
+const Fixes = ({ items, mono, prompt, repo, onRunCommand }: {
+  readonly items: ReadonlyArray<string>
+  readonly mono?: boolean
+  readonly prompt: string
+  readonly repo: string
+  readonly onRunCommand: RunCommand
+}) =>
+  items.length === 0 ? null : (
+    <>
+      <ul className={mono ? "registration-fixes registration-mono" : "registration-fixes"}>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
+      <Button size="sm" variant="solid" className="registration-fix"
+        {...flowAction(onRunCommand, "change.request", flowArgs("change.request", { prompt: `Fix: ${prompt}`, repo }))}>
+        Fix with Smithers
+      </Button>
+    </>
+  )
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
@@ -80,7 +98,7 @@ const Tiles = ({ report, repo, stagger, onRunCommand }: {
   if (commits !== undefined && commits.total > 0) {
     const peak = Math.max(1, ...commits.weeks.map((week) => week.people + week.agents))
     tiles.push(
-      <Tile key="commits" label="Commits · 12 weeks" index={next()} wide>
+      <Tile key="commits" label="Commits · 12 weeks" index={next()}>
         <div className="registration-bars" role="img" aria-label={`${commits.total} commits in 12 weeks`}>
           {commits.weeks.map((week) => (
             <i key={week.start} style={{ height: `${((week.people + week.agents) / peak) * 100}%` }}>
@@ -124,14 +142,12 @@ const Tiles = ({ report, repo, stagger, onRunCommand }: {
       <Tile key="readiness" label="Agent readiness" aside={`Level ${readiness.level}`} index={next()}>
         <div className="registration-big">{readiness.score}</div>
         <div className="registration-meter"><i style={{ width: `${readiness.score}%` }} /></div>
-        {readiness.fixes.map((fix) => (
-          <div key={fix.title} className="registration-fix">
-            <span>{fix.title}</span>
-            <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "change.request", flowArgs("change.request", { prompt: fix.title, repo }))}>
-              Fix with Smithers
-            </Button>
-          </div>
-        ))}
+        <Fixes
+          items={readiness.fixes.map((fix) => fix.title)}
+          prompt={readiness.fixes.map((fix) => fix.title).join("; ")}
+          repo={repo}
+          onRunCommand={onRunCommand}
+        />
       </Tile>
     )
   }
@@ -148,35 +164,25 @@ const Tiles = ({ report, repo, stagger, onRunCommand }: {
   }
   const cleanup = report.cleanup
   if (cleanup !== undefined) {
+    const where = (cause: typeof cleanup.causes[number]) =>
+      cause.location === null ? cause.signal : `${cause.location.path}:${cause.location.line}`
     tiles.push(
-      <Tile key="cleanup" label="Cleanups" index={next()}>
+      <Tile key="cleanup" label="Cleanups" aside={cleanup.status === "scored" ? `${cleanup.causes.length} to fix` : undefined} index={next()}>
         {cleanup.status === "insufficient"
           ? <div className="registration-sub">Insufficient data</div>
           : (
             <>
               <div className="registration-big">
                 {cleanup.score}
-                <span className="registration-sub"> / 100 ({cleanup.low}–{cleanup.high})</span>
+                <span className="registration-sub">/100 ({cleanup.low}–{cleanup.high})</span>
               </div>
-              <div className="registration-sub">{cleanup.causes.length} to fix</div>
-              {cleanup.causes.map((cause) => {
-                const where = cause.location === null ? undefined : `${cause.location.path}:${cause.location.line}`
-                return (
-                  <div key={cause.signal} className="registration-fix">
-                    <span className="registration-mono">{where ?? cause.signal}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      {...flowAction(onRunCommand, "change.request", flowArgs("change.request", {
-                        prompt: `Clean up ${cause.count} ${cause.signal.replace("-", " ")} findings${where === undefined ? "" : `, starting at ${where}`}`,
-                        repo
-                      }))}
-                    >
-                      Fix with Smithers
-                    </Button>
-                  </div>
-                )
-              })}
+              <Fixes
+                items={cleanup.causes.map(where)}
+                mono
+                prompt={cleanup.causes.map((cause) => `${cause.count} ${cause.signal.replace("-", " ")} findings, starting at ${where(cause)}`).join("; ")}
+                repo={repo}
+                onRunCommand={onRunCommand}
+              />
             </>
           )}
       </Tile>
@@ -226,10 +232,6 @@ export const RegistrationCardBody = ({ card, onRunCommand }: {
       className="registration"
       style={report.theme?.colors[0] === undefined ? undefined : { "--registration-brand": report.theme.colors[0] } as CSSProperties}
     >
-      <div className="registration-head">
-        <span className="registration-icon"><Plus size={18} /></span>
-        <b>Register a repository</b>
-      </div>
       <div className="registration-link">
         <span className="registration-input registration-mono">{link}</span>
         <span className="registration-go">{status}</span>
@@ -255,6 +257,7 @@ export const RegistrationCardBody = ({ card, onRunCommand }: {
 export const registrationCardFamily: CardFamily<"registration"> = {
   registration: {
     render: (card, actions) => <RegistrationCardBody card={card} onRunCommand={actions.onRunCommand} />,
-    pill: (card) => card.payload.phase === "failed" ? "failed" : "running"
+    // The status word shows once, on the link row and the status row; the header carries only the title.
+    pill: () => ""
   }
 }
