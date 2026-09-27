@@ -343,7 +343,8 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 		require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: fmt.Sprintf("Issue %d", number),
 			State: "open", AuthorAssociation: "MEMBER"}, ""))
 	}
-	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 3 WHERE repository_id = $1`, o.repoID)
+	// Four lanes: one stays reserved for direct chat work, so three issues run.
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
 	stack := o.wake()
 	oldTip := stack.TipCommit
