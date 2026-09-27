@@ -7,8 +7,11 @@ Use "approval"
 Type "Fix the addition function."
 Press Enter
 Wait for "y allow"
+Wait 500 ms
 Capture "The edit waits for approval."
 Expect file "math.js" contains "a - b"
+Press y
+Wait 700 ms
 Press y
 Wait for answer "Edit request settled."
 Expect file "math.js" contains "a + b"
@@ -20,6 +23,7 @@ Use "approval"
 Type "Fix the addition function."
 Press Enter
 Wait for "y allow"
+Wait 500 ms
 Press n
 Wait 500 ms
 Press Escape
