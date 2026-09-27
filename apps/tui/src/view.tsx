@@ -12,8 +12,11 @@ import type * as Extension from "./extension.ts"
 import * as Keys from "./keys.ts"
 import type * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
+import type * as Tabs from "./tabs.ts"
 import { color, mix, syntax } from "./theme.ts"
+import type * as Toasts from "./toasts.ts"
 import * as Transcript from "./transcript.ts"
+import type { Tab } from "./workspace.ts"
 
 type Cell = Extract<Transcript.Item, { kind: "cell" }>
 type ShellItem = Extract<Transcript.Item, { kind: "shell" }>
@@ -332,22 +335,6 @@ export function StatusItems(props: {
           {item.text}
         </text>
       ))}
-    </box>
-  )
-}
-
-/** A worker's rows in the chat: a rail in its lane color, titled where the lane starts. */
-export function Lane(props: {
-  readonly id?: string
-  readonly title: string
-  readonly tone: string
-  readonly first: boolean
-  readonly children: ReactNode
-}) {
-  return (
-    <box id={props.id} style={{ border: ["left"], paddingLeft: 1 }} borderColor={props.tone} customBorderChars={bar}>
-      {props.first ? <text fg={props.tone} style={{ marginBottom: 1 }}>↳ {props.title}</text> : null}
-      {props.children}
     </box>
   )
 }
@@ -761,14 +748,16 @@ export function Approval(
   )
 }
 
-/** Toasts stack right-aligned above the composer, like the app's toast stack, and never cover content. */
+/**
+ * Toasts stack right-aligned above the composer, like the app's toast stack,
+ * and never cover content. A worker's toast carries its card's Stop and Steer.
+ */
 export function ToastStack(
   props: {
-    readonly rows: ReadonlyArray<
-      { readonly id: string; readonly text: string; readonly tone: "info" | "warning" | "danger" }
-    >
+    readonly rows: ReadonlyArray<Toasts.Row>
     readonly height: number
     readonly compact: boolean
+    readonly onAction?: (tab: Tab, action: Tabs.ActionId) => void
   }
 ) {
   if (props.rows.length === 0) return null
@@ -791,8 +780,19 @@ export function ToastStack(
           borderColor={row.tone === "info" ? color.brand : color[row.tone]}
           customBorderChars={bar}
         >
-          <box style={{ paddingLeft: 1, paddingRight: 2 }} backgroundColor={color.element}>
+          <box style={{ flexDirection: "row", paddingLeft: 1, paddingRight: 2 }} backgroundColor={color.element}>
             <text fg={color.text}>{row.text}</text>
+            {row.worker?.actions.map((action) => (
+              <text
+                key={action.id}
+                wrapMode="none"
+                fg={action.id === "stop" ? color.danger : color.info}
+                style={{ marginLeft: 2, flexShrink: 0 }}
+                onMouseDown={() => props.onAction?.(row.worker!.tab, action.id)}
+              >
+                {action.label}
+              </text>
+            ))}
           </box>
         </box>
       ))}

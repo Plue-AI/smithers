@@ -17,6 +17,7 @@ export type KeyContext =
   | "selection"
   | "completion"
   | "card"
+  | "overview"
 
 export interface Binding {
   readonly id: string
@@ -48,6 +49,7 @@ export const registry: ReadonlyArray<Binding> = [
   // Ctrl+Left/Right stay as aliases; macOS takes them for Spaces by default.
   { id: "next-tab", keys: ["ctrl+]", "ctrl+right"], label: "Next tab", context: "global", group: "Tabs" },
   { id: "previous-tab", keys: ["ctrl+\\", "ctrl+left"], label: "Previous tab", context: "global", group: "Tabs" },
+  { id: "parent", keys: ["ctrl+y"], label: "Back", context: "global", group: "Tabs" },
   { id: "scroll", keys: ["pageup", "pagedown"], label: "Scroll", context: "global", group: "Global" },
   {
     id: "scroll-line",
@@ -104,7 +106,6 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "worker-wait", keys: ["w"], label: "Wait for reset", context: "panel", group: "Panel" },
   { id: "stop", keys: ["x"], label: "Stop", context: "panel", group: "Panel" },
   { id: "steer-worker", keys: ["s"], label: "Steer", context: "panel", group: "Panel" },
-  { id: "worker-chat", keys: ["c"], label: "Open in chat", context: "panel", group: "Panel" },
   { id: "approve-form", keys: ["a"], label: "Action", context: "panel", group: "Panel" },
   { id: "undo", keys: ["u"], label: "Undo changes", context: "panel", group: "Panel" },
   { id: "next-panel-tab", keys: ["tab"], label: "Next tab", context: "panel", group: "Tabs" },
@@ -165,13 +166,27 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "open-card", keys: ["enter"], label: "Open", context: "card", group: "Cards" },
   {
     id: "card-move",
-    keys: ["up", "down", "tab", "shift+tab"],
-    display: "up/down",
-    label: "Next card",
+    keys: ["up", "down", "left", "right", "tab", "shift+tab"],
+    display: "↑↓←→",
+    label: "Card",
     context: "card",
     group: "Cards"
   },
-  { id: "close-card", keys: ["esc"], label: "Composer", context: "card", group: "Cards" }
+  { id: "card-files", keys: ["f"], label: "Files", context: "card", group: "Cards" },
+  { id: "close-card", keys: ["esc"], label: "Composer", context: "card", group: "Cards" },
+
+  { id: "overview-pane", keys: ["tab"], label: "Pane", context: "overview", group: "Summary" },
+  {
+    id: "overview-move",
+    keys: ["up", "down", "left", "right", "h", "j", "k", "l"],
+    display: "↑↓ hjkl",
+    label: "Move",
+    context: "overview",
+    group: "Summary"
+  },
+  { id: "overview-open", keys: ["enter"], label: "Open", context: "overview", group: "Summary" },
+  { id: "overview-files", keys: ["f"], label: "Files", context: "overview", group: "Summary" },
+  { id: "overview-close", keys: ["esc"], label: "Close", context: "overview", group: "Summary" }
 ]
 
 export interface KeyEventLike {
@@ -314,7 +329,8 @@ export const hintsFor = (context: KeyContext, list: ReadonlyArray<Binding> = reg
     approval: ["allow", "deny", "allow-all"],
     selection: ["selection-move", "selection-milestone", "selection-close"],
     completion: ["complete-move", "complete", "complete-run", "complete-close"],
-    card: ["open-card", "card-move", "close-card", "keys"]
+    card: ["card-move", "open-card", "close-card", "keys"],
+    overview: ["overview-pane", "overview-move", "overview-open", "overview-close"]
   }
   const available = bindingsFor(context, list)
   const builtIn = preferred[context].map((id) => available.find((binding) => binding.id === id)).filter(

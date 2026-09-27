@@ -1,6 +1,6 @@
 /**
- * The chat and every worker on one clock, filtered the way a log view is:
- * by source, by kind of row, and by text.
+ * The chat's rows, filtered the way a log view is: by kind of row and by
+ * text. Workers show as subagent cards (`subagents.ts`), never as rows here.
  */
 import type * as Transcript from "./transcript.ts"
 
@@ -16,42 +16,30 @@ export const kinds: ReadonlyArray<readonly [kind: Kind, label: string]> = [
   ["card", "Cards"]
 ]
 
-/** The chat's own source id; a worker's is its tab id. */
-export const chat = "chat"
-
-export interface Source {
-  readonly id: string
-  readonly transcript: Transcript.Transcript
-}
-
 export interface Row {
+  /** The row's element id: `chat:<item id>`. */
   readonly key: string
-  readonly source: string
   readonly item: Transcript.Item
   readonly at: number
 }
 
 /** What is hidden; the empty filter shows everything. */
 export interface Filter {
-  readonly sources: ReadonlyArray<string>
   readonly kinds: ReadonlyArray<Kind>
   readonly query: string
 }
 
-export const all: Filter = { sources: [], kinds: [], query: "" }
+export const all: Filter = { kinds: [], query: "" }
 
-export const active = (filter: Filter): boolean =>
-  filter.sources.length > 0 || filter.kinds.length > 0 || filter.query !== ""
+export const active = (filter: Filter): boolean => filter.kinds.length > 0 || filter.query !== ""
 
 const flip = <A>(values: ReadonlyArray<A>, value: A): ReadonlyArray<A> =>
   values.includes(value) ? values.filter((each) => each !== value) : [...values, value]
 
-export const toggleSource = (filter: Filter, source: string): Filter => ({
-  ...filter,
-  sources: flip(filter.sources, source)
-})
-
 export const toggleKind = (filter: Filter, kind: Kind): Filter => ({ ...filter, kinds: flip(filter.kinds, kind) })
+
+/** A chat item's row key. */
+export const key = (id: string): string => `chat:${id}`
 
 /** Everything a row says, for the text filter to match. */
 export const text = (item: Transcript.Item): string => {
@@ -73,40 +61,31 @@ export const text = (item: Transcript.Item): string => {
 }
 
 /**
- * Rows from every source, oldest first. An item keeps its source's order: its
- * time is never earlier than the item before it in the same source.
+ * The transcript's rows, oldest first. A row's time is never earlier than the
+ * row before it: an item without a time, or with a skewed one, keeps its place.
  */
-export const merge = (sources: ReadonlyArray<Source>, filter: Filter = all): ReadonlyArray<Row> => {
+export const rows = (transcript: Transcript.Transcript, filter: Filter = all): ReadonlyArray<Row> => {
   const query = filter.query.toLowerCase()
-  return sources
-    .filter((source) => !filter.sources.includes(source.id))
-    .flatMap((source) => {
-      let at = 0
-      return source.transcript.items.map((item) => {
-        at = Math.max(at, item.at ?? at)
-        return { key: `${source.id}:${item.id}`, source: source.id, item, at }
-      })
+  let at = 0
+  return transcript.items
+    .map((item) => {
+      at = Math.max(at, item.at ?? at)
+      return { key: key(item.id), item, at }
     })
     .filter((row) => !filter.kinds.includes(row.item.kind))
     .filter((row) => query === "" || text(row.item).toLowerCase().includes(query))
-    .sort((a, b) => a.at - b.at)
 }
 
-/** One view's merge cache: clock-only renders reuse rows without sorting again. */
-export const cached = (): typeof merge => {
-  let previous: ReadonlyArray<Source> = []
+/** One view's row cache: clock-only renders reuse rows without filtering again. */
+export const cached = (): typeof rows => {
+  let previous: Transcript.Transcript | undefined
   let selected: Filter | undefined
-  let rows: ReadonlyArray<Row> = []
-  return (sources, filter = all) => {
-    if (
-      selected === filter && sources.length === previous.length &&
-      sources.every((source, index) =>
-        source.id === previous[index]!.id && source.transcript === previous[index]!.transcript
-      )
-    ) return rows
-    previous = sources
+  let kept: ReadonlyArray<Row> = []
+  return (transcript, filter = all) => {
+    if (previous === transcript && selected === filter) return kept
+    previous = transcript
     selected = filter
-    rows = merge(sources, filter)
-    return rows
+    kept = rows(transcript, filter)
+    return kept
   }
 }

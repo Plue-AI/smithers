@@ -1,3 +1,4 @@
+import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { expect, test } from "bun:test"
 import type { Run } from "../src/flows.ts"
 import { rows } from "../src/toasts.ts"
@@ -15,7 +16,7 @@ const tab: Tab = {
 }
 const run: Run = { id: "flow", flow: "test", by: "user", input: {}, requested: "{}", status: "requested", startedAt: 0 }
 const project = (tabs: Tab[], runs: Run[], now: number) =>
-  rows({ tabs, runs, now, tick: "*", approvals: [], search: undefined, undoing: undefined, toast: undefined })
+  rows({ tabs, runs, now, tick: "*", search: undefined, undoing: undefined, toast: undefined })
 
 test("requests remain in the terminal stack through launch and execution", () => {
   expect(project([tab], [run], 299)).toHaveLength(0)
@@ -38,4 +39,17 @@ test("fast successful work stays quiet and visible successes expire after settle
   const runs = [{ ...run, status: "done" as const, endedAt: 1000 }]
   expect(project(tabs, runs, 4999)).toHaveLength(2)
   expect(project(tabs, runs, 5000)).toHaveLength(0)
+})
+
+test("a worker's toast says what its card says and offers the card's Stop and Steer", () => {
+  const running = { ...tab, status: "running" as const, agent: { name: "review" } }
+  const [row] = project([running], [], 42_150)
+  expect(row?.text).toBe(SubagentCard.toast({ ...running, title: "review: Work" }, 42_150).line)
+  expect(row?.text).toBe("◓ review: Work · 42s")
+  expect(row?.worker?.actions.map((action) => action.id)).toEqual(["stop", "steer"])
+  const [settled] = project([{ ...tab, status: "done", endedAt: 64_000 }], [], 65_000)
+  expect(settled?.text).toBe("● Work · Done 1m 04s")
+  expect(settled?.worker?.actions).toEqual([])
+  const [queued] = project([{ ...tab, status: "queued" }], [], 1_000)
+  expect(queued?.worker?.actions.map((action) => action.id)).toEqual(["stop"])
 })

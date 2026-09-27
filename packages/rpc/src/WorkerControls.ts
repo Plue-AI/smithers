@@ -21,7 +21,6 @@ export type Action =
   | "model"
   | "wait"
   | "steer"
-  | "open-chat"
   | "thinking"
   | "resume"
   | "inspect"
@@ -63,7 +62,6 @@ export const allowed = (action: Action, worker: {
       return worker.status === "waiting" || worker.status === "parked"
     case "approval":
       return worker.status === "waiting"
-    case "open-chat":
     case "inspect":
       return true
   }

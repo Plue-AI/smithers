@@ -11,8 +11,11 @@ import * as Editor from "./editor.ts"
 import type { Model } from "./models.ts"
 import { FailureCard } from "./panel-view.tsx"
 import * as Scrubber from "./scrubber.ts"
+import * as SubagentView from "./subagent-view.tsx"
+import * as Subagents from "./subagents.ts"
 import * as Tabs from "./tabs.ts"
 import { color } from "./theme.ts"
+import * as Timeline from "./timeline.ts"
 import * as Transcript from "./transcript.ts"
 import * as View from "./view.tsx"
 import type { Tab } from "./workspace.ts"
@@ -160,7 +163,10 @@ function Button(props: { readonly keys: string; readonly label: string; readonly
   )
 }
 
-/** A worker's tab: its status header, its actions, and its transcript in the chat's own cells. */
+/**
+ * A worker's tab: the way back to its parent, its status header and actions,
+ * and its transcript in the chat's own cells with its own children's cards.
+ */
 export function WorkerView(props: {
   readonly tab: Tab
   readonly transcript: Transcript.Transcript
@@ -174,7 +180,15 @@ export function WorkerView(props: {
   readonly onAction: (action: Tabs.ActionId) => void
   /** The transcript item `u` undoes, marked and kept in view. */
   readonly selected?: string | undefined
+  /** The transcript item the run timeline's playhead is on. */
+  readonly jump?: string | undefined
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
+  /** Titles from the chat down to this worker's parent. */
+  readonly path: ReadonlyArray<string>
+  readonly onBack: () => void
+  /** Every tab, for this worker's own children. */
+  readonly tabs: ReadonlyArray<Tab>
+  readonly cards: SubagentView.Cards
 }) {
   const scroll = useRef<ScrollBoxRenderable>(null)
   if (props.scrollRef !== undefined) {
@@ -187,6 +201,9 @@ export function WorkerView(props: {
     opened.current = undefined
     if (props.selected !== undefined) scroll.current?.scrollChildIntoView(props.selected)
   }, [props.selected])
+  useEffect(() => {
+    if (props.jump !== undefined) scroll.current?.scrollChildIntoView(props.jump)
+  }, [props.jump])
   const { tab, transcript } = props
   const { glyph, tone } = Tabs.style(tab.status, props.now)
   const usage = transcript.usage
@@ -195,8 +212,10 @@ export function WorkerView(props: {
     Transcript.duration(Tabs.elapsed(tab, props.now)),
     ...(usage.input + usage.output === 0 ? [] : [`↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}`])
   ].join(" · ")
+  const lines = Subagents.lines(Timeline.rows(transcript), Subagents.batches(transcript, props.tabs, tab.id))
   return (
     <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }}>
+      <SubagentView.Crumb title={tab.title} tone={props.tone} path={props.path} onBack={props.onBack} />
       <box
         style={{ border: ["left"], paddingLeft: 1, marginBottom: 1, flexShrink: 0 }}
         borderColor={props.tone}
@@ -226,25 +245,32 @@ export function WorkerView(props: {
         stickyStart="bottom"
         style={{ flexGrow: 1, flexShrink: 1, minHeight: 0, scrollbarOptions: { visible: false } }}
       >
-        {transcript.items.map((item) => {
-          const step = item.kind === "cell" ? Scrubber.step(transcript, item) : undefined
-          return (
-            <box key={item.id} id={item.id} style={{ flexDirection: "row" }}>
-              <text fg={color.brand} style={{ width: 2, flexShrink: 0 }}>{item.id === props.selected ? "›" : " "}</text>
-              <box style={{ flexGrow: 1, flexShrink: 1 }}>
-                <View.Entry
-                  item={item}
-                  now={props.now}
-                  tick={props.tick}
-                  expanded={props.expanded}
-                  tone={props.tone}
-                  selected={item.id === props.selected}
-                  {...(step === undefined ? {} : { step })}
-                />
+        <SubagentView.Lines
+          lines={lines}
+          width={props.width - 2}
+          cards={props.cards}
+          row={({ row: { item } }) => {
+            const step = item.kind === "cell" ? Scrubber.step(transcript, item) : undefined
+            return (
+              <box key={item.id} id={item.id} style={{ flexDirection: "row" }}>
+                <text fg={color.brand} style={{ width: 2, flexShrink: 0 }}>
+                  {item.id === props.selected ? "›" : " "}
+                </text>
+                <box style={{ flexGrow: 1, flexShrink: 1 }}>
+                  <View.Entry
+                    item={item}
+                    now={props.now}
+                    tick={props.tick}
+                    expanded={props.expanded}
+                    tone={props.tone}
+                    selected={item.id === props.selected || item.id === props.jump}
+                    {...(step === undefined ? {} : { step })}
+                  />
+                </box>
               </box>
-            </box>
-          )
-        })}
+            )
+          }}
+        />
         {transcript.thinking ? <text fg={color.muted} style={{ paddingLeft: 2 }}>{props.tick} thinking</text> : null}
       </scrollbox>
     </box>

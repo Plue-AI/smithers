@@ -879,28 +879,13 @@ export class Workspace {
     for (const entry of queued) entry.resume?.()
   }
 }
-/** A tab's toast text after its glyph. */
+/** The provider whose reset a parked tab waits for. */
 const seatProvider = (seat: string): string =>
   seat.startsWith("openai:") ?
     "ChatGPT" :
     seat.startsWith("anthropic:")
     ? "Anthropic"
     : seat.split(":")[0] ?? "model"
-
-export const tabToast = (tab: Tab): string =>
-  `${tab.agent === undefined ? tab.title : `${tab.agent.name}: ${tab.title}`} · ${
-    tab.status === "failed" ?
-      tab.failure?.headline ?? tab.message?.split("\n")[0]!.slice(0, 80) ?? "Worker stopped unexpectedly" :
-      tab.status === "parked"
-      ? `waits for ${seatProvider(tab.activeSeat ?? tab.seat)} reset · ${
-        new Date(tab.wakeAt ?? Date.now()).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false
-        })
-      }`
-      : tab.status
-  }`
 
 /** The failure card's single progress and file-impact line. */
 export const failureLine = (tab: Tab, transcript: Transcript.Transcript): string => {

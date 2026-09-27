@@ -8,7 +8,7 @@ import { join } from "node:path"
 import type * as Host from "../src/host.ts"
 import * as Runtime from "../src/runtime.ts"
 import * as Session from "../src/session.ts"
-import { tabToast, Workspace } from "../src/workspace.ts"
+import { Workspace } from "../src/workspace.ts"
 
 const request = { id: "research", title: "Research", prompt: "Investigate the plugin surface." }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -54,8 +54,8 @@ const expectFailed = async (workspace: Workspace, message: string) => {
   expect(workspace.busy).toBe(false)
   // The activity strip reads "Researching" while this stays "running".
   expect(workspace.transcript(tab.id).activity?.status).toBe("failed")
-  expect(tabToast(tab)).toContain(tab.failure?.headline ?? "Worker stopped unexpectedly")
-  expect(tabToast(tab)).not.toContain(message)
+  expect(workspace.panel(tab.id).summary).toContain(tab.failure?.headline ?? "Worker stopped unexpectedly")
+  expect(workspace.panel(tab.id).summary).not.toContain(message)
   expect(await tabRead(workspace, tab.id)).toMatchObject({
     outcome: "success",
     value: { id: tab.id, status: "failed", message: expect.stringContaining(message) }

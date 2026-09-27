@@ -23,10 +23,13 @@ const tones = {
   stopped: "faint"
 } as const satisfies Record<SubagentCard.Tone, keyof typeof color>
 
+/** A shared tone in this palette. */
+export const toneColor = (tone: SubagentCard.Tone): string => color[tones[tone]]
+
 /** The shared subagent glyph at `now`, in this palette's colors, so every running glyph turns together. */
 export const style = (status: Status, now: number): { readonly glyph: string; readonly tone: string } => {
   const { glyph, tone } = SubagentCard.glyph(status, now)
-  return { glyph, tone: color[tones[tone]] }
+  return { glyph, tone: toneColor(tone) }
 }
 
 export const live = WorkerControls.live
@@ -42,7 +45,7 @@ export const model = (seat: string, models: ReadonlyArray<Model>): string =>
 export const elapsed = (tab: Pick<Tab, "startedAt" | "endedAt">, now: number): number =>
   Math.max(0, (tab.endedAt ?? now) - tab.startedAt)
 
-export type ActionId = "stop" | "retry" | "model" | "wait" | "steer" | "open-chat"
+export type ActionId = "stop" | "retry" | "model" | "wait" | "steer"
 
 /** What an action's availability reads: the status, and a failure's own offers. */
 type Worker = Pick<Tab, "status" | "failure">
@@ -55,8 +58,7 @@ const registered: ReadonlyArray<
   { id: "retry", binding: "retry", when: (tab) => WorkerControls.allowed("retry", tab) },
   { id: "model", binding: "worker-model", when: (tab) => WorkerControls.allowed("model", tab) },
   { id: "wait", binding: "worker-wait", when: (tab) => WorkerControls.allowed("wait", tab) },
-  { id: "steer", binding: "steer-worker", when: (tab) => WorkerControls.allowed("steer", tab) },
-  { id: "open-chat", binding: "worker-chat", when: (tab) => WorkerControls.allowed("open-chat", tab) }
+  { id: "steer", binding: "steer-worker", when: (tab) => WorkerControls.allowed("steer", tab) }
 ]
 
 export const bindings = registered.map(({ id, binding, when }) => {
@@ -65,7 +67,9 @@ export const bindings = registered.map(({ id, binding, when }) => {
   return { id, binding, keys: found.keys, label: found.label, when }
 })
 
-export const actions = (tab: Worker) => bindings.filter((binding) => binding.when(tab))
+export type Action = (typeof bindings)[number]
+
+export const actions = (tab: Worker): ReadonlyArray<Action> => bindings.filter((binding) => binding.when(tab))
 
 /** The action a registry binding runs on this worker, if its state allows it. */
 export const actionFor = (binding: string, tab: Worker) => actions(tab).find((each) => each.binding === binding)

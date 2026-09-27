@@ -50,6 +50,8 @@ import * as Session from "./session.ts"
 import * as Shell from "./shell.ts"
 import * as Smithers from "./smithers.ts"
 import * as Steering from "./steering.ts"
+import * as SubagentView from "./subagent-view.tsx"
+import * as Subagents from "./subagents.ts"
 import * as Summary from "./summary.ts"
 import * as Surfaces from "./surfaces.ts"
 import { tabTitle } from "./surfaces.ts"
@@ -60,6 +62,7 @@ import * as Timeline from "./timeline.ts"
 import * as Toasts from "./toasts.ts"
 import * as TranscriptView from "./transcript-view.ts"
 import * as Transcript from "./transcript.ts"
+import * as Tree from "./tree.ts"
 import * as Undo from "./undo.ts"
 import * as View from "./view.tsx"
 import * as Watch from "./watch.ts"
@@ -316,6 +319,18 @@ export function App(props: AppProps) {
     setWhichKey(open)
   }, [])
   const [filter, setFilter] = useState(Timeline.all)
+  /** Workers whose card lists its changed files. */
+  const [filesOpen, setFilesOpen] = useState<ReadonlySet<string>>(new Set())
+  const toggleFiles = (id: string) =>
+    setFilesOpen((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  /** The Summary overview: the tree's selection (`chat` or a worker), the pane with the keys, and the focused card. */
+  const [overview, setOverview] = useState<
+    { readonly selected?: string; readonly pane: "tree" | "cards"; readonly card?: string }
+  >({ pane: "tree" })
   useEffect(() => workspace.subscribe(() => setRevision((value) => value + 1)), [workspace])
   useEffect(() => () => workspace.dispose(), [workspace])
   useEffect(() => runs.subscribe(() => setRevision((value) => value + 1)), [runs])
@@ -535,12 +550,6 @@ export function App(props: AppProps) {
   const steered = workerTab !== undefined && workerTab.id === steerTarget && workerTab.status === "running"
     ? workerTab
     : undefined
-  /** Back to the chat with the worker's lane shown and scrolled into view. */
-  const openInChat = (id: string) => {
-    setFilter((current) => (current.sources.includes(id) ? Timeline.toggleSource(current, id) : current))
-    revealLane(id)
-    showTab("chat")
-  }
   const workerAction = (tab: Tab, action: Tabs.ActionId) => {
     switch (action) {
       case "stop":
@@ -561,12 +570,12 @@ export function App(props: AppProps) {
           return setStatus(error instanceof Error ? error.message : String(error), "warning")
         }
       case "steer":
+        // From a card or a toast, steering opens the worker's tab first.
         return flushSync(() => {
+          if (surface !== `tab:${tab.id}`) showTab(`tab:${tab.id}`)
           setSteerTarget(tab.id)
           setPanelFocus(false)
         })
-      case "open-chat":
-        return flushSync(() => openInChat(tab.id))
     }
   }
   const { base: basePanel, panel } = Surfaces.panelFor(surface, {
@@ -583,21 +592,31 @@ export function App(props: AppProps) {
         panel.rows[Math.min(navigation.selected, panel.rows.length - 1)]?.action !== undefined)
     ? ["a"]
     : []
+  const dimensions = useTerminalDimensions()
+  const activeTabs = snapshot.tabs.filter((tab) => Tabs.live(tab.status))
+  const sideChat = focusMain && dimensions.width >= 120
+  const chatHeight = focusMain && !sideChat ? Math.floor(dimensions.height * 0.55) : dimensions.height
+  const short = chatHeight < 20
+  const showSidebar = dimensions.width >= 100 && activeTabs.length > 0 && (!focusMain || sideChat)
+  const width = sideChat ? 40 : Math.max(20, Math.min(columnWidth, dimensions.width - 2 - (showSidebar ? 26 : 0)))
+  const mainWidth = Math.max(20, dimensions.width - width - (showSidebar ? 26 : 0) - 2)
   const {
     scroll,
     dragScroll,
-    lanes,
-    timeline,
+    lane,
+    rows: chatRows,
+    lines,
     cardKeys,
     focusedCard,
+    focusedWorker,
     setCardFocus,
+    moveCard,
     reveal,
-    revealLane,
     monitored,
     showActivity,
     activeInspection,
     jumpTarget,
-    transcriptOf,
+    workerJump,
     inspectActivity,
     followLive,
     clearInspection
@@ -610,11 +629,24 @@ export function App(props: AppProps) {
     surface,
     setSurface,
     panel,
-    setPanelFocus
+    setPanelFocus,
+    width
   })
+  /** The Summary overview shows while workers exist: the tree, then the selected branch's cards. */
+  const nodes = Tree.walk(snapshot.tabs)
+  const overviewShown = surface === "summary" && nodes.length > 0 && !focusMain
+  const overviewSelected = overview.selected === SubagentView.chat ||
+      nodes.some((node) => node.tab.id === overview.selected)
+    ? overview.selected!
+    : nodes[0]?.tab.id ?? SubagentView.chat
+  const overviewTab = nodes.find((node) => node.tab.id === overviewSelected)?.tab
+  const overviewBranch = overviewTab === undefined ? [] : Tree.branch(snapshot.tabs, overviewTab.id)
+  const overviewCard = overviewBranch.find((tab) => tab.id === overview.card) ?? overviewBranch[0]
+  /** The overview takes the keys, except while the conversation review has them. */
+  const overviewKeys = overviewShown && panelFocus &&
+    !(overviewSelected === SubagentView.chat && overview.pane === "cards")
   const panelScroll = useRef<((direction: number) => void) | undefined>(undefined)
   const lastCtrlC = useRef(0)
-  const dimensions = useTerminalDimensions()
   useEffect(() => Log.subscribe((message) => setStatus(message, "danger")), [setStatus])
   const discoveryFailure = runs.failure()
   useEffect(() => {
@@ -975,6 +1007,8 @@ export function App(props: AppProps) {
     formOpened.current = new Set()
     setQueue(state.queued)
     setFilter(Timeline.all)
+    setFilesOpen(new Set())
+    setOverview({ pane: "tree" })
     clearInspection()
     setNavigation(Panels.initial())
     setCompact(undefined)
@@ -1345,13 +1379,7 @@ export function App(props: AppProps) {
     if (open.kind === "filter") {
       // Toggles keep the dialog open, like a log view's filter menu.
       if (value === "all") return setFilter(Timeline.all)
-      const split = value.indexOf(":")
-      const id = value.slice(split + 1)
-      return setFilter((current) =>
-        value.startsWith("source:")
-          ? Timeline.toggleSource(current, id)
-          : Timeline.toggleKind(current, id as Timeline.Kind)
-      )
+      return setFilter((current) => Timeline.toggleKind(current, value.slice(value.indexOf(":") + 1) as Timeline.Kind))
     }
     setPicker(undefined)
     if (open.kind === "undo") {
@@ -1439,6 +1467,7 @@ export function App(props: AppProps) {
       approvals: live.current.approvals.length > 0,
       empty: composer.current?.plainText === "",
       panel: panelFocus && panel !== undefined,
+      overview: overviewKeys,
       completion: liveMenu().menu !== undefined,
       card: focusedCard !== undefined,
       shell: live.current.shell !== undefined || composer.current?.plainText.startsWith("!") === true,
@@ -1470,7 +1499,7 @@ export function App(props: AppProps) {
     const { turn: running, shell: shellRunning, picker: open } = live.current
     const { menu: completing, index: completingIndex } = liveMenu()
     const text = composer.current?.plainText ?? ""
-    if (key.ctrl && key.name === "o" && timeline.length === 0 && surface === "chat" && open === undefined) {
+    if (key.ctrl && key.name === "o" && lines.length === 0 && surface === "chat" && open === undefined) {
       key.preventDefault()
       return setWhichKeyOpen(!whichKeyRef.current)
     }
@@ -1501,14 +1530,20 @@ export function App(props: AppProps) {
     ) return
     if (focusedCard !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
       if (
-        Dispatch.cardKey(key, focusedCard, cardKeys, {
-          focus: setCardFocus,
-          reveal,
+        Dispatch.cardKey(key, {
+          move: moveCard,
+          leave: () => setCardFocus(undefined),
           open: () => {
-            const row = timeline.find((each) => each.key === focusedCard)
+            if (focusedWorker !== undefined) return clickTab(`tab:${focusedWorker.id}`)
+            const row = chatRows.find((each) => each.key === focusedCard)
             if (row?.item.kind !== "card") return
             const id = row.item.panel.id
             perform({ kind: "open", surface: id.startsWith("flow:") ? id : `ui:${id}` })
+          },
+          worker: focusedWorker,
+          workerAction,
+          files: () => {
+            if (focusedWorker !== undefined) toggleFiles(focusedWorker.id)
           }
         })
       ) return
@@ -1538,7 +1573,7 @@ export function App(props: AppProps) {
     const filling = liveForm.current
     if (filling !== undefined && open === undefined) {
       // Palette, summary and tab switching still work: they close the form and leave the run parked.
-      if (!(key.ctrl && ["k", "s", "left", "right", "]", "\\"].includes(key.name))) {
+      if (!(key.ctrl && ["k", "s", "y", "left", "right", "]", "\\"].includes(key.name))) {
         return Dispatch.formKey(key, filling, {
           // Retarget the native input before later bytes in the same terminal
           // read arrive. Advancing only the ref leaves typing on the old field.
@@ -1560,6 +1595,14 @@ export function App(props: AppProps) {
       flushSync(() => setPicker(next))
       return
     }
+    if (key.ctrl && key.name === "y") {
+      // A worker tab goes back to its parent's tab, or to the chat for a top-level worker.
+      key.preventDefault()
+      if (workerTab !== undefined) {
+        flushSync(() => showTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`))
+      }
+      return
+    }
     if (key.ctrl && key.name === "s") {
       key.preventDefault()
       flushSync(() => {
@@ -1572,6 +1615,15 @@ export function App(props: AppProps) {
       key.preventDefault()
       flushSync(() => showTab("chat"))
       return
+    }
+    if (overviewShown && panelFocus && key.name === "tab" && !key.shift && !key.ctrl && open === undefined) {
+      // The overview's tab switches between its tree and the selected branch, the review included.
+      key.preventDefault()
+      return setOverview((current) => ({
+        ...current,
+        selected: overviewSelected,
+        pane: current.pane === "tree" ? "cards" : "tree"
+      }))
     }
     if (
       (key.ctrl && ["right", "left", "]", "\\"].includes(key.name)) || (key.name === "tab" && panelFocus && !key.shift)
@@ -1620,6 +1672,49 @@ export function App(props: AppProps) {
         (error) => retry(String(error))
       )
       return
+    }
+    if (overviewKeys && open === undefined && !key.ctrl && !key.meta && !key.option) {
+      const ids = [SubagentView.chat, ...nodes.map((node) => node.tab.id)]
+      const branchKeys = overviewBranch.map((tab) => Subagents.cardKey(tab.id))
+      return Dispatch.overviewKey(key, {
+        pane: overview.pane,
+        worker: overview.pane === "tree" ? overviewTab : overviewCard
+      }, {
+        close: () =>
+          flushSync(() => {
+            setSurface("chat")
+            setPanelFocus(false)
+          }),
+        release: () => flushSync(() => setPanelFocus(false)),
+        pane: () => setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards" })),
+        tree: (step) => {
+          const at = Math.max(0, Math.min(ids.length - 1, ids.indexOf(overviewSelected) + step))
+          setOverview((current) => ({ ...current, selected: ids[at]!, card: undefined }))
+        },
+        card: (direction) => {
+          if (overviewCard === undefined) return
+          const next = Subagents.move(
+            branchKeys,
+            [branchKeys],
+            SubagentView.overviewWidths(width).grid,
+            Subagents.cardKey(overviewCard.id),
+            direction
+          )
+          setOverview((current) => ({ ...current, card: overviewBranch[branchKeys.indexOf(next)]?.id }))
+        },
+        open: () => {
+          if (overview.pane === "tree" && overviewTab === undefined) {
+            return setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards" }))
+          }
+          const target = overview.pane === "tree" ? overviewTab : overviewCard
+          if (target !== undefined) clickTab(`tab:${target.id}`)
+        },
+        files: () => {
+          if (overviewCard !== undefined) toggleFiles(overviewCard.id)
+        },
+        scroll: (direction) => panelScroll.current?.(direction),
+        workerAction
+      })
     }
     if (panelFocus && panel !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
       return Dispatch.panelKey(key, panel, { surface, navigation, worker: workerTab, flow: selectedFlowActions }, {
@@ -1724,24 +1819,31 @@ export function App(props: AppProps) {
       active = false
     }
   }, [props.host, transcript.usage.context, window, writer.current.file])
-  const activeTabs = snapshot.tabs.filter((tab) => Tabs.live(tab.status))
-  const sideChat = focusMain && dimensions.width >= 120
-  const chatHeight = focusMain && !sideChat ? Math.floor(dimensions.height * 0.55) : dimensions.height
-  const short = chatHeight < 20
-  const showSidebar = dimensions.width >= 100 && activeTabs.length > 0 && (!focusMain || sideChat)
-  const width = sideChat ? 40 : Math.max(20, Math.min(columnWidth, dimensions.width - 2 - (showSidebar ? 26 : 0)))
-  const mainWidth = Math.max(20, dimensions.width - width - (showSidebar ? 26 : 0) - 2)
   const accent = bashMode
     ? color.success
     : steered !== undefined
-    ? lanes.get(steered.id)?.tone ?? color.info
+    ? lane(steered.id)
     : working
     ? color.faint
     : color.brand
   const tabsWidth = width - (focusMain ? 6 : 0)
   const footerContext = keyContext()
+  /** A worker action's registry binding, as a footer hint. */
+  const actionHints = (tab: Tab) =>
+    Tabs.actions(tab).flatMap((action) => Keys.registry.filter((binding) => binding.id === action.binding))
+  const cardHint = (id: string) => Keys.registry.filter((binding) => binding.id === id)
   // A worker's own actions are buttons in its view; the footer carries the rest.
-  const footerHints = footerContext === "panel" && workerTab !== undefined
+  const footerHints = footerContext === "card" && focusedWorker !== undefined
+    ? [
+      ...cardHint("card-move"),
+      ...cardHint("open-card"),
+      ...actionHints(focusedWorker),
+      ...((Subagents.subagent(focusedWorker, workspace.transcript(focusedWorker.id), props.models).files?.length ?? 0) >
+          0
+        ? cardHint("card-files")
+        : [])
+    ]
+    : footerContext === "panel" && workerTab !== undefined
     ? Keys.panelHints({ undo: true }).filter((binding) => binding.id !== "expand-row")
     : footerContext === "panel" && panel !== undefined
     ? [
@@ -1761,7 +1863,24 @@ export function App(props: AppProps) {
   const hintColumns = width - 5 -
     statusItems.reduce((total, item) => total + stringWidth(item.text) + 2, 0) -
     stringWidth(meter.context + meter.usage + meter.window)
-  const toastRows = Toasts.rows({ tabs: snapshot.tabs, runs: flowRuns, approvals, search, undoing, toast, now, tick })
+  const toastRows = Toasts.rows({ tabs: snapshot.tabs, runs: flowRuns, search, undoing, toast, now, tick })
+  /** What every subagent card in the chat reads and does. */
+  const cards: SubagentView.Cards = {
+    transcript: workspace.transcript,
+    models: props.models,
+    now,
+    lane,
+    focused: focusedCard,
+    open: filesOpen,
+    onOpen: (id) => clickTab(`tab:${id}`),
+    onFiles: toggleFiles,
+    onAction: workerAction
+  }
+  /** Titles from the chat down to a worker's parent, for its breadcrumb. */
+  const path = (tab: Tab): ReadonlyArray<string> => {
+    const parent = snapshot.tabs.find((each) => each.id === tab.parent)
+    return parent === undefined ? ["chat"] : [...path(parent), tabTitle(parent)]
+  }
   const toastWidth = Math.min(60, mainWidth - 2)
   const toastHeight = Math.min(Math.floor(dimensions.height / 2), Math.max(1, toastRows.length * 3))
   const toastLimit = Math.max(1, Math.floor(chatHeight / 4))
@@ -1851,11 +1970,43 @@ export function App(props: AppProps) {
                 models={props.models}
                 now={now}
                 tick={tick}
-                tone={lanes.get(workerTab.id)?.tone ?? color.info}
+                tone={lane(workerTab.id)}
                 width={width}
                 expanded={expanded}
                 onAction={(action) => workerAction(workerTab, action)}
                 selected={panel?.rows[Math.min(navigation.selected, panel.rows.length - 1)]?.id}
+                jump={workerJump(workerTab.id)}
+                scrollRef={panelScroll}
+                path={path(workerTab)}
+                onBack={() =>
+                  clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
+                tabs={snapshot.tabs}
+                cards={{ ...cards, focused: undefined }}
+              />
+            ) :
+            overviewShown && panel !== undefined ?
+            (
+              <SubagentView.Overview
+                nodes={nodes}
+                selected={overviewSelected}
+                pane={overview.pane}
+                width={width}
+                cards={{
+                  ...cards,
+                  focused: overview.pane === "cards" && overviewCard !== undefined
+                    ? Subagents.cardKey(overviewCard.id)
+                    : undefined
+                }}
+                onSelect={(id) => setOverview((current) => ({ ...current, selected: id, card: undefined }))}
+                review={
+                  <PanelView
+                    panel={panel}
+                    navigation={navigation}
+                    height={dimensions.height - 12}
+                    width={SubagentView.overviewWidths(width).grid}
+                    scrollRef={panelScroll}
+                  />
+                }
                 scrollRef={panelScroll}
               />
             ) :
@@ -1873,7 +2024,7 @@ export function App(props: AppProps) {
                 />
               </>
             ) :
-            timeline.length === 0 && !Timeline.active(filter)
+            lines.length === 0 && !Timeline.active(filter)
             ? form === undefined ? <View.Home width={width} /> : <box style={{ flexGrow: 1, minHeight: 0 }} />
             : (
               <scrollbox
@@ -1882,44 +2033,41 @@ export function App(props: AppProps) {
                 stickyStart="bottom"
                 style={{ flexGrow: 1, flexShrink: 1, minHeight: 0, scrollbarOptions: { visible: false } }}
               >
-                {timeline.map((row, index) => {
-                  const worker = lanes.get(row.source)
-                  const card = row.item.kind === "card" ? livePanel(row.item.panel) : undefined
-                  const step = row.item.kind === "cell" ? Scrubber.step(transcriptOf(row.source), row.item) : undefined
-                  const entry = card !== undefined
-                    ? (
-                      <View.Card
-                        panel={card}
-                        focused={row.key === focusedCard}
-                        onOpen={() =>
-                          perform({ kind: "open", surface: card.id.startsWith("flow:") ? card.id : `ui:${card.id}` })}
-                      />
+                <SubagentView.Lines
+                  lines={lines}
+                  width={width}
+                  cards={cards}
+                  row={({ row }) => {
+                    const card = row.item.kind === "card" ? livePanel(row.item.panel) : undefined
+                    const step = row.item.kind === "cell" ? Scrubber.step(transcript, row.item) : undefined
+                    return (
+                      <box key={row.key} id={row.key}>
+                        {card !== undefined
+                          ? (
+                            <View.Card
+                              panel={card}
+                              focused={row.key === focusedCard}
+                              onOpen={() =>
+                                perform({
+                                  kind: "open",
+                                  surface: card.id.startsWith("flow:") ? card.id : `ui:${card.id}`
+                                })}
+                            />
+                          )
+                          : (
+                            <View.Entry
+                              item={row.item}
+                              now={View.ticking(row.item) ? now : 0}
+                              tick={View.ticking(row.item) ? tick : ""}
+                              expanded={expanded}
+                              selected={row.key === jumpTarget}
+                              {...(step === undefined ? {} : { step })}
+                            />
+                          )}
+                      </box>
                     )
-                    : (
-                      <View.Entry
-                        item={row.item}
-                        now={View.ticking(row.item) ? now : 0}
-                        tick={View.ticking(row.item) ? tick : ""}
-                        expanded={expanded}
-                        selected={row.key === jumpTarget}
-                        {...(step === undefined ? {} : { step })}
-                        {...(worker === undefined ? {} : { tone: worker.tone })}
-                      />
-                    )
-                  return worker === undefined
-                    ? <box key={row.key} id={row.key}>{entry}</box>
-                    : (
-                      <View.Lane
-                        key={row.key}
-                        id={row.key}
-                        title={worker.title}
-                        tone={worker.tone}
-                        first={timeline[index - 1]?.source !== row.source}
-                      >
-                        {entry}
-                      </View.Lane>
-                    )
-                })}
+                  }}
+                />
                 {working && transcript.thinking
                   ? <text fg={color.muted} style={{ paddingLeft: 2 }}>{tick} thinking</text>
                   : null}
@@ -1979,7 +2127,9 @@ export function App(props: AppProps) {
                 rows={short ? Math.max(1, Math.floor(chatHeight / 4)) : undefined}
               />
             )}
-          {sideChat ? null : <View.ToastStack rows={toastRows} height={toastLimit} compact={short} />}
+          {sideChat ?
+            null :
+            <View.ToastStack rows={toastRows} height={toastLimit} compact={short} onAction={workerAction} />}
           {approvals[0] === undefined ? null : (
             <View.Approval
               width={dimensions.width}
@@ -2069,8 +2219,7 @@ export function App(props: AppProps) {
               )}
             hints={Keys.fit(footerHints, hintColumns, stringWidth)}
             items={statusItems}
-            onItem={(item) =>
-              item.action === undefined ? undefined : perform(item.action)}
+            onItem={(item) => item.action === undefined ? undefined : perform(item.action)}
             meter={meter}
           />
         </box>
@@ -2096,7 +2245,7 @@ export function App(props: AppProps) {
               height: toastHeight
             }}
           >
-            <View.ToastStack rows={toastRows} height={toastLimit} compact={short} />
+            <View.ToastStack rows={toastRows} height={toastLimit} compact={short} onAction={workerAction} />
           </box>
         )
         : null}

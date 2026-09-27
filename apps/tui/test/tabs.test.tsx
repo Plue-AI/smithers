@@ -86,17 +86,17 @@ describe("worker status", () => {
 describe("worker actions", () => {
   const keys = (status: Tabs.Status, failure?: Tab["failure"]) =>
     Tabs.actions({ status, ...(failure === undefined ? {} : { failure }) }).map((action) => action.keys[0])
-  it("offers stop, resume, model, wait, steer and chat only when they apply", () => {
-    expect(keys("running")).toEqual(["x", "s", "c"])
-    expect(keys("requested")).toEqual(["x", "c"])
-    expect(keys("queued")).toEqual(["x", "c"])
-    expect(keys("waiting")).toEqual(["x", "c"])
-    expect(keys("parked")).toEqual(["x", "c"])
-    expect(keys("failed")).toEqual(["r", "m", "c"])
+  it("offers stop, resume, model, wait and steer only when they apply", () => {
+    expect(keys("running")).toEqual(["x", "s"])
+    expect(keys("requested")).toEqual(["x"])
+    expect(keys("queued")).toEqual(["x"])
+    expect(keys("waiting")).toEqual(["x"])
+    expect(keys("parked")).toEqual(["x"])
+    expect(keys("failed")).toEqual(["r", "m"])
     expect(keys("failed", { headline: "Usage limit", fault: "wait", line: "", actions: ["resume", "wait"] } as never))
-      .toEqual(["r", "m", "w", "c"])
-    expect(keys("cancelled")).toEqual(["r", "c"])
-    expect(keys("done")).toEqual(["c"])
+      .toEqual(["r", "m", "w"])
+    expect(keys("cancelled")).toEqual(["r"])
+    expect(keys("done")).toEqual([])
   })
   it("resolves a key to the action it runs, never one the status forbids", () => {
     const run = (name: string, status: Tabs.Status) =>
@@ -105,7 +105,7 @@ describe("worker actions", () => {
     expect(run("r", "running")).toBeUndefined()
     expect(run("r", "failed")).toBe("retry")
     expect(run("s", "queued")).toBeUndefined()
-    expect(run("c", "queued")).toBe("open-chat")
+    expect(Keys.bindingFor({ name: "c" }, "panel")).toBeUndefined()
   })
   it("takes every action's keys and label from a panel binding in the registry", () => {
     for (const action of Tabs.bindings) {
@@ -114,7 +114,7 @@ describe("worker actions", () => {
       expect(binding?.keys).toEqual(action.keys)
       expect(binding?.label).toBe(action.label)
     }
-    expect(Tabs.bindings.map((binding) => binding.id)).toEqual(["stop", "retry", "model", "wait", "steer", "open-chat"])
+    expect(Tabs.bindings.map((binding) => binding.id)).toEqual(["stop", "retry", "model", "wait", "steer"])
   })
 })
 
@@ -205,6 +205,24 @@ describe("WorkerList", () => {
   })
 })
 
+/** What WorkerView needs beyond its tab: the way back and its children's cards. */
+const chrome = {
+  path: ["chat"],
+  onBack: () => {},
+  tabs: [],
+  cards: {
+    transcript: () => Transcript.empty,
+    models,
+    now: 4_000,
+    lane: () => color.info,
+    focused: undefined,
+    open: new Set<string>(),
+    onOpen: () => {},
+    onFiles: () => {},
+    onAction: () => {}
+  }
+}
+
 describe("WorkerView", () => {
   const transcript = [
     (value: Transcript.Transcript) => Transcript.user(value, "Audit the auth middleware.", false, 1_000),
@@ -238,6 +256,7 @@ describe("WorkerView", () => {
         width={90}
         expanded={false}
         onAction={() => {}}
+        {...chrome}
       />,
       90,
       24
@@ -250,8 +269,86 @@ describe("WorkerView", () => {
     expect(frame).toContain("Audit the auth middleware.")
     expect(frame).toContain("Read the middleware.")
     expect(frame).toContain("ctx.call(\"read\")")
-    for (const label of ["x Stop", "s Steer", "c Open in chat"]) expect(frame).toContain(label)
+    for (const label of ["x Stop", "s Steer"]) expect(frame).toContain(label)
+    expect(frame).not.toContain("Open in chat")
     expect(frame).not.toContain("r Resume")
+  })
+
+  it("leads with the breadcrumb back to its parent, which a click follows", async () => {
+    const back: Array<string> = []
+    const { captureCharFrame, mockMouse } = await mount(
+      <WorkerView
+        tab={tab("a", "running")}
+        transcript={transcript}
+        models={models}
+        now={4_000}
+        tick="⠋"
+        tone={color.info}
+        width={90}
+        expanded={false}
+        onAction={() => {}}
+        {...chrome}
+        path={["chat", "Review"]}
+        onBack={() => back.push("back")}
+      />,
+      90,
+      24
+    )
+    const frame = captureCharFrame()
+    const lines = frame.split("\n")
+    expect(lines[0]).toContain("▌ Subagent · Worker a")
+    expect(lines[0]).toContain("Back (ctrl+y)")
+    expect(lines[1]).toContain("chat › Review › Worker a")
+    const crumb = find(frame, "Back (ctrl+y)")
+    await mockMouse.click(crumb.x + 1, crumb.y)
+    expect(back).toEqual(["back"])
+  })
+
+  it("draws its own children as a card grid at the call that delegated them", async () => {
+    const delegated = [
+      (value: Transcript.Transcript) => Transcript.user(value, "Split the review.", false, 1_000),
+      (value: Transcript.Transcript) => Transcript.apply(value, { _tag: "model-requested" } as never, 1_100),
+      (value: Transcript.Transcript) =>
+        Transcript.apply(value, { _tag: "cell-produced", cell: { text: "x" } } as never, 1_200),
+      (value: Transcript.Transcript) =>
+        Transcript.apply(value, {
+          _tag: "cell-call-started",
+          call: { flowName: "agent.delegate", input: { id: "c", title: "Check docs", prompt: "Check." } }
+        } as never, 1_300),
+      (value: Transcript.Transcript) =>
+        Transcript.apply(value, {
+          _tag: "cell-call-settled",
+          flowName: "agent.delegate",
+          result: { outcome: "success", value: {} }
+        } as never, 1_400),
+      (value: Transcript.Transcript) =>
+        Transcript.apply(value, { _tag: "cell-settled", outcome: { _tag: "settled" } } as never, 1_500)
+    ].reduce((value, step) => step(value), Transcript.empty)
+    const child = tab("a/c", "done", { parent: "a", title: "Check docs", startedAt: 1_350, endedAt: 3_350 })
+    const { captureCharFrame } = await mount(
+      <WorkerView
+        tab={tab("a", "waiting")}
+        transcript={delegated}
+        models={models}
+        now={4_000}
+        tick="⠋"
+        tone={color.info}
+        width={90}
+        expanded={false}
+        onAction={() => {}}
+        {...chrome}
+        tabs={[tab("a", "waiting"), child]}
+      />,
+      90,
+      30
+    )
+    const frame = captureCharFrame()
+    expect(frame).toContain("Ran 1 subagent ✓")
+    expect(frame).toContain("● Check docs")
+    expect(frame).toContain("Done 2s · sol")
+    expect(frame).toContain("◉ Check docs finished")
+    expect(frame.indexOf("Split the review.")).toBeLessThan(frame.indexOf("Ran 1 subagent"))
+    expect(frame.indexOf("Ran 1 subagent")).toBeLessThan(frame.indexOf("◉ Check docs finished"))
   })
 
   it("marks the row u undoes", async () => {
@@ -268,11 +365,13 @@ describe("WorkerView", () => {
         expanded={false}
         onAction={() => {}}
         selected={cell.id}
+        {...chrome}
       />,
       90,
       24
     )
-    const marked = captureCharFrame().split("\n").filter((line) => line.includes("›"))
+    // The breadcrumb's path also reads `chat › …`; the mark is the row's own.
+    const marked = captureCharFrame().split("\n").filter((line) => line.includes("›") && !line.includes("chat ›"))
     expect(marked).toHaveLength(1)
     expect(marked[0]).toContain("Read the middleware.")
   })
@@ -299,6 +398,7 @@ describe("WorkerView", () => {
         width={90}
         expanded={false}
         onAction={(action) => actions.push(action)}
+        {...chrome}
       />,
       90,
       24
@@ -309,8 +409,8 @@ describe("WorkerView", () => {
     expect(frame).toContain("1.0s")
     const retry = find(frame, "r Resume")
     await mockMouse.click(retry.x + 2, retry.y)
-    const chat = find(frame, "c Open in chat")
-    await mockMouse.click(chat.x + 1, chat.y)
-    expect(actions).toEqual(["retry", "open-chat"])
+    const model = find(frame, "m Switch model")
+    await mockMouse.click(model.x + 1, model.y)
+    expect(actions).toEqual(["retry", "model"])
   })
 })

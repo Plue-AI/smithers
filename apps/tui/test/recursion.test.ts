@@ -41,9 +41,10 @@ it("lets a worker delegate twice, wait for both, and projects their live tree", 
     ["root/b", "root", 1]
   ])
   expect(workspace.tree("root").rows.map((row) => row.label)).toEqual([
-    expect.stringContaining("● Review"),
-    expect.stringContaining("● a"),
-    expect.stringContaining("● b")
+    // The shared subagent glyph: live work turns.
+    expect.stringMatching(/[◐◓◑◒] Review/),
+    expect.stringMatching(/[◐◓◑◒] a/),
+    expect.stringMatching(/[◐◓◑◒] b/)
   ])
   const waiting = Effect.runPromise(wait.run({ input: { ids: ["a", "b"] } } as never))
   await tick()

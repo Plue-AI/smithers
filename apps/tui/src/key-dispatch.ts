@@ -14,6 +14,7 @@ import type * as Extension from "./extension.ts"
 import * as Keys from "./keys.ts"
 import * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
+import type * as Subagents from "./subagents.ts"
 import * as Tabs from "./tabs.ts"
 import type { Tab } from "./workspace.ts"
 
@@ -37,6 +38,8 @@ export const context = (state: {
   readonly empty: boolean
   /** A panel shows and has the keys. */
   readonly panel: boolean
+  /** The Summary overview has the keys: its tree, or a branch's cards. */
+  readonly overview: boolean
   readonly completion: boolean
   readonly card: boolean
   /** A `!` command runs, or the draft starts with `!`. */
@@ -47,6 +50,7 @@ export const context = (state: {
   if (state.inspecting) return "selection"
   if (state.form) return "form"
   if (state.approvals && state.empty) return "approval"
+  if (state.overview) return "overview"
   if (state.panel) return "panel"
   if (state.completion) return "completion"
   if (state.card) return "card"
@@ -113,37 +117,115 @@ export const scrubberKey = (key: KeyEvent, activity: Activity.Activity, seq: num
   return true
 }
 
+/** Arrows, and hjkl where `vim` allows them, as a direction. */
+const direction = (key: KeyEvent, vim: boolean): Subagents.Direction | undefined =>
+  key.name === "up" || (vim && key.name === "k")
+    ? "up"
+    : key.name === "down" || (vim && key.name === "j")
+    ? "down"
+    : key.name === "left" || (vim && key.name === "h")
+    ? "left"
+    : key.name === "right" || (vim && key.name === "l")
+    ? "right"
+    : undefined
+
+/** A worker action's binding, whether or not the worker's status allows it now. */
+const workerBinding = (key: KeyEvent): string | undefined => {
+  const binding = Keys.bindingFor(key, "panel")
+  return binding !== undefined && Tabs.bindings.some((each) => each.binding === binding.id) ? binding.id : undefined
+}
+
 /**
- * A focused chat card: enter opens it, esc leaves it, up, down and tab walk
- * the cards. Anything else unfocuses it and goes on to the composer; false then.
+ * A focused chat card: enter opens it, esc leaves it, arrows and tab move
+ * between cards. On a subagent card, `f` opens its files and the worker keys
+ * act on its worker. Anything else unfocuses it and goes on to the composer;
+ * false then.
  */
-export const cardKey = (key: KeyEvent, focused: string, cards: ReadonlyArray<string>, act: {
-  readonly focus: (key: string | undefined) => void
+export const cardKey = (key: KeyEvent, act: {
+  readonly move: (direction: Subagents.Direction) => void
+  readonly leave: () => void
   readonly open: () => void
-  readonly reveal: (key: string) => void
+  /** The focused subagent card's worker; undefined on a panel card. */
+  readonly worker: Tab | undefined
+  readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
+  readonly files: () => void
 }): boolean => {
   if (key.name === "return" || key.name === "kpenter") {
     key.preventDefault()
-    act.focus(undefined)
+    act.leave()
     act.open()
     return true
   }
   if (key.name === "escape") {
     key.preventDefault()
-    act.focus(undefined)
+    act.leave()
     return true
   }
-  if (key.name === "up" || key.name === "down" || key.name === "tab") {
+  const moved = key.name === "tab" ? key.shift ? "previous" : "next" : direction(key, false)
+  if (moved !== undefined) {
     key.preventDefault()
-    const back = key.name === "up" || (key.name === "tab" && key.shift)
-    const next = cards[(cards.indexOf(focused) + (back ? -1 : 1) + cards.length) % cards.length]!
-    act.focus(next)
-    act.reveal(next)
+    act.move(moved)
     return true
   }
-  // Anything else goes back to the composer.
-  act.focus(undefined)
-  return false
+  const worker = act.worker
+  if (worker === undefined) {
+    // Anything else goes back to the composer.
+    act.leave()
+    return false
+  }
+  if (key.name === "f") {
+    key.preventDefault()
+    act.files()
+    return true
+  }
+  const binding = workerBinding(key)
+  if (binding === undefined) {
+    act.leave()
+    return false
+  }
+  key.preventDefault()
+  const action = Tabs.actionFor(binding, worker)
+  if (action !== undefined) act.workerAction(worker, action.id)
+  return true
+}
+
+/**
+ * The Summary overview: arrows or hjkl move in the pane (right leaves the
+ * tree), enter opens, esc closes; `app.tsx` switches panes with tab. The
+ * worker keys act on the selected worker; `f` opens a card's files.
+ */
+export const overviewKey = (key: KeyEvent, state: {
+  readonly pane: "tree" | "cards"
+  /** The worker the keys act on: the tree's selection, or the focused card's. */
+  readonly worker: Tab | undefined
+}, act: {
+  readonly close: () => void
+  readonly release: () => void
+  readonly pane: () => void
+  readonly tree: (step: -1 | 1) => void
+  readonly card: (direction: Subagents.Direction) => void
+  readonly open: () => void
+  readonly files: () => void
+  readonly scroll: (direction: number) => void
+  readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
+}) => {
+  key.preventDefault()
+  if (key.name === "escape") return act.close()
+  if (key.name === "i") return act.release()
+  if (key.name === "return" || key.name === "kpenter") return act.open()
+  if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
+  const moved = direction(key, true)
+  if (moved !== undefined && state.pane === "tree") {
+    if (moved === "right") return act.pane()
+    if (moved === "up" || moved === "down") return act.tree(moved === "up" ? -1 : 1)
+    return
+  }
+  if (moved !== undefined) return act.card(moved)
+  if (key.name === "f" && state.pane === "cards") return act.files()
+  const worker = state.worker
+  const binding = worker === undefined ? undefined : workerBinding(key)
+  const action = binding === undefined || worker === undefined ? undefined : Tabs.actionFor(binding, worker)
+  if (action !== undefined && worker !== undefined) act.workerAction(worker, action.id)
 }
 
 /** Keys while a flow form is open; its focused input takes the typing. */

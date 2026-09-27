@@ -115,8 +115,8 @@ export const useSurface = () => {
   const [panelFocus, setPanelFocus] = useState(false)
   const [navigation, setNavigation] = useState(Panels.initial)
   const [steerTarget, setSteerTarget] = useState<string | undefined>()
-  // Steering is for the tab it started in: any surface change ends it.
-  useEffect(() => setSteerTarget(undefined), [surface])
+  // Steering is for its worker's tab: showing any other surface ends it.
+  useEffect(() => setSteerTarget((target) => surface === `tab:${target}` ? target : undefined), [surface])
   // Keys in one input burst are handled before the next render: a second Ctrl+] must step from the first one's tab.
   const shown = useRef(surface)
   shown.current = surface

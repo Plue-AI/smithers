@@ -70,7 +70,7 @@ export const commands: ReadonlyArray<Command> = [
   { name: "summary", description: "Review this conversation" },
   { name: "tabs", description: "Review background work" },
   { name: "chat", description: "Return to chat" },
-  { name: "filter", description: "Show or hide workers and kinds of rows" },
+  { name: "filter", description: "Show or hide kinds of rows" },
   { name: "grep", args: "[text]", description: "Show only rows containing text" },
   { name: "ui", args: "[id]", description: "Open a custom view" },
   { name: "smithers", description: "Flows and runs" },

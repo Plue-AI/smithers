@@ -8,7 +8,7 @@ import { join } from "node:path"
 import type * as Host from "../src/host.ts"
 import { workerFallbackSeats } from "../src/models.ts"
 import * as Session from "../src/session.ts"
-import { tabToast, Workspace } from "../src/workspace.ts"
+import { Workspace } from "../src/workspace.ts"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 /** Drains microtasks without timers, so it also runs under fake timers. */
@@ -86,7 +86,7 @@ describe("worker durability", () => {
       await flush()
       const parked = f.workspace.snapshot().tabs[0]!
       expect(parked).toMatchObject({ status: "parked", wakeAt, parks: 1 })
-      expect(tabToast(parked)).toBe("Review · waits for ChatGPT reset · 14:20")
+      expect(f.workspace.panel("review").summary).toBe("waits for ChatGPT reset · 14:20")
       expect(f.workspace.read("review")).toMatchObject({ status: "parked", wakeAt: new Date(wakeAt).toISOString() })
       jest.advanceTimersByTime(599_999)
       await flush()
