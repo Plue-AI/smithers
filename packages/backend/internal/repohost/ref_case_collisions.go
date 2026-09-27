@@ -3,12 +3,15 @@ package repohost
 import (
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 // RefCaseCollisionPrefix holds the backups the case-collision repair keeps:
-// refs/smithers/case-collision/<timestamp>/<ref without "refs/">. Under
-// refs/smithers/ they are inert: no bookmark, no push, no jj import.
+// refs/smithers/case-collision/<timestamp>/<n>/<ref without "refs/">. Under
+// refs/smithers/ they are inert: no bookmark, no push, no jj import, and
+// repo-host hides them from fetches and pushes, so a `git push --mirror`
+// never tries to prune them.
 const RefCaseCollisionPrefix = ReservedRefPrefix + "case-collision/"
 
 // Case-collision repair actions.
@@ -151,7 +154,9 @@ func reservedDirectoryVariant(ref string, reserved map[string]string) string {
 	return ""
 }
 
-// RefCaseCollisionBackup names the backup of variant made at stamp.
-func RefCaseCollisionBackup(stamp, variant string) string {
-	return RefCaseCollisionPrefix + stamp + "/" + strings.TrimPrefix(variant, "refs/")
+// RefCaseCollisionBackup names the backup of a run's n-th variant made at
+// stamp. The number keeps two variants' backups apart on a case-insensitive
+// filesystem, where refs/.../Mythical and refs/.../MYTHICAL are one file.
+func RefCaseCollisionBackup(stamp string, n int, variant string) string {
+	return RefCaseCollisionPrefix + stamp + "/" + strconv.Itoa(n) + "/" + strings.TrimPrefix(variant, "refs/")
 }

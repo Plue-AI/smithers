@@ -63,12 +63,25 @@ func (d *idleDeadlineWriter) Write(p []byte) (int, error) {
 //   - receive.hideRefs=refs/jj/: jj's refs/jj/keep/* retention pins are not
 //     advertised, so a `git push --mirror` never tries to prune them, and git
 //     itself refuses an update to them if one slips past the command peek.
+//   - receive.hideRefs=refs/smithers/case-collision/: the case-collision
+//     repair's backups are hidden the same way.
 func receivePackEnv(maxInputSize int64) []string {
-	return append(os.Environ(), "GIT_CONFIG_COUNT=2",
+	return append(os.Environ(), "GIT_CONFIG_COUNT=3",
 		"GIT_CONFIG_KEY_0=receive.maxInputSize",
 		fmt.Sprintf("GIT_CONFIG_VALUE_0=%d", maxInputSize),
 		"GIT_CONFIG_KEY_1=receive.hideRefs",
-		"GIT_CONFIG_VALUE_1="+repohost.JJRefPrefix)
+		"GIT_CONFIG_VALUE_1="+repohost.JJRefPrefix,
+		"GIT_CONFIG_KEY_2=receive.hideRefs",
+		"GIT_CONFIG_VALUE_2="+repohost.RefCaseCollisionPrefix)
+}
+
+// uploadPackEnv is the environment for every git upload-pack process,
+// advertisement included: the case-collision repair's backups are not
+// fetched, so a `git clone --mirror` never carries them into a mirror push.
+func uploadPackEnv() []string {
+	return append(os.Environ(), "GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=uploadpack.hideRefs",
+		"GIT_CONFIG_VALUE_0="+repohost.RefCaseCollisionPrefix)
 }
 
 // streamGitRPC runs a git smart-HTTP RPC and streams its stdout directly to dst
@@ -83,8 +96,11 @@ func streamGitRPC(ctx context.Context, gitDir, command string, body io.Reader, d
 func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer, maxInputSize int64) error {
 	args := []string{command, "--stateless-rpc", gitDir}
 	cmd := streamGitCommandContext(ctx, "git", args...)
-	if command == "receive-pack" {
+	switch command {
+	case "receive-pack":
 		cmd.Env = receivePackEnv(maxInputSize)
+	case "upload-pack":
+		cmd.Env = uploadPackEnv()
 	}
 
 	stdin, err := cmd.StdinPipe()
@@ -297,7 +313,18 @@ func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands 
 // objects exist. Only a bookmark the push deleted or moved backwards needs
 // the default, and a default that cannot be read then refuses the push. The
 // GitHub sync credential is exempt: it copies GitHub's refs as they are.
+//
+// It fails closed on a missing default: once the default bookmark has
+// existed (recordDefaultBookmark), a push cannot create it again. With no
+// old value any commit would pass as its new one. A default that has never
+// existed, as in a new repository, is created by a push as usual.
 func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, after map[string]string) error {
+	if defaultBookmark, err := gitDefaultBookmark(ctx, gitDir); err == nil {
+		ref := "refs/heads/" + defaultBookmark
+		if _, existed := before[ref]; !existed && after[ref] != "" && defaultBookmarkBorn(gitDir, defaultBookmark) {
+			return forbidden("the default bookmark is missing; a push cannot recreate it")
+		}
+	}
 	for ref, old := range before {
 		current := after[ref]
 		if current == old || !strings.HasPrefix(ref, "refs/heads/") {
@@ -322,6 +349,48 @@ func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, aft
 		}
 	}
 	return nil
+}
+
+// defaultBookmarkBornFile names the default bookmark once it has existed.
+const defaultBookmarkBornFile = "smithers-default-bookmark-born"
+
+// recordDefaultBookmark marks the default bookmark born when refs, listed
+// under the repository lock, hold it. Every push records it, the GitHub sync
+// credential's included, whose pushes are exempt from the forward-only check.
+func recordDefaultBookmark(ctx context.Context, gitDir string, refs map[string]string) error {
+	defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
+	if err != nil {
+		return nil
+	}
+	if _, ok := refs["refs/heads/"+defaultBookmark]; !ok {
+		return nil
+	}
+	if err := markDefaultBookmarkBorn(gitDir, defaultBookmark); err != nil {
+		return internalError("failed to record the default bookmark", err)
+	}
+	return nil
+}
+
+// markDefaultBookmarkBorn records that bookmark, the default, exists.
+func markDefaultBookmarkBorn(gitDir, bookmark string) error {
+	if defaultBookmarkBorn(gitDir, bookmark) {
+		return nil
+	}
+	marker := filepath.Join(gitDir, defaultBookmarkBornFile)
+	if err := os.WriteFile(marker+".pending", []byte(bookmark+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(marker+".pending", marker)
+}
+
+// defaultBookmarkBorn reports whether bookmark, the default, has existed.
+// A marker that cannot be read counts as born: the check fails closed.
+func defaultBookmarkBorn(gitDir, bookmark string) bool {
+	raw, err := os.ReadFile(filepath.Join(gitDir, defaultBookmarkBornFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return err != nil || strings.TrimSpace(string(raw)) == bookmark
 }
 
 // setGitDefaultBookmark updates the bare repository's HEAD symref. Git permits

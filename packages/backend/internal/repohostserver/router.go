@@ -761,6 +761,8 @@ func (s *Server) infoRefs(w http.ResponseWriter, r *http.Request) error {
 	cmd := exec.CommandContext(cmdCtx, "git", gitCommand, "--stateless-rpc", "--advertise-refs", gitDir)
 	if gitCommand == "receive-pack" {
 		cmd.Env = receivePackEnv(maxDecompressedGitRequestSize)
+	} else {
+		cmd.Env = uploadPackEnv()
 	}
 	var refStderr bytes.Buffer
 	cmd.Stderr = &refStderr
@@ -940,6 +942,9 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	}
 	if gitErr != nil {
 		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, gitErr)
+	}
+	if err := recordDefaultBookmark(enforceCtx, gitDir, beforeRefs); err != nil {
+		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, err)
 	}
 	if sender.PusherCredential != jjmiddleware.CredentialSync {
 		if err := refuseDefaultBookmarkRewind(enforceCtx, gitDir, beforeRefs, afterRefs); err != nil {

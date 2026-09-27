@@ -35,5 +35,5 @@ func TestPlanRefCaseCollisions(t *testing.T) {
 	// A directory variant beside the existing reserved ref blocks nothing.
 	require.Equal(t, []RefCaseCollision{{Refs: []string{"refs/heads/Main/x"}, Canonical: "refs/heads/main", Action: RefCaseCollisionReported}},
 		PlanRefCaseCollisions([]string{"refs/heads/main", "refs/heads/Main/x"}, "main", nil))
-	require.Equal(t, "refs/smithers/case-collision/20260927T000000Z/heads/MAIN", RefCaseCollisionBackup("20260927T000000Z", "refs/heads/MAIN"))
+	require.Equal(t, "refs/smithers/case-collision/20260927T000000Z/0/heads/MAIN", RefCaseCollisionBackup("20260927T000000Z", 0, "refs/heads/MAIN"))
 }

@@ -105,8 +105,9 @@ func TestRefCaseCollisionRepair_PostgresNative(t *testing.T) {
 	backups := map[string]string{}
 	for name, oid := range refs {
 		if rest, ok := strings.CutPrefix(name, repohost.RefCaseCollisionPrefix); ok {
-			_, variant, _ := strings.Cut(rest, "/")
-			backups["refs/"+variant] = oid
+			// <timestamp>/<n>/<ref without "refs/">
+			parts := strings.SplitN(rest, "/", 3)
+			backups["refs/"+parts[2]] = oid
 		}
 	}
 	require.Equal(t, map[string]string{
@@ -120,6 +121,10 @@ func TestRefCaseCollisionRepair_PostgresNative(t *testing.T) {
 		require.False(t, present, gone)
 	}
 	require.Equal(t, oids["refs/heads/MAIN"], refs["refs/heads/main"])
+	// The renamed default is recorded: a push can no longer recreate it.
+	born, err := os.ReadFile(filepath.Join(gitDir, "smithers-default-bookmark-born"))
+	require.NoError(t, err)
+	require.Equal(t, "main\n", string(born))
 	require.Equal(t, oids["refs/heads/release/1"], refs["refs/heads/release/1"])
 	require.Equal(t, oids["refs/heads/Feature"], refs["refs/heads/Feature"])
 	require.Equal(t, oids["refs/heads/feature"], refs["refs/heads/feature"])
