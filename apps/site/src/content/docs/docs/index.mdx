@@ -3,7 +3,7 @@ title: "Welcome to Smithers"
 description: "Smithers is an orchestration agent, primarily used to orchestrate maintaining a codebase, but it can be used for orchestration in general. Agents plan, run, and review changes through flows declared beside the code."
 ---
 
-import { CardGrid, LinkButton, LinkCard } from "@astrojs/starlight/components"
+import { LinkButton } from "@astrojs/starlight/components"
 import AppScreenshot from "../../../components/AppScreenshot.astro"
 
 {/* generated:project-description start. Edit apps/site/src/data/project.json; do not edit. */}
@@ -17,25 +17,12 @@ Smithers is an orchestration agent, primarily used to orchestrate maintaining a 
 
 <AppScreenshot src="/images/app/home.png" alt="An earlier Smithers repository home with featured flows and the conversation." caption="Repository home preview. Follow the quickstart for the current setup checklist." />
 
-## Start with a repository
+## Register your repository
 
-The hosted app is in private alpha for selected public repositories. Start with **smithersai/smithers**. You can explore its home, public files, and declared automation without signing in. Contributing and running flows require GitHub sign-in and alpha access.
+Add an open-source repository and answer a few questions. We review it and set Smithers up for it. The registration run shows where it is.
 
-Each repository has a **factory**: its flows, automation rules, knowledge, and environment for working on the code. The app brings those parts into one conversation.
+<LinkButton href="https://smithers.sh/?register=1" class="cta-big" icon="right-arrow">Register a repository</LinkButton>
 
-## Use the app
+<AppScreenshot src="/images/app/register.png" alt="Smithers asks how the repository runs its checks and what to take on first; a registration card shows Questions done and In review." caption="Registering acme/widgets." />
 
-<CardGrid>
-  <LinkCard title="Quickstart" href="/docs/quickstart/" description="Explore the repository, find a flow, and prepare your first contribution." />
-  <LinkCard title="Talk to Smithers" href="/docs/app/chat/" description="Give a task, use cards, and keep the conversation going." />
-  <LinkCard title="Run a flow" href="/docs/app/flows/" description="Choose a repository flow and follow its progress." />
-  <LinkCard title="Review a change" href="/docs/app/changes/" description="Read the diff, check the evidence, and decide what to land." />
-  <LinkCard title="Explore the interface" href="/docs/app/" description="Find Wiki, Dispatcher, Flows, Secrets, History, and Account." />
-  <LinkCard title="Pricing and access" href="/docs/pricing/" description="Free and Pro plans, model credit, and checkout availability." />
-</CardGrid>
-
-## Work from your own tools
-
-Smithers also has a CLI and TypeScript libraries for defining flows and build targets beside your code. The [developer overview](/docs/developers/) leads to installation, the CLI quickstart, and the API reference.
-
-Reading with an agent? [`/llms.txt`](/llms.txt) indexes the docs, including the app guides.
+You can register one repository at a time.

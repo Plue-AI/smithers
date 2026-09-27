@@ -104,3 +104,6 @@ img.hero-anim {
 		margin-inline-start: -11%;
 	}
 }
+
+/* The single call to action on a page, such as Register a repository. */
+.sl-link-button.cta-big { font-size: 1.125rem; padding: 0.9rem 1.6rem; }

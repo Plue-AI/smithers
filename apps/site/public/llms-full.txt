@@ -12,26 +12,17 @@ Smithers is an orchestration agent, primarily used to orchestrate maintaining a 
 
 Repository home preview. Follow the quickstart for the current setup checklist.
 
-## Start with a repository
+## Register your repository
 
-The hosted app is in private alpha for selected public repositories. Start with **smithersai/smithers**. You can explore its home, public files, and declared automation without signing in. Contributing and running flows require GitHub sign-in and alpha access.
+Add an open-source repository and answer a few questions. We review it and set Smithers up for it. The registration run shows where it is.
 
-Each repository has a **factory**: its flows, automation rules, knowledge, and environment for working on the code. The app brings those parts into one conversation.
+[Register a repository](https://smithers.sh/?register=1)
 
-## Use the app
+![Smithers asks how the repository runs its checks and what to take on first; a registration card shows Questions done and In review.](/images/app/register.png)
 
-  - [Quickstart](/docs/quickstart/): Explore the repository, find a flow, and prepare your first contribution.
-  - [Talk to Smithers](/docs/app/chat/): Give a task, use cards, and keep the conversation going.
-  - [Run a flow](/docs/app/flows/): Choose a repository flow and follow its progress.
-  - [Review a change](/docs/app/changes/): Read the diff, check the evidence, and decide what to land.
-  - [Explore the interface](/docs/app/): Find Wiki, Dispatcher, Flows, Secrets, History, and Account.
-  - [Pricing and access](/docs/pricing/): Free and Pro plans, model credit, and checkout availability.
+Registering acme/widgets.
 
-## Work from your own tools
-
-Smithers also has a CLI and TypeScript libraries for defining flows and build targets beside your code. The [developer overview](/docs/developers/) leads to installation, the CLI quickstart, and the API reference.
-
-Reading with an agent? [`/llms.txt`](/llms.txt) indexes the docs, including the app guides.
+You can register one repository at a time.
 
 ---
 
@@ -30333,6 +30324,8 @@ from `Capability.Action.literals` and frozen.
   "net:get:**",
   "net:post:**",
   "model:call:**",
+  "memory:read:**",
+  "memory:write:**",
   "proc:spawn:**",
   "jj:status:**",
   "jj:diff:**",

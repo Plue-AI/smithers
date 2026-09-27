@@ -110,5 +110,13 @@
     "width": 1440,
     "height": 1000,
     "data": "Live public app, signed out"
+  },
+  {
+    "file": "register.png",
+    "source": "Design mockup for /repository.register; replace with the app capture when registration lands",
+    "capturedAt": "2026-09-26T18:30:00.000Z",
+    "width": 1440,
+    "height": 600,
+    "data": "Illustrative example repository acme/widgets"
   }
 ]
