@@ -30,6 +30,14 @@
   composition without such a host leaves it undefined and every wake is exactly
   what it was.
 
+### Changed
+
+- Breaking: `DurableEngineState.staleRunningRuns` returns
+  `ReadonlyArray<StaleRunningRow>` (`{ runId, heartbeatAtMs }`) instead of run
+  ids, so a sweep can scope a steal refusal to the lease it was refused
+  against. Custom `DurableEngineState` implementations must return the frozen
+  heartbeat with each run id; callers read `row.runId`.
+
 ### Fixed
 
 - Compiled `stop-merge` recovery retains the stopped attempt's `skipped`

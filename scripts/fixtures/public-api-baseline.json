@@ -3167,7 +3167,7 @@
         "ArtifactSync.d.ts": "e5dfc05cc2db66cc65ff170f0be521fb8039a1b48b836de1a0af475fb94b9c0d",
         "CacheSync.d.ts": "e2a8f11c2a02baf09741424998b9791c1119edefc416c1ac20ca0e0775fd5f53",
         "DisasterRecovery.d.ts": "7abbb90b1935774ba470d09003021bc9fbab0bdcefabda1471c5b988102fbebb",
-        "DurableEngineState.d.ts": "ce2fdae8bbf2c49e91e0f236107d92aedd17439a9b9e069790632fc7687fbda0",
+        "DurableEngineState.d.ts": "37c619c16964d7c5890234218883d7ba824a4bb9920c18d8b796518257d26cbc",
         "EngineStore.d.ts": "4442dbbed1d54ccf7ef72e29afe006fd09d828dc1c8b1914a13b5a81a5182484",
         "EngineStoreMetrics.d.ts": "1ba7ea196d3fde8db9fcc68dc675cfd10dfffb3a5746d79ea9ac2c72762bd524",
         "Errors.d.ts": "9013130829b7f8df2e986e3b259c282797f3ce0b44c3bcf8f4de311815965d7b",
