@@ -438,7 +438,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* 8 = the Stack card's Backfill, fewer/more lanes, a row's Retry, a failure's Retry, Bootstrap, and the Wiki row's pages (wiki.cloud) and Retry (wiki.create). */
       "../cards/StackCard.tsx": 8,
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
-      "../cards/AgentCards.tsx": 4,
+      "../cards/AgentCards.tsx": 5, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
       // THE FORM LAW (flow-forms.md): the generic form's Cancel (card.dismiss) and Submit (form.submit); fields commit on blur/change.
       "../cards/FlowFormCards.tsx": 2,

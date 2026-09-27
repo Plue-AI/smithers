@@ -598,8 +598,11 @@ describe("the live store's authoritative event path", () => {
     const agentsCard = restored.collections.cards.get("kept-agents")!
     expect(agentsCard.kind).toBe("agents")
     if (agentsCard.kind !== "agents" || !("agents" in agentsCard.payload)) throw new Error("Missing built-in roster")
-    expect(agentsCard.payload.agents).toHaveLength(1)
+    // A built-in row reads its facts back from the table; a configured profile the table does not know keeps its own
+    // (smithers-ui-DESIGN.md §3.3: Will's roles and hired specialists are configured profiles, not built-ins).
+    expect(agentsCard.payload.agents).toHaveLength(2)
     expect(agentsCard.payload.agents[0]).toMatchObject({ id: AGENT_ROLES[0]!.id, label: AGENT_ROLES[0]!.label, model: AGENT_ROLES[0]!.model })
+    expect(agentsCard.payload.agents[1]).toMatchObject({ id: "custom-reviewer", builtin: false })
     expect(frame.snapshot?.cards.find(card => card.id === "kept-agents")).toMatchObject({ kind: "agents", payload: agentsCard.payload })
     expect((await restored.verifyState()).valid).toBe(true)
     const reopened = await open(storage)

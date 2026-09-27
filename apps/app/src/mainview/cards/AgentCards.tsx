@@ -3,6 +3,7 @@ import { flowAction } from "../flows/FlowAction"
 import { Button, Markdown } from "@smthrs/ui"
 import type { Card } from "../state/AppState"
 import { findAgentRole } from "@smthrs/rpc/AgentRoles"
+import { Monogram } from "../AgentMark"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 
@@ -23,23 +24,49 @@ const CloudAgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCard
   </ul>
 )
 
+type ProfileRow = Extract<AgentsCard["payload"], { native: boolean }>["agents"][number]
+
+/*
+ * One configured agent profile (smithers-ui-DESIGN.md §3.3): its mark, label,
+ * model, the profile metadata it carries (kind, reports to), availability
+ * where a harness answers for it, and the door to its recorded work: a
+ * profile is a role flow, so its runs are the run list filtered by that flow
+ * (runs.list flow=<id>). Profiles under a manager indent under that row.
+ */
+const ProfileRowView = ({ agent, native, level, onRunCommand }: { readonly agent: ProfileRow; readonly native: boolean; readonly level: number; readonly onRunCommand: RunCommand }) => (
+  <li key={agent.id} className="workflow-list-row agent-row" data-agent={agent.id} data-available={agent.available} data-kind={agent.kind} style={level === 0 ? undefined : { paddingLeft: `${level * 20}px` }}>
+    <Monogram persona={{ id: agent.id, name: agent.label, agentId: agent.id }} />
+    <span className="workflow-list-text">
+      <strong>{agent.label}</strong>
+      <span title={agent.purpose}>
+        {[
+          agent.kind === undefined || agent.kind === "core" ? undefined : agent.kind,
+          agent.model.label,
+          agent.reportsTo === undefined ? undefined : `reports to ${agent.reportsTo}`,
+          native ? (agent.available ? `● ${agent.account === "" ? "signed in" : agent.account}` : `○ ${agent.reason}`) : undefined
+        ].filter((fact) => fact !== undefined && fact !== "").join(" · ")}
+      </span>
+    </span>
+    <Button variant="ghost" size="sm" data-testid={`agent-runs-${agent.id}`} {...flowAction(onRunCommand, "runs.list", flowArgs("runs.list", { flow: agent.id }))}>Runs</Button>
+  </li>
+)
+
 export const AgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCard; readonly onRunCommand: RunCommand }) => {
   if ("cloud" in card.payload) return <CloudAgentsCardBody card={{ ...card, payload: card.payload }} onRunCommand={onRunCommand} />
   const { native, agents, error } = card.payload
-  if (!native) return <p className="smithers-card-note">Agents run on the native app's harnesses.</p>
+  if (agents.length === 0) return <p className="smithers-card-note">Agents run on the native app's harnesses.</p>
+  /* Rows group under the profile they report to; a profile whose manager is not a profile lists at the top. */
+  const ids = new Set(agents.map((agent) => agent.id))
+  const under = (manager: string | undefined, level: number, seen: ReadonlySet<string>): ReadonlyArray<React.ReactNode> =>
+    agents.filter((agent) => (manager === undefined ? agent.reportsTo === undefined || !ids.has(agent.reportsTo) : agent.reportsTo === manager) && !seen.has(agent.id))
+      .flatMap((agent) => [
+        <ProfileRowView key={agent.id} agent={agent} native={native} level={level} onRunCommand={onRunCommand} />,
+        ...under(agent.id, level + 1, new Set([...seen, agent.id]))
+      ])
   return (
     <div className="agents-card">
       <ul className="workflow-list" data-testid="agents-list">
-        {agents.filter(agent => findAgentRole(agent.id)?.builtin).map((agent) => (
-          <li key={agent.id} className="workflow-list-row agent-row" data-agent={agent.id} data-available={agent.available}>
-            <span className="workflow-list-text">
-              <strong>{agent.label}</strong>
-              <span title={agent.purpose}>
-                {agent.harnessName} · {agent.model.id} · {agent.available ? `● ${agent.account === "" ? "signed in" : agent.account}` : `○ ${agent.reason}`}
-              </span>
-            </span>
-          </li>
-        ))}
+        {under(undefined, 0, new Set())}
       </ul>
       {error !== undefined ?
         (

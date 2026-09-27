@@ -54,7 +54,20 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
    * the local backend (docs/LOCAL-BACKEND-RETIREMENT.md). The card states
    * that the way the web host always has.
    */
-  const agentsPayload = (): AgentsCard["payload"] => ({ native: false, agents: [] })
+  const agentsPayload = (): AgentsCard["payload"] => ({
+    native: false,
+    /*
+     * The configured agent profiles (smithers-ui-DESIGN.md §3.3): label,
+     * purpose, model, and the profile metadata — who it reports to, whether it
+     * is a hired specialist — when the profile carries it. Launching stays
+     * with the harnesses; a row's door is its recorded work (runs.list agent=).
+     */
+    agents: agentRoles().map((role) => ({
+      id: role.id, label: role.label, purpose: role.purpose, harness: role.harness, harnessName: role.harness, model: role.model, builtin: role.builtin,
+      ...(role.reportsTo === undefined ? {} : { reportsTo: role.reportsTo }), ...(role.kind === undefined ? {} : { kind: role.kind }),
+      available: false, reason: "", account: ""
+    }))
+  })
 
   /** The Agents card: at the tail when the human (or the model) asked for it, in place when a mutation refreshes it. */
   const renderAgentsCard = (toTail: boolean, error?: string): void => {
