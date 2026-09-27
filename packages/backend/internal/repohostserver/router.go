@@ -888,6 +888,9 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 		pusherID, r.Header.Get("X-Smithers-Control-Plane") == "mythical"); msg != "" {
 		return forbidden(msg)
 	}
+	if err := refuseCaseVariantRefs(beforeRefs, commandRefNames(commands)...); err != nil {
+		return err
+	}
 	if sender.PusherCredential == jjmiddleware.CredentialAgentRun {
 		if err := refuseAgentRunDefaultBookmark(r.Context(), gitDir, commands); err != nil {
 			return err
@@ -1489,6 +1492,9 @@ func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) error {
 		}
 		return writeJSON(w, http.StatusOK, repohost.Bookmark{Name: req.Name})
 	}
+	if err := s.refuseCaseVariantBookmark(r.Context(), chi.URLParam(r, "id"), req.Name); err != nil {
+		return err
+	}
 	if req.IfAbsent {
 		result, err := s.ffi.CreateBookmarkIfAbsent(repoPath, req.Name, req.TargetChangeID)
 		if err != nil {
@@ -1901,6 +1907,12 @@ func (s *Server) land(w http.ResponseWriter, r *http.Request, appendOnly bool) e
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
+	}
+
+	if target := strings.TrimSpace(req.TargetBookmark); target != "" && !req.LookupOnly {
+		if err := s.refuseCaseVariantBookmark(r.Context(), chi.URLParam(r, "id"), target); err != nil {
+			return err
+		}
 	}
 
 	// One jj transaction publishes the complete stack, including its receipt.

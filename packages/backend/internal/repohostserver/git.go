@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -282,9 +283,7 @@ func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands 
 		return forbidden("an agent run's push is refused: the default bookmark cannot be read")
 	}
 	for _, command := range commands {
-		// Case-insensitive: on a case-insensitive filesystem a loose ref
-		// differing only in case is the same file.
-		if strings.EqualFold(strings.TrimSpace(command.RefName), "refs/heads/"+defaultBookmark) {
+		if repohost.SameRef(command.RefName, "refs/heads/"+defaultBookmark) {
 			return forbidden("an agent run cannot write the default bookmark; land its changes instead")
 		}
 	}
@@ -317,4 +316,46 @@ func setGitDefaultBookmark(ctx context.Context, gitDir, bookmark string) error {
 		return fmt.Errorf("set git HEAD to %s: %s", ref, detail)
 	}
 	return nil
+}
+
+// refuseCaseVariantRefs refuses writing a ref that differs only in case from
+// an existing ref or ref directory (or from another ref of the same write).
+// On a case-insensitive filesystem that write would land in the other ref's
+// file, past every guard that named the ref it asked for.
+func refuseCaseVariantRefs(existing map[string]string, refs ...string) error {
+	names := make([]string, 0, len(existing))
+	for name := range existing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if variant := repohost.CaseVariantRefs(refs, names); variant != "" {
+		return conflict(fmt.Sprintf("%s differs only in case from %s", strings.Join(refs, ", "), variant))
+	}
+	return nil
+}
+
+func commandRefNames(commands []repohost.ReceivePackCommand) []string {
+	refs := make([]string, 0, len(commands))
+	for _, command := range commands {
+		refs = append(refs, command.RefName)
+	}
+	return refs
+}
+
+// refuseCaseVariantBookmark applies refuseCaseVariantRefs to a bookmark the
+// bookmark API or a landing would create.
+func (s *Server) refuseCaseVariantBookmark(ctx context.Context, repoID, bookmark string) error {
+	owner, repo, err := parseRepoID(repoID)
+	if err != nil {
+		return err
+	}
+	gitDir := s.config.GitBackendPath(owner, repo)
+	if _, err := os.Stat(gitDir); errors.Is(err, os.ErrNotExist) {
+		return nil // no repository: the write itself reports it
+	}
+	refs, err := listGitRefs(ctx, gitDir)
+	if err != nil {
+		return internalError("failed to list refs", err)
+	}
+	return refuseCaseVariantRefs(refs, "refs/heads/"+bookmark)
 }

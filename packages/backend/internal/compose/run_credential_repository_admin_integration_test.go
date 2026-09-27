@@ -147,6 +147,22 @@ func TestRunCredentialCannotAdministerRepositoryPostgres(t *testing.T) {
 		rec = serve(bearer, http.MethodPost, "/bookmarks", `{"name":"mythical","target_change_id":"abc"}`)
 		assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	}
+	// Bookmark names compare without case: a case variant of the default
+	// bookmark, of mythical or of a protected bookmark is that bookmark.
+	rec = serve(person, http.MethodPost, "/protected-bookmarks", `{"pattern":"release"}`)
+	require.Less(t, rec.Code, 300, rec.Body.String())
+	for _, bearer := range []string{boundRun, unboundRun} {
+		for _, name := range []string{"Main", "Mythical", "MYTHICAL", "Release", "RELEASE"} {
+			rec := serve(bearer, http.MethodPost, "/bookmarks", `{"name":"`+name+`","target_change_id":"abc"}`)
+			assert.Equal(t, http.StatusForbidden, rec.Code, "create %s: %s", name, rec.Body.String())
+			rec = serve(bearer, http.MethodDelete, "/bookmarks/"+name, ``)
+			assert.Equal(t, http.StatusForbidden, rec.Code, "delete %s: %s", name, rec.Body.String())
+		}
+	}
+	for _, name := range []string{"Mythical", "Release"} {
+		rec := serve(person, http.MethodPost, "/bookmarks", `{"name":"`+name+`","target_change_id":"abc"}`)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "person create %s: %s", name, rec.Body.String())
+	}
 	assert.Zero(t, repoHostCalls, "a refused bookmark write reached repo-host")
 	rec = serve(boundRun, http.MethodPost, "/bookmarks", `{"name":"feature","target_change_id":"abc"}`)
 	assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())

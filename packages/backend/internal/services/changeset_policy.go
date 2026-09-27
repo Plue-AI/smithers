@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"path"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -39,7 +38,7 @@ func (s *ChangesetService) requireMembersAccess(ctx context.Context, userID int6
 }
 
 func (s *ChangesetService) checkLandingPolicy(ctx context.Context, repo db.Repository, owner, changeID, commitID, target string) error {
-	if target == MythicalBookmark {
+	if isMythicalBookmark(target) {
 		return errMythicalBookmarkOwned
 	}
 	rules, err := s.queries.ListAllProtectedBookmarksByRepo(ctx, repo.ID)
@@ -48,7 +47,7 @@ func (s *ChangesetService) checkLandingPolicy(ctx context.Context, repo db.Repos
 	}
 	protected := len(repo.LandingQueueRequiredChecks) > 0
 	for _, rule := range rules {
-		match, err := path.Match(rule.Pattern, target)
+		match, err := bookmarkMatchesPattern(rule.Pattern, target)
 		if err != nil {
 			return pkgerrors.Internal("invalid protected bookmark pattern").WithCause(err)
 		}

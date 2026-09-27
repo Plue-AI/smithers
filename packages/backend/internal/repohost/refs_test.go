@@ -177,3 +177,43 @@ func TestUserRefViolation(t *testing.T) {
 		})
 	}
 }
+
+func TestRefNamesCompareWithoutCase(t *testing.T) {
+	for _, ref := range []string{"refs/heads/Mythical", "refs/heads/MYTHICAL", " refs/Heads/mythical", "refs/notes/Mythical", "refs/smithers/MYTHICAL/pin"} {
+		if !IsMythicalRef(ref) {
+			t.Errorf("IsMythicalRef(%q) = false", ref)
+		}
+	}
+	if !SameRef("refs/heads/Main", "refs/heads/main") || SameRef("refs/heads/main", "refs/heads/maine") {
+		t.Error("SameRef compares without case, and only that")
+	}
+	for _, ref := range []string{"refs/JJ/keep/x", "refs/Smithers/workspaces/x/head"} {
+		if ReservedRefViolation([]ReceivePackCommand{{RefName: ref}}, "", 1) == "" {
+			t.Errorf("%s is reserved whatever its case", ref)
+		}
+	}
+}
+
+func TestCaseVariantRefs(t *testing.T) {
+	existing := []string{"refs/heads/main", "refs/heads/feature/a", "refs/tags/v1"}
+	for ref, want := range map[string]string{
+		"refs/heads/main":      "",
+		"refs/heads/other":     "",
+		"refs/heads/feature/b": "",
+		"refs/heads/Main":      "refs/heads/main",
+		"refs/heads/Feature/b": "refs/heads/feature",
+		"refs/Heads/x":         "refs/heads",
+		"refs/heads/main/x":    "",
+	} {
+		if got := CaseVariantRefs([]string{ref}, existing); got != want {
+			t.Errorf("CaseVariantRefs(%q) = %q, want %q", ref, got, want)
+		}
+	}
+	if got := CaseVariantRefs([]string{"refs/heads/new", "refs/heads/NEW"}, existing); got != "refs/heads/new" {
+		t.Errorf("a push's own refs collide: got %q", got)
+	}
+	// Variants stored before the rule still update under their own names.
+	if got := CaseVariantRefs([]string{"refs/heads/Old"}, []string{"refs/heads/old", "refs/heads/Old"}); got != "" {
+		t.Errorf("exact existing ref refused: %q", got)
+	}
+}

@@ -7,7 +7,6 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"log/slog"
-	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -670,7 +669,7 @@ func (s *LandingService) CreateLandingRequest(ctx context.Context, actor *db.Use
 	if targetBookmark == "" {
 		return LandingRequestResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "LandingRequest", Field: "target_bookmark", Code: "missing_field"})
 	}
-	if targetBookmark == MythicalBookmark {
+	if isMythicalBookmark(targetBookmark) {
 		return LandingRequestResponse{}, errMythicalBookmarkOwned
 	}
 	sourceBookmark := strings.TrimSpace(req.SourceBookmark)
@@ -972,7 +971,7 @@ func (s *LandingService) UpdateLandingRequest(ctx context.Context, actor *db.Use
 	// would redirect an approved land onto a protected bookmark that never
 	// received the required approvals — a check-time/use-time (TOCTOU) authz
 	// bypass. Only block actual changes so idempotent re-sends still succeed.
-	if req.TargetBookmark != nil && strings.TrimSpace(*req.TargetBookmark) == MythicalBookmark {
+	if req.TargetBookmark != nil && isMythicalBookmark(*req.TargetBookmark) {
 		return LandingRequestResponse{}, errMythicalBookmarkOwned
 	}
 	switch current.State {
@@ -1668,7 +1667,7 @@ func (s *LandingService) targetBookmarkRevision(ctx context.Context, owner, repo
 
 func landingDismissStaleReviews(rules []db.ProtectedBookmark, targetBookmark string) (bool, error) {
 	for _, rule := range rules {
-		matches, err := path.Match(rule.Pattern, targetBookmark)
+		matches, err := bookmarkMatchesPattern(rule.Pattern, targetBookmark)
 		if err != nil {
 			return false, err
 		}
@@ -1787,7 +1786,7 @@ func landingProtectionRequirements(rules []db.ProtectedBookmark, targetBookmark 
 	var requireAgentLGTM bool
 	var contexts []string
 	for _, rule := range rules {
-		matches, err := path.Match(rule.Pattern, targetBookmark)
+		matches, err := bookmarkMatchesPattern(rule.Pattern, targetBookmark)
 		if err != nil {
 			return 0, false, nil, err
 		}

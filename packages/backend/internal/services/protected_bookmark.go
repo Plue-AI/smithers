@@ -9,6 +9,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 // BookmarkProtectionQuerier is the minimal query surface needed to evaluate
@@ -23,7 +24,7 @@ type BookmarkProtectionQuerier interface {
 // landing queue, where review/status-check policy is enforced; every other
 // mutation path would bypass that policy.
 func RequireBookmarkNotProtected(ctx context.Context, q BookmarkProtectionQuerier, repositoryID int64, bookmark string) error {
-	if bookmark == MythicalBookmark {
+	if isMythicalBookmark(bookmark) {
 		return errMythicalBookmarkOwned
 	}
 	rules, err := q.ListAllProtectedBookmarksByRepo(ctx, repositoryID)
@@ -31,7 +32,7 @@ func RequireBookmarkNotProtected(ctx context.Context, q BookmarkProtectionQuerie
 		return pkgerrors.Internal("failed to list protected bookmarks").WithCause(err)
 	}
 	for _, rule := range rules {
-		matches, err := path.Match(rule.Pattern, bookmark)
+		matches, err := bookmarkMatchesPattern(rule.Pattern, bookmark)
 		if err != nil {
 			return pkgerrors.Internal("invalid protected bookmark pattern").WithCause(err)
 		}
@@ -42,13 +43,25 @@ func RequireBookmarkNotProtected(ctx context.Context, q BookmarkProtectionQuerie
 	return nil
 }
 
+// bookmarkMatchesPattern matches a protected-bookmark pattern the way refs
+// are compared (repohost.RefKey): a case variant of a protected bookmark is
+// that bookmark.
+func bookmarkMatchesPattern(pattern, bookmark string) (bool, error) {
+	return path.Match(repohost.RefKey(pattern), repohost.RefKey(bookmark))
+}
+
+// isMythicalBookmark reports whether bookmark names the mythical stack.
+func isMythicalBookmark(bookmark string) bool {
+	return repohost.SameRef(bookmark, MythicalBookmark)
+}
+
 // RequireAgentRunOffDefaultBookmark refuses an agent run's credential any
 // direct write of the default bookmark: an agent's work reaches it only
 // through a landing, the stack service or the GitHub main pull. A person's and
 // the platform's sync credential are not affected; the mythical bookmark is
 // refused to everyone by RequireBookmarkNotProtected.
 func RequireAgentRunOffDefaultBookmark(kind middleware.CredentialKind, defaultBookmark, bookmark string) error {
-	if kind == middleware.CredentialAgentRun && strings.EqualFold(bookmark, defaultBookmark) {
+	if kind == middleware.CredentialAgentRun && repohost.SameRef(bookmark, defaultBookmark) {
 		return pkgerrors.Forbidden(fmt.Sprintf("an agent run cannot write the default bookmark %q; land its changes instead", bookmark))
 	}
 	return nil
@@ -58,11 +71,13 @@ func RequireAgentRunOffDefaultBookmark(kind middleware.CredentialKind, defaultBo
 // for refs outside refs/heads/ (tags, notes, ...), which are not subject to
 // bookmark protection.
 func BookmarkNameFromRef(ref string) (string, bool) {
-	name, ok := strings.CutPrefix(ref, "refs/heads/")
-	if !ok || name == "" {
+	const heads = "refs/heads/"
+	ref = strings.TrimSpace(ref)
+	// Without case, like every ref comparison (repohost.RefKey).
+	if len(ref) <= len(heads) || !repohost.SameRef(ref[:len(heads)], heads) {
 		return "", false
 	}
-	return name, true
+	return ref[len(heads):], true
 }
 
 type UpsertProtectedBookmarkInput struct {

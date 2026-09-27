@@ -6,7 +6,81 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/unicode/norm"
 )
+
+// RefKey is the name every ref and bookmark guard compares: trimmed,
+// Unicode-normalized and case-folded. Git stores loose refs as files, and on
+// a case-insensitive filesystem (macOS, Windows) refs/heads/Mythical is the
+// file refs/heads/mythical, so names with one key are one ref.
+func RefKey(name string) string {
+	return cases.Fold().String(norm.NFC.String(strings.TrimSpace(name)))
+}
+
+// SameRef reports whether two ref or bookmark names are one ref.
+func SameRef(a, b string) bool { return RefKey(a) == RefKey(b) }
+
+// CaseVariantRefs returns the existing ref, or ref directory, that one of
+// refs differs from only in case (each ref also checked against the ones
+// before it), or "" when there is none. Repo-host refuses such a ref on
+// every platform, so no write reaches another ref's file.
+func CaseVariantRefs(refs, existing []string) string {
+	known := refDirectory{}
+	for _, name := range existing {
+		known.add(name)
+	}
+	for _, ref := range refs {
+		if variant := known.caseVariant(ref); variant != "" {
+			return variant
+		}
+		known.add(ref)
+	}
+	return ""
+}
+
+// refDirectory maps the key of every ref and ref directory to a stored
+// spelling. A name stored exactly (two variants made before this rule)
+// is never its own variant.
+type refDirectory map[string]map[string]struct{}
+
+func (d refDirectory) add(name string) {
+	forRefPrefixes(name, func(prefix string) string {
+		key := RefKey(prefix)
+		if d[key] == nil {
+			d[key] = map[string]struct{}{}
+		}
+		d[key][prefix] = struct{}{}
+		return ""
+	})
+}
+
+func (d refDirectory) caseVariant(ref string) string {
+	return forRefPrefixes(ref, func(prefix string) string {
+		stored := d[RefKey(prefix)]
+		if _, exact := stored[prefix]; exact {
+			return ""
+		}
+		for spelling := range stored {
+			return spelling
+		}
+		return ""
+	})
+}
+
+// forRefPrefixes calls visit with each directory of name and name itself,
+// stopping at the first non-empty result.
+func forRefPrefixes(name string, visit func(prefix string) string) string {
+	name = strings.TrimSpace(name)
+	for i := 0; i <= len(name); i++ {
+		if i == len(name) || name[i] == '/' {
+			if result := visit(name[:i]); result != "" {
+				return result
+			}
+		}
+	}
+	return ""
+}
 
 // ReservedRefPrefix is the git ref namespace the control plane owns. Nothing
 // under it is a bookmark or a tag: push hooks ignore it, jj import ignores it,
@@ -116,7 +190,8 @@ func UserIDFromRef(ref string) (int64, bool) {
 
 // IsMythicalRef reports whether ref belongs to the mythical stack service.
 func IsMythicalRef(ref string) bool {
-	return ref == MythicalBookmarkRef || ref == MythicalNotesRef || strings.HasPrefix(ref, MythicalReservedRefNS)
+	key := RefKey(ref)
+	return key == MythicalBookmarkRef || key == MythicalNotesRef || strings.HasPrefix(key, MythicalReservedRefNS)
 }
 
 // ReservedRefViolation applies the reserved-namespace push policy to a
@@ -144,7 +219,8 @@ func ControlPlaneRefViolation(commands []ReceivePackCommand, workspaceID string,
 	workspaceID = strings.ToLower(strings.TrimSpace(workspaceID))
 	for _, command := range commands {
 		ref := strings.TrimSpace(command.RefName)
-		if strings.HasPrefix(ref, JJRefPrefix) {
+		key := RefKey(ref)
+		if strings.HasPrefix(key, JJRefPrefix) {
 			return "refs/jj/ is managed by jj and cannot be pushed"
 		}
 		if IsMythicalRef(ref) {
@@ -155,6 +231,9 @@ func ControlPlaneRefViolation(commands []ReceivePackCommand, workspaceID string,
 		}
 		if controlPlane {
 			return "a control-plane push may write only the mythical stack"
+		}
+		if strings.HasPrefix(key, ReservedRefPrefix) && !strings.HasPrefix(ref, ReservedRefPrefix) {
+			return "refs/smithers/ is reserved for the control plane"
 		}
 		if !strings.HasPrefix(ref, ReservedRefPrefix) {
 			if workspaceID != "" {
