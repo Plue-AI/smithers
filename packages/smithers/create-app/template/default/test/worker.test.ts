@@ -43,11 +43,6 @@ describe("worker routes", () => {
     expect(body.message).toContain("ANTHROPIC_API_KEY")
   })
 
-  test("/api/turn names the judge key it is missing", async () => {
-    const response = await turn(chat, { ANTHROPIC_API_KEY: "key" })
-    expect(response.status).toBe(503)
-    expect((await response.json() as { message: string }).message).toContain("AI_GATEWAY_API_KEY")
-  })
 
   test("/api/turn refuses an unrouted flow and a malformed body", async () => {
     const unrouted = await turn({ flow: "nope", payload: {} })

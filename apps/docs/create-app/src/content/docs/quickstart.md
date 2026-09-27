@@ -184,7 +184,7 @@ same process. Three things are worth trying:
 
 `POST /api/turn` runs the `chat` flow and streams `TurnFrame` NDJSON back to
 the page. It answers HTTP 503 `host_unconfigured` until `.dev.vars` holds the
-seat's provider key and `AI_GATEWAY_API_KEY`; the template README lists them.
+seat's provider connection; see the template README.
 [Run a routed flow from your own host](/guides/host-a-turn/) explains the
 host underneath.
 

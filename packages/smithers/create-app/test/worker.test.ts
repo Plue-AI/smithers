@@ -228,10 +228,12 @@ describe("runTurn", () => {
     expect((refused as { message: string }).message).toContain("ANTHROPIC_API_KEY")
   })
 
-  it("refuses a host with no judge key before opening a stream", async () => {
-    const refused = await runTurn(await host({ evaluator: undefined }), question)
-    expect(refused).toMatchObject({ status: 503, error: "host_unconfigured" })
-    expect((refused as { message: string }).message).toContain("AI_GATEWAY_API_KEY")
+  it("uses the configured seat for judgment and rejects an invalid recorded verdict", async () => {
+    const stream = await runTurn(await host({ evaluator: undefined }), question)
+    expect(stream).toBeInstanceOf(ReadableStream)
+    const frames = await read(stream as ReadableStream<Uint8Array>)
+    expect(frames.at(-1)?.type).toBe("error")
+    expect(frames.some((frame) => frame.type === "done")).toBe(false)
   })
 })
 

@@ -240,14 +240,15 @@ flow engine, and the caller's crypto. It requires no service in return, which
 the package asserts at compile time through the exported type
 `CompositionRootsAreComplete`.
 
-| `LayerOptions` field | Type                                            |
-| -------------------- | ----------------------------------------------- |
-| `agent`              | `AgentSpec`                                     |
-| `sandbox`            | `SandboxSpec`                                   |
-| `tools`              | `ToolsSpec`                                     |
-| `seats`              | `SeatProvider`                                  |
-| `crypto`             | `Layer.Layer<Crypto.Crypto>`                    |
-| `sandboxVariant`     | `Layer.Layer<QuickJSSandbox.Variant>`, optional |
+| `LayerOptions` field | Type                                                                              |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `agent`              | `AgentSpec`                                                                       |
+| `sandbox`            | `SandboxSpec`                                                                     |
+| `tools`              | `ToolsSpec`                                                                       |
+| `seats`              | `SeatProvider`                                                                    |
+| `evaluator`          | `Layer.Layer<Evaluator.Evaluator>`, optional; defaults to the resolved agent seat |
+| `crypto`             | `Layer.Layer<Crypto.Crypto>`                                                      |
+| `sandboxVariant`     | `Layer.Layer<QuickJSSandbox.Variant>`, optional                                   |
 
 `sandboxVariant` names the QuickJS build the sandbox compiles. Omitted, the
 host gets the single-file build, which Node and a browser compile from bytes
@@ -310,13 +311,12 @@ Decodes a `{ flow, payload }` body and answers `200 application/x-ndjson`: one
 `TurnFrame` per line, ending in exactly one `done` or `error` frame. A turn
 that cannot start is refused before any stream opens, as JSON with `error` and
 `message`: `400 invalid_request`, `400 flow_not_routed` (with `known`),
-`400 flow_not_chat`, or `503 host_unconfigured` when the seat has no key or
-the judge has no `AI_GATEWAY_API_KEY`. The request's signal cancels the run.
+`400 flow_not_chat`, or `503 host_unconfigured` when the selected seat is unavailable. The request's signal cancels the run.
 
 | `TurnHost` field | Type                                                       |
 | ---------------- | ---------------------------------------------------------- |
 | `flows`          | `ReadonlyArray<TurnRoute>`, the `flows` of `routes.gen.ts` |
-| `env`            | provider keys and `AI_GATEWAY_API_KEY`                     |
+| `env`            | model connection configuration                             |
 | `sandboxVariant` | `Layer.Layer<QuickJSSandbox.Variant>`                      |
 | `tools`          | `(route, cards: TurnCards) => ToolsSpec`, optional         |
 | `seats`          | `SeatProvider`, optional                                   |
@@ -326,7 +326,7 @@ the judge has no `AI_GATEWAY_API_KEY`. The request's signal cancels the run.
 
 `tools` rebinds a route's sources per turn, so a `ui` source can write each
 card to `TurnCards` and it streams as a `card` frame. The optional layers
-default to `seatsFromEnv(env)`, the gateway judge read from `env`, and
+default to `seatsFromEnv(env)`, the resolved agent seat for judgment, and
 `layerCryptoWeb`. `observe` sees every frame as the run produces it, and
 exactly one terminal frame even after the reader hangs up, so a host can
 persist a run without depending on its reader. A throw while observing the

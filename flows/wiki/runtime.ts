@@ -5,27 +5,25 @@ import * as Budget from "@smthrs/agent/Budget"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import type * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { Action, Interpreter } from "@smthrs/flow"
-import * as Evaluator from "@smthrs/model/Evaluator"
-import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer } from "effect"
+import { evaluatorLayer } from "../repository/jev-checks.ts"
 import Wiki from "./flow.ts"
 import { checkCitations, unsupportedCitations } from "./jev-citations.ts"
 import { operations } from "./operations.ts"
 import { WikiError } from "./schema.ts"
 import { Assess, CheckCitations, Collect, ReviewPage, ValidateReview, Write } from "./workflow.ts"
 
-/** Select a real judge or refuse composition before opening host resources.
- * Offline hosts pass an evidence-based scripted evaluator explicitly. The
- * gateway is reached over the egress proxy this process's environment names,
- * so the judge works inside a sandbox whose only way out is that proxy. */
-export const hostEvaluator = (): Layer.Layer<Evaluator.Evaluator> =>
-  Evaluator.layerFromEnvironment(process.env, "smithers wiki").pipe(Layer.provide(EgressHttpClient.layer(process.env)))
+/** The same subscription judge and proxy-aware transport as the native host. */
+export const hostEvaluator = (
+  environment: Readonly<Record<string, string | undefined>>
+): Layer.Layer<Evaluator.Evaluator> => evaluatorLayer(environment)
 
 export const agentLayers = (
   seats: Layer.Layer<SeatResolver.SeatResolver>,
   maxReviewMillis: number,
-  evaluator: Layer.Layer<Evaluator.Evaluator> = hostEvaluator()
+  evaluator: Layer.Layer<Evaluator.Evaluator> = hostEvaluator(process.env)
 ) => {
   const host = Layer.effect(
     AgentAction.Host,
@@ -90,7 +88,7 @@ export const actionLayers = (
               Effect.succeed({ review, citations })
           )
         )
-      ).pipe(Layer.provide(options.evaluator ?? hostEvaluator())),
+      ).pipe(Layer.provide(options.evaluator ?? hostEvaluator(process.env))),
     Write.toLayer(({ pages, mode }) =>
       ops.write(
         Object.keys(pages).sort((a, b) => Number(a.slice(5)) - Number(b.slice(5))).map((key) => pages[key]!),

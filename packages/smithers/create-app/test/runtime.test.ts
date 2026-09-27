@@ -9,11 +9,13 @@ import { describe, expect, it } from "@effect/vitest"
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as EventSink from "@smthrs/agent/EventSink"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
+import * as Seat from "@smthrs/agent/Seat"
 import * as Capability from "@smthrs/capability/Capability"
 import { Interpreter } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as Effect from "effect/Effect"
@@ -55,20 +57,20 @@ describe("materializeFlow", () => {
 })
 
 describe("layer inputs", () => {
-  it("requires a judge choice and refuses an empty environment before acquiring host resources", () => {
+  it("composes without a separate judge credential and refuses a missing seat", async () => {
     const options = {
       agent,
       sandbox: defineSandbox({ limits: {} }),
       tools: defineTools({ sources: [] }),
-      seats: { resolve: () => Effect.die("must not resolve a seat") },
+      seats: { resolve: () => Effect.fail(new Seat.SeatUnresolved({ seat: agent.seat, message: "missing" })) },
       crypto: NodeCrypto.layer
     }
-    expect(() => layerFor({ ...options, environment: {} })).toThrow("create-app agent host needs AI_GATEWAY_API_KEY,")
-    const omitted = () => {
-      // @ts-expect-error a host must choose its environment or an explicit evaluator
-      return layerFor(options)
-    }
-    expect(omitted).toThrow("create-app agent host needs AI_GATEWAY_API_KEY,")
+    const result = await Effect.runPromise(Effect.result(
+      Effect.flatMap(Evaluator.Evaluator, (judge) => judge.evaluate({ state: {}, questions: {} }))
+        .pipe(Effect.provide(layerFor(options)))
+    ))
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") expect(result.failure).toMatchObject({ code: "unreachable" })
   })
 
   for (

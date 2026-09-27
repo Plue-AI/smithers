@@ -477,10 +477,12 @@ export const layerSeatCatalog = (
     variants: SeatRouter.defaultVariants
   })
 
-/** The native judge uses the existing subscription resolver, never a gateway key.
+/**
+ * Judges through the existing subscription resolver, never a provider API key.
  * Resolve at evaluation time so newly connected pool accounts work after startup.
- * @since 1.0.0
- * @private
+ *
+ * @category layers
+ * @since 0.1.0
  */
 export const layerSeatEvaluator = (
   environment: Readonly<Record<string, string | undefined>>

@@ -170,8 +170,8 @@ If session storage is inside the project, its exact session subtree and log
 are excluded from workspace mutation accounting. Other project files remain
 observed, including files beside that storage.
 
-Without `AI_GATEWAY_API_KEY` the completion brake that asks Jev is disarmed
-(`claimCap: 0`); you read every answer. **u** on a Summary or worker tab row
+The completion judge uses a connected subscription. Missing seats or invalid
+verdicts fail closed; no gateway key is required. **u** on a Summary or worker tab row
 reverses its captured changes after a confirm, all or nothing; a deleted
 file comes back with its mode. It refuses when a file
 changed since, a change is binary or large, or the turn ran a shell command
@@ -347,7 +347,7 @@ no flow module and creates no store.
 The coordinator has `monitor.create`, `monitor.list` and `monitor.stop`. A
 monitor watches a worker tab, a `smithers.run` run, or a shell command's output,
 on source events or an interval (10 s to 24 h; shell needs one). Each change
-goes to Jev (`AI_GATEWAY_API_KEY`), which answers whether it is notable for the
+goes to the subscription judge, which answers whether it is notable for the
 monitor's `watch`; only a yes asks `openai:gpt-6-luna` for a one-line update,
 shown as a toast and a chat row. An unchanged source asks nothing. There is no
 fallback: without the key `monitor.create` is refused, and a Jev, Luna or
@@ -434,7 +434,8 @@ The end-to-end suite needs `zmuxd` (`$ZMUXD`, `PATH`, or `~/zmux/zig-out/bin`).
 Its model turns replay `test/fixtures/fix-add.jsonl` through the replay seat:
 `SMITHERS_TUI_REPLAY=<file>` streams a run recorded with
 `SMITHERS_TUI_APPROVE=all SMITHERS_TUI_RECORD=<file> bun src/ask.ts "<prompt>"`, and its cells run for
-real. `SMITHERS_TUI_REPLAY_SPEED` and `SMITHERS_TUI_REPLAY_HOLD_MS` pace it.
+real. Replay uses the explicit evidence-based scripted judge.
+`SMITHERS_TUI_REPLAY_SPEED` and `SMITHERS_TUI_REPLAY_HOLD_MS` pace it.
 
 Quoted `/flow` values retain spaces: `/flow echo text="hello world"`.
 A durably parked flow shows `parked`; its tab retains the question. `r` resumes

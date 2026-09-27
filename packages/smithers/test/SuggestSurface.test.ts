@@ -275,12 +275,7 @@ describe("the implementing step the verb builds when nobody supplies one", () =>
     // The step that failed is named first, then the seat resolver's own
     // sentence: an operator learns which suggestion stopped and what to set.
     expect(error.message).toContain("A test target that reruns only what changed:")
-    if (hasJudge) {
-      expect(error.message).toContain("Set GEMINI_API_KEY or GOOGLE_API_KEY to run the gemini:gemini-2.5-pro seat")
-    } else {
-      expect(error.message).toContain("smithers suggest needs AI_GATEWAY_API_KEY")
-      expect(error.message).toContain("deliberately bind Evaluator.layerScripted")
-    }
+    expect(error.message).toContain("Set GEMINI_API_KEY or GOOGLE_API_KEY to run the gemini:gemini-2.5-pro seat")
     expect(ui.lines).toContain("spinner error: A test target that reruns only what changed: failed")
     // A step that could not start wrote nothing under the root it was pinned
     // to, which is the promise the verb makes about a failed implementation.

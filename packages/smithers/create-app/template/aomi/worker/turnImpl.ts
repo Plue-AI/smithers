@@ -49,7 +49,7 @@ const answerOf = (output: unknown, streamed: string): string =>
 /**
  * Runs one turn, or refuses it before anything is written.
  *
- * A refusal (unrouted or non-chat flow, missing seat key, judge key, or fork
+ * A refusal (unrouted or non-chat flow, missing seat key or fork
  * endpoint) returns before the user message is stored, so a misconfigured
  * deploy leaves no half-written transcript. Once the stream opens it ends with
  * exactly one `done` or `error` frame, and the session is settled from it:

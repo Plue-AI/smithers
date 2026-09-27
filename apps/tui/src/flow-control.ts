@@ -8,12 +8,10 @@ import * as BunControl from "@smthrs/cli/BunControl"
 import * as NodeControl from "@smthrs/cli/NodeControl"
 import { Control, type ControlSchema } from "@smthrs/control"
 import * as Diagnosis from "@smthrs/gateway/Diagnosis"
-import * as Evaluator from "@smthrs/model/Evaluator"
 import { executionDigest } from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Stream } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import * as Approvals from "./approvals.ts"
@@ -59,9 +57,9 @@ export const make = (options: {
   /** Where `control.db` and `engine.db` live; default `<cwd>/.flows`, like `smthrs up`. */
   readonly stateRoot?: string
 }): Port => {
-  const judge = (options.environment[Evaluator.environmentKey] ?? "").trim() !== ""
-    ? Evaluator.layerFromEnvironment(options.environment, "smithers-tui").pipe(Layer.provide(FetchHttpClient.layer))
-    : Evaluator.layerUnavailable()
+  const judge = NodeControl.layerSeatEvaluator(options.environment).pipe(
+    Layer.provide(NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(options.environment)))
+  )
   const registry = () => NativeControl.layerRegistry(options.cwd)
   let opening: Promise<Opened> | undefined
 
@@ -298,7 +296,6 @@ export const make = (options: {
             NativeControl.layerControl({
               root: options.cwd,
               startsRuns: false,
-              evaluator: judge,
               ...(options.stateRoot === undefined ? {} : { stateRoot: options.stateRoot })
             })
           )

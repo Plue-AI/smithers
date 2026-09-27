@@ -21,7 +21,6 @@ export interface Env {
   /** Credential for an `openai:<model>` seat. */
   readonly OPENAI_API_KEY?: string
   /** The Vercel AI Gateway key the completion judge runs on. */
-  readonly AI_GATEWAY_API_KEY?: string
 }
 
 const json = (body: unknown, status = 200): Response =>
@@ -52,7 +51,6 @@ export const handle = async (
       env: {
         ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
         OPENAI_API_KEY: env.OPENAI_API_KEY,
-        AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY
       },
       sandboxVariant,
       // Each turn gets its own `ui` source, so the cards it paints stream back

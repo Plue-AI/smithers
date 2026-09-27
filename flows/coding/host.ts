@@ -280,7 +280,7 @@ const effectiveSeats = (options: Pick<Options, "planning" | "seats">): Readonly<
 export const layer = (platform: NativeControl.Platform, options: Options, suppliedSeats?: SeatResolver.Service) => {
   configured(options)
   // Refuse before provisioning builtins, starting native processes or opening stores.
-  const evaluator = platform.evaluator ?? evaluatorLayer(process.env, "smithers coding/repository host")
+  const evaluator = platform.evaluator ?? evaluatorLayer(process.env)
   // Resolved before any layer is built, so an in-root state directory is a
   // named startup refusal rather than a stale_revision three seconds into the
   // first plan. The engine writes to this tree on every step.

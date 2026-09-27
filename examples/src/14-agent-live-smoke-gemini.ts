@@ -127,10 +127,12 @@ export const liveLayer = (baseUrl: string, apiKey: string) =>
     // eslint-disable-next-line no-restricted-syntax -- this standalone smoke has no approved envelope
     Layer.provideMerge(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layerUnbounded())),
     Layer.provideMerge(Agent.layerDefaults),
-    // The completion brake judges every claim through Jev and never falls back
-    // to the model. Without `AI_GATEWAY_API_KEY` this smoke refuses composition
-    // before any host resource is opened.
-    Layer.provideMerge(Evaluator.layerFromEnvironment(process.env, "examples/14-agent-live-smoke-gemini").pipe(Layer.provide(EgressHttpClient.layer(process.env)))),
+    // The configured seat judges completions through the same evaluator API.
+    Layer.provideMerge(Layer.unwrap(Effect.gen(function*() {
+      const resolver = yield* SeatResolver.SeatResolver
+      const seat = yield* resolver.resolve("gemini:gemini-2.5-flash")
+      return Evaluator.layerFromSeat(seat)
+    })).pipe(Layer.provide(liveGeminiSeats(baseUrl, apiKey)))),
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(FlowEngine.layerMemory),
     Layer.provideMerge(NodeCrypto.layer)

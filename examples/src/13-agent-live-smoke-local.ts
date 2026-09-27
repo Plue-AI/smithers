@@ -157,10 +157,12 @@ export const liveLayer = (baseUrl: string) =>
     // eslint-disable-next-line no-restricted-syntax -- this standalone smoke has no approved envelope
     Layer.provideMerge(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layerUnbounded())),
     Layer.provideMerge(Agent.layerDefaults),
-    // The completion brake judges every claim through Jev and never falls back
-    // to the model. A local provider does not change that: without
-    // `AI_GATEWAY_API_KEY` this host refuses composition before opening resources.
-    Layer.provideMerge(Evaluator.layerFromEnvironment(process.env, "examples/13-agent-live-smoke-local").pipe(Layer.provide(EgressHttpClient.layer(process.env)))),
+    // The configured seat judges completions through the same evaluator API.
+    Layer.provideMerge(Layer.unwrap(Effect.gen(function*() {
+      const resolver = yield* SeatResolver.SeatResolver
+      const seat = yield* resolver.resolve("local:qwen2.5:7b")
+      return Evaluator.layerFromSeat(seat)
+    })).pipe(Layer.provide(liveLocalSeats(baseUrl)))),
     Layer.provideMerge(Action.layerImplementations),
     Layer.provideMerge(FlowEngine.layerMemory),
     Layer.provideMerge(NodeCrypto.layer)

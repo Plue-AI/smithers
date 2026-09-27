@@ -171,7 +171,7 @@ export class Monitors {
       throw new MonitorError({
         _tag: "JevFailed",
         code: "unreachable",
-        message: "Jev is unavailable: set AI_GATEWAY_API_KEY"
+        message: "Connect a subscription seat to judge this run."
       })
     }
     const trigger = request.trigger ??

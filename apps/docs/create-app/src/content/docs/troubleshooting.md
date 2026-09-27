@@ -253,8 +253,7 @@ with, or build that source from `paneNames` in `routes.gen.ts`. See
 
 ### /api/turn answers 503 host_unconfigured
 
-**What happened.** The Worker has no key for the seat in `AGENT.ts`, or no
-`AI_GATEWAY_API_KEY` for the completion judge. The body's `message` names the
+**What happened.** The Worker has no connection for the seat in `AGENT.ts`. The body's `message` names the
 missing binding. No stream opened and no model ran.
 
 **What to change.** Set the named secret with `wrangler secret put`, or in

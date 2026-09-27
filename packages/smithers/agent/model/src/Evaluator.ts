@@ -857,61 +857,12 @@ export const layerFromSeat = (
   })
 
 /**
- * The environment variable every host reads its gateway key from.
- *
- * @category constants
- * @since 1.0.0-rc.0
- */
-export const environmentKey = "AI_GATEWAY_API_KEY"
-
-/**
- * The evaluator a named host binds from its environment: Jev through the
- * Vercel gateway, or a synchronous startup refusal when the key is missing.
- *
- * The agent's required `Evaluator` already makes omission a type error. The
- * old environment factory defeated that contract by providing an evaluator
- * that could answer nothing. Refuse here, while the host assembles its layers,
- * rather than in an effect that can race a sibling database or socket layer.
- * Hosts that defer assembly until after startup must select this layer first.
- * An offline host deliberately binds {@link layerScripted} instead.
- *
- * `host` is required so a newly authored composition cannot omit the name in
- * its refusal. No colon follows the variable name: the journal redactor would
- * consume the next word as a secret. This checks configuration, not future
- * availability; a judge that goes down still fails the completion closed.
- *
- * @category layers
- * @since 1.0.0-rc.0
- */
-export const layerFromEnvironment = (
-  environment: Readonly<Record<string, string | undefined>>,
-  host: string
-): Layer.Layer<Evaluator, never, KernelHttpClient.HttpClient> => {
-  const apiKey = environment[environmentKey]
-  if (apiKey === undefined || apiKey.trim() === "") {
-    throw new EvaluatorError({
-      code: "unreachable",
-      message:
-        `${host} needs AI_GATEWAY_API_KEY, because the harness asks Jev to judge every completion and fails a run it cannot judge. Export AI_GATEWAY_API_KEY (Vercel AI Gateway) and start again, or deliberately bind Evaluator.layerScripted with an evidence-based judge.`
-    })
-  }
-  return layerVercelGateway({
-    apiKey: Redacted.make(apiKey),
-    // An explicit SMITHERS_EVALUATOR_BASE_URL wins; otherwise the gateway
-    // origin honors SMITHERS_MODEL_PROXY_URL through Endpoint.providerOrigin.
-    baseUrl: environment.SMITHERS_EVALUATOR_BASE_URL ??
-      `${Endpoint.providerOrigin("vercel", environment)}/v4/ai/evaluation-model`
-  })
-}
-
-/**
  * An evaluator with no transport behind it: every request fails as
  * `unreachable`. It is an outage fixture for classifiers, and the binding for
  * a host that cannot reach a completion at all: one composed to observe runs
  * and drive none, where nothing will ever ask it anything. It is never a
- * completion-capable host's missing-key default: such a host must bind a live
- * or scripted judge before it opens resources, and
- * {@link layerFromEnvironment} enforces that choice at composition time.
+ * completion-capable host's default: such a host binds {@link layerFromSeat}
+ * or deliberately supplies a scripted judge.
  * It is also the judge a host binds when it has disarmed the claim brake
  * (`claimCap: 0`), so that nothing on the host will ever ask it.
  *

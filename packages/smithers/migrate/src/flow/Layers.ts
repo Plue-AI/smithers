@@ -416,21 +416,34 @@ const hostFor = (
  * derive one from, and inventing a ceiling here would refuse a repair round on
  * a number nobody chose. The evaluator is the completion brake's judge, and the
  * brake never falls back: a claim nothing could judge fails the unit instead of
- * standing. A host without `AI_GATEWAY_API_KEY` or an explicit judge refuses
- * composition before scanning or starting processes. Those are
+ * standing. Library hosts judge with their selected seat unless they supply
+ * an explicit evaluator. Those are
  * decisions, spelled out, not defaults.
  */
 const agentPolicy = Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layerUnbounded())
 
-/** The judge, read from the same environment the seat resolver reads, and
- * reached over the egress proxy that same environment names. */
+/** The selected library seat also judges completions; no separate key exists. */
 const evaluatorFor = (
-  config: Pick<NodeConfig, "environment" | "evaluator">
-): Layer.Layer<Evaluator.Evaluator, never, never> =>
-  config.evaluator ??
-    Evaluator.layerFromEnvironment(config.environment ?? {}, "smithers migrate").pipe(
-      Layer.provide(EgressHttpClient.layer(config.environment ?? {}))
-    )
+  config: Pick<NodeConfig, "environment" | "evaluator" | "seat">
+): Layer.Layer<Evaluator.Evaluator> =>
+  config.evaluator ?? Layer.succeed(Evaluator.Evaluator)({
+    evaluate: (request) =>
+      Effect.gen(function*() {
+        const executor = yield* RequestExecutor.RequestExecutor
+        const seat = yield* seatResolver({ environment: config.environment ?? {}, seat: config.seat, executor })
+          .resolve("migrate").pipe(Effect.mapError(() =>
+            new Evaluator.EvaluatorError({
+              code: "unreachable",
+              message: "Connect a model seat to judge this migration."
+            })
+          ))
+        return yield* Effect.flatMap(Evaluator.Evaluator, (judge) => judge.evaluate(request)).pipe(
+          Effect.provide(Evaluator.layerFromSeat(seat))
+        )
+      }).pipe(
+        Effect.provide(RequestExecutor.layer.pipe(Layer.provide(EgressHttpClient.layer(config.environment ?? {}))))
+      )
+  })
 
 // The credentialed half answers to the same store as the filesystem and the
 // shell, for the reason `hostFor` gives: a second store is a fail-open the

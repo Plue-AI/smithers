@@ -94,7 +94,6 @@ Secrets, required before deploy, set once per environment and never committed:
 
 ```sh
 wrangler secret put OPENAI_API_KEY --config worker/wrangler.jsonc
-wrangler secret put AI_GATEWAY_API_KEY --config worker/wrangler.jsonc
 wrangler secret put TEVM_FORK_RPC_URL --config worker/wrangler.jsonc
 wrangler secret put APP_API_TOKEN --config worker/wrangler.jsonc
 ```
@@ -102,8 +101,8 @@ wrangler secret put APP_API_TOKEN --config worker/wrangler.jsonc
 The seat resolver (`seatsFromEnv` in `@smthrs/create-app/worker`) reads the
 credential for the provider the seat names, so the secret follows `AGENT.ts`:
 `OPENAI_API_KEY` for the `openai:gpt-5.5` this template ships,
-`ANTHROPIC_API_KEY` for an `anthropic:` seat. `AI_GATEWAY_API_KEY` runs the
-completion judge. `TEVM_FORK_RPC_URL` is the endpoint the chain tool forks;
+`ANTHROPIC_API_KEY` for an `anthropic:` seat. The resolved seat also judges
+completions. `TEVM_FORK_RPC_URL` is the endpoint the chain tool forks;
 the run grants `net:post` on its origin and nothing wider. A turn missing any
 of them is refused with a 503 that names the secret.
 

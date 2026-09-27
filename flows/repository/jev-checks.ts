@@ -1,8 +1,7 @@
-/** Jev answers a maintainer's rule one changed hunk at a time, and it is the
- * only model that answers it: there is no frontier seat behind it. */
+/** The host judge answers a maintainer's rule one changed hunk at a time. */
+import { environmentDispatcher, layerRebuildableRequestExecutor, layerSeatEvaluator } from "@smthrs/cli/NodeControl"
 import * as Classifier from "@smthrs/model/Classifier"
-import * as Evaluator from "@smthrs/model/Evaluator"
-import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, Result, Schema } from "effect"
 import { matchesGlob } from "node:path"
 import { CodingError } from "../coding/schema.ts"
@@ -18,19 +17,11 @@ export interface Hunk {
 }
 
 /** At or above this probability the hunk violates the rule and becomes a
- * finding. The vendor publishes no calibration curve, and the one agreement
- * figure it does publish is 76.0% against frontier reference labels on its
- * best-reported task, a ceiling and not an average, since its other
- * published tasks run 61.7 to 71.6. The figure is recorded under "Vendor
- * calibration, preserved because production code depends on it" in
- * https://github.com/smithersai/smithers/issues/1654, so the band is wide
- * on purpose: an indecisive hunk makes the check uncertain, which is an
- * errored check, while a wrong decisive answer costs a wrong lint verdict on
- * a maintainer's rule. */
+ * finding. This is the review policy's decision threshold, not a calibrated
+ * guarantee about whichever subscription model the host resolves. */
 export const FLAG_PROBABILITY = 0.8
-/** At or below this probability the hunk keeps the rule. Same 76.0% reasoning
- * as {@link FLAG_PROBABILITY}: anything between the two thresholds is
- * indecisive, and that indecision is Jev's own verdict, kept as it stands. */
+/** At or below this probability the hunk keeps the rule. Between the two
+ * thresholds, the judge's uncertainty makes the check inconclusive. */
 export const CLEAN_PROBABILITY = 0.2
 /** The most bytes one hunk may take, matching `@smthrs/std`'s per-state bound. */
 export const MAX_HUNK_BYTES = 32 * 1024
@@ -224,7 +215,7 @@ export const jevUnavailable = (check: typeof Check.Type, failure: Classifier.Cla
 /** Asks Jev about every in-scope hunk and reports what it decided.
  *
  * Jev is the only model that judges the rule. A host with no transport, a
- * refused gateway, a timeout and a malformed answer all fail the call with
+ * refused provider, a timeout and a malformed answer all fail the call with
  * {@link jevUnavailable}; nothing else is asked and no verdict is invented.
  * An indecisive answer is different: that is Jev deciding it is unsure, and
  * the uncertain verdict it produces is the check's own verdict. */
@@ -254,21 +245,12 @@ export const jevSemanticCheck = (
     return jevVerdict(comparison, check, states, answers)
   })
 
-/** Select the repository host's judge before it opens resources.
- *
- * This binds two things off the same `environment`: the key, and the transport
- * that carries it. The coding host judges inside a microsandbox whose egress is
- * default-deny behind an HTTP proxy the guest environment names, and that proxy
- * is what substitutes the platform credential — the guest holds only the
- * placeholder `AI_GATEWAY_API_KEY=AI_GATEWAY_API_KEY`, and iron-proxy swaps the
- * real value into `authorization` on the way to `ai-gateway.vercel.sh`. A bare
- * `NodeHttpClient.layerUndici` here ignores `HTTP_PROXY`/`HTTPS_PROXY` and dials
- * the gateway directly, the firewall drops it, and every completion comes back
- * `completion_unjudged`. `flows/test/repository-jev-egress.test.ts` holds the
- * line: it asserts the proxy was asked to open the tunnel, not merely that the
- * call succeeded. */
+/** Use the native subscription judge over the host's proxy-aware transport.
+ * Seat resolution is lazy, so newly connected accounts work without a restart.
+ * Missing subscriptions and invalid verdicts fail closed when asked to judge. */
 export const evaluatorLayer = (
-  environment: Readonly<Record<string, string | undefined>>,
-  host = "smithers repository host"
+  environment: Readonly<Record<string, string | undefined>>
 ): Layer.Layer<Evaluator.Evaluator> =>
-  Evaluator.layerFromEnvironment(environment, host).pipe(Layer.provide(EgressHttpClient.layer(environment)))
+  layerSeatEvaluator(environment).pipe(
+    Layer.provide(layerRebuildableRequestExecutor(environmentDispatcher(environment)))
+  )

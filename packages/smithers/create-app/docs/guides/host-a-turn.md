@@ -157,7 +157,7 @@ export default {
 workerd compiles only WebAssembly its toolchain bundled, so the QuickJS module
 is imported as a module and `wrangler.jsonc` carries a `CompiledWasm` rule for
 it. `env` supplies the seat's provider key (`ANTHROPIC_API_KEY` or
-`OPENAI_API_KEY`) and `AI_GATEWAY_API_KEY` for the completion judge.
+`OPENAI_API_KEY`). The resolved seat also judges completions.
 
 The response is `200 application/x-ndjson`: one `TurnFrame` per line, ending in
 exactly one `done` or `error` frame. A turn that cannot start is refused before
@@ -168,11 +168,11 @@ any stream opens:
 | 400    | `invalid_request`   | The body is not `{ flow, payload }` JSON       |
 | 400    | `flow_not_routed`   | No routed flow has that id; `known` lists them |
 | 400    | `flow_not_chat`     | The flow is not declared `chat: true`          |
-| 503    | `host_unconfigured` | A seat key or `AI_GATEWAY_API_KEY` is missing  |
+| 503    | `host_unconfigured` | The selected seat is unavailable               |
 
 Pass `tools` to rebind a route's `ui` source to the turn's `TurnCards`, so each
 card a tool paints becomes a `card` frame. `seats`, `evaluator`, and `crypto`
-default to `seatsFromEnv(env)`, the gateway judge, and `layerCryptoWeb`; tests
+default to `seatsFromEnv(env)`, the resolved agent seat for judgment, and `layerCryptoWeb`; tests
 replace them.
 
 ## Refusals to expect

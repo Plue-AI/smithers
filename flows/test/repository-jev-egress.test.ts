@@ -1,17 +1,4 @@
-/** The coding host judges inside a default-deny microsandbox. Egress is an
- * HTTP proxy the guest environment names through `HTTP_PROXY`/`HTTPS_PROXY`,
- * never a transparent one, and that proxy is what substitutes the platform
- * credential: the guest holds only the placeholder
- * `AI_GATEWAY_API_KEY=AI_GATEWAY_API_KEY` and iron-proxy swaps the real value
- * into `authorization` on the way to `ai-gateway.vercel.sh`.
- *
- * `flows/coding/serve.ts:82-87` builds a proxy-aware client for exactly this
- * reason. This test asserts the judge production installs — the
- * `platform.evaluator ?? evaluatorLayer(process.env)` of
- * `flows/coding/host.ts:183` — reaches the gateway the same way. A judge that
- * dials the gateway directly is dropped by the firewall and every completion
- * comes back unjudged, so the evidence has to be that the proxy was asked to
- * open the tunnel, not merely that the call failed: a direct dial fails too. */
+/** Subscription judgments must use the sandbox's configured egress proxy. */
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect } from "effect"
 import assert from "node:assert/strict"
@@ -33,7 +20,7 @@ interface Proxy {
 /** An HTTP proxy that records what it is asked for and carries nothing.
  *
  * An `https` origin behind an `http` proxy is a `CONNECT` tunnel, so the proxy
- * never sees the request line — being asked to open the tunnel to the gateway
+ * never sees the request line — being asked to open the tunnel to the subscription pool
  * is the whole evidence that the proxy was consulted at all. */
 const listen = async (): Promise<Proxy> => {
   const seen: Array<string> = []
@@ -63,7 +50,7 @@ const listen = async (): Promise<Proxy> => {
   }
 }
 
-test("the host's judge reaches the gateway through the proxy the environment names", async () => {
+test("the host's judge reaches the subscription pool through the configured proxy", async () => {
   assert.equal(
     platform.evaluator,
     undefined,
@@ -71,10 +58,11 @@ test("the host's judge reaches the gateway through the proxy the environment nam
   )
   const proxy = await listen()
   try {
-    // What a microsandbox guest actually holds: the placeholder key the proxy
-    // replaces, and the proxy that replaces it.
     const environment = {
-      AI_GATEWAY_API_KEY: "AI_GATEWAY_API_KEY",
+      SMITHERS_ACCOUNT_POOL_URL: "https://pool.example.test",
+      SMITHERS_ACCOUNT_POOL_KEY: "fixture-host",
+      SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+      CODEX_HOME: "/nonexistent",
       HTTP_PROXY: proxy.url,
       HTTPS_PROXY: proxy.url,
       NO_PROXY: ""
@@ -88,11 +76,8 @@ test("the host's judge reaches the gateway through the proxy the environment nam
     ))
     assert.equal(answered._tag, "Failure", "the refusing proxy cannot produce a model answer")
     if (answered._tag === "Failure") assert.equal(answered.failure.code, "unreachable")
-    assert.deepEqual(
-      [...proxy.seen],
-      Array.from({ length: Evaluator.defaultAttempts }, () => "CONNECT ai-gateway.vercel.sh:443"),
-      `every bounded retry asked the proxy for the gateway and nothing else; it answered ${JSON.stringify(answered)}`
-    )
+    assert.ok(proxy.seen.length > 0, "the subscription pool must be reached through the proxy")
+    assert.ok(proxy.seen.every((request) => request === "CONNECT pool.example.test:443"))
   } finally {
     await proxy.close()
   }

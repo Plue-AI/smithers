@@ -33,10 +33,9 @@
     "APP_NAME": "__APP_NAME__"
   },
   // Secrets, set with `wrangler secret put --config worker/wrangler.jsonc`.
-  // Only the provider named by the seat in AGENT.ts has to be set, plus the
-  // judge key every turn needs; `/api/turn` answers 503 until they are:
+  // Only the provider named by the seat in AGENT.ts has to be set.
+  // The same seat judges completions; `/api/turn` answers 503 until connected:
   //   ANTHROPIC_API_KEY  — credential for an `anthropic:<model>` seat
   //   OPENAI_API_KEY     — credential for an `openai:<model>` seat
-  //   AI_GATEWAY_API_KEY — Vercel AI Gateway key for the completion judge
   "observability": { "enabled": true }
 }

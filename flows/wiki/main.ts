@@ -74,7 +74,7 @@ if (values.help) {
     const input: Input = { pages, mode: values.verified ? "verified" : "preview", reviewer }
     // A preflight source capture validates the declared evidence before admission;
     // actions independently recapture and the write gate rechecks it after review.
-    const evaluator = values.verified ? hostEvaluator() : undefined
+    const evaluator = values.verified ? hostEvaluator(process.env) : undefined
     const layers = Layer.mergeAll(
       actionLayers({ root, output, verify: !!values.verified, evaluator }),
       Interpreter.layer(Wiki),

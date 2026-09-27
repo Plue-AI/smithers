@@ -87,12 +87,11 @@ Set the credential for the provider the app's seat names. `AGENT.ts` seats
 `openai:gpt-5.5` and `flows/build/AGENT.ts` seats `openai:gpt-6-sol`, so this
 template needs `OPENAI_API_KEY`. Change the seats and the secret changes with
 them: an `anthropic:` seat reads `ANTHROPIC_API_KEY`. Every turn also needs
-`AI_GATEWAY_API_KEY` for the completion judge and `TEVM_FORK_RPC_URL` for the
+`TEVM_FORK_RPC_URL` for the
 chain fork; a turn without one is refused with a 503 naming it.
 
 ```sh
 wrangler secret put OPENAI_API_KEY --config worker/wrangler.jsonc
-wrangler secret put AI_GATEWAY_API_KEY --config worker/wrangler.jsonc
 wrangler secret put TEVM_FORK_RPC_URL --config worker/wrangler.jsonc
 wrangler secret put APP_API_TOKEN --config worker/wrangler.jsonc
 pnpm build

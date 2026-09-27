@@ -194,7 +194,7 @@ export const make = (options: {
   readonly callMs?: number
   /** Test seam for the frame backstop. */
   readonly totalMs?: number
-  /** Test seam for the judge; the environment's gateway key when absent. */
+  /** Test seam for the judge; the native subscription judge when absent. */
   readonly judge?: Layer.Layer<Evaluator.Evaluator>
   /** Each turn's and worker's spend ceiling; see `budget.ts`. Unbounded when absent. */
   readonly budget?: Budget.Policy
@@ -202,11 +202,8 @@ export const make = (options: {
   const approvalMode = options.approvals ?? "ask"
   const env = options.environment
   const available = detect(env)
-  const judged = options.judge !== undefined || (env[Evaluator.environmentKey] ?? "").trim() !== ""
-  const judge = judged
-    ? options.judge ?? Evaluator.layerFromEnvironment(env, "smithers-tui").pipe(Layer.provide(FetchHttpClient.layer))
-    : Evaluator.layerUnavailable()
-  const catalog = routing(available, env, judged)
+  const judge = options.judge ?? NodeControl.layerSeatEvaluator(env).pipe(Layer.provide(executor))
+  const catalog = routing(available, env, true)
   // The operator's stance, validated where `smithers run` validates it.
   const stance = NodeControl.supervisorStance(env)
   // The local TUI runs without an approved envelope, so it is unbounded unless the operator sets a ceiling.
@@ -245,7 +242,7 @@ export const make = (options: {
   let turns = 0
 
   const compaction: Host["compaction"] = async (used, window) => {
-    if (!judged || used <= 0 || window <= 0) return undefined
+    if (used <= 0 || window <= 0) return undefined
     const questions = {
       amount: Classifier.choice({
         instructions:
@@ -378,7 +375,7 @@ export const make = (options: {
           ? []
           : workerSources(
             services,
-            judged ? yield* Effect.context<Evaluator.Evaluator>() : undefined,
+            yield* Effect.context<Evaluator.Evaluator>(),
             options.cwd,
             input.onPatch ?? (() => {})
           )
@@ -415,16 +412,13 @@ export const make = (options: {
           totalMs: options.totalMs ?? Sandbox.defaultLimits.totalMs,
           ...(input.role === "worker" ? { pauseTotalMsFor: ["agent.wait"] } : {})
         },
-        // A person reads every answer here, so without a gateway key the one
-        // brake that needs Jev is disarmed instead of failing every turn.
+        // Coordinators acknowledge immediately; worker completions stay judged.
         ...(input.role === "coordinator"
           ? { unmovedCap: 0, narrowingCap: 0, unresolvedCap: 0, claimCap: 0 }
-          : judged
-          ? {}
-          : { claimCap: 0 }),
+          : {}),
         // Workers are armed by the host's judge. The coordinator never is:
         // Jev's latency would sit in front of the chat's acknowledgment.
-        judged: input.role !== "coordinator" && judged,
+        judged: input.role !== "coordinator",
         supervisor: { stance },
         maxFrames
       }).pipe(
@@ -487,7 +481,7 @@ export const make = (options: {
 
   return {
     cwd: options.cwd,
-    judged,
+    judged: true,
     routes: catalog !== undefined,
     compaction,
     run,

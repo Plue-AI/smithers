@@ -11,9 +11,10 @@
 
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
 import * as Report from "@smthrs/migrate/Report"
-import { Effect, Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import * as CliError from "../CliError.ts"
 import * as Legacy from "../Legacy.ts"
+import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
 import * as Globals from "./Globals.ts"
 
@@ -118,7 +119,12 @@ export const run = (
       target,
       environment
     )
-    const outcome = yield* Effect.result(MigrateCommand.runNode(migrateOptions, { environment }))
+    const outcome = yield* Effect.result(MigrateCommand.runNode(migrateOptions, {
+      environment,
+      evaluator: NodeControl.layerSeatEvaluator(environment).pipe(
+        Layer.provide(NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(environment)))
+      )
+    }))
     if (outcome._tag === "Failure") {
       const error = outcome.failure
       if (parkedCodes.has(error.code)) {

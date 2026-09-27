@@ -271,7 +271,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
                 // The completion brake judges every claim, and never falls back to
                 // the model. This example scripts the judge the way it scripts the
                 // seat, so it still needs no key. A host with a gateway key binds
-                // `Evaluator.layerFromEnvironment(process.env, "my host")` instead.
+                // `Evaluator.layerFromSeat(judgeSeat)` instead.
                 Layer.provideMerge(
                   ScriptedJudge.layer
                 ),

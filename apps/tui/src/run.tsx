@@ -8,6 +8,7 @@ import * as Log from "./log.ts"
  *   -r, --resume     pick a session to continue
  *   -p, --print      run one prompt and print the answer
  */
+import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { spawnSync } from "node:child_process"
@@ -64,6 +65,8 @@ const host = Host.make({
   cwd,
   environment: available.environment,
   approvals,
+  // Replay is an explicit offline fixture; its claims still receive evidence checks.
+  ...(seat.startsWith("replay:") ? { judge: ScriptedJudge.layerAll } : {}),
   ...(budget === undefined ? {} : { budget })
 })
 

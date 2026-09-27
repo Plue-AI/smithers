@@ -21,14 +21,7 @@ import {
   RunChecks,
   verifyTrialChecks
 } from "../repository/checks.ts"
-import {
-  batches,
-  evaluatorLayer,
-  hunks,
-  jevSemanticCheck,
-  MAX_STATES,
-  proposalHunks
-} from "../repository/jev-checks.ts"
+import { batches, hunks, jevSemanticCheck, MAX_STATES, proposalHunks } from "../repository/jev-checks.ts"
 import type { Work } from "../repository/jobs.ts"
 import type { Check, Draft, JobResult, StepResult } from "../repository/schema.ts"
 
@@ -352,17 +345,6 @@ test("a required rule Jev is unsure of cannot pass its trial gate", async () => 
     () => verifyTrialChecks(configuration, job),
     /The trial recorded an unavailable check: units — The AI check did not establish complete scope coverage/
   )
-})
-
-test("a host with no gateway key refuses composition before running a check", () => {
-  assert.throws(() => evaluatorLayer({}), (error: unknown) => {
-    assert.ok(error instanceof Evaluator.EvaluatorError)
-    assert.equal(error.code, "unreachable")
-    assert.match(error.message, /smithers repository host needs AI_GATEWAY_API_KEY/)
-    assert.match(error.message, /Export AI_GATEWAY_API_KEY/)
-    assert.match(error.message, /deliberately bind Evaluator.layerScripted/)
-    return true
-  })
 })
 
 test("an unavailable evaluator fails the check and reaches no other model", async () => {

@@ -14,13 +14,9 @@ import { type Evidence, type Review, WikiError } from "./schema.ts"
  * At or above this confidence a `contradicts` or `unrelated` answer makes the
  * citation unsupported, and a `supports` answer makes it supported.
  *
- * The vendor publishes no calibration curve, and the one agreement figure it
- * does publish is 76.0% against frontier reference labels on its
- * best-reported task, a ceiling and not an average, since its other published tasks run 61.7 to 71.6 (https://github.com/smithersai/smithers/issues/1654), so the bar is the top
- * of the range on purpose: refusing a page is visible to whoever wrote it,
- * while a wrong decisive answer either publishes an unsupported claim or
- * blocks a sound one. Anything below this is Jev saying it is unsure, and an
- * unsure citation is recorded as `uncertain` rather than counted either way.
+ * This is the review policy's decision threshold, not a calibrated guarantee
+ * about whichever subscription model the host resolves. Lower confidence is
+ * recorded as `uncertain` rather than counted either way.
  */
 export const UNSUPPORTED_CONFIDENCE = 0.8
 /** The most bytes one state may take, matching `@smthrs/std`'s per-state bound. */
@@ -215,7 +211,7 @@ export const unsupportedCitations = (evidence: Evidence, page: PageCitations): W
  * decided.
  *
  * Jev is the only model that answers this: a host with no transport, a refused
- * gateway, a timeout and a malformed answer all fail the call with
+ * provider, a timeout and a malformed answer all fail the call with
  * {@link citationCheckUnavailable}, so a page is never published unchecked and
  * no frontier seat is asked to make the judgement instead. An unsure answer is
  * different: that is Jev deciding it cannot tell, and it rides along as an

@@ -85,13 +85,8 @@ seat's provider and reads that provider's key, so an `anthropic:` seat needs
 wrangler secret put OPENAI_API_KEY --config worker/wrangler.jsonc
 ```
 
-Every turn also runs the completion judge, which needs `AI_GATEWAY_API_KEY`:
-
-```bash
-wrangler secret put AI_GATEWAY_API_KEY --config worker/wrangler.jsonc
-```
-
-Until both are set, the `default` template's `POST /api/turn` answers HTTP 503
+Every turn uses the resolved seat for completion judgments too. No separate
+judge credential is required. Until the seat is connected, the `default` template's `POST /api/turn` answers HTTP 503
 `host_unconfigured` and names the missing binding.
 
 The `aomi` template also requires `APP_API_TOKEN` as a Worker secret before the

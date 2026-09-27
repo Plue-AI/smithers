@@ -35,7 +35,7 @@ import type * as Sandbox from "@smthrs/harness/Sandbox"
 import { Capability, GrantStore, Permission, Workspace } from "@smthrs/kernel"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
-import * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
@@ -269,21 +269,12 @@ const layerSnapshotBoundary: Layer.Layer<FlowEngine.SnapshotBoundary> = Layer.su
   diff: () => Effect.succeed(undefined)
 })
 
-/**
- * The judge behind the completion brake, read off the host's environment.
- *
- * The brake never falls back: a claim nothing could judge fails the run
- * instead of standing. Without `AI_GATEWAY_API_KEY` this is
- * a synchronous startup refusal. Offline hosts script their own judge.
- *
- * The gateway is reached through the egress proxy `environment` names; a bare
- * Undici pool would dial it directly and a default-deny host would drop that.
- */
+/** The native subscription judge over the same proxy-aware host transport. */
 const evaluatorFrom = (
   environment: Readonly<Record<string, string | undefined>>
 ): Layer.Layer<Evaluator.Evaluator> =>
-  Evaluator.layerFromEnvironment(environment, "smithers suggest").pipe(
-    Layer.provide(EgressHttpClient.layer(environment))
+  NodeControl.layerSeatEvaluator(environment).pipe(
+    Layer.provide(NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(environment)))
   )
 
 const composed = (

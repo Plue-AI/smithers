@@ -361,10 +361,8 @@ const layer = Layer.mergeAll(
   Layer.provideMerge(Layer.mergeAll(QuotaPolicy.layerDefault(), Budget.layerUnbounded())),
   // The QuickJS sandbox a cell runs in and the steering source it drains.
   Layer.provideMerge(Agent.layerDefaults),
-  // The transport the completion brake asks. It never falls back, so without
-  // `AI_GATEWAY_API_KEY` this is unavailable and a run fails at its first
-  // completion.
-  Layer.provideMerge(Evaluator.layerFromEnvironment(process.env, "my host")),
+  // Resolve judgeSeat with the host's subscription resolver.
+  Layer.provideMerge(Evaluator.layerFromSeat(judgeSeat)),
   // Ordinary flow composition: action implementations, a durable engine, crypto.
   Layer.provideMerge(Action.layerImplementations),
   Layer.provideMerge(FlowEngine.layerMemory),

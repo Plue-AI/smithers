@@ -76,8 +76,9 @@ house default would publish a claim about the release that nothing in the
 evidence supports. Sharpen the evidence or say what the release is for in
 `notes`, then run again. An evaluator that is unconfigured, unreachable,
 refused, timed out or malformed fails the same step with the evaluator's own
-code and message. There is no fallback, so `AI_GATEWAY_API_KEY` is required to
-draft release content at all.
+code and message. The host uses the native subscription judge: connect a ChatGPT or Claude
+subscription, directly or through the account pool. No provider API key or
+gateway key is needed, and neither is a fallback.
 
 Previews contain the drafts, review, proposed destination files, an optional
 SVG release card, and any UI recording. They live in

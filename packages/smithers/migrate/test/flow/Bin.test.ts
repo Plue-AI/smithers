@@ -86,7 +86,7 @@ describe("smithers-migrate", () => {
     ])
   })
 
-  it("refuses a keyless apply before scanning run state and touches nothing", () => {
+  it("parks a keyless apply at the run-state safety gate without writes", () => {
     const root = copyFixture("persisted-db")
     const before = hashTree(root)
 
@@ -95,9 +95,9 @@ describe("smithers-migrate", () => {
       AI_GATEWAY_API_KEY: undefined
     })
 
-    expect(result.status).toBe(1)
+    expect(result.status).toBe(3)
     expect(result.stderr).toContain("smthrs migrate:")
-    expect(result.stderr).toContain("smithers migrate needs AI_GATEWAY_API_KEY,")
+    expect(result.stderr).not.toContain("AI_GATEWAY_API_KEY")
     expect(hashTree(root)).toEqual(before)
   })
 

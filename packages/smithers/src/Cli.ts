@@ -8,9 +8,8 @@ import { makeCli as makeBuildCli } from "@smthrs/build-cli/Cli"
 import * as Positionals from "@smthrs/build-cli/Positionals"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
-import * as Evaluator from "@smthrs/model/Evaluator"
-import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
-import { Effect, Layer, Logger, Redacted } from "effect"
+import type * as Evaluator from "@smthrs/model/Evaluator"
+import { Effect, Layer, Logger } from "effect"
 import { Cli, z } from "incur"
 import { resolve } from "node:path"
 import * as Agents from "./Agents.ts"
@@ -34,6 +33,7 @@ import * as DidYouMean from "./DidYouMean.ts"
 import * as Doctor from "./Doctor.ts"
 import { createEvalCli } from "./evaluation/EvalCli.ts"
 import * as Init from "./Init.ts"
+import * as NodeControl from "./NodeControl.ts"
 import { createCredentialsCli } from "./operator/Credentials.ts"
 import { createIntegrationsCli } from "./operator/Integrations.ts"
 import { createMemoryCli } from "./operator/Memory.ts"
@@ -49,24 +49,11 @@ import { packageVersion } from "./Version.ts"
 
 const options = Bridge.connectionOptions
 
-/**
- * Jev over the Vercel AI Gateway, or an evaluator that refuses every request.
- *
- * There is no third case and no fallback: without `AI_GATEWAY_API_KEY` the
- * decision below reports a transport it could not reach, rather than deciding
- * the question some other way.
- *
- * The gateway is reached through the egress proxy `environment` names, so the
- * judge works from inside a sandbox whose only way out is that proxy.
- */
-const evaluator = (environment: Record<string, string | undefined>): Layer.Layer<Evaluator.Evaluator> => {
-  const apiKey = environment["AI_GATEWAY_API_KEY"]
-  return apiKey === undefined || apiKey === ""
-    ? Evaluator.layerUnavailable()
-    : Evaluator.layerVercelGateway({ apiKey: Redacted.make(apiKey) }).pipe(
-      Layer.provide(EgressHttpClient.layer(environment))
-    )
-}
+/** Decisions use the same subscription judge as native flow completions. */
+const evaluator = (environment: Record<string, string | undefined>): Layer.Layer<Evaluator.Evaluator> =>
+  NodeControl.layerSeatEvaluator(environment).pipe(
+    Layer.provide(NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(environment)))
+  )
 
 /** The shared guard's inputs, read from the typed connection options. */
 const globalsOf = (connection: Bridge.ConnectionOptions, config: Bridge.Runtime): Globals.Options => ({

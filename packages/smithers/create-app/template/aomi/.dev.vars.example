@@ -8,7 +8,6 @@
 OPENAI_API_KEY=
 
 # The Vercel AI Gateway key the completion judge runs on. Every turn needs it.
-AI_GATEWAY_API_KEY=
 
 # JSON-RPC the Tevm fork reads chain state from. Any archive-capable endpoint.
 # Vitest never reads this file: export it in the shell for `pnpm test`.

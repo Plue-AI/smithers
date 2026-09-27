@@ -50,7 +50,7 @@ const turn = async (role: "coordinator" | "worker") => {
   const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-host-"))
   roots.push(cwd)
   writeFileSync(join(cwd, "a.ts"), "export {}\n")
-  const host = Host.make({ cwd, environment: {} })
+  const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
   const events: Array<AgentEvent.AgentEvent> = []
   try {
     const outcome = await host.run({
@@ -81,7 +81,7 @@ describe("Host.run workspace observation", () => {
         : join(cwd, location === "alias" ? "alias" : "sessions")
       const seat = `replay:${doneReplay(cwd)}`
       const writer = Session.create(cwd)
-      const host = Host.make({ cwd, environment: {}, approvals: "all" })
+      const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals: "all" })
       const events: Array<AgentEvent.AgentEvent> = []
       try {
         const outcome = await host.run({
@@ -132,7 +132,7 @@ describe("Host.run workspace observation", () => {
     const cwd = mkdtempSync(join(tmpdir(), "tui-host-cwd-"))
     roots.push(cwd)
     expect(process.cwd()).not.toBe(cwd)
-    const host = Host.make({ cwd, environment: {}, approvals: "all" })
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals: "all" })
     try {
       const outcome = await host.run({
         prompt: "edit",
@@ -179,7 +179,7 @@ describe("Host.run Smithers plugin", () => {
   const run = async (role: "coordinator" | "worker", cell: string, runtime: NonNullable<Host.TurnInput["runtime"]>) => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-plugin-"))
     roots.push(cwd)
-    const host = Host.make({ cwd, environment: {} })
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
     try {
       return await host.run({
         prompt: "go",
@@ -232,7 +232,7 @@ describe("Host.run Smithers plugin", () => {
 test("Host.run lets agent.wait settle after the ordinary flow call ceiling", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-wait-"))
   roots.push(cwd)
-  const host = Host.make({ cwd, environment: {}, callMs: 20, totalMs: 30 })
+  const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, callMs: 20, totalMs: 30 })
   let contacted = 0
   try {
     const result = await host.run({
@@ -268,7 +268,7 @@ test("Host.run lets agent.wait settle after the ordinary flow call ceiling", asy
 test("Host.run bounds a worker frame waiting on a non-flow promise", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-stall-"))
   roots.push(cwd)
-  const host = Host.make({ cwd, environment: {}, totalMs: 30 })
+  const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, totalMs: 30 })
   try {
     const events: AgentEvent.AgentEvent[] = []
     // The stalled frame is rejected at once; the next frame answers, so the
@@ -305,7 +305,7 @@ test("Host.run clears the streamed reply when the model retries", async () => {
       JSON.stringify({ at: 0, event: { _tag: "model-settled", message: { stopReason: "stop" } } })
     ].join("\n")
   )
-  const host = Host.make({ cwd, environment: {} })
+  const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
   const captions: Array<string> = []
   try {
     const outcome = await host.run({
@@ -327,7 +327,7 @@ test("Host.run clears the streamed reply when the model retries", async () => {
 test("Host.run keeps the call ceiling on plugin flows while worker waits are exempt", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-plugin-limit-"))
   roots.push(cwd)
-  const host = Host.make({ cwd, environment: {}, callMs: 20 })
+  const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, callMs: 20 })
   let settle!: (value: AgentEvent.AgentEvent) => void
   const observed = new Promise<AgentEvent.AgentEvent>((resolve) => {
     settle = resolve
@@ -376,7 +376,7 @@ test("Host.run exposes non-parked usage-limit copy for a failure card", async ()
       })
     ].join("\n")
   )
-  const host = Host.make({ cwd, environment: {} })
+  const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
   try {
     const outcome = await host.run({
       prompt: "review",
@@ -421,7 +421,7 @@ const pollingReplay = (directory: string): string => {
 const pollingTurn = async (delegate: (attempt: number) => unknown) => {
   const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-host-"))
   roots.push(cwd)
-  const host = Host.make({ cwd, environment: {} })
+  const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
   const events: Array<AgentEvent.AgentEvent> = []
   let delegations = 0
   try {
@@ -468,7 +468,7 @@ describe("Host.run completion over a failed request", () => {
   const claimingTurn = async (delegate: () => unknown) => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-host-"))
     roots.push(cwd)
-    const host = Host.make({ cwd, environment: {} })
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
     const events: Array<AgentEvent.AgentEvent> = []
     let delegations = 0
     try {
@@ -545,7 +545,7 @@ describe("Host.run shell monitors pass the approval gate", () => {
     created.length = 0
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-monitor-"))
     roots.push(cwd)
-    const host = Host.make({ cwd, environment: {}, approvals })
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals })
     const request = { id: "log", title: "Log", watch: "an error", source }
     const cell = `let r; try { r = await ctx.call("monitor.create", ${JSON.stringify(request)}) } ` +
       `catch (e) { r = { threw: String(e?.message ?? e) } } ctx.done(JSON.stringify(r))`
@@ -608,7 +608,7 @@ describe("Host.run shell monitors pass the approval gate", () => {
     const restoredUnder = async (approvals: Approvals.Mode, answer?: Approvals.Choice) => {
       const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-monitor-"))
       roots.push(cwd)
-      const host = Host.make({ cwd, environment: {}, approvals })
+      const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals })
       try {
         const gate = Approvals.restored((requests) => host.approvals!.authorize(requests))
         const settled = gate({ source: { kind: "shell", command: "tail -5 x.log" } }).then(
@@ -925,11 +925,11 @@ describe("Host.run jev binding", () => {
     expect(armed).toEqual([true])
   })
 
-  test("without a judge, or as coordinator, a turn has no jev and is not armed", async () => {
+  test("a missing subscription keeps the worker judged; coordinators remain unarmed", async () => {
     const unjudged = await run("worker", undefined)
-    expect(unjudged.judged).toBe(false)
+    expect(unjudged.judged).toBe(true)
     expect(unjudged.settled).not.toContain("success")
-    expect(unjudged.armed).toEqual([undefined])
+    expect(unjudged.armed).toEqual([true])
     const coordinator = await run("coordinator", scripted)
     expect(coordinator.settled).not.toContain("success")
     // A judged host still never arms its coordinator.
@@ -1052,7 +1052,7 @@ describe("Host.run seat routing", () => {
   })
 
   test("an auto worker on a host that does not route fails typed, never on a default seat", async () => {
-    const { host } = make(false)
+    const { host } = make(false, { SMITHERS_TUI_WORKER_SEAT: "sol" })
     const seats: Array<string> = []
     try {
       expect(host.routes).toBe(false)

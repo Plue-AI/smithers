@@ -381,7 +381,7 @@ describe("runtime flows", () => {
     expect(failed.outcome).toBe("failure")
     // The cell reads the failure's tag and code, not prose alone.
     expect(failed.message).toBe(
-      "Flow monitor.create failed: JevFailed (unreachable): Jev is unavailable: set AI_GATEWAY_API_KEY"
+      "Flow monitor.create failed: JevFailed (unreachable): Connect a subscription seat to judge this run."
     )
   })
 

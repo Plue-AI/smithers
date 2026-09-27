@@ -29,7 +29,6 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import type * as Schema from "effect/Schema"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import {
   type AgentSpec,
   type AnyFlowSpec,
@@ -107,32 +106,21 @@ export interface SeatProvider {
  * host gets the single-file build, which Node and a browser compile from bytes
  * and Cloudflare's workerd refuses; see {@link layerFor}.
  *
- * `environment` is where the host's `AI_GATEWAY_API_KEY` is read from: a
- * Worker's bindings object, or a process environment. A host must supply that
- * environment or an explicit evaluator. A missing key refuses composition.
+ * The host's resolved agent seat also judges completions. Offline hosts may
+ * supply an explicit scripted evaluator. No separate judge credential exists.
  *
  * @category models
  * @since 0.1.0
  */
-export type LayerOptions =
-  & {
-    readonly agent: AgentSpec
-    readonly sandbox: SandboxSpec
-    readonly tools: ToolsSpec
-    readonly seats: SeatProvider
-    readonly crypto: Layer.Layer<Crypto.Crypto>
-    readonly sandboxVariant?: Layer.Layer<QuickJSSandbox.Variant> | undefined
-  }
-  & (
-    | {
-      readonly environment: Readonly<Record<string, string | undefined>>
-      readonly evaluator?: Layer.Layer<Evaluator.Evaluator>
-    }
-    | {
-      readonly evaluator: Layer.Layer<Evaluator.Evaluator>
-      readonly environment?: Readonly<Record<string, string | undefined>>
-    }
-  )
+export interface LayerOptions {
+  readonly agent: AgentSpec
+  readonly sandbox: SandboxSpec
+  readonly tools: ToolsSpec
+  readonly seats: SeatProvider
+  readonly crypto: Layer.Layer<Crypto.Crypto>
+  readonly sandboxVariant?: Layer.Layer<QuickJSSandbox.Variant> | undefined
+  readonly evaluator?: Layer.Layer<Evaluator.Evaluator> | undefined
+}
 
 /**
  * Why a routed app's host could not be composed.
@@ -249,10 +237,19 @@ export const emptyRegistry = (): Registry.Registry =>
  * @since 0.1.0
  */
 export const layerFor = (options: LayerOptions) => {
-  const evaluator = options.evaluator ??
-    Evaluator.layerFromEnvironment(options.environment ?? {}, "create-app agent host").pipe(
-      Layer.provide(FetchHttpClient.layer)
-    )
+  const evaluator = options.evaluator ?? Layer.succeed(Evaluator.Evaluator)({
+    evaluate: (request) =>
+      options.seats.resolve(options.agent.seat).pipe(
+        Effect.mapError(() =>
+          new Evaluator.EvaluatorError({ code: "unreachable", message: Evaluator.unreachableMessage })
+        ),
+        Effect.flatMap((seat) =>
+          Effect.flatMap(Evaluator.Evaluator, (judge) => judge.evaluate(request)).pipe(
+            Effect.provide(Evaluator.layerFromSeat({ model: seat.model, modelId: Seat.modelIdOf(options.agent.seat) }))
+          )
+        )
+      )
+  })
   const host = AgentAction.layerHost({
     registry: emptyRegistry(),
     limits: limitsOf(options.agent, options.sandbox),

@@ -61,10 +61,12 @@ fails the existing planning/validation policy; the loader invents none.
 `{"coding/implement": "luna", "coding/plan": "sol"}`. A declared role wins over
 the `SMITHERS_CODING_*_MODEL` defaults; `SMITHERS_CODING_SEATS` (a JSON object of
 the same shape) is the operator's override over both. The seat's provider picks
-the credential the workspace binds: `openai:` the Codex connection or OpenAI
-key, `anthropic:` the Anthropic key. `jev` is refused here: Jev answers
-classifier questions through the host evaluator (`AI_GATEWAY_API_KEY`), as in
-the `coding/JevCheck` lint check, and never runs an agent turn.
+the subscription the workspace binds: `openai:` the ChatGPT connection,
+`anthropic:` the Claude connection, directly or through the account pool. `jev` is refused here: Jev answers
+classifier questions through the same subscription evaluator as the native
+host, as in the `coding/JevCheck` lint check, and never runs an agent turn.
+A missing subscription or invalid verdict fails the check; provider API keys
+and gateway keys cannot substitute for a subscription.
 
 ```sh
 SMITHERS_CODING_PROJECT=/etc/smithers/project.json \

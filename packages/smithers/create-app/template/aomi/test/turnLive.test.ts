@@ -181,14 +181,9 @@ describe("a turn the host cannot run", () => {
     expect(result.message).toContain("OPENAI_API_KEY")
   })
 
-  it("names the judge key it is missing", async () => {
-    const result = await refused({ OPENAI_API_KEY: "key" })
-    expect(result).toMatchObject({ status: 503, error: "host_unconfigured" })
-    expect(result.message).toContain("AI_GATEWAY_API_KEY")
-  })
 
   it("names the fork endpoint it is missing", async () => {
-    const result = await refused({ OPENAI_API_KEY: "key", AI_GATEWAY_API_KEY: "key" }, { chain: undefined })
+    const result = await refused({ OPENAI_API_KEY: "key" }, { chain: undefined })
     expect(result).toMatchObject({ status: 503, error: "host_unconfigured" })
     expect(result.message).toContain("TEVM_FORK_RPC_URL")
   })

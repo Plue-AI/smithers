@@ -1,3 +1,4 @@
+import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { afterEach, describe, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -34,7 +35,7 @@ describe("Host.run between-turn reads (#1948)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-read-cache-"))
     roots.push(cwd)
     writeFileSync(join(cwd, "check-status.txt"), "2 checks passed")
-    const host = Host.make({ cwd, environment: {}, approvals: "all" })
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals: "all" })
     const seat = `replay:${readReplay(cwd)}`
     const answer = async () => {
       const outcome = await host.run({
@@ -85,7 +86,7 @@ describe("Host.run between-turn reads (#1948)", () => {
       file,
       recorded.replace("ctx.done(JSON.stringify(r))", "console.log(JSON.stringify(r))") + "\n" + recorded
     )
-    const host = Host.make({ cwd, environment: {}, approvals: "all" })
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals: "all" })
     let requests = 0
     const mutations: boolean[] = []
     try {

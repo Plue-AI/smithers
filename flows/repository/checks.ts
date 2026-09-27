@@ -263,7 +263,7 @@ export const RetainSemantic = Action.make("repository/retain-semantic-check", {
 })
 /** Jev judges the maintainer's rule one changed hunk at a time. An answer
  * between the two thresholds is Jev deciding it is unsure, and comes back
- * `uncertain`; an evaluation it could not make at all — a missing gateway, a
+ * `uncertain`; an evaluation it could not make at all — a missing subscription, a
  * refused call, a timeout, a malformed answer — fails this action with the
  * evaluator's typed error. There is no second model behind it. */
 export const JevSemanticCheck = Action.make("repository/jev-semantic-check", {

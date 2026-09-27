@@ -59,7 +59,6 @@ resolves them from the registry without overrides, local links, or vendoring.
 | -------------------- | --------------------------------------------- |
 | `ANTHROPIC_API_KEY`  | The seat is `anthropic:<model>`               |
 | `OPENAI_API_KEY`     | The seat is `openai:<model>`                  |
-| `AI_GATEWAY_API_KEY` | Always: the completion judge runs on it       |
 
 Set them with `wrangler secret put <NAME>`, or in `.dev.vars` for `pnpm dev`.
 

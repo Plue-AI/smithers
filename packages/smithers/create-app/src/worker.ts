@@ -228,10 +228,10 @@ export interface TurnCards {
 /**
  * What a host supplies for its turns.
  *
- * `env` holds the provider keys and `AI_GATEWAY_API_KEY`. `tools` rebinds a
+ * `env` holds the model connection configuration. `tools` rebinds a
  * route's tool sources to this turn's cards; omitted, the route's own tools
  * run. `seats`, `evaluator`, and `crypto` default to {@link seatsFromEnv},
- * the gateway judge read from `env`, and {@link layerCryptoWeb}.
+ * the resolved agent seat for judgment, and {@link layerCryptoWeb}.
  *
  * @category models
  * @since 1.0.0
@@ -378,7 +378,6 @@ const execute = async (
       seats: { resolve: () => Effect.succeed(seat.success) },
       crypto: host.crypto ?? layerCryptoWeb,
       sandboxVariant: host.sandboxVariant,
-      environment: host.env,
       ...(host.evaluator === undefined ? {} : { evaluator: host.evaluator })
     })
   } catch (cause) {

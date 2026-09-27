@@ -273,20 +273,15 @@ const wiki = Smithers.NodeTest({
   cwd
 })
 
-// The judge the coding host installs reaches the gateway through the proxy its
-// environment names. The host judges inside a default-deny microsandbox whose
-// only way out is that proxy, so a direct dial is dropped and every completion
-// comes back unjudged; the case asserts the proxy was asked to open the tunnel,
-// never merely that the call failed.
-//
-// On the pass path nothing leaves the loopback interface: the judge asks the
-// test's own proxy for a tunnel and the proxy refuses it. A regression is what
-// dials `ai-gateway.vercel.sh` for real, which is the behaviour being banned,
-// so the target is not hermetic on the failure path and must not be declared as
-// if it were.
+// Subscription judges share the native resolver and use the configured proxy.
+// The fixtures serve a local account pool and refuse a proxy tunnel, so no
+// live subscription or provider credential is needed.
 const egress = Smithers.NodeTest({
   runtime: node,
-  runner: Smithers.testRunner([Smithers.file("//flows/test/repository-jev-egress.test.ts")]),
+  runner: Smithers.testRunner([
+    Smithers.file("//flows/test/repository-jev-egress.test.ts"),
+    Smithers.file("//flows/test/subscription-judge.test.ts")
+  ]),
   srcs: codingSources,
   deps: codingDependencies,
   cwd

@@ -1,19 +1,15 @@
 /**
  * The one judge a native test host runs, scripted from the evidence instead of
- * fetched from a gateway.
+ * requested from a subscription seat.
  *
  * These fixtures build a whole configured host — plan, cell, guarded writes,
  * checks, repository jobs — and every one of those readers asks Jev. A host
- * must select a real or deliberately scripted judge before startup. An
- * environment-backed host with no `AI_GATEWAY_API_KEY` now refuses to boot.
- * These fixtures deliberately script every classifier the host reaches, so
- * the completion brake and repository decisions still read their evidence.
+ * binds the subscription judge or explicitly supplies a scripted evaluator.
+ * These fixtures script every classifier the host reaches, so the completion
+ * brake and repository decisions still read their evidence.
  *
- * `81bca45092e9` fixed the same problem for the offline examples by binding
- * `Evaluator.layerScripted` where they used to bind
- * `Evaluator.layerFromEnvironment(process.env, "host")`. This is that mechanism, at the
- * seam a host already has: `NativeControl.Platform.evaluator`, which
- * `flows/coding/host.ts` prefers over `evaluatorLayer(process.env)` for the
+ * `NativeControl.Platform.evaluator` is the seam `flows/coding/host.ts`
+ * prefers over `evaluatorLayer(process.env)` for the
  * agent loop and for every repository reader, so a host never runs two judges.
  *
  * ## Scripted, not permissive

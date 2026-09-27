@@ -7,9 +7,8 @@ import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { environmentDispatcher, rebuildableTransport, seatResolver } from "@smthrs/cli/NodeControl"
 import { Action, HumanTask, Interpreter } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
-import * as Evaluator from "@smthrs/model/Evaluator"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
-import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, type Scope } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
@@ -20,6 +19,7 @@ import ReleaseContent from "../release-content/flow.ts"
 import * as Content from "../release-content/workflow.ts"
 import ReleaseFlow from "../release/flow.ts"
 import * as Release from "../release/workflow.ts"
+import { evaluatorLayer } from "../repository/jev-checks.ts"
 import { relativePath } from "./io.ts"
 import { actionLayers } from "./operations.ts"
 
@@ -46,19 +46,15 @@ export const liveSeats = (model: string) =>
     })
   )
 
-/** Select a real judge or refuse composition before opening host resources.
- * Offline hosts pass an evidence-based scripted evaluator explicitly. The
- * gateway is reached over the egress proxy this process's environment names,
- * so the judge works inside a sandbox whose only way out is that proxy. */
-export const hostEvaluator = (): Layer.Layer<Evaluator.Evaluator> =>
-  Evaluator.layerFromEnvironment(process.env, "smithers release-support").pipe(
-    Layer.provide(EgressHttpClient.layer(process.env))
-  )
+/** The same subscription judge and proxy-aware transport as the native host. */
+export const hostEvaluator = (
+  environment: Readonly<Record<string, string | undefined>>
+): Layer.Layer<Evaluator.Evaluator> => evaluatorLayer(environment)
 
 export const agentLayers = (
   seats: Layer.Layer<SeatResolver.SeatResolver>,
   maxTokens: number,
-  evaluator: Layer.Layer<Evaluator.Evaluator> = hostEvaluator()
+  evaluator: Layer.Layer<Evaluator.Evaluator> = hostEvaluator(process.env)
 ) => {
   // Writers receive a bounded evidence snapshot. They have no shell, network,
   // filesystem or publication tools; deterministic actions own that work.
@@ -102,7 +98,7 @@ export const runtime = (options: {
   readonly model: string
   readonly maxTokens: number
 }) => {
-  const evaluator = hostEvaluator()
+  const evaluator = hostEvaluator(process.env)
   const registration = Layer.mergeAll(
     actionLayers({
       root: options.root,

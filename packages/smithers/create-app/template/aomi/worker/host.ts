@@ -8,7 +8,7 @@
  * writes a run's cards, cells, and answer back into the session as the run
  * produces them, whether or not anyone is reading the stream.
  *
- * Nothing here is a mock. A missing seat key, judge key, or fork endpoint is a
+ * Nothing here is a mock. A missing seat key or fork endpoint is a
  * typed 503 refusal decided before any stream opens.
  */
 import type { ToolsSpec } from "@smthrs/create-app/app"
@@ -29,7 +29,7 @@ export type { SessionFlows }
 
 /**
  * What a caller may replace. The Worker passes nothing and gets the workerd
- * QuickJS build, the generated routes, the provider seats and gateway judge
+ * QuickJS build, the generated routes, the provider seats and completion judge
  * read from `env`, and the real Tevm fork over `TEVM_FORK_RPC_URL`. A Node test
  * passes the Node QuickJS build, a recorded seat, a scripted judge, and a
  * deterministic chain.
@@ -133,7 +133,6 @@ export const hostFor = async (
     env: {
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       OPENAI_API_KEY: env.OPENAI_API_KEY,
-      AI_GATEWAY_API_KEY: env.AI_GATEWAY_API_KEY
     },
     sandboxVariant,
     tools,

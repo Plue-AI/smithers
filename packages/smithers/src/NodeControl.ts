@@ -239,6 +239,7 @@ export type { EngineDurable, ModuleRegistration } from "./internal/NativeControl
 export {
   checkpointStore,
   layerSeatCatalog,
+  layerSeatEvaluator,
   layerSeatResolver,
   seatCandidates,
   seatResolver,

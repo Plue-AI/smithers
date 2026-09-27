@@ -139,6 +139,7 @@ The Node composition for the command tree.
 | `executionDatabasePath` | `(root: string) => string` | `<root>/.flows/engine.db`. |
 | `EngineDurable` | `Application.Engine & { stores }` | The durable engine plus the shared database seam other stores hang off. |
 | `engineDurable` | `(root: string, registry?, authority?) => EngineDurable` | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects. |
+| `layerSeatEvaluator` | layer | The native subscription judge, backed by the existing seat resolver and `RequestExecutor`. Resolves connected ChatGPT or Claude subscriptions at judgment time, including account pools. Missing seats and invalid verdicts fail closed; provider API keys are never a fallback. |
 | `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. |
 | `seatCandidates`, `layerSeatCatalog` | constructor, layer | The seats Jev routes an undeclared or `auto` run to: each alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with, once per model, never Jev. |
 | `supervisorStance` | `(environment) => "careful" \| "paranoid"` | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`. |

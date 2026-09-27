@@ -91,8 +91,8 @@ The Worker serves `GET /api/routes`, which reports what the router found, and
 runs `POST /api/turn` through `turnResponse` from `@smthrs/create-app/worker`:
 the chat flow on the seat in `AGENT.ts`, in a QuickJS sandbox built from the
 WebAssembly module `worker/index.ts` imports, streamed back as `TurnFrame`
-NDJSON. It needs the seat's provider key and `AI_GATEWAY_API_KEY`, and answers
-HTTP 503 `host_unconfigured` until both are set. See
+NDJSON. It needs the seat's provider connection, and answers
+HTTP 503 `host_unconfigured` until the seat is connected. See
 [Run a routed flow from your own host](/guides/host-a-turn/).
 
 The template ships no live model, so it has no `test:record` script. Add a
@@ -153,8 +153,8 @@ A turn runs the chat flow on `runTurn` from `@smthrs/create-app/worker`, and a
 pipeline run runs the build flow on `runFlow`, with the QuickJS variant built
 from the `.wasm` module `wrangler.jsonc` compiles. The Worker rebinds `ui` to
 the turn's stream, `flows` to the session's Durable Object, and `tevm` to the
-real fork. There is no mock turn: a turn missing the seat's key,
-`AI_GATEWAY_API_KEY`, or `TEVM_FORK_RPC_URL` answers 503 with
+real fork. There is no mock turn: a turn missing the seat's key or
+`TEVM_FORK_RPC_URL` answers 503 with
 `code: "host_unconfigured"` and a message naming the secret, before the session
 is marked running. A pipeline run in the same state settles its `flow-run` card
 `failed` with that message.
@@ -164,16 +164,15 @@ it; the messages and cards already written stay.
 
 ### What it needs to run
 
-`.dev.vars.example` lists five values, and the template's own README explains
+`.dev.vars.example` lists four values, and the template's own README explains
 each:
 
-| Variable             | What reads it                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------------ |
-| `OPENAI_API_KEY`     | Seat resolution, for the `openai:` seats the template ships                                            |
-| `AI_GATEWAY_API_KEY` | The completion judge every turn and run needs                                                          |
-| `TEVM_FORK_RPC_URL`  | The Worker's Tevm fork, and the fork test                                                              |
-| `APP_API_TOKEN`      | The API guard. Missing or empty refuses requests (401) unless local open mode is explicitly enabled    |
-| `APP_API_OPEN`       | Set to `1` only in `.dev.vars.example` for local development without a token; never deploy this opt-in |
+| Variable            | What reads it                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| `OPENAI_API_KEY`    | Seat resolution, for the `openai:` seats the template ships                                            |
+| `TEVM_FORK_RPC_URL` | The Worker's Tevm fork, and the fork test                                                              |
+| `APP_API_TOKEN`     | The API guard. Missing or empty refuses requests (401) unless local open mode is explicitly enabled    |
+| `APP_API_OPEN`      | Set to `1` only in `.dev.vars.example` for local development without a token; never deploy this opt-in |
 
 Set `APP_API_TOKEN` as a secret before the first public deploy. A configured
 token takes precedence over `APP_API_OPEN`. Health omits authentication

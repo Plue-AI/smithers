@@ -46,10 +46,9 @@
 	},
 	// Secrets, set with `wrangler secret put --config worker/wrangler.jsonc`.
 	// Only the provider the app's AGENT.ts seats name has to be set, plus the
-	// judge key and the fork endpoint; a turn answers 503 until they are:
+	// fork endpoint; a turn answers 503 until they are:
 	//   OPENAI_API_KEY     — credential for an `openai:<model>` seat
 	//   ANTHROPIC_API_KEY  — credential for an `anthropic:<model>` seat
-	//   AI_GATEWAY_API_KEY — Vercel AI Gateway key for the completion judge
 	//   TEVM_FORK_RPC_URL  — JSON-RPC the Tevm fork reads chain state from
 	//   APP_API_TOKEN      — shared credential every /api/* route but health
 	//                        requires. Missing or empty refuses requests (401).

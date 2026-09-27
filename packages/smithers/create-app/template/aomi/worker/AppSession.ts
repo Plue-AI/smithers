@@ -321,7 +321,7 @@ export class AppSession extends DurableObject<Env> {
    *
    * A second turn on a busy session is refused rather than queued: two turns
    * writing one transcript is a race the shell has no way to render. A turn the
-   * host cannot run (a missing seat key, judge key, or fork endpoint) is
+   * host cannot run (a missing seat key or fork endpoint) is
    * refused with a typed JSON body before the session is marked running.
    */
   async turn(request: TurnRequest): Promise<Response> {

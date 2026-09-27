@@ -801,7 +801,7 @@ const attempt = <A>(step: string, work: (signal: AbortSignal) => Promise<A>) =>
 
 /**
  * Select the release narrative's judge while assembling the host. A missing
- * gateway key refuses startup; an offline test deliberately scripts this
+ * subscription fails judgment; an offline test deliberately scripts this
  * classifier and the completion brake through the same evaluator.
  */
 export const actionLayers = (
@@ -813,7 +813,7 @@ export const actionLayers = (
   return Layer.mergeAll(
     Content.Outcome.toLayer(Effect.succeed),
     Content.PickTemplate.toLayer(({ input, evidence, analysis }) => chooseTemplate(input, evidence, analysis))
-      .pipe(Layer.provide(options.evaluator ?? evaluatorLayer(process.env, "smithers release-support"))),
+      .pipe(Layer.provide(options.evaluator ?? evaluatorLayer(process.env))),
     Release.Outcome.toLayer(Effect.succeed),
     Content.Collect.toLayer((value) => attempt("collect", (signal) => ops.collect(value, signal))),
     Content.RecordUi.toLayer(({ input, evidence }) =>
