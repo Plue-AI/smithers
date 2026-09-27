@@ -489,12 +489,11 @@ describe("the repository homepage", () => {
    * `export const home = Smithers.Factory.Home` declaration in
    * `.smithers/FACTORY.ts`; the build's `ci` verb reds on drift. This suite
    * asserts what the pane is made of: declared blocks only, no HTML
-   * anywhere, and a flows block whose rows the app takes from the catalog
-   * beside it.
+   * anywhere, and the four app doors under the question (af513455f).
    */
   const home = JSON.parse(readFileSync(join(projectionRoot, "home.json"), "utf8"));
   const catalog = JSON.parse(readFileSync(join(projectionRoot, "factory.json"), "utf8"));
-  const KNOWN_BLOCKS = ["prompt", "markdown", "text", "links", "flows", "stack"];
+  const KNOWN_BLOCKS = ["prompt", "markdown", "text", "links", "flows", "stack", "app"];
 
   it("is made of declared blocks and carries no HTML", () => {
     assert.ok(Array.isArray(home.blocks) && home.blocks.length > 0, "the pane declares at least one block");
@@ -514,12 +513,17 @@ describe("the repository homepage", () => {
     }
   });
 
-  it("opens with a prompt, featured flows and the live stack, then the README", () => {
-    const types = home.blocks.map((block) => block.type);
-    assert.deepEqual(types.slice(0, 4), ["prompt", "flows", "stack", "markdown"]);
-    assert.equal(home.blocks[0].placeholder, "Change Smithers…");
-    assert.equal(home.blocks[3].path, "README.md");
-    assert.ok(catalog.flows.some((row) => row.featured), "the flows block has featured rows to show");
+  it("opens with the question and the composer, then the four apps", () => {
+    assert.deepEqual(home.blocks.map((block) => block.type), ["prompt", "app", "app", "app", "app"]);
+    assert.equal(home.blocks[0].title, "What should we work on?");
+    assert.equal(home.blocks[0].placeholder, "Ask Smithers…");
+    assert.deepEqual(home.blocks.slice(1).map((block) => [block.title, block.picture]), [
+      ["Fix an issue", "issue"],
+      ["Review a PR", "review"],
+      ["Ask the codebase", "wiki"],
+      ["Run it every night", "schedule"]
+    ]);
+    for (const block of home.blocks.slice(1)) assert.ok(typeof block.flow === "string" && block.flow.length > 0);
   });
 });
 
