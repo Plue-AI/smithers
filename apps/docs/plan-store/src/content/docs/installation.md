@@ -14,13 +14,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install
 
-`@smthrs/plan-store` is at `1.0.0-rc.0` and has not reached npm yet. When it
-does, the release candidate publishes under the `next` dist tag, so ask for
-that tag until 1.0 is final:
-
-```bash
-pnpm add @smthrs/plan-store@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The store writes to SQL, so a composition also needs the SQLite client, the
 durable writer, and Effect's `Crypto` service:

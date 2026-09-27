@@ -8,9 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/mig
 
 ## Availability
 
-The Smithers 1.0 packages are not on npm yet, so every `npx` and install line
-on this site resolves once they publish. Until then, run the tool from a source
-checkout of the
+Not on npm yet. Run it from a source checkout of the
 [smithers repository](https://github.com/smithersai/smithers):
 
 ```bash
@@ -18,36 +16,18 @@ git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
 pnpm --filter @smthrs/migrate build
-node packages/smithers/migrate/dist/esm/flow/bin.js --root /path/to/project
+alias smithers-migrate="node $PWD/packages/smithers/migrate/dist/esm/flow/bin.js"
 ```
 
-That executable takes the flags this site documents, so the rest of these pages
-read the same from a checkout as they will from a registry.
-
-## Run it without installing anything
-
-The tool has to run inside a project that does not have Smithers 1.0 yet, so
-the first command needs no install:
-
-```bash
-npx @smthrs/migrate@next
-```
-
-The package ships one executable, `smithers-migrate`, and `npx` runs it. With
+The package ships one executable, `smithers-migrate`. Run it from the project
+root. With
 no flags the mode is `plan`: it reads the project, plans the units, and writes
 the report.
 
 ## Install it as a project dependency
 
 Install the package when you want the scanner API in your own script, or when
-you want the tool pinned in the project you are migrating:
-
-```bash
-npm install --save-dev @smthrs/migrate@next
-pnpm add -D @smthrs/migrate@next
-yarn add -D @smthrs/migrate@next
-bun add -d @smthrs/migrate@next
-```
+you want the tool pinned in the project you are migrating. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later, and ships as both ESM and
 CommonJS with TypeScript declarations.
@@ -66,10 +46,9 @@ is a development dependency, not part of the published runtime.
 ## Run it as a CLI verb
 
 Once the project is on 1.0, the same entry point is reachable as a verb of the
-Smithers CLI:
+Smithers CLI. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#install-the-cli).
 
 ```bash
-pnpm add -D @smthrs/cli@next
 smthrs migrate --scan
 ```
 
@@ -105,11 +84,7 @@ needs the flow-lane packages: `@smthrs/agent`, `@smthrs/core`,
 `@smthrs/kernel`, `@smthrs/model`, `@smthrs/plan`,
 `@smthrs/platform-node`, and `@smthrs/registry`. They are
 declared as `optionalDependencies`, so a package manager installs them by
-default and `--no-optional` leaves them out:
-
-```bash
-pnpm add -D @smthrs/migrate@next --no-optional
-```
+default and `--no-optional` leaves them out.
 
 That flag also omits TypeScript's platform-specific native compiler package.
 A scan-only installation must supply that compiler executable separately;
@@ -130,7 +105,7 @@ environment:
 | `openrouter` | `OPENROUTER_API_KEY` |
 
 ```bash
-ANTHROPIC_API_KEY=... npx @smthrs/migrate@next --apply --seat anthropic:<model>
+ANTHROPIC_API_KEY=... smithers-migrate --apply --seat anthropic:<model>
 ```
 
 No model id is hard coded anywhere in this package, so the seat resolver

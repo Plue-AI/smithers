@@ -7,13 +7,7 @@ sidebar:
 
 ## Install the package
 
-`@smthrs/sandbox` is at `1.0.0-rc.0` and has not reached npm yet. When it
-does, the release candidate publishes under the `next` dist tag, so ask for
-that tag until 1.0 is final:
-
-```bash
-pnpm add @smthrs/sandbox@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as ESM and CommonJS
 with TypeScript declarations. It has two runtime dependencies,
@@ -46,11 +40,7 @@ Two subpath forms are blocked in the export map:
 ## What a runnable composition adds
 
 Four of the bundled providers are built from Effect's own host services,
-which a platform package supplies. On Node:
-
-```bash
-pnpm add @smthrs/platform-node@next @smthrs/kernel@next
-```
+which a platform package supplies.
 
 `NodeHost.layerContained()` provides the filesystem, path, and lifecycle-backed
 spawner `DirectorySandbox` requires. Provide a `ProcessLedger` underneath it,

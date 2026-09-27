@@ -47,12 +47,7 @@ place code you do not trust.
 
 ## Install
 
-The 1.0 release candidate has not reached npm yet. When it does it publishes
-under the `next` dist tag:
-
-```bash
-pnpm add @smthrs/sandbox@next @smthrs/platform-node@next @smthrs/kernel@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 Node.js 26.4.0 or later. `@smthrs/platform-node` supplies the contained host
 services `DirectorySandbox` requires. A raw spawner or a wrapper with only a

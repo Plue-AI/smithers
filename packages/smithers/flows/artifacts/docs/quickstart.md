@@ -15,11 +15,7 @@ corrupted on purpose.
 - Node.js 26.4.0 or later.
 - An empty directory to work in. The store writes under `.flows/objects`
   relative to the process working directory.
-- The package and the Node host layers:
-
-```bash
-pnpm add @smthrs/artifacts@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+- The package and the Node host layers. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Compose the store
 

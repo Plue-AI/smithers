@@ -7,17 +7,7 @@ sidebar:
 
 ## Install
 
-```bash
-pnpm add @smthrs/gateway@1.0.0-rc.0
-```
-
-`npm install` and `bun add` take the same argument.
-
-Name the version. These pages describe 1.0.0-rc.0, and until that release
-candidate reaches the registry the unqualified package name still resolves to
-the 0.x line, whose exports and wire format these pages do not describe. A
-release candidate publishes under the `next` dist-tag rather than `latest`, so
-`@next` names the newest one once it is there.
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Requirements
 
@@ -98,10 +88,6 @@ The full composition, with the storage underneath it, is in
 ## Running without composing anything
 
 [`smthrs serve`](/cli/serve) hosts this exact assembly for a project on disk.
-If you want a gateway rather than a library, install the CLI instead:
-
-```bash
-npm install --global @smthrs/cli@next
-```
+If you want a gateway rather than a library, use the CLI instead. Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
 
 Then see the [Quickstart](./quickstart.md).

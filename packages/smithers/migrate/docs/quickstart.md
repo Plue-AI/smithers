@@ -25,7 +25,7 @@ them.
 Run the scan from the project root. It writes nothing at all:
 
 ```bash
-npx @smthrs/migrate@next --scan
+smithers-migrate --scan
 ```
 
 The summary names what the scan found:
@@ -50,7 +50,7 @@ instructions you have to act on first, in the order you have to act on them.
 Drop `--scan` to plan. This is the default mode, and it writes only the report:
 
 ```bash
-npx @smthrs/migrate@next
+smithers-migrate
 ```
 
 The report lands at `.smithers-migrate/report.json` and
@@ -89,7 +89,7 @@ That order is fixed, and it is the order the rewrite runs in. See
 Pass `--apply` and name the seat the rewrite runs on:
 
 ```bash
-ANTHROPIC_API_KEY=... npx @smthrs/migrate@next --apply --seat anthropic:<model>
+ANTHROPIC_API_KEY=... smithers-migrate --apply --seat anthropic:<model>
 ```
 
 Each unit runs the same steps in the same order: checkpoint the files it
@@ -141,7 +141,6 @@ registry discovery over the final tree. Run them again yourself, then check
 that the flows are discoverable:
 
 ```bash
-pnpm add -D @smthrs/cli@next
 smthrs ls
 smthrs doctor
 ```

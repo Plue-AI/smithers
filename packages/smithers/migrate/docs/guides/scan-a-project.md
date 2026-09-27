@@ -11,7 +11,7 @@ credential. Two modes read and report; neither edits.
 ## Read and report nothing to disk
 
 ```bash
-npx @smthrs/migrate@next --scan
+smithers-migrate --scan
 ```
 
 `scan` walks the project and prints a summary. It writes no file at all, not
@@ -21,7 +21,7 @@ time you want to know what changed since.
 ## Read and write the report
 
 ```bash
-npx @smthrs/migrate@next
+smithers-migrate
 ```
 
 `plan` is the default mode. It does everything `scan` does, plans the migration
@@ -67,11 +67,7 @@ credentials.
 
 The scanner modules import only `effect`, `@effect/platform-node`,
 `typescript`, and Node built-ins. Install the package with optional dependencies
-enabled so TypeScript 7's platform-specific native compiler is available:
-
-```bash
-pnpm add -D @smthrs/migrate@next
-```
+enabled so TypeScript 7's platform-specific native compiler is available. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 The optional `@smthrs/*` packages are installed too, but importing the scanners
 does not load the migration runtime. See [Installation](../installation.md)

@@ -14,11 +14,7 @@ input, persisted the key, and validated it on the way back in.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed:
-
-```bash
-pnpm add @smthrs/keys@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115
-```
+- A package with the dependencies installed. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Derive a key for one unit of work
 

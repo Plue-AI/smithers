@@ -14,14 +14,10 @@ against it. Nothing is stubbed but the storage.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the test dependencies installed:
-
-```bash
-pnpm add -D @smthrs/testing@next effect@4.0.0-rc.115 vitest @effect/vitest@4.0.0-rc.115
-```
+- A package with the test dependencies installed. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Both `effect` packages are exact peer pins. [Installation](/installation/)
-says why, and what to do until the release candidate reaches npm.
+says why.
 
 ## Register the suite
 

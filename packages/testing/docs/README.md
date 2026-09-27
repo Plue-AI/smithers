@@ -30,13 +30,9 @@ same answer twice.
 
 ## Install
 
-```bash
-pnpm add -D @smthrs/testing@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-The 1.0 release candidates publish under the `next` tag, and the first one is
-not on npm yet: until it is, build from a clone of
-[the repository](https://github.com/smithersai/smithers). `vitest` and
+`vitest` and
 `@effect/vitest` are optional peers, needed only by the `Vitest` adapter.
 Node.js 26.4.0 or later is required. [Installation](./installation.md) has the
 rest.

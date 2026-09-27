@@ -12,10 +12,9 @@ no route table, pane registry, or flow-to-model map to keep in step by hand.
 
 ## Install
 
-Install the release-candidate build CLI and authoring surface, then scaffold:
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries). Then scaffold:
 
 ```sh
-pnpm add -D @smthrs/build-cli@next @smthrs/targets@next
 pnpm exec smithers-build create-app my-app
 ```
 

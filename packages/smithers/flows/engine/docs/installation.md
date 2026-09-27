@@ -7,9 +7,7 @@ sidebar:
 
 ## Install
 
-```bash
-pnpm add @smthrs/engine@next @smthrs/flow@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `@smthrs/flow` is a runtime dependency of this package and also the package you
 author against: `Flow`, `Action`, `DurableDeferred`, `DurableClock`, and

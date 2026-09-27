@@ -7,18 +7,12 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/keys@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `@effect/platform-node` provides `NodeCrypto` for the example below and is
 optional if you supply your own `Crypto` implementation.
 
-`npm install` and `bun add` take the same arguments. The current version is
-`1.0.0-rc.0`. Release candidates publish on the `next` dist-tag, which is what
-`@next` selects; once 1.0 is final the plain package name gets it.
-
-[`effect`](https://effect.website) is a peer dependency at that exact version,
+[`effect`](https://effect.website) is a peer dependency at exactly `4.0.0-rc.115`,
 because the schemas this package exports have to be the ones your own code
 composes with. Two more dependencies install with the package and are the only
 ones: [`@smthrs/canonical`](/api/canonical) for the serialization and

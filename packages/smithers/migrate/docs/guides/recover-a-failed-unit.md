@@ -59,7 +59,7 @@ A failing verification is handed back to the model with the failing output.
 Three rounds is the default:
 
 ```bash
-npx @smthrs/migrate@next --apply --seat anthropic:<model> --max-repair-rounds 5
+smithers-migrate --apply --seat anthropic:<model> --max-repair-rounds 5
 ```
 
 More rounds cost more model calls, so raise it when the failures look like
@@ -83,7 +83,7 @@ the next apply uses it to serialize ownership and clears the old diagnostic
 owner record after a successful release.
 
 ```bash
-npx @smthrs/migrate@next --apply --seat anthropic:<model> --unit workflow:pipelines/ci-fast
+smithers-migrate --apply --seat anthropic:<model> --unit workflow:pipelines/ci-fast
 ```
 
 `--unit` takes a comma-separated list of unit ids. An id that no unit is
@@ -109,8 +109,8 @@ That is what you get after fixing something by hand between two applies. Plan
 again, then apply:
 
 ```bash
-npx @smthrs/migrate@next
-npx @smthrs/migrate@next --apply --seat anthropic:<model>
+smithers-migrate
+smithers-migrate --apply --seat anthropic:<model>
 ```
 
 ## Related

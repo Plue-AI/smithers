@@ -19,13 +19,7 @@ reads the effect-boundary evidence that decides whether a rewind is safe.
 
 ## Install
 
-`1.0.0-rc.0` has not reached npm yet. The release candidate publishes under the
-`next` tag, which is what this command selects; the plain package name still
-resolves to the older `0.x` line, a different API.
-
-```sh
-pnpm add @smthrs/time-travel@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 **Fork replay limitation:** copied attempt rows retain their parent digests, so
 actions keyed by the run ID execute again in the child. See

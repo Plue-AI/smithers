@@ -13,11 +13,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/mcp
 is the worked example of everything on this page: it composes this package
 behind `--mcp-config`.
 
-When it publishes, the install is one command:
-
-```bash
-pnpm add @smthrs/mcp@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Requirements
 
@@ -108,10 +104,6 @@ The runtime `@smthrs/*` dependencies of this package are `@smthrs/canonical`,
 and `@smthrs/kernel`. `@smthrs/registry` and `@smthrs/model` are development
 dependencies only. A host that imports any of them directly declares it in its
 own manifest.
-
-```bash
-pnpm add @smthrs/agent@next
-```
 
 [`@smthrs/agent`](https://agent.smithers.sh/reference/api/) takes the projected sources as its `flows` option,
 alongside `StandardFlows.filesystem` and the rest.

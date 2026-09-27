@@ -7,11 +7,9 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/std@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-The package publishes release candidates to the `next` dist-tag. It requires
+It requires
 Node.js 26.4.0 or later and ships as both ESM and CommonJS with TypeScript
 declarations. Its runtime dependencies install with it:
 [`effect`](https://effect.website), plus [`@smthrs/core`](/api/core) for the

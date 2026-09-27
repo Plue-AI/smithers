@@ -20,12 +20,7 @@ It implements no isolation of its own. What a sandbox does and does not prevent
 differs per provider and is documented at
 https://sandbox.smithers.sh/concepts/isolation/.
 
-`@smthrs/sandbox` is at `1.0.0-rc.0` and has not reached npm yet. When it does,
-the release candidate publishes under the `next` dist tag:
-
-```sh
-pnpm add @smthrs/sandbox@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Public API
 

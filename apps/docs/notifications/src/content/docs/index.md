@@ -36,9 +36,7 @@ alerts about a run that has been stuck too long.
 
 ## Install
 
-```bash
-npm install @smthrs/notifications@next @smthrs/journal@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Node.js 26.4.0 or later. `@smthrs/journal` is where the durable records go, and
 the example below imports it directly. See [Installation](/installation/) for

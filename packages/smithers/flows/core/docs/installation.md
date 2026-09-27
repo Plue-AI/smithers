@@ -7,9 +7,7 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/core@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. It has no platform bindings: it reads no

@@ -37,9 +37,7 @@ is Effect's Node spawner re-exported; contained POSIX variants use
 
 ## Install
 
-```bash
-pnpm add @smthrs/platform-bun@next @effect/platform-bun@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `@effect/platform-bun` is a required peer at exactly `4.0.0-rc.115`. Package
 managers install it with the other required Effect peers. The filesystem slot

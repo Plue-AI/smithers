@@ -39,9 +39,7 @@ identity, so `service.name` means the same thing whichever one you pick.
 
 ## Install
 
-```bash
-pnpm add @smthrs/observability@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Node.js 26.4.0 or later. For the import forms and the browser rule, see
 [Installation](/installation/).

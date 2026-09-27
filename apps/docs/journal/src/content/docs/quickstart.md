@@ -21,9 +21,7 @@ redacted.
   `await`) with the journal, the database it writes through, and `effect`
   installed. See [Installation](/installation/) for why `effect` is pinned.
 
-```bash
-pnpm add @smthrs/journal@next @smthrs/database@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Compose the layer
 

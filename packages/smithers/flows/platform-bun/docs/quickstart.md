@@ -22,11 +22,7 @@ appear in, and disappear from, the process ledger.
   before the program body runs when it is missing. See
   [Installation](./installation.md) for `SMITHERS_JJ_PATH` and for composing
   service layers without jj.
-- A package with the dependencies installed:
-
-```bash
-pnpm add @smthrs/platform-bun@next @effect/platform-bun@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @smthrs/kernel@next effect@4.0.0-rc.115
-```
+- A package with the dependencies installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Run a file operation and a command
 

@@ -47,9 +47,7 @@ diagram, or a test.
 
 ## Install
 
-```bash
-pnpm add @smthrs/core@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package needs Node.js 26.4.0 or later. It has no platform bindings, so the
 same build runs in Node, in Bun, in a browser, and in a Cloudflare Worker.

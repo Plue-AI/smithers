@@ -15,11 +15,9 @@ reviewer, or a scheduler can read the worst case in advance. It composes
 `@smthrs/flow` and the one effect model in `@smthrs/plan/Effects`, and imports
 no Node built-ins.
 
-```sh
-pnpm add @smthrs/patterns@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-The Smithers 1.0 release candidates publish under the `next` tag. The package
+The package
 needs Node.js 26.4.0 or later and shares its `effect` peer with the host.
 
 ## Produce, review, revise

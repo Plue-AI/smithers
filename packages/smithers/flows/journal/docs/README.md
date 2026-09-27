@@ -13,15 +13,9 @@ typed receipt or a typed failure, and the database arrives as a layer you
 compose. It belongs to the Smithers durable flow engine, but it runs on its
 own: no other Smithers package is required.
 
-Smithers is at `1.0.0-rc.0` and has not reached npm yet. When it does, the
-release candidate publishes under the `next` tag, and this installs the
-journal, the database it writes through, and the `effect` version it pins:
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-```bash
-pnpm add @smthrs/journal@next @smthrs/database@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
-
-`effect` is a peer dependency at exactly that version. Two copies of `effect`
+`effect` is a peer dependency at exactly `4.0.0-rc.115`. Two copies of `effect`
 in one program are two sets of service tags, so a journal layer built against
 one copy cannot be provided to a program holding the other.
 

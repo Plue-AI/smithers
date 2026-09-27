@@ -10,9 +10,7 @@ sidebar:
 - Node.js 26.4.0 or later.
 - pnpm, for the scaffold command and for the app's own scripts.
 
-```bash
-pnpm add -D @smthrs/build-cli@next @smthrs/targets@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Scaffold an app
 

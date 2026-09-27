@@ -13,13 +13,7 @@ sidebar:
 
 ## Install
 
-`@smthrs/plan` is at `1.0.0-rc.0` and has not reached npm yet. When it does,
-the release candidate publishes under the `next` dist tag, so ask for that tag
-until 1.0 is final:
-
-```bash
-pnpm add @smthrs/plan@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 That is enough to build node graphs, compile plans, and diff them. Compiling
 asks for Effect's `Crypto` service, which a platform package supplies:
@@ -36,11 +30,7 @@ them directly.
 
 This package performs no I/O. Recording a compiled plan is
 [`@smthrs/plan-store`](/api/plan-store), which owns the SQL and brings
-[`@smthrs/database`](/api/database) with it:
-
-```bash
-pnpm add @smthrs/plan-store@next @smthrs/database@next @effect/sql-sqlite-node@4.0.0-rc.115
-```
+[`@smthrs/database`](/api/database) with it.
 
 ## Import forms
 

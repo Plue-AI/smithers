@@ -8,16 +8,14 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/age
 
 ## Get the package
 
-```bash
-pnpm add @smthrs/triggers@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The installed manifest resolves to the synchronized RC:
 
 ```json
 {
   "dependencies": {
-    "@smthrs/triggers": "1.0.0-rc.0"
+    "@smthrs/triggers": "1.0.0-rc.1"
   }
 }
 ```

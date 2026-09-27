@@ -6,11 +6,7 @@ order: 10
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/flow/docs/reference/flow.md"
 ---
 
-Install the package with its exact `effect` peer:
-
-```bash
-pnpm add @smthrs/flow@next effect@4.0.0-rc.115
-```
+Install the package with its exact `effect` peer. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Entry points
 

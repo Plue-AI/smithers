@@ -7,15 +7,7 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add -D @smthrs/testing@next effect@4.0.0-rc.115
-```
-
-The Smithers 1.0 release candidates publish under the `next` dist tag, so the
-tag is required: the unqualified name still resolves to the 0.x line, whose API
-these pages do not describe. The first candidate is not on npm yet; until it
-is, build the package from a clone of
-[the repository](https://github.com/smithersai/smithers).
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 [`effect`](https://effect.website) is a required peer dependency at exactly
 `4.0.0-rc.115`. Two copies of `effect` in one program are two sets of service

@@ -16,8 +16,8 @@ a Cloudflare Worker that runs the chat flow at `POST /api/turn`.
 ## Prerequisites
 
 - Node.js 26.4.0 or later, and pnpm.
-- `@smthrs/build-cli@next` and `@smthrs/targets@next` installed in the project
-  from which you run the scaffold. See [Installation](/installation/).
+- `@smthrs/build-cli` and `@smthrs/targets` in the project from which you run
+  the scaffold. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Scaffold the app
 

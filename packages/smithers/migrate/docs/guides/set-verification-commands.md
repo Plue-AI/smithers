@@ -27,7 +27,7 @@ unit does not own.
 ## Override any of them
 
 ```bash
-npx @smthrs/migrate@next --apply --seat anthropic:<model> \
+smithers-migrate --apply --seat anthropic:<model> \
   --verify-install "pnpm install --frozen-lockfile" \
   --verify-format "make fmt-check" \
   --verify-typecheck "make typecheck" \
@@ -37,13 +37,13 @@ npx @smthrs/migrate@next --apply --seat anthropic:<model> \
 `--verify-typecheck` is repeatable, once per command you want run:
 
 ```bash
-npx @smthrs/migrate@next --verify-typecheck "tsc -p tsconfig.build.json" --verify-typecheck "tsc -p tsconfig.app.json"
+smithers-migrate --verify-typecheck "tsc -p tsconfig.build.json" --verify-typecheck "tsc -p tsconfig.app.json"
 ```
 
 One empty value runs no typecheck at all:
 
 ```bash
-npx @smthrs/migrate@next --verify-typecheck ""
+smithers-migrate --verify-typecheck ""
 ```
 
 These flags matter more than convenience. A project whose typecheck lives in a

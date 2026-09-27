@@ -15,13 +15,7 @@ writes to a journal, so a follower cannot corrupt what it reads.
 commands to a branch's journal run after verifying a write-scoped
 `BranchShare` capability.
 
-The 1.0 release candidate is not on npm yet, and publishes under the `next` tag
-rather than `latest`. The examples here import `@smthrs/journal` and `effect`
-directly, so install all three:
-
-```bash
-pnpm add @smthrs/sync@next @smthrs/journal@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## What it solves
 

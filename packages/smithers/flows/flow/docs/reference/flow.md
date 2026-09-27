@@ -5,11 +5,7 @@ area: api
 order: 10
 ---
 
-Install the package with its exact `effect` peer:
-
-```bash
-pnpm add @smthrs/flow@next effect@4.0.0-rc.115
-```
+Install the package with its exact `effect` peer. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Entry points
 

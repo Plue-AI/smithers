@@ -10,7 +10,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/cre
 root. Everything else is named by where it sits: pages, panes, flows, and the
 three layer files a flow inherits.
 
-Install `@smthrs/build-cli@next` and `@smthrs/targets@next`, then scaffold with
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries). Scaffold with
 `pnpm exec smithers-build create-app my-app`. The copied manifest pins the same
 RC release line. See [Installation](/installation/).
 

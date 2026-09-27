@@ -7,9 +7,7 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/notifications@next @smthrs/journal@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. It is built on
@@ -34,10 +32,6 @@ export const queue = NotificationQueue.layer
 
 For a real deployment, the journal is the SQLite one, over a database and a
 migration run:
-
-```bash
-pnpm add @smthrs/database@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
 
 ```ts
 import * as DurableWriter from "@smthrs/database/DurableWriter"

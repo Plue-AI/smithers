@@ -13,11 +13,7 @@ fails loudly on a value with no canonical form.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- The package and its `effect` peer dependency:
-
-```bash
-pnpm add @smthrs/canonical@next effect@4.0.0-rc.115
-```
+- The package and its `effect` peer dependency. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Canonicalize a value
 

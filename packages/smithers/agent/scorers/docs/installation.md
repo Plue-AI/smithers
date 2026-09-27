@@ -7,9 +7,7 @@ sidebar:
 
 ## Install
 
-```bash
-pnpm add @smthrs/scorers@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 [`@smthrs/evals`](/api/evals) is the worked example of the complete pipeline.
 
@@ -56,11 +54,7 @@ a blocked or unlisted subpath fails with Node's
 
 `SqlScoreStore.layer` needs a SQL client and a durable writer, both from
 [`@smthrs/database`](/api/database). In production that is the Node SQLite
-driver over a file. Add the database package and its optional Node driver:
-
-```bash
-pnpm add @smthrs/database@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+driver over a file. Add the database package and its optional Node driver.
 
 ```ts
 import * as DurableWriter from "@smthrs/database/DurableWriter"

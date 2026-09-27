@@ -33,15 +33,9 @@ declaration.
 
 ## Install
 
-```bash
-pnpm add @smthrs/registry@next effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-Smithers is at `1.0.0-rc.0` and has not reached npm yet. When it does, the
-release candidate publishes under the `next` tag, which is what the command
-above installs.
-
-`effect` is a peer dependency at the pinned version. `@effect/platform-node`
+`effect` is a peer dependency at exactly `4.0.0-rc.115`. `@effect/platform-node`
 supplies the `FileSystem` and `Path` implementations the scan walks with; the
 package itself has no platform bindings. For the import forms and what a
 runnable composition adds, see [Installation](./installation.md).

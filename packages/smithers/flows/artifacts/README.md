@@ -22,9 +22,7 @@ run in Node.js, in Bun, in a browser tab, and inside a sandbox.
 
 ## Install
 
-```bash
-pnpm add @smthrs/artifacts@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 `@effect/platform-node` supplies the Node.js implementations of the services
 the store asks for. The filesystem store needs exclusive writable handles,

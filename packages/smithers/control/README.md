@@ -13,11 +13,9 @@ transport-independent Control service, its runtime and execution ports, local
 and RPC implementations, verified ingress channels, credentials, and the shared
 wire schemas both halves decode.
 
-```sh
-pnpm add @smthrs/control@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-The `next` tag is where the 1.0 release candidates publish. The package
+The package
 requires Node.js 26.4.0 or later and ships as both ESM and CommonJS with
 TypeScript declarations.
 

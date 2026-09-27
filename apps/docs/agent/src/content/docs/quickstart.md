@@ -17,11 +17,7 @@ A runnable version of this walkthrough lives in the Smithers repository, as
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed:
-
-```bash
-pnpm add @smthrs/agent@next @smthrs/engine@next @smthrs/flow@next @smthrs/model@next @smthrs/registry@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+- A package with the dependencies installed. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Declare the step and the flow
 

@@ -23,12 +23,7 @@ flow, and nothing downstream needs to know the difference.
 [GitHub](https://github.com/smithersai/smithers).
 
 It needs Node.js 26.4.0 or later, [`effect`](https://effect.website), and a
-`ChildProcessSpawner`, which `@effect/platform-node` provides on Node. When it
-publishes, the install is one command:
-
-```bash
-pnpm add @smthrs/mcp@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+`ChildProcessSpawner`, which `@effect/platform-node` provides on Node. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Connect a server and read its flows
 

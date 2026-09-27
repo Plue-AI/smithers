@@ -24,14 +24,9 @@ test.
 
 ## Install
 
-Smithers is at `1.0.0-rc.0` and has not reached npm yet. When it does, the
-release candidate publishes under the `next` tag, which is what this installs:
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-```sh
-pnpm add @smthrs/run-store@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
-
-`effect` is a peer dependency at exactly that version. Two copies of `effect` in
+`effect` is a peer dependency at exactly `4.0.0-rc.115`. Two copies of `effect` in
 one program are two sets of service tags, so a store layer built against one
 copy cannot be provided to a program holding the other.
 

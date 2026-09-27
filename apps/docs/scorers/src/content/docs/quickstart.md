@@ -15,11 +15,7 @@ in-memory, so the whole thing runs from one file with no setup.
 
 Node.js 26.4.0 or later, and a project that depends on `@smthrs/scorers` and
 `@smthrs/database`. The in-memory SQLite example also needs the optional Node
-driver. See [Installation](/installation/).
-
-```bash
-pnpm add @smthrs/scorers@next @smthrs/database@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+driver. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Declare the scorer
 

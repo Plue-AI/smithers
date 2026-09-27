@@ -8,9 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/age
 
 ## Install
 
-```bash
-pnpm add @smthrs/scorers@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 [`@smthrs/evals`](https://evals.smithers.sh/reference/api/) is the worked example of the complete pipeline.
 
@@ -57,11 +55,7 @@ a blocked or unlisted subpath fails with Node's
 
 `SqlScoreStore.layer` needs a SQL client and a durable writer, both from
 [`@smthrs/database`](https://database.smithers.sh/reference/api/). In production that is the Node SQLite
-driver over a file. Add the database package and its optional Node driver:
-
-```bash
-pnpm add @smthrs/database@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+driver over a file. Add the database package and its optional Node driver.
 
 ```ts
 import * as DurableWriter from "@smthrs/database/DurableWriter"

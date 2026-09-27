@@ -39,19 +39,12 @@ none of which the flow's author arranges.
 
 ## Install
 
-```sh
-pnpm add @smthrs/flow@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-The Smithers 1.0 release candidates publish under the `next` dist tag. Node.js
-26.4.0 or later. `effect` is a peer at that exact version: two copies of
+Node.js 26.4.0 or later. `effect` is a peer at exactly `4.0.0-rc.115`: two copies of
 `effect` in one program are two sets of service tags.
 
-Running a flow adds an engine and a platform crypto service:
-
-```sh
-pnpm add @smthrs/engine@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Running a flow adds an engine and a platform crypto service.
 
 ## Declare a flow and run it
 

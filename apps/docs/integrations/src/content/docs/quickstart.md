@@ -17,17 +17,7 @@ works.
 
 ## 1. Install
 
-`@smthrs/integrations` is not on the npm registry yet. Until it is, get it
-from source: build the package from the
-[Smithers repository](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/integrations)
-and link it into your project.
-
-Alongside it, this tutorial imports the flow declaration layer, the in-memory
-flow engine, the Node platform layer, and Effect itself:
-
-```bash
-pnpm add @smthrs/flow@next @smthrs/engine@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## 2. Configure the credential
 

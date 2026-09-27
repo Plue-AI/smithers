@@ -16,11 +16,7 @@ change at the end.
 - Node.js 26.4.0 or later, which runs a `.ts` file directly by stripping its
   types.
 - A package whose `package.json` sets `"type": "module"`, with the
-  dependencies installed:
-
-```bash
-pnpm add @smthrs/observability@next effect@4.0.0-rc.115
-```
+  dependencies installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Start a collector stand-in
 

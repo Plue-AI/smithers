@@ -8,17 +8,13 @@ order: 30
 ## Install
 
 Install it with the build CLI; a `PACKAGE.ts` or `WORKSPACE.ts` file then
-imports it directly:
-
-```bash
-pnpm add -D @smthrs/build-cli@next @smthrs/targets@next
-```
+imports it directly. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ```json
 {
   "devDependencies": {
-    "@smthrs/build-cli": "1.0.0-rc.0",
-    "@smthrs/targets": "1.0.0-rc.0"
+    "@smthrs/build-cli": "1.0.0-rc.1",
+    "@smthrs/targets": "1.0.0-rc.1"
   }
 }
 ```

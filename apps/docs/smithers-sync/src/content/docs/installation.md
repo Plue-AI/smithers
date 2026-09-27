@@ -8,12 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-`@smthrs/sync` is at `1.0.0-rc.0` and is not on npm yet. Release candidates
-publish under the `next` tag rather than `latest`, so install it by tag:
-
-```bash
-pnpm add @smthrs/sync@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Requirements
 

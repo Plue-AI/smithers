@@ -7536,11 +7536,7 @@ https://smithers.sh/docs/reference/api/flow/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/flow/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/flow/docs/reference/flow.md)
 
-Install the package with its exact `effect` peer:
-
-```bash
-pnpm add @smthrs/flow@next effect@4.0.0-rc.115
-```
+Install the package with its exact `effect` peer. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Entry points
 
@@ -9178,11 +9174,7 @@ This page is the long form: one entry per export, with the full type and every f
 
 ## Install
 
-Install the engine beside the flow package it runs:
-
-```bash
-pnpm add @smthrs/engine@next @smthrs/flow@next
-```
+Install the engine beside the flow package it runs. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Entry points
 
@@ -10885,17 +10877,13 @@ https://smithers.sh/docs/reference/api/targets/
 ## Install
 
 Install it with the build CLI; a `PACKAGE.ts` or `WORKSPACE.ts` file then
-imports it directly:
-
-```bash
-pnpm add -D @smthrs/build-cli@next @smthrs/targets@next
-```
+imports it directly. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ```json
 {
   "devDependencies": {
-    "@smthrs/build-cli": "1.0.0-rc.0",
-    "@smthrs/targets": "1.0.0-rc.0"
+    "@smthrs/build-cli": "1.0.0-rc.1",
+    "@smthrs/targets": "1.0.0-rc.1"
   }
 }
 ```
@@ -19390,7 +19378,7 @@ https://smithers.sh/docs/reference/api/create-app/
 root. Everything else is named by where it sits: pages, panes, flows, and the
 three layer files a flow inherits.
 
-Install `@smthrs/build-cli@next` and `@smthrs/targets@next`, then scaffold with
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries). Scaffold with
 `pnpm exec smithers-build create-app my-app`. The copied manifest pins the same
 RC release line. See [Installation](https://create-app.smithers.sh/installation/).
 

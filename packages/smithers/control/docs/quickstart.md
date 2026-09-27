@@ -18,11 +18,7 @@ stream that says it again from durable evidence.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependency installed:
-
-```bash
-pnpm add @smthrs/control@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+- A package with the dependency installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Declare the flow the plane may plan
 

@@ -12,7 +12,7 @@ what to do about a run in flight is a decision only you can make.
 ## Find out what you have
 
 ```bash
-npx @smthrs/migrate@next --scan
+smithers-migrate --scan
 ```
 
 The summary prints a verdict, and the report's "Run state and operator
@@ -75,7 +75,7 @@ needed. If you have decided to leave the state where it is and migrate the
 source anyway, say so:
 
 ```bash
-npx @smthrs/migrate@next --apply --seat anthropic:<model> --acknowledge-run-state
+smithers-migrate --apply --seat anthropic:<model> --acknowledge-run-state
 ```
 
 The flag changes what the gate does, not what the tool touches. The migration
@@ -92,5 +92,5 @@ one that cannot be opened, refuses the verb with exit 1 and lists each run with
 its id, status, and workflow name. No flag releases that refusal: finish,
 archive, or discard the runs with the 0.x CLI first.
 
-`npx @smthrs/migrate@next` has no such pre-check. It reaches the run-state gate
+`smithers-migrate` has no such pre-check. It reaches the run-state gate
 instead, which exits 3 and is what `--acknowledge-run-state` answers.

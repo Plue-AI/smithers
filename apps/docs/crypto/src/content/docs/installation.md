@@ -8,16 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/crypto@next
-```
-
-`npm install @smthrs/crypto@next` and `bun add @smthrs/crypto@next` are the
-equivalents.
-
-The current version is `1.0.0-rc.0`. Release candidates carry the `next` tag,
-which is what `@next` selects. Once 1.0 is final,
-`pnpm add @smthrs/crypto` resolves to it.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package ships as both ESM and CommonJS with TypeScript declarations. Its
 only runtime dependency is [`effect`](https://effect.website).

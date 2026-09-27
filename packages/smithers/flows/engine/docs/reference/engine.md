@@ -11,11 +11,7 @@ This page is the long form: one entry per export, with the full type and every f
 
 ## Install
 
-Install the engine beside the flow package it runs:
-
-```bash
-pnpm add @smthrs/engine@next @smthrs/flow@next
-```
+Install the engine beside the flow package it runs. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Entry points
 

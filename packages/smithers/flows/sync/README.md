@@ -20,14 +20,9 @@ commands to a branch's journal run after verifying a write-scoped
 
 ## Install
 
-`@smthrs/sync` is at `1.0.0-rc.0` and is not on npm yet. Release candidates
-publish under the `next` tag rather than `latest`, so install it by tag:
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-```sh
-pnpm add @smthrs/sync@next @smthrs/journal@next effect@4.0.0-rc.115
-```
-
-`effect` is a peer dependency at exactly that version. Two copies of `effect`
+`effect` is a peer dependency at exactly `4.0.0-rc.115`. Two copies of `effect`
 in one program are two sets of service tags, so a client built against one copy
 cannot be provided to a program holding the other.
 

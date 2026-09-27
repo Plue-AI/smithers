@@ -28,9 +28,7 @@ when running a step twice would be worse than running it late.
 
 ## Install
 
-```bash
-pnpm add @smthrs/engine@next @smthrs/flow@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 Node 26.4.0 or later, plus a platform crypto service.
 

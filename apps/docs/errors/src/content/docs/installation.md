@@ -4,21 +4,16 @@ description: "Install @smthrs/errors and import it from the root entry point or 
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/errors/docs/installation.md"
 ---
 
-`@smthrs/errors` publishes with the rest of the release candidate on the
-`next` dist-tag. It is Effect-independent and adds no runtime dependencies.
+`@smthrs/errors` is Effect-independent and adds no runtime dependencies.
 
 ## Add the dependency
 
-A package installs the current RC directly:
-
-```bash
-pnpm add @smthrs/errors@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ```json
 {
   "dependencies": {
-    "@smthrs/errors": "1.0.0-rc.0"
+    "@smthrs/errors": "1.0.0-rc.1"
   }
 }
 ```

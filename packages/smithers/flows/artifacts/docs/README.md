@@ -41,9 +41,7 @@ Host completion and release finalizers can extend cancellation latency.
 
 ## Install
 
-```bash
-pnpm add @smthrs/artifacts@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `@effect/platform-node` supplies the Node.js implementations of the services
 the store asks for. A browser or a test host provides different ones.

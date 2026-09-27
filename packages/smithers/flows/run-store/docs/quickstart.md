@@ -15,11 +15,7 @@ normal run, and read back the row a restart would have found.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- The package installed:
-
-```bash
-pnpm add @smthrs/run-store@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+- The package installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Name the owner
 

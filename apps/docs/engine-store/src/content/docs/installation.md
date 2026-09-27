@@ -8,13 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-`@smthrs/engine-store` is at `1.0.0-rc.0` and is not on npm yet. Release
-candidates publish under the `next` tag rather than `latest`, so install it by
-tag:
-
-```bash
-pnpm add @smthrs/engine-store@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. Its runtime dependencies, including
@@ -50,11 +44,7 @@ The deterministic store bundle for tests lives at
 
 This package composes storage rather than providing it. A composition that
 executes a flow supplies the four stores, a database, an artifact store, a
-workspace root, and a platform:
-
-```bash
-pnpm add @smthrs/journal@next @smthrs/run-store@next @smthrs/step-cache@next @smthrs/database@next @smthrs/artifacts@next @smthrs/kernel@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+workspace root, and a platform.
 
 | Package                                 | What it supplies                                                                                                            |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |

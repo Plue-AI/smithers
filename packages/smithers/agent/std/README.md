@@ -10,11 +10,7 @@ all Smithers packages share one Effect runtime.
 
 The standard flows tool library for filesystem, search, HTTP, shell, language-server, and Jev judgment work. Each callable tool is an ordinary `@smthrs/core` flow declaration with explicit capabilities and effects, plus an injectable handler where execution is host-owned.
 
-```sh
-npm install @smthrs/std@next
-```
-
-The package publishes release candidates to the `next` dist-tag.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Public API
 

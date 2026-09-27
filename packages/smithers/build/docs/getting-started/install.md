@@ -10,9 +10,6 @@ seams; [`@smthrs/targets`](https://github.com/smithersai/smithers/tree/main/pack
 import; and [`@smthrs/build-cli`](https://github.com/smithersai/smithers/tree/main/packages/smithers/build/build-cli), which supplies the
 `smithers-build` binary.
 
-All three publish together on the `next` dist-tag. No source checkout, local
-link, override, or vendored dependency is required.
-
 ## Requirements
 
 - Node.js 26.4.0 or newer, which is what the packages declare in `engines`.
@@ -26,17 +23,13 @@ link, override, or vendored dependency is required.
 ## Add the dependencies
 
 Declare the CLI and the authoring package as devDependencies of your workspace
-root:
-
-```bash
-pnpm add -D @smthrs/build-cli@next @smthrs/targets@next
-```
+root. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ```json
 {
   "devDependencies": {
-    "@smthrs/build-cli": "1.0.0-rc.0",
-    "@smthrs/targets": "1.0.0-rc.0"
+    "@smthrs/build-cli": "1.0.0-rc.1",
+    "@smthrs/targets": "1.0.0-rc.1"
   }
 }
 ```

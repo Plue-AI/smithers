@@ -17,13 +17,7 @@ a `Layer` you compose or an `Effect` you run.
 
 ## Install
 
-`@smthrs/engine-store` is at `1.0.0-rc.0` and is not on npm yet. Release
-candidates publish under the `next` tag rather than `latest`, so install it by
-tag:
-
-```sh
-pnpm add @smthrs/engine-store@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Node.js 26.4.0 or later. The package ships as both ESM and CommonJS with
 TypeScript declarations.

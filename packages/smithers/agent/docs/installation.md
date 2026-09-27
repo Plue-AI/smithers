@@ -7,9 +7,7 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/agent@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and CommonJS
 with TypeScript declarations. Its runtime dependencies, including
@@ -45,11 +43,7 @@ Two subpath forms are not public: `@smthrs/agent/internal/*` and
 The package contains no Node bindings and no platform layer: the QuickJS
 sandbox is the browser single-file build, so the same composition runs in Node
 and in a browser. A composition that executes a flow adds the durable engine
-and the authoring packages, plus a platform crypto service:
-
-```bash
-pnpm add @smthrs/engine@next @smthrs/flow@next @smthrs/model@next @smthrs/registry@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+and the authoring packages, plus a platform crypto service.
 
 - [`@smthrs/engine`](/api/engine) provides the durable engine a run executes
   on. Its `FlowEngine.layerMemory` is the in-memory reference engine used in

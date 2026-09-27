@@ -23,12 +23,7 @@ that decorate host services, and the journal live in
 
 ## Install
 
-```bash
-pnpm add @smthrs/capability@next
-```
-
-The 1.0 line publishes under the npm `next` tag, so the specifier is part of
-the command until 1.0 is final.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Decide one request
 

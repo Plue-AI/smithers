@@ -42,12 +42,7 @@ test.
 
 ## Install
 
-Smithers is at `1.0.0-rc.0` and has not reached npm yet; when it does, the
-release candidate publishes under the `next` tag, which is what this installs:
-
-```bash
-pnpm add @smthrs/run-store@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 Node.js 26.4.0 or later. [Installation](./installation.md) covers the import
 forms and the two services a composition has to supply.

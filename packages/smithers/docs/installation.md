@@ -7,11 +7,7 @@ sidebar:
 
 ## Install the executable
 
-As checked on September 4, 2026, `1.0.0-rc.0` is not published to npm and the CLI has no `next` dist-tag. For now, use the [source-checkout installation](/docs/installation/#use-the-source-checkout-before-publication). The npm commands on this page apply after publication.
-
-```bash
-npm install --global smthrs@1.0.0-rc.0
-```
+Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
 
 `smthrs` is the package to install. Its `smthrs` executable runs this package,
 `@smthrs/cli`, which it installs as a dependency. Inside a workspace,
@@ -23,12 +19,6 @@ The executable declares `@effect/sql-sqlite-node@4.0.0-rc.115` as a required
 peer because its default runtime opens SQLite. Modern npm and pnpm install
 that peer with the CLI, along with its required Effect Node adapter. The
 database library itself keeps SQLite optional for driver-neutral consumers.
-
-Name the version. These pages describe 1.0.0-rc.0, and until that release
-candidate reaches the registry the unqualified package name still resolves to
-the 0.x line, whose commands and output these pages do not describe. A release
-candidate publishes under the `next` dist-tag rather than `latest`, so
-`@next` names the newest one once it is there.
 
 Confirm what you got, and what the registry offers, with the CLI itself:
 
@@ -63,16 +53,8 @@ downgrade to a 0.x `latest`.
 ## Runners
 
 The shebang in `bin/smithers.mjs` pins Node, because the durable engine is
-not supported on Bun. That makes every installation path run on Node:
-
-| Path | Command |
-| --- | --- |
-| Global install | `smthrs <verb>` |
-| One-off through npm | `npx smthrs@next <verb>` |
-| One-off through Bun | `bun x smthrs@next <verb>` |
-
-Bun honours the shebang, so `bun x` starts Node. Running the CLI with
-`bun --bun` overrides the shebang and is not supported.
+not supported on Bun. Running the CLI with `bun --bun` overrides the shebang
+and is not supported.
 
 ## The terminal UI
 
@@ -82,7 +64,7 @@ runs on Node 26.4 or later or on Bun. Under Node, the CLI starts the TUI with
 `SMITHERS_BUN` to a Bun executable to run the TUI on Bun instead.
 
 ```bash
-npx smthrs@next tui              # open the TUI here
+smthrs tui                       # open the TUI here
 smthrs tui ../repo -c            # continue the latest session in ../repo
 smthrs tui -m openai:gpt-6-sol   # choose the chat seat
 smthrs tui -p "Summarize README" # print one answer and exit

@@ -10,9 +10,7 @@ all Smithers packages share one Effect runtime.
 
 Durable notification queue, admission policy, and journal projection for flows. It models human and system notifications, derives queue state from journal events, and drains eligible work at harness boundaries.
 
-```sh
-npm install @smthrs/notifications@next @smthrs/journal@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Node.js 26.4.0 or later. `@smthrs/journal` holds the durable records, and the
 example below imports it directly, so declare it in your own package too.

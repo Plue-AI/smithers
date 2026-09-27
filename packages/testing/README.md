@@ -21,13 +21,7 @@ constructor identity, tags, fields, and existing test imports are preserved.
 
 ## Install
 
-```sh
-npm install --save-dev @smthrs/testing@next effect@4.0.0-rc.115
-```
-
-The 1.0 release candidates publish under the `next` tag, and the first one is
-not on npm yet: until it is, build from a clone of
-[the repository](https://github.com/smithersai/smithers).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 `effect` is a required peer at exactly `4.0.0-rc.115`. `vitest` and
 `@effect/vitest` are optional peers, needed only by the `Vitest` adapter.

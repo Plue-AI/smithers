@@ -8,9 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/artifacts@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. It has exactly two runtime dependencies,
@@ -82,11 +80,7 @@ Two subpath forms are blocked in the export map and are not public API:
 ## What a full composition adds
 
 A host that spills step outputs into this store composes it with the engine
-packages:
-
-```bash
-pnpm add @smthrs/engine-store@next @smthrs/step-cache@next @smthrs/flow@next
-```
+packages.
 
 - [`@smthrs/engine-store`](https://engine-store.smithers.sh/reference/api/) owns `StepBoundary`, which decides
   when a step output is inline and when it is spilled here by digest. It also

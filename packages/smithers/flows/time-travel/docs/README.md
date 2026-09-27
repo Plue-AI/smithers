@@ -27,12 +27,7 @@ stranding an effect that already crossed into the outside world.
 
 ## Install
 
-The `1.0.0-rc.0` release candidate has not reached npm yet; when it does it
-publishes under the `next` tag, which is what this command selects.
-
-```bash
-pnpm add @smthrs/time-travel@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 Node.js 26.4.0 or later. The package ships ESM and CommonJS with TypeScript
 declarations, and its root entry point bundles for the browser with no `node:`

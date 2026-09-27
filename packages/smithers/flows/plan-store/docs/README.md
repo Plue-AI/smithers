@@ -28,19 +28,10 @@ browser and the platform choice stays the caller's.
 
 ## Install
 
-`@smthrs/plan-store` is at `1.0.0-rc.0` and has not reached npm yet. When it
-does, the release candidate publishes under the `next` dist tag:
-
-```bash
-pnpm add @smthrs/plan-store@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 The store writes through a durable writer over a SQL client, and verifying asks
-Effect for its `Crypto` service:
-
-```bash
-pnpm add @smthrs/database@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+Effect for its `Crypto` service.
 
 [Installation](./installation.md) covers the import forms, the blocked
 migration paths, and browser support.

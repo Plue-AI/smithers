@@ -35,11 +35,9 @@ Every pattern here answers both halves, and exports one function for each:
 
 ## Install
 
-```bash
-pnpm add @smthrs/patterns@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-The Smithers 1.0 release candidates publish under the `next` tag. The package
+The package
 needs Node.js 26.4.0 or later. It shares its `effect` peer with the host,
 depends on [`@smthrs/flow`](https://flow.smithers.sh/reference/api/) and [`@smthrs/plan`](https://plan.smithers.sh/reference/api/), and
 imports no Node built-ins.

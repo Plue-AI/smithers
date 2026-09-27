@@ -7,26 +7,7 @@ sidebar:
 
 ## Availability
 
-The `1.0.0-rc.0` release this site documents is not on the npm registry yet.
-The `0.x` versions published under this name are the previous generation of the
-package and have a different API. Until the release candidate publishes, use
-`@smthrs/memory` from a checkout of the
-[Smithers repository](https://github.com/smithersai/smithers), where it resolves
-as a workspace dependency:
-
-```json
-{
-  "dependencies": {
-    "@smthrs/memory": "workspace:*"
-  }
-}
-```
-
-When it publishes, the install is one command:
-
-```bash
-pnpm add @smthrs/memory@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Requirements
 
@@ -51,7 +32,7 @@ A store backed by a database file needs the database package and its selected
 Node adapters:
 
 ```bash
-pnpm add @smthrs/database@1.0.0-rc.0 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
+pnpm add @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
 ```
 
 - `@smthrs/database` supplies the SQLite client and the durable writer. It is

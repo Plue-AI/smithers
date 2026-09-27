@@ -12,12 +12,7 @@ configured.
 
 ## Before you start
 
-Install the packages and a crypto service:
-
-```bash
-pnpm add @smthrs/engine@next @smthrs/flow@next
-pnpm add @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
-```
+Install the packages and a crypto service. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `@effect/platform-node` supplies the runtime `Crypto` service used by every
 action dispatch, so install it in your application's `dependencies`.

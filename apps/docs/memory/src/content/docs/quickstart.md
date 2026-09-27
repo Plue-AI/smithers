@@ -12,12 +12,7 @@ This quickstart writes one fact, recalls it, and then moves the store from an in
 
 - Node.js 26.4.0 or later.
 - `@smthrs/memory`, resolving in your project. [Installation](/installation/)
-  covers where to get it today and its SQLite driver. Install the dependencies
-  used by the in-memory example:
-
-```bash
-pnpm add @smthrs/memory@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+  covers where to get it today and its SQLite driver.
 
 ## 1. Write and recall over an in-memory database
 
@@ -67,11 +62,7 @@ The bank name `global-notes` resolves to the namespace `{ kind: "global", id: "n
 
 ## 2. Make the fact survive a restart
 
-The in-memory layer forgets everything when the process exits. Swap it for a SQLite file by replacing the layer, and nothing else. Declare the database package and its Node adapters before replacing the layer:
-
-```bash
-pnpm add @smthrs/database@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+The in-memory layer forgets everything when the process exits. Swap it for a SQLite file by replacing the layer, and nothing else. Declare the database package and its Node adapters before replacing the layer. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ```ts
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"

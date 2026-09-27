@@ -15,12 +15,11 @@ embeds a scheduler in application code, never hides an untranslatable construct
 behind `any`, and never rewrites or resumes 0.x run state.
 
 ```bash
-npx @smthrs/migrate@next
+smithers-migrate
 ```
 
-The Smithers 1.0 packages are not on npm yet, so that line resolves once they
-publish. [Installation](./installation.md) has the route from a source checkout
-until then.
+Not on npm yet; [Installation](./installation.md) runs it from a source
+checkout.
 
 That command plans. It reads the project, decides what each unit of work would
 be, writes `.smithers-migrate/report.md`, and changes nothing else. You read
@@ -46,8 +45,7 @@ one. Install that package after the migration to use what the migration wrote.
 
 You can also install it first. `@smthrs/cli` carries this same tool as the
 [`smthrs migrate`](/cli/migrate) verb, over the same entry point and the same
-flags. Reach for `npx @smthrs/migrate@next` when the project is still on 0.x and you
-want to install nothing at all, and for `smthrs migrate` when the CLI is
+flags. Reach for `smithers-migrate` when the project is still on 0.x, and for `smthrs migrate` when the CLI is
 already there. [Installation](./installation.md) covers the two differences
 between them.
 

@@ -13,13 +13,7 @@ volume.
 ## Prerequisites
 
 - A bundler that can serve a page, and a browser that supports IndexedDB.
-- The package and the two backends:
-
-```bash
-pnpm add @smthrs/platform-browser@next effect@4.0.0-rc.115 @zenfs/core @zenfs/dom just-bash
-```
-
-[Installation](./installation.md) has the details behind that command.
+- The package and the two backends. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Mount one volume and wire the interpreter
 

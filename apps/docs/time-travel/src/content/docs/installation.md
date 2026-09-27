@@ -8,14 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-`@smthrs/time-travel` is at `1.0.0-rc.0` and has not reached npm yet. When it
-does, the release candidate publishes under the `next` tag, which is what this
-command selects; the plain package name still resolves to the older `0.x` line,
-a different API.
-
-```bash
-pnpm add @smthrs/time-travel@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. Its runtime dependencies install with
@@ -89,11 +82,7 @@ that mints the lineage id a frame is addressed by.
 ## What a runnable composition adds
 
 Time travel reads a journal the engine wrote, so a composition that produces
-history adds the engine and the storage under it:
-
-```bash
-pnpm add @smthrs/engine@next @smthrs/engine-store@next @smthrs/flow@next @smthrs/database@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+history adds the engine and the storage under it.
 
 - [`@smthrs/engine`](https://engine.smithers.sh/reference/api/) is the durable engine a run executes on, and
   the home of `FlowEngine.Lineage`.

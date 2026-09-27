@@ -31,13 +31,9 @@ their own.
 
 ## Install
 
-```bash
-npm install --global smthrs@1.0.0-rc.0
-```
+Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
 
-Node 26.4.0 or later is required. Name the version: these pages describe
-1.0.0-rc.0, and the unqualified package name still resolves to the 0.x line
-until the release candidate reaches the registry. The package installs one
+Node 26.4.0 or later is required. The package installs one
 executable under two names, `smthrs` and its `smithers` alias. For the runner
 matrix and the import forms of the library, see
 [Installation](./installation.md).

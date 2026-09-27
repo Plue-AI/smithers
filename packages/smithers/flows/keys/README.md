@@ -15,16 +15,12 @@ Use it as a cache key, a row id, or an idempotency token.
 
 ## Install
 
-```bash
-pnpm add @smthrs/keys@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 `@effect/platform-node` provides `NodeCrypto` for the example below and is
 optional if you supply your own `Crypto` implementation.
 
-The current version is `1.0.0-rc.0`, and release candidates carry the `next`
-tag, which is what `@next` selects. `effect` is a peer dependency at that exact
-version; [`@smthrs/canonical`](https://canonical.smithers.sh) and
+`effect` is a peer dependency at exactly `4.0.0-rc.115`; [`@smthrs/canonical`](https://canonical.smithers.sh) and
 [`@smthrs/crypto`](https://crypto.smithers.sh) install with the package and are
 the only other runtime dependencies. Node.js 26.4.0 or later; the package
 imports no `node:` built-in, so the same code runs under Bun and in a browser.

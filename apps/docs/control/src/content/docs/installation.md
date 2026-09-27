@@ -8,11 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/con
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/control@next
-```
-
-The `next` tag is where the 1.0 release candidates publish.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. Its runtime dependencies install with
@@ -78,10 +74,6 @@ pnpm add effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
 ```
 
 ### A durable composition
-
-```bash
-pnpm add @smthrs/database@next @smthrs/run-store@next effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
 
 - [`@smthrs/database`](https://database.smithers.sh/reference/api/) supplies the SQL client and the
   `DurableWriter` every control write serializes through.

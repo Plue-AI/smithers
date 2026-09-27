@@ -25,12 +25,7 @@ auditable history as values you can hold, hash, and store.
 
 ## Install
 
-`@smthrs/plan` is at `1.0.0-rc.0` and has not reached npm yet. When it does,
-the release candidate publishes under the `next` dist tag:
-
-```bash
-pnpm add @smthrs/plan@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Compiling asks Effect for its `Crypto` service, which a platform package
 supplies:

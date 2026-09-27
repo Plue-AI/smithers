@@ -106,17 +106,13 @@ rather than its build system, start at [`@smthrs/cli`](/api/cli).
 
 ## How to get it
 
-Install the CLI and its authoring surface from the `next` dist-tag:
-
-```bash
-pnpm add -D @smthrs/build-cli@next @smthrs/targets@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ```json
 {
   "devDependencies": {
-    "@smthrs/build-cli": "1.0.0-rc.0",
-    "@smthrs/targets": "1.0.0-rc.0"
+    "@smthrs/build-cli": "1.0.0-rc.1",
+    "@smthrs/targets": "1.0.0-rc.1"
   }
 }
 ```

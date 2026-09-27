@@ -17,13 +17,9 @@ The public parser is **Incur**, with **Zod** argument and option schemas. **Effe
 
 ## Install
 
-```sh
-npm install --global smthrs@1.0.0-rc.0
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#install-the-cli).
 
 Node 26.4.0 or later is required. The package installs one executable under two names, `smthrs` and its `smithers` alias.
-
-Name the version. This README describes 1.0.0-rc.0, and until that release candidate reaches the registry the unqualified package name still resolves to the 0.x line, whose commands and output it does not describe.
 
 ## The shortest real example
 
@@ -39,7 +35,7 @@ pnpm exec smthrs runs list
 pnpm exec smthrs runs logs <run-id> --follow
 ```
 
-The dependency install applies after publication; before then, use the [source checkout](https://smithers.sh/docs/installation/#use-the-source-checkout-before-publication) and its workspace dependencies. `init` can use a global CLI. Target commands must use the workspace-local CLI so declarations and the loader resolve the same physical Effect and Smithers packages; matching versions in a separate global installation are insufficient.
+The dependency install applies after publication; before then, use the [source checkout](https://smithers.sh/docs/installation/#install-the-cli) and its workspace dependencies. `init` can use a global CLI. Target commands must use the workspace-local CLI so declarations and the loader resolve the same physical Effect and Smithers packages; matching versions in a separate global installation are insufficient.
 
 `init` creates workspace and target declarations plus `flows/hello/flow.mdx`, preserving existing files. `flow plan` compiles without execution; `flow start` plans, approves, and starts the flow. Use `flow execute <payload>` to execute a separately approved plan. Top-level `run <pattern>` executes run-kind targets, while `runs` manages durable flow execution records.
 

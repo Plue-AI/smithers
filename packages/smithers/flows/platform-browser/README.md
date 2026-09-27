@@ -23,12 +23,7 @@ no vendor code this package picked for you.
 
 ## Install
 
-```sh
-npm install @smthrs/platform-browser@next effect@4.0.0-rc.115
-```
-
-Version 1.0.0-rc.0 is not on npm yet. Until it is published, take the package
-from https://github.com/smithersai/smithers.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 `effect` is a peer dependency pinned at exactly `4.0.0-rc.115`. The services
 these adapters implement live in Effect 4, so Effect 3 does not satisfy it, and

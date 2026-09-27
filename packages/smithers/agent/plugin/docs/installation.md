@@ -7,11 +7,9 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/plugin@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-Install `effect` explicitly at that version. The kernel depends on it, but your
+Install `effect` explicitly at `4.0.0-rc.115`. The kernel depends on it, but your
 plugins import `Effect`, `Layer`, and `Option` directly, so `effect` belongs in
 your own dependency list at the release the kernel is built against. A different
 `effect` major gives you two copies of the runtime and two sets of service tags.

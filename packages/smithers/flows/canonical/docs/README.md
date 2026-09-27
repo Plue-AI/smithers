@@ -35,12 +35,9 @@ answer must not depend on how the value was built.
 
 ## Install
 
-```bash
-pnpm add @smthrs/canonical@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-`effect` is a peer dependency at exactly that version, and the package
-publishes on the `next` dist-tag while 1.0 is a release candidate.
+`effect` is a peer dependency at exactly `4.0.0-rc.115`.
 [Installation](./installation.md) covers the rest of the requirements.
 
 ## Derive a content key

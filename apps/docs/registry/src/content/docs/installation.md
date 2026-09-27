@@ -8,13 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/age
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/registry@next effect@4.0.0-rc.115
-```
-
-Smithers is at `1.0.0-rc.0` and has not reached npm yet. When it does, the
-release candidate publishes under the `next` tag, which is what the command
-above installs.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 [`effect`](https://effect.website) is a peer dependency pinned at
 `4.0.0-rc.115`. Declare it yourself at that version: your own code imports
@@ -85,10 +79,6 @@ Those three are runtime dependencies of this package, so they install with it.
 The durable engine does not: add [`@smthrs/flows`](https://flows.smithers.sh/reference/api/), whose
 `NodeRuntime.layerHost` takes a registry layer as an argument and settles a
 registered flow on a SQLite-backed engine.
-
-```bash
-pnpm add @smthrs/flows@next
-```
 
 See [Run a discovered flow](/guides/run-a-discovered-flow/) for the whole
 composition.

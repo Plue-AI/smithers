@@ -20,9 +20,7 @@ The mounts, the bind and credential policy, the projections and their rows, the 
 
 ## Install
 
-```sh
-pnpm add @smthrs/gateway@1.0.0-rc.0
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Node 26.4.0 or later is required. `effect@4.0.0-rc.115` is a required peer.
 The root and protocol subpaths install no native adapter. The optional peer
@@ -35,8 +33,6 @@ pnpm add effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform
 ```
 
 Pin `@effect/platform-node-shared@4.0.0-rc.115` with either adapter: both depend on that shared implementation through a caret, which otherwise resolves to a later release candidate whose own `effect` peer this release does not satisfy.
-
-Name the version. This README describes 1.0.0-rc.0, and until that release candidate reaches the registry the unqualified package name still resolves to the 0.x line, whose exports and wire format it does not describe.
 
 ## Public API
 

@@ -34,13 +34,9 @@ that resolves it.
 
 ## Install
 
-```bash
-pnpm add @smthrs/platform-browser@next effect@4.0.0-rc.115 @zenfs/core @zenfs/dom just-bash
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
-The 1.0 release candidates publish under the `next` dist tag, and the first one
-is not on npm yet, so until it is you build the package from a clone.
-[Installation](./installation.md) covers that, which backend each adapter needs,
+[Installation](./installation.md) covers which backend each adapter needs,
 and the `effect` version the peer dependency pins.
 
 ## Write a file in the tab, then count its lines with a command

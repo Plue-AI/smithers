@@ -29,8 +29,7 @@ runtimes, package managers, toolchains, sandbox mechanisms, and caching. Each
 package exports exactly one `S.Package({ targets })`, selected through
 Bazel-style labels.
 
-Install the current release candidate with
-`pnpm add -D @smthrs/build-cli@next @smthrs/targets@next`.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## Documentation
 

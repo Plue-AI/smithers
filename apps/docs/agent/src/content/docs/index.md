@@ -33,9 +33,7 @@ coordinate concurrent calls, but cannot hard-cap a provider's actual bill.
 
 ## Install
 
-```bash
-pnpm add @smthrs/agent@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later. For the import forms and the
 packages a runnable composition adds, see [Installation](/installation/).

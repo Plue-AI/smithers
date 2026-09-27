@@ -7,13 +7,7 @@ sidebar:
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/journal@next @smthrs/database@next effect@4.0.0-rc.115
-```
-
-Smithers is at `1.0.0-rc.0` and has not reached npm yet. When it does, the
-release candidate publishes under the `next` tag, which is what the command
-above installs.
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. Its only runtime dependencies are

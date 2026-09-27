@@ -11,12 +11,7 @@ over.
 It is an [Effect](https://effect.website) library: every surface below is a
 `Layer` you compose or an `Effect` you run.
 
-The 1.0 release candidate is not on npm yet, and publishes under the `next` tag
-rather than `latest`.
-
-```bash
-pnpm add @smthrs/engine-store@next
-```
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## What it solves
 

@@ -46,10 +46,9 @@ package.
 ## Upgrade a 0.x project
 
 Install the 1.0 command line and plan the migration from the project
-directory:
+directory. Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
 
 ```bash
-npm install --global @smthrs/cli@next
 smthrs migrate
 ```
 
@@ -78,8 +77,9 @@ packages directly:
 
 ```bash
 npm remove smthrs
-npm install @smthrs/flows@next @smthrs/cli@next
 ```
+
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Where the code went
 

@@ -16,11 +16,9 @@ RFC 8785 canonical JSON for TypeScript, as a plain function and as an Effect `Sc
 
 ## Install
 
-```bash
-pnpm add @smthrs/canonical@next effect@4.0.0-rc.115
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
-`effect` is a peer dependency at that exact version, and the package publishes on the `next` dist-tag while 1.0 is a release candidate. Node.js 26.4.0 or later. Ships as ESM and CommonJS with TypeScript declarations.
+`effect` is a peer dependency at exactly `4.0.0-rc.115`. Node.js 26.4.0 or later. Ships as ESM and CommonJS with TypeScript declarations.
 
 ## Use it
 

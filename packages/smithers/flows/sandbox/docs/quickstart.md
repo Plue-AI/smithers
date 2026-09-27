@@ -20,11 +20,7 @@ run anything you do not trust.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed:
-
-```bash
-pnpm add @smthrs/sandbox@next @smthrs/platform-node@next @smthrs/kernel@next effect@4.0.0-rc.115
-```
+- A package with the dependencies installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ## Write the body
 

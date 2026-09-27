@@ -5,8 +5,7 @@ sidebar:
   order: 1
 ---
 
-`@smthrs/build-cli` and `@smthrs/targets` publish together on the `next`
-dist-tag. For the full picture of the three packages, see the
+For the full picture of the three packages, see the
 [smithers build install page](/pkg/smithers-build/getting-started/install).
 
 ## Requirements
@@ -21,17 +20,13 @@ dist-tag. For the full picture of the three packages, see the
 ## Add the dependency
 
 Declare the CLI and the authoring package as devDependencies of the workspace
-root:
-
-```bash
-pnpm add -D @smthrs/build-cli@next @smthrs/targets@next
-```
+root. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 ```json
 {
   "devDependencies": {
-    "@smthrs/build-cli": "1.0.0-rc.0",
-    "@smthrs/targets": "1.0.0-rc.0"
+    "@smthrs/build-cli": "1.0.0-rc.1",
+    "@smthrs/targets": "1.0.0-rc.1"
   }
 }
 ```

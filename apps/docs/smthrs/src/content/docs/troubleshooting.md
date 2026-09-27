@@ -32,8 +32,8 @@ the runtime can never hand back, which is the drift
 [the notice exists to prevent](/notice/).
 
 **Fix.** Read it as the notice. Smithers 1.0 ships as `@smthrs/*` packages:
-install `@smthrs/flows@next` for authoring and the engine and
-`@smthrs/cli@next` for the `smthrs` command, then run `smthrs migrate` in the
+depend on `@smthrs/flows` for authoring and the engine and
+`@smthrs/cli` for the `smthrs` command, then run `smthrs migrate` in the
 project to rewrite the import. The full procedure is the
 [1.0 migration guide](https://smithers.sh/docs/migration/1.0/).
 
@@ -80,9 +80,9 @@ the migration's final unit remove the pragma along with the dependency.
 final. Release candidates publish under `next`.
 
 **Fix.** This is working as intended, and it is why an unattended
-`npm install smthrs` cannot break a 0.x project. To reach 1.0, install the
-packages by name: `@smthrs/flows@next` for the engine and `@smthrs/cli@next`
-for the command.
+`npm install smthrs` cannot break a 0.x project. To reach 1.0, depend on the
+packages by name: `@smthrs/flows` for the engine and `@smthrs/cli` for the
+command. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 ## `smthrs: command not found` after installing this package
 
@@ -92,11 +92,7 @@ for the command.
 shadow the real one on every machine that installs both.
 
 **Fix.** Install the command line, which owns both spellings of the
-executable:
-
-```bash
-npm install --global @smthrs/cli@next
-```
+executable. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#install-the-cli).
 
 ## The build succeeded and the notice never printed
 

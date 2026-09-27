@@ -15,11 +15,7 @@ Nothing here executes a node. A plan is inert: driving one is
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed:
-
-```bash
-pnpm add @smthrs/plan-store@next @smthrs/plan@next @smthrs/database@next @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115 effect@4.0.0-rc.115 @effect/sql-sqlite-node@4.0.0-rc.115
-```
+- A package with the dependencies installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 [`@smthrs/database`](/api/database) supplies the SQLite client and the durable
 writer that `PlanStore` writes through. `@effect/platform-node` supplies

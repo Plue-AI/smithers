@@ -91,9 +91,8 @@ templates ship inside this package, and that CLI resolves them through Node.
 
 ## Install
 
-Install `@smthrs/build-cli@next` and `@smthrs/targets@next`, then run
-`pnpm exec smithers-build create-app my-app`. The copied manifest already pins
-the installable RC package set; no checkout, override, or local link is needed.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries). Then run
+`pnpm exec smithers-build create-app my-app`.
 [Installation](/installation/) covers the requirements and import forms.
 
 ## Where to go next

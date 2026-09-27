@@ -27,10 +27,9 @@ compatibility shim.
 ## Upgrading a 0.x project
 
 Read the [migration guide](https://smithers.sh/migration/1.0), install the 1.0
-command line, and plan the migration from the project directory:
+command line, and plan the migration from the project directory. Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#install-the-cli).
 
 ```sh
-npm install --global smthrs@next
 smthrs migrate
 ```
 
@@ -55,8 +54,9 @@ Depend on the `@smthrs/*` packages directly:
 
 ```sh
 npm remove smthrs
-npm install @smthrs/flows@next @smthrs/cli@next
 ```
+
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 `@smthrs/flows` is the curated aggregate: the authoring primitives, the durable
 engine, and the stores behind one dependency. `@smthrs/cli` owns the `smthrs`
@@ -76,7 +76,7 @@ SyntaxError: The requested module 'smthrs' does not provide an export named 'Wor
 Only an import that reaches evaluation prints the notice: a bare
 `import "smthrs"`, a namespace import, a dynamic `import()`, or a `require`.
 Read the SyntaxError as the notice: Smithers 1.0 ships as `@smthrs/*` packages,
-so install `@smthrs/flows@next` and `@smthrs/cli@next`, then run
+so depend on `@smthrs/flows` and `@smthrs/cli`, then run
 `smthrs migrate` to rewrite the import.
 
 ## `ERR_PACKAGE_PATH_NOT_EXPORTED` instead of the notice

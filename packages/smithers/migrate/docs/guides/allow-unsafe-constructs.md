@@ -11,7 +11,7 @@ refuses `apply` until you say otherwise, and even then refuses to imitate them.
 ## Find out which ones your project uses
 
 ```bash
-npx @smthrs/migrate@next
+smithers-migrate
 ```
 
 The report's "Mapping decisions" section carries one row per distinct
@@ -34,13 +34,13 @@ decision, not failed.
 ## Name what you accept
 
 ```bash
-npx @smthrs/migrate@next --apply --seat anthropic:<model> --allow-unsafe gateway.ts,zodToTable
+smithers-migrate --apply --seat anthropic:<model> --allow-unsafe gateway.ts,zodToTable
 ```
 
 Or accept everything the scan found:
 
 ```bash
-npx @smthrs/migrate@next --apply --seat anthropic:<model> --allow-unsafe all
+smithers-migrate --apply --seat anthropic:<model> --allow-unsafe all
 ```
 
 Prefer the named form. It is a list you wrote after reading the report, and a

@@ -8,14 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/platform-browser@next effect@4.0.0-rc.115
-```
-
-The Smithers 1.0 release candidates publish under the `next` dist tag, so the
-tag is part of the command. The first candidate is not on npm yet; until it is,
-build the package from a clone of
-[the repository](https://github.com/smithersai/smithers).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 `effect` is a peer dependency declared at exactly `4.0.0-rc.115`, so install it
 yourself at that version. The services these adapters implement live in Effect 4

@@ -8,9 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/observability@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations.
@@ -19,11 +17,7 @@ CommonJS with TypeScript declarations.
 
 Effect services are identified by module identity, so a composition that
 resolves two copies of `effect` splits its context and a provided layer stops
-satisfying a requirement. Install the release this package is tested against:
-
-```bash
-pnpm add @smthrs/observability@next effect@4.0.0-rc.115
-```
+satisfying a requirement. Pin `effect` at exactly `4.0.0-rc.115`.
 
 `Otlp` is written entirely against `effect`, including its HTTP client and its
 `effect/unstable/observability/Otlp` exporters. The required peers

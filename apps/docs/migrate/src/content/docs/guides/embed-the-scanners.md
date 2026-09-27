@@ -16,9 +16,7 @@ or opens a database except read only.
 
 ## Install the scanner API
 
-```bash
-pnpm add -D @smthrs/migrate@next
-```
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 Keep optional dependencies enabled: TypeScript 7 supplies the native compiler
 the scanners need through a platform-specific optional package. See

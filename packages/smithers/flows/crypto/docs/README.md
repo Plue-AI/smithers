@@ -52,12 +52,7 @@ choosing.
 
 ## Install
 
-```bash
-pnpm add @smthrs/crypto@next
-```
-
-The current version is `1.0.0-rc.0`, and release candidates carry the `next`
-tag, which is what `@next` selects.
+Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `effect` is the only runtime dependency. `digest` also needs a `Crypto`
 service, which `@effect/platform-node`, `@effect/platform-bun`, and

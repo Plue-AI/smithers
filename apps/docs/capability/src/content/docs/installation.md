@@ -8,13 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 ## Install the package
 
-```bash
-pnpm add @smthrs/capability@next
-```
-
-The 1.0 line publishes under the npm `next` tag, so the specifier is part of
-the command until 1.0 is final. `npm install @smthrs/capability@next` and
-`bun add @smthrs/capability@next` install the same package.
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. It has one runtime dependency,

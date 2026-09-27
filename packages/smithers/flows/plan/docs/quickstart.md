@@ -17,11 +17,7 @@ Nothing here executes a node or writes a row. A plan is inert: persisting one is
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed:
-
-```bash
-pnpm add @smthrs/plan@next @effect/platform-node@4.0.0-rc.115 effect@4.0.0-rc.115
-```
+- A package with the dependencies installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `@effect/platform-node` supplies Effect's `Crypto` service, which is the only
 thing compiling a plan asks for.
