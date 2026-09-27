@@ -229,7 +229,7 @@ test("an approval whose envelope is past the deployment's ceiling never reaches 
   const { envelope: _reviewed, ...unbounded } = APPROVAL
   for (
     const budget of [
-      { tokens: 200_000, milliseconds: 4 * 60 * 60_000 },
+      { tokens: 200_000, milliseconds: 6 * 60 * 60_000 + 1 },
       { tokens: 200_001, milliseconds: 600_000 },
       { tokens: 5_000_000, milliseconds: 86_400_000 }
     ]
@@ -242,11 +242,11 @@ test("an approval whose envelope is past the deployment's ceiling never reaches 
     expect((await body(answer)).code).toBe("request_invalid")
     expect(attempt.calls).toEqual([])
   }
-  /* The ceiling itself is a registration, not a refusal: 200000 tokens and the two hours Plue admits. */
+  /* The ceiling itself is a registration, not a refusal: 200000 tokens and the six hours Plue admits. */
   const ceiling = deployment(() => Response.json({ approved_at: "2026-09-17T06:00:00Z", approved_by: 1 }))
   const recorded = await ceiling.fetchAs(TRIGGER_APPROVAL_PATH, {
     method: "POST",
-    body: JSON.stringify({ ...unbounded, envelope: { ...REVIEWED_ENVELOPE, budget: { tokens: 200_000, milliseconds: 7_200_000 } } })
+    body: JSON.stringify({ ...unbounded, envelope: { ...REVIEWED_ENVELOPE, budget: { tokens: 200_000, milliseconds: 21_600_000 } } })
   })
   expect((await body(recorded)).status).toBe("ok")
   expect(ceiling.calls).toHaveLength(1)
