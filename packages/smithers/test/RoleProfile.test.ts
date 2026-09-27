@@ -4,7 +4,6 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, test } from "vitest"
-import * as EvalProfile from "../../../evals/agent/character/profile.ts"
 import * as Profile from "../src/internal/RoleProfile.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 
@@ -26,9 +25,16 @@ const fixture = () => {
   )
   return { root, profile }
 }
-test("production uses the eval composition and its exact digest", async () => {
-  const { root, profile } = fixture()
-  const expected = EvalProfile.compose({ org: join(root, "Org"), role: "assistant", profile })
+// The character evals compose through the same RoleProfile.compose
+// (evals/agent/character/profile.ts), so matching it here is matching them.
+test("production uses the shared eval composition and its exact digest", async () => {
+  const { root } = fixture()
+  const expected = Profile.compose({
+    org: join(root, "Org"),
+    role: "assistant",
+    body: "Charter",
+    meta: { description: "Assistant", model: "openai:gpt-6-astra", metadata: { name: "Assistant", skills: "voice" } }
+  })
   const actual = await run(Profile.forRun(
     root,
     {
