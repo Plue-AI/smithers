@@ -227,14 +227,14 @@ describe("onboarding — the pure rules", () => {
       bootstrap: undefined,
       flowCount: 0,
       connectors: [{ name: "flows", branch: "main" }],
-      repos: [{ name: "smithers" }],
+      repositories: [{ id: "smithers" }],
     })
     expect(message.text).toContain("Host: unknown")
     expect(message.text).toContain("Repositories: smithers, flows @ main")
   })
 
   test("the opening text names Smithers on its first line and keeps the title as the second", () => {
-    const lines = initMessage({ bootstrap: undefined, flowCount: 0, connectors: [], repos: [] }).text.split("\n")
+    const lines = initMessage({ bootstrap: undefined, flowCount: 0, connectors: [], repositories: [] }).text.split("\n")
     expect(INIT_GREETING).toBe("Smithers here.")
     expect(lines[0]).toBe(`**${INIT_GREETING}**`)
     expect(lines[1]).toBe(`**${INIT_TITLE}**`)
@@ -244,7 +244,7 @@ describe("onboarding — the pure rules", () => {
     const none = identityMessage({
       bootstrap: undefined,
       connectors: [],
-      repos: [],
+      repositories: [],
       activeRepository: null,
       registered: () => false
     })
@@ -265,7 +265,7 @@ describe("onboarding — the pure rules", () => {
         sandbox: null
       },
       connectors: [{ name: "flows", branch: "main" }],
-      repos: [{ name: "smithers" }],
+      repositories: [{ id: "smithers" }],
       activeRepository: null,
       registered: (flow) => SMITHERS_HELPERS.some((helper) => helper.flow === flow)
     })
@@ -279,10 +279,10 @@ describe("onboarding — the pure rules", () => {
       connectors: [],
       registered: () => false
     }
-    const selected = identityMessage({ ...facts, repos: [], activeRepository: "smithersai/smithers" })
+    const selected = identityMessage({ ...facts, repositories: [], activeRepository: "smithersai/smithers" })
     expect(selected.startsWith("I am Smithers, the concierge for smithersai/smithers in an unknown host.")).toBe(true)
     expect(selected).not.toContain("no repository is open yet")
-    const beside = identityMessage({ ...facts, repos: [{ name: "smithersai/smithers" }, { name: "flows" }], activeRepository: "smithersai/smithers" })
+    const beside = identityMessage({ ...facts, repositories: [{ id: "smithersai/smithers" }, { id: "flows" }], activeRepository: "smithersai/smithers" })
     expect(beside).toContain("the concierge for smithersai/smithers, flows in an unknown host.")
   })
 })

@@ -20,7 +20,7 @@ test("current and historical target cards join one star projection without copyi
     id: "local:/repo:://:test", repoKey: "local:/repo", label: "//:test", starredAt: 2
   } }).isPersisted.promise
   expect([...store.collections.cards.values()]).toEqual(before)
-  const project = (value: typeof card) => projectTargetStars(value, [], [...store.collections.starredTargets.values()])
+  const project = (value: typeof card) => projectTargetStars(value, [...store.collections.starredTargets.values()])
   expect(project(card).payload.starred).toEqual(["//:test"])
   for (const row of store.collections.cards.values()) if (row.kind === "targets") expect(project(row).payload.starred).toEqual(["//:test"])
   await store.dispatch({ type: "target.unstarred", actor: "user", repoId: "new-host-id", id: "local:/repo:://:test" }).isPersisted.promise
@@ -30,5 +30,5 @@ test("current and historical target cards join one star projection without copyi
   await store.dispose?.()
   const reopened = await createAppStore({ kind: "localStorage", storage }); stores.push(reopened)
   const restored = reopened.collections.cards.get(card.id) as typeof card
-  expect(projectTargetStars(restored, [], [...reopened.collections.starredTargets.values()]).payload.starred).toEqual([])
+  expect(projectTargetStars(restored, [...reopened.collections.starredTargets.values()]).payload.starred).toEqual([])
 })

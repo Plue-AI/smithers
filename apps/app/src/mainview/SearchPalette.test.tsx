@@ -91,8 +91,7 @@ const mount = async (services: AppServices = {}): Promise<View> => {
       createdAt: 1,
       ordinal: 1,
       payload: {
-        repo: "smithers",
-        localRepoId: "r1",
+        repo: "will/smithers",
         path: "src",
         entries: [{ name: "Composer.tsx", kind: "file" }, { name: "Compose.css", kind: "file" }]
       }
@@ -288,9 +287,9 @@ describe("§3 the keyboard contract", () => {
     await press(view, "k", { meta: true })
     await view.act(() => view.controller.changeDraft("Compose"))
     await press(view, "ArrowDown")
-    expect(highlighted(view.host)?.dataset["ref"]).toBe("local:r1/src/Composer.tsx")
+    expect(highlighted(view.host)?.dataset["ref"]).toBe("/will/smithers/src/Composer.tsx")
     await press(view, "Enter")
-    expect(invoked(view.store)).toContainEqual({ name: "files.read", args: "src/Composer.tsx r1" })
+    expect(invoked(view.store)).toContainEqual({ name: "files.read", args: "src/Composer.tsx will/smithers" })
 
     await press(view, "k", { meta: true })
     await view.act(() => view.controller.changeDraft("Compose"))
@@ -304,8 +303,8 @@ describe("§3 the keyboard contract", () => {
     const view = await mount()
     await press(view, "k", { meta: true })
     await view.act(() => view.controller.changeDraft("Compose"))
-    await view.act(() => view.host.querySelector('[data-ref="local:r1/src/Composer.tsx"]')?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true })))
-    expect(highlighted(view.host)?.dataset["ref"]).toBe("local:r1/src/Composer.tsx")
+    await view.act(() => view.host.querySelector('[data-ref="/will/smithers/src/Composer.tsx"]')?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true })))
+    expect(highlighted(view.host)?.dataset["ref"]).toBe("/will/smithers/src/Composer.tsx")
     await press(view, "Enter")
     expect(invoked(view.store)).toContainEqual({ name: "chat.send", args: "Compose" })
     expect(invoked(view.store).some(row => row.name === "files.read")).toBe(false)
@@ -397,7 +396,7 @@ describe("§3 the keyboard contract", () => {
     expect(view.store.session().paletteOpen).toBe(true)
     expect(palette(view.host)?.dataset["mode"]).toBe("all")
     // Files (both prefix matches, in listing order), then the flows: the one named compose, the ones whose summaries say it, then the run (contains).
-    expect(rows(view.host)).toEqual(["", "local:r1/src/Composer.tsx", "local:r1/src/Compose.css", "model.compose", "chat.send", "model.ask", "model.recall", runSearchRef("run-compose", "runs-1")])
+    expect(rows(view.host)).toEqual(["", "/will/smithers/src/Composer.tsx", "/will/smithers/src/Compose.css", "model.compose", "chat.send", "model.ask", "model.recall", runSearchRef("run-compose", "runs-1")])
     await press(view, "Escape")
     expect(view.store.session().paletteOpen).toBe(false)
     expect(palette(view.host)).toBeNull()
@@ -415,14 +414,14 @@ describe("§3 the keyboard contract", () => {
     await press(view, "ArrowDown")
     expect(highlighted(view.host)?.hasAttribute("data-ask")).toBe(true)
     await press(view, "ArrowDown")
-    expect(highlighted(view.host)?.dataset["ref"]).toBe("local:r1/src/Composer.tsx")
+    expect(highlighted(view.host)?.dataset["ref"]).toBe("/will/smithers/src/Composer.tsx")
     await press(view, "ArrowDown")
-    expect(highlighted(view.host)?.dataset["ref"]).toBe("local:r1/src/Compose.css")
+    expect(highlighted(view.host)?.dataset["ref"]).toBe("/will/smithers/src/Compose.css")
     for (const shiftKey of [false, true]) {
       const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true })
       await view.act(() => { textarea(view.host)!.dispatchEvent(event) })
       expect(event.defaultPrevented).toBe(false)
-      expect(highlighted(view.host)?.dataset["ref"]).toBe("local:r1/src/Compose.css")
+      expect(highlighted(view.host)?.dataset["ref"]).toBe("/will/smithers/src/Compose.css")
     }
   })
 
@@ -477,15 +476,15 @@ describe("§3 the keyboard contract", () => {
     await view.act(() => view.controller.changeDraft("Composer.tsx"))
     await press(view, "k", { meta: true })
     expect(palette(view.host)?.dataset["mode"]).toBe("path")
-    expect(rows(view.host)).toEqual(["local:r1/src/Composer.tsx"])
+    expect(rows(view.host)).toEqual(["/will/smithers/src/Composer.tsx"])
     // An unprefixed file suggestion must be deliberately selected before Enter opens it.
     await press(view, "ArrowDown")
     await press(view, "Enter")
-    expect(invoked(view.store)).toContainEqual({ name: "files.read", args: "src/Composer.tsx r1" })
+    expect(invoked(view.store)).toContainEqual({ name: "files.read", args: "src/Composer.tsx will/smithers" })
     expect(view.store.session().draft).toBe("")
     expect(view.store.session().paletteOpen).toBe(false)
     expect(view.store.session().paletteLastQuery).toBe("Composer.tsx")
-    expect(view.store.session().paletteRecents?.[0]).toMatchObject({ kind: "file", ref: "local:r1/src/Composer.tsx", count: 1 })
+    expect(view.store.session().paletteRecents?.[0]).toMatchObject({ kind: "file", ref: "/will/smithers/src/Composer.tsx", count: 1 })
     // Cmd+Shift+K reopens the last query.
     await press(view, "k", { meta: true, shift: true })
     expect(view.store.session().draft).toBe("Composer.tsx")

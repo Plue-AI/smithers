@@ -10,7 +10,6 @@
  * contents route that serves `.smithers/factory.json`; nothing here names a
  * flow the app declares itself.
  */
-import type { Repo } from "@smthrs/rpc/LocalApp"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, setDefaultTimeout, test } from "bun:test"
 
@@ -314,46 +313,5 @@ describe("the repository's flows are slash leaves", () => {
     expect(repositoryLeaves(controller)).toEqual(["review", "lint", "release-notes"])
   })
 
-  test("on the local host a checkout opened after boot is the target: its remote names the repository, the projection is read, and /review is its leaf, signed out", async () => {
-    /*
-     * The native app never dispatches repositories.loaded or repo.selected
-     * to make a checkout the target: a checkout arrives as repos.loaded,
-     * after the controller subscribed. Review finding on 9ab275caf5: a
-     * hand-kept transition list missed it, so the local host never had leaves.
-     */
-    const checkout = "smithersai/smithers"
-    const seen: Array<Seen> = []
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const controller = createAppController(
-      store,
-      unavailableAgent,
-      backend({ [projectionPath(checkout)]: projectionDocument(CATALOG) }, seen)
-    )
-    await identity(store, "signed-out")
-    expect(repositoryLeaves(controller)).toEqual([])
-    const repo: Repo = {
-      id: "repo-smithers",
-      path: "/Users/will/smithers",
-      name: "smithersai/smithers",
-      git: { branch: "main", remote: "git@github.com:smithersai/smithers.git" },
-      warnings: [],
-      smithers: {
-        detected: true,
-        workspaceFile: "WORKSPACE.ts",
-        declarationFiles: [],
-        reason: "1 workspace detected",
-        workspaces: [{ path: ".", title: "smithersai/smithers" }]
-      }
-    }
-    store.dispatch({ type: "repos.loaded", actor: "system", repos: [repo] })
-    await settled(6)
-    expect(seen.map((call) => call.path)).toContain(projectionPath(checkout))
-    expect(repositoryLeaves(controller)).toEqual(["review", "lint", "release-notes"])
-    expect(controller.commands.find("review")?.metadata.summary).toBe("Review the change.")
-    expect(parseSubmit("/review", controller.commands.all())).toEqual({ kind: "command", name: "review" })
-    // A second repos.loaded with the same checkout (the boot list refreshes) reads nothing again.
-    store.dispatch({ type: "repos.loaded", actor: "system", repos: [repo] })
-    await settled(6)
-    expect(seen.filter((call) => call.path === projectionPath(checkout))).toHaveLength(1)
-  })
+
 })

@@ -17,8 +17,7 @@ WorkspaceServiceSchema
 } from "@smthrs/rpc/Cards"
 import type { ConfiguredModel,ModelRecordId,ModelTestRecord,SeatId } from "@smthrs/rpc/ConfiguredModel"
 import { ConfiguredModelSchema,ModelTestRecordSchema,SeatAssignmentSchema } from "@smthrs/rpc/ConfiguredModel"
-import type { Repo } from "@smthrs/rpc/LocalApp"
-import { RepoFileEntrySchema,RepoSchema } from "@smthrs/rpc/LocalApp"
+import { RepoFileEntrySchema } from "@smthrs/rpc/LocalApp"
 import type { LocalRepositoryInspection,RepositoryAccess } from "@smthrs/rpc/NativeRepository"
 import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
@@ -45,14 +44,14 @@ export {
 AgentRoleSchema,CardPatchSchema,
 CardPlanItemSchema,
 CardSchema,
-EnvironmentImageRowSchema,RepoSchema,SandboxEgressRowSchema,
+EnvironmentImageRowSchema,SandboxEgressRowSchema,
 WorkspaceDesktopSchema,
 WorkspaceEnvironmentSchema,
 WorkspaceFileEntrySchema,
 WorkspaceHeadSchema,
 WorkspaceServiceSchema
 }
-export type { AgentRole,Repo }
+export type { AgentRole }
 
 /*
  * Models as data. An `app-models` row is a configured model plus the last test
@@ -491,18 +490,6 @@ export type GitHubAppStatusInput = Pick<
 
 /** The working-copy id of a public repository's shared read-only copy: one per repository, keyed on `org/repo`. */
 export const sharedCopyIdOf = (repoId: string): string => `shared:${repoId}`
-
-/**
- * The `org/repo` a remote URL names (`git@host:org/repo.git`,
- * `https://host/org/repo`), or null when the remote names nothing parseable.
- * A checkout whose remote does not parse keeps its own name — never an
- * invented owner.
- */
-export const repoIdFromRemote = (remote: string | null | undefined): string | null => {
-  if (remote === null || remote === undefined) return null
-  const match = /[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/.exec(remote.trim())
-  return match === null ? null : `${match[1]}/${match[2]}`
-}
 
 /**
  * The repo.select grammar (lane piper step 3): `org/repo` selects the
@@ -977,23 +964,6 @@ export type Session = z.infer<typeof SessionSchema>
 
 /** The heading's default until the user names the workspace. */
 export const DEFAULT_WORKSPACE_NAME = "Workspace"
-
-/**
- * The active open repository: the one the session names when it is open,
- * else the first open one by name. One rule for the sidebar, the composer's
- * selector, and the tabs controller, so a terminal never starts somewhere
- * the header does not show.
- */
-export const activeRepoOf = (
-  session: Pick<Session, "activeRepoKey">,
-  repos: Iterable<Repo>
-): Repo | undefined => {
-  const open = [...repos].sort((left, right) => left.name.localeCompare(right.name))
-  const named = session.activeRepoKey === undefined || session.activeRepoKey === null
-    ? undefined
-    : open.find((repo) => repoKeyOf(repo.path) === session.activeRepoKey)
-  return named ?? open[0]
-}
 
 /*
  * The tabs (docs/LOCAL-APP.md "Cards", "Open in tab"): main, and a card
@@ -1670,11 +1640,10 @@ export type AppTransition =
   | { type: "model.tested"; actor: "system"; test: ModelTestRecord }
   /* A null record returns the seat to the host's default. */
   | { type: "seat.assigned"; actor: Actor; seat: SeatId; recordId: ModelRecordId | null }
-  | { type: "repos.loaded"; actor: "system"; repos: ReadonlyArray<Repo> }
   /*
    * Lane piper: the cloud repository inventory (RepositoriesSeam) replaces
    * the repositories collection; the cloud workspace list replaces the
-   * workspace working copies (local copies sync from pins/repos.loaded); the
+   * workspace working copies; the
    * cloud session record answers { state, username, expiresAt, scopes } —
    * never the token.
    */

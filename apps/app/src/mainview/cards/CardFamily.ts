@@ -39,7 +39,7 @@ export type CardOf<K extends Card["kind"]> = Extract<Card, { kind: K }>
 
 /** The exact collection subscriptions used by card decoration joins. */
 export interface CardProjectionAuthority {
-  readonly collections: Pick<AppStore["collections"], "repos" | "starredTargets" | "repositoryNotifications" | "notificationReceipts" | "runtimeRuns" | "runtimeApprovals" | "models"> & Partial<Pick<AppStore["collections"], "cards" | "sessions" | "billingAccounts" | "identitySessions" | "cloudSessions">>
+  readonly collections: Pick<AppStore["collections"], "starredTargets" | "repositoryNotifications" | "notificationReceipts" | "runtimeRuns" | "runtimeApprovals" | "models"> & Partial<Pick<AppStore["collections"], "cards" | "sessions" | "billingAccounts" | "identitySessions" | "cloudSessions">>
 }
 
 /**

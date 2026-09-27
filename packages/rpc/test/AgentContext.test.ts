@@ -261,10 +261,10 @@ const metadataCases: Array<[string, (value: string) => AgentRuntimeContext]> = [
         }]
       })]
   ),
-  ...(["id", "name", "path", "branch"] as const).map(
+  ...(["id", "name"] as const).map(
     (key): [string, (value: string) => AgentRuntimeContext] => [`repository.${key}`, (value) =>
       contextFixture({
-        repositories: [{ id: "repo", name: "repo", path: "/repo", branch: null, smithers: false, [key]: value }]
+        repositories: [{ id: "repo", name: "repo", [key]: value }]
       })]
   ),
   ...(["path", "title"] as const).map(
@@ -334,18 +334,18 @@ describe("runtime context line isolation", () => {
 })
 
 describe("runtime context branch contracts", () => {
-  test("lists local repositories with optional branch and workspace detection", () => {
+  test("lists backend repository identities", () => {
     const lines = renderAgentRuntimeContext(contextFixture({
       repositories: [
-        { id: "one", name: "smithers", path: "/work/smithers", branch: "main", smithers: true },
-        { id: "two", name: "other", path: "/work/other", branch: null, smithers: false }
+        { id: "one", name: "smithers" },
+        { id: "two", name: "other" }
       ]
     })).split("\n")
     expect(lines).toContain(
-      "- Open repositories (local checkouts in this app; files.list / files.read act on them, a bare call on the active one):"
+      "- Repositories:"
     )
-    expect(lines).toContain("  - \"smithers\" (id one) at /work/smithers, branch main, Smithers workspace detected")
-    expect(lines).toContain("  - \"other\" (id two) at /work/other")
+    expect(lines).toContain("  - \"smithers\" (id one)")
+    expect(lines).toContain("  - \"other\" (id two)")
     for (const repositories of [undefined, []]) {
       expect(renderAgentRuntimeContext(contextFixture({ repositories }))).not.toContain("Open repositories")
     }

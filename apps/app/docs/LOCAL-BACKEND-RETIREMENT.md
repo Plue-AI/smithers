@@ -149,9 +149,20 @@ The tabs the local PTY fed went last. Tabs are card tabs now (`tab.card`,
 
 Left in place: `HARNESS_IDS` and `HarnessSchema` (`@smthrs/harness-detect` and
 `AgentRoles.ts` read them), the local `agent` card variant (conversations saved
-before the cut still decode; the card renders as it did), and the local
-repository inventory (`repos.loaded`, `collections.repos`) — a separate
-retirement.
+before the cut still decode; the card renders as it did).
+
+## The fourth pass: repository inventory (smithersai/smithers#2239)
+
+The app now reads the backend repository inventory and workspace copies only.
+The local inventory collection and event, local file transport, local form
+options, admission bypass and prompt fallback are deleted. Saved local file
+cards remain readable snapshots and offer no search action for the retired route.
+
+Projector version 24 and schema version 17 seed a fresh event stream from
+validated rows. Local inventory rows do not enter it; derived local copies,
+pins and local selections are cleared. Backend repository selections and card
+tabs survive. The migration and reopen tests are in
+`src/mainview/state/LocalReposRetirement.test.ts`.
 
 ## Follow-ups this cut did not take either
 

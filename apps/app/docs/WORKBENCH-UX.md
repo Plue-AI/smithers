@@ -28,8 +28,8 @@ become cards:
   with a terminal, a desktop, files, services, and previews.
 - `change` — a jj change (or stack) with its description, diff, findings,
   checks, owners, reviews, and landing state.
-- The rule: a bare repo-scoped command means the active repository, local
-  checkout or cloud repository alike (`resolveOpenRepo` today, generalized).
+- The rule: a bare repo-scoped command means the selected repository
+  (`RepoContext`).
 
 Falsifiable claim: once `workspace` and `change` exist as embedded cards with
 maximize, every other row in the table is an additional card or a facet of one
@@ -385,7 +385,7 @@ graph. A source dependency graph waits for the index.
 ripgrep over exec with a bounded result contract, and the line anchor on the
 file card. An index (Kythe or an LSP-backed service) is a separate program.
 
-**Tracer bullet C.** `/code.search resolveOpenRepo` over the workspace returns
+**Tracer bullet C.** `/code.search resolveTargetRepo` over the workspace returns
 grouped results; clicking one opens the file card at the line.
 
 ### 3.7 CI (TAP + Forge)
@@ -460,17 +460,15 @@ automation (workspaces spec §5.5).
 
 ### 3.11 Source of truth (Piper) and working copy
 
-**Job.** One place code lives; the local checkout is a working copy of it.
+**Job.** One place code lives; boxes hold working copies.
 
 **Shipped (lane piper, ADR 0001; sidebar removed 2026-09-17).** The composer's
 repository menu is the tree `org/ → repo → working copies`, fed by the cloud
 inventory (`GET /api/cloud/api/user/repos` + `/user/orgs` + per-repo
 `/bookmarks` for the default bookmark's head, through the `/api/cloud/*`
-proxy) and the local `repos.loaded`. No mirror glyph — the backend has no
+proxy). No mirror glyph — the backend has no
 mirror status yet (plue#445). Selecting a repository names `org/repo`; a copy
-names `org/repo#copyId`. The origin chip reads `~/smithers · 3 ahead of main` for a
-local copy with a jj probe (the branch when no probe ran) and
-`head @ qupxosqw` at a repository's head. `file` and `file-list` card headers
+names `org/repo#copyId`. The origin chip reads the selected box or `head @ qupxosqw` at a repository's head. `file` and `file-list` card headers
 carry the global `address` and `readAt`; a `head moved to <id> · refresh`
 line appears when the inventory's head commit differs from `readAt.commitId`
 — nothing auto-refreshes. `/files.list` and `/files.read` accept the global
@@ -478,7 +476,7 @@ path as one token. The watched-repos collection, the `repos.watch*` flows,
 and the first-run repo chooser are gone: the inventory is the one truth, and
 signing in to Smithers Cloud (`/api/cloud-auth/*`, token in the macOS
 keychain, never in the renderer) is the only door to it. The bare-command
-rule (§0) applies to both local and cloud selections.
+rule (§0) applies to repository and box selections.
 
 ### 3.12 Review of the table
 

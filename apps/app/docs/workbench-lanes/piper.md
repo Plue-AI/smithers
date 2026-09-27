@@ -42,11 +42,8 @@ every act a flow). Tokens: `apps/app/src/mainview/styles/tokens.css`.
    {repo}/bookmarks` per repo for the default bookmark's
    `{ target_change_id, target_commit_id }`. Shape the row so plue#445's
    `owner_type` and `default_bookmark_head` replace the per-repo call when
-   they land
-   plus the existing local `repos.loaded`. `activeRepoOf` / `resolveOpenRepo`
-   become: active working copy, else the repo's head. Keep old collections
-   until every reader moves, then delete them and the `repos.watch*` flows
-   (update `registry.test.ts`, parity, slash tests).
+   they land. `RepoContext` resolves the active repository or box. The local
+   inventory and its resolution helpers retired in #2239.
 3. **Sidebar.** Replace the flat REPOS list with the tree in the ADR, minus
    the mirror glyph (see ADR "Settled with the backend").
    Selecting a repo row sets context; selecting a copy row sets the active

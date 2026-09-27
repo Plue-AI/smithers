@@ -16,7 +16,6 @@ import { describe, expect, test } from "bun:test"
 import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
-import type { Repo } from "@smthrs/rpc/LocalApp"
 
 import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
@@ -102,7 +101,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "chat.clear", confirm: true },
   { name: "tab.card", args: "card-1", confirm: false },
   { name: "tab.close", args: "t1", confirm: false },
-  { name: "repo.tree", args: "local:/Users/will/smithers", confirm: false },
+  { name: "repo.tree", args: "shared:will/smithers", confirm: false },
   { name: "workspace.rename", args: "Force", confirm: false },
   { name: "change.pins", args: "c1 parent current", confirm: false },
   { name: "change.checks", args: "c1 1", confirm: false },
@@ -167,15 +166,6 @@ const WEB: AppBootstrap = {
   sandbox: null
 }
 
-const repo = (id: string, name: string, path: string): Repo => ({
-  id,
-  path,
-  name,
-  git: { branch: "main", remote: null },
-  smithers: { detected: false, workspaceFile: null, declarationFiles: [], reason: "no WORKSPACE.ts", workspaces: [] },
-  warnings: []
-})
-
 const settle = async (ticks = 6): Promise<void> => {
   for (let index = 0; index < ticks; index += 1) await new Promise((resolve) => setTimeout(resolve, 1))
 }
@@ -186,8 +176,7 @@ const json = (status: number, body: unknown): Response =>
 /**
  * The whole app under EVERYTHING as an admin (so the admin plugin registers),
  * signed in to GitHub (so the requirement axis never intercepts), with two
- * local repositories, a card tab and a card. The server is a recorder: every
- * folder pick is counted.
+ * repositories, a card tab and a card.
  */
 const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -199,7 +188,7 @@ const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
     fetchImpl: async (input) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       const path = new URL(url, "http://local.test").pathname
-      if (path === "/api/repo/files") return json(200, { kind: "dir", path: "", entries: [] })
+      if (path === "/api/repos/will/smithers/contents") return json(200, [])
       return json(404, { status: "error", message: `no stub for ${path}` })
     }
   })
@@ -212,11 +201,11 @@ const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
     admin: true,
     scopesPlain: null
   })
-  store.dispatch({
-    type: "repos.loaded",
-    actor: "system",
-    repos: [repo("r1", "smithers", "/Users/will/smithers"), repo("r2", "force", "/Users/will/force")]
-  })
+  store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
+    { id: "will/smithers", org: "will", name: "smithers", ownerKind: "user", head: null, catalog: true },
+    { id: "will/force", org: "will", name: "force", ownerKind: "user", head: null }
+  ] })
+  store.dispatch({ type: "repo.selected", actor: "user", id: "will/smithers" })
   store.dispatch({
     type: "tab.opened",
     actor: "user",

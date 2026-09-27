@@ -423,11 +423,10 @@ test("a known global repository does not bind to an unrelated pending URL", asyn
   } finally { await h.close() }
 })
 
-test("an unrelated local checkout cannot satisfy an explicit private cloud target", async () => {
+test("an explicit private repository requires its own source", async () => {
   const hits: string[] = []
   const h = await setup(undefined, async input => { hits.push(String(input)); return String(input) === "/api/public/repos" ? json(200, { repos: [] }) : json(404, {}) })
   try {
-    await h.store.dispatch({ type: "repos.loaded", actor: "system", repos: [{ id: "local", name: "local/checkout", path: "/home/local", warnings: [], git: { branch: "main", remote: "git@github.com:local/checkout.git" }, smithers: { detected: false, workspaceFile: null, declarationFiles: [], workspaces: [], reason: "none" } }] }).isPersisted.promise
     await h.controller.commands.run("files.read", "README.md private/secret")
     await until(() => h.store.session().pendingCommand?.requirement === "repo-source")
     expect(hits.filter(path => path.includes("contents/README"))).toEqual([])

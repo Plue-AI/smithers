@@ -52,7 +52,7 @@ describe("formFieldsFor — one control per schema field", () => {
     const hints: FormHints = {
       fields: {
         id: { label: "Agent id", placeholder: "reviewer" },
-        harness: { optionsFrom: "open-repos" },
+        harness: { optionsFrom: "cloud-repos" },
         model: { optionsFrom: "models", kind: "text" },
         purpose: { required: true }
       }
@@ -60,7 +60,7 @@ describe("formFieldsFor — one control per schema field", () => {
     const fields = formFieldsFor(AgentCreate, hints)
     expect(fields).toEqual([
       { name: "id", label: "Agent id", kind: "text", required: true, placeholder: "reviewer" },
-      { name: "harness", label: "Harness", kind: "select", required: true, optionsFrom: "open-repos" },
+      { name: "harness", label: "Harness", kind: "select", required: true, optionsFrom: "cloud-repos" },
       { name: "model", label: "Model", kind: "text", required: true, optionsFrom: "models" },
       { name: "purpose", label: "Purpose", kind: "text", required: true }
     ])

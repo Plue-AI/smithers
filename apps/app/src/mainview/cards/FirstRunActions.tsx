@@ -79,7 +79,6 @@ export function FirstRunActions({ commands }: { commands?: readonly CatalogItem[
   })))
   const { data: identities } = useLiveQuery(collections.identitySessions)
   const { data: connectors } = useLiveQuery(collections.connectors)
-  const { data: repos } = useLiveQuery(collections.repos)
   const { data: cards } = useLiveQuery(collections.cards)
   useLiveQuery(collections.repositories)
   // Repository flow leaves change with this collection.
@@ -93,7 +92,7 @@ export function FirstRunActions({ commands }: { commands?: readonly CatalogItem[
     repo={repo} jobStates={repo === undefined ? undefined : repositoryJobStates(cards, repo, owner)} state={{
     surface: session?.surface ?? "chat", typing: session?.phase === "responding", plugins: session?.plugins,
     signedOut: identity?.state === "signed-out", admin: identity?.admin === true,
-    hasConnectors: identity?.state === "signed-in" || connectors.length > 0, hasOpenRepos: repos.length > 0,
+    hasConnectors: identity?.state === "signed-in" || connectors.length > 0,
     publicRepo: activeCatalogRepositoryId(controller.store) !== null,
   }} onRunCommand={controller.runCommand} onDismiss={() => {
     controller.dismissFirstRun()

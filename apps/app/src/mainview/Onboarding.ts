@@ -1,6 +1,6 @@
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { nativeShell } from "@smthrs/rpc/AppBootstrap"
-import type { LocalRepositoryConnector, Message, Repo } from "./state/AppState"
+import type { LocalRepositoryConnector, Message, CloudRepository } from "./state/AppState"
 
 /*
  * The host opening entry: "Smithers initialized successfully", derived
@@ -23,7 +23,7 @@ export interface InitFacts {
   readonly bootstrap: AppBootstrap | undefined
   readonly flowCount: number
   readonly connectors: ReadonlyArray<Pick<LocalRepositoryConnector, "name" | "branch">>
-  readonly repos: ReadonlyArray<Pick<Repo, "name">>
+  readonly repositories: ReadonlyArray<Pick<CloudRepository, "id">>
 }
 
 /** Structured fields used only by the derived opening-message projection. */
@@ -42,7 +42,7 @@ export const initMessage = (facts: InitFacts): InitMessage => {
     ? "none"
     : bootstrap.capabilities.join(", ")
   const repositories = [
-    ...facts.repos.map((repo) => repo.name),
+    ...facts.repositories.map((repo) => repo.id),
     ...facts.connectors.map((connector) => `${connector.name}${connector.branch === null ? "" : ` @ ${connector.branch}`}`)
   ]
   const detailLines = [
@@ -75,7 +75,7 @@ export const SMITHERS_HELPERS: ReadonlyArray<{ readonly flow: string; readonly l
   { flow: "flow.ask", line: "the Flows agent (/flow.ask) picks which flow to run" }
 ]
 
-export interface IdentityFacts extends Pick<InitFacts, "bootstrap" | "connectors" | "repos"> {
+export interface IdentityFacts extends Pick<InitFacts, "bootstrap" | "connectors" | "repositories"> {
   /**
    * The `owner/name` the selection names (RepoContext.ts activeRepositoryId),
    * the same row the agent runtime context reads: a signed-out visitor at
@@ -99,10 +99,10 @@ export const identityMessage = (facts: IdentityFacts): string => {
   /*
    * The selected repository leads: the visitor at /smithersai/smithers heard
    * "no repository is open yet" while the composer already named that head.
-   * Open checkouts and connectors follow; a name appears once.
+   * Loaded repositories and connectors follow; a name appears once.
    */
   const inReach = [
-    ...facts.repos.map((repo) => repo.name),
+    ...facts.repositories.map((repo) => repo.id),
     ...facts.connectors.map((connector) => connector.name)
   ]
   const repositories = facts.activeRepository === null

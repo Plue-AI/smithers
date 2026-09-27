@@ -311,13 +311,7 @@ export const createTurnController = (
         root: connector.root,
         branch: connector.branch
       })),
-      repositories: [...store.collections.repos.values()].map((repo) => ({
-        id: repo.id,
-        name: repo.name,
-        path: repo.path,
-        branch: repo.git?.branch ?? null,
-        smithers: repo.smithers.detected
-      })),
+      repositories: [...store.collections.repositories.values()].map(repo => ({ id: repo.id, name: repo.id })),
       /*
        * The selection `repo.select` (or the landing page's `?repo=` link)
        * made. Without it the model learned the choice only through
@@ -388,11 +382,6 @@ export const createTurnController = (
           "Open a live cloud desktop inside this browser chat with box.desktop.open [bookmark] [owner/repo] (alias desktop). It creates or reuses a desktop box and embeds its live screen; the user can interact with it and explicitly maximize or restore the card. This feature does not require the native app. Use the existing box state in recent cards; an attached stream is already open, not a reason to offer sign-in. You cannot infer screen contents from the stream's presence.",
         ]),
         "Create, list, and run Smithers flows on the user's loaded repositories (flow.create, flow.list, flow.run). Runs report live as embedded cards in this chat.",
-        ...(store.collections.repos.size > 0
-          ? [
-            "Read the open repositories listed above: files.list <path> [repo] lists a directory and files.read <path> [repo] renders a file as a card in this chat (a bare call means the active repository)."
-          ]
-          : []),
         ...(exploring === null
           ? []
           : [
@@ -444,12 +433,7 @@ export const createTurnController = (
         login: githubConnected ? identity?.login ?? null : null,
         repositories: githubConnected ? store.collections.repositories.size : null
       },
-      localRepositories: [
-        ...new Set([
-          ...[...store.collections.connectors.values()].map((connector) => connector.name),
-          ...[...store.collections.repos.values()].map((repo) => repo.name)
-        ])
-      ],
+      localRepositories: [...new Set([...store.collections.connectors.values()].map(connector => connector.name))],
       localRepositoriesAvailable: false,
       repositorySetups: !signedIn ? [] : [...store.collections.cards.values()]
         .filter(card => inConversation(card, conversationTabIdOf(store.session())) && (recent.has(card.id) || mentioned(card.id)))

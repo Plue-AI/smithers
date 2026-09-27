@@ -289,8 +289,6 @@ export const fetchIssuePayload = async (
   return payload ?? `The backend answered issue #${number} in ${repo} with an unreadable payload`
 }
 
-
-
 export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm, launchConversationTurn?: (text: string, turnId: string, owner: string) => Promise<boolean> | void): IssuesSeam => {
   const signedInOwner = () => {
     const identity = ctx.store.collections.identitySessions.get("identity")
@@ -300,7 +298,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
   const issuesPath = (repo: string): string => issuesRoute(ctx, repo)
   const githubSourceIssuesPath = (repo: string, filter: "open" | "closed" | "all"): string => githubIssuesRoute(ctx, repo, filter)
 
-  const notImported = (repo: string): string => `${repo} isn't imported yet — run /repos.import ${repo} first`
 
   /*
    * The 404 split on a mutation, from the typed refusal — never from the
@@ -317,21 +314,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     const refusal = refusalOf({ body, status: response.status, message: errorMessage(body, fallback) })
     return refusal.code === "not_found" ? whenNotFound ?? fallback : refusal.message
   }
-
-  /*
-   * The one cause local state still names, and only on the namespace-scoped
-   * create: a checkout the sidebar pins that this launch has not opened. Open
-   * is `collections.repos`, the state FilesSeam's `knownRepo` reads; opening a
-   * checkout pins it (AppProjection, `repos.loaded`), so a pin on its own says
-   * nothing. A pin says the checkout is here, never that an issue number
-   * exists, so the number-scoped routes never read an import out of it, and it
-   * answers only the typed `not_found` — any other code still has its own say.
-   */
-  const notImportedPin = (repo: string): string | undefined =>
-    ![...ctx.store.collections.repos.values()].some((open) => open.name === repo)
-      && [...ctx.store.collections.pinnedRepos.values()].some((pin) => pin.name === repo)
-      ? notImported(repo)
-      : undefined
 
   const unreachable = (what: string, error: unknown): string => unreachableSentence(`the backend to ${what}`, error)
 
@@ -1063,7 +1045,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       }
       if (!response.ok) {
         // Mutations never fall back — the GitHub-source proxy is GET-only.
-        if (response.status === 404) return explain404(response, `${repo} was not found`, notImportedPin(repo))
+        if (response.status === 404) return explain404(response, `${repo} was not found`)
         return readErrorMessage(response, `Creating the issue in ${repo} failed (${response.status})`)
       }
       const body: unknown = await response.json().catch(() => null)

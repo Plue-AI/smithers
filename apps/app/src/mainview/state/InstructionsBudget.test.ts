@@ -56,19 +56,6 @@ const capturedTurn = async (prepare: (store: Awaited<ReturnType<typeof createApp
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   // The selected note a person keeps, which the budget spends room on first.
   await addWorldNote(store, true)
-  // A cloud session has no local checkout to list; only a native host does.
-  if ((host.capabilities as readonly string[]).includes("local.repositories")) store.dispatch({
-    type: "repos.loaded",
-    actor: "system",
-    repos: [{
-      id: "r1",
-      path: "/Users/will/smithers",
-      name: "smithersai/smithers",
-      git: { branch: "main", remote: "git@github.com:smithersai/smithers.git" },
-      warnings: [],
-      smithers: { detected: true, workspaceFile: "WORKSPACE.ts", declarationFiles: [], reason: "1 workspace detected", workspaces: [{ path: ".", title: "smithers" }] }
-    }]
-  })
   prepare(store)
   let captured: { instructions?: string; context?: AgentRuntimeContext } | undefined
   const agent: AgentPort = {

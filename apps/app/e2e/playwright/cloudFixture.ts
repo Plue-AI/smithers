@@ -1,6 +1,5 @@
 import type { Page } from "@playwright/test"
 import type { AppBootstrap, RuntimeCapability } from "@smthrs/rpc/AppBootstrap"
-import { ReposResponseSchema, type Repo } from "@smthrs/rpc/LocalApp"
 import { type CloudSession } from "@smthrs/rpc/CloudTunnel"
 import { SCOPED_TEST_USER, SCOPED_TEST_USER_CLOUD_SESSION } from "./identity.ts"
 
@@ -55,7 +54,6 @@ export const boxRunCardId = (fullName: string, runId: string, workspaceId: strin
 
 interface CloudFixtureOptions {
   readonly capabilities?: ReadonlyArray<RuntimeCapability>
-  readonly localRepos?: ReadonlyArray<Repo>
   readonly repos?: ReadonlyArray<CloudRepo>
   readonly orgs?: ReadonlyArray<{ readonly name: string }>
   readonly bookmarks?: Readonly<Record<string, ReadonlyArray<CloudBookmark>>>
@@ -79,7 +77,6 @@ export const installCloudFixture = async (page: Page, options: CloudFixtureOptio
     ...SCOPED_TEST_USER_CLOUD_SESSION,
     ...(options.degraded === true ? { scopes: "degraded" as const } : {})
   } satisfies CloudSession
-  const localRepos = ReposResponseSchema.parse({ repos: options.localRepos ?? [] })
   const repos = options.repos ?? [{
     owner: "smithersai", name: "smithers", full_name: "smithersai/smithers",
     default_bookmark: "main", owner_type: "Organization"
@@ -95,7 +92,6 @@ export const installCloudFixture = async (page: Page, options: CloudFixtureOptio
     status: 404, json: { error: { code: "absent", message: "no seam" } }
   }))
   await respond("/api/bootstrap", bootstrap)
-  await respond("/api/repos", localRepos)
   await respond("/api/user", { id: 1, username: SCOPED_TEST_USER.login, is_admin: false,
     ...(options.degraded === true ? { token_scopes: ["read:repository"] } : {}) })
   await respond("/api/billing/balance", {

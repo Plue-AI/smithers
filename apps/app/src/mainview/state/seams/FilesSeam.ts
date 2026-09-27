@@ -1,9 +1,7 @@
 import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
 /*
  * The repo files seam: GET /api/repos/{owner}/{repo}/contents[/path] lists a
- * directory ("file-list" card) or reads a file ("file" card, capped). A
- * repository open in the LOCAL app is read through its own route instead
- * (localTarget, POST /api/repo/files) and renders the same two cards. The
+ * directory ("file-list" card) or reads a file ("file" card, capped). The
  * agent shares these commands, so reads must stay bounded. Reference: multi
  * src/files/filesClient.ts — buildContentsPath (:61, per-segment encoding via
  * encodeRepoPath :53), the directory answer is a JSON array of {name, path,
@@ -13,16 +11,13 @@ import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
  * decodeContent :117). Parsing is defensive: unknown JSON in, typed card
  * payload out, malformed rows drop; failures are honest strings, never throws.
  */
-import type { Repo,RepoFilesResponse } from "@smthrs/rpc/LocalApp"
-import { REPO_FILES_PATH,RepoFilesResponseSchema } from "@smthrs/rpc/LocalApp"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import type { Card } from "../AppState"
-import { parseRepoSelection,repoIdFromRemote,repoKeyOf } from "../AppState"
 import type { AppStore } from "../AppStore"
-import { resolveOpenRepo,resolveTargetRepo } from "../RepoContext"
+import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
 import { readContentsPages } from "./ContentsPages"
-import { errorMessage,errorText,readErrorMessage,unreachableSentence } from "./SeamContext"
+import { errorMessage,readErrorMessage,unreachableSentence } from "./SeamContext"
 
 /*
  * Both commands answer a `value` beside the card: the card is what the human
@@ -40,8 +35,7 @@ export interface FilesSeam {
    * Without one the answer is the working tree, which moves. With one the
    * answer is bytes that cannot change, the card records which revision it
    * holds, and a reader can bind what it shows to what ran (D-068). Only the
-   * Cloud contents route serves a revision; a local checkout answers its own
-   * working copy and says so rather than passing off the wrong bytes.
+   * contents route serves the requested revision.
    */
   readonly readFile: ViewAction<[path: string, repo?: string, anchor?: FileAnchor, ref?: string]>
 }
@@ -87,27 +81,6 @@ type FileListEntry = FileListPayload["entries"][number]
 /** The card cap (characters): a transcript card states a file, it is not an editor. */
 export const CARD_CONTENT_CAP = 16 * 1024
 
-export const localFileCardId = (repoId: string, path: string): string => `file-${repoId}-${path}`
-
-/**
- * The content fields of a local file card from the route's answer: the card
- * cap applied, binary stated, the digest of the bytes kept so a later answer
- * about the file (the code-intel seam's) can tell whether it is about this
- * text. The code-intel seam re-reads a card through this, in place.
- */
-export const localFileFields = (
-  body: Extract<RepoFilesResponse, { kind: "file" }>
-): { readonly content: string; readonly truncated: boolean; readonly binary?: true; readonly digest?: string } => {
-  const { content, binary } = body
-  const truncated = !binary && (body.truncated || content.length > CARD_CONTENT_CAP)
-  return {
-    content: binary ? "" : content.slice(0, CARD_CONTENT_CAP),
-    truncated,
-    ...(binary ? { binary: true as const } : {}),
-    ...(body.digest === undefined ? {} : { digest: body.digest })
-  }
-}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
 
@@ -118,16 +91,15 @@ const normalizePath = (path: string): string => path.trim().replace(/^\/+/, "").
  * The global address space (lane piper step 6, ADR 0001): every file has a
  * global path `/org/repo/path`. A command's first token in that shape names
  * the repo AND the path in one — but only when the two-segment prefix is a
- * repository this app knows (the inventory, a working copy, or an open local
- * repo), so a local root-relative absolute path (`/src/lib`) keeps its old
+ * repository this app knows (the inventory or a working copy), so a
+ * root-relative absolute path (`/src/lib`) keeps its old
  * meaning instead of becoming a cloud read of a repo that is not one.
  */
 const GLOBAL_PATH = /^\/([\w.-]+\/[\w.-]+)(?:\/(.*))?$/
 
 const knownRepo = (store: AppStore, id: string): boolean =>
   store.collections.repositories.get(id) !== undefined ||
-  [...store.collections.workingCopies.values()].some((copy) => copy.repoId === id) ||
-  [...store.collections.repos.values()].some((repo) => repo.name === id)
+  [...store.collections.workingCopies.values()].some((copy) => copy.repoId === id)
 
 const splitGlobalPath = (
   store: AppStore,
@@ -151,19 +123,6 @@ const cloudAddressing = (
   return {
     address: `/${repo}/${normalized}`,
     ...(head === null ? {} : { readAt: { changeId: head.changeId, commitId: head.commitId, source: "head" as const } })
-  }
-}
-
-/** A local read's addressing: the global path when the checkout maps to a repo, read at the jj probe's position. */
-const localAddressing = (
-  store: AppStore,
-  repo: Repo,
-  normalized: string
-): { readonly address?: string; readonly readAt?: { readonly changeId: string | null; readonly commitId: string | null; readonly source: "working-copy" } } => {
-  const repoId = store.collections.workingCopies.get(repoKeyOf(repo.path))?.repoId ?? repoIdFromRemote(repo.git?.remote)
-  return {
-    ...(repoId !== null && repoId.includes("/") ? { address: `/${repoId}/${normalized}` } : {}),
-    ...(repo.jj === undefined ? {} : { readAt: { changeId: repo.jj.changeId, commitId: repo.jj.commitId, source: "working-copy" as const } })
   }
 }
 
@@ -215,8 +174,7 @@ export const parseEntry = (value: unknown): FileListEntry | null => {
  * Directories first, then names in locale order — the multi sort
  * (filesClient.ts :94). The one order every listing of a directory reads in,
  * card and sidebar alike (RepoTreeSeam.ts sorts its rows with it): the routes
- * do not agree on one. The local route pages by name, and the public mirror
- * answers a git tree's byte order, where `CHANGELOG.md` precedes
+ * can answer a git tree's byte order, where `CHANGELOG.md` precedes
  * `Cargo.lock`.
  */
 export const sortEntries = (entries: ReadonlyArray<FileListEntry>): FileListEntry[] =>
@@ -241,46 +199,13 @@ const decodeBase64 = (value: string): { readonly text: string; readonly binary: 
   }
 }
 
-
-
-/**
- * The open LOCAL repository a files command means, if any (LOCAL-APP.md): an
- * explicit token that matches an open repository's name (`owner/repo` off its
- * remote, or its folder name), its folder name, or its path; with no token,
- * the repository a bare command means (resolveOpenRepo: the active one, as
- * the chrome shows it). A token that matches nothing open, or a bare call
- * with nothing open, is undefined: the Cloud rule applies, so a Cloud read
- * is still one name away.
- */
-const localTarget = (
-  store: AppStore,
-  explicit: string | undefined
-): { readonly repo: Repo } | { readonly error: string } | undefined => {
-  const repos = [...store.collections.repos.values()]
-  if (explicit !== undefined && explicit !== "") {
-    const exact = repos.find((repo) => repo.id === explicit || repo.path === explicit || repoKeyOf(repo.path) === explicit)
-    if (exact !== undefined) return { repo: exact }
-    const named = repos.filter((repo) => repo.name === explicit || repo.path.split("/").pop() === explicit)
-    if (named.length > 1) return { error: `${explicit} has several open working copies — name a repository id or path: ${named.map((repo) => `${repo.id} (${repo.path})`).join(", ")}.` }
-    return named[0] === undefined ? undefined : { repo: named[0] }
-  }
-  if (repos.length === 0) return undefined
-  const selection = parseRepoSelection(store.session().activeRepoKey ?? "")
-  // A head selection remains a cloud read even when another checkout is open.
-  if (selection !== null && "repoId" in selection && selection.copyId === undefined) return undefined
-  const open = resolveOpenRepo(store)
-  return "repo" in open ? { repo: open.repo } : { error: open.error }
-}
-
 /**
  * Where a file command's path resolves, by the rules the files flows apply:
  * a global `/org/repo/path` first token names both, an unsafe path is
- * refused, an open LOCAL repository wins over a Cloud read, and the Cloud
- * target follows the one repo-resolution rule. Shared with the code-intel
+ * refused, and the target follows the one repo-resolution rule. Shared with the code-intel
  * seam (CodeIntelSeam.ts), whose acts address the same files.
  */
 export type FileTarget =
-  | { readonly kind: "local"; readonly repo: Repo; readonly path: string }
   | { readonly kind: "cloud"; readonly repo: string; readonly path: string }
   | { readonly error: string }
 
@@ -289,45 +214,8 @@ export const resolveFileTarget = (store: AppStore, pathArg: string, explicitRepo
   const path = global?.path ?? pathArg
   const explicitRepo = global?.repo ?? explicitRepoArg
   if (unsafePath(path)) return { error: "File paths must stay inside the repository." }
-  const local = localTarget(store, explicitRepo)
-  if (local !== undefined) return "error" in local ? local : { kind: "local", repo: local.repo, path: normalizePath(path) }
   const target = resolveTargetRepo(store, explicitRepo)
   return "error" in target ? target : { kind: "cloud", repo: target.repo, path: normalizePath(path) }
-}
-
-/*
- * The local route (`POST /api/repo/files`, LOCAL-APP.md): one request
- * answers a directory or a file, already bounded and already honest about
- * binary, so a caller only renders. Failures are the same honest strings
- * the Cloud path answers. Shared with the sidebar's tree seam
- * (RepoTreeSeam.ts), which lists directories through the same request.
- */
-export const requestLocalFiles = async (
-  ctx: Pick<SeamContext, "http" | "baseUrl">,
-  repo: Repo,
-  path: string,
-  label: string,
-  verb: "list" | "read"
-): Promise<{ readonly body: RepoFilesResponse } | { readonly error: string }> => {
-  let response: Response
-  try {
-    response = await ctx.http(`${ctx.baseUrl}${REPO_FILES_PATH}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repoId: repo.id, path })
-    })
-  } catch (error) {
-    return { error: `Could not reach the local app to ${verb} ${label} in ${repo.name}: ${errorText(error)}` }
-  }
-  if (response.status === 404) return { error: await readErrorMessage(response, `Path not found: ${label} in ${repo.name}`) }
-  if (!response.ok) {
-    return {
-      error: await readErrorMessage(response, `${verb === "list" ? "Listing" : "Reading"} ${label} in ${repo.name} failed (${response.status})`)
-    }
-  }
-  const parsed = RepoFilesResponseSchema.safeParse(await response.json().catch(() => null))
-  if (!parsed.success) return { error: `The local app answered ${label} in ${repo.name} with an unreadable payload` }
-  return { body: parsed.data }
 }
 
 export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
@@ -340,95 +228,17 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
   }
 
 
-  /*
-   * The 404 split, from the typed refusal and from local state — never from
-   * the platform's prose. A missing path and a repository the platform never
-   * imported both answer `code: "not_found"` (PlueFailureCodes.ts, fault
-   * "user"), so the response cannot name the cause: reading its sentence for
-   * one told a reader of an imported repository to import it (C088, b416,
-   * where the same session read another path from that repository). Local
-   * state can still name a cause — a checkout the sidebar pins that this
-   * launch has not opened, which the Cloud route cannot serve. Otherwise this
-   * is the not-found it is, at the address this app asked for, which the
-   * generic code's own message ("content not found") does not name.
-   */
-  const explain404 = async (response: Response, repo: string, fallback: string): Promise<string> => {
-    /*
-     * A checkout the sidebar still pins but this launch has not opened is
-     * the common way a bare files command lands here: the local route was
-     * never tried, the Cloud one 404s. Say that, with the act — never
-     * "Path not found" for a path that exists on disk.
-     */
-    const pinned = [...ctx.store.collections.pinnedRepos.values()].find((pin) => pin.name === repo)
-    if (pinned !== undefined) return `${repo} is pinned but not open on this machine — open it with /repo.open, then retry.`
+  // A missing repository and a missing path share a code; never infer an import.
+  const explain404 = async (response: Response, fallback: string): Promise<string> => {
     const body: unknown = await response.json().catch(() => null)
     const refusal = refusalOf({ body, status: response.status, message: errorMessage(body, fallback) })
     return refusal.code === "not_found" ? fallback : refusal.message
-  }
-
-  const localRequest = (repo: Repo, path: string, label: string, verb: "list" | "read") =>
-    requestLocalFiles(ctx, repo, path, label, verb)
-
-  const listLocal = async (repo: Repo, path: string): Promise<ViewResult> => {
-    const normalized = normalizePath(path)
-    const label = normalized === "" ? "/" : normalized
-    const answer = await localRequest(repo, normalized, label, "list")
-    if ("error" in answer) return answer.error
-    if (answer.body.kind === "file") return `${normalized} in ${repo.name} is a file — run /files.read ${normalized} instead`
-    const entries = sortEntries(answer.body.entries)
-    const card: Card = {
-      id: `files-${repo.id}-${label}`,
-      kind: "file-list",
-      title: `Files · ${repo.name} · ${label}`,
-      status: "active",
-      createdAt: Date.now(),
-      ordinal: ctx.nextOrdinal(),
-      payload: {
-        repo: repo.name,
-        localRepoId: repo.id,
-        path: normalized,
-        entries,
-        ...(answer.body.truncated === true ? { truncated: true } : {}),
-        ...localAddressing(ctx.store, repo, normalized)
-      }
-    }
-    return { card,
-      value: listingValue(repo.name, normalized, entries) +
-        (answer.body.truncated === true ? "\n(the directory holds more entries than the listing cap; this is the first page by name)" : "")
-    }
-  }
-
-  const readLocal = async (repo: Repo, path: string, anchor: FileAnchor | undefined): Promise<ViewResult> => {
-    const normalized = normalizePath(path)
-    if (normalized === "") return "files.read needs a file path"
-    const answer = await localRequest(repo, normalized, normalized, "read")
-    if ("error" in answer) return answer.error
-    if (answer.body.kind === "dir") return `${normalized} in ${repo.name} is a directory — run /files.list ${normalized} instead`
-    const payload = {
-      repo: repo.name,
-      localRepoId: repo.id,
-      path: normalized,
-      ...localFileFields(answer.body),
-      ...localAddressing(ctx.store, repo, normalized),
-      ...anchored(anchor)
-    }
-    const card: Card = {
-      id: localFileCardId(repo.id, normalized),
-      kind: "file",
-      title: `File · ${repo.name} · ${normalized}`,
-      status: "active",
-      createdAt: Date.now(),
-      ordinal: ctx.nextOrdinal(),
-      payload
-    }
-    return { card, value: fileValue(repo.name, normalized, payload) }
   }
 
   const readers: { listFiles: (path: string, repo?: string) => Promise<ViewResult>; readFile: (path: string, repo?: string, anchor?: FileAnchor, ref?: string) => Promise<ViewResult> } = {
     listFiles: async (pathArg, explicitRepoArg) => {
       const target = resolveFileTarget(ctx.store, pathArg, explicitRepoArg)
       if ("error" in target) return target.error
-      if (target.kind === "local") return listLocal(target.repo, target.path)
       const { repo, path: normalized } = target
       const label = normalized === "" ? "/" : normalized
 
@@ -444,7 +254,7 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
           return unreachableSentence(`the backend to list ${label} in ${repo}`, error)
         }
         if (response.status === 404) {
-          return explain404(response, repo, `Path not found: ${label} in ${repo}`)
+          return explain404(response, `Path not found: ${label} in ${repo}`)
         }
         if (!response.ok) {
           return readErrorMessage(response, `Listing ${label} in ${repo} failed (${response.status})`)
@@ -478,17 +288,6 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
     readFile: async (pathArg, explicitRepoArg, anchor, ref) => {
       const target = resolveFileTarget(ctx.store, pathArg, explicitRepoArg)
       if ("error" in target) return target.error
-      /*
-       * A local checkout is served by the local route, which answers the
-       * working copy and takes no revision. Asked for one it refuses: the
-       * bytes on disk are not the bytes at that revision, and answering with
-       * them would label a file as code it is not (D-068).
-       */
-      if (target.kind === "local") {
-        return ref === undefined
-          ? readLocal(target.repo, target.path, anchor)
-          : `${target.path} in ${target.repo.name} cannot be read at ${ref}: this machine serves its working copy, not a revision.`
-      }
       const { repo, path: normalized } = target
       if (normalized === "") return "files.read needs a file path"
       let response: Response
@@ -499,7 +298,7 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
       }
       if (response.status === 404) {
         return ref === undefined
-          ? explain404(response, repo, `Path not found: ${normalized} in ${repo}`)
+          ? explain404(response, `Path not found: ${normalized} in ${repo}`)
           : `Path not found: ${normalized} in ${repo} at ${ref}`
       }
       if (!response.ok) {
@@ -591,8 +390,8 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
     const target = resolveFileTarget(ctx.store, path, repo)
     if ("error" in target) return target.error
     if (kind === "file" && !target.path) return "files.read needs a file path"
-    const repoId = target.kind === "local" ? target.repo.id : target.repo
-    const label = target.kind === "local" ? target.repo.name : target.repo
+    const repoId = target.repo
+    const label = target.repo
     const maximized = ctx.store.collections.cards.get(ctx.store.session().maximizedCardId ?? "")
     const ownerCard = maximized?.kind === "file" || maximized?.kind === "file-list"
       ? maximized
@@ -606,8 +405,6 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
     const id = `${kind}-${repoId}-${target.path || "/"}${ref === undefined ? "" : `@${ref}`}`
     return { id, title: `${kind === "file" ? "File" : "Files"} · ${label} · ${target.path || "/"}`, key: JSON.stringify([id, anchor]), target: pane,
       read: () => kind === "file" ? readers.readFile(path, repo, anchor, ref) : readers.listFiles(path, repo),
-      after: kind === "file" ? async () => {
-      } : undefined,
     }
   }
   return {
@@ -618,10 +415,10 @@ export const createFilesSeam = (ctx: SeamContext): FilesSeam => {
 
 export const fileTargetKey = (store: AppStore, repo?: string): string | undefined => {
   const target = resolveFileTarget(store, "", repo)
-  return "error" in target ? undefined : target.kind === "local" ? target.repo.id : target.repo
+  return "error" in target ? undefined : target.repo
 }
 
-/** Bounded breadth-first inventory, using the same local/cloud contents routes as files.read. No cards. */
+/** Bounded breadth-first inventory, using the same repository contents route as files.read. No cards. */
 export const fileOptions = async (
   ctx: Pick<SeamContext, "store" | "http" | "baseUrl">,
   repo?: string,
@@ -636,21 +433,14 @@ export const fileOptions = async (
     if (seen.has(path)) continue
     seen.add(path)
     let entries: ReadonlyArray<{ name: string; kind: "file" | "dir" }>
-    if (target.kind === "local") {
-      const answer = await requestLocalFiles(ctx, target.repo, path, path || "/", "list")
-      if ("error" in answer) return { options, error: answer.error }
-      if (answer.body.kind !== "dir") return { options, error: "The file chooser expected a directory." }
-      entries = answer.body.entries
-    } else {
-      const [owner, name] = target.repo.split("/")
-      try {
-        const response = await ctx.http(`${ctx.baseUrl}/api/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(name!)}/contents${path ? `/${encodeRepoPath(path)}` : ""}`)
-        if (!response.ok) return { options, error: await readErrorMessage(response, `Could not list files in ${target.repo} (${response.status}).`) }
-        const body: unknown = await response.json()
-        if (!Array.isArray(body)) return { options, error: "The file chooser expected a directory." }
-        entries = body.flatMap(row => { const entry = parseEntry(row); return entry ? [entry] : [] })
-      } catch (error) { return { options, error: error instanceof Error ? error.message : String(error) } }
-    }
+    const [owner, name] = target.repo.split("/")
+    try {
+      const response = await ctx.http(`${ctx.baseUrl}/api/repos/${encodeURIComponent(owner!)}/${encodeURIComponent(name!)}/contents${path ? `/${encodeRepoPath(path)}` : ""}`)
+      if (!response.ok) return { options, error: await readErrorMessage(response, `Could not list files in ${target.repo} (${response.status}).`) }
+      const body: unknown = await response.json()
+      if (!Array.isArray(body)) return { options, error: "The file chooser expected a directory." }
+      entries = body.flatMap(row => { const entry = parseEntry(row); return entry ? [entry] : [] })
+    } catch (error) { return { options, error: error instanceof Error ? error.message : String(error) } }
     for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
       if (unsafePath(entry.name) || entry.name.includes("/")) continue
       const child = path ? `${path}/${entry.name}` : entry.name

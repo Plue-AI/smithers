@@ -250,9 +250,3 @@ export const splitLabel = (label: string): { readonly package: string; readonly 
   if (colon < 0) return { package: label, name: label.replace(/^\/\//, "").split("/").pop() ?? label }
   return { package: label.slice(0, colon), name: label.slice(colon + 1) }
 }
-
-/** `GET /api/repos`
- * @since 1.0.0
- * @category schemas
- */
-export const ReposResponseSchema = z.object({ repos: z.array(RepoSchema) })

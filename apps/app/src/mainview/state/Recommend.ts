@@ -56,7 +56,6 @@ export const RECOMMEND_RETRY_MAX_MS = 24 * 60 * 60 * 1000
  */
 export const MATERIAL_TRANSITIONS: ReadonlySet<AppTransition["type"]> = new Set<AppTransition["type"]>([
   "repo.update.observed",
-  "repos.loaded",
   "connector.local.connected",
   "connector.removed",
   "message.response.completed",

@@ -53,7 +53,6 @@ MessageSchema,
 PinnedRepoSchema,
 RECOMMENDATION_ID,
 RecommendationSchema,
-RepoSchema,
 RepoTreeRowSchema,
 RepositoryFlowsRowSchema,
 SeatAssignmentSchema,
@@ -77,8 +76,6 @@ initialIdentitySession,
 initialSession,
 mainTab,
 parseRepoSelection,
-repoIdFromRemote,
-repoKeyOf,
 flowDurationRowId,
 FlowDurationsRowSchema,
 repoTreeRowId,
@@ -138,7 +135,6 @@ export const APP_PROJECTION_SCHEMAS = {
   agents: AgentRoleSchema,
   models: StoredModelSchema,
   seats: SeatAssignmentSchema,
-  repos: RepoSchema,
   pinnedRepos: PinnedRepoSchema,
   starredTargets: StarredTargetSchema,
   workspaces: WorkspaceSchema,
@@ -283,7 +279,6 @@ export const APP_TRANSITION_TYPES = {
   "model.removed": true,
   "model.tested": true,
   "seat.assigned": true,
-  "repos.loaded": true,
   "repositories.loaded": true,
   "repository.upserted": true,
   "workingcopies.workspaces.loaded": true,
@@ -892,6 +887,18 @@ export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppP
   if (!Number.isFinite(createdAt)) throw new Error("Invalid app boot context")
   const draft = projectionDraft(previous)
   const { collections } = draft
+  // Local inventory no longer has a host. Retire its derived selections and rows.
+  const localCopies = new Set([...collections.workingCopies.values()].filter(copy => copy.kind === "local").map(copy => copy.id))
+  if (localCopies.size > 0) collections.workingCopies.delete([...localCopies])
+  const pins = [...collections.pinnedRepos.keys()]
+  if (pins.length > 0) collections.pinnedRepos.delete(pins)
+  for (const row of collections.repoTree.values()) if (localCopies.has(row.copyId)) collections.repoTree.delete(row.id)
+  for (const session of collections.sessions.values()) {
+    const selection = parseRepoSelection(session.activeRepoKey ?? "")
+    if (selection !== null && (!("repoId" in selection) || (selection.copyId !== undefined && (localCopies.has(selection.copyId) || selection.copyId.startsWith("local:"))))) {
+      collections.sessions.update(session.id, draft => { draft.activeRepoKey = null })
+    }
+  }
   // Custom definitions are retired; even pre-upgrade stores use only built-in roles.
   const oldAgents = [...collections.agents.keys()]
   if (oldAgents.length > 0) collections.agents.delete(oldAgents)
@@ -2929,77 +2936,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           break
         }
 
-        case "repos.loaded": {
-          const next = new Set(transition.repos.map((repo) => repo.id))
-          const before = new Set([...collections.repos.values()].map((repo) => repoKeyOf(repo.path)))
-          const stale = [...collections.repos.keys()].filter((id) => !next.has(id))
-          if (stale.length > 0) collections.repos.delete(stale)
-          for (const repo of transition.repos) {
-            if (collections.repos.get(repo.id) === undefined) collections.repos.insert({ ...repo })
-            else {
-              collections.repos.update(repo.id, (draft) => {
-                Object.assign(draft, repo)
-              })
-            }
-          }
-          /*
-           * Opening pins (docs/LOCAL-APP.md "Tabs"): every open repository is
-           * a pinned row, keyed by path so it survives the server's fresh id
-           * on a reopen. The active repository stays the one named when it
-           * is still open; otherwise the first open one takes over.
-           */
-          const now = createdAt
-          for (const repo of transition.repos) {
-            const id = repoKeyOf(repo.path)
-            const pin = { id, name: repo.name, path: repo.path, branch: repo.git?.branch ?? null, origin: "local" as const }
-            if (collections.pinnedRepos.get(id) === undefined) collections.pinnedRepos.insert({ ...pin, pinnedAt: now })
-            else {
-              collections.pinnedRepos.update(id, (draft) => {
-                Object.assign(draft, pin)
-              })
-            }
-            /*
-             * Lane piper: an open checkout is a local working copy. The
-             * repoId comes from the checkout's remote when it parses, else
-             * the checkout's own name (never an invented owner); the jj
-             * probe fills ahead/readAt when the server ran one.
-             */
-            const copyId = id
-            const existing = collections.workingCopies.get(copyId)
-            const repoId = repoIdFromRemote(repo.git?.remote) ?? existing?.repoId ?? repo.name
-            const copy: WorkingCopy = {
-              id: copyId,
-              repoId,
-              kind: "local",
-              label: repo.name,
-              path: repo.path,
-              ...(repo.jj?.ahead !== null && repo.jj?.ahead !== undefined ? { ahead: repo.jj.ahead } : {}),
-              ...(repo.jj !== null && repo.jj !== undefined
-                ? { readAt: { changeId: repo.jj.changeId, commitId: repo.jj.commitId } }
-                : {}),
-              updatedAt: now,
-              revision
-            }
-            if (existing === undefined) collections.workingCopies.insert(copy)
-            else {
-              collections.workingCopies.update(copyId, (draft) => {
-                Object.assign(draft, copy)
-              })
-            }
-          }
-          const openKeys = new Set(transition.repos.map((repo) => repoKeyOf(repo.path)))
-          const byName = [...transition.repos].sort((left, right) => compareProjectionStrings(left.name, right.name))
-          // A repository that just opened is the one the human asked for: it becomes the active one.
-          const opened = byName.find((repo) => !before.has(repoKeyOf(repo.path)))
-          collections.sessions.update(SESSION_ID, (draft) => {
-            const named = draft.activeRepoKey ?? null
-            if (opened !== undefined) draft.activeRepoKey = repoKeyOf(opened.path)
-            else if (named === null || !openKeys.has(named)) {
-              draft.activeRepoKey = byName[0] === undefined ? named : repoKeyOf(byName[0].path)
-            }
-          })
-          break
-        }
         case "repositories.loaded": {
           /*
            * The private inventory replaces private rows; public catalog rows

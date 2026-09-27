@@ -19,13 +19,8 @@
  * background, the first time it becomes the target for an account; `load` re-reads on demand.
  * No flow name is written in this app.
  *
- * The target is re-resolved after every transition rather than after a
- * hand-kept list of them: the native app makes a checkout the target through
- * `repos.loaded` (ControllerBoot at boot, targets.ts after repo.open), the
- * cloud host through `repositories.loaded` and `repo.selected`, and a list
- * that named some of these once missed the local host entirely (review
- * finding on 9ab275caf5). Resolving is a few collection reads and the
- * per-repository dedup makes a repeat resolution free.
+ * The target is re-resolved after every transition; per-repository dedup
+ * avoids repeat reads.
  */
 import type { RepositoryFlow } from "../AppState"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
@@ -94,13 +89,7 @@ export const createRepositoryFlowsSeam = (
   const subscribe: RepositoryFlowsSeam["subscribe"] = (onDispose) => {
     loadTarget()
     const subscription = ctx.store.collections.transitions.subscribeChanges((changes) => {
-      /*
-       * After the commit, not inside it: the target of a local checkout is
-       * read through the `workingCopies` live view (WorkspaceViews.ts), which
-       * settles after the transitions subscribers of the same dispatch have
-       * run, so resolving synchronously here saw repos.loaded's activeRepoKey
-       * with no copy behind it and answered "no repository is loaded".
-       */
+      /* Working-copy live views settle after the transition subscribers. */
       if (changes.some((change) => change.type === "insert")) queueMicrotask(loadTarget)
     })
     onDispose(() => {

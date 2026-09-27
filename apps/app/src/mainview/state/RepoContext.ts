@@ -6,8 +6,7 @@
  * repository's head); otherwise the answer is an honest error naming the
  * choice — the target is a genuine user decision, never a guess.
  */
-import type { Repo } from "@smthrs/rpc/LocalApp"
-import { activeRepoOf, parseRepoSelection } from "./AppState"
+import { parseRepoSelection } from "./AppState"
 import type { CloudRepository, CloudWorkspaceRow } from "./AppState"
 import type { AppStore } from "./AppStore"
 import { repositoryJobWorkspace } from "./RepositoryJobs"
@@ -148,38 +147,6 @@ export const repositorySource = (
 ): { readonly repo?: string } => {
   const target = resolveTargetRepo(store, explicit)
   return "error" in target ? {} : { repo: target.repo }
-}
-
-/**
- * The open LOCAL repository a bare repo-scoped command means (files, targets,
- * graph): the active working copy when it is a checkout open here (lane
- * piper: "the active working copy if one is active, else head" — a head
- * selection has no local checkout, which is an honest error for a LOCAL
- * command). Local-only checkouts are resolved through the same working-copy
- * collection as remote-backed checkouts.
- */
-export const resolveOpenRepo = (store: AppStore): { readonly repo: Repo } | { readonly error: string } => {
-  const refusal = repositoryEntryRefusal(store)
-  if (refusal !== undefined) return { error: refusal }
-  const key = store.session().activeRepoKey ?? null
-  const selection = key === null ? null : parseRepoSelection(key)
-  if (selection !== null) {
-    const copyId = "repoId" in selection ? selection.copyId : selection.localCopyId
-    if (copyId !== undefined) {
-      const copy = store.collections.workingCopies.get(copyId)
-      if (copy?.kind === "local" && copy.path !== undefined) {
-        const open = [...store.collections.repos.values()].find((repo) => repo.path === copy.path)
-        if (open !== undefined) return { repo: open }
-      }
-      return { error: "The active working copy is not open on this machine — open it with /repo.open first." }
-    }
-    if ("repoId" in selection) {
-      return { error: `${selection.repoId} is selected at its head — open a local working copy with /repo.open first.` }
-    }
-    return { error: "Open a repository first." }
-  }
-  const active = activeRepoOf(store.session(), store.collections.repos.values())
-  return active === undefined ? { error: "Open a repository first." } : { repo: active }
 }
 
 /** The box a flow call runs on, or the sentence saying which box to open or pick. UI frame IDs are unrelated. */

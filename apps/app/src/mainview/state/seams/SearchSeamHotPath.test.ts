@@ -103,8 +103,7 @@ const ready = async () => {
       createdAt: 1,
       ordinal: 2,
       payload: {
-        repo: "smithers",
-        localRepoId: "r1",
+        repo: "will/flows",
         path: "src",
         entries: Array.from({ length: ROW_COUNT }, (_, index) => ({ name: `file-${String(index).padStart(3, "0")}.ts`, kind: "file" as const }))
       }
@@ -165,7 +164,7 @@ describe("the palette hot path: actions are derived for shown rows only", () => 
     expect(answer.parsed.mode).toBe("path")
     const rows = answer.groups.flatMap((group) => group.items)
     expect(rows.length).toBe(PALETTE_GROUP_CAP)
-    // The action names the local repository the listing came from, which is why it cannot come from the registry walk.
+    // The action names the repository the listing came from, which is why it cannot come from the registry walk.
     expect(rows.every((row) => row.item.kind === "file" && row.item.actions.some((action) => action.flow === "files.read"))).toBe(true)
     expect(calls()).toBe(0)
   })

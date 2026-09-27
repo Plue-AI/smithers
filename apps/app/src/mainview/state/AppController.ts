@@ -1959,7 +1959,7 @@ export const createAppController = (
       const scope = routeMatches ? undefined : "command" as const
       const knownPublic = requestedRepo !== undefined && [...store.collections.repositories.values()].some(row => row.catalog === true && row.id.toLowerCase() === requestedRepo.toLowerCase())
       const coldExplicitTarget = identity?.state === "signed-out" && explicitRepo !== undefined && /^[\w.-]+\/[\w.-]+$/.test(explicitRepo) &&
-        !knownPublic && entry === undefined && !(fileTarget !== undefined && "kind" in fileTarget && fileTarget.kind === "local")
+        !knownPublic && entry === undefined
       const needsCatalog = entry?.phase === "pending" || (entry?.phase === "failed" && entry.failureKind !== "not-public")
       const repositoryReadiness = entry !== undefined && needsCatalog
         ? { repo: entry.repo, phase: entry.phase === "pending" ? "pending" as const : "unavailable" as const, error: entry.error, scope }
@@ -1992,7 +1992,6 @@ export const createAppController = (
         firstRunTargetPending: !firstRunTargetSettled && repo === undefined &&
           store.session().activeRepoKey == null && routeEntry == null &&
           (identity === undefined || identity.state === "unknown" || identity.state === "signed-out"),
-        hasOpenRepos: fileTarget === undefined ? repo === undefined && store.collections.repos.size > 0 : "kind" in fileTarget && fileTarget.kind === "local",
         publicRepo: !catalogRefused && (requestedRepo === undefined
           ? activeCatalogRepositoryId(store) !== null
           : [...store.collections.repositories.values()].some(row => row.catalog === true && row.id.toLowerCase() === requestedRepo.toLowerCase())),
@@ -2039,7 +2038,7 @@ export const createAppController = (
   ctx.commands = commands
   if (typeof document !== "undefined") ctx.onDispose(bindFlowPreloading(document, commands.preload!))
   ctx.onDispose(() => disposePreparedViews(store))
-  for (const collection of [store.collections.identitySessions, store.collections.cloudWorkspaces, store.collections.changes, store.collections.repos, store.collections.repositories]) {
+  for (const collection of [store.collections.identitySessions, store.collections.cloudWorkspaces, store.collections.changes, store.collections.repositories]) {
     const subscription = collection.subscribeChanges(() => invalidatePreparedViews(store))
     ctx.onDispose(() => subscription.unsubscribe())
   }

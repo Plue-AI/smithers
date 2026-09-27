@@ -7,7 +7,7 @@ type AppProjectionSnapshot
 } from "./AppProjection"
 import type { ConfiguredModel,ModelTestRecord } from "@smthrs/rpc/ConfiguredModel"
 import type { AppTransition,Card,CloudWorkspaceInput } from "./AppState"
-import { cardFrameId,DEFAULT_BRANCH_ID,parseRepoSelection,repoKeyOf } from "./AppState"
+import { cardFrameId,DEFAULT_BRANCH_ID,parseRepoSelection } from "./AppState"
 import type { RepositoryNotification } from "./RepositoryNotifications"
 import { workspaceCardFacts } from "./WorkspaceViews"
 
@@ -72,7 +72,7 @@ describe("pure app event projection", () => {
 
   test("owns exactly the domain roster and its stable keys", () => {
     // 41 since the harness inventory retired with the terminal and harness tabs (#2229).
-    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(41)
+    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(40)
     expect(Object.keys(emptyAppProjection())).toEqual(Object.keys(APP_PROJECTION_SCHEMAS))
     expect(APP_PROJECTION_COLLECTION_NAMES).not.toContain("appEvents")
     expect(appProjectionKey("githubAppStatuses", { repo: "org/repo" })).toBe("org/repo")
@@ -342,14 +342,6 @@ describe("pure app event projection", () => {
     expect(Math.max(...state.transitions.map(row => row.revision))).toBe(506)
     expect(state.cards).toHaveLength(1)
     expect(state.sessions[0]!.draft).toBe("504")
-  })
-
-  test("local repository synchronization pins using the supplied event time", () => {
-    const repo = APP_PROJECTION_SCHEMAS.repos.parse({ id: "server-1", name: "Repo", path: "/work/repo", git: null, warnings: [], smithers: { detected: false, workspaceFile: null, declarationFiles: [], reason: "No manifest", workspaces: [] } })
-    const state = apply(boot(), { type: "repos.loaded", actor: "system", repos: [repo] }, 678)
-    expect(state.pinnedRepos[0]).toMatchObject({ id: repoKeyOf(repo.path), pinnedAt: 678 })
-    expect(state.workingCopies[0]).toMatchObject({ updatedAt: 678, revision: 1 })
-    expect(state.sessions[0]!.activeRepoKey).toBe(repoKeyOf(repo.path))
   })
 
   test("physical row ordering cannot change fallback documents, tab selection or interrupted-turn reconciliation", () => {

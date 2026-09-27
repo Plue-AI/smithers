@@ -36,7 +36,8 @@ import { parseSchemaStamp } from "./SchemaStamp"
  */
 // Version 14 writers do not understand private, unadmitted Wiki deltas.
 // Version 16 has no terminal or harness tab rows and no harness inventory (smithersai/smithers#2229).
-export const APP_SCHEMA_VERSION = 16
+// v17 retires the local repository inventory (#2239).
+export const APP_SCHEMA_VERSION = 17
 
 /** The prefix AppStore gives every persisted collection's storage key. */
 export const PERSISTED_KEY_PREFIX = "smithers-mvp."
@@ -124,7 +125,7 @@ export const PERSISTED_COLLECTION_IDS: ReadonlyArray<string> = [
   /* Models as data: a user's records, the rows the host's catalog reported, and the seat each answers for. */
   "app-models",
   "app-seats",
-  "app-repos",
+  "app-repos", // Historical cleanup only; local inventory retired in v17.
   "app-pinned-repos",
   "app-starred-targets",
   "app-workspaces",

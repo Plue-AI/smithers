@@ -1,16 +1,12 @@
-import { repoKeyOf } from "./AppState"
 import type { Card, StarredTarget } from "./AppState"
-import type { Repo } from "@smthrs/rpc/LocalApp"
 import { notificationWasRead, type NotificationReadReceipt, type RepositoryNotification } from "./RepositoryNotifications"
 
 /** Current personal stars join a saved target list by repository identity. */
 export const projectTargetStars = (
   card: Extract<Card, { kind: "targets" }>,
-  repos: ReadonlyArray<Repo>,
   stars: ReadonlyArray<StarredTarget>
 ): Extract<Card, { kind: "targets" }> => {
-  const repo = repos.find(row => row.id === card.payload.repoId)
-  const key = card.payload.repoKey ?? (repo === undefined ? undefined : repoKeyOf(repo.path))
+  const key = card.payload.repoKey
   // Legacy cards without any recoverable repository identity remain snapshots.
   if (key === undefined) return card
   const starred = stars.filter(row => row.repoKey === key).map(row => row.label).sort()

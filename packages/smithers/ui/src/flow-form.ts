@@ -32,7 +32,6 @@ export type FieldKind = "text" | "textarea" | "number" | "boolean" | "select" | 
  */
 export const OPTION_PROVIDERS = [
   /** Repositories open in the local app. */
-  "open-repos",
   /** Smithers Cloud repositories the session has loaded. */
   "cloud-repos",
   /** Bookmarks loaded onto a branches card. */

@@ -122,7 +122,6 @@ function AppContent() {
   const fileCards = useFileCardRows(collections.cards)
   const { data: identityRows } = useLiveQuery(collections.identitySessions)
   const { data: connectorRows } = useLiveQuery(collections.connectors)
-  const { data: repoRows } = useLiveQuery(collections.repos)
   const { data: repositoryRows } = useLiveQuery(collections.repositories)
   const { data: recommendationRows } = useLiveQuery(collections.recommendations)
   /* The composer wrap: Cmd+K focuses the textarea inside it (the palette opens on the composer). */
@@ -378,7 +377,7 @@ function AppContent() {
     bootstrap: controller.bootstrap,
     flowCount: flows.length,
     connectors: connectorRows,
-    repos: repoRows
+    repositories: repositoryRows
   })
   /*
    * §2a″ (wave 12 §4): auth is a conversation STATE, and a state shows only

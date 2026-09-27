@@ -10,7 +10,7 @@ signInReturnTo,
 withoutRepoParam
 } from "./RepoLink"
 import { createAppStore } from "./state/AppStore"
-import { resolveOpenRepo, resolveTargetRepo } from "./state/RepoContext"
+import { resolveTargetRepo } from "./state/RepoContext"
 import type { ControllerContext } from "./state/controller/context"
 import { createTabsController } from "./state/controller/tabs"
 
@@ -259,7 +259,6 @@ describe("openRequestedRepo", () => {
     expect(store.session().activeRepoKey).toBeNull()
     expect(store.collections.repositories.size).toBe(1)
     expect(resolveTargetRepo(store, undefined)).toEqual({ error: "Opening missing/repository. Try again when it is ready." })
-    expect(resolveOpenRepo(store)).toEqual({ error: "Opening missing/repository. Try again when it is ready." })
     expect(resolveTargetRepo(store, "smithersai/smithers")).toEqual({ repo: "smithersai/smithers" })
     answer(jsonResponse(catalog))
     const refusal = await opening

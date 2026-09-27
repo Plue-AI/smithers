@@ -177,7 +177,6 @@ export type CardPlanItem = z.infer<typeof CardPlanItemSchema>
  * @category constants
  */
 export const FORM_OPTION_PROVIDERS = [
-  "open-repos",
   "cloud-repos",
   "bookmarks",
   "workspaces",

@@ -369,9 +369,7 @@ export interface CommandState {
    * account. Optional so state fixtures stay minimal.
    */
   readonly hostSpendsOwnKey?: boolean
-  /** A repository is open in the local app (the repos collection); optional so fixtures stay minimal. */
-  readonly hasOpenRepos?: boolean
-  /** The selected repository came from the public catalog: readable signed out. Optional like hasOpenRepos. */
+  /** The selected repository came from the public catalog: readable signed out. */
   readonly publicRepo?: boolean
   /** First run has not finished choosing the starting repository: a bare repository command waits, it does not ask. */
   readonly firstRunTargetPending?: boolean

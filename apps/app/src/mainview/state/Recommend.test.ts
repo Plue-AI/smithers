@@ -41,7 +41,7 @@ const state: CommandState = {
 
 describe("recommend: triggers", () => {
   test("material transitions regenerate; keystrokes, deltas, menus, and its own write do not", () => {
-    for (const type of ["repos.loaded", "connector.local.connected", "message.response.completed", "tab.opened"]) {
+    for (const type of ["connector.local.connected", "message.response.completed", "tab.opened"]) {
       expect(isMaterialTransition(type)).toBe(true)
     }
     for (

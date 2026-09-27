@@ -148,7 +148,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       label: flow === "files.read" ? "Read a file from a repository" : "Read one file out of a cloud workspace"
     })
     const seen = new Map<string, Fact>()
-    const add = (kind: "shared" | "local" | "workspace", target: string, path: string, subtitle: string): void => {
+    const add = (kind: "shared" | "workspace", target: string, path: string, subtitle: string): void => {
       const relative = path.replace(/^\/+/, "")
       const ref = kind === "shared" ? `/${target}/${relative}` : `${kind}:${encodeURIComponent(target)}/${relative}`
       if (seen.has(ref)) return
@@ -161,21 +161,20 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       if (row.state !== "loaded") continue
       const copy: WorkingCopy | undefined = copies.get(row.copyId)
       if (copy === undefined) continue
-      const local = copy.kind === "local" ? [...ctx.store.collections.repos.values()].find(repo => repo.path === copy.path) : undefined
-      if (copy.kind === "local" && local === undefined) continue
+      if (copy.kind === "local") continue
       for (const entry of row.entries) {
         if (entry.kind !== "file") continue
         const path = joinPath(row.path, entry.name)
         if (copy.kind === "workspace") add("workspace", copy.workspaceId ?? copy.id, path, `${copy.repoId} · ${copy.label}`)
-        else if (local !== undefined) add("local", local.id, path, local.name)
         else add("shared", copy.repoId, path, copy.repoId)
       }
     }
     for (const card of cards()) {
       if (card.kind !== "file" && card.kind !== "file-list") continue
       const { localRepoId, repo, path } = card.payload
-      const kind = localRepoId === undefined ? "shared" : "local"
-      const target = localRepoId ?? repo
+      if (localRepoId !== undefined) continue
+      const kind = "shared"
+      const target = repo
       if (card.kind === "file") add(kind, target, path, repo)
       else for (const entry of card.payload.entries) {
         if (entry.kind === "file") add(kind, target, joinPath(path.replace(/^\/+/, ""), entry.name), repo)
@@ -304,7 +303,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
   /** `:120`: the line in the newest file card, as one item whose open flow re-reads the file at that line. */
   const lineItems = (parsed: ParsedQuery): ReadonlyArray<Fact> | string => {
     const file = [...cards()].reverse().find((card): card is Extract<Card, { kind: "file" }> => card.kind === "file")
-    if (file === undefined || parsed.line === undefined) return NO_FOCUSED_FILE
+    if (file === undefined || file.payload.localRepoId !== undefined || parsed.line === undefined) return NO_FOCUSED_FILE
     const at = `${parsed.line.line}${parsed.line.column === undefined ? "" : `:${parsed.line.column}`}`
     const path = file.payload.address ?? file.payload.path
     return [{
@@ -312,7 +311,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       ref: path,
       title: `${path}:${at}`,
       subtitle: file.payload.repo,
-      actions: [{ flow: "files.read", args: fileArgs(`${file.payload.path}:${at}`, file.payload.localRepoId ?? file.payload.repo), label: "Read a file from a repository", role: "open" }]
+      actions: [{ flow: "files.read", args: fileArgs(`${file.payload.path}:${at}`, file.payload.repo), label: "Read a file from a repository", role: "open" }]
     }]
   }
 

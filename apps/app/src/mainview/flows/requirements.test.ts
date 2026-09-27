@@ -138,9 +138,6 @@ describe("requirement axis — the pure model", () => {
       "signed-in",
       "repo-source"
     ])
-    expect(unmetRequirements(meta, { ...chatState, signedOut: true, hasOpenRepos: true }).map((r) => r.id)).toEqual([
-      "signed-in"
-    ])
     // A public catalog repository is a read source of its own: files open, writes still wait on sign-in.
     expect(unmetRequirements(meta, { ...chatState, signedOut: true, publicRepo: true }).map((r) => r.id)).toEqual([
       "signed-in"

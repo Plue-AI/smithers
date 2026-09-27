@@ -30,9 +30,8 @@ changes); the docs updates in this report's commit are the only remainder.
    state?) collections, plus the `cloudSessions` row. `RepositoriesSeam`
    reads `/user/repos` + `/user/orgs` + per-repo `/bookmarks`, shaped so
    plue#445's `owner_type`/`default_bookmark_head` short-circuit the
-   per-repo call when they land. `repos.loaded` upserts local working copies
-   (repoId from the checkout's remote, never an invented owner; the jj probe
-   in `src/bun/Repos.ts` fills change/commit/ahead when a `.jj` dir exists).
+   per-repo call when they land. The local inventory and checkout probes
+   described by this original lane retired in #2239; current copies are boxes.
    `repo.selected` takes `org/repo` or `org/repo#copyId` (legacy pin keys
    still parse). `RepoContext` resolves: explicit token → active selection →
    a single loaded repository → honest errors. 131 seam tests.

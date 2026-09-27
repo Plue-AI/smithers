@@ -76,7 +76,7 @@ const formCard = (payload: Partial<FlowFormCard["payload"]> = {}, status: Card["
         label: "Harness",
         kind: "select",
         required: true,
-        optionsFrom: "open-repos",
+        optionsFrom: "cloud-repos",
         options: [
           { value: "claude", label: "Claude Code · will@example.com" },
           { value: "codex", label: "Codex · OPENAI_API_KEY" },

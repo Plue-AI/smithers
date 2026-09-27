@@ -182,8 +182,6 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       case "files":
         /* Filled asynchronously from the selected repository below; never invented here. */
         return []
-      case "open-repos":
-        return [...collections.repos.values()].map((repo) => ({ value: repo.id, label: `${repo.name} · ${repo.path}` }))
       case "cloud-repos":
         return [...collections.repositories.values()].map((repo) => ({ value: repo.id, label: repo.id }))
       case "bookmarks": {

@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "./browserTest"
 import { AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
-import { ReposResponseSchema } from "@smthrs/rpc/LocalApp"
 import { CloudSessionSchema } from "@smthrs/rpc/CloudTunnel"
 import { arrayOf, bookmarkPage, parseOrg, parseBookmark, parseRepo, parseWorkspace } from "../../src/mainview/state/seams/RepositoriesSeam"
 import { installCloudFixture } from "./cloudFixture.ts"
@@ -19,7 +18,6 @@ test.beforeEach(async ({ page }) => {
 test("cloud fixture uses the shared local contracts and current cloud list envelopes", async ({ page }) => {
   await installCloudFixture(page)
   expect(AppBootstrapSchema.safeParse((await read(page, "/api/bootstrap")).body).success).toBe(true)
-  expect(ReposResponseSchema.parse((await read(page, "/api/repos")).body)).toEqual({ repos: [] })
   expect(CloudSessionSchema.parse((await read(page, "/api/cloud-auth/session")).body).state).toBe("signed-in")
   expect((await read(page, "/api/user")).body).toMatchObject({ username: "codeplanesmithers", is_admin: false })
   for (const query of ["", "?limit=100&cursor=next"]) {
@@ -40,16 +38,11 @@ test("cloud fixture overrides stay isolated and match repository pathnames liter
     workspace_title: "review", state: "running", last_accessed_at: null,
     last_activity_at: "2026-09-01T00:00:00Z", created_at: "2026-09-01T00:00:00Z", sort_timestamp: "2026-09-01T00:00:00Z"
   }
-  const localRepo = {
-    id: "demo", path: "/tmp/demo", name: "demo", git: null, warnings: [],
-    smithers: { detected: false, workspaceFile: null, declarationFiles: [], reason: "fixture", workspaces: [] }
-  }
   await installCloudFixture(page, {
-    localRepos: [localRepo], capabilities: ["cloud"], degraded: true, orgs: [], workspaces: [workspace],
+    capabilities: ["cloud"], degraded: true, orgs: [], workspaces: [workspace],
     repos: [{ owner: "visitor", name: "demo.v2", full_name: "visitor/demo.v2", default_bookmark: "review", owner_type: "User" }],
     bookmarks: { "visitor/demo.v2": [{ name: "review", target_change_id: "change-9", target_commit_id: "commit-9", is_tracking_remote: true }] }
   })
-  expect((await read(page, "/api/repos")).body).toEqual({ repos: [localRepo] })
   expect((await read(page, "/api/bootstrap")).body.capabilities).toEqual(["cloud"])
   expect((await read(page, "/api/cloud-auth/session")).body.scopes).toBe("degraded")
   expect(arrayOf((await read(page, "/api/user/orgs")).body, "orgs").map(parseOrg)).toEqual([])

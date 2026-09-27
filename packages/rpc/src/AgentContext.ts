@@ -215,20 +215,12 @@ export const AgentRuntimeContextSchema = z.object({
   theme: z.enum(["light", "dark"]),
   selectedWorldDocument: runtimeLineSchema.nullable(),
   connectors: z.array(AgentRuntimeConnectorSchema),
-  /*
-   * Repositories open in the LOCAL app (apps/app/docs/LOCAL-APP.md), by name and
-   * path: what files.list / files.read act on. Optional so a
-   * boundary built before this field, and the cloud client, still validate.
-   */
+  /** Loaded repository identities, shared by every app host. */
   repositories: z
     .array(
       z.object({
         id: runtimeLineSchema,
-        name: runtimeLineSchema,
-        path: runtimeLineSchema,
-        branch: runtimeLineSchema.nullable(),
-        /** A Smithers workspace was detected in the checkout. */
-        smithers: z.boolean()
+        name: runtimeLineSchema
       })
     )
     .optional(),
@@ -397,13 +389,11 @@ export const renderAgentRuntimeContext = (context: AgentRuntimeContext): string 
   const repositories = context.repositories ?? []
   if (repositories.length > 0) {
     lines.push(
-      "- Open repositories (local checkouts in this app; files.list / files.read act on them, a bare call on the active one):"
+      "- Repositories:"
     )
     for (const repo of repositories) {
       lines.push(
-        `  - "${line(repo.name)}" (id ${line(repo.id)}) at ${line(repo.path)}${
-          repo.branch === null ? "" : `, branch ${line(repo.branch)}`
-        }${repo.smithers ? ", Smithers workspace detected" : ""}`
+        `  - "${line(repo.name)}" (id ${line(repo.id)})`
       )
     }
   }

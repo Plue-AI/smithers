@@ -95,8 +95,7 @@ const seed = async (store: AppStore): Promise<void> => {
     kind: "file-list",
     title: "files",
     payload: {
-      repo: "smithers",
-      localRepoId: "r1",
+      repo: REPO,
       path: "packages/journal",
       entries: [{ name: "Redaction.ts", kind: "file" }, { name: "Redaction.test.ts", kind: "file" }, { name: "src", kind: "dir" }]
     }
@@ -169,7 +168,7 @@ describe("the palette's rows (the button door) come from what the store holds", 
     expect(answer.parsed.mode).toBe("all")
     expect(answer.refusal).toBeUndefined()
     expect(answer.groups.map((group) => group.label)).toEqual(["Files", "Changes", "Issues"])
-    expect(refs(answer.groups, "Files")).toEqual(["local:r1/packages/journal/Redaction.ts", "local:r1/packages/journal/Redaction.test.ts"])
+    expect(refs(answer.groups, "Files")).toEqual(["/will/flows/packages/journal/Redaction.ts", "/will/flows/packages/journal/Redaction.test.ts"])
     expect(refs(answer.groups, "Issues")).toEqual(["412"])
     // A directory is never a file result, and every row names its open flow.
     expect(answer.groups.flatMap((group) => group.items).every((row) => row.item.actions.some((action) => action.role === "open"))).toBe(true)
@@ -181,7 +180,7 @@ describe("the palette's rows (the button door) come from what the store holds", 
     const answer = controller.searchPalette("journal/Redaction.test")
     expect(answer.parsed.mode).toBe("path")
     expect(answer.groups.map((group) => group.label)).toEqual(["Files"])
-    expect(refs(answer.groups, "Files")[0]).toBe("local:r1/packages/journal/Redaction.test.ts")
+    expect(refs(answer.groups, "Files")[0]).toBe("/will/flows/packages/journal/Redaction.test.ts")
   })
 
   test("run: with status: filters", async () => {
@@ -208,10 +207,10 @@ describe("the palette's rows (the button door) come from what the store holds", 
     const { store, controller } = await ready()
     await seed(store)
     expect(controller.searchPalette("").groups.map((group) => group.label)).toEqual(["Recommended"])
-    controller.notePaletteItemOpened({ kind: "file", ref: "local:r1/packages/journal/Redaction.test.ts" })
+    controller.notePaletteItemOpened({ kind: "file", ref: "/will/flows/packages/journal/Redaction.test.ts" })
     await settled()
     expect(controller.searchPalette("").groups.map((group) => group.label)).toEqual(["Recommended", "Recent"])
-    expect(refs(controller.searchPalette("redact").groups, "Files")[0]).toBe("local:r1/packages/journal/Redaction.test.ts")
+    expect(refs(controller.searchPalette("redact").groups, "Files")[0]).toBe("/will/flows/packages/journal/Redaction.test.ts")
   })
 
   test(":120 jumps into the newest file card; without one it says so", async () => {
@@ -282,7 +281,7 @@ describe("§6 the flow doors", () => {
     const value = JSON.parse(outcome.value ?? "{}") as { flow: string; count: number; items: Array<{ kind: string; ref: string }> }
     expect(value.flow).toBe("search.files")
     expect(value.count).toBe(2)
-    expect(value.items.map((item) => item.ref)).toEqual(["local:r1/packages/journal/Redaction.ts", "local:r1/packages/journal/Redaction.test.ts"])
+    expect(value.items.map((item) => item.ref)).toEqual(["/will/flows/packages/journal/Redaction.ts", "/will/flows/packages/journal/Redaction.test.ts"])
     const results = resultsCard(store, "search.files")
     expect(results.payload).toMatchObject({ query: "Redaction", flow: "search.files", args: "Redaction" })
     expect(results.payload.items.map((item) => item.ref)).toEqual(value.items.map((item) => item.ref))
@@ -440,17 +439,14 @@ test("an existing file result stays bound to its repository after selection chan
 })
 
 
-test("local tree and card observations deduplicate without merging other checkouts", async () => {
+test("saved local file cards cannot advertise a retired file route", async () => {
   const {store,controller}=await ready()
   try {
-    const repos=["a","b"].map(id=>({id,path:`/canary/${id}`,name:`alpha/${id}`,git:{branch:"main",remote:`git@github.com:alpha/${id}.git`},warnings:[],smithers:{detected:false,workspaceFile:null,declarationFiles:[],reason:"none",workspaces:[]}}))
-    await store.dispatch({type:"repos.loaded",actor:"system",repos}).isPersisted.promise
-    for(const repo of repos) await store.dispatch({type:"repo-tree.loaded",actor:"system",copyId:`local:${repo.path}`,path:"",entries:[{name:"README notes.md",kind:"file"}],truncated:false}).isPersisted.promise
     card(store,{id:"local-a-file",kind:"file",title:"File",payload:{repo:"alpha/a",localRepoId:"a",path:"README notes.md",content:"A",truncated:false}})
     await settled()
     const items=controller.searchPalette("README").groups.flatMap(group=>group.items.map(row=>row.item)).filter(item=>item.kind==="file")
-    expect(items.map(item=>item.ref).sort()).toEqual(["local:a/README notes.md","local:b/README notes.md"])
-    expect(items.map(item=>item.actions[0]?.args).sort()).toEqual(['"README notes.md" a','"README notes.md" b'])
+    expect(items).toEqual([])
+    expect(controller.searchPalette(":120").groups).toEqual([])
     expect(items.every(item=>item.actions.length===1&&item.actions[0]?.flow==="files.read")).toBe(true)
   } finally {await controller.dispose?.();await store.dispose?.()}
 })

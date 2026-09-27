@@ -2,15 +2,12 @@ import { NOTHING_ANSWERED } from "@smthrs/rpc/RefusalCopy"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 import { CardSchema } from "@smthrs/rpc/Cards"
-import type { Repo } from "@smthrs/rpc/LocalApp"
 
 import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
-import { repoKeyOf } from "../AppState"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
-import { resolveFileTarget } from "./FilesSeam"
 const PAGE_COMMIT = "a".repeat(40)
 
 /*
@@ -557,20 +554,7 @@ describe("files seam — files.read", () => {
   })
 
   /* The one cause local state does name, and the only one left: a pin this launch never opened. */
-  test("a pinned checkout this launch has not opened keeps its own answer", async () => {
-    const { store, controller } = await freshController()
-    await ready(store)
-    await store.dispatch({
-      type: "repo.pinned",
-      actor: "user",
-      pin: { id: "pin-ghost", name: "acme/ghost", path: "/Users/will/ghost", branch: "main", origin: "local", pinnedAt: 1 }
-    }).isPersisted.promise
-    const outcome = await controller.commands.run("files.read", "README.md acme/ghost")
-    expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") {
-      expect(outcome.error).toBe("acme/ghost is pinned but not open on this machine — open it with /repo.open, then retry.")
-    }
-  })
+
 })
 
 describe("files seam — honest failures", () => {
@@ -631,208 +615,6 @@ describe("files seam — honest failures", () => {
 })
 
 
-/*
- * A repository opened in the LOCAL app (LOCAL-APP.md): the same two commands
- * read it through POST /api/repo/files and render the same two cards. The
- * active open repository is the bare target; its owner/repo name or folder
- * name routes locally; any other name is still a Cloud read. 2026-09-01: with
- * ~/smithers open, "show me the README" had no path at all — the files flows
- * were Cloud-only and filtered out of the local catalog.
- */
-const localRepo = (id: string, name: string, path: string): Repo => ({
-  id,
-  path,
-  name,
-  git: { branch: "main", remote: `git@github.com:${name}.git` },
-  warnings: [],
-  smithers: { detected: true, workspaceFile: "WORKSPACE.ts", declarationFiles: [], reason: "1 workspace detected", workspaces: [{ path: ".", title: name }] }
-})
-const SMITHERS = localRepo("repo-smithers", "smithersai/smithers", "/Users/will/smithers")
-
-const localFilesBackend = () => {
-  const requests: Array<{ readonly url: string; readonly body?: unknown }> = []
-  const answers: Record<string, () => Response> = {
-    "": () =>
-      json(200, {
-        kind: "dir",
-        path: "",
-        entries: [{ name: "zeta.txt", kind: "file" }, { name: "src", kind: "dir" }, { name: "README.md", kind: "file" }]
-      }),
-    "src": () => json(200, { kind: "dir", path: "src", entries: [] }),
-    "node_modules": () =>
-      json(200, {
-        kind: "dir",
-        path: "node_modules",
-        entries: Array.from({ length: 1000 }, (_entry, index) => ({ name: `pkg-${String(index).padStart(4, "0")}`, kind: "dir" as const }))
-      }),
-    "README.md": () =>
-      json(200, { kind: "file", path: "README.md", size: 14, content: "# Local — hi\n", truncated: false, binary: false }),
-    "big.txt": () =>
-      json(200, { kind: "file", path: "big.txt", size: 999_999, content: "y".repeat(2000), truncated: true, binary: false }),
-    "logo.png": () => json(200, { kind: "file", path: "logo.png", size: 7, content: "", truncated: false, binary: true }),
-    "missing.txt": () => json(404, { error: { code: "path_not_found", message: "Path not found: missing.txt" } })
-  }
-  const services: AppServices = {
-    fetchImpl: async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
-      const path = new URL(url, "http://local.test").pathname
-      if (path === "/api/repo/files") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as { repoId?: string; path?: string }
-        requests.push({ url: path, body })
-        const answer = answers[body.path ?? ""]
-        return answer === undefined
-          ? json(404, { error: { code: "path_not_found", message: `Path not found: ${body.path}` } })
-          : answer()
-      }
-      // The repository-flows seam reads .smithers/factory.json in the background whenever the target repository changes (the slash leaves); it is not this seam's request.
-      if (url.endsWith("/contents/.smithers/factory.json")) return json(404, { status: "error", message: "no projection" })
-      if (/\/api\/repos\/[^/]+\/[^/]+\/home$/.test(url.split("?")[0]!)) return json(404, { status: "error", message: "no homepage" })
-      requests.push({ url })
-      if (path === "/api/public/repos") return json(200, { repos: [] })
-      if (url.includes("/contents")) return json(404, { code: "not_found", message: "repository not found" })
-      return json(404, { status: "error", message: `no stub for ${url}` })
-    }
-  }
-  return { services, requests }
-}
-
-const localController = async (repos: ReadonlyArray<Repo>) => {
-  const backend = localFilesBackend()
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const controller = createAppController(store, unavailableAgent, backend.services)
-  store.dispatch({
-    type: "identity.session.loaded",
-    actor: "system",
-    state: "signed-out",
-    login: null,
-    allowlisted: false,
-    admin: false,
-    scopesPlain: null
-  })
-  store.dispatch({ type: "repos.loaded", actor: "system", repos: [...repos] })
-  await settled()
-  return { store, controller, requests: backend.requests }
-}
-
-describe("files seam — a repository open in the local app", () => {
-  test("a bare /files.read reads the active open repository through the local route and renders the file card, signed out", async () => {
-    const { store, controller, requests } = await localController([SMITHERS])
-    const outcome = await controller.commands.run("files.read", "README.md")
-    expect(outcome.status).toBe("executed")
-    // The model reads the value: the same text the card shows, never a bare "executed".
-    expect(outcome.status === "executed" ? outcome.value : undefined).toBe("README.md in smithersai/smithers:\n# Local — hi\n")
-    expect(requests).toEqual([{ url: "/api/repo/files", body: { repoId: "repo-smithers", path: "README.md" } }])
-    const card = fileCard(store, "file-repo-smithers-README.md")
-    expect(card?.payload).toEqual({
-      repo: "smithersai/smithers",
-      localRepoId: "repo-smithers",
-      path: "README.md",
-      content: "# Local — hi\n",
-      truncated: false,
-      address: "/smithersai/smithers/README.md"
-    })
-    expect(CardSchema.safeParse(card).success).toBe(true)
-  })
-
-  test("a bare /files.list renders the file-list card, dirs first, whose rows name the local repository", async () => {
-    const { store, controller } = await localController([SMITHERS])
-    const listed = await controller.commands.run("files.list", "")
-    expect(listed.status).toBe("executed")
-    expect(listed.status === "executed" ? listed.value : undefined).toBe("/ in smithersai/smithers:\nsrc/\nREADME.md\nzeta.txt")
-    const card = listCard(store, "files-repo-smithers-/")
-    expect(card?.payload).toEqual({
-      repo: "smithersai/smithers",
-      localRepoId: "repo-smithers",
-      path: "",
-      entries: [{ name: "src", kind: "dir" }, { name: "README.md", kind: "file" }, { name: "zeta.txt", kind: "file" }],
-      address: "/smithersai/smithers/"
-    })
-  })
-
-  test("the model's copy of a huge listing is bounded while the card keeps every entry", async () => {
-    const { store, controller } = await localController([SMITHERS])
-    const listed = await controller.commands.run("files.list", "node_modules")
-    expect(listed.status).toBe("executed")
-    const value = listed.status === "executed" ? listed.value ?? "" : ""
-    expect(value.split("\n").length).toBe(1 + 400 + 1)
-    expect(value.endsWith("… and 600 more (the card lists them all)")).toBe(true)
-    expect(listCard(store, "files-repo-smithers-node_modules")?.payload.entries).toHaveLength(1000)
-  })
-
-  test("local names route locally; other targets retain their Cloud sign-in requirement", async () => {
-    const { store, controller, requests } = await localController([SMITHERS])
-    expect((await controller.commands.run("files.read", "README.md smithersai/smithers")).status).toBe("executed")
-    expect((await controller.commands.run("files.read", "README.md smithers")).status).toBe("executed")
-    expect(requests.filter((request) => request.url === "/api/repo/files")).toHaveLength(2)
-    expect(fileCard(store, "file-repo-smithers-README.md")?.payload.content).toBe("# Local — hi\n")
-    await controller.commands.run("files.read", "README.md will/flows")
-    await settled()
-    expect(store.session().pendingCommand?.requirement).toBe("repo-source")
-    expect(requests.filter((request) => request.url === "/api/public/repos")).toHaveLength(1)
-    expect(requests.some((request) => request.url.includes("/api/repos/will/flows/contents/README.md"))).toBe(false)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
-    const cloud = await controller.commands.run("files.read", "README.md will/flows")
-    expect(cloud.status).toBe("failed")
-    expect(requests.some((request) => request.url.includes("/api/repos/will/flows/contents/README.md"))).toBe(true)
-  })
-
-  test("global paths use the same local copy in the helper, listing and reading", async () => {
-    const other = localRepo("repo-other", "aa/other", "/Users/will/other")
-    const { store, controller, requests } = await localController([other, SMITHERS])
-    await ready(store)
-    store.dispatch({ type: "repo.selected", actor: "user", id: repoKeyOf(other.path) })
-    await settled()
-    for (const [command, path] of [["files.list", "src"], ["files.read", "README.md"]] as const) {
-      const globalPath = `/smithersai/smithers/${path}`
-      const target = resolveFileTarget(store, globalPath, undefined)
-      expect(target).toMatchObject({ kind: "local", repo: SMITHERS, path })
-      expect((await controller.commands.run(command, globalPath)).status).toBe("executed")
-      expect(requests.at(-1)).toEqual({
-        url: "/api/repo/files", body: { repoId: SMITHERS.id, path }
-      })
-    }
-    expect(listCard(store, "files-repo-smithers-src")?.payload.localRepoId).toBe(SMITHERS.id)
-    expect(fileCard(store, "file-repo-smithers-README.md")?.payload.localRepoId).toBe(SMITHERS.id)
-  })
-
-  test("a bounded read states truncation, a binary file is stated not printed, and a missing path is the honest string", async () => {
-    const { store, controller } = await localController([SMITHERS])
-    expect((await controller.commands.run("files.read", "big.txt")).status).toBe("executed")
-    expect(fileCard(store, "file-repo-smithers-big.txt")?.payload.truncated).toBe(true)
-    const binary = await controller.commands.run("files.read", "logo.png")
-    expect(binary.status).toBe("executed")
-    expect(binary.status === "executed" ? binary.value : undefined).toBe("logo.png in smithersai/smithers is a binary file; its bytes are not shown.")
-    expect(fileCard(store, "file-repo-smithers-logo.png")?.payload).toEqual({
-      repo: "smithersai/smithers",
-      localRepoId: "repo-smithers",
-      path: "logo.png",
-      content: "",
-      truncated: false,
-      binary: true,
-      address: "/smithersai/smithers/logo.png"
-    })
-    const missing = await controller.commands.run("files.read", "missing.txt")
-    expect(missing.status).toBe("failed")
-    // The local app's own message (its `{ error: { code, message } }` envelope), never the seam's fallback.
-    expect(JSON.stringify(missing)).toContain("Path not found: missing.txt")
-    expect(JSON.stringify(missing)).not.toContain("missing.txt in smithersai/smithers")
-    expect((await controller.commands.run("files.read", "src")).status).toBe("failed")
-    expect((await controller.commands.run("files.list", "README.md")).status).toBe("failed")
-  })
-
-  test("with several repositories open, a bare call reads the active one — the store names the first by name until one is selected", async () => {
-    const zeta = localRepo("repo-zeta", "zz/zeta", "/Users/will/zeta")
-    const alpha = localRepo("repo-alpha", "aa/alpha", "/Users/will/alpha")
-    const { store, controller, requests } = await localController([zeta, alpha])
-    expect((await controller.commands.run("files.read", "README.md")).status).toBe("executed")
-    expect(requests[0]?.body).toEqual({ repoId: "repo-alpha", path: "README.md" })
-    store.dispatch({ type: "repo.selected", actor: "user", id: repoKeyOf(zeta.path) })
-    await settled()
-    expect((await controller.commands.run("files.read", "README.md")).status).toBe("executed")
-    expect(requests[1]?.body).toEqual({ repoId: "repo-zeta", path: "README.md" })
-  })
-})
-
 describe("files seam — the model's copy of a Cloud read", () => {
   test("a Cloud files.read answers the file's text as its value, so the model quotes the file and never invents one", async () => {
     const { controller } = await freshController()
@@ -851,22 +633,7 @@ describe("files seam — the model's copy of a Cloud read", () => {
  * re-read without an anchor clears it: the card states where it stands.
  */
 describe("files seam — the line anchor", () => {
-  test("a local read carries the bare path to the route and the line and column on the card", async () => {
-    const { store, controller, requests } = await localController([SMITHERS])
-    const outcome = await controller.commands.run("files.read", "README.md:2:3")
-    expect(outcome.status).toBe("executed")
-    expect(requests).toEqual([{ url: "/api/repo/files", body: { repoId: "repo-smithers", path: "README.md" } }])
-    const card = fileCard(store, "file-repo-smithers-README.md")
-    expect(card?.payload.line).toBe(2)
-    expect(card?.payload.column).toBe(3)
-    expect(card?.payload.content).toBe("# Local — hi\n")
-    expect(CardSchema.safeParse(card).success).toBe(true)
-    await controller.commands.run("files.read", "README.md:1")
-    expect(fileCard(store, "file-repo-smithers-README.md")?.payload).toMatchObject({ line: 1 })
-    expect(fileCard(store, "file-repo-smithers-README.md")?.payload.column).toBeUndefined()
-    await controller.commands.run("files.read", "README.md")
-    expect(fileCard(store, "file-repo-smithers-README.md")?.payload.line).toBeUndefined()
-  })
+
 
   test("a Cloud read anchors the same way, and the model's copy is the file", async () => {
     const { store, controller, requests } = await freshController()
@@ -920,13 +687,5 @@ describe("files seam — reading at a revision", () => {
     expect(fileCard(store, `file-will/flows-README.md@${REVISION}`)?.payload.ref).toBe(REVISION)
   })
 
-  test("a local checkout refuses a revision instead of answering with its working copy", async () => {
-    const { controller, requests } = await localController([SMITHERS])
-    const outcome = await controller.readFile("README.md", undefined, undefined, REVISION)
 
-    expect(outcome).toBe(
-      `README.md in smithersai/smithers cannot be read at ${REVISION}: this machine serves its working copy, not a revision.`
-    )
-    expect(requests.filter((request) => request.url === "/api/repo/files")).toEqual([])
-  })
 })

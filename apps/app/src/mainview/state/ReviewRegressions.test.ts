@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import type { StorageApi } from "@tanstack/db"
 import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
-import type { Repo } from "@smthrs/rpc/LocalApp"
-import { fileArgs } from "../flows/FileArgs"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppController, AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
@@ -25,11 +23,6 @@ const until = async (ready: () => boolean) => {
   for (let tick = 0; tick < 200 && !ready(); tick += 1) await new Promise((resolve) => setTimeout(resolve, 5))
   expect(ready()).toBe(true)
 }
-const repo = (id: string, path: string): Repo => ({
-  id, path, name: "acme/project", git: { branch: id, remote: "https://github.com/acme/project.git" }, warnings: [],
-  smithers: { detected: true, workspaceFile: null, declarationFiles: [], reason: "", workspaces: [] }
-})
-
 const boot = async (fetchImpl?: AppServices["fetchImpl"]) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store,
@@ -95,24 +88,5 @@ describe("review regressions: concurrent commands and working-copy identity", ()
     expect(store.session().surface).toBe("chat")
   })
 
-  test("same-remote copies have separate file cards and a spaced path round-trips through commands and forms", async () => {
-    const bodies: Array<{ repoId: string; path: string }> = []
-    const { store, controller } = await boot(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { repoId: string; path: string }
-      bodies.push(body)
-      return json({ kind: "file", path: body.path, size: 10, content: body.repoId, truncated: false, binary: false })
-    })
-    const first = repo("repo-a", "/work/a"), second = repo("repo-b", "/work/b")
-    store.dispatch({ type: "repos.loaded", actor: "system", repos: [first, second] })
-    const path = "docs/Meeting Notes.md"
-    expect((await controller.commands.run("files.read", fileArgs(path, second.id))).status).toBe("executed")
-    expect(bodies.at(-1)).toEqual({ repoId: second.id, path })
-    await controller.commands.run("files.read", fileArgs(path, first.id))
-    expect(store.collections.cards.get(`file-${first.id}-${path}`)?.payload).toMatchObject({ localRepoId: first.id, content: first.id })
-    expect(store.collections.cards.get(`file-${second.id}-${path}`)?.payload).toMatchObject({ localRepoId: second.id, content: second.id })
-    expect(await controller.commands.run("files.read", fileArgs(path, first.name))).toMatchObject({ status: "failed", error: expect.stringContaining("several open working copies") })
-    controller.renderFlowForm({ name: "files.read", args: fileArgs(path, second.id), via: "user" })
-    await controller.commands.run("form.submit", "form-files.read")
-    expect(bodies.at(-1)).toEqual({ repoId: second.id, path })
-  })
+
 })

@@ -40,7 +40,7 @@ export const requirements: ReadonlyArray<FlowRequirement> = [
      * An unrelated selection cannot authorize the target.
      */
     id: "repo-source",
-    satisfied: (state) => !state.signedOut || state.hasOpenRepos === true || state.publicRepo === true,
+    satisfied: (state) => !state.signedOut || state.publicRepo === true,
     fulfill: "auth.prompt",
     reason: "Sign in with GitHub, or open a local repository first"
   },

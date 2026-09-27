@@ -115,7 +115,6 @@ export function SetupChecklist({ commands }: { commands?: readonly CatalogItem[]
     repositoryEntry: session.repositoryEntry, dismissed: session.firstRunDismissed,
   })))
   const { data: identities } = useLiveQuery(collections.identitySessions)
-  const { data: repos } = useLiveQuery(collections.repos)
   const { data: repositories } = useLiveQuery(collections.repositories)
   const { data: cards } = useLiveQuery(collections.cards)
   const repo = sessions[0]?.repositoryEntry?.repo ?? activeRepositoryId(controller.store) ?? undefined
@@ -124,7 +123,7 @@ export function SetupChecklist({ commands }: { commands?: readonly CatalogItem[]
   const steps = resolveSteps(commands ?? controller.commands.all(), {
     signedIn: identities[0]?.state === "signed-in",
     localAuth: controller.localAuth !== undefined,
-    hasRepo: repos.length > 0 || repositories.some(row => row.catalog !== true),
+    hasRepo: repositories.some(row => row.catalog !== true),
     hasSetup: hasRegisteredSetup(cards, repo, owner),
   }, repo)
   // Undismissed, the recommended actions carry the same five; the row is theirs until then.

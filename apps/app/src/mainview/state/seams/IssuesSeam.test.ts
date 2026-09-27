@@ -89,21 +89,6 @@ const reposChosen = async (store: AppStore): Promise<void> => {
   await settled()
 }
 
-/** Opening a checkout pins it (AppProjection "opening pins"), so a pin alone never means "not imported". */
-const openCheckout = (store: AppStore): Promise<unknown> =>
-  store.dispatch({
-    type: "repos.loaded",
-    actor: "system",
-    repos: [{
-      id: "repo-flows",
-      name: "will/flows",
-      path: "/Users/will/flows",
-      warnings: [],
-      git: { branch: "main", remote: "git@github.com:will/flows.git" },
-      smithers: { detected: false, workspaceFile: null, declarationFiles: [], workspaces: [], reason: "none" }
-    }]
-  }).isPersisted.promise
-
 const issuesController = async (services: AppServices) => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
@@ -773,31 +758,15 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
   })
 
   /* The one cause local state does name: a checkout the sidebar pins that Cloud has never taken. */
-  test("a pinned checkout Cloud does not have keeps the import guidance", async () => {
-    const { store, controller } = await issuesController(backend({
-      "POST /api/repos/will/flows/issues": json(404, REPOSITORY_NOT_FOUND)
-    }))
-    await store.dispatch({
-      type: "repo.pinned",
-      actor: "user",
-      pin: { id: "pin-flows", name: "will/flows", path: "/Users/will/flows", branch: "main", origin: "local", pinnedAt: 1 }
-    }).isPersisted.promise
-    const outcome = await controller.commands.run("issues.create", "A brand new idea")
-    expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") {
-      expect(outcome.error).toBe("will/flows isn't imported yet — run /repos.import will/flows first")
-    }
-  })
 
-  test("closing a missing number in an open, imported checkout answers the number, not the import", async () => {
+
+  test("closing a missing number in a loaded repository answers the number, not the import", async () => {
     const calls: string[] = []
-    const { store, controller } = await issuesController(backend({
+    const { controller } = await issuesController(backend({
       "GET /api/repos/will/flows/issues": json(200, [wireIssue(7)]),
       "PATCH /api/repos/will/flows/issues/999": json(404, ISSUE_NOT_FOUND)
     }, calls))
-    await openCheckout(store)
     // The state the defect needed: the open checkout is pinned, and its issues list came back imported.
-    expect([...store.collections.pinnedRepos.values()].map((pin) => pin.name)).toEqual(["will/flows"])
     expect((await controller.commands.run("issues.list", "")).status).toBe("executed")
     const outcome = await controller.commands.run("issues.close", "999")
     expect(outcome.status).toBe("failed")
@@ -805,11 +774,10 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     expect(calls.filter((call) => call.startsWith("PATCH"))).toEqual(["PATCH /api/repos/will/flows/issues/999"])
   })
 
-  test("creating an issue in an open checkout the platform 404s names the repository, not the import", async () => {
-    const { store, controller } = await issuesController(backend({
+  test("creating an issue in a loaded repository the platform 404s names the repository, not the import", async () => {
+    const { controller } = await issuesController(backend({
       "POST /api/repos/will/flows/issues": json(404, REPOSITORY_NOT_FOUND)
     }))
-    await openCheckout(store)
     const outcome = await controller.commands.run("issues.create", "A brand new idea")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") expect(outcome.error).toBe("will/flows was not found")

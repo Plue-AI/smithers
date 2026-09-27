@@ -12,10 +12,9 @@ import { payloadFor } from "../flows/SlashPayload"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
-import type { Repo } from "./AppState"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
-import { knownRepositories, resolveOpenRepo, resolveTargetRepo, splitTrailingRepo } from "./RepoContext"
+import { knownRepositories, resolveTargetRepo, splitTrailingRepo } from "./RepoContext"
 
 const freshStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
 
@@ -27,21 +26,13 @@ const repository = (id: string) => {
   return { id, org, ownerKind: "user" as const, name, head: null }
 }
 
-/** An open checkout: `remote` names its repository, null leaves it local-only (repoId = its name). */
-const checkout = (name: string, remote: string | null): Repo => ({
-  id: name,
-  path: `/work/${name}`,
-  name,
-  git: { branch: "main", remote },
-  smithers: { detected: false, workspaceFile: null, declarationFiles: [], reason: "no WORKSPACE.ts", workspaces: [] },
-  warnings: []
-})
-
 const loadRepositories = (store: AppStore, ...ids: ReadonlyArray<string>) =>
   dispatch(store, { type: "repositories.loaded", actor: "system", repositories: ids.map(repository) })
 
-const openCheckouts = (store: AppStore, ...repos: ReadonlyArray<Repo>) =>
-  dispatch(store, { type: "repos.loaded", actor: "system", repos })
+const openBoxes = async (store: AppStore, ...ids: string[]) => {
+  await dispatch(store, { type: "workspaces.loaded", actor: "system", workspaces: ids.map(id => ({ id, repoId: id, name: id, targetBookmark: null, status: "running", provisioningStage: null, suspendedAt: null, createdAt: null })) })
+  await dispatch(store, { type: "repo.selected", actor: "user", id: `${ids[0]}#workspace:${ids[0]}` })
+}
 
 describe("splitTrailingRepo", () => {
   const known = new Set(["will/flows"])
@@ -85,14 +76,12 @@ describe("knownRepositories", () => {
   test("names loaded repositories and the active working copy's parseable repository", async () => {
     const store = await freshStore()
     await loadRepositories(store, "will/flows", "will/smithers")
-    await openCheckouts(store, checkout("flows", "git@github.com:acme/flows.git"), checkout("scratch", null))
+    await openBoxes(store, "acme/flows")
     const known = knownRepositories(store)
     expect(known.has("will/flows")).toBe(true)
     expect(known.has("will/smithers")).toBe(true)
     expect(known.has("acme/flows")).toBe(true)
     expect(splitTrailingRepo("fix crash acme/flows", known)).toEqual({ rest: "fix crash", repo: "acme/flows" })
-    // A local-only checkout's repoId is its name, never an owner/repo.
-    expect(known.has("scratch")).toBe(false)
     expect(known.has("src/index.ts")).toBe(false)
   })
 })
@@ -101,13 +90,10 @@ describe("trailing repositories from working copies", () => {
   test("an inactive working copy does not turn trailing text into a target", async () => {
     const store = await freshStore()
     await loadRepositories(store, "will/flows")
-    await openCheckouts(store,
-      checkout("flows", "git@github.com:acme/flows.git"),
-      checkout("rpc", "git@github.com:packages/rpc.git")
-    )
-    expect(store.session().activeRepoKey).toBe("local:/work/flows")
+    await openBoxes(store, "acme/flows", "packages/rpc")
+    expect(store.session().activeRepoKey).toBe("acme/flows#workspace:acme/flows")
     expect(splitTrailingRepo("fix packages/rpc", knownRepositories(store))).toEqual({ rest: "fix packages/rpc" })
-    await dispatch(store, { type: "repo.selected", actor: "user", id: "local:/work/rpc" })
+    await dispatch(store, { type: "repo.selected", actor: "user", id: "packages/rpc#workspace:packages/rpc" })
     expect(splitTrailingRepo("fix packages/rpc", knownRepositories(store))).toEqual({ rest: "fix", repo: "packages/rpc" })
   })
 })
@@ -139,62 +125,12 @@ describe("resolveTargetRepo", () => {
   test("the active working copy's repository is the target over several loaded ones", async () => {
     const store = await freshStore()
     await loadRepositories(store, "will/flows", "will/smithers")
-    await openCheckouts(store, checkout("flows", "https://github.com/acme/flows"))
-    expect(store.session().activeRepoKey).toBe("local:/work/flows")
+    await openBoxes(store, "acme/flows")
+    expect(store.session().activeRepoKey).toBe("acme/flows#workspace:acme/flows")
     expect(resolveTargetRepo(store, undefined)).toEqual({ repo: "acme/flows" })
   })
 
-  test("an active working copy whose repoId is not owner/repo falls through to the loaded set", async () => {
-    const store = await freshStore()
-    await loadRepositories(store, "will/flows", "will/smithers")
-    await openCheckouts(store, checkout("scratch", null))
-    expect(store.session().activeRepoKey).toBe("local:/work/scratch")
-    expect(store.collections.workingCopies.get("local:/work/scratch")?.repoId).toBe("scratch")
-    expect(resolveTargetRepo(store, undefined)).toEqual({
-      error: "Several repositories are loaded (will/flows, will/smithers) — name one as owner/repo"
-    })
-  })
-})
 
-describe("resolveOpenRepo", () => {
-  test("nothing selected and nothing open: open a repository first", async () => {
-    const store = await freshStore()
-    expect(resolveOpenRepo(store)).toEqual({ error: "Open a repository first." })
-  })
-
-  test("a repository selected at its head has no local checkout", async () => {
-    const store = await freshStore()
-    await loadRepositories(store, "will/flows")
-    await dispatch(store, { type: "repo.selected", actor: "user", id: "will/flows" })
-    expect(resolveOpenRepo(store)).toEqual({
-      error: "will/flows is selected at its head — open a local working copy with /repo.open first."
-    })
-  })
-
-  test("a selected cloud workspace is not open on this machine", async () => {
-    const store = await freshStore()
-    await loadRepositories(store, "will/flows")
-    await dispatch(store, {
-      type: "workspaces.loaded",
-      actor: "system",
-      workspaces: [{
-        id: "ws-1", repoId: "will/flows", name: "Box", targetBookmark: null,
-        status: "running", provisioningStage: null, suspendedAt: null, createdAt: null
-      }]
-    })
-    await dispatch(store, { type: "repo.selected", actor: "user", id: "will/flows#workspace:ws-1" })
-    expect(resolveOpenRepo(store)).toEqual({
-      error: "The active working copy is not open on this machine — open it with /repo.open first."
-    })
-  })
-
-  test("the active local checkout is the open repository", async () => {
-    const store = await freshStore()
-    const flows = checkout("flows", "git@github.com:acme/flows.git")
-    await openCheckouts(store, flows)
-    const open = resolveOpenRepo(store)
-    expect("repo" in open ? open.repo.path : open.error).toBe("/work/flows")
-  })
 })
 
 /*

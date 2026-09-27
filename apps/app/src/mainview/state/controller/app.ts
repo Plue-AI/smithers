@@ -96,7 +96,7 @@ export const createAppShellController = (ctx: ControllerContext): AppShellContro
     const value = identityMessage({
       bootstrap: ctx.services.bootstrap,
       connectors: [...collections.connectors.values()],
-      repos: [...collections.repos.values()],
+      repositories: [...collections.repositories.values()],
       // The same selection the agent runtime context reports (controller/turns.ts activeRepository).
       activeRepository: activeRepositoryId(ctx.store),
       registered: (flow) => ctx.commands.find(flow) !== undefined

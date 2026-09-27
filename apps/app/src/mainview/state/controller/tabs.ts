@@ -1,5 +1,5 @@
-import { activeRepoOf, MAIN_TAB_ID, parseRepoSelection, repoKeyOf } from "../AppState"
-import type { PinnedRepo, Repo, TabRow } from "../AppState"
+import { MAIN_TAB_ID, parseRepoSelection } from "../AppState"
+import type { TabRow } from "../AppState"
 import type { ControllerContext } from "./context"
 import { knowledgeCardAvailable } from "../KnowledgeFeatures"
 
@@ -20,14 +20,11 @@ export interface TabsController {
   /** Close a tab (the active one when unnamed); the card stays in the transcript. Main never closes and never complains. */
   readonly closeTab: (tabId?: string) => string | void
   /**
-   * A sidebar repo row: the active repository, reopened first when its pin
-   * is closed (a typed path where the host allows one, else the picker).
+   * Select a repository or one of its boxes.
    */
   readonly selectRepo: (repoKey: string) => Promise<string | void>
   /** Forget a pinned repository; its open session and tabs stay until closed. */
   readonly unpinRepo: (repoKey: string) => string | void
-  /** The active repository, for the acts that name one. */
-  readonly activeRepo: () => Repo | undefined
   /** The Cmd+W / Cmd+1..9 bindings on one document; returns the uninstaller. */
   readonly installKeyboard: (target: Pick<Document, "addEventListener" | "removeEventListener">) => () => void
 }
@@ -43,13 +40,6 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
 
   const activeTab = (): TabRow | undefined => collections.tabs.get(store.session().activeTabId ?? MAIN_TAB_ID)
 
-  const activeRepo = (): Repo | undefined => activeRepoOf(store.session(), collections.repos.values())
-  /** The pin a repository nests new tabs under (docs/LOCAL-APP.md "Tabs"). */
-  const activeRepoKey = (): { readonly repoKey: string } | Record<never, never> => {
-    const repo = activeRepo()
-    return repo === undefined ? {} : { repoKey: repoKeyOf(repo.path) }
-  }
-
   const openCardTab: TabsController["openCardTab"] = (cardId) => {
     const card = collections.cards.get(cardId)
     if (card === undefined) return `There is no card with id ${cardId}.`
@@ -61,7 +51,7 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
       store.dispatch({
         type: "tab.opened",
         actor: ctx.commandActor,
-        tab: { id: `card-${cardId}`, kind: "card", title: card.title, cardId, ...activeRepoKey() }
+        tab: { id: `card-${cardId}`, kind: "card", title: card.title, cardId, ...(store.session().activeRepoKey == null ? {} : { repoKey: store.session().activeRepoKey! }) }
       })
     }
     /*
@@ -95,19 +85,14 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
   const selectRepo: TabsController["selectRepo"] = async (repoKey) => {
     /*
      * Lane piper: `org/repo` and `org/repo#copyId` tokens select from the
-     * inventory — the reducer validates them. A local checkout key can reopen
-     * a checkout that is not currently open.
+     * inventory; the reducer validates them.
      */
     const selection = parseRepoSelection(repoKey)
     if (selection !== null && "repoId" in selection) {
       store.dispatch({ type: "repo.selected", actor: "user", id: repoKey })
       return
     }
-    const pin: PinnedRepo | undefined = collections.pinnedRepos.get(repoKey)
-    if (pin === undefined) return `There is no pinned repository with key ${repoKey}.`
-    const open = [...collections.repos.values()].some((repo) => repoKeyOf(repo.path) === repoKey)
-    if (!open) return "This host no longer opens local repositories."
-    store.dispatch({ type: "repo.selected", actor: "user", id: repoKey })
+    return "This host no longer opens local repositories."
   }
 
   const unpinRepo: TabsController["unpinRepo"] = (repoKey) => {
@@ -140,7 +125,6 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     closeTab,
     selectRepo,
     unpinRepo,
-    activeRepo,
     installKeyboard
   }
 }
