@@ -968,6 +968,10 @@
       {
         "kind": "file",
         "path": "scripts/require-toolchain.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/issue_sync.go"
       }
     ],
     "outputs": [],

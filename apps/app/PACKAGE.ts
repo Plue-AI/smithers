@@ -168,7 +168,8 @@ const conformance = Smithers.NodeTest({
     Smithers.file("bunfig.toml"),
     Smithers.file("//package.json"),
     Smithers.file("//pnpm-lock.yaml"),
-    Smithers.file("//scripts/require-toolchain.mjs")
+    Smithers.file("//scripts/require-toolchain.mjs"),
+    Smithers.file("//packages/backend/internal/services/issue_sync.go")
   ],
   // Globs cannot cross PACKAGE.ts boundaries; dependency keys carry these sources.
   deps: [rpcPackage.check, componentPackage.check, gatewayPackage.check, harnessDetectPackage.check],

@@ -161,6 +161,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   }
   /** A gated answer fails the request with the plain message and withdraws the card. */
   const gatedFailure = async (row: Pending, current: () => boolean) => {
+    if (!current()) return TOAST_SUPERSEDED
     withdraw(false)
     return await fail(row, current, UNAVAILABLE)
   }
@@ -461,10 +462,18 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     try {
       const { response, rows, fresh } = await readPool()
       if (!current()) return "Account changed."
-      if (await featureGated(response)) { withdraw(true); return UNAVAILABLE }
+      const gated = await featureGated(response)
+      if (!current()) return "Account changed."
+      // Feature-gate replies participate in the same ordering as pool reads.
+      if (gated) {
+        if (!fresh()) return readResult("")
+        withdraw(true)
+        return UNAVAILABLE
+      }
       if (!response.ok) return `Coding connections unavailable (HTTP ${response.status}).`
       if (!rows) return "Coding connections unavailable."
-      publish(fresh() ? rows : undefined, undefined, true)
+      if (!fresh()) return readResult("")
+      publish(rows, undefined, true)
       const live = accountsOf(rows)
       return readResult(live.length ? live.map(row =>
         [row.id, row.provider, row.email ?? row.label, row.state, ...(row.limitedUntil ? [`limited until ${row.limitedUntil}`] : [])].join(" · ")).join("\n") : "No coding connections.")
