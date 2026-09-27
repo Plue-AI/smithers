@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./browserTest"
+import { identityRoute } from "./identity"
 
 const command = async (page: Page, line: string) => {
   const input = page.getByTestId("composer-input")
@@ -14,7 +15,7 @@ test("an unresolved or failed repository URL never reads the previous repository
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["agent", "identity", "cloud", "cloud.terminal"], authFlow: "native-handoff", sandbox: null,
   } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-out" } }))
+  await page.route("**/api/user", identityRoute(null))
   let release!: () => void
   let gate: Promise<void> | undefined
   await page.route("**/api/public/repos", async route => {

@@ -1,37 +1,20 @@
 import { fillComposer } from "./composer"
 import { expect, test } from "./browserTest"
 import type { Page } from "./browserTest"
-import type { Repo } from "@smthrs/rpc/LocalApp"
 import { installCloudFixture } from "./cloudFixture.ts"
 
 /*
- * Lane piper T1 (docs/workbench-lanes/piper.md "Exit", ADR 0001): the app
- * opens ~/smithers with its remote parsing into the cloud inventory, and
- * /files.read README.md renders the card whose header carries the global
- * address and the position the read was taken at. (The sidebar tree that
- * once showed the nesting is removed; the one address space lives on in the
- * card headers and the composer's repository menu.)
+ * Lane piper T1 (docs/workbench-lanes/piper.md "Exit", ADR 0001): repositories
+ * share one address space, and /files.read README.md renders the card whose
+ * header carries the global address and the position the read was taken at.
+ * Local checkouts no longer join it: ac9e0cccfd retired the local repository
+ * list, so the read is the Cloud contents route at the head the inventory
+ * last saw.
  *
  * The server is a double: the shared cloud fixture (cloudFixture.ts) answers
- * the bootstrap, the cloud session and the Smithers Cloud inventory behind
- * /api/cloud/*, this spec adds the local checkout and the repo-files read.
+ * the bootstrap, the identity and the repository inventory with its
+ * bookmarks; this spec adds the contents read.
  */
-
-const SMITHERS_REPO = {
-  id: "smithers",
-  path: "/Users/williamcory/smithers",
-  name: "smithers",
-  git: { branch: "main", remote: "git@github.com:smithersai/smithers.git" },
-  jj: { changeId: "kxyzqrpv", commitId: "c0ffee123456", ahead: 3, bookmark: "main" },
-  warnings: [],
-  smithers: {
-    detected: true,
-    workspaceFile: "WORKSPACE.ts",
-    declarationFiles: ["WORKSPACE.ts"],
-    reason: "ok",
-    workspaces: [{ path: ".", title: "smithers" }]
-  }
-} satisfies Repo
 
 const json = (body: unknown, status = 200) => ({
   status,
@@ -39,11 +22,11 @@ const json = (body: unknown, status = 200) => ({
   body: JSON.stringify(body)
 })
 
-/** Install the server double: ~/smithers open locally, signed in to a cloud that inventories smithersai/smithers. */
+/** Install the server double: signed in to a cloud that inventories smithersai/smithers. */
 const serve = async (page: Page): Promise<void> => {
-  await installCloudFixture(page, { localRepos: [SMITHERS_REPO] })
-  await page.route("**/api/repo/files", (route) =>
-    route.fulfill(json({ kind: "file", path: "README.md", size: 10, content: "# Smithers\n", truncated: false, binary: false })))
+  await installCloudFixture(page)
+  await page.route((url) => url.pathname === "/api/repos/smithersai/smithers/contents/README.md", (route) =>
+    route.fulfill(json({ type: "file", name: "README.md", path: "README.md", size: 11, encoding: "utf-8", content: "# Smithers\n" })))
 }
 
 test.beforeEach(async ({ page }) => {
@@ -57,7 +40,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test("T1: ~/smithers joins the one address space; /files.read's card header shows the address and readAt", async ({ page }) => {
+test("T1: /files.read's card header shows the global address and readAt", async ({ page }) => {
   await serve(page)
   await page.goto("/")
 
@@ -65,8 +48,7 @@ test("T1: ~/smithers joins the one address space; /files.read's card header show
   // and the change id the read was taken at.
   await fillComposer(page, "/files.read README.md")
   await page.getByTestId("composer-send").click()
-  // The card is keyed by the local checkout's name; its header carries the global address.
-  const card = page.getByTestId("card-file-smithers-README.md")
+  const card = page.getByTestId("card-file-smithersai/smithers-README.md")
   await expect(card).toBeVisible({ timeout: 15_000 })
   await expect(card.locator(".world-card-path")).toContainText("/smithersai/smithers/README.md")
   await expect(card.locator(".world-card-path")).toContainText("kxyzqrpv")

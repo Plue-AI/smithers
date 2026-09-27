@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./browserTest"
-import { signedOutVisitor, skipSignup } from "./identity"
+import { identityRoute, signedOutVisitor, skipSignup } from "./identity"
 
 /*
  * The paying path at 390 px (iPhone 12–15 width): the signup, the plans card
@@ -47,7 +47,7 @@ test("the signup fits a 390 px phone at every stage", async ({ page }) => {
   expect(await overflow(page)).toEqual([])
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-1-doors.png`, fullPage: true })
 
-  await page.route("**/api/auth/session", route => route.fulfill(json({ status: "signed-in", login: "adapark", allowlisted: true, admin: false })))
+  await page.route("**/api/user", identityRoute("adapark"))
   await page.goto("/")
   await expect(page.getByTestId("signup-account")).toHaveValue("adapark")
   expect(await overflow(page)).toEqual([])
@@ -82,7 +82,7 @@ test("the plans card fits a 390 px phone, hides Max, and states included, remain
   // A cloud host with a billing upstream declares its billing routes.
   await page.route("**/api/bootstrap", route => route.fulfill(json({ apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["identity", "cloud", "agent", "billing.balance", "billing.overview", "billing.plans"], authFlow: "redirect", sandbox: null })))
-  await page.route("**/api/auth/session", route => route.fulfill(json({ status: "signed-in", login: "adapark", allowlisted: true, admin: false })))
+  await page.route("**/api/user", identityRoute("adapark"))
   await page.route("**/api/billing/plans", route => route.fulfill(json({ plans, current_plan_key: "pro" })))
   await page.route("**/api/billing", route => route.fulfill(json({ credit_balance_cents: 1234, usage_period_end: "2026-10-01T00:00:00Z",
     sandbox: { plan_key: "pro", concurrent_sandboxes: 3, concurrent_in_use: 1, idle_timeout_secs: 14400, hours_per_day: -1,

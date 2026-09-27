@@ -1,10 +1,10 @@
 import { expect, test } from "./browserTest"
-import { SCOPED_TEST_USER, signedOutVisitor, skipSignup } from "./identity"
+import { SCOPED_TEST_USER, signedOutVisitor, skipSignup, identityRoute } from "./identity"
 
 for (const key of ["Enter", "Space"]) test(`a Chat refusal survives account cleanup and an explicit ${key} retry`, async ({ page }) => {
   await signedOutVisitor(page)
   let signedIn = true
-  await page.route("**/api/auth/session", route => route.fulfill({ json: signedIn ? SCOPED_TEST_USER : { status: "signed-out" } }))
+  await page.route("**/api/user", route => identityRoute(signedIn ? SCOPED_TEST_USER.login : null)(route))
   // Hold the real SQLite commit while the account privacy barrier is active.
   // No application debug API or replacement persistence implementation.
   await page.addInitScript(() => {

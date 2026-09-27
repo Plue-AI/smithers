@@ -1,5 +1,5 @@
 import { expect, test } from "./browserTest"
-import { SCOPED_TEST_USER, skipSignup } from "./identity"
+import { SCOPED_TEST_USER, skipSignup, identityRoute } from "./identity"
 
 // Real browser SQLite and flow forms; API replies are explicit fixtures, not
 // evidence that a remote provider performed a delivery.
@@ -8,7 +8,7 @@ test("delivery resolution saves before sending, keeps Chat usable, and restores 
   await page.route("**/api/**", route => route.fulfill({ status: 404, json: { message: "No fixture" } }))
   await page.route("**/api/bootstrap", route => route.fulfill({ json: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["agent", "identity", "cloud"], authFlow: "native-handoff", sandbox: null } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: SCOPED_TEST_USER }))
+  await page.route("**/api/user", identityRoute())
   await page.route("**/api/user/repos", route => route.fulfill({ json: [{ owner: "smithersai", name: "smithers", full_name: repo, owner_type: "Organization", default_bookmark: "main" }] }))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: repo }] } }))
   await page.route(`**/api/repos/${repo}/contents`, route => route.fulfill({ json: [] }))

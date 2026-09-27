@@ -1,7 +1,7 @@
 import { controlTabKey, expect, test, type Page } from "./browserTest"
 import type { SetupHostInput, SetupOperationResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import type { z } from "zod"
-import { SCOPED_TEST_USER, skipSignup } from "./identity"
+import { SCOPED_TEST_USER, skipSignup, identityRoute } from "./identity"
 import { settleAnimations } from "./animations"
 
 // Real built app, SQLite, registry and keyboard. Setup/Control responses are
@@ -15,7 +15,7 @@ const bootstrap = async (page: Page, signedIn: boolean) => {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["agent", "identity", "cloud"], authFlow: "native-handoff", sandbox: null
   } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: signedIn ? SCOPED_TEST_USER : { status: "signed-out" } }))
+  await page.route("**/api/user", identityRoute(signedIn ? SCOPED_TEST_USER.login : null))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: repo }] } }))
   await page.route("**/api/user/repos", route => route.fulfill({ json: [{ owner: "smithersai", name: "smithers", full_name: repo, owner_type: "Organization", default_bookmark: "main" }] }))
   await page.route(`**/api/repos/${repo}/contents`, route => route.fulfill({ json: [] }))

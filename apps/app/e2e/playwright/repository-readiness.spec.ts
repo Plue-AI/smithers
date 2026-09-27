@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./browserTest"
+import { identityRoute } from "./identity"
 
 const command = async (page: Page, line: string) => {
   const input = page.getByTestId("composer-input")
@@ -16,7 +17,7 @@ test("a cold catalog request survives reload and keeps progress through its boun
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["identity", "cloud"], authFlow: "native-handoff", sandbox: null
   } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-out" } }))
+  await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/recommend", route => route.fulfill({ json: { suggestions: [] } }))
   let releaseCatalog!: () => void
   const catalog = new Promise<void>(resolve => { releaseCatalog = resolve })
@@ -66,7 +67,7 @@ test("a command retries an unavailable catalog in background and reconnects acro
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["identity", "cloud"], authFlow: "native-handoff", sandbox: null
   } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-out" } }))
+  await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/recommend", route => route.fulfill({ json: { suggestions: [] } }))
   let catalogs = 0
   let release!: () => void

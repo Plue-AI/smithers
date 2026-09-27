@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./browserTest"
-import { SCOPED_TEST_USER, signedOutVisitor, skipSignup } from "./identity"
+import { SCOPED_TEST_USER, signedOutVisitor, skipSignup, identityRoute } from "./identity"
+import { runningBox } from "./cloudFixture"
 
 const repo = "smithersai/smithers"
 const oldFailure = "Previous account registration refused."
@@ -16,7 +17,9 @@ const command = async (page: Page, line: string) => {
 for (const stage of ["import", "launch"] as const) test(`a late ${stage} failure cannot replace the next account's registration`, async ({ page }) => {
   await signedOutVisitor(page)
   let changed = false, imports = 0, launches = 0, failCurrent = false
-  await page.route("**/api/auth/session", route => route.fulfill({ json: changed ? { ...SCOPED_TEST_USER, login: "second-owner" } : SCOPED_TEST_USER }))
+  await page.route("**/api/user", route => identityRoute(changed ? "second-owner" : SCOPED_TEST_USER.login)(route))
+  // Every flow call names a box (0701d73d12, #2194): the register launch runs on the repository's one running box.
+  await page.route(url => url.pathname === "/api/user/workspaces", route => route.fulfill({ json: [runningBox(repo)] }))
   await page.route("**/api/github/import", route => {
     imports += 1
     if (!changed && stage === "import") return route.fulfill({ status: 403, json: { message: oldFailure } })

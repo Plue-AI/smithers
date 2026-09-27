@@ -10,7 +10,8 @@ import { controlTabKey, expect,test } from "./browserTest"
  */
 
 
-import { signedOutVisitor, skipSignup } from "./identity"
+import { identityRoute, signedOutVisitor, skipSignup } from "./identity"
+import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 const slash = async (page: import("@playwright/test").Page, command: string) => {
   if (!await page.getByTestId("composer-input").isVisible()) await page.keyboard.press("Control+k")
@@ -30,7 +31,7 @@ test("repository chrome sign-in is keyboard reachable and carries return_to", as
   expect(bounds!.x).toBeGreaterThan(page.viewportSize()!.width / 2)
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(44)
   await page.route("**/api/auth/github**", route => route.fulfill({ body: "Sign-in handoff" }))
-  const request = page.waitForRequest(request => new URL(request.url()).pathname === "/api/auth/github/start")
+  const request = page.waitForRequest(request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
   await page.keyboard.press("Enter")
   expect(new URL((await request).url()).searchParams.get("return_to")).toBe("/smithersai/smithers/")
 })
@@ -43,7 +44,7 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
       { name: "smithersai/smithers", title: "Smithers", url: "https://github.com/smithersai/smithers", summary: "Smithers.", stats: null },
     ] } }))
     const redirects: string[] = []
-    page.on("request", request => { if (request.url().includes("/api/auth/github/start")) redirects.push(request.url()) })
+    page.on("request", request => { if (new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH) redirects.push(request.url()) })
     await page.goto("/smithersai/smithers/")
     await expect(page.getByTestId("chrome-sign-in")).toBeVisible()
     await slash(page, command)
@@ -59,8 +60,8 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
     expect(new URL(page.url()).pathname).toMatch(/^\/smithersai\/smithers\/?$/)
     expect(redirects).toEqual([])
     if (command === "/secrets.list") {
-      await page.route("**/api/auth/github/start**", route => route.fulfill({ body: "Sign-in handoff" }))
-      const request = page.waitForRequest(request => new URL(request.url()).pathname === "/api/auth/github/start")
+      await page.route("**/api/auth/github**", route => route.fulfill({ body: "Sign-in handoff" }))
+      const request = page.waitForRequest(request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
       await prompt.getByRole("button", { name: "Sign in with GitHub", exact: true }).click()
       expect(new URL((await request).url()).searchParams.get("return_to")).toBe("/smithersai/smithers/")
     }
@@ -96,18 +97,15 @@ test("chrome sign-in paints with the readable primary action token", async ({ pa
 
 /*
  * CT089: a bare repository command typed before first run has chosen its
- * target parks and resumes into the sign-in requirement. Both identity reads are on
- * the critical path (state/controller/auth-billing.ts dispatchSignedOut), so
- * both are held here; releasing only the session read leaves a second hop.
+ * target parks and resumes into the sign-in requirement. The selected
+ * backend's user API is the one identity read on the critical path
+ * (state/controller/auth-billing.ts loadSession), so it is held here.
  */
 const heldIdentity = async (page: import("@playwright/test").Page) => {
-  const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
-  let releaseSession!: () => void, releaseScopes!: () => void
-  const session = new Promise<void>(resolve => { releaseSession = resolve })
-  const scopes = new Promise<void>(resolve => { releaseScopes = resolve })
-  await page.route("**/api/auth/session", async route => { await session; await route.fulfill(json({ status: "signed-out" })) })
-  await page.route("**/api/auth/scopes", async route => { await scopes; await route.fulfill(json({ scopes: [] })) })
-  return () => { releaseSession(); releaseScopes() }
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  await page.route("**/api/user", async route => { await held; await identityRoute(null)(route) })
+  return release
 }
 
 /*

@@ -1,4 +1,5 @@
 import { expect,test,type Page } from "./browserTest"
+import { identityRoute } from "./identity"
 
 /** Exercise the real failed-storage toast using only this browser profile. */
 const boot = async (page: Page) => {
@@ -17,7 +18,7 @@ const boot = async (page: Page) => {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["identity", "cloud", "agent"], authFlow: "redirect", sandbox: null,
   } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-out" } }))
+  await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: "smithersai/smithers" }] } }))
   await page.route("**/api/repos/smithersai/smithers", route => route.fulfill({ json: { default_bookmark: "main" } }))
   await page.route("**/api/repos/smithersai/smithers/contents/README.md", route => route.fulfill({ json: {

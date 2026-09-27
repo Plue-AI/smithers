@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test"
 import { showcase } from "../showcase"
+import { identityRoute } from "../../playwright/identity"
 
 export default showcase({
   id: "signup",
@@ -10,9 +11,7 @@ export default showcase({
   run: async ({ page, app, backend }) => {
     let signedIn = false
     await backend.signedOut()
-    await backend.route(url => url.pathname === "/api/auth/session", route => route.fulfill({
-      json: signedIn ? { status: "signed-in", login: "adapark", allowlisted: true, admin: false } : { status: "signed-out" }
-    }))
+    await backend.route(url => url.pathname === "/api/user", route => identityRoute(signedIn ? "adapark" : null)(route))
     await backend.json("/api/billing/balance", { state: "ok", allowedToStartWork: true, balance: { totalUsd: "500", lifetimeChargedUsd: "0", chargeCount: 0 } })
     // The GitHub round trip: the redirect comes straight back signed in.
     await backend.route(url => url.pathname.startsWith("/api/auth/github"), route => {

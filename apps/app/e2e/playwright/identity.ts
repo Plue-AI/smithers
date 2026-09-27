@@ -27,6 +27,16 @@ export const SCOPED_TEST_USER = {
   admin: false
 } as const
 
+/**
+ * The app reads identity from the selected backend's user API (`GET /api/user`,
+ * ApplicationClient `identity.current`) on every host since 4fa92ed8bf; a 401
+ * is signed out. `login` null answers signed out.
+ */
+export const identityRoute = (login: string | null = SCOPED_TEST_USER.login) =>
+  (route: import("@playwright/test").Route) => login === null
+    ? route.fulfill({ status: 401, json: { message: "Sign in" } })
+    : route.fulfill({ json: { id: 1, username: login, is_admin: false } })
+
 /** The Smithers Cloud half of the same account (`GET /api/cloud-auth/session`). */
 export const SCOPED_TEST_USER_CLOUD_SESSION = {
   state: "signed-in",
@@ -49,8 +59,7 @@ export async function signedOutVisitor(page: import("@playwright/test").Page) {
   const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) })
   await page.route("**/api/**", route => route.fulfill(json({ message: "Unavailable test route" }, 404)))
   await page.route("**/api/bootstrap", route => route.fulfill(json({ apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "agent"], authFlow: "redirect", sandbox: null })))
-  await page.route("**/api/auth/session", route => route.fulfill(json({ status: "signed-out" })))
-  await page.route("**/api/auth/scopes", route => route.fulfill(json({ scopes: [] })))
+  await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/user/repos", route => route.fulfill(json({ repos: [] })))
   await page.route(/\/api\/.*(?:issues|landings)(?:\?|$)/, route => route.fulfill(json({ message: "Sign in to read this repository" }, 401)))
 }

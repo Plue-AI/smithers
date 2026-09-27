@@ -1,5 +1,6 @@
 import { expect, test } from "./browserTest"
-import { signedOutVisitor } from "./identity"
+import { identityRoute, signedOutVisitor } from "./identity"
+import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 /*
  * The signup onboarding (state/Signup.ts) in a real browser: a signed-out
@@ -13,7 +14,7 @@ test("a signed-out visitor walks the signup in the transcript and a reload resum
   // Identity answers late on a cold load: the title is the first paint, and nothing else shows before the doors.
   let answerIdentity = () => {}
   const identityAnswered = new Promise<void>(resolve => { answerIdentity = resolve })
-  await page.route("**/api/auth/session", async route => { await identityAnswered; await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "signed-out" }) }) })
+  await page.route("**/api/user", async route => { await identityAnswered; await identityRoute(null)(route) })
   // The landing entry (no repository in the URL) paints the app before identity answers.
   await page.goto("/")
   const signup = page.getByTestId("signup")
@@ -38,13 +39,13 @@ test("a signed-out visitor walks the signup in the transcript and a reload resum
 
   // The GitHub door is auth.sign-in's redirect.
   await page.route("**/api/auth/github**", route => route.fulfill({ body: "Sign-in handoff" }))
-  const request = page.waitForRequest(request => new URL(request.url()).pathname === "/api/auth/github/start")
+  const request = page.waitForRequest(request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
   await page.getByTestId("signup-github").click()
   await request
-  await page.waitForURL(/\/api\/auth\/github\/start/)
+  await page.waitForURL(url => url.pathname === APPLICATION_SIGN_IN_PATH)
 
   // Back from GitHub: the identity answer moves the signup to the account step with the login prefilled.
-  await page.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-in", login: "adapark", allowlisted: true, admin: false } }))
+  await page.route("**/api/user", identityRoute("adapark"))
   await page.goto("/")
   await expect(page.getByTestId("signup-account")).toHaveValue("adapark")
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/3-account.png` })

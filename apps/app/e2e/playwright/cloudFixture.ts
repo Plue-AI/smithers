@@ -102,7 +102,6 @@ export const installCloudFixture = async (page: Page, options: CloudFixtureOptio
     state: "ok", allowedToStartWork: true,
     balance: { totalUsd: "500", lifetimeChargedUsd: "0", chargeCount: 0 }
   })
-  await respond("/api/auth/session", SCOPED_TEST_USER)
   await respond("/api/cloud-auth/session", session)
   await respond("/api/user/repos", repos)
   await respond("/api/user/orgs", options.orgs ?? [{ name: "smithersai" }])

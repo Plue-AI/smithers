@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./browserTest"
+import { identityRoute } from "./identity"
 
 const command = async (page: Page, line: string) => {
   const input = page.getByTestId("composer-input")
@@ -14,7 +15,7 @@ test("a deduplicated file search keeps its repository after selection and reload
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["agent", "identity", "cloud"], authFlow: "native-handoff", sandbox: null
   } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-out" } }))
+  await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: "alpha/one" }, { name: "beta/two" }] } }))
   await page.route(/\/api\/repos\/(alpha\/one|beta\/two)$/, route => route.fulfill({ json: { default_bookmark: "main" } }))
   await page.route(/\/api\/repos\/(alpha\/one|beta\/two)\/contents(?:\/[^?]*)?(?:\?.*)?$/, route => {

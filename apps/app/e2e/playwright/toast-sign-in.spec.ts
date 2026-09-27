@@ -1,6 +1,7 @@
 import { controlTabKey, expect, test } from "./browserTest"
 import { signedOutVisitor } from "./identity"
 import { fillComposer } from "./composer"
+import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 for (const path of ["/", "/smithersai/smithers/"]) {
   for (const modal of [false, true]) {
@@ -11,7 +12,7 @@ for (const path of ["/", "/smithersai/smithers/"]) {
         apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
         capabilities: ["identity", "cloud", "agent", "browser.read"], authFlow: "redirect", sandbox: null
       } }))
-      await page.route("**/api/auth/github/start**", route => route.fulfill({ contentType: "text/html", body: "Sign-in started" }))
+      await page.route("**/api/auth/github**", route => route.fulfill({ contentType: "text/html", body: "Sign-in started" }))
       await page.goto(path)
       let input = page.getByTestId("composer-input")
       // A seam that refuses for sign-in offers GitHub through the real
@@ -53,7 +54,7 @@ for (const path of ["/", "/smithersai/smithers/"]) {
         await expect(signIn).toBeVisible()
         await page.keyboard.press("Control+Shift+G")
       }
-      await expect(page).toHaveURL(/\/api\/auth\/github\/start/)
+      await expect(page).toHaveURL(url => url.pathname === APPLICATION_SIGN_IN_PATH)
       await expect(page.getByText("Sign-in started", { exact: true })).toBeVisible()
     })
   }

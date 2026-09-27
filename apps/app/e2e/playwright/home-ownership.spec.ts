@@ -1,11 +1,11 @@
 import { expect, test } from "./browserTest"
-import { SCOPED_TEST_USER, signedOutVisitor, skipSignup } from "./identity"
+import { SCOPED_TEST_USER, signedOutVisitor, skipSignup, identityRoute } from "./identity"
 
 test("signing in rereads the repository homepage without reloading the app", async ({ page }) => {
   const repo = "smithersai/smithers"
   let signedIn = false, reads = 0
   await signedOutVisitor(page)
-  await page.route("**/api/auth/session", route => route.fulfill({ json: signedIn ? SCOPED_TEST_USER : { status: "signed-out" } }))
+  await page.route("**/api/user", route => identityRoute(signedIn ? SCOPED_TEST_USER.login : null)(route))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [
     { name: repo, title: "Smithers", url: `https://github.com/${repo}`, summary: "Smithers.", stats: null }
   ] } }))

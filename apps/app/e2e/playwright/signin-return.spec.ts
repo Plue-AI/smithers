@@ -1,7 +1,8 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, test } from "./browserTest"
-import { SCOPED_TEST_USER, signedOutVisitor } from "./identity"
+import { SCOPED_TEST_USER, identityRoute, signedOutVisitor } from "./identity"
+import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 /*
  * The whole sign-in door round trip on a repository page, with a loopback
@@ -15,14 +16,12 @@ test("the chrome sign-in door returns to the repository page signed in", async (
   await signedOutVisitor(page)
   let signedIn = false
   const starts: string[] = []
-  await page.route("**/api/auth/session", route => route.fulfill({ json: signedIn
-    ? { status: "signed-in", ...SCOPED_TEST_USER, profile: { name: "Code Plane", completedAt: "2026-09-23T00:00:00.000Z" } }
-    : { status: "signed-out" } }))
+  await page.route("**/api/user", route => identityRoute(signedIn ? SCOPED_TEST_USER.login : null)(route))
   // WebKit cannot fulfill an intercepted request with a synthetic 302.
   // Let the browser follow a real response, retaining the app's return origin.
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1")
-    if (url.pathname !== "/api/auth/github/start") {
+    if (url.pathname !== APPLICATION_SIGN_IN_PATH) {
       response.writeHead(404).end()
       return
     }
@@ -39,7 +38,7 @@ test("the chrome sign-in door returns to the repository page signed in", async (
       server.listen(0, "127.0.0.1", () => { server.off("error", reject); resolve() })
     })
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-    await page.route("**/api/auth/github/start**", route => {
+    await page.route("**/api/auth/github**", route => {
       const url = new URL(route.request().url())
       return route.continue({ url: `${origin}${url.pathname}${url.search}` })
     })

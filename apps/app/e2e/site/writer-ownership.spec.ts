@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import { identityRoute } from "../playwright/identity"
 
 test("keyboard takeover at the Astro root consumes its intent and restores the saved app", async ({ context, page }) => {
   const errors: string[] = []
@@ -8,7 +9,7 @@ test("keyboard takeover at the Astro root consumes its intent and restores the s
   await context.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity"], authFlow: "redirect", sandbox: null,
   } }))
-  await context.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-out" } }))
+  await context.route("**/api/user", identityRoute(null))
   await page.goto("/")
   await page.getByRole("link", { name: "Get started for free", exact: true }).focus()
   await page.keyboard.press("Enter")

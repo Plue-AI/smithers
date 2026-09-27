@@ -1,10 +1,10 @@
 import { expect, test } from "./browserTest"
-import { SCOPED_TEST_USER, signedOutVisitor, skipSignup } from "./identity"
+import { SCOPED_TEST_USER, signedOutVisitor, skipSignup, identityRoute } from "./identity"
 
 test("an old unavailable response cannot clear the next account's coding connections", async ({ page }) => {
   await signedOutVisitor(page)
   let changed = false, reads = 0
-  await page.route("**/api/auth/session", route => route.fulfill({ json: changed ? { ...SCOPED_TEST_USER, login: "second-owner" } : SCOPED_TEST_USER }))
+  await page.route("**/api/user", route => identityRoute(changed ? "second-owner" : SCOPED_TEST_USER.login)(route))
   await page.route("**/api/user/provider-connections", route => {
     if (!changed && ++reads > 1) return route.fulfill({ status: 403, json: { message: "feature not available" } })
     return route.fulfill({ json: [{ id: changed ? "bob" : "alice", provider: "claude", label: changed ? "Bob coding account" : "Alice coding account", state: "active" }] })
@@ -57,7 +57,7 @@ test("an old unavailable response cannot clear the next account's coding connect
 
 test("an old background refresh cannot reopen unavailable coding connections", async ({ page }) => {
   await signedOutVisitor(page)
-  await page.route("**/api/auth/session", route => route.fulfill({ json: SCOPED_TEST_USER }))
+  await page.route("**/api/user", identityRoute())
   let reads = 0
   await page.route("**/api/user/provider-connections", route => {
     reads += 1

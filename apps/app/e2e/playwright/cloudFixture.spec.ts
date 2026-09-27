@@ -21,7 +21,7 @@ test("cloud fixture uses the shared local contracts and current cloud list envel
   expect(AppBootstrapSchema.safeParse((await read(page, "/api/bootstrap")).body).success).toBe(true)
   expect(ReposResponseSchema.parse((await read(page, "/api/repos")).body)).toEqual({ repos: [] })
   expect(CloudSessionSchema.parse((await read(page, "/api/cloud-auth/session")).body).state).toBe("signed-in")
-  expect((await read(page, "/api/auth/session")).body).toMatchObject({ login: "codeplanesmithers", admin: false })
+  expect((await read(page, "/api/user")).body).toMatchObject({ username: "codeplanesmithers", is_admin: false })
   for (const query of ["", "?limit=100&cursor=next"]) {
     expect(arrayOf((await read(page, `/api/user/repos${query}`)).body, "repos").map(parseRepo)).toEqual([
       expect.objectContaining({ id: "smithersai/smithers", ownerType: "org", defaultBookmark: "main" })

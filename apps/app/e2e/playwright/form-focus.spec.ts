@@ -1,5 +1,6 @@
 import type { Locator, Page } from "./browserTest"
 import { controlTabKey, expect, test } from "./browserTest"
+import { identityRoute } from "./identity"
 
 /*
  * THE FORM LAW meets the keyboard rule (apps/app/AGENTS.md). CT005 on live
@@ -15,7 +16,7 @@ test.beforeEach(async ({ page }) => {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["agent", "identity", "cloud", "cloud.terminal"], authFlow: "native-handoff", sandbox: null,
   } }))
-  await page.route("**/api/auth/session", route => route.fulfill({ json: { status: "signed-out" } }))
+  await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: "smithersai/smithers" }] } }))
   await page.route("**/api/repos/smithersai/smithers/contents", route => route.fulfill({ json: [] }))
 })

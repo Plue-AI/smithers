@@ -5,7 +5,6 @@ test.beforeEach(async ({ page }) => {
     apiVersion: 1, host: 'cloud', version: 'test', buildSha: 'test',
     capabilities: ['identity', 'cloud', 'agent'], authFlow: 'redirect', sandbox: null,
   } }))
-  await page.route('**/api/auth/session', route => route.fulfill({ json: { status: 'signed-out' } }))
   await page.route('**/api/user', route => route.fulfill({ status: 401, json: { message: 'Sign in' } }))
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Mode: Normal' })).toBeVisible()
