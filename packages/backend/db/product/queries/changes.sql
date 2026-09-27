@@ -221,6 +221,7 @@ FROM (
     JOIN users AS reviewer ON reviewer.id = lrr.reviewer_id
     WHERE lrr.landing_request_id = sqlc.arg(landing_request_id)
       AND lrr.type = 'approve'
+      AND lrr.reviewer_kind = 'human'
       AND lrr.state = 'submitted'
       AND lrr.reviewer_id <> lr.author_id
       AND (lrr.change_revisions -> sqlc.arg(change_id)::text ->> 'seq') ~ '^[1-9][0-9]*$'

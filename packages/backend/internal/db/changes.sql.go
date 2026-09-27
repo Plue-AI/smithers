@@ -348,6 +348,7 @@ FROM (
     JOIN users AS reviewer ON reviewer.id = lrr.reviewer_id
     WHERE lrr.landing_request_id = $2
       AND lrr.type = 'approve'
+      AND lrr.reviewer_kind = 'human'
       AND lrr.state = 'submitted'
       AND lrr.reviewer_id <> lr.author_id
       AND (lrr.change_revisions -> $1::text ->> 'seq') ~ '^[1-9][0-9]*$'

@@ -84,6 +84,7 @@ var migrationRegistry = []migrationSpec{
 	{48, "migrations/0048_push_event_pusher_credential.sql"},
 	{49, "migrations/0049_box_host_private_execution.sql"},
 	{50, "migrations/0050_drop_workspace_capability_bindings.sql"},
+	{51, "migrations/0051_agent_review_notes.sql"},
 }
 
 type migration struct {

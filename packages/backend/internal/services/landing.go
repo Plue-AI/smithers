@@ -2165,14 +2165,20 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 	confidence := strings.ToLower(strings.TrimSpace(req.ConfidenceBucket))
 	summary := strings.TrimSpace(req.Summary)
 	commitID := strings.TrimSpace(req.CommitID)
+	// An agent without a verdict may comment or request changes (the CLI's
+	// review); only a verdict review approves, as an LGTM.
+	agentNote := reviewerKind == "agent" && verdict == "" && (reviewType == "comment" || reviewType == "request_changes")
+	if agentNote {
+		confidence, summary = "", ""
+	}
 	if reviewerKind == "agent" {
-		if verdict != "lgtm" && verdict != "concerns" {
+		if !agentNote && verdict != "lgtm" && verdict != "concerns" {
 			return db.LandingRequestReview{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "LandingReview", Field: "verdict", Code: "invalid"})
 		}
-		if confidence != "high" && confidence != "medium" && confidence != "low" {
+		if !agentNote && confidence != "high" && confidence != "medium" && confidence != "low" {
 			return db.LandingRequestReview{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "LandingReview", Field: "confidence_bucket", Code: "invalid"})
 		}
-		if summary == "" {
+		if !agentNote && summary == "" {
 			return db.LandingRequestReview{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "LandingReview", Field: "summary", Code: "missing_field"})
 		}
 		if commitID == "" {
@@ -2187,9 +2193,11 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 		if err := validateSafeText("LandingReview", "commit_id", commitID); err != nil {
 			return db.LandingRequestReview{}, err
 		}
-		if verdict == "lgtm" {
+		switch {
+		case agentNote:
+		case verdict == "lgtm":
 			reviewType = "approve"
-		} else {
+		default:
 			reviewType = "request_changes"
 		}
 	} else {
@@ -2201,7 +2209,7 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 		verdict, confidence, summary, commitID = "", "", "", ""
 	}
 	body := req.Body
-	if reviewerKind == "agent" {
+	if reviewerKind == "agent" && !agentNote {
 		body = summary
 	}
 	if (reviewType == "comment" || reviewType == "request_changes") && strings.TrimSpace(body) == "" {
@@ -2283,7 +2291,9 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 	if err != nil {
 		return db.LandingRequestReview{}, pkgerrors.Internal("failed to create landing review").WithCause(err)
 	}
-	if reviewType != "pending" {
+	// An agent acting as a person answers none of that person's review
+	// requests (nor requests to an agent of that name).
+	if reviewType != "pending" && !actsThroughRunCredential(ctx, actor.ID) {
 		if q, ok := s.queries.(landingReviewRequestQuerier); ok {
 			err = q.FulfillLandingReviewRequestsForUser(ctx, db.FulfillLandingReviewRequestsForUserParams{
 				LandingRequestID: landingRow.ID,

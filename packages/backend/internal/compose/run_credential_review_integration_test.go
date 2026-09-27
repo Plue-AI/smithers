@@ -129,6 +129,22 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 		return count
 	}
 	reviews := fmt.Sprintf("/landings/%d/reviews", landing.Number)
+	reviewRequest := func() string {
+		var state string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM landing_review_requests WHERE landing_request_id = $1 AND reviewer_id = $2`, landing.ID, owner.ID).Scan(&state))
+		return state
+	}
+	approvers := func() []string {
+		rows, err := q.ListChangeLandingApprovers(ctx, db.ListChangeLandingApproversParams{ChangeID: changeID, LandingRequestID: landing.ID})
+		require.NoError(t, err)
+		logins := []string{}
+		for _, row := range rows {
+			logins = append(logins, row.Login)
+		}
+		return logins
+	}
+	rec := serve(person, http.MethodPost, fmt.Sprintf("/landings/%d/review-requests", landing.Number), `{"reviewer":"review-owner"}`)
+	require.Less(t, rec.Code, 300, rec.Body.String())
 
 	for name, bearer := range map[string]string{"bound agent run": boundRun, "unbound agent run": unboundRun} {
 		rec := serve(bearer, http.MethodPost, reviews, `{"type":"approve","commit_id":"`+commitID+`"}`)
@@ -144,6 +160,17 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &review))
 		assert.Equal(t, "agent", review.ReviewerKind, name)
 		assert.Zero(t, humanApprovals(), "%s LGTM counted as a human approval", name)
+		assert.Empty(t, approvers(), "%s LGTM named its user as an approver", name)
+
+		// The CLI's review: a comment or change request needs no verdict;
+		// an approval does.
+		rec = serve(bearer, http.MethodPost, reviews, `{"type":"comment","body":"looked","commit_id":"`+commitID+`"}`)
+		require.Equal(t, http.StatusCreated, rec.Code, "%s: %s", name, rec.Body.String())
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &review))
+		assert.Equal(t, "agent", review.ReviewerKind, name)
+		rec = serve(bearer, http.MethodPost, reviews, `{"type":"request_changes","body":"fix","commit_id":"`+commitID+`"}`)
+		require.Equal(t, http.StatusCreated, rec.Code, "%s: %s", name, rec.Body.String())
+		assert.Equal(t, "requested", reviewRequest(), "%s answered its user's review request", name)
 
 		// Human approval gates refuse it.
 		rec = serve(bearer, http.MethodPost, "/approvals/00000000-0000-0000-0000-000000000001/decide", `{"decision":"approved"}`)
@@ -156,7 +183,7 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 	assert.Equal(t, int64(1), agentLGTMs)
 
 	// The person's own token approves as a person.
-	rec := serve(person, http.MethodPost, reviews, `{"type":"request_changes","body":"fix it","commit_id":"`+commitID+`"}`)
+	rec = serve(person, http.MethodPost, reviews, `{"type":"request_changes","body":"fix it","commit_id":"`+commitID+`"}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var blocking struct {
 		ID int64 `json:"id"`
@@ -167,6 +194,8 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 	rec = serve(person, http.MethodPost, reviews, `{"type":"approve","commit_id":"`+commitID+`"}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	assert.Equal(t, int64(1), humanApprovals())
+	assert.Equal(t, []string{"review-owner"}, approvers())
+	assert.Equal(t, "fulfilled", reviewRequest())
 	rec = serve(person, http.MethodPost, "/approvals/00000000-0000-0000-0000-000000000001/decide", `{"decision":"approved"}`)
 	assert.NotEqual(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	rec = serve(person, http.MethodPost, "/repository-jobs/job/approvals", `{}`)
