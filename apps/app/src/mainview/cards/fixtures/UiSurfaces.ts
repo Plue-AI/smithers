@@ -86,10 +86,10 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
       native: false,
       agents: [
         { id: "assistant", label: "Assistant", purpose: "Schedules, digests and the one door to the owner.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", available: false, reason: "", account: "" },
-        { id: "product-lead", label: "Product Lead", purpose: "Turns accepted work into issues that run.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", reportsTo: "assistant", available: false, reason: "", account: "" },
-        { id: "researcher", label: "Researcher", purpose: "Watches competing products.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "specialist", reportsTo: "product-lead", available: false, reason: "", account: "" },
-        { id: "engineer", label: "Engineer", purpose: "Implements non-trivial changes end to end, with tests.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-b", label: "Model B" }, builtin: false, kind: "core", reportsTo: "assistant", available: false, reason: "", account: "" },
-        { id: "reviewer", label: "Reviewer", purpose: "Verifies fixes and keeps the evals honest.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", reportsTo: "assistant", available: false, reason: "", account: "" }
+        { id: "product-lead", label: "Product Lead", purpose: "Turns accepted work into issues that run.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", available: false, reason: "", account: "" },
+        { id: "researcher", label: "Researcher", purpose: "Watches competing products.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "specialist", available: false, reason: "", account: "" },
+        { id: "engineer", label: "Engineer", purpose: "Implements non-trivial changes end to end, with tests.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-b", label: "Model B" }, builtin: false, kind: "core", available: false, reason: "", account: "" },
+        { id: "reviewer", label: "Reviewer", purpose: "Verifies fixes and keeps the evals honest.", harness: "codex", harnessName: "Codex", model: { provider: "openai", id: "model-a", label: "Model A" }, builtin: false, kind: "core", available: false, reason: "", account: "" }
       ]
     }
   },
