@@ -125,3 +125,22 @@ test("temporary PostgreSQL socket readiness cannot start a TCP-dependent app", a
   expect(earlyAppStarts).toBe(0)
   expect(waits).toBe(1)
 })
+
+test("coding-account acceptance requires an explicit opt-in recorded in the receipt", async () => {
+  for (const subscriptionConnections of [undefined, false, true]) {
+    const outputDir = temporary()
+    let appArguments: readonly string[] = []
+    const executor: CommandExecutor = async args => {
+      if (args.includes("inspect")) return { exitCode: 1, stdout: "", stderr: `Error: No such ${args[1]}: ${args.at(-1)}` }
+      if (args.includes("SMITHERS_AUTH_MODE=selfhost")) {
+        appArguments = args
+        return { exitCode: 17, stdout: "", stderr: "stop after checking self-host configuration" }
+      }
+      return { exitCode: 0, stdout: "created\n", stderr: "" }
+    }
+    await expect(startPackagedWebSelfhost({ rootDir: outputDir, revision, outputDir, executor, subscriptionConnections })).rejects.toThrow("stop after checking self-host configuration")
+    expect(appArguments.includes("SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS=true")).toBe(subscriptionConnections === true)
+    const report = JSON.parse(readFileSync(join(outputDir, "web-selfhost.launch.json"), "utf8"))
+    expect(report.subscriptionConnections).toBe(subscriptionConnections === true)
+  }
+})

@@ -20,6 +20,7 @@ export interface WebSelfhostLaunchReport {
   readonly finishedAt?: string
   readonly status: "starting" | "ready" | "failed" | "stopped"
   readonly resources: WebSelfhostResources
+  readonly subscriptionConnections: boolean
   readonly commands: readonly LaunchCommandReceipt[]
   readonly readiness: readonly ReadinessObservation[]
   readonly failure?: string
@@ -59,6 +60,8 @@ export interface WebSelfhostLaunchOptions {
   readonly outputDir: string
   readonly authEnvironment?: string
   readonly image?: string
+  /** Opt in only for the self-hosted coding-account acceptance lane. */
+  readonly subscriptionConnections?: boolean
   readonly executor?: CommandExecutor
   readonly fetcher?: LaunchFetcher
   readonly now?: () => Date
@@ -189,6 +192,7 @@ export const startPackagedWebSelfhost = async (options: WebSelfhostLaunchOptions
     startedAt,
     status,
     resources,
+    subscriptionConnections: options.subscriptionConnections === true,
     commands,
     readiness,
     ...(failure === undefined ? {} : { failure }),
@@ -347,6 +351,7 @@ export const startPackagedWebSelfhost = async (options: WebSelfhostLaunchOptions
       "--add-host", "host.docker.internal:host-gateway",
       "--publish", `127.0.0.1:${resources.hostPort}:4000`, "--env", `SMITHERS_DATABASE_URL=${databaseURL}`,
       "--env", "SMITHERS_AUTH_MODE=selfhost", "--env", `SMITHERS_AUTH_BOOTSTRAP_TOKEN=${bootstrapToken}`,
+      ...(options.subscriptionConnections === true ? ["--env", "SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS=true"] : []),
 	  "--env", `AI_GATEWAY_API_KEY=matrix-flow-${randomUUID()}`,
       "--env", `SMITHERS_PUBLIC_URL=${expectedOrigin}`,
       "--volume", `${resources.dataVolume}:/var/lib/smithers`, resources.image
