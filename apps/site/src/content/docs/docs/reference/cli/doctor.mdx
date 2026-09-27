@@ -38,7 +38,7 @@ The checks, in order:
 | `backend` | A `fail` when `SMITHERS_BACKEND` names an unsupported backend. |
 | `smithers 0.x` | A `warn` per 0.x marker or database found. A database entry adds how many non-terminal runs it holds, or that it is unreadable. |
 
-The `providers` check reads `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, and `CEREBRAS_API_KEY`, and notes when `SMITHERS_OPENAI_AUTH=chatgpt` supplies the OpenAI credential. The seat resolver also supports routes beyond this readiness list. Credential presence does not verify authentication, quota, or model availability; see [provider troubleshooting](/docs/troubleshooting/doctor-provider/).
+The `providers` check reads `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and `CEREBRAS_API_KEY`, and notes when `SMITHERS_OPENAI_AUTH=chatgpt` supplies the OpenAI credential. The seat resolver also supports routes beyond this readiness list. Credential presence does not verify authentication, quota, or model availability; see [provider troubleshooting](/docs/troubleshooting/doctor-provider/).
 
 `--json` prints the report object verbatim: the root, and every check with its name, level, and detail.
 

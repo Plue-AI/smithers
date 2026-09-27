@@ -30,7 +30,7 @@ The server mounts these routes:
 
 `GET /health` is unauthenticated. It answers the workspace's identity: a hash of the project root, the gateway id, the protocol version, and the CLI version. A supervisor probes it to learn which workspace a gateway belongs to.
 
-The canonical `serve` command also hosts the durable trigger scheduler over the same Control service. Registered cron schedules and occurrences queued with `triggers fire` are dispatched while it runs, preserving approval requirements. Use `triggers serve` for a standalone scheduler. The hidden `gateway` spelling retains the legacy server path; its 0.x `status` and `stop` subcommands remain unsupported.
+The canonical `serve` command also hosts the durable trigger scheduler over the same Control service. Registered cron schedules and occurrences queued with `triggers fire` are dispatched while it runs, preserving approval requirements. Use `triggers serve` for a standalone scheduler. The `gateway` alias retains the legacy server path; its 0.x `status` and `stop` subcommands remain unsupported.
 
 ## Flags
 
