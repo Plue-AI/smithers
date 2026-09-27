@@ -260,7 +260,7 @@
       "declarations": {
         "Agent.d.ts": "f0e09111e90178a7993048cd16d0fdaf8c21202d84f132507293f27533b27779",
         "AgentAction.d.ts": "d008a6b0b8121ba15d57d834bcb36e2e4840bb09fb5567db117ecf55217ae86d",
-        "AgentSession.d.ts": "98c112c3d015afcfeed6eabd9232b3fd6e7bc0bf1e0f434d9f868ed0c5e82ca2",
+        "AgentSession.d.ts": "a341847fe92e5b0a44cf02472fef777ea2bd2393e47ffa18f496392bdc3e3b2a",
         "Budget.d.ts": "a966ba06f70bcc9a8ca09d037c4b2c872653f2554d20681d7aa16228e30a7dfc",
         "CellPlugin.d.ts": "235d82bd4382234c20f0bf7d4baeb2fb38ebe5734b1c9e8a76d8b96429f9e17c",
         "Checkpointed.d.ts": "dd5b48ea7c34ca25c275e1eabed14ce9c2bfb5dd4efbcfb8f37f96d09eda72f2",
@@ -1985,6 +1985,7 @@
         "internal/NodeControlHost.d.ts": "5a6aa65fb698d20cc630491085fcab8b023c682774720c4a27936a207ac1978a",
         "internal/NodeWebSocket.d.ts": "b58f00a49881df364cb0372314edcd81b924af66ccd019bcc40ea74bc73ba079",
         "internal/NodeWorkspaceObservation.d.ts": "87cadba649d73e8e5d72d68c34cc9fcdd50ee789a49ba56016035f84a6d47372",
+        "internal/RoleProfile.d.ts": "2c6dae4ab1ddccf6313b93a2ecbc72698ee743cbbcff13e9d407690caa39eda5",
         "internal/SourceRevision.d.ts": "b11a30db31eb0fdb50b26381fe0404bab829ec6ee69f88ad108f08055ca952a3",
         "internal/SqliteTable.d.ts": "7f9a0b7d48e42c0f8b26730e1aa505adfeb6fd3073090380bcfe782d02eddcdf",
         "internal/SupervisorMemory.d.ts": "b8cdf1e74a6c5243ae67aa310b8e385a6dba8a8123019ffc41d75bf5c93a6c53",
