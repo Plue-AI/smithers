@@ -26,12 +26,18 @@ const proofFlow = (marker: string): string => [
 
 authenticatedTest("an owned repository runs a declared Flow on its box and exposes its durable result", scenario("flows.product-run", {
   capabilities: ["identity", "cloud"],
-  coverage: ["action:box.view", "action:flow.list", "action:flow.run", "host:local", "host:production", "path:success", "door:slash", "surface:flow-api", "dimension:default-box", "evidence:accepted-run-terminal-projection-and-box-file"]
+  coverage: ["action:box.view", "action:flow.list", "action:flow.run", "host:local", "host:production", "path:success", "door:slash", "surface:flow-api", "dimension:default-box", "dimension:fresh-box-catalog", "evidence:accepted-run-terminal-projection-and-box-file"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, async (repo) => {
     const marker = randomUUID()
     await pushMainFiles(page, request, repo, { "flows/proof/flow.mdx": proofFlow(marker) })
     await runningWorkspace(page, request, repo, async (workspaceId) => {
+      const procedures: Array<string> = []
+      page.on("request", (sent) => {
+        if (sent.method() !== "POST" || new URL(sent.url()).pathname !== "/api/workflow/rpc") return
+        const body = sent.postDataJSON() as { readonly procedure?: string; readonly repo?: string }
+        if (body.repo === repo.fullName && body.procedure !== undefined) procedures.push(body.procedure)
+      })
       const startedAt = performance.now()
       await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })
       await awaitBoot(page, "navigate", startedAt)
@@ -40,6 +46,22 @@ authenticatedTest("an owned repository runs a declared Flow on its box and expos
       // The app has loaded the new box (viewing it does not select it).
       await runSlash(page, `/box.view ${workspaceId}`)
       await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible({ timeout: 60_000 })
+      // Provisioning must make the catalog readable before any plan or run.
+      const listed = page.waitForResponse((response) => {
+        if (response.request().method() !== "POST" || new URL(response.url()).pathname !== "/api/workflow/rpc") return false
+        const body = response.request().postDataJSON() as { readonly procedure?: string; readonly repo?: string }
+        return body.procedure === "List" && body.repo === repo.fullName
+      }, { timeout: 120_000 })
+      await runSlash(page, `/flow.list ${repo.fullName}`)
+      const list = await listed
+      expect((list.request().postDataJSON() as { readonly workspaceId?: string }).workspaceId).toBe(workspaceId)
+      expect(list.status()).toBe(200)
+      const catalog = await list.json() as { readonly ok?: boolean; readonly payload?: { readonly items?: ReadonlyArray<{ readonly flowId?: string }> } }
+      expect(catalog.ok).toBe(true)
+      expect(catalog.payload?.items?.map(({ flowId }) => flowId)).toContain("proof")
+      await expect(page.locator('.smithers-card[data-kind="workflow-list"] .workflow-list-row').filter({ hasText: "proof" })).toBeVisible()
+      expect(procedures).not.toContain("Plan")
+      expect(procedures).not.toContain("Run")
       // No box is selected: the run binds to the repository's one running box.
       const accepted = page.waitForResponse((response) => {
         if (response.request().method() !== "POST" || new URL(response.url()).pathname !== "/api/workflow/rpc") return false
@@ -53,14 +75,6 @@ authenticatedTest("an owned repository runs a declared Flow on its box and expos
       const run = await response.json() as { readonly ok?: boolean; readonly payload?: { readonly runId?: string } }
       expect(run.ok).toBe(true)
       expect(run.payload?.runId).toEqual(expect.any(String))
-
-      const list = await realApi(page, request, "POST", "/api/workflow/rpc", {
-        repo: repo.fullName, workspaceId, procedure: "List", payload: { _tag: "flows" }
-      })
-      expect(list.status()).toBe(200)
-      const catalog = await list.json() as { readonly ok?: boolean; readonly payload?: { readonly items?: ReadonlyArray<{ readonly flowId?: string }> } }
-      expect(catalog.ok).toBe(true)
-      expect(catalog.payload?.items?.map(({ flowId }) => flowId), "the box's coding host serves the declared project flow").toContain("proof")
 
       await expect.poll(async () => {
         const projection = await realApi(page, request, "POST", "/api/workflow/rpc", {
