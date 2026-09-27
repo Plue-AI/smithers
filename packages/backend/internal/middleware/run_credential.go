@@ -93,7 +93,7 @@ func (a *AuthInfo) IsRunCredential() bool {
 // read token or mint one for itself), clearing workflow caches, and starting,
 // rerunning or resuming workflow runs (a run could start the default
 // bookmark's workflows with inputs it chooses, and their caches are what
-// every later run restores).
+// every later run restores), and deciding human approvals.
 func RefuseRunCredentials(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if AuthInfoFromContext(r.Context()).IsRunCredential() {

@@ -2155,8 +2155,10 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 	if actor == nil {
 		return db.LandingRequestReview{}, pkgerrors.Unauthorized("authentication required")
 	}
+	// A system-issued credential acts as its user, but an agent holds it:
+	// its review is an agent review and never a human approval.
 	reviewerKind := "human"
-	if actor.UserType == "bot" || actor.UserType == "service" {
+	if actor.UserType == "bot" || actor.UserType == "service" || actsThroughRunCredential(ctx, actor.ID) {
 		reviewerKind = "agent"
 	}
 	reviewType := strings.ToLower(strings.TrimSpace(req.Type))
@@ -2967,6 +2969,9 @@ func (s *LandingService) DismissLandingReview(ctx context.Context, actor *db.Use
 	}
 	if review.LandingRequestID != landingRow.ID {
 		return db.LandingRequestReview{}, pkgerrors.NotFound("review not found")
+	}
+	if review.ReviewerKind == "human" && actsThroughRunCredential(ctx, actor.ID) {
+		return db.LandingRequestReview{}, pkgerrors.Forbidden("a run credential cannot dismiss a person's review")
 	}
 
 	updated, err := s.queries.UpdateLandingRequestReviewState(ctx, db.UpdateLandingRequestReviewStateParams{

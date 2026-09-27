@@ -1365,9 +1365,9 @@ func buildRouter(
 					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs/{job}/dispatches", repositoryJobHandler.GetRepositoryJobDispatches)
 					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-jobs/{job}/pause", repositoryJobHandler.PauseRepositoryJob)
 					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), middleware.RequireMatchingRepositoryRestriction, gateWorkflows)...).Get("/repository-jobs/{job}/approvals", repositoryJobHandler.GetRepositoryJobApprovals)
-					// A repository-bound workspace or agent credential must not stamp
-					// the human approval whose authority it later consumes.
-					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RejectRepositoryRestrictedToken, gateWorkflows)...).Post("/repository-jobs/{job}/approvals", repositoryJobHandler.PostRepositoryJobApproval)
+					// No workspace, agent or other system-issued credential may
+					// stamp the human approval whose authority it later consumes.
+					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RejectRepositoryRestrictedToken, middleware.RefuseRunCredentials, gateWorkflows)...).Post("/repository-jobs/{job}/approvals", repositoryJobHandler.PostRepositoryJobApproval)
 				}
 				workflowWriteRepo := append([]func(http.Handler) http.Handler{}, writeRepo...)
 				workflowWriteRepo = append(workflowWriteRepo, gateWorkflows)
@@ -1459,8 +1459,11 @@ func buildRouter(
 					// decide. Idempotency already exists in the service
 					// layer, but the limiter protects audit logs and
 					// downstream notifications from a buggy client.
+					// A decision is a person's: a run credential acts
+					// as its user but is held by an agent.
 					r.With(append(
-						writeRepo,
+						append([]func(http.Handler) http.Handler{}, writeRepo...),
+						middleware.RefuseRunCredentials,
 						middleware.ApprovalDecideRateLimitWithObserver(
 							queries,
 							cfg.RateLimit.ApprovalDecidePerMin,
