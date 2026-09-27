@@ -71,7 +71,8 @@ describe("pure app event projection", () => {
   })
 
   test("owns exactly the domain roster and its stable keys", () => {
-    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(42)
+    // 41 since the harness inventory retired with the terminal and harness tabs (#2229).
+    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(41)
     expect(Object.keys(emptyAppProjection())).toEqual(Object.keys(APP_PROJECTION_SCHEMAS))
     expect(APP_PROJECTION_COLLECTION_NAMES).not.toContain("appEvents")
     expect(appProjectionKey("githubAppStatuses", { repo: "org/repo" })).toBe("org/repo")

@@ -77,7 +77,7 @@ describe("the persisted collection inventory the gate clears", () => {
       .map((key) => key.slice(PERSISTED_KEY_PREFIX.length))
     // Removed collections retain historical cleanup keys.
     expect(durableIds).not.toContain(store.collections.repoTree.id)
-    expect([...PERSISTED_COLLECTION_IDS].sort()).toEqual([...durableIds, store.collections.repoTree.id, "app-linear-integrations", "app-chain-events", "app-retired-chain-lineages"].sort())
+    expect([...PERSISTED_COLLECTION_IDS].sort()).toEqual([...durableIds, store.collections.repoTree.id, "app-linear-integrations", "app-chain-events", "app-retired-chain-lineages", "app-harnesses"].sort())
     expect(durableIds).not.toContain(store.collections.cards.id)
     expect(durableIds).not.toContain(store.collections.workingCopies.id)
     await store.dispose?.()

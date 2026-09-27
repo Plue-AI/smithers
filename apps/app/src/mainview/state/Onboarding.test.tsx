@@ -111,9 +111,8 @@ describe("onboarding — the opening entry", () => {
     expect(details?.hasAttribute("open")).toBe(true)
     expect(text(detailContent)).toContain("Host: local (1.0.0 abcdef1)")
     // The surviving vocabulary: the rows this host and the Worker both emit.
-    expect(text(detailContent)).toContain("Capabilities: agent, model.turn, identity, cloud, cloud.terminal, cloud.pat")
+    expect(text(detailContent)).toContain("Capabilities: agent, model.turn, identity, cloud, cloud.terminal, cloud.pat, native.shell")
     expect(text(detailContent)).toContain(`Flows registered: ${controller.commands.all().length}`)
-    expect(text(detailContent)).toContain("Harnesses: none detected")
     expect(text(detailContent)).toContain("Repositories: none open")
 
     /*
@@ -227,17 +226,15 @@ describe("onboarding — the pure rules", () => {
     const message = initMessage({
       bootstrap: undefined,
       flowCount: 0,
-      harnesses: [],
       connectors: [{ name: "flows", branch: "main" }],
       repos: [{ name: "smithers" }],
     })
     expect(message.text).toContain("Host: unknown")
-    expect(message.text).toContain("Harnesses: none detected")
     expect(message.text).toContain("Repositories: smithers, flows @ main")
   })
 
   test("the opening text names Smithers on its first line and keeps the title as the second", () => {
-    const lines = initMessage({ bootstrap: undefined, flowCount: 0, harnesses: [], connectors: [], repos: [] }).text.split("\n")
+    const lines = initMessage({ bootstrap: undefined, flowCount: 0, connectors: [], repos: [] }).text.split("\n")
     expect(INIT_GREETING).toBe("Smithers here.")
     expect(lines[0]).toBe(`**${INIT_GREETING}**`)
     expect(lines[1]).toBe(`**${INIT_TITLE}**`)
@@ -246,14 +243,12 @@ describe("onboarding — the pure rules", () => {
   test("the identity line is a constant over live facts: honest about an empty host, names only registered helpers", () => {
     const none = identityMessage({
       bootstrap: undefined,
-      harnesses: [],
       connectors: [],
       repos: [],
       activeRepository: null,
       registered: () => false
     })
     expect(none.startsWith("I am Smithers, the concierge of an unknown host; no repository is open yet.")).toBe(true)
-    expect(none).toContain("No local harness is detected.")
     expect(none).not.toContain("Librarian")
     expect(none).not.toContain("Flows agent")
     // One word, never a first name.
@@ -269,7 +264,6 @@ describe("onboarding — the pure rules", () => {
         authFlow: "redirect",
         sandbox: null
       },
-      harnesses: [],
       connectors: [{ name: "flows", branch: "main" }],
       repos: [{ name: "smithers" }],
       activeRepository: null,
@@ -282,7 +276,6 @@ describe("onboarding — the pure rules", () => {
   test("the identity line leads with the selected repository and names it once", () => {
     const facts = {
       bootstrap: undefined,
-      harnesses: [],
       connectors: [],
       registered: () => false
     }

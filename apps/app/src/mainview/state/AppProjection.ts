@@ -2,7 +2,6 @@ import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
 import type { ConfiguredModel, ModelBinding } from "@smthrs/rpc/ConfiguredModel"
 import { bindingOf,seatAccepts } from "@smthrs/rpc/ConfiguredModel"
-import { StatusRollupSchema } from "@smthrs/rpc/Health"
 import { AGENT_TURN_FRONT_DOOR_CALL_PREFIX } from "@smthrs/rpc/NativeAgent"
 import { z } from "zod"
 import { approvalQuestionKey } from "../cards/ApprovalQuestion"
@@ -47,7 +46,6 @@ DEFAULT_BRANCH_ID,
 DEFAULT_WORKSPACE_ID,
 FrameSchema,
 GitHubAppStatusRowSchema,
-HarnessSchema,
 IdentitySessionSchema,
 LocalRepositoryConnectorSchema,
 MAIN_TAB_ID,
@@ -89,7 +87,7 @@ rootFrameId
 import { CommandIntentSchema } from "./CommandIntent"
 import { archiveNotice,conversationNotes } from "./ConversationArchive"
 import { canonicalEventValue } from "./EventValue"
-import { acceptStatus,exitedStatus,expireStatus } from "./HealthStatus"
+import { expireStatus } from "./HealthStatus"
 import { HttpTurnLegSchema,HttpTurnSchema,httpToolLegCount,projectHttpFrame,settleHttpClaims,verifyHttpBatch } from "./HttpTurn"
 import { pendingRecoveryScope,sameRecoveryScope } from "./PendingRecovery"
 import { initialSignup, signupAfterIdentity } from "./Signup"
@@ -137,7 +135,6 @@ export const APP_PROJECTION_SCHEMAS = {
   toasts: ToastSchema,
   toolCalls: ToolCallRecordSchema,
   tabs: TabSchema,
-  harnesses: HarnessSchema,
   agents: AgentRoleSchema,
   models: StoredModelSchema,
   seats: SeatAssignmentSchema,
@@ -280,14 +277,8 @@ export const APP_TRANSITION_TYPES = {
   "message.appended": true,
   "tab.opened": true,
   "tab.selected": true,
-  "tab.close.asked": true,
   "tab.closed": true,
-  "tab.menu.toggled": true,
-  "pty.status.observed": true,
   "status.expired": true,
-  "pty.exited": true,
-  "harnesses.loaded": true,
-  "agents.loaded": true,
   "models.observed": true,
   "model.saved": true,
   "model.removed": true,
@@ -560,9 +551,7 @@ const orderedTabs = (collections: Pick<ProjectionCollections, "tabs">): Array<Ta
 
 /*
  * Remove tabs from the strip in one transaction: the nearest surviving tab
- * to the left of the active one takes over (else main), a pending close
- * question about a removed tab is answered, and a harness tab's agent card
- * follows its process. Main is never removed.
+ * to the left of the active one takes over (else main). Main is never removed.
  */
 const closeTabRows = (
   collections: Pick<ProjectionCollections, "tabs" | "sessions" | "cards">,
@@ -591,36 +580,11 @@ const closeTabRows = (
     }
   }
   collections.tabs.delete([...closingIds])
-  for (const tab of closing) {
-    if (tab.kind !== "harness") continue
-    // Closing a subagent's tab stops its process; its card says so with no exit code to claim.
-    for (const card of collections.cards.values()) {
-      if (card.kind === "agent" && !("cloud" in card.payload) && card.payload.tabId === tab.id && card.payload.phase === "running") {
-        collections.cards.update(card.id, (draft) => {
-          if (draft.kind !== "agent" || "cloud" in draft.payload) return
-          draft.payload.phase = "exited"
-          draft.payload.exitCode = null
-          draft.status = "acted"
-        })
-      }
-    }
-  }
   collections.sessions.update(SESSION_ID, (draft) => {
     if (fallback !== undefined) draft.activeTabId = fallback
-    if (draft.pendingTabCloseId !== undefined && draft.pendingTabCloseId !== null && closingIds.has(draft.pendingTabCloseId)) {
-      draft.pendingTabCloseId = null
-    }
     draft.revision = revision
   })
 }
-
-/** The terminal tabs attached to cloud workspaces — all of them, or those of the named workspaces. */
-const workspaceTabIds = (collections: Pick<ProjectionCollections, "tabs">, workspaceIds?: ReadonlySet<string>): Array<string> =>
-  [...collections.tabs.values()]
-    .filter((tab) =>
-      tab.kind === "terminal" && tab.workspaceId !== undefined && (workspaceIds === undefined || workspaceIds.has(tab.workspaceId))
-    )
-    .map((tab) => tab.id)
 const repositoryCapabilities = (
   root: string,
   access: LocalRepositoryConnector["access"]
@@ -780,11 +744,9 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
   // Cloud Wiki content and unsent CRDT updates belong to the signed-in account.
   const cloudNotes = [...collections.worldDocuments.values()].filter((row) => row.cloud !== undefined).map((row) => row.id)
   if (cloudNotes.length > 0) collections.worldDocuments.delete(cloudNotes)
-  // Card tabs and cloud terminals also carry private repository names.
-  closeTabRows(collections, [
-    ...workspaceTabIds(collections),
-    ...[...collections.tabs.values()].filter((tab) => tab.kind === "card").map((tab) => tab.id)
-  ], collections.sessions.get(SESSION_ID)!.revision)
+  // Card tabs also carry private repository names.
+  closeTabRows(collections, [...collections.tabs.values()].filter((tab) => tab.kind === "card").map((tab) => tab.id),
+    collections.sessions.get(SESSION_ID)!.revision)
   collections.cloudSessions.update("cloud", (draft) => Object.assign(draft, initialCloudSession(createdAt)))
   const cardFrameKeys = [...collections.frames.values()]
     .filter((frame) => frame.kind === "card")
@@ -2851,9 +2813,9 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
 
         /*
-         * The local-app tabs (docs/LOCAL-APP.md "Tabs"): main is seeded and
-         * never inserted or removed; every other tab takes the next place
-         * in the strip and becomes the active one as it opens.
+         * The card tabs (docs/LOCAL-APP.md "Cards"): main is seeded and never
+         * inserted or removed; every other tab takes the next place in the
+         * strip and becomes the active one as it opens.
          */
         case "tab.opened": {
           if (transition.tab.kind === "main" || collections.tabs.get(transition.tab.id) !== undefined) return
@@ -2862,7 +2824,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.tabs.insert({ ...transition.tab, ordinal: highest + 1 })
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.activeTabId = transition.tab.id
-            draft.tabMenuOpen = false
           })
           break
         }
@@ -2874,50 +2835,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           })
           break
 
-        case "tab.close.asked": {
-          const asked = transition.id === null ? undefined : collections.tabs.get(transition.id)
-          if (transition.id !== null && (asked === undefined || asked.kind === "main")) return
-          collections.sessions.update(SESSION_ID, (draft) => {
-            draft.pendingTabCloseId = transition.id
-          })
-          break
-        }
-
         case "tab.closed":
           closeTabRows(collections, [transition.id], revision)
           break
 
-        case "tab.menu.toggled":
-          collections.sessions.update(SESSION_ID, (draft) => {
-            draft.tabMenuOpen = transition.open
-          })
-          break
-
-        case "pty.status.observed": {
-          if (transition.actor !== "system") return
-          const decoded = StatusRollupSchema.safeParse(transition.status)
-          if (!decoded.success || decoded.data.subjectId !== `session:${transition.sessionId}` ||
-            !["spawning", "running", "exited"].includes(decoded.data.state)) return
-          const status = expireStatus(decoded.data, createdAt)
-          for (const tab of collections.tabs.values()) {
-            if ((tab.kind !== "terminal" && tab.kind !== "harness") || tab.sessionId !== transition.sessionId ||
-              (tab.kind === "terminal" && tab.workspaceId !== undefined) || !acceptStatus(tab.statusRollup, status)) continue
-            if (tab.exitCode === undefined && status.state === "exited") continue
-            collections.tabs.update(tab.id, (draft) => {
-              if (draft.kind === "terminal" || draft.kind === "harness") draft.statusRollup = draft.exitCode === undefined
-                ? status : exitedStatus(transition.sessionId, draft.exitCode, status, createdAt)
-            })
-          }
-          for (const card of collections.cards.values()) {
-            if (card.kind !== "agent" || "cloud" in card.payload || card.payload.sessionId !== transition.sessionId || !acceptStatus(card.payload.statusRollup, status)) continue
-            if (card.payload.phase === "running" && status.state === "exited") continue
-            collections.cards.update(card.id, (draft) => {
-              if (draft.kind === "agent" && !("cloud" in draft.payload)) draft.payload.statusRollup = draft.payload.phase === "exited"
-                ? exitedStatus(transition.sessionId, draft.payload.exitCode, status, createdAt) : status
-            })
-          }
-          break
-        }
         case "status.expired": {
           if (transition.actor !== "system" || !Number.isFinite(transition.now)) return
           // Older events expired only stored cards. Preserve their exact replay;
@@ -2929,13 +2850,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             const status = expireStatus(previous, transition.now)
             if (status !== previous) collections.runtimeRuns.update(run.id, draft => {
               if (draft.summary !== undefined) draft.summary = { ...draft.summary, statusRollup: status }
-            })
-          }
-          for (const tab of collections.tabs.values()) {
-            if ((tab.kind !== "terminal" && tab.kind !== "harness") || tab.statusRollup === undefined) continue
-            const status = expireStatus(tab.statusRollup, transition.now)
-            if (status !== tab.statusRollup) collections.tabs.update(tab.id, (draft) => {
-              if (draft.kind === "terminal" || draft.kind === "harness") draft.statusRollup = status
             })
           }
           for (const card of collections.cards.values()) {
@@ -2955,73 +2869,15 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           }
           break
         }
-        case "pty.exited": {
-          for (const tab of collections.tabs.values()) {
-            if ((tab.kind === "terminal" || tab.kind === "harness") && tab.sessionId === transition.sessionId) {
-              collections.tabs.update(tab.id, (draft) => {
-                if (draft.kind === "terminal" || draft.kind === "harness") {
-                  draft.exitCode = transition.code
-                  draft.statusRollup = exitedStatus(transition.sessionId, transition.code, draft.statusRollup, createdAt)
-                }
-              })
-            }
-          }
-          // The subagent card follows its process: exited, with the code the PTY reported.
-          for (const card of collections.cards.values()) {
-            if (card.kind === "agent" && !("cloud" in card.payload) && card.payload.sessionId === transition.sessionId) {
-              collections.cards.update(card.id, (draft) => {
-                if (draft.kind !== "agent" || "cloud" in draft.payload) return
-                draft.payload.phase = "exited"
-                draft.payload.exitCode = transition.code
-                draft.payload.statusRollup = exitedStatus(transition.sessionId, transition.code, draft.payload.statusRollup, createdAt)
-                draft.status = transition.code === 0 || transition.code === null ? "acted" : "error"
-              })
-            }
-          }
-          break
-        }
-
         /*
-         * A reload replaces the list: rows the server still names update in
+         * A reload replaces the list: rows the host still names update in
          * place, new rows insert, the rest delete. One transaction cannot
          * delete and re-insert the same key ("Unhandled mutation combination:
          * delete-insert"), so a wholesale clear-then-insert threw on every
          * reload whose list overlapped the last one.
          */
-
-        case "harnesses.loaded": {
-          const next = new Set<string>(transition.harnesses.map((harness) => harness.id))
-          const stale = [...collections.harnesses.keys()].filter((id) => !next.has(id))
-          if (stale.length > 0) collections.harnesses.delete(stale)
-          for (const harness of transition.harnesses) {
-            if (collections.harnesses.get(harness.id) === undefined) collections.harnesses.insert({ ...harness })
-            else {
-              collections.harnesses.update(harness.id, (draft) => {
-                Object.assign(draft, harness)
-              })
-            }
-          }
-          break
-        }
-
-        case "agents.loaded": {
-          // Same replace-in-place rule as the harnesses: update, insert, delete, never delete-then-insert one key.
-          const next = new Set<string>(AGENT_ROLES.map((agent) => agent.id))
-          const stale = [...collections.agents.keys()].filter((id) => !next.has(id))
-          if (stale.length > 0) collections.agents.delete(stale)
-          for (const agent of AGENT_ROLES) {
-            if (collections.agents.get(agent.id) === undefined) collections.agents.insert({ ...agent })
-            else {
-              collections.agents.update(agent.id, (draft) => {
-                Object.assign(draft, agent)
-              })
-            }
-          }
-          break
-        }
-
         case "models.observed": {
-          // The harnesses' replace-in-place rule over the host's own rows only: a user's record is never the host's to rewrite.
+          // Replace in place over the host's own rows only: a user's record is never the host's to rewrite.
           const next = new Set<string>(transition.models.map((model) => model.id))
           const stale = [...collections.models.values()].filter((row) => row.builtin === true && !next.has(row.id)).map((row) => row.id)
           if (stale.length > 0) collections.models.delete(stale)
@@ -3238,8 +3094,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               Object.assign(draft, row)
             })
           }
-          // Signed out, no workspace terminal can attach: its tabs close with the session, in this transaction.
-          if (transition.state === "signed-out") closeTabRows(collections, workspaceTabIds(collections), revision)
           if (transition.state === "signed-in" && transition.scopes !== "degraded") {
             answerSignInPrompts(collections, "cloud", transition.username, createdAt)
           }
@@ -3267,7 +3121,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               })
             }
             collections.cloudWorkspaces.delete(stale)
-            closeTabRows(collections, workspaceTabIds(collections, removed), revision)
           }
           const staleCopies = [...collections.workingCopies.values()]
             .filter((copy) =>
@@ -3301,14 +3154,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           break
         }
         case "workspace.session.destroyed": {
-          // The tab attached to the session closes and the card stops pointing at it, together.
-          closeTabRows(
-            collections,
-            [...collections.tabs.values()]
-              .filter((tab) => tab.kind === "terminal" && tab.workspaceId !== undefined && tab.sessionId === transition.sessionId)
-              .map((tab) => tab.id),
-            revision
-          )
+          // The card stops pointing at the destroyed session.
           for (const card of collections.cards.values()) {
             if (card.kind !== "workspace" || card.payload.terminalSessionId !== transition.sessionId) continue
             collections.cards.update(card.id, (draft) => {
@@ -3319,14 +3165,13 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           break
         }
         case "workspace.deleted": {
-          // Gone is a fact: the card, the collection row, its tree copy, and its terminal tabs leave in one transaction.
+          // Gone is a fact: the card, the collection row and its tree copy leave in one transaction.
           const { workspaceId } = transition
           const cardId = `workspace-${workspaceId}`
           if (collections.cards.get(cardId) !== undefined) collections.cards.delete(cardId)
           if (collections.cloudWorkspaces.get(workspaceId) !== undefined) collections.cloudWorkspaces.delete(workspaceId)
           const copyId = `workspace:${workspaceId}`
           if (collections.workingCopies.get(copyId) !== undefined) collections.workingCopies.delete(copyId)
-          closeTabRows(collections, workspaceTabIds(collections, new Set([workspaceId])), revision)
           break
         }
         /* Lane change: one change upsert; pinned cards read the current revision from here. */

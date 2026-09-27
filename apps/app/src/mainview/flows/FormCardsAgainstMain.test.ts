@@ -124,8 +124,6 @@ const boot = async () => {
     }
   })
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: true, scopesPlain: null })
-  store.dispatch({ type: "harnesses.loaded", actor: "system", harnesses: [...HARNESSES] })
-  await controller.loadAgents()
   await settle()
   return { store, controller }
 }

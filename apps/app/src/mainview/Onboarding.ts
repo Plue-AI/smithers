@@ -1,11 +1,11 @@
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { nativeShell } from "@smthrs/rpc/AppBootstrap"
-import type { Harness, LocalRepositoryConnector, Message, Repo } from "./state/AppState"
+import type { LocalRepositoryConnector, Message, Repo } from "./state/AppState"
 
 /*
  * The host opening entry: "Smithers initialized successfully", derived
  * (never stored) from what the host actually registered — the bootstrap
- * contract, the flow registry, the harness snapshot, the repositories — and
+ * contract, the flow registry, the repositories — and
  * the one next step, selecting a repository. Same discipline as the derived
  * auth message in App.tsx: a projection of live collections, gone the moment
  * the state it reads changes. Cloud repository pages use their Welcome actions
@@ -22,7 +22,6 @@ export const INIT_TITLE = "Smithers initialized successfully"
 export interface InitFacts {
   readonly bootstrap: AppBootstrap | undefined
   readonly flowCount: number
-  readonly harnesses: ReadonlyArray<Harness>
   readonly connectors: ReadonlyArray<Pick<LocalRepositoryConnector, "name" | "branch">>
   readonly repos: ReadonlyArray<Pick<Repo, "name">>
 }
@@ -30,11 +29,6 @@ export interface InitFacts {
 /** Structured fields used only by the derived opening-message projection. */
 export interface InitMessage extends Message {
   readonly details: string
-}
-
-const harnessLine = (harness: Harness): string => {
-  const account = harness.account?.email ?? harness.account?.label
-  return `${harness.displayName} (${harness.status}${account === undefined ? "" : `, ${account}`})`
 }
 
 export const initMessage = (facts: InitFacts): InitMessage => {
@@ -47,7 +41,6 @@ export const initMessage = (facts: InitFacts): InitMessage => {
   const capabilities = bootstrap === undefined || bootstrap.capabilities.length === 0
     ? "none"
     : bootstrap.capabilities.join(", ")
-  const harnesses = facts.harnesses.length === 0 ? "none detected" : facts.harnesses.map(harnessLine).join(", ")
   const repositories = [
     ...facts.repos.map((repo) => repo.name),
     ...facts.connectors.map((connector) => `${connector.name}${connector.branch === null ? "" : ` @ ${connector.branch}`}`)
@@ -56,7 +49,6 @@ export const initMessage = (facts: InitFacts): InitMessage => {
     `- ${hostLine}`,
     `- Capabilities: ${capabilities}`,
     `- Flows registered: ${facts.flowCount}`,
-    `- Harnesses: ${harnesses}`,
     `- Repositories: ${repositories.length === 0 ? "none open" : repositories.join(", ")}`
   ]
   const lines = [`**${INIT_GREETING}**`, `**${INIT_TITLE}**`, "", ...detailLines]
@@ -83,7 +75,7 @@ export const SMITHERS_HELPERS: ReadonlyArray<{ readonly flow: string; readonly l
   { flow: "flow.ask", line: "the Flows agent (/flow.ask) picks which flow to run" }
 ]
 
-export interface IdentityFacts extends Pick<InitFacts, "bootstrap" | "harnesses" | "connectors" | "repos"> {
+export interface IdentityFacts extends Pick<InitFacts, "bootstrap" | "connectors" | "repos"> {
   /**
    * The `owner/name` the selection names (RepoContext.ts activeRepositoryId),
    * the same row the agent runtime context reads: a signed-out visitor at
@@ -119,12 +111,9 @@ export const identityMessage = (facts: IdentityFacts): string => {
   const where = repositories.length === 0
     ? `I am ${SMITHERS_NAME}, the concierge of ${hostLabel(facts.bootstrap)}; no repository is open yet.`
     : `I am ${SMITHERS_NAME}, the concierge for ${repositories.join(", ")} in ${hostLabel(facts.bootstrap)}.`
-  const harnesses = facts.harnesses.length === 0
-    ? "No local harness is detected."
-    : `Local harnesses: ${facts.harnesses.map(harnessLine).join(", ")}.`
   const helpers = SMITHERS_HELPERS.filter((helper) => facts.registered(helper.flow)).map((helper) => helper.line)
   const handoff = helpers.length === 0
     ? "I answer this chat myself; type / to see every flow I can run."
     : `I hand work to helpers: ${helpers.join("; ")}.`
-  return [where, harnesses, handoff].join(" ")
+  return [where, handoff].join(" ")
 }

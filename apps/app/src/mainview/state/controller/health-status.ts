@@ -1,7 +1,7 @@
 import { expireStatus } from "../HealthStatus"
 import type { ControllerContext } from "./context"
 
-/** One bounded controller clock for all persisted projections, including hidden tabs and offline cards. */
+/** One bounded controller clock for all persisted projections, including offline cards. */
 export const createHealthStatusController = (ctx: Pick<ControllerContext, "store" | "unref" | "onDispose">): void => {
   let timer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
@@ -11,7 +11,6 @@ export const createHealthStatusController = (ctx: Pick<ControllerContext, "store
     const now = Date.now()
     let deadline = Infinity
     const statuses = [
-      ...[...ctx.store.collections.tabs.values()].flatMap((tab) => tab.kind === "terminal" || tab.kind === "harness" ? [tab.statusRollup] : []),
       ...[...ctx.store.collections.cards.values()].flatMap((card) => (card.kind === "agent" && !("cloud" in card.payload)) || card.kind === "run-trace" ? [card.payload.statusRollup] :
         card.kind === "run-list" ? card.payload.runs.map((run) => run.statusRollup) : [])
     ]
@@ -28,7 +27,6 @@ export const createHealthStatusController = (ctx: Pick<ControllerContext, "store
     ctx.unref(timer)
   }
   const cards = ctx.store.collections.cards.subscribeChanges(schedule)
-  const tabs = ctx.store.collections.tabs.subscribeChanges(schedule)
-  ctx.onDispose(() => { disposed = true; clearTimeout(timer); cards.unsubscribe(); tabs.unsubscribe() })
+  ctx.onDispose(() => { disposed = true; clearTimeout(timer); cards.unsubscribe() })
   schedule()
 }

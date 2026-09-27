@@ -109,12 +109,12 @@ const signIn = (store: Awaited<ReturnType<typeof boot>>["store"], login = "will"
     scopesPlain: null
   })
 
-/** A material change that carries no identity: what a tab open, a finished turn or a repo load look like to the recommender. */
+/** A material change that carries no identity: what a card tab open, a finished turn or a repo load look like to the recommender. */
 const materialChange = (store: Awaited<ReturnType<typeof boot>>["store"], step: string) =>
   store.dispatch({
     type: "tab.opened",
     actor: "user",
-    tab: { id: `tab-${step}`, kind: "terminal", title: "Terminal", sessionId: `pty-${step}`, cwd: "/Users/will/smithers" }
+    tab: { id: `tab-${step}`, kind: "card", title: "Pinned", cardId: `card-${step}` }
   })
 
 describe("recommend: the flow", () => {
@@ -216,7 +216,7 @@ describe("recommend: the flow", () => {
       store.dispatch({
         type: "tab.opened",
         actor: "user",
-        tab: { id: `tab-${step}`, kind: "terminal", title: "Terminal", sessionId: `pty-${step}`, cwd: "/Users/will/smithers" }
+        tab: { id: `tab-${step}`, kind: "card", title: "Pinned", cardId: `card-${step}` }
       })
       await settle()
       expect(row(store)?.source).toBe("rule")
@@ -273,7 +273,7 @@ describe("recommend: the flow", () => {
     store.dispatch({
       type: "tab.opened",
       actor: "user",
-      tab: { id: "tab-x", kind: "terminal", title: "Terminal", sessionId: "pty-x", cwd: "/Users/will/smithers" }
+      tab: { id: "tab-x", kind: "card", title: "Pinned", cardId: "card-x" }
     })
     await settle()
     controller.runCommand("connect")

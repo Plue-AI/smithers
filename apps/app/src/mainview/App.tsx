@@ -101,7 +101,6 @@ function AppContent() {
       activeFrameId: session.activeFrameId,
       devtoolsOpen: session.devtoolsOpen,
       activeTabId: session.activeTabId,
-      tabMenuOpen: session.tabMenuOpen,
       chatFilter: session.chatFilter,
       chatFilterMenuOpen: session.chatFilterMenuOpen,
       paletteOpen: session.paletteOpen,
@@ -123,7 +122,6 @@ function AppContent() {
   const flowDurations = useFlowDurationRows(collections.flowDurations)
   const fileCards = useFileCardRows(collections.cards)
   const { data: identityRows } = useLiveQuery(collections.identitySessions)
-  const { data: harnessRows } = useLiveQuery(collections.harnesses)
   const { data: connectorRows } = useLiveQuery(collections.connectors)
   const { data: repoRows } = useLiveQuery(collections.repos)
   const { data: repositoryRows } = useLiveQuery(collections.repositories)
@@ -378,7 +376,6 @@ function AppContent() {
   const openingMessage: InitMessage | undefined = gatedByAuth || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
     bootstrap: controller.bootstrap,
     flowCount: flows.length,
-    harnesses: harnessRows,
     connectors: connectorRows,
     repos: repoRows
   })
@@ -476,11 +473,6 @@ function AppContent() {
           return
         }
         // Close visible menus before dismissing Chat.
-        if (event.key === "Escape" && session.tabMenuOpen === true) {
-          event.preventDefault()
-          controller.runCommand("tab.menu")
-          return
-        }
         if (event.key === "Escape" && session.chatFilterMenuOpen === true) {
           event.preventDefault()
           controller.runCommand("chat.filter")
@@ -627,7 +619,7 @@ function AppContent() {
       </div>
       </div>
 
-      {/* Terminal, harness, and card tabs; hidden while inactive, never unmounted. */}
+      {/* Card tabs; hidden while inactive, never unmounted. */}
       <TabBodies />
       {/* Keep Chat reachable while a terminal or another tab owns the view. */}
       <div className="composer-overlay" data-testid="composer-overlay" hidden={session.paletteOpen !== true}>

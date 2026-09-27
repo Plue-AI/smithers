@@ -19,7 +19,7 @@ const matrixTest = process.env.SMITHERS_REAL_E2E_MODE === undefined ? test : aut
 test("a portable form card keeps its component and unfinished value through keyboard maximize/minimize, then Cancel dismisses durably", scenario("navigation.card.identity-dismiss", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "action:card.maximize",
     "action:card.minimize",
@@ -70,7 +70,7 @@ test("a portable form card keeps its component and unfinished value through keyb
 test("URL-pointer mode traverses browser history and restores its maximized form pointer on reload", scenario("navigation.frame.url-history-reload", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "action:card.maximize",
     "action:card.minimize",
@@ -120,7 +120,7 @@ test("URL-pointer mode traverses browser history and restores its maximized form
 test("canonical slashless repository navigation keeps the URL fixed and persists frame pointers in history.state", scenario("navigation.frame.repo-history-state", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "action:card.maximize",
     "action:card.minimize",
@@ -174,7 +174,7 @@ test("canonical slashless repository navigation keeps the URL fixed and persists
 test("direct Previous frame button and frame.forward slash command traverse one real frame history", scenario("navigation.frame.direct-controls", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "action:card.maximize",
     "action:frame.back",
@@ -214,7 +214,7 @@ test("direct Previous frame button and frame.forward slash command traverse one 
 test("open in tab shares unfinished form state and persists both the session and embedded projection", scenario("navigation.card.open-in-tab", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "action:card.maximize",
     "action:tab.card",
@@ -305,7 +305,7 @@ test("the shipped practice issue card keeps local history, reloads it, and disca
 test("forking a historical form frame restores its recorded draft and isolates later source and fork edits", scenario("navigation.frame.form-draft-fork-isolation", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "action:card.maximize",
     "action:card.minimize",
@@ -471,7 +471,7 @@ test("archive creates a durable new conversation whose recovery link restores th
 test("an older physical OPFS schema stamp upgrades while preserving the current durable form row", scenario("navigation.storage.opfs-schema-stamp-upgrade", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "host:local",
     "host:production",
@@ -519,7 +519,7 @@ test("an older physical OPFS schema stamp upgrades while preserving the current 
 matrixTest("a future-schema physical OPFS database fails closed, exports exact rows, and boots after its real bytes are restored", scenario("navigation.storage.opfs-failure-recovery", {
   capabilities: [],
   coverage: [
-    "action:tab.read",
+    "action:tab.card",
     "action:form.set",
     "action:storage.recovery",
     "host:local",

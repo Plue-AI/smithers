@@ -1,5 +1,7 @@
 # Lane `citc` — REPORT
 
+> Superseded 2026-09-27 (smithersai/smithers#2229): the terminal and harness tabs, the `+` menu, `tab.terminal`, `tab.harness`, `tab.read`, `tab.menu`, `tab.close.confirm/cancel`, the `pty.*` transitions and the harness inventory are gone. Tabs are card tabs (`tab.card`, `tab.select`, `tab.close`); a terminal is the workspace card's Terminal facet. The text below is the record of the lane as it ran.
+
 Brief: `citc.md`. ADR: `../decisions/0002-citc-sandbox-kinds.md`. Status: all
 six steps shipped and green; the lane's gates pass, and the only failures in
 the tree are the three pre-existing TargetGraph integration tests plus two

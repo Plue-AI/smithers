@@ -42,10 +42,10 @@ describe("createAppStore with the localStorage fallback backend", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     for (const transition of [
       { type: "theme.changed", actor: "user", theme: "dark" },
-      { type: "tab.menu.toggled", actor: "user", open: true },
+      { type: "theme.changed", actor: "user", theme: "light" },
       // Closing a tab that is not open changes no row but still journals.
       { type: "tab.closed", actor: "user", id: "tab-not-open" },
-      { type: "tab.menu.toggled", actor: "user", open: false }
+      { type: "theme.changed", actor: "user", theme: "dark" }
     ] as const) {
       const before = store.session().revision
       await store.dispatch(transition).isPersisted.promise

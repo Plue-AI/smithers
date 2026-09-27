@@ -14,7 +14,7 @@ test(
   "a card maximize and restore cycle preserves the selected card and focus",
   scenario("real-card-maximize-restore", {
     capabilities: [],
-    coverage: ["host:local", "host:production", "door:slash", "door:button", "path:success", "action:tab.read", "action:form.set", "action:card.maximize", "action:card.minimize", "dimension:focus-restoration", "evidence:card-state"]
+    coverage: ["host:local", "host:production", "door:slash", "door:button", "path:success", "action:tab.card", "action:form.set", "action:card.maximize", "action:card.minimize", "dimension:focus-restoration", "evidence:card-state"]
   }),
   async ({ page }) => {
     const { card } = await openVehicleForm(page, "recovery-maximize-restore")
@@ -37,7 +37,7 @@ test(
   "a maximized card can move to a tab session and close cleanly",
   scenario("real-card-tab-session-lifecycle", {
     capabilities: [],
-    coverage: ["host:local", "host:production", "door:slash", "door:button", "path:success", "action:tab.read", "action:form.set", "action:card.maximize", "action:tab.card", "action:tab.select", "action:tab.close", "dimension:session-lifecycle", "evidence:tab-state"]
+    coverage: ["host:local", "host:production", "door:slash", "door:button", "path:success", "action:tab.card", "action:form.set", "action:card.maximize", "action:tab.card", "action:tab.select", "action:tab.close", "dimension:session-lifecycle", "evidence:tab-state"]
   }),
   async ({ page }) => {
     const { card } = await openVehicleForm(page, "recovery-tab-session")

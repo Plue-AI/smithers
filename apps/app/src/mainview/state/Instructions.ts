@@ -216,39 +216,6 @@ const connectorLine = (honesty: InstructionHonesty): string => {
   return `${github}. ${local}.`
 }
 
-/** One named role as the orchestrator is told about it (AgentRoles.ts + this host's availability). */
-export interface InstructionRole {
-  readonly id: string
-  readonly label: string
-  readonly purpose: string
-  readonly model: string
-  readonly available: boolean
-  /** Why it cannot be launched here; empty when available. */
-  readonly reason: string
-}
-
-/*
- * The orchestrator role (AgentRoles.ts): the conversation IS the
- * orchestrator — the smartest agent, whose job is mostly to delegate. The
- * section is generated from the role table plus the host's live
- * availability, so the model is never told it can delegate to a role this
- * machine cannot launch. Absent roles (no local harnesses) add nothing.
- */
-const orchestratorLines = (roles: ReadonlyArray<InstructionRole>): ReadonlyArray<string> => {
-  if (roles.length === 0) return []
-  const rows = roles
-    .filter((role) => role.id !== "orchestrator")
-    .map((role) =>
-      `- ${role.id} (${role.model}): ${role.purpose}${role.available ? "" : ` — NOT available: ${role.reason}`}`
-    )
-  return [
-    "You are the ORCHESTRATOR role: the smartest agent, whose job is mostly to delegate. Plan the work, write it as a flow frame by frame, and hand each frame to the role built for it with agent.delegate <role> <task>; read what a delegate produced with tab.read <tabId>. Do yourself only what no role fits.",
-    "The built-in roles, each bound to one model (agent.list shows them):",
-    ...rows,
-    "A role marked NOT available cannot be delegated to on this machine: say so and do the frame yourself or ask the user to configure it. For explanations the user asks for, prefer agent.explain <what> — it answers in the chat as a card."
-  ]
-}
-
 /**
  * The system prompt for one chat turn: the standing rules, then the GENERATED
  * capability section — the live catalog and connector state as of this turn.
@@ -313,13 +280,12 @@ export const instructionStageOf = (text: string): InstructionStage =>
 export const smithersInstructions = (
   catalog: ReadonlyArray<InstructionCommand>,
   honesty: InstructionHonesty,
-  roles: ReadonlyArray<InstructionRole> = [],
   options: { readonly budgetBytes?: number; readonly lastStage?: InstructionStage } = {}
 ): string => {
   const budget = Math.max(0, options.budgetBytes ?? INSTRUCTIONS_BUDGET_BYTES)
   const lastStage = options.lastStage ?? 3
   const codeIntel = catalog.some((command) => command.name === "code.hover")
-  const render = (stage: InstructionStage): string => assembleInstructions(catalogLinesFor(catalog, stage), honesty, roles, codeIntel, catalog)
+  const render = (stage: InstructionStage): string => assembleInstructions(catalogLinesFor(catalog, stage), honesty, codeIntel, catalog)
   for (const stage of [0, 1, 2] as const) {
     if (stage >= lastStage) break
     const text = render(stage)
@@ -331,14 +297,12 @@ export const smithersInstructions = (
 const assembleInstructions = (
   catalogLines: ReadonlyArray<string>,
   honesty: InstructionHonesty,
-  roles: ReadonlyArray<InstructionRole>,
   codeIntel: boolean,
   catalog: ReadonlyArray<InstructionCommand>
 ): string => {
   return [
     SMITHERS_INSTRUCTIONS,
     ...(codeIntel ? [CODE_INTEL_LINE] : []),
-    ...orchestratorLines(roles),
     ...repositorySetupLines(honesty.repositorySetups ?? [], catalogLinesFor(
       // A setup handoff must keep its actual call grammar even when the general catalog compacts.
       catalog.filter(command => command.name.startsWith("setup.")), 0)),

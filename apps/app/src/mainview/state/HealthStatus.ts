@@ -14,17 +14,3 @@ export const expireStatus = (status: StatusRollup, now: number): StatusRollup =>
   return { ...status, activity: "unknown", health: "unknown", attention: "none", freshness: "stale" }
 }
 
-/** Only compare versions inside one opaque incarnation; wall clocks do not order owners. */
-export const acceptStatus = (current: StatusRollup | undefined, next: StatusRollup): boolean => {
-  const a = current?.provenance, b = next.provenance
-  if (a === undefined || b === undefined || a.incarnation !== b.incarnation) return true
-  if (b.evidenceSeq !== a.evidenceSeq) return b.evidenceSeq > a.evidenceSeq
-  if (b.version !== a.version) return b.version > a.version
-  return !(current?.freshness === "stale" && next.freshness === "fresh")
-}
-
-export const exitedStatus = (sessionId: string, code: number | null, previous: StatusRollup | undefined, now: number): StatusRollup => ({
-  subjectId: `session:${sessionId}`, state: "exited", activity: "unknown", health: code === 0 ? "healthy" : code === null ? "unknown" : "failing",
-  attention: code !== 0 && code !== null ? "unhealthy" : "none", freshness: previous?.provenance === undefined ? "unobserved" : "stale",
-  ...(previous?.provenance === undefined ? {} : { provenance: previous.provenance }), updatedAt: now
-})

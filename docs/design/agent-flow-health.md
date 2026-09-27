@@ -1,5 +1,7 @@
 # Agent and flow health: design and implementation contract
 
+> Superseded in part 2026-09-27 (smithersai/smithers#2229): the local PTY sessions, their `pty.status` frames and the terminal-tab pills retired with the terminal and harness tabs; the run and flow health path below stands.
+
 Designed with `claude-fable-5`, verified CLI session `38f2e0a0-b1cd-422f-8d26-84ecc98a2edb`, on 2026-09-13. Fable reviewed a source-grounded draft and the root agent's corrections. The design below records that review; the following implementation decisions resolve remaining contradictions and supersede corresponding suggestions in the review.
 
 - Control/PTY lifecycle remains authority. A callback is observational and cannot approve, resume, or establish terminal success.

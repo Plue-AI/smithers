@@ -81,7 +81,6 @@ DEFAULT_PALETTE,
 FlowDurationsRowSchema,
 FrameSchema,
 GitHubAppStatusRowSchema,
-HarnessSchema,
 IdentitySessionSchema,
 LocalRepositoryConnectorSchema,
 MAIN_TAB_ID,
@@ -856,7 +855,6 @@ const COLLECTION_DEFINITIONS = {
   toasts: persistedCollection("app-toasts", ToastSchema, byId),
   toolCalls: persistedCollection("app-tool-calls", ToolCallRecordSchema, byId),
   tabs: persistedCollection("app-tabs", TabSchema, byId),
-  harnesses: persistedCollection("app-harnesses", HarnessSchema, byId),
   agents: persistedCollection("app-agents", AgentRoleSchema, byId),
   models: persistedCollection("app-models", StoredModelSchema, byId),
   seats: persistedCollection("app-seats", SeatAssignmentSchema, byId),
@@ -1808,13 +1806,10 @@ const initializeAppStore = async (
   }
 
   /*
-   * Process tabs retain the daemon session identity across renderer and native
-   * restarts. Their transport replays output or explicitly reports a missing
-   * session, never restarts a command. A card tab whose card was cleared
-   * closes through the dispatcher. The selected
-   * tab falls back to main when it no longer exists, and neither the `+`
-   * menu nor a pending close question survives a restart (a question is
-   * not state).
+   * A card tab whose card was cleared closes through the dispatcher. The
+   * selected tab falls back to main when it no longer exists — including a
+   * terminal or harness tab a store saved before those retired (the row
+   * itself fails `TabSchema` and is quarantined at open).
    */
   for (const tab of orderedTabs(collections)) {
     const stale = tab.kind === "card" && collections.cards.get(tab.cardId) === undefined
@@ -1822,12 +1817,6 @@ const initializeAppStore = async (
   }
   if (collections.tabs.get(collections.sessions.get(SESSION_ID)?.activeTabId ?? MAIN_TAB_ID) === undefined) {
     await dispatch({ type: "tab.selected", actor: "system", id: MAIN_TAB_ID }).isPersisted.promise
-  }
-  if (collections.sessions.get(SESSION_ID)?.tabMenuOpen === true) {
-    await dispatch({ type: "tab.menu.toggled", actor: "system", open: false }).isPersisted.promise
-  }
-  if (collections.sessions.get(SESSION_ID)?.pendingTabCloseId != null) {
-    await dispatch({ type: "tab.close.asked", actor: "system", id: null }).isPersisted.promise
   }
 
   /*

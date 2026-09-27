@@ -10,7 +10,6 @@ import { AGENT_TURN_FRONT_DOOR_CALL_PREFIX } from "@smthrs/rpc/NativeAgent"
 import type { AgentChatMessage,AgentTurnCommand,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
 import { clientRefusal } from "@smthrs/rpc/Refusal"
 import { agentRefusalText } from "@smthrs/rpc/RefusalCopy"
-import { roleMenuEntries } from "../../AgentRoleMenu"
 import type { CommandOutcome } from "../../flows/Commands"
 import { agentFailureText,agentVisibleCatalog } from "../../flows/agentTools"
 import { itemOf, parseSubmit, unmetRequirements, visible } from "../../flows/registry"
@@ -19,7 +18,7 @@ import type { Card } from "../AppState"
 import { CardPatchSchema,CardSchema,conversationTabIdOf,inConversation,MAIN_TAB_ID } from "../AppState"
 import { isCurrentApprovalAnswer,prepareApprovalAnswer } from "../ApprovalAnswerState"
 import { parseApprovalActionId } from "../ApprovalReference"
-import type { ImpossibleAskClass,InstructionRole,InstructionStage } from "../Instructions"
+import type { ImpossibleAskClass,InstructionStage } from "../Instructions"
 import { bytesOf,CHAT_INSTRUCTIONS_CAP_BYTES,INSTRUCTIONS_HEADROOM_BYTES,smithersInstructions } from "../Instructions"
 import { COMMANDS_MAX } from "../Recommend"
 import { activeCatalogRepositoryId,activeRepositoryId } from "../RepoContext"
@@ -371,33 +370,16 @@ export const createTurnController = (
       },
       /*
        * Smithers is the first tab and knows every other one (docs/LOCAL-APP.md
-       * "Tabs"): the model sees the strip as the human does, and reads a
-       * tab's output with tab.read.
+       * "Cards"): the model sees the card tabs as the human does.
        */
-      tabs: snapshot.tabs.map((tab) => {
-        const harness = tab.kind === "harness"
-          ? [...store.collections.harnesses.values()].find((candidate) => candidate.id === tab.harnessId)
-          : undefined
-        const account = harness?.account?.email ?? harness?.account?.label
-        return {
-          id: tab.id,
-          kind: tab.kind,
-          title: tab.title,
-          ...(tab.kind === "harness" ? { harnessId: tab.harnessId } : {}),
-          ...(account === undefined ? {} : { account }),
-          ...((tab.kind === "terminal" || tab.kind === "harness") && tab.cwd !== undefined ? { cwd: tab.cwd } : {}),
-          status: tab.kind === "terminal" || tab.kind === "harness"
-            ? tab.exitCode === undefined ? ("running" as const) : ("exited" as const)
-            : ("open" as const),
-          ...(tab.kind === "terminal" || tab.kind === "harness" ? { exitCode: tab.exitCode ?? null } : {}),
-          active: tab.id === (current.activeTabId ?? MAIN_TAB_ID)
-        }
-      }),
+      tabs: snapshot.tabs.map((tab) => ({
+        id: tab.id,
+        kind: tab.kind,
+        title: tab.title,
+        active: tab.id === (current.activeTabId ?? MAIN_TAB_ID)
+      })),
       capabilities: [
         "Hold a streaming conversation in this chat and read its visible transcript.",
-        ...(snapshot.tabs.length > 1
-          ? ["Read any other open tab's recent output (a terminal, a running agent, a card) with the tab.read <tabId> command — the tab ids are listed above."]
-          : []),
         "Run app commands through the \"commands\" tool — the same code path as the UI buttons and slash commands.",
         "Render structured cards (plans, approvals, statuses, recommendations) in the transcript.",
         ...(ctx.commands.find("box.desktop.open") === undefined ? [] : [
@@ -478,7 +460,7 @@ export const createTurnController = (
             state: active?.enabled && active.revision === revision && storedSetupCandidate(card.payload, active.digest) ? "enabled" as const
               : active?.enabled === false ? "paused" as const : "draft" as const }]
         })
-    }, instructionRoles(), { budgetBytes, lastStage })
+    }, { budgetBytes, lastStage })
   }
 
   /*
@@ -615,23 +597,6 @@ export const createTurnController = (
     const decisionModel = assignedBinding(ctx, "front-door")
     return { ...composeInstructions(), commands: turnCommands(), ...(decisionModel === undefined ? {} : { decisionModel }) }
   }
-
-  /*
-   * The named roles the orchestrator may delegate to, with THIS host's
-   * availability: only where local harnesses exist (agent.delegate registers
-   * on local.harnesses), so a Cloud session is not told about tabs it lacks.
-   */
-  const instructionRoles = (): ReadonlyArray<InstructionRole> =>
-    ctx.commands.find("agent.delegate") === undefined
-      ? []
-      : roleMenuEntries([...store.collections.harnesses.values()]).map((entry) => ({
-        id: entry.role.id,
-        label: entry.role.label,
-        purpose: entry.role.purpose,
-        model: entry.role.model.label,
-        available: entry.available,
-        reason: entry.reason
-      }))
 
   // Retries keep their transcript id, so its previous backend run must finish
   // cancelling before that id can launch again. The map also fences final

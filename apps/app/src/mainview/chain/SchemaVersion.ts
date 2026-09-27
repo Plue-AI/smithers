@@ -35,7 +35,8 @@ import { parseSchemaStamp } from "./SchemaStamp"
  * older writer would misinterpret new authority fields.
  */
 // Version 14 writers do not understand private, unadmitted Wiki deltas.
-export const APP_SCHEMA_VERSION = 15
+// Version 16 has no terminal or harness tab rows and no harness inventory (smithersai/smithers#2229).
+export const APP_SCHEMA_VERSION = 16
 
 /** The prefix AppStore gives every persisted collection's storage key. */
 export const PERSISTED_KEY_PREFIX = "smithers-mvp."
@@ -118,7 +119,6 @@ export const PERSISTED_COLLECTION_IDS: ReadonlyArray<string> = [
   "app-toasts",
   "app-tool-calls",
   "app-tabs",
-  "app-harnesses",
   /* Agents as data (custom-agents.md): the mirror of `GET /api/agents`. */
   "app-agents",
   /* Models as data: a user's records, the rows the host's catalog reported, and the seat each answers for. */
@@ -145,7 +145,9 @@ export const PERSISTED_COLLECTION_IDS: ReadonlyArray<string> = [
    */
   "app-chain-events",
   "app-retired-chain-lineages",
-  "app-repo-tree"
+  "app-repo-tree",
+  /* The harness inventory retired with the terminal and harness tabs (#2229): a cleanup-only key, so an older store's rows clear on reset. */
+  "app-harnesses"
 ]
 
 /** The storage keys the gate clears on a mismatch. */

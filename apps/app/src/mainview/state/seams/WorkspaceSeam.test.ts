@@ -249,23 +249,6 @@ const seedCard = async (store: AppStore, terminalSessionId?: string): Promise<vo
   })
 }
 
-/** A workspace terminal tab as openTerminal opens it. */
-const seedWorkspaceTab = async (store: AppStore, sessionId = "sess-1", workspaceId = "ws-1"): Promise<void> => {
-  await store.dispatch({
-    type: "tab.opened",
-    actor: "user",
-    tab: {
-      id: sessionId,
-      kind: "terminal",
-      title: "Terminal · review",
-      sessionId,
-      workspaceId,
-      repo: "will/smithers",
-      repoKey: `workspace:${workspaceId}`
-    }
-  })
-}
-
 const cardOf = (store: AppStore, workspaceId = "ws-1") => store.collections.cards.get(`workspace-${workspaceId}`)
 
 /** The workspace card's payload, narrowed; undefined when the card is absent. */
@@ -471,12 +454,9 @@ describe("workspace seam list", () => {
     })
     await seedWorkspace(store)
     await seedWorkspace(store, { ...wsRow, id: "ws-2", name: "bench" })
-    await seedWorkspaceTab(store, "sess-1", "ws-1")
-    await seedWorkspaceTab(store, "sess-2", "ws-2")
-    expect(store.session().activeTabId).toBe("sess-2")
     await seam.listWorkspaces("will/smithers")
     expect(workspacesOf(store).map((row) => row.id)).toEqual(["ws-2"])
-    expect(tabsOf(store)).toEqual(["sess-2"])
+    expect(tabsOf(store)).toEqual([])
   })
 })
 
@@ -679,7 +659,6 @@ describe("workspace seam acts", () => {
     })
     await seedWorkspace(store)
     await seedCard(store, "sess-1")
-    await seedWorkspaceTab(store)
     const result = await seam.deleteWorkspace("ws-1", "review")
     expect(typeof result).toBe("object")
     expect(requests[0]).toBe("DELETE api/repos/will/smithers/workspaces/ws-1")
@@ -879,17 +858,14 @@ describe("workspace seam terminal", () => {
     })
     await seedWorkspace(store)
     await seedCard(store, "sess-1")
-    await seedWorkspaceTab(store, "sess-1")
-    await seedWorkspaceTab(store, "sess-2")
     const result = await seam.destroySession("sess-1", "ws-1")
     expect(typeof result).toBe("object")
     const payload = payloadOf(store)
     expect(payload?.terminalSessionId).toBeUndefined()
     expect(payload?.sessions).toEqual([])
-    expect(tabsOf(store)).toEqual(["sess-2"])
-    // The one transition did both: as it left the store, the tab was gone AND the card no longer pointed at the session.
+    // As the transition left the store, the card no longer pointed at the session.
     const destroyed = dispatched.find((entry) => entry.type === "workspace.session.destroyed")
-    expect(destroyed).toEqual({ type: "workspace.session.destroyed", tabs: ["sess-2"], attached: undefined })
+    expect(destroyed).toEqual({ type: "workspace.session.destroyed", tabs: [], attached: undefined })
     expect(dispatched[0]?.type).toBe("workspace.session.destroyed")
   })
 
@@ -982,22 +958,6 @@ describe("workspace seam watch", () => {
     const polls = requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1").length
     await wait(30)
     expect(requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1").length).toBe(polls)
-  })
-})
-
-describe("workspace tabs and the cloud session", () => {
-  /* Critique finding 4 (renderer half): sign-out closes every workspace terminal tab with the session record. */
-  test("a signed-out session record closes the workspace terminal tabs and only those", async () => {
-    const { store } = await harness({})
-    await seedWorkspace(store)
-    await seedWorkspaceTab(store, "sess-1")
-    await store.dispatch({
-      type: "tab.opened",
-      actor: "user",
-      tab: { id: "local-1", kind: "terminal", title: "Terminal", sessionId: "local-1", cwd: "/tmp/x" }
-    })
-    await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null })
-    expect(tabsOf(store)).toEqual(["local-1"])
   })
 })
 

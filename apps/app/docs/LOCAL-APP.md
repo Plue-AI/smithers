@@ -138,7 +138,11 @@ The picker grant flow, the open-repository set, per-repository access levels,
 the local file route and the local language servers all retired with the local
 backend (`LOCAL-BACKEND-RETIREMENT.md`).
 
-Closing a cloud workspace terminal detaches without deleting its session.
+A workspace terminal lives in its workspace card's Terminal facet; closing the
+card detaches without deleting the session. Tabs are card tabs ("Open in tab"
+on a maximized card, `tab.card`, `tab.select`, `tab.close`): the terminal and
+harness tabs, the `+` menu and the PTY seams retired with the local backend
+(`LOCAL-BACKEND-RETIREMENT.md`, smithersai/smithers#2229).
 
 ## HTTP and WebSocket surface
 
@@ -295,11 +299,10 @@ Lane `citc` (ADR 0002) adds the persistent cloud computers:
   mints a session and streams plue's NixOS VM over VNC, so it is its own
   confirmed act rather than a facet switch. The footer acts: Suspend or
   Resume, Fork, Snapshot, and Delete behind a typed confirm.
-  `/box.terminal` opens the workspace's terminal as an ordinary
-  terminal tab whose row carries a `workspaceId` instead of a `cwd` (the
-  socket tunnels through the Bun server's `/api/cloud-ws/` bridge with the
-  Bun-held bearer attached upstream, and the token never reaches the
-  renderer), and closing the tab detaches; killing the session is the
+  `/box.terminal` opens the workspace's terminal in the card's Terminal
+  facet (the socket tunnels through the origin's `/api/cloud-ws/` bridge with
+  the host-held bearer attached upstream, and the token never reaches the
+  renderer); leaving the facet detaches, and killing the session is the
   explicit `/box.session.destroy`. That act is rendered only where the
   live registry holds `box.terminal`, and the Terminal facet otherwise
   says terminals are not on the web yet. Every workspace act refuses a

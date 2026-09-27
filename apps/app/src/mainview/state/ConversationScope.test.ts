@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Suggestion, Tab, TabRow } from "./AppState"
+import type { Suggestion, Tab } from "./AppState"
 import { conversationTabIdOf, inConversation, SuggestionSchema, TabSchema } from "./AppState"
 
 /*
@@ -31,21 +31,12 @@ describe("conversation scope", () => {
 })
 
 describe("types derived from their schemas", () => {
-  test("a stored tab row without the collection's two fields is the tab that was opened", () => {
-    const row: TabRow = TabSchema.parse({
-      id: "tab-7",
-      kind: "harness",
-      title: "codex",
-      sessionId: "s1",
-      cwd: "/repo",
-      harnessId: "codex",
-      ordinal: 3,
-      exitCode: null
-    })
-    if (row.kind !== "harness") throw new Error("the harness member parsed as something else")
-    const { ordinal: _ordinal, exitCode: _exitCode, ...opened } = row
+  test("a card tab row parses as the schema's card member and opens without the collection's ordinal", () => {
+    const row = TabSchema.parse({ id: "tab-7", kind: "card", title: "Balance", cardId: "balance", ordinal: 3 })
+    if (row.kind !== "card") throw new Error("the card member parsed as something else")
+    const { ordinal: _ordinal, ...opened } = row
     const tab: Tab = opened
-    expect(tab).toEqual({ id: "tab-7", kind: "harness", title: "codex", sessionId: "s1", cwd: "/repo", harnessId: "codex" })
+    expect(tab).toEqual({ id: "tab-7", kind: "card", title: "Balance", cardId: "balance" })
   })
 
   test("a suggestion parsed from the schema is the Suggestion the pills render", () => {

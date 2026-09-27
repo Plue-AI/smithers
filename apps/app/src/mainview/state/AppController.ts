@@ -338,16 +338,10 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly frameBack: () => void
   readonly frameForward: () => void
   readonly forkFrame: () => Promise<string | void>
-  /* The local-app tabs (docs/LOCAL-APP.md "Tabs"); see controller/tabs.ts. */
-  readonly openTerminalTab: TabsController["openTerminalTab"]
-  readonly openHarnessTab: TabsController["openHarnessTab"]
-  readonly readTab: TabsController["readTab"]
+  /* The card tabs (docs/LOCAL-APP.md "Cards"); see controller/tabs.ts. */
   readonly openCardTab: TabsController["openCardTab"]
   readonly selectTab: TabsController["selectTab"]
   readonly closeTab: TabsController["closeTab"]
-  readonly confirmTabClose: TabsController["confirmTabClose"]
-  readonly cancelTabClose: TabsController["cancelTabClose"]
-  readonly toggleTabMenu: TabsController["toggleTabMenu"]
   /* Tutorial stage 2: the ranked chooser and the local Skip. */
   readonly chooseTutorialRepository: TutorialRepositoryActions["chooseTutorialRepository"]
   readonly createTutorialRepository: TutorialRepositoryActions["createTutorialRepository"]
@@ -358,7 +352,6 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly renameWorkspace: SidebarController["renameWorkspace"]
   readonly toggleWorkspaceRename: SidebarController["toggleWorkspaceRename"]
   /* Agents as data (docs/workbench-lanes/custom-agents.md); see controller/agents.ts. */
-  readonly loadAgents: AgentsController["loadAgents"]
   readonly listAgents: AgentsController["listAgents"]
   /* THE FORM LAW (apps/app/AGENTS.md): the flow-form card's render, field commits, submit, and dismiss; see controller/forms.ts. */
   readonly renderFlowForm: FormsController["renderFlowForm"]
@@ -384,7 +377,6 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly setModelQuestion: ModelCallController["setModelQuestion"]
   readonly setModelOption: ModelCallController["setModelOption"]
   readonly fixtureModel: ModelCallController["fixtureModel"]
-  readonly notePtyExit: TabsController["notePtyExit"]
   /** Lane citc: the cloud-workspace terminal transport (one socket per workspace session). */
   readonly cloudTerminal: CloudTerminalClient
   /* The admin dev-tools panel + debug reads (§2b/§2d; admin registry only). */
@@ -1084,18 +1076,11 @@ export const createAppController = (
   } = createFramesController(ctx, services.frameHistory)
 
   const {
-    openTerminalTab,
-    openHarnessTab,
-    readTab,
     openCardTab: openCardTabOnly,
     selectTab,
     closeTab,
-    confirmTabClose,
-    cancelTabClose,
-    toggleTabMenu,
     selectRepo,
     unpinRepo,
-    notePtyExit,
     installKeyboard
   } = actors.pair(ctx, (context) => createTabsController(context))
   const { renderFlowForm, setFormField, submitForm, dismissCard, focusHandoff: formFocus } = actors.pair(ctx, (context) => createFormsController(context, { nextOrdinal: store.nextOrdinal, minimizeCard }))
@@ -1124,7 +1109,6 @@ export const createAppController = (
     resumeModelCalls
   } = actors.pair(ctx, (context) => createModelCallController(context, { nextOrdinal: store.nextOrdinal, minimizeCard }))
   const {
-    loadAgents,
     listAgents,
   } = actors.pair(ctx, (context) => createAgentsController(context, { nextOrdinal: store.nextOrdinal }))
   const { toggleRepoTree, renameWorkspace, toggleWorkspaceRename } = actors.pair(ctx, (context, select) => createSidebarController(context, select(repoTreeSeam)))
@@ -1764,22 +1748,15 @@ export const createAppController = (
     frameBack,
     frameForward,
     forkFrame,
-    openTerminalTab,
-    openHarnessTab,
-    readTab,
     openCardTab,
     selectTab,
     closeTab,
-    confirmTabClose,
-    cancelTabClose,
-    toggleTabMenu,
     ...tutorialRepository,
     selectRepo,
     unpinRepo,
     toggleRepoTree,
     renameWorkspace,
     toggleWorkspaceRename,
-    loadAgents,
     listAgents,
     renderFlowForm,
     setFormField,
@@ -1802,7 +1779,6 @@ export const createAppController = (
     setModelQuestion,
     setModelOption,
     fixtureModel,
-    notePtyExit,
     cloudTerminal,
     toggleDevtools,
     toggleChatFilterMenu,

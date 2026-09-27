@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
-import type { Harness } from "@smthrs/rpc/LocalApp"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { smithersInstructions } from "./Instructions"
 import { memoryStorage } from "./TestFixtures"
 
 const createAppController = scopedControllers()
@@ -29,22 +27,6 @@ const bootstrap: AppBootstrap = {
   authFlow: "none",
   sandbox: { platform: "darwin", mode: "enforced" }
 }
-
-const harness = (overrides: Partial<Harness> & Pick<Harness, "id" | "status">): Harness => ({
-  displayName: overrides.id,
-  binary: overrides.status === "unavailable" ? null : `/usr/local/bin/${overrides.id}`,
-  version: "1.0.0",
-  account: null,
-  launch: { argv: [overrides.id] },
-  ...overrides
-})
-
-const HARNESSES: ReadonlyArray<Harness> = [
-  harness({ id: "claude", displayName: "Claude Code", status: "signed-in", account: { email: "will@example.com" } }),
-  harness({ id: "codex", displayName: "Codex", status: "signed-in", account: { email: "will@example.com" } }),
-  harness({ id: "opencode-kimi", displayName: "OpenCode · Kimi", status: "api-key", account: { label: "KIMI_API_KEY" } }),
-  harness({ id: "opencode-cerebras", displayName: "OpenCode · Cerebras", status: "binary-only" })
-]
 
 const recordingAgent = () => {
   const launches: StartAgentTurnRequest[] = []
@@ -78,7 +60,6 @@ const boot = async () => {
     bootstrap,
     fetchImpl: async () => new Response(JSON.stringify({ error: { code: "absent", message: "no seam" } }), { status: 404 })
   })
-  store.dispatch({ type: "harnesses.loaded", actor: "system", harnesses: [...HARNESSES] })
   return { store, controller, recorder }
 }
 
@@ -122,43 +103,5 @@ describe("agent roles — the explainer", () => {
     controller.runCommand("agent.explain", "   ")
     await settle()
     expect(recorder.launches.length).toBe(before)
-  })
-})
-
-describe("agent roles — the orchestrator's instructions", () => {
-  test("the conversation is the orchestrator: it is told each role, its model, and which ones this host cannot launch", () => {
-    const prompt = smithersInstructions([], {
-      host: "native",
-      github: { connected: false, login: null, repositories: null },
-      localRepositories: [],
-      localRepositoriesAvailable: true
-    }, [
-      { id: "orchestrator", label: "Orchestrator", purpose: "Delegates.", model: "Fable 5", available: true, reason: "" },
-      { id: "explainer", label: "Explainer", purpose: "Explains things very well.", model: "Kimi K3", available: true, reason: "" },
-      {
-        id: "fast-ui",
-        label: "Fast UI",
-        purpose: "Fast, cheap UI iterations.",
-        model: "Cerebras Qwen 3.8 27B",
-        available: false,
-        reason: "OpenCode · Cerebras has no credential for Cerebras Qwen 3.8 27B"
-      }
-    ])
-    expect(prompt).toContain("You are the ORCHESTRATOR role")
-    expect(prompt).toContain("agent.delegate <role> <task>")
-    expect(prompt).toContain("- explainer (Kimi K3): Explains things very well.")
-    expect(prompt).toContain("- fast-ui (Cerebras Qwen 3.8 27B): Fast, cheap UI iterations. — NOT available: OpenCode · Cerebras has no credential")
-    // The orchestrator is not listed as something to delegate to.
-    expect(prompt).not.toContain("- orchestrator (")
-  })
-
-  test("without local harnesses the instructions carry no role section at all", () => {
-    const prompt = smithersInstructions([], {
-      host: "native",
-      github: { connected: false, login: null, repositories: null },
-      localRepositories: [],
-      localRepositoriesAvailable: false
-    })
-    expect(prompt).not.toContain("ORCHESTRATOR")
   })
 })

@@ -9,8 +9,8 @@ contract and remaining work.
 
 ## Event authority and recovery
 
-`AppProjection.ts` owns the 43 domain projections (41 persisted and two
-per-launch collections) and their 132 validated transition types. `AppTransitionValidation.ts` validates the input and actor;
+`AppProjection.ts` owns the 41 domain projections (38 persisted and three
+per-launch collections) and their 149 validated transition types. `AppTransitionValidation.ts` validates the input and actor;
 `AppEventStream.ts` gives an accepted event its stream identity, position,
 versions, recorded time and SHA-256 integrity linkage. `EventValue.ts` preserves
 explicit `undefined` clears in patches. A missing field is a different input.
@@ -25,7 +25,7 @@ Four private persisted collections support the stream:
 | `app-event-checkpoints` | Verified baseline or compacted projection and its coverage |
 | `app-event-retirements` | Content-free hashes of retired stream identities |
 
-The app schema is now 13. Existing installations receive an explicit
+The app schema is now 16 (`APP_SCHEMA_VERSION`). Existing installations receive an explicit
 `legacy-baseline` checkpoint of validated current state. It does not claim to
 reconstruct earlier missing history. Once a journal exists, boot replays its
 checkpoint and complete suffix, then repairs disposable materializations.
@@ -33,7 +33,10 @@ Missing positions, conflicting identities, unsupported versions or broken
 hashes refuse recovery; cached rows cannot replace damaged event authority.
 The two per-launch caches are cleared by a recorded boot projection.
 
-The event format remains version 1; `APP_PROJECTOR_VERSION` is 4. Bump the
+The event format remains version 1; `APP_PROJECTOR_VERSION` is 23 (the
+terminal and harness tabs and their `pty.*` transitions retired at 23,
+smithersai/smithers#2229: an older store's stale tab rows fail `TabSchema`,
+are quarantined, and the surviving rows seed the fresh stream). Bump the
 projector version whenever an `APP_PROJECTION_SCHEMAS` row shape or the
 transition set changes. Checkpoint reasons are `created`, `legacy-baseline`,
 `compaction`, `privacy-reset`, and `projector-upgrade`. On an older-projector
@@ -811,7 +814,7 @@ Account sign-out, expiry and replacement scrub private journal contents,
 transcript cards and snapshots, composer drafts, deferred commands,
 recommendations, billing, repository inventory, working copies, cloud
 workspaces, integration status, and repository tree and flow projections.
-Card tabs and cloud terminal tabs close. Search history and repository selection
+Card tabs close. Search history and repository selection
 reset. Local World notes and local host resources remain machine-owned.
 
 The identity row persists `accountOwnerLogin` independently of availability.

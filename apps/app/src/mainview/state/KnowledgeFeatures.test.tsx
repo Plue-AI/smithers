@@ -191,7 +191,7 @@ describe("the optional Wiki summary on chat.clear", () => {
     const prompt = smithersInstructions(catalog, {
       host: "web", github: { connected: false, login: null, repositories: null },
       localRepositories: [], localRepositoriesAvailable: false
-    }, [], { budgetBytes: 1_000_000 })
+    }, { budgetBytes: 1_000_000 })
     expect(prompt).toContain("--summarize")
 
     const outcome = await controller.commands.run("chat.clear", "--summarize")

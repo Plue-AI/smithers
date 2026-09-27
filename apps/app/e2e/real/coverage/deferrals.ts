@@ -25,7 +25,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "flow.plan.tab", "flow.repo.choose", "input.mode", "palette.actions", "palette.recent",
     "runs.coding.select", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
     "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
-    "tab.close.cancel", "tab.menu", "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit"
+    "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit"
   ],
   /** Developer tooling, not a user journey. */
   diagnostics: [
@@ -60,7 +60,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     // History writes/readback still need real-host receipts: https://github.com/smithersai/smithers/issues/1921.
     "history.backfill", "history.parallel", "history.retry", "history.show",
     // Resume reuses the reviewed registration; authenticated host acceptance remains #1939.
-    "tab.close.confirm", "triggers.approve", "triggers.pause", "triggers.resume", "triggers.run",
+    "triggers.approve", "triggers.pause", "triggers.resume", "triggers.run",
     "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop",
     "box.images", "box.list", "workspace.rename", "box.session.destroy"
   ]

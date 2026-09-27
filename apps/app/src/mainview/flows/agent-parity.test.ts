@@ -16,7 +16,7 @@ import { describe, expect, test } from "bun:test"
 import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
-import type { Harness, Repo } from "@smthrs/rpc/LocalApp"
+import type { Repo } from "@smthrs/rpc/LocalApp"
 
 import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
@@ -68,9 +68,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "cloud.sign-out": "dropping the human's Smithers Cloud credential is theirs alone",
   "toast.dismiss": "dismissing a toast is the human's gesture",
   "tab.select": "focus is the human's",
-  "tab.close.confirm": "a confirm-dialog answer is the human's",
-  "tab.close.cancel": "a confirm-dialog answer is the human's",
-  "tab.menu": "opening a menu is the human's gesture",
   "repo.select": "which pinned repository is active is the human's selection",
   "workspace.rename.edit": "opening the inline editor is the human's gesture; the agent names the workspace with workspace.rename",
   "chat.open": "opening Chat and starting the selected microphone mode is the human's gesture",
@@ -102,7 +99,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "runs.coding.select", args: "run-1 storage", confirm: false },
   { name: "chat.clear", confirm: true },
   { name: "tab.card", args: "card-1", confirm: false },
-  { name: "tab.close", args: "t1", confirm: true },
+  { name: "tab.close", args: "t1", confirm: false },
   { name: "repo.tree", args: "local:/Users/will/smithers", confirm: false },
   { name: "workspace.rename", args: "Force", confirm: false },
   { name: "change.pins", args: "c1 parent current", confirm: false },
@@ -177,27 +174,6 @@ const repo = (id: string, name: string, path: string): Repo => ({
   warnings: []
 })
 
-const HARNESSES: ReadonlyArray<Harness> = [
-  {
-    id: "claude",
-    displayName: "Claude Code",
-    binary: "/opt/homebrew/bin/claude",
-    version: "2.1.0",
-    status: "signed-in",
-    account: { email: "will@codeplane.app" },
-    launch: { argv: ["claude"] }
-  },
-  {
-    id: "codex",
-    displayName: "Codex",
-    binary: "/opt/homebrew/bin/codex",
-    version: "1.0.0",
-    status: "signed-in",
-    account: { email: "will@codeplane.app" },
-    launch: { argv: ["codex"] }
-  }
-]
-
 const settle = async (ticks = 6): Promise<void> => {
   for (let index = 0; index < ticks; index += 1) await new Promise((resolve) => setTimeout(resolve, 1))
 }
@@ -208,25 +184,19 @@ const json = (status: number, body: unknown): Response =>
 /**
  * The whole app under EVERYTHING as an admin (so the admin plugin registers),
  * signed in to GitHub (so the requirement axis never intercepts), with two
- * local repositories, a terminal tab, a card, and the harness table. The
- * server is a recorder: every PTY create and every folder pick is counted.
+ * local repositories, a card tab and a card. The server is a recorder: every
+ * folder pick is counted.
  */
 const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const ptyBodies: Array<Record<string, unknown>> = []
   let picks = 0
   
   const controller = createAppController(store, unavailableAgent, {
     features: { pluginLibrary: true },
     bootstrap,
-    fetchImpl: async (input, init) => {
+    fetchImpl: async (input) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       const path = new URL(url, "http://local.test").pathname
-      if (path === "/api/harnesses") return json(200, { harnesses: HARNESSES })
-      if (path === "/api/pty" && init?.method === "POST") {
-        ptyBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
-        return json(200, { sessionId: `pty-${ptyBodies.length}` })
-      }
       if (path === "/api/repo/files") return json(200, { kind: "dir", path: "", entries: [] })
       return json(404, { status: "error", message: `no stub for ${path}` })
     }
@@ -245,11 +215,10 @@ const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
     actor: "system",
     repos: [repo("r1", "smithers", "/Users/will/smithers"), repo("r2", "force", "/Users/will/force")]
   })
-  store.dispatch({ type: "harnesses.loaded", actor: "system", harnesses: [...HARNESSES] })
   store.dispatch({
     type: "tab.opened",
     actor: "user",
-    tab: { id: "t1", kind: "terminal", title: "Terminal · smithers", sessionId: "t1", cwd: "/Users/will/smithers", repoKey: "local:/Users/will/smithers" }
+    tab: { id: "t1", kind: "card", title: "Pinned", cardId: "card-t1" }
   })
   store.dispatch({
     type: "card.upsert",
@@ -257,7 +226,7 @@ const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
     card: { id: "card-1", kind: "status", title: "Status", status: "active", createdAt: 1, ordinal: 0, payload: { progress: 0.5 } }
   })
   await settle()
-  return { store, controller, ptyBodies, picks: () => picks }
+  return { store, controller, picks: () => picks }
 }
 
 /** The production agent door (turns.ts continueToolLeg): one tool call, run as actor smithers. */
@@ -294,7 +263,7 @@ describe("the three-door law", () => {
   })
 
   test("every agent row of the policy table is invocable through the tool; a confirm row yields the confirm card, never a refusal", async () => {
-    const { store, controller, ptyBodies } = await boot()
+    const { store, controller } = await boot()
     const tabsBefore = store.collections.tabs.size
     for (const row of AGENT_ROWS) {
       const result = await execute(controller, row.name, row.args)
@@ -306,12 +275,9 @@ describe("the three-door law", () => {
       expect(`${row.name} confirmation`).toBe(`${row.name} ${confirmation === undefined ? "missing" : "confirmation"}`)
       expect(confirmation?.action?.args).toBe(row.args)
     }
-    // A confirm row performed nothing: no tab closed.
-    expect(store.collections.tabs.get("t1")).toBeDefined()
-    // No surviving row opens a PTY: the local terminals and harnesses went with the local backend.
-    expect(ptyBodies).toEqual([])
-    // The no-confirm rows acted: the card is a tab, the workspace is named.
-    expect(store.collections.tabs.size).toBe(tabsBefore + 1)
+    // The no-confirm rows acted: the card is a tab, the card tab t1 closed (its card stays), the workspace is named.
+    expect(store.collections.tabs.get("t1")).toBeUndefined()
+    expect(store.collections.tabs.size).toBe(tabsBefore)
     expect(store.collections.tabs.get("card-card-1")?.kind).toBe("card")
     expect(store.session().workspaceName).toBe("Force")
   })

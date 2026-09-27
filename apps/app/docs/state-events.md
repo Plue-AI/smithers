@@ -113,8 +113,8 @@ the same authoritative field into independently updated card copies.
 
 ## Completion ledger
 
-The frontend authority is connected to the active `AppStore`: 43 pure domain
-projections, 134 validated transition types, four private journal collections,
+The frontend authority is connected to the active `AppStore`: 41 pure domain
+projections, 149 validated transition types, four private journal collections,
 verified baseline/suffix boot and explicit compaction. Live-store tests erase
 all materializations after more than 500 accepted events, close and reopen a
 real SQLite file, and recover the original question and complete reply. Failed

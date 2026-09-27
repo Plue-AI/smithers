@@ -113,25 +113,12 @@ describe("smithers.who", () => {
     expect(line).not.toContain("no repository is open yet")
   })
 
-  test("the native host reads as the native app, with its harnesses from the same facts the opening message reads", async () => {
+  test("the desktop shell reads as the native app", async () => {
     const { store, controller } = await freshController(NATIVE)
-    store.dispatch({
-      type: "harnesses.loaded",
-      actor: "system",
-      harnesses: [{
-        id: "claude",
-        displayName: "Claude Code",
-        binary: "/usr/local/bin/claude",
-        version: "2.0.0",
-        status: "signed-in",
-        account: { email: "will@example.com" },
-        launch: { argv: ["claude"] }
-      }]
-    })
     await controller.commands.run("smithers.who")
     const line = smithersMessages(store).at(-1) ?? ""
     expect(line).toContain("the concierge of the native Smithers app")
-    expect(line).toContain("Local harnesses: Claude Code (signed-in, will@example.com).")
+    expect(line).not.toContain("harness")
   })
 
   test("the agent's tool call reads the same line it rendered", async () => {

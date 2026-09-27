@@ -1,5 +1,7 @@
 # Lane `agent-parity` — REPORT
 
+> Superseded 2026-09-27 (smithersai/smithers#2229): the terminal and harness tabs, the `+` menu, `tab.terminal`, `tab.harness`, `tab.read`, `tab.menu`, `tab.close.confirm/cancel`, the `pty.*` transitions and the harness inventory are gone. Tabs are card tabs (`tab.card`, `tab.select`, `tab.close`); a terminal is the workspace card's Terminal facet. The text below is the record of the lane as it ran.
+
 Brief: `agent-parity.md`. Law: `apps/app/AGENTS.md` "THE THREE-DOOR LAW".
 Status: shipped and green. `bun x tsc --noEmit -p .` clean in `apps/app` and
 `packages/rpc`; the brief's verification set 246/246 (17 files); `bun test

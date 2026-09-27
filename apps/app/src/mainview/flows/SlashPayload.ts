@@ -1350,9 +1350,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "tab.card": (args) => required("cardId", args, "tab.card needs the card id"),
   "tab.select": (args) => required("tab", args, "tab.select needs a tab id or a position 1-9"),
-  "tab.read": (args) => required("tab", args, "tab.read needs a tab id"),
   "tab.close": (args) => optional("tabId", args),
-  "tab.menu": (args) => optional("repo", args),
   "repo.select": (args) => required("repo", args, "repo.select needs a pinned repository key"),
   /* `<copyId>[#path]`: the tree row's own id, split at the first `#` (a copy id never carries one; a path may have spaces). */
   "repo.tree": (args) => {

@@ -32,7 +32,7 @@ test("replacing a terminal session detaches the old stream and attaches the new 
   } }
   const render = (sessionId: string) => flushSync(() => root.render(
     <ControllerTestProvider controller={testController}>
-      <TerminalView tab={{ id: sessionId, kind: "terminal", title: "main", ordinal: 1, sessionId, workspaceId: "workspace", repo: "reader/project" }} />
+      <TerminalView repo="reader/project" sessionId={sessionId} />
     </ControllerTestProvider>
   ))
   const until = async (count: number) => {

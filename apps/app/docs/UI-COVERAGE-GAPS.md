@@ -81,7 +81,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 ### agents · Cloud agent sessions: create, list, get, delete, messages, SSE stream (`smithers agent session|chat`)
 
 - Source: plue · coverage: none · effort: M
-- Exists: agent card is a local harness tab (packages/rpc/src/Cards.ts:629); workspace provenance names an `agent session` (ADR 0003 L20-47) with nothing to open.
+- Exists: the local agent card variant (packages/rpc/src/Cards.ts:629) survives only in conversations saved before the harness tabs retired (#2229); workspace provenance names an `agent session` (ADR 0003 L20-47) with nothing to open.
 - UI: No new card kind (an `agent-session` card duplicates the `agent` card: harnessId, task, sessionId, phase, exitCode): the agent card gains a cloud variant carrying workspaceId instead of cwd and an SSE transcript instead of a PTY tab, as the Terminal facet swaps PTY for WebSocket-to-SSH (WORKBENCH-UX L156-158); header session · workspace · harness · state; transcript rows; the app composer addresses the active session (no second composer in the card); footer Stop (confirm); listed as rows in the workspace card.
 - Flows: `agent.session.new <workspaceId> <task>; agent.session.list; agent.session.view <id>; agent.session.say <id> <text>; agent.session.stop <id> (confirm)`
 
@@ -194,7 +194,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 - Source: plue · coverage: none · effort: S
 - Exists: repos.import imports from GitHub (Flows.ts:790); repo.open opens a local checkout (Flows.ts:1180).
-- UI: No new sidebar control (ADR 0001 names one tree and no `+`): repo.create invoked from the composer or the existing + menu (composer.add, Flows.ts:1165) renders a `repo-new` card with owner ▾ · name · visibility · template ▾ and Create; done adds the tree row and offers box.open.
+- UI: No new sidebar control (ADR 0001 names one tree and no `+`): repo.create invoked from the composer (the `+` menu retired, #2229) renders a `repo-new` card with owner ▾ · name · visibility · template ▾ and Create; done adds the tree row and offers box.open.
 - Flows: `repo.create <name> [owner] [--private] [--template owner/repo]`
 
 ### repositories · Connect a local jj repo to Smithers Cloud: license check, GitHub App wait, connection file, auto-push jj hook, disconnect, status, 10-repo quota; repository sync from source
@@ -540,7 +540,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 - Source: smithers · coverage: none · effort: S
 - Exists: Nothing.
-- UI: doctor card row `@smthrs/cli <version> · newer <tag> available` with Update running the command in a terminal tab.
+- UI: doctor card row `@smthrs/cli <version> · newer <tag> available` with Update running the command in the workspace card's Terminal facet (terminal tabs retired, #2229).
 - Flows: `update`
 
 ### time travel · Replay, fork, rewind, retry and compensation over a flow run's journal (TimeTravel library; CLI verbs and MCP tools refused in rc.0)

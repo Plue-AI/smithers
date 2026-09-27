@@ -18,7 +18,7 @@ test("idle checkpoint bounds reopen replay while retaining documents and later e
       id: "kept", path: "kept.md", title: "Kept", body: "Preserve my work", links: [], tags: [], sources: [], confidence: 1
     } }).isPersisted.promise
     for (let index = 0; index < 67; index++) {
-      await store.dispatch({ type: "tab.menu.toggled", actor: "user", open: index % 2 === 0 }).isPersisted.promise
+      await store.dispatch({ type: "theme.changed", actor: "user", theme: index % 2 === 0 ? "dark" : "light" }).isPersisted.promise
     }
     const before = await store.eventHistory()
     await until(async () => (await store.eventHistory()).checkpoint.sequence >= before.head.sequence)
@@ -49,7 +49,7 @@ test("failed automatic checkpoint retains its suffix and retries after a committ
   const store = await createAppStore({ kind: "localStorage", storage })
   try {
     for (let index = 0; index < 65; index++) {
-      await store.dispatch({ type: "tab.menu.toggled", actor: "user", open: index % 2 === 0 }).isPersisted.promise
+      await store.dispatch({ type: "theme.changed", actor: "user", theme: index % 2 === 0 ? "dark" : "light" }).isPersisted.promise
     }
     const before = await store.eventHistory()
     const failures: number[] = []

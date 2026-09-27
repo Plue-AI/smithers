@@ -16,17 +16,17 @@ import type { FlowName } from "../../../src/mainview/flows/FlowName"
  *   3. A REQUIRED INPUT. The form-draft, focus and fork scenarios need one
  *      field to hold an unfinished value across a frame transition.
  *
- * `tab.read` meets all three — `tabHarnessFlows` is registered
- * unconditionally in Flows.ts, its handler only reads local state, and its
- * `tab` field is required — and reading a tab mutates nothing if the form is
- * ever submitted.
+ * `tab.card` meets all three — `tabFlows` is registered unconditionally in
+ * Flows.ts, its handler only reads local state, and its `cardId` field is
+ * required — and a card id no card has refuses without mutating anything if
+ * the form is ever submitted.
  *
- * The vehicle was `wiki.open`; `tab.read` keeps the scenarios off the Wiki,
- * which none of them is about. Re-point FORM_VEHICLE_FLOW and FORM_VEHICLE_FIELD to change the vehicle
- * again; the card and field ids below derive from them.
+ * The vehicle was `wiki.open`, then `tab.read` until the terminal and harness
+ * tabs retired (#2229). Re-point FORM_VEHICLE_FLOW and FORM_VEHICLE_FIELD to
+ * change the vehicle again; the card and field ids below derive from them.
  */
-const FORM_VEHICLE_FLOW: FlowName = "tab.read"
-const FORM_VEHICLE_FIELD = "tab"
+const FORM_VEHICLE_FLOW: FlowName = "tab.card"
+const FORM_VEHICLE_FIELD = "cardId"
 export const FORM_VEHICLE_CARD_ID = `card-form-${FORM_VEHICLE_FLOW}`
 /** The vehicle's required field, for the scenarios that re-locate it on a page they booted themselves. */
 export const FORM_VEHICLE_FIELD_TESTID = `flow-form-${FORM_VEHICLE_FIELD}`

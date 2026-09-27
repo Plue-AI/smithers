@@ -56,7 +56,7 @@ flowchart LR
   F --> UI[React and live read views]
 ```
 
-The projector covers 134 validated transition types. Live dispatch, rebuild, checkpoint replay and verification use that same function. Decision time, actor, identity and relevant environment are recorded inputs. Explicitly clearing an optional patch field survives event encoding; ordinary JSON omission cannot erase that distinction.
+The projector covers 149 validated transition types. Live dispatch, rebuild, checkpoint replay and verification use that same function. Decision time, actor, identity and relevant environment are recorded inputs. Explicitly clearing an optional patch field survives event encoding; ordinary JSON omission cannot erase that distinction.
 
 The interface can show optimistic state. Command work waits for the relevant local receipt. If persistence fails, dependent optimistic work is rejected. Replay never invokes a model, command, filesystem action or provider. Console diagnostics belong to newly committed live transitions and do not rerun during recovery.
 

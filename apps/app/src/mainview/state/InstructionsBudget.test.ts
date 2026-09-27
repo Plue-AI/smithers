@@ -306,12 +306,12 @@ describe("the instructions budget", () => {
       args: "<one> [two] [three]"
     }))
     // The two renderings the budget chooses between, measured through the public seam.
-    const atStage0 = bytes(smithersInstructions(catalog, honesty, [], { lastStage: 0, budgetBytes: 0 }))
-    const atStage1 = bytes(smithersInstructions(catalog, honesty, [], { lastStage: 1, budgetBytes: 0 }))
+    const atStage0 = bytes(smithersInstructions(catalog, honesty, { lastStage: 0, budgetBytes: 0 }))
+    const atStage1 = bytes(smithersInstructions(catalog, honesty, { lastStage: 1, budgetBytes: 0 }))
     // Dropping the grammars is what buys the room; without that, stage 1 is stage 0.
     expect(atStage0).toBeGreaterThan(atStage1)
 
-    const text = smithersInstructions(catalog, honesty, [], { budgetBytes: atStage1 })
+    const text = smithersInstructions(catalog, honesty, { budgetBytes: atStage1 })
     expect(instructionStageOf(text)).toBe(1)
     expect(bytes(text)).toBeLessThanOrEqual(atStage1)
     // Every command keeps its name AND its summary — only the grammar left.
@@ -329,7 +329,7 @@ describe("the instructions budget", () => {
       summary: `Does the ${index}th thing, at length, so that the catalog alone outgrows the budget many times over`,
       args: "<one> [two] [three]"
     }))
-    const text = smithersInstructions(many, honesty, [], { lastStage: 2 })
+    const text = smithersInstructions(many, honesty, { lastStage: 2 })
     expect(bytes(text)).toBeLessThanOrEqual(INSTRUCTIONS_BUDGET_BYTES + 4096)
     expect(text).toContain("Commands, by namespace")
     expect(instructionStageOf(text)).toBe(2)
@@ -339,7 +339,7 @@ describe("the instructions budget", () => {
     expect(small).toContain("<one> [two] [three]")
     expect(instructionStageOf(small)).toBe(0)
     // The floor: a budget the namespace list cannot meet leaves the namespaces and their counts, every name behind the list action.
-    const floor = smithersInstructions(many, honesty, [], { budgetBytes: 4096 })
+    const floor = smithersInstructions(many, honesty, { budgetBytes: 4096 })
     expect(instructionStageOf(floor)).toBe(3)
     expect(floor).toContain("Commands: 400, in these namespaces")
     expect(floor).toContain("ns0 (34)")

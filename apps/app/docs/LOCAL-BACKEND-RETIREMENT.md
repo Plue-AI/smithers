@@ -132,18 +132,29 @@ identity upstream. Every host that used it is `SMITHERS_LOCAL_MODE=offline`,
 where the identity upstream is null anyway, so only two tests that wanted a
 cloud-only host had to say `identityUpstream: null` out loud.
 
+## The third pass: the terminal and harness tabs (smithersai/smithers#2229)
+
+The tabs the local PTY fed went last. Tabs are card tabs now (`tab.card`,
+`tab.select`, `tab.close`); a terminal is the workspace card's Terminal facet
+(`tabs/TerminalView.tsx`, embedded, never a tab).
+
+| Removed | Why it was dead |
+| --- | --- |
+| `state/controller/tabs.ts` `openTerminalTab`, `openHarnessTab`, `readTab`, `toggleTabMenu`, the close question, `notePtyExit`, Cmd+T | posted `/api/pty` and read `/api/pty/:id/output`; no host serves either |
+| `tab.read`, `tab.menu`, `tab.close.confirm`, `tab.close.cancel` | the flows over those seams and the `+` menu (`tabMenuOpen`, `pendingTabCloseId` session fields) |
+| `TabSchema` terminal and harness rows; `pty.exited`, `pty.status.observed`, `tab.menu.toggled`, `tab.close.asked`, `harnesses.loaded`, `agents.loaded` transitions; the `harnesses` projection (`app-harnesses`) | persisted event kinds and rows: `APP_PROJECTOR_VERSION` 22 → 23 and `APP_SCHEMA_VERSION` 15 → 16. An older store's rows are validated against this build (a terminal or harness tab row fails `TabSchema` and is quarantined) and seed a fresh stream; boot reselects main. `tabs/tabs.migration.test.ts` opens such a store. |
+| `AgentRoleMenu.ts`, the `harnesses` / `agents` form option providers, the orchestrator role section of the instructions, the harness lines of the opening and identity messages | read a harness inventory no host loads |
+| `@smthrs/rpc/LocalApp` `PtySessionSchema`, `PtyCreateResponseSchema`, `PtyOutputResponseSchema`, `HarnessesResponseSchema`; `@smthrs/rpc/Health` `PtyStatusFrameSchema`; the process fields of `AgentRuntimeTabSchema` | the wire of the retired routes |
+| `TabBodies.tsx` terminal bodies, breadcrumb and close dialog; `TerminalView` takes `repo` and `sessionId` | only card bodies remain |
+
+Left in place: `HARNESS_IDS` and `HarnessSchema` (`@smthrs/harness-detect` and
+`AgentRoles.ts` read them), the local `agent` card variant (conversations saved
+before the cut still decode; the card renders as it did), and the local
+repository inventory (`repos.loaded`, `collections.repos`) — a separate
+retirement.
+
 ## Follow-ups this cut did not take either
 
-- `state/controller/tabs.ts` still posts `/api/pty` and reads
-  `/api/pty/:id/output`. No host serves either, so `openTerminalTab` and
-  `openHarnessTab` refuse with the fetch's own failure rather than a worded
-  refusal, and no terminal or harness tab can be created. (The boot-time
-  `/api/repos`, `/api/harnesses` and `/api/pty` inventory reads are gone: they
-  404'd on every host, the self-hosted backend included.) Cutting the rest
-  means cutting the `+` menu rows, the `tab.terminal`, `tab.harness` and
-  `tab.read` flows, and the `pty.exited` / `pty.status.observed` transitions
-  in `AppProjection.ts` — persisted event kinds, so it is a migration like the
-  card schemas. Tracked in smithersai/smithers#2229.
 - `state/controller/tutorialChange.ts` `post()` calls
   `/api/tutorial/change/{plan,preflight,receipt}`, which now 404 instead of
   501. The practice-repository path beside it is bundled and needs no host, so

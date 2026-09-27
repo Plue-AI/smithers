@@ -180,9 +180,10 @@ Input rules, explicit:
 - Suspended workspace: the facet shows the last thumbnail dimmed with a Resume
   action; Attach resumes then attaches.
 
-**Terminal facet.** The existing terminal tab's xterm, connected to the
-workspace over the plue WebSocket-to-SSH route instead of a local PTY. Same
-tab kind, a `workspaceId` on the row instead of a `cwd`.
+**Terminal facet.** The shared xterm adapter (`tabs/TerminalView.tsx`)
+embedded in the card, connected to the workspace over the plue
+WebSocket-to-SSH route. The terminal tabs and the local PTY retired
+(smithersai/smithers#2229); the facet is the one terminal surface.
 
 **Files facet.** `files.list` and `files.read` with a workspace as the target:
 the same `file-list` and `file` cards, the same markdown editor. A path in a

@@ -437,8 +437,7 @@ const WorkspaceFacetBody = ({
       {payload.terminalSessionId !== undefined ?
         (
           <div className="workspace-terminal-embed" style={{ height: 320 }}>
-            <TerminalView tab={{ id: payload.terminalSessionId, kind: "terminal", title: payload.name, ordinal: card.ordinal,
-              sessionId: payload.terminalSessionId, workspaceId: payload.workspaceId, repo: payload.repo }} />
+            <TerminalView repo={payload.repo} sessionId={payload.terminalSessionId} />
           </div>
         ) :
         <p className="world-card-empty">No terminal attached.</p>}

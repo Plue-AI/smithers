@@ -97,7 +97,7 @@ test("same-owner regeneration updates rules while sharing an unresolved request,
     await started.promise
     for (let n = 0; n < 3; n++) {
       await h.store.dispatch({ type: "tab.opened", actor: "user", tab: {
-        id: `tab-${n}`, kind: "terminal", title: "Terminal", sessionId: `session-${n}`, cwd: "/fixture"
+        id: `tab-${n}`, kind: "card", title: "Pinned", cardId: `card-${n}`
       } }).isPersisted.promise
       const revision = h.store.session().revision
       await h.controller.recommend()

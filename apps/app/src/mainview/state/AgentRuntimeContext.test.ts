@@ -135,7 +135,7 @@ describe("per-turn runtime context", () => {
     expect(renderAgentRuntimeContext(requests[1]?.context as AgentRuntimeContext)).toContain("Selected repository description (public catalog):\n    | A durable framework")
   })
 
-  test("Smithers is the first tab and sees every other one: the context lists the tabs and their status", async () => {
+  test("Smithers is the first tab and sees every other one: the context lists the card tabs", async () => {
     const store = await webStore()
     const requests: StartAgentTurnRequest[] = []
     const controller = createAppController(store, recordingAgent(requests), {
@@ -150,48 +150,20 @@ describe("per-turn runtime context", () => {
       }
     })
     await store.dispatch({
-      type: "harnesses.loaded",
-      actor: "system",
-      harnesses: [{
-        id: "claude",
-        displayName: "Claude Code",
-        binary: "/opt/homebrew/bin/claude",
-        version: "2.1.0",
-        status: "signed-in",
-        account: { email: "will@codeplane.app" },
-        launch: { argv: ["claude"] }
-      }]
-    }).isPersisted.promise
-    await store.dispatch({
       type: "tab.opened",
       actor: "user",
-      tab: { id: "h1", kind: "harness", title: "Claude Code · ~", sessionId: "h1", harnessId: "claude", cwd: "~" }
+      tab: { id: "card-balance", kind: "card", title: "Balance", cardId: "balance" }
     }).isPersisted.promise
     await store.dispatch({ type: "tab.selected", actor: "user", id: "main" }).isPersisted.promise
 
-    controller.send("what is the agent doing")
+    controller.send("what is pinned beside us")
     await settled()
-    const tabs = requests[0]?.context?.tabs ?? []
-    expect(tabs).toEqual([
-      { id: "main", kind: "main", title: "Smithers", status: "open", active: true },
-      {
-        id: "h1",
-        kind: "harness",
-        title: "Claude Code · ~",
-        harnessId: "claude",
-        account: "will@codeplane.app",
-        cwd: "~",
-        status: "running",
-        exitCode: null,
-        active: false
-      }
+    expect(requests[0]?.context?.tabs).toEqual([
+      { id: "main", kind: "main", title: "Smithers", active: true },
+      { id: "card-balance", kind: "card", title: "Balance", active: false }
     ])
-    expect(requests[0]?.context?.capabilities.some((line) => line.includes("tab.read"))).toBe(true)
-
-    await store.dispatch({ type: "pty.exited", actor: "system", sessionId: "h1", code: 0 }).isPersisted.promise
-    controller.send("and now?")
-    await settled()
-    expect(requests[1]?.context?.tabs?.[1]).toMatchObject({ status: "exited", exitCode: 0 })
+    // No tab has a process behind it: nothing offers to read one.
+    expect(requests[0]?.context?.capabilities.some((line) => line.includes("tab.read"))).toBe(false)
   })
 
   /*
@@ -291,7 +263,7 @@ describe("per-turn runtime context", () => {
     const controller = createAppController(store, recordingAgent(requests))
     controller.send("hi")
     await settled()
-    expect(requests[0]?.context?.tabs).toEqual([{ id: "main", kind: "main", title: "Smithers", status: "open", active: true }])
+    expect(requests[0]?.context?.tabs).toEqual([{ id: "main", kind: "main", title: "Smithers", active: true }])
     expect(requests[0]?.context?.capabilities.some((line) => line.includes("tab.read"))).toBe(false)
   })
 })

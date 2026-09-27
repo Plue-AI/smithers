@@ -290,13 +290,9 @@ const seedPrivateRoster = async (store: AppStore): Promise<void> => {
   await store.dispatch({ type: "tab.opened", actor: "user", tab: {
     id: "private-card-tab", kind: "card", title: "Alice private card", cardId: "balance"
   } }).isPersisted.promise
-  await store.dispatch({ type: "tab.opened", actor: "user", tab: {
-    id: "private-terminal", kind: "terminal", title: "Alice private workspace", sessionId: "private-session",
-    workspaceId: "private", repo: "alice/private"
-  } }).isPersisted.promise
   await store.dispatch({ type: "palette.toggled", actor: "user", open: false, lastQuery: "ALICE_PRIVATE_QUERY" }).isPersisted.promise
   await store.dispatch({ type: "palette.item.opened", actor: "user", ref: "alice/private", kind: "repository", at: 1 }).isPersisted.promise
-  await store.dispatch({ type: "tab.selected", actor: "user", id: "private-terminal" }).isPersisted.promise
+  await store.dispatch({ type: "tab.selected", actor: "user", id: "private-card-tab" }).isPersisted.promise
   await store.dispatch({ type: "repo-tree.failed", actor: "system", copyId: "workspace:private", path: "", error: "ALICE_PRIVATE_PATH"
   }).isPersisted.promise
   await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "alice/private",

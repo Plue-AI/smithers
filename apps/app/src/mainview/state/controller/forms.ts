@@ -1,8 +1,5 @@
 import { MODEL_SEAT_DEFAULT,SeatIdSchema,modelSeat,seatAccepts } from "@smthrs/rpc/ConfiguredModel"
-import type { Harness } from "@smthrs/rpc/LocalApp"
-import { HARNESS_IDS } from "@smthrs/rpc/LocalApp"
 import { Schema } from "effect"
-import { roleMenuEntries } from "../../AgentRoleMenu"
 import type { AgentInvocation } from "../../flows/AgentInvocation"
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { CommandOutcome } from "../../flows/Commands"
@@ -169,24 +166,9 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     return undefined
   }
 
-  /** The harness rows in the table's own order (HARNESS_IDS), whatever order the collection iterates. */
-  const harnesses = (): ReadonlyArray<Harness> =>
-    [...collections.harnesses.values()].sort(
-      (left, right) => (HARNESS_IDS as ReadonlyArray<string>).indexOf(left.id) - (HARNESS_IDS as ReadonlyArray<string>).indexOf(right.id)
-    )
-
   const formCard = (cardId: string): FlowFormCard | undefined => {
     const card = collections.cards.get(cardId)
     return card?.kind === "flow-form" ? card : undefined
-  }
-
-  /** An installed harness with its credential state. */
-  const harnessOption = (harness: Harness): FieldOption => {
-    const account = harness.account?.email ?? harness.account?.label ?? ""
-    const label = account === "" ? harness.displayName : `${harness.displayName} · ${account}`
-    if (harness.status === "unavailable") return { value: harness.id, label: harness.displayName, disabled: true, reason: "not installed" }
-    if (harness.status === "binary-only") return { value: harness.id, label: harness.displayName, disabled: true, reason: "no credential" }
-    return { value: harness.id, label }
   }
 
   /** The options a seam supplies for a provider, read at render; an empty list is a valid answer. */
@@ -200,8 +182,6 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       case "files":
         /* Filled asynchronously from the selected repository below; never invented here. */
         return []
-      case "harnesses":
-        return harnesses().map((harness) => harnessOption(harness))
       case "open-repos":
         return [...collections.repos.values()].map((repo) => ({ value: repo.id, label: `${repo.name} · ${repo.path}` }))
       case "cloud-repos":
@@ -226,12 +206,6 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
             : { value: manifest.id, label: manifest.name }
         )
       }
-      case "agents":
-        return roleMenuEntries(harnesses()).map((entry) => ({
-          value: entry.role.id,
-          label: entry.title,
-          ...(entry.available ? {} : { disabled: true, reason: entry.reason })
-        }))
       case "models": {
         // A seat takes one kind of model, and `default` hands it back to the host.
         const seat = SeatIdSchema.safeParse(draft["seat"])
@@ -475,13 +449,6 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     // backdrop through the same transitions used by its close gestures.
     // Agent-created forms do not dismiss chrome the human is using.
     if (request.via === "user" && ctx.commandActor === "user") {
-      const session = store.session()
-      const menus = [
-        ["tab.menu.toggled", session.tabMenuOpen],
-      ] as const
-      for (const [type, open] of menus) {
-        if (open === true) store.dispatch({ type, actor: "user", open: false })
-      }
     }
     if (request.via === "user" && ctx.commandActor === "user" && store.session().maximizedCardId === MODELS_CARD_ID) deps.minimizeCard?.()
     const existing = collections.cards.get(cardId)

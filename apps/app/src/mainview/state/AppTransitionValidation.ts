@@ -1,7 +1,6 @@
 import { AgentTurnBatchSchema,AgentTurnCursorSchema,AgentTurnJournalRequestSchema } from "@smthrs/rpc/AgentTurnJournal"
 import { BillingPlanSchema,SandboxEntitlementSchema } from "@smthrs/rpc/BillingPlans"
 import { ConfiguredModelSchema,ModelRecordIdSchema,ModelTestRecordSchema,SeatIdSchema } from "@smthrs/rpc/ConfiguredModel"
-import { StatusRollupSchema } from "@smthrs/rpc/Health"
 import { SignupSchema } from "./Signup"
 import { RepoFileEntrySchema } from "@smthrs/rpc/LocalApp"
 import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
@@ -9,9 +8,9 @@ import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import { z } from "zod"
 import type { AppProjectionSnapshot } from "./AppProjection"
 import {
-ActorSchema,AgentRoleSchema,BranchSchema,CardHistorySchema,CardPatchSchema,CardSchema,ChangeRowSchema,
+ActorSchema,BranchSchema,CardHistorySchema,CardPatchSchema,CardSchema,ChangeRowSchema,
 CloudRepositorySchema,CloudWorkspaceRowSchema,FrameSchema,GitHubAppStatusRowSchema,
-HarnessSchema,MessageSchema,PALETTES,
+MessageSchema,PALETTES,
 PinnedRepoSchema,RecommendationSourceSchema,RepoSchema,RepositoryEntrySchema,RepositoryCommandEntrySchema,RepositoryFlowSchema,
 QueuedPromptSchema,SessionSchema,StarredTargetSchema,SuggestionSchema,TabSchema,ToastSchema,
 WorkingCopySchema,WorldDocumentSchema,
@@ -32,7 +31,7 @@ const cardOf = <K extends Card["kind"]>(kind: K) => CardSchema.pipe(
   z.custom<Extract<Card, { kind: K }>>(card => typeof card === "object" && card !== null && "kind" in card && card.kind === kind)
 )
 const NewTabSchema = z.union(TabSchema.options.map(option => z.object(Object.fromEntries(
-  Object.entries(option.shape).filter(([name]) => name !== "ordinal" && name !== "exitCode")
+  Object.entries(option.shape).filter(([name]) => name !== "ordinal")
 )).strict()) as unknown as [z.ZodType, z.ZodType, ...z.ZodType[]]) as z.ZodType<Tab>
 
 // Local producers may omit kind; the existing card provides its payload discriminator below.
@@ -159,14 +158,8 @@ export const APP_TRANSITION_SCHEMAS = {
   "message.appended": z.object({ "type": z.literal("message.appended"), "actor": z.enum(["system", "user", "smithers"]), "text": z.string(), "action": MessageSchema.shape["action"].optional(), "spoken": MessageSchema.shape["spoken"] }).strict(),
   "tab.opened": z.object({ "type": z.literal("tab.opened"), "actor": ActorSchema, "tab": NewTabSchema }).strict(),
   "tab.selected": z.object({ "type": z.literal("tab.selected"), "actor": ActorSchema, "id": z.string() }).strict(),
-  "tab.close.asked": z.object({ "type": z.literal("tab.close.asked"), "actor": ActorSchema, "id": z.union([z.string(), z.null()]) }).strict(),
   "tab.closed": z.object({ "type": z.literal("tab.closed"), "actor": z.enum(["user", "system"]), "id": z.string() }).strict(),
-  "tab.menu.toggled": z.object({ "type": z.literal("tab.menu.toggled"), "actor": ActorSchema, "open": z.boolean() }).strict(),
-  "pty.exited": z.object({ "type": z.literal("pty.exited"), "actor": z.literal("system"), "sessionId": z.string(), "code": z.union([z.number().finite(), z.null()]) }).strict(),
-  "pty.status.observed": z.object({ "type": z.literal("pty.status.observed"), "actor": z.literal("system"), "sessionId": z.string(), "status": StatusRollupSchema }).strict(),
   "status.expired": z.object({ "type": z.literal("status.expired"), "actor": z.literal("system"), "now": z.number().finite(), "runtime": z.literal(true).optional() }).strict(),
-  "harnesses.loaded": z.object({ "type": z.literal("harnesses.loaded"), "actor": z.literal("system"), "harnesses": z.array(HarnessSchema) }).strict(),
-  "agents.loaded": z.object({ "type": z.literal("agents.loaded"), "actor": z.literal("system"), "agents": z.array(AgentRoleSchema) }).strict(),
   "models.observed": z.object({ "type": z.literal("models.observed"), "actor": z.literal("system"), "models": z.array(ConfiguredModelSchema) }).strict(),
   "model.saved": z.object({ "type": z.literal("model.saved"), "actor": ActorSchema, "model": ConfiguredModelSchema }).strict(),
   "model.removed": z.object({ "type": z.literal("model.removed"), "actor": ActorSchema, "id": ModelRecordIdSchema }).strict(),

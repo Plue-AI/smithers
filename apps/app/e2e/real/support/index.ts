@@ -39,7 +39,6 @@ type Lifecycle = {
   readonly baseURL: URL
   readonly sessionToken?: string
   readonly authorization?: string
-  readonly ptys: Set<string>
   readonly repos: Map<string, RegisteredRepo>
   readonly localRepos: Set<string>
 }
@@ -372,7 +371,6 @@ export const cleanupOwnedLocalRepo = async (repo: OwnedLocalRepo): Promise<void>
   await rm(repo.root, { recursive: true, force: true })
 }
 
-export const registerOwnedPty = (id: string): void => { requireLifecycle().ptys.add(id) }
 export const registerOwnedRepo = (repo: RegisteredRepo): void => { requireLifecycle().repos.set(repo.id, repo) }
 
 const validateScenario = (value: RealScenarioMetadata | undefined): RealScenarioMetadata => {
@@ -476,7 +474,6 @@ export const test = selectedBase.extend<RealFixtures>({
       baseURL,
       ...(token ? { sessionToken: token } : {}),
       ...(authorization ? { authorization } : {}),
-      ptys: new Set(),
       repos: new Map(),
       localRepos: new Set()
     }
@@ -486,29 +483,12 @@ export const test = selectedBase.extend<RealFixtures>({
       await use()
     } finally {
       const failures: string[] = []
-      for (const id of lifecycle.ptys) {
-        try {
-          const deleted = await authorizedFetch(lifecycle, "DELETE", `/api/pty/${encodeURIComponent(id)}`)
-          if (!deleted.ok()) throw new Error(`DELETE returned HTTP ${deleted.status()}`)
-        }
-        catch (error) { failures.push(`PTY ${id}: ${String(error)}`) }
-      }
       for (const repo of lifecycle.repos.values()) {
         try {
           const closed = await authorizedFetch(lifecycle, "POST", "/api/repo/close", { repoId: repo.id })
           if (!closed.ok()) throw new Error(`close returned HTTP ${closed.status()}`)
         }
         catch (error) { failures.push(`repository ${repo.id}${repo.path ? ` (${repo.path})` : ""}: ${String(error)}`) }
-      }
-      if (lifecycle.ptys.size > 0) {
-        try {
-          const response = await authorizedFetch(lifecycle, "GET", "/api/pty")
-          if (!response.ok()) throw new Error(`GET returned HTTP ${response.status()}`)
-          const body = await response.json() as { sessions?: Array<{ sessionId?: string }> }
-          const remaining = (body.sessions ?? []).map((session) => session.sessionId).filter((id): id is string => typeof id === "string")
-            .filter((id) => lifecycle.ptys.has(id))
-          if (remaining.length > 0) throw new Error(`sessions remain: ${remaining.join(", ")}`)
-        } catch (error) { failures.push(`PTY verification: ${String(error)}`) }
       }
       if (lifecycle.repos.size > 0) {
         try {

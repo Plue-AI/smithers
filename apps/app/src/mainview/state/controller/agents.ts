@@ -4,7 +4,6 @@ import {
   MODEL_ID
 } from "@smthrs/rpc/AgentRoles"
 import type { AgentRole } from "@smthrs/rpc/AgentRoles"
-import type { Harness } from "@smthrs/rpc/LocalApp"
 import type { Card, RepositoryFlow } from "../AppState"
 import type { AppStore } from "../AppStore"
 import { resolveTargetRepo } from "../RepoContext"
@@ -16,11 +15,7 @@ type AgentsCard = Extract<Card, { kind: "agents" }>
 /** One row of the Agents card: a built-in role or a repository agent flow. */
 export type AgentProfileRow = Extract<AgentsCard["payload"], { native: boolean }>["agents"][number]
 
-export type HarnessId = Harness["id"]
-
 export interface AgentsController {
-  /** The built-in roles into app-agents; nothing is fetched. */
-  readonly loadAgents: () => Promise<void>
   /** The agents as the menus list them: the mirror, or the built-ins until it loads. */
   readonly agentRoles: () => ReadonlyArray<AgentRole>
   /** `agent.list`: the Agents card, at the transcript's tail. */
@@ -35,11 +30,6 @@ export interface AgentsControllerDependencies {
 /** The agents in menu order from the store's mirror; the built-ins while it is empty. */
 export const currentAgentRoles = (_store: Pick<AppStore, "collections">): ReadonlyArray<AgentRole> =>
   AGENT_ROLES
-
-/** The built-in roles into app-agents; usable before the controller exists (tabs.ts resolves a role on demand). */
-export const loadAgents = async (ctx: Pick<ControllerContext, "store">): Promise<void> => {
-  ctx.store.dispatch({ type: "agents.loaded", actor: "system", agents: AGENT_ROLES })
-}
 
 /**
  * The model a flow declares, as its frontmatter wrote it: `provider:modelId`
@@ -89,8 +79,6 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
   const { collections } = store
 
   const agentRoles: AgentsController["agentRoles"] = () => currentAgentRoles(store)
-
-  const load: AgentsController["loadAgents"] = () => loadAgents(ctx)
 
   const agentsCard = (): AgentsCard | undefined => {
     const card = collections.cards.get(AGENTS_CARD_ID)
@@ -163,5 +151,5 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
   }
 
 
-  return { loadAgents: load, agentRoles, listAgents }
+  return { agentRoles, listAgents }
 }

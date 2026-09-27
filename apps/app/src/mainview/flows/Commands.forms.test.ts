@@ -105,9 +105,7 @@ const boot = async () => {
     }
   })
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: true, scopesPlain: null })
-  store.dispatch({ type: "harnesses.loaded", actor: "system", harnesses: [...HARNESSES] })
   store.dispatch({ type: "card.upsert", actor: "system", card: { id: "card-1", kind: "status", title: "Status", status: "active", createdAt: 1, ordinal: 0, payload: { progress: 0.5 } } })
-  await controller.loadAgents()
   await settle()
   return { store, controller, puts }
 }

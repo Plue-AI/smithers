@@ -219,12 +219,12 @@ describe("the dock", () => {
     expect(store.session().theme).toBe(before)
   })
 
-  test("the dock stays on screen while a terminal tab owns the view", async () => {
+  test("the dock stays on screen while a card tab owns the view", async () => {
     const { store, controller } = await localHarness()
     await persisted(store, {
       type: "tab.opened",
       actor: "user",
-      tab: { id: "t1", kind: "terminal", title: "Terminal · ~", sessionId: "t1", cwd: "~" }
+      tab: { id: "t1", kind: "card", title: "Balance", cardId: "balance" }
     })
     await persisted(store, { type: "tab.selected", actor: "user", id: "t1" })
     const { host } = mount(controller)

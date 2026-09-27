@@ -114,8 +114,8 @@ transcript is present and not busy, `[data-testid="transcript"][aria-busy="false
 In the tab layout a tab body is the active one,
 `[data-testid^="tab-body-"]:not([hidden])`. Every tab body stays mounted and
 the inactive ones carry `hidden`, the main body with the transcript inside it
-included (`src/mainview/App.tsx:516`, `src/mainview/tabs/TabBodies.tsx:43`), so
-a reload that restores a durable card or terminal tab leaves the transcript
+included (`src/mainview/App.tsx`, `src/mainview/tabs/TabBodies.tsx`), so
+a reload that restores a durable card tab leaves the transcript
 attached with `aria-busy="false"` and hidden for as long as that tab is
 active. Waiting for it to be visible there spends the whole 120 s on a signal
 that layout cannot produce and then names the transcript, which is the one

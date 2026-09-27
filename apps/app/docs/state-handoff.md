@@ -4,7 +4,7 @@ The user explicitly stopped implementation and requested that completed work be 
 
 ## What was implemented
 
-- The app has one pure projection shared by live updates, replay, rebuild and verification: 43 domain projections (41 persisted and two per launch), 134 transition types, storage schema 13, event/projector version 1.
+- The app has one pure projection shared by live updates, replay, rebuild and verification: 41 domain projections (38 persisted and three per launch), 149 transition types, storage schema 16, event format version 1 (projector 23).
 - Accepted inputs, verified checkpoint and head are authoritative; TanStack DB rows are materialized views. Event, changed rows and head commit atomically. Receipts fence external effects; stale writers are refused. Corrupt caches can rebuild, while invalid authoritative history is refused.
 - Commands and human drafts have actor, context and prefix-bound recovery. HTTP chat has stable attempt/leg identities, backend acceptance, durable output and applied cursors. Native SQLite crash/reopen and outbox acknowledgement paths are covered. Ambiguous uncommitted inference/tool execution is not automatically replaced.
 - Runtime lifecycle/call facts, stable call IDs, protected results, native-control outbox and nested human waits extend reconstruction across runtime boundaries. Run/approval cards, stars, read receipts, tags and Wiki joins derive views without duplicating durable card authority.

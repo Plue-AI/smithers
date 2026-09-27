@@ -77,7 +77,7 @@ import { historyFlows } from "./entries/history"
 import { storageFlows } from "./entries/storage"
 import { syncFlows } from "./entries/sync"
 import { systemFlows } from "./entries/system"
-import { tabFlows, tabHarnessFlows } from "./entries/tab"
+import { tabFlows } from "./entries/tab"
 import { toastFlows } from "./entries/toast"
 import { triggersFlows } from "./entries/triggers"
 import { wikiFlows, wikiSurfaceFlows } from "./entries/wiki"
@@ -179,7 +179,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...reviewFlows(actions),
   ...findingsFlows(actions),
   ...chatReloadFlows(actions),
-  ...tabHarnessFlows(actions),
   ...agentFlows(actions),
   /* The cloud agent sessions (UI-COVERAGE-GAPS.md "agents · Cloud agent sessions"), in the agent namespace. */
   ...agentSessionFlows(actions),

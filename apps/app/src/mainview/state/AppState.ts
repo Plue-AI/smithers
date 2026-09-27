@@ -1,6 +1,6 @@
 import type { ApprovalRow } from "@smthrs/gateway/GatewayProjection"
 import type { AgentRole } from "@smthrs/rpc/AgentRoles"
-import { AgentRoleIdSchema,AgentRoleSchema } from "@smthrs/rpc/AgentRoles"
+import { AgentRoleSchema } from "@smthrs/rpc/AgentRoles"
 import { BillingPlanSchema,SandboxEntitlementSchema } from "@smthrs/rpc/BillingPlans"
 import type { Card,CardPatch } from "@smthrs/rpc/Cards"
 import {
@@ -17,9 +17,8 @@ WorkspaceServiceSchema
 } from "@smthrs/rpc/Cards"
 import type { ConfiguredModel,ModelRecordId,ModelTestRecord,SeatId } from "@smthrs/rpc/ConfiguredModel"
 import { ConfiguredModelSchema,ModelTestRecordSchema,SeatAssignmentSchema } from "@smthrs/rpc/ConfiguredModel"
-import { StatusRollupSchema,type StatusRollup } from "@smthrs/rpc/Health"
-import type { Harness,Repo } from "@smthrs/rpc/LocalApp"
-import { HARNESS_IDS,HarnessSchema,RepoFileEntrySchema,RepoSchema } from "@smthrs/rpc/LocalApp"
+import type { Repo } from "@smthrs/rpc/LocalApp"
+import { RepoFileEntrySchema,RepoSchema } from "@smthrs/rpc/LocalApp"
 import type { LocalRepositoryInspection,RepositoryAccess } from "@smthrs/rpc/NativeRepository"
 import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
@@ -46,14 +45,14 @@ export {
 AgentRoleSchema,CardPatchSchema,
 CardPlanItemSchema,
 CardSchema,
-EnvironmentImageRowSchema,HARNESS_IDS,HarnessSchema,RepoSchema,SandboxEgressRowSchema,
+EnvironmentImageRowSchema,RepoSchema,SandboxEgressRowSchema,
 WorkspaceDesktopSchema,
 WorkspaceEnvironmentSchema,
 WorkspaceFileEntrySchema,
 WorkspaceHeadSchema,
 WorkspaceServiceSchema
 }
-export type { AgentRole,Harness,Repo }
+export type { AgentRole,Repo }
 
 /*
  * Models as data. An `app-models` row is a configured model plus the last test
@@ -929,8 +928,6 @@ export const SessionSchema = z.object({
    * sessions persisted before the field parse without a schema reset.
    */
   turnId: z.string().nullable().optional(),
-  tabMenuOpen: z.boolean().optional(),
-  pendingTabCloseId: z.string().nullable().optional(),
   /**
    * Durable chat log filter; absent means every source and kind is shown.
    * A kind this build no longer has (the retired "subagent rows") drops on read.
@@ -1000,10 +997,13 @@ export const activeRepoOf = (
 }
 
 /*
- * The local-app tabs (docs/LOCAL-APP.md "Tabs"). `TabRow` is what the
- * collection stores; `Tab` is the same record as it is OPENED, without the
- * two fields the collection owns: its place in the strip (creation order)
- * and, for a process tab, the exit code once the PTY ends.
+ * The tabs (docs/LOCAL-APP.md "Cards", "Open in tab"): main, and a card
+ * pinned beside the conversation. `TabRow` is what the collection stores;
+ * `Tab` is the same record as it is OPENED, without the one field the
+ * collection owns: its place in the strip (creation order). The terminal and
+ * harness rows retired with the local backend (smithersai/smithers#2229); a
+ * persisted row of either kind fails this schema and is quarantined at open,
+ * and the projector upgrade seeds the surviving rows (APP_PROJECTOR_VERSION).
  */
 const tabRowShape = {
   ordinal: z.number().int().nonnegative(),
@@ -1013,38 +1013,11 @@ const tabRowShape = {
 
 export const TabSchema = z.discriminatedUnion("kind", [
   z.object({ ...tabRowShape, id: z.literal("main"), kind: z.literal("main"), title: z.literal("Smithers") }),
-  z.object({
-    ...tabRowShape,
-    id: z.string(),
-    kind: z.literal("terminal"),
-    statusRollup: StatusRollupSchema.optional(),
-    title: z.string(),
-    sessionId: z.string(),
-    /* A workspace terminal (lane citc) runs inside the cloud workspace, so it has no local cwd. */
-    cwd: z.string().optional(),
-    exitCode: z.number().nullable().optional(),
-    /** A cloud-workspace terminal: the workspace it attaches to, and the repo the session routes through. */
-    workspaceId: z.string().optional(),
-    repo: z.string().optional()
-  }),
-  z.object({
-    ...tabRowShape,
-    id: z.string(),
-    kind: z.literal("harness"),
-    statusRollup: StatusRollupSchema.optional(),
-    title: z.string(),
-    sessionId: z.string(),
-    cwd: z.string(),
-    exitCode: z.number().nullable().optional(),
-    harnessId: z.enum(HARNESS_IDS),
-    /** The named role it was launched as (AgentRoles.ts); absent for a raw harness. */
-    roleId: AgentRoleIdSchema.optional()
-  }),
   z.object({ ...tabRowShape, id: z.string(), kind: z.literal("card"), title: z.string(), cardId: z.string() })
 ])
 export type TabRow = z.infer<typeof TabSchema>
-/* Distributive: every member of the union loses the collection's two fields, none of the others. */
-export type Tab = TabRow extends infer Row ? (Row extends TabRow ? Omit<Row, "ordinal" | "exitCode"> : never) : never
+/* Distributive: every member of the union loses the collection's field, none of the others. */
+export type Tab = TabRow extends infer Row ? (Row extends TabRow ? Omit<Row, "ordinal"> : never) : never
 
 /**
  * The conversation a transcript row belongs to, as a tab id. There is ONE
@@ -1691,23 +1664,11 @@ export type AppTransition =
     /** The door is saying this refusal here, so its form card must not repeat it ({@link Message.spoken}). */
     spoken?: true
   }
-  /* The local-app tabs (docs/LOCAL-APP.md "Tabs"). */
+  /* The card tabs (docs/LOCAL-APP.md "Cards"). */
   | { type: "tab.opened"; actor: Actor; tab: Tab }
   | { type: "tab.selected"; actor: Actor; id: string }
-  | {
-    /* The close question for a tab whose process is alive; `id: null` answers "keep it". */
-    type: "tab.close.asked"
-    actor: Actor
-    id: string | null
-  }
   | { type: "tab.closed"; actor: "user" | "system"; id: string }
-  | { type: "tab.menu.toggled"; actor: Actor; open: boolean }
-  | { type: "pty.exited"; actor: "system"; sessionId: string; code: number | null }
-  | { type: "pty.status.observed"; actor: "system"; sessionId: string; status: StatusRollup }
   | { type: "status.expired"; actor: "system"; now: number; runtime?: true }
-  | { type: "harnesses.loaded"; actor: "system"; harnesses: ReadonlyArray<Harness> }
-  /* Agents as data (custom-agents.md): `GET /api/agents` replaces the app-agents mirror the way the harness list does. */
-  | { type: "agents.loaded"; actor: "system"; agents: ReadonlyArray<AgentRole> }
   /* Models as data: the host's catalog replaces its own rows in place and never a user's record. */
   | { type: "models.observed"; actor: "system"; models: ReadonlyArray<ConfiguredModel> }
   | { type: "model.saved"; actor: Actor; model: ConfiguredModel }
@@ -1869,8 +1830,6 @@ export const initialSession = (theme: Session["theme"]): Session => ({
   wikiGraphPath: null,
   pendingConnectorRemovalId: null,
   activeTabId: MAIN_TAB_ID,
-  tabMenuOpen: false,
-  pendingTabCloseId: null,
   chatFilterMenuOpen: false,
   activeRepoKey: null,
   revision: 0

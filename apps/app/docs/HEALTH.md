@@ -102,8 +102,8 @@ backoff spaces the retries.
 The daemon stamps owner incarnation, observation time, expiry, and evidence
 cursor. It discards a report if the process changes lifecycle while its check
 is running. Observations commit to `local-health.sqlite` using the existing
-Smithers SQL journal before they reach HTTP list snapshots or `pty.status`
-WebSocket frames. Unchanged observations coalesce until their half-TTL renewal;
+Smithers SQL journal before they reach HTTP list snapshots (the `pty.status`
+frames retired with the terminal tabs, smithersai/smithers#2229). Unchanged observations coalesce until their half-TTL renewal;
 the UI keeps the last committed timestamp during that interval. Every 256
 local observations the journal checkpoints the latest observation and compacts
 the earlier heartbeat payloads. The shared
