@@ -377,7 +377,7 @@ export const guarded = (writer: Writer, report: (failure: WriteFailed) => void):
 /** Thrown for a record damaged before the file's last line; a torn last line (a crash mid-append) is dropped. */
 export class Corrupt extends Error {
   constructor(readonly file: string, readonly line: number) {
-    super(`Session ${basename(file)} is damaged at line ${line}`)
+    super(`Conversation ${basename(file)} is damaged at line ${line}`)
   }
 }
 

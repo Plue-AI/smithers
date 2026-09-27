@@ -2,7 +2,7 @@
  * Ctrl+K: one search over commands, files, file text, sessions, and worker
  * tabs. The first token picks the mode, as in the app's Cmd+K palette
  * (`apps/app/src/mainview/flows/SearchQuery.ts`, `PREFIXES` and `parseQuery`).
- * `/`, `text:` (with `/re/`) and `?` keep the app's meaning; `session:` and
+ * `/`, `text:` (with `/re/`) and `?` keep the app's meaning; `conversation:` and
  * `tab:` are the terminal's own. The app's `@` is symbols there, but `@` is a
  * file here, so it is not a prefix.
  *
@@ -30,7 +30,7 @@ export interface Parsed {
 export const prefixes: ReadonlyArray<{ readonly prefix: string; readonly mode: Mode; readonly label: string }> = [
   { prefix: "/", mode: "commands", label: "commands" },
   { prefix: "text:", mode: "text", label: "text in files" },
-  { prefix: "session:", mode: "sessions", label: "sessions" },
+  { prefix: "conversation:", mode: "sessions", label: "conversations" },
   { prefix: "tab:", mode: "tabs", label: "worker tabs" }
 ]
 
@@ -73,7 +73,7 @@ export interface Sources {
   >
 }
 
-/** The session rows `/resume` and `session:` both show. */
+/** The saved-conversation rows `/resume` and `conversation:` both show. */
 export const sessionRows = (
   sessions: ReadonlyArray<Session.Summary>,
   query: string,

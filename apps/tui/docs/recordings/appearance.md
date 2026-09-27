@@ -28,5 +28,5 @@ Capture "Choose a terminal accent."
 Press ArrowDown
 Press ArrowDown
 Press Enter
-Capture "Apply the theme without leaving the session."
+Capture "Apply the theme without leaving the conversation."
 ```

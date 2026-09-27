@@ -398,7 +398,7 @@ describe("esc", () => {
     await tui.until((screen) => screen.includes("(cancelled)"), 5_000, "resistant shell cancelled")
     await tui.type("/new")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("New session started"), 5_000, "new session after cancellation")
+    await tui.until((screen) => screen.includes("New conversation started"), 5_000, "new session after cancellation")
   }, 30_000)
 
   it("quit waits for a resistant shell's process group to stop", async () => {
@@ -710,7 +710,7 @@ describe("turns", () => {
     await tui.until((screen) => screen.includes("esc Interrupt"), 10_000, "running turn")
     const folder = sessionFolder(sessions)
     chmodSync(join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!), 0o444)
-    await tui.until((screen) => screen.includes("Session not saved: EACCES"), 10_000, "unsaved record")
+    await tui.until((screen) => screen.includes("Conversation not saved: EACCES"), 10_000, "unsaved record")
     await tui.until((screen) => idle(screen) && /Fixed/.test(screen), 90_000, "answer")
     await tui.type("second prompt after the failed write")
     await tui.press(key.enter)
@@ -779,7 +779,7 @@ describe("turns", () => {
     await first.tui.type("remember this deep project")
     await first.tui.press(key.enter)
     await first.tui.until((screen) => idle(screen) && screen.includes("pong"), 15_000, "deep project answered")
-    expect(first.tui.screen()).not.toContain("Session not saved")
+    expect(first.tui.screen()).not.toContain("Conversation not saved")
     process.env.SMITHERS_TUI_SESSION_DIR = first.sessions
     const file = Session.latest(cwd)!
     expect(Session.load(file)).toContainEqual({
@@ -945,13 +945,13 @@ describe("search palette", () => {
   it("runs a command, and ? lists prefixes that switch the mode", async () => {
     const { tui } = await start()
     await tui.press(key.ctrlK)
-    await tui.type("/sess")
-    await tui.until((screen) => /\/session\s+Show the session file/.test(screen), 5_000, "command row")
+    await tui.type("/conv")
+    await tui.until((screen) => /\/conversation\s+Show the conversation file/.test(screen), 5_000, "command row")
     await tui.press(key.enter)
     await tui.until((screen) => /exchanges · ↑0/.test(screen), 5_000, "session note")
     await tui.press(key.ctrlK)
     await tui.type("?")
-    await tui.until((screen) => screen.includes("session:") && screen.includes("worker tabs"), 5_000, "prefix list")
+    await tui.until((screen) => screen.includes("conversation:") && screen.includes("worker tabs"), 5_000, "prefix list")
     await tui.press(key.enter)
     await tui.type("hotk")
     await tui.until((screen) => /\/hotkeys\s+Show the keys/.test(screen), 5_000, "typed after the prefix")
@@ -961,8 +961,8 @@ describe("search palette", () => {
     const { tui } = await start()
     await tui.type("my precious draft")
     await tui.press(key.ctrlK)
-    await tui.type("/sess")
-    await tui.until((screen) => /\/session\s+Show the session file/.test(screen), 5_000, "command row")
+    await tui.type("/conv")
+    await tui.until((screen) => /\/conversation\s+Show the conversation file/.test(screen), 5_000, "command row")
     await tui.press(key.enter)
     await tui.until(
       (screen) => /exchanges · ↑0/.test(screen) && /┃\s+my precious draft/.test(screen),
@@ -1018,7 +1018,7 @@ describe("search palette", () => {
     expect(screen).not.toMatch(/┃\s+text:repeated/)
   }, 60_000)
 
-  it("session: resumes a past session", async () => {
+  it("conversation: resumes a past conversation", async () => {
     const first = await start()
     await first.tui.type("!echo remembered-output")
     await first.tui.press(key.enter)
@@ -1037,7 +1037,7 @@ describe("search palette", () => {
     })
     await tui.until(drawn, 20_000, "first draw")
     await tui.press(key.ctrlK)
-    await tui.type("session:")
+    await tui.type("conversation:")
     await tui.until((screen) => /Search[\s\S]*_[0-9a-f]{8}-/.test(screen), 5_000, "session row")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Resumed") && screen.includes("remembered-output"), 5_000, "resumed")
@@ -1141,7 +1141,7 @@ describe("fork", () => {
     await tui.type("second")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => /┃\s+second question/.test(screen) && screen.includes("Forked to new session"),
+      (screen) => /┃\s+second question/.test(screen) && screen.includes("Forked to a new conversation"),
       5_000,
       "forked"
     )
@@ -1502,7 +1502,7 @@ describe("runtime views", () => {
     await tui.press(key.escape)
     await tui.type("/new")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("New session started"), 5_000, "new session")
+    await tui.until((screen) => screen.includes("New conversation started"), 5_000, "new session")
   }, 60_000)
 
   it("/new is refused while an undo is pending and starts a session once it settles", async () => {
@@ -1552,7 +1552,7 @@ describe("runtime views", () => {
     )
     await tui.type("/new")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("New session started"), 5_000, "new session")
+    await tui.until((screen) => screen.includes("New conversation started"), 5_000, "new session")
   }, 60_000)
 
   it("renders agent-authored UI from a real cell and restores it after restart", async () => {
@@ -1865,7 +1865,7 @@ describe("flows", () => {
     await tui.type("/new")
     await tui.press(key.enter)
     const screen = await tui.until(
-      (screen) => screen.includes("New session started") || screen.includes("Stop running work first"),
+      (screen) => screen.includes("New conversation started") || screen.includes("Stop running work first"),
       5_000,
       "new session"
     )

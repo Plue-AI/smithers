@@ -9,10 +9,10 @@ Press Enter
 Wait for answer "Ready."
 Type "/name Addition review"
 Press Enter
-Type "/session"
+Type "/conversation"
 Press Enter
 Wait for "exchanges"
-Capture "Name the session and inspect its file, log, and token counts."
+Capture "Name the conversation and inspect its file, log, and token counts."
 ```
 
 ```tui-script resume-session
@@ -27,11 +27,11 @@ Wait for answer "Ready."
 Capture "Restart the real TUI with -c and restore the saved conversation."
 Type "/new"
 Press Enter
-Wait for "New session started"
+Wait for "New conversation started"
 Type "/resume"
 Press Enter
 Wait for "Addition review"
-Capture "Choose a named session from the resume picker."
+Capture "Choose a named conversation from the resume picker."
 Press Enter
 Wait for answer "Ready."
 Capture "Continue the original conversation."
@@ -47,7 +47,7 @@ Press Enter
 Wait for "Explain the addition"
 Capture "Choose the message where the conversation should branch."
 Press Enter
-Capture "Start a new session with the selected message in the editor."
+Capture "Start a new conversation with the selected message in the editor."
 ```
 
 ```tui-script compact-context

@@ -8,8 +8,8 @@ Type "!cat AGENTS.md"
 Press Enter
 Wait for "Keep changes small."
 Capture "Inspect the project instructions included with the task."
-Type "/session"
+Type "/conversation"
 Press Enter
 Wait for "exchanges"
-Capture "Find the session and log storing the conversation."
+Capture "Find the file and log storing the conversation."
 ```

@@ -36,7 +36,7 @@ describe("parse", () => {
     expect(Palette.parse("/res")).toMatchObject({ mode: "commands", query: "res" })
     expect(Palette.parse("text:a - b")).toEqual({ mode: "text", prefix: "text:", query: "a - b" })
     expect(Palette.parse("text:/a.+b/")).toMatchObject({ mode: "text", regex: "a.+b" })
-    expect(Palette.parse("session:fix")).toMatchObject({ mode: "sessions", query: "fix" })
+    expect(Palette.parse("conversation:fix")).toMatchObject({ mode: "sessions", query: "fix" })
     expect(Palette.parse("tab:w1")).toMatchObject({ mode: "tabs", query: "w1" })
     expect(Palette.parse("?")).toMatchObject({ mode: "help" })
     expect(Palette.parse("  text:x")).toMatchObject({ mode: "text", query: "x" })
@@ -109,22 +109,22 @@ describe("rows", () => {
   })
 
   it("lists sessions exactly as /resume does", () => {
-    const listed = rows("session:")
+    const listed = rows("conversation:")
     expect(listed.map((row) => row.value)).toEqual([{ kind: "session", file: "/s/b.jsonl" }, {
       kind: "session",
       file: "/s/a.jsonl"
     }])
     expect(listed.map((row) => row.label)).toEqual(Palette.sessionRows(sessions, "", 2_000).map((row) => row.label))
     expect(listed.map((row) => row.label)).toEqual(["Fix the build", "add a view"])
-    expect(rows("session:view").map((row) => row.label)).toEqual(["add a view"])
-    expect(rows("session:", { sessions: undefined })).toEqual([])
+    expect(rows("conversation:view").map((row) => row.label)).toEqual(["add a view"])
+    expect(rows("conversation:", { sessions: undefined })).toEqual([])
   })
 
   it("lists the prefixes after ?", () => {
     expect(rows("?").map((row) => row.value)).toEqual([
       { kind: "prefix", prefix: "/" },
       { kind: "prefix", prefix: "text:" },
-      { kind: "prefix", prefix: "session:" },
+      { kind: "prefix", prefix: "conversation:" },
       { kind: "prefix", prefix: "tab:" }
     ])
   })

@@ -30,7 +30,7 @@ export const parse = (args: ReadonlyArray<string>, cwd: string) => {
     if (positionals.length > 1) return { error: "Expected one directory" } as const
     if (values.continue && values.resume) return { error: "Choose --continue or --resume" } as const
     if (values.print !== undefined && (values.continue || values.resume)) {
-      return { error: "--print cannot resume an interactive session" } as const
+      return { error: "--print cannot resume an interactive conversation" } as const
     }
     if (values.model !== undefined && values.model.trim() === "") return { error: "--model needs a model" } as const
     if (values.print !== undefined && values.print.trim() === "") return { error: "--print needs a prompt" } as const

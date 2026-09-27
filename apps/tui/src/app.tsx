@@ -140,7 +140,7 @@ export function App(props: AppProps) {
   const entries = useRef<Array<Context.Entry>>(restored.current?.entries ?? [])
   // A record the disk refused never stops the screen: the row says what went unsaved.
   const unsaved = useCallback((failure: Session.WriteFailed) => {
-    const text = `Session not saved: ${failure.message}`
+    const text = `Conversation not saved: ${failure.message}`
     setStatus(text, "danger")
     setTranscript((current) => Transcript.alert(current, text, Date.now()))
   }, [])
@@ -994,7 +994,7 @@ export function App(props: AppProps) {
 
   const newSession = useCallback(() => {
     adopt(Session.create(props.host.cwd), [])
-    setStatus("New session started")
+    setStatus("New conversation started")
   }, [adopt, props.host.cwd, setStatus])
 
   const openSession = useCallback((file: string) => {
@@ -1018,7 +1018,7 @@ export function App(props: AppProps) {
     if (result._tag === "Stale") return setStatus("Session changed; fork again", "warning")
     adopt(result.writer, result.records)
     setText(result.text)
-    setStatus("Forked to new session")
+    setStatus("Forked to a new conversation")
   }, [adopt, setText, setStatus, props.host.cwd])
 
   /** `/new`, `/resume` and `/fork` wait for a turn, a `!cmd`, an undo, workers and flow runs, from any door. */
@@ -1168,7 +1168,7 @@ export function App(props: AppProps) {
         else setPicker({ kind: "fork", query: "", selected: 0, turns })
         return true
       }
-      case "session": {
+      case "conversation": {
         const usage = transcript.usage
         setTranscript((current) =>
           Transcript.note(
@@ -1199,7 +1199,7 @@ export function App(props: AppProps) {
       }
       case "name":
         if (argument === "") {
-          setStatus(name === undefined ? "This session has no name" : `Session: ${name}`)
+          setStatus(name === undefined ? "This conversation has no name" : `Conversation: ${name}`)
           return true
         }
         writer.current.append({ type: "name", name: argument })

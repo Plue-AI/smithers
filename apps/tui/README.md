@@ -13,8 +13,8 @@ idea.
 ```sh
 bun run tui [directory]          # from the repository root
 bun run tui --help              # command-line options
-bun run tui -c                   # continue the latest session here
-bun run tui -r                   # pick a session
+bun run tui -c                   # continue the latest conversation here
+bun run tui -r                   # pick a conversation
 bun run tui -p "prompt"          # print one answer and exit
 bun run tui --model openai:gpt-6-astra
 ```
@@ -79,7 +79,7 @@ Ctrl+O read it.
 | Up, Down                                              | Prompt history                                                                                                                                                                                                                                                                                                    |
 | `/`                                                   | Commands: Up/Down choose, Tab inserts, Enter runs, Esc closes the menu                                                                                                                                                                                                                                            |
 | `@`                                                   | Mention a file (`git ls-files`, else `rg --files`), fuzzy-matched                                                                                                                                                                                                                                                 |
-| Ctrl+K                                                | Search: commands and files; `/` commands, `text:` file text (rg, `text:/re/` for a regex), `session:` resumes, `tab:` opens a worker, `?` lists prefixes. Enter inserts `@path` or `@path:line`, runs the command, or opens the item. Replaces the editor's Ctrl+K (delete to line end); Ctrl+U and Ctrl+W remain |
+| Ctrl+K                                                | Search: commands and files; `/` commands, `text:` file text (rg, `text:/re/` for a regex), `conversation:` resumes, `tab:` opens a worker, `?` lists prefixes. Enter inserts `@path` or `@path:line`, runs the command, or opens the item. Replaces the editor's Ctrl+K (delete to line end); Ctrl+U and Ctrl+W remain |
 | Ctrl+L                                                | Model dialog; type to filter                                                                                                                                                                                                                                                                                      |
 | Ctrl+P, Shift+Ctrl+P                                  | Next, previous model                                                                                                                                                                                                                                                                                              |
 | Shift+Tab                                             | Cycle reasoning effort                                                                                                                                                                                                                                                                                            |
@@ -111,7 +111,7 @@ Ctrl+O read it.
 
 The `?` key popup scrolls with PageUp/PageDown or the mouse wheel.
 
-`/model [query]`, `/theme`, `/thinking [level]`, `/new`, `/resume`, `/fork`, `/session`, `/compact`,
+`/model [query]`, `/theme`, `/thinking [level]`, `/new`, `/resume`, `/fork`, `/conversation`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/tabs`, `/chat`, `/filter`,
 `/grep [text]`, `/ui [id]`, `/smithers`, `/flows`, `/flow <name> [json|key=value]`, `/agent [name] [prompt]`,
 `/retry <id>`, `/stop <id>`, `/hotkeys`, `/quit`, `/exit`. After `/model`, `/thinking`, `/flow` and `/agent`

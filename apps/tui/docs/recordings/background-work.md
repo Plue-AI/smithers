@@ -30,7 +30,7 @@ Press Enter
 Press Escape
 Press x
 Wait 400 ms
-Capture "Stop the worker without leaving the session."
+Capture "Stop the worker without leaving the conversation."
 Press r
 Wait for answer "Review complete"
 Capture "Resume the saved task and inspect its result."

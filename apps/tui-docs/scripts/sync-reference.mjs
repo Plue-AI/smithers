@@ -16,7 +16,7 @@ const guides = {
   new: chat,
   resume: chat,
   fork: chat,
-  session: chat,
+  conversation: chat,
   compact: chat,
   name: chat,
   copy: chat,
