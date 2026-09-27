@@ -109,7 +109,7 @@ export const createRepositoryFlowsSeam = (
   return { load, subscribe }
 }
 
-const KNOWN_BLOCKS = new Set(["prompt", "flows", "markdown", "text", "links", "stack"])
+const KNOWN_BLOCKS = new Set(["prompt", "flows", "markdown", "text", "links", "stack", "app"])
 /** A block kind this build does not render is left out, never the whole homepage. */
 const knownBlocks = (body: unknown): unknown => {
   if (typeof body !== "object" || body === null || !Array.isArray((body as { blocks?: unknown }).blocks)) return body

@@ -7,11 +7,13 @@ import { latestNeedsHelp, NEEDS_HELP_LABELS } from "./RunNeedsHelp"
 import { traceStatus } from "./RunTraceStatus"
 import { launchSourceOf } from "../state/WorkflowLaunch"
 
-const words: Readonly<Record<string, string>> = {
+/** The one word for each run phase; the app home's tiles read it for a last result. */
+export const RUN_PHASE_WORDS: Readonly<Record<string, string>> = {
   launching: "Starting…", running: "Running", "waiting-approval": "Approval needed",
   reconnecting: "Reconnecting…", quiet: "No recent progress", stopped: "Stopped watching",
   completed: "Finished.", failed: "Failed.", cancelled: "Cancelled.", "no-capacity": "No workspace capacity"
 }
+const words = RUN_PHASE_WORDS
 const terminal = new Set(["completed", "failed", "cancelled", "no-capacity"])
 
 /** The live verdict and action never follow the inspection cursor. */

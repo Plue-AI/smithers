@@ -10,7 +10,7 @@ import { CardView } from "../ChatCards"
 import { FlowGraphSurface } from "../ViewModules"
 import { defaultPill } from "./CardFamily"
 import { CARD_FAMILIES, CARD_RENDERERS, RETIRED_CARD_KINDS, pillStatus } from "./CardRenderers"
-import { RepositoryHomeCard, stripHomeHtml } from "./RepositoryHomeCard"
+import { lastRunOf, RepositoryHomeCard, stripHomeHtml } from "./RepositoryHomeCard"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
@@ -274,6 +274,79 @@ describe("factory homepage", () => {
     expect(renderToStaticMarkup(<RepositoryHomeCard card={error} onRunCommand={() => {}} />)).toContain('role="alert"')
   })
 
+  test("app blocks render the app home: the heading, then one tile per app bound to its flow (D-18)", () => {
+    const card = home([
+      { type: "prompt", placeholder: "Ask Smithers…" },
+      { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+      { type: "app", flow: "pr-triage", title: "Review a PR", picture: "review" },
+      { type: "text", text: "After" },
+      { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+      { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
+    ])
+    const markup = renderToStaticMarkup(<RepositoryHomeCard card={{ ...card, payload: { ...card.payload, home: { kind: "blocks", blocks: card.payload.home.kind === "blocks" ? card.payload.home.blocks.slice(1) : [] } } }} onRunCommand={() => {}} />)
+    // Every app block lands in the one grid, wherever it sits among the blocks; the grid sits where the first one does.
+    expect(markup.match(/data-testid="app-tile"/g)).toHaveLength(4)
+    expect(markup.match(/data-testid="home-apps"/g)).toHaveLength(1)
+    for (const title of ["Fix an issue", "Review a PR", "Ask the codebase", "Run it every night"]) expect(markup.indexOf(title)).toBeLessThan(markup.indexOf("After"))
+    for (const [flow, title, picture] of [["issue.implement", "Fix an issue", "issue"], ["pr-triage", "Review a PR", "review"], ["wiki.ask", "Ask the codebase", "wiki"], ["triggers.register", "Run it every night", "schedule"]]) {
+      expect(markup).toContain(`data-flow="${flow}"`)
+      expect(markup).toContain(`<span class="app-tile-title">${title}</span>`)
+      expect(markup).toContain(`data-picture="${picture}"`)
+    }
+    // A repository flow id is its slash leaf on the tile.
+    const nested = home([{ type: "app", flow: "checks/wiki", title: "Check the wiki", picture: "wiki" }])
+    expect(renderToStaticMarkup(<RepositoryHomeCard card={nested} onRunCommand={() => {}} />)).toContain('data-flow="checks.wiki"')
+    // The pictures are drawings, never read aloud; the tile's name is its title.
+    expect(markup).toContain('data-picture="issue" aria-hidden="true"')
+    // Words on the home: the heading, the placeholder, the titles — the pictures' marks aside.
+    expect(markup).not.toContain("Learn how to")
+  })
+
+  test("a tile shows the app's last result where one exists, otherwise its picture", () => {
+    const run = (id: string, workflow: string, phase: "completed" | "running", createdAt: number): Card => ({
+      ...base, id, kind: "run-trace", status: "active", createdAt, ordinal: createdAt, title: `${workflow} on org/repo`,
+      payload: { repo: "org/repo", runId: id, workflow, phase, lastSeq: 0, input: {} } as Extract<Card, { kind: "run-trace" }>["payload"]
+    })
+    const cards = new Map<string, Card>([
+      ["r1", run("r1", "coding/request", "completed", 1)],
+      ["r2", run("r2", "coding/request", "running", 2)],
+      ["r3", run("r3", "pr-triage", "completed", 3)],
+      ["other", run("other", "coding/request", "completed", 9)]
+    ])
+    ;(cards.get("other") as Extract<Card, { kind: "run-trace" }> & { payload: { repo: string } }).payload.repo = "org/elsewhere"
+    const controller = {
+      store: { collections: { cards: { values: () => cards.values(), subscribeChanges: () => ({ unsubscribe: () => {} }) } } },
+      commands: { find: (name: string) => name === "issue.implement" ? { metadata: { workflow: "coding/request" } } : undefined },
+      stackSnapshots: { get: () => undefined, subscribe: () => () => {} }
+    } as unknown as AppController
+    const card = home([
+      { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+      { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" }
+    ])
+    const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
+    // The newest run of the workflow the flow launches, on this repository: r2, not r1 and not the other repository's.
+    expect(markup.match(/data-testid="app-tile-preview"/g)).toHaveLength(1)
+    expect(markup).toContain("coding/request on org/repo")
+    expect(markup).toContain('data-status="running"')
+    expect(markup).toContain(">Running<")
+    expect(markup).not.toContain("#42")
+    // No run of wiki.ask: the wiki tile keeps its picture.
+    expect(markup).toContain('data-picture="wiki" aria-hidden="true"')
+    expect(lastRunOf(cards.values(), "org/repo", "pr-triage")?.id).toBe("r3")
+    expect(lastRunOf(cards.values(), "org/repo", "release")).toBeUndefined()
+  })
+
+  test("the wiki tile wears the repository Wiki's state once the stack answers", () => {
+    const stack = { repository: "org/repo", state: "active" as const, generation: 1, mainBehind: false, changes: [],
+      items: [], lanes: [{ index: 0, state: "idle" as const }], limits: { maxParallel: 1 }, wiki: { state: "current" as const, pages: 12, edited: 0 } }
+    const controller = { stackSnapshots: { get: () => ({ stack, error: null }), subscribe: () => () => {} }, commands: { find: () => undefined },
+      store: { collections: { cards: { values: () => [], subscribeChanges: () => ({ unsubscribe: () => {} }) } } } } as unknown as AppController
+    const card = home([{ type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" }])
+    const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
+    expect(markup).toContain('data-testid="app-tile-wiki"')
+    expect(markup).toContain("current · main")
+  })
+
   test("a stack block renders the live stack, and nothing before a read or signed out", () => {
     const card = home([{ type: "stack", title: "Stack" }])
     expect(renderToStaticMarkup(<RepositoryHomeCard card={card} onRunCommand={() => {}} />)).not.toContain("home-stack")
@@ -296,8 +369,11 @@ describe("factory homepage", () => {
     const host = document.createElement("div")
     const root = createRoot(host)
     act(() => root.render(<ControllerTestProvider controller={controller}><RepositoryHomeCard
-      card={home([{ type: "prompt", placeholder: "Change it…" }, { type: "flows" }])}
+      card={home([{ type: "prompt", title: "What should we work on?", placeholder: "Change it…" }, { type: "flows" }])}
       onRunCommand={(name, args) => calls.push([name, args])} /></ControllerTestProvider>))
+    // The prompt's title is the home's heading, over the composer.
+    expect(host.querySelector("h1.factory-home-heading")?.textContent).toBe("What should we work on?")
+    expect(host.querySelector("h1")?.compareDocumentPosition(host.querySelector("form")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     act(() => host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
     act(() => host.querySelector<HTMLButtonElement>('[data-flow="review"]')?.click())
     expect(calls).toEqual([["chat.send", "Change it"], ["review", undefined]])

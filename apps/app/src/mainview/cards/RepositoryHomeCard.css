@@ -2,3 +2,86 @@
 .factory-home h2 { font-size: 1rem; margin: 0 0 8px; }
 .factory-home-row { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .factory-home a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/*
+ * The app home (PRODUCT.md D-18): one question, the composer, the apps. It
+ * is wider than a chat message, and it is centered in the transcript while
+ * it is all the transcript holds.
+ */
+.app-shell .smithers-transcript .sui-chat-messages:has(.factory-home[data-apps]) { width: min(100%, 1180px); }
+.factory-home[data-apps] { justify-items: center; gap: 32px; padding: 24px 0; }
+.sui-chat-messages > [data-slot="message-scroller-item"]:first-child:last-child .factory-home[data-apps] {
+  min-height: calc(100dvh - 180px);
+  align-content: center;
+}
+.factory-home-prompt { display: grid; width: 100%; justify-items: center; gap: 28px; }
+.factory-home-heading { margin: 0; font-size: 2rem; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; text-align: center; }
+/* One row: the input beside the chord and Send, as the composer summoned by ⌘K is one row of thought. */
+.app-shell .factory-home-composer.smithers-composer { grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: min(100%, 720px); padding: 14px 14px 14px 20px; }
+.app-shell .factory-home-composer .sui-chat-composer-input { padding: 0; }
+.app-shell .factory-home-composer .sui-chat-composer-status { display: none; }
+.app-shell .factory-home-composer .sui-chat-composer-toolbar { min-height: 0; }
+.factory-home-kbd { padding: 3px 7px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-caption); line-height: 1.2; }
+
+.factory-home-apps { display: grid; width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+@media (max-width: 960px) { .factory-home-apps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .factory-home-apps { grid-template-columns: minmax(0, 1fr); } }
+
+.app-tile {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur) var(--ease-current), border-color var(--dur), box-shadow var(--dur);
+}
+.app-tile:hover, .app-tile:focus-visible { transform: translateY(-2px); border-color: var(--golden-border); box-shadow: var(--shadow-2); }
+.app-tile:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.app-tile-title { display: block; padding: 18px 22px 20px; font-size: 1.125rem; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+
+/* The picture: the app's last result where one exists, otherwise what the app makes, drawn. */
+.app-tile-picture {
+  position: relative;
+  display: grid;
+  align-content: start;
+  min-height: 200px;
+  padding: 24px 24px 56px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.app-picture-card { display: grid; gap: 10px; padding: 16px; border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-1); }
+.app-picture-row { display: flex; align-items: center; gap: 12px; }
+.app-line { display: block; height: 8px; flex: 1; border-radius: 4px; background: var(--border-strong); }
+.app-line[data-ink] { width: 40%; height: 12px; flex: none; background: var(--text); }
+.app-picture-page .app-line:nth-child(3) { width: 85%; }
+.app-picture-page .app-line:nth-child(4) { width: 70%; }
+.app-picture-flow { display: flex; align-items: center; gap: 0; }
+.app-picture-flow > span { padding: 5px 8px; border: 1px solid var(--golden-border); border-radius: 7px; background: var(--surface); color: var(--confluence-text); font-size: var(--fs-caption); font-weight: 650; line-height: 1.2; white-space: nowrap; }
+.app-picture-flow > span + span { margin-left: 12px; position: relative; }
+.app-picture-flow > span + span::before { content: ""; position: absolute; top: 50%; left: -13px; width: 12px; height: 1px; background: var(--golden-border); }
+.app-picture-diff { gap: 6px; }
+.app-picture-diff > code { padding: 4px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: var(--fs-caption); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-picture-diff > code[data-diff="add"] { background: var(--success-soft); color: var(--success); }
+.app-picture-diff > code[data-diff="del"] { background: var(--danger-soft); color: var(--danger); }
+.app-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: var(--fs-small); font-weight: 650; line-height: 1.3; white-space: nowrap; }
+.app-chip[data-tone="success"] { background: var(--success-soft); color: var(--success); }
+.app-chip[data-tone="danger"] { background: var(--danger-soft); color: var(--danger); }
+.app-chip[data-tone="info"] { background: var(--info-soft); color: var(--info); }
+.app-chip[data-tone="brand"] { background: var(--confluence-wash); color: var(--confluence-text); }
+.app-stamp { position: absolute; right: 20px; bottom: 16px; }
+.app-clock { position: absolute; top: 30px; left: 28px; width: 92px; height: 92px; border: 2px solid var(--text); border-radius: 50%; }
+.app-clock-hour, .app-clock-minute { position: absolute; left: 50%; bottom: 50%; width: 2px; border-radius: 1px; transform-origin: bottom center; }
+.app-clock-hour { height: 28px; background: var(--text); transform: rotate(-60deg); }
+.app-clock-minute { height: 38px; background: var(--confluence); transform: rotate(30deg); }
+.app-days { position: absolute; top: 28px; right: 24px; display: grid; gap: 10px; justify-items: end; }
+.app-days .app-chip { min-width: 84px; justify-content: space-between; }
+.app-preview { align-items: center; grid-template-columns: auto minmax(0, 1fr); }
+.app-preview-title { min-width: 0; font-size: var(--fs-small); font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }

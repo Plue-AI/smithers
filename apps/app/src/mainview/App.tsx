@@ -17,7 +17,7 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { useMemo,useRef } from "react"
 import { AVAILABLE_REPOS } from "smithers-server/publicRepoCatalog"
 import { cardActions } from "./cards/CardActions"
-import { RepositoryHomeCard } from "./cards/RepositoryHomeCard"
+import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
 import { FirstRunActions } from "./cards/FirstRunActions"
 import { SetupChecklist } from "./cards/SetupChecklist"
 import { SignupCards } from "./cards/SignupCards"
@@ -322,12 +322,33 @@ function AppContent() {
    */
   const gatedByAuth = (identity?.state === "signed-out" && controller.bootstrap?.host !== "local") ||
     (identity?.state === "signed-in" && !identity.allowlisted)
+  const repositoryCatalog = controller.repositoryFlows()
+  // An app names a flow; a tile whose flow this host does not register would be a dead button, so it is not shown.
+  const home = repositoryCatalog?.home?.kind === "blocks"
+    ? { ...repositoryCatalog.home, blocks: repositoryCatalog.home.blocks.filter((block) => block.type !== "app" || controller.commands.find(repositoryFlowName(block.flow)) !== undefined) }
+    : repositoryCatalog?.home
+  const homeCard: Extract<Card, { kind: "factory.home" }> | undefined = home === undefined || home.kind === "none"
+    ? undefined
+    : {
+      kind: "factory.home", id: `factory.home:${repositoryCatalog!.repo}`, title: "", status: "active",
+      createdAt: 0, ordinal: 0, payload: {
+        repo: repositoryCatalog!.repo, home,
+        flows: repositoryCatalog!.flows.filter(({ id }) => controller.commands.find(repositoryFlowName(id)) !== undefined)
+          .map(({ id, summary, description, featured }) => ({ id, summary, description, featured }))
+      }
+    }
+  /*
+   * The app home (PRODUCT.md D-18) is the whole first screen: the heading,
+   * the composer and the apps replace the setup checklist, the recommended
+   * jobs and the host's opening diagnostic while it renders.
+   */
+  const appsHome = homeCard !== undefined && homeApps(homeCard.payload.home).length > 0
   // A cloud repository opens on its Welcome actions. Selection is durable and
   // precedes that card's load, so the technical success read never flashes first.
   // Native host diagnostics and stored failures keep their existing presentation.
   const repositoryOpening = cloudHost && session.activeRepoKey != null
   // A new conversation opens empty; the host's opening read belongs to main alone.
-  const openingMessage: InitMessage | undefined = gatedByAuth || repositoryOpening || conversationTabId !== undefined ? undefined : initMessage({
+  const openingMessage: InitMessage | undefined = gatedByAuth || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
     bootstrap: controller.bootstrap,
     flowCount: flows.length,
     harnesses: harnessRows,
@@ -336,17 +357,6 @@ function AppContent() {
   })
   // Admin chrome follows the same capability-filtered registry as every act.
   const isAdmin = controller.commands.find("admin.devtools") !== undefined
-  const repositoryCatalog = controller.repositoryFlows()
-  const homeCard: Extract<Card, { kind: "factory.home" }> | undefined = repositoryCatalog?.home === undefined || repositoryCatalog.home.kind === "none"
-    ? undefined
-    : {
-      kind: "factory.home", id: `factory.home:${repositoryCatalog.repo}`, title: "", status: "active",
-      createdAt: 0, ordinal: 0, payload: {
-        repo: repositoryCatalog.repo, home: repositoryCatalog.home,
-        flows: repositoryCatalog.flows.filter(({ id }) => controller.commands.find(repositoryFlowName(id)) !== undefined)
-          .map(({ id, summary, description, featured }) => ({ id, summary, description, featured }))
-      }
-    }
 
   /*
    * §2a″ (wave 12 §4): auth is a conversation STATE, and a state shows only
@@ -373,7 +383,7 @@ function AppContent() {
   const latestEntry = entries.at(-1)
   const latestReadId = latestEntry?.kind === "lane" ? `${latestEntry.lane.id}:${latestEntry.row.id}` :
     latestEntry?.kind === "card" ? latestEntry.card.id : latestEntry?.message.id
-  const initialReadId = signingUp ? "signup" : repositoryNotice ? authMessage?.id : !session.firstRunDismissed ? "first-run-actions" : undefined
+  const initialReadId = signingUp ? "signup" : repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : !session.firstRunDismissed ? "first-run-actions" : undefined
 
   // Chat stays mounted when closed.
   const composerWrap = (
@@ -537,8 +547,8 @@ function AppContent() {
               <RepositoryHomeCard card={homeCard} onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}
             {signingUp && <MessageScrollerItem messageId="signup"><SignupCards /></MessageScrollerItem>}
-            {!signingUp && !repositoryNotice && <MessageScrollerItem messageId="setup-checklist"><SetupChecklist commands={flows} /></MessageScrollerItem>}
-            {!signingUp && !repositoryNotice && !session.firstRunDismissed && <MessageScrollerItem messageId="first-run-actions"><FirstRunActions commands={flows} /></MessageScrollerItem>}
+            {!signingUp && !repositoryNotice && !appsHome && <MessageScrollerItem messageId="setup-checklist"><SetupChecklist commands={flows} /></MessageScrollerItem>}
+            {!signingUp && !repositoryNotice && !appsHome && !session.firstRunDismissed && <MessageScrollerItem messageId="first-run-actions"><FirstRunActions commands={flows} /></MessageScrollerItem>}
             {session.firstRunDismissed && entries.length === 0 && !homeCard && <EmptyState className="transcript-empty" icon={<Sparkles size={20} />}
               title="Nothing here yet" description="Ask Smithers anything to get started." />}
             {entries.map((entry) => <MessageScrollerItem key={entry.kind === "lane" ? `${entry.lane.id}:${entry.row.id}` : entry.kind === "card" ? entry.card.id : entry.message.id}

@@ -394,7 +394,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/RepoImportCard.tsx": 2,
       // The tutorial's ranked chooser: one row button plus Skip.
       "../cards/RepositoryChoiceCard.tsx": 2,
-      "../cards/RepositoryHomeCard.tsx": 2,
+      "../cards/RepositoryHomeCard.tsx": 3,
       "../cards/RepositorySetupCard.tsx": 19,
       
       "../cards/SyncCards.tsx": 5,
