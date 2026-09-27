@@ -44,6 +44,12 @@ const row = (id: string, featured: boolean, summary: string | null) => ({
   modelInvocable: true
 })
 
+const withHome = (root: string, home: string): string => {
+  mkdirSync(join(root, ".smithers"), { recursive: true })
+  writeFileSync(join(root, ".smithers", "home.json"), home)
+  return root
+}
+
 const items = [
   { flowId: "alpha", description: "Describes alpha." },
   { flowId: "lint", description: "Describes lint." },
@@ -101,5 +107,49 @@ describe("FeaturedFlows.human", () => {
     expect(FeaturedFlows.isFlowPage({ _tag: "flows", items: [{ flowId: 1 }] })).toBe(false)
     expect(FeaturedFlows.isFlowPage({ _tag: "runs", items: [] })).toBe(false)
     expect(FeaturedFlows.isFlowPage(null)).toBe(false)
+  })
+})
+
+describe("FeaturedFlows.apps", () => {
+  it("reads the homepage's app blocks and treats an absent or malformed homepage as none", () => {
+    const home = JSON.stringify({
+      blocks: [
+        { type: "prompt", title: "What should we work on?" },
+        { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+        { type: "app", flow: "review", title: "Review a PR", picture: "review" }
+      ]
+    })
+    expect(FeaturedFlows.apps(withHome(project(), home))).toEqual([
+      { flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+      { flow: "review", title: "Review a PR", picture: "review" }
+    ])
+    expect(FeaturedFlows.apps(project())).toEqual([])
+    expect(FeaturedFlows.apps(withHome(project(), "{"))).toEqual([])
+    expect(FeaturedFlows.apps(withHome(project(), JSON.stringify({ blocks: [{ type: "app", flow: "review" }] }))))
+      .toEqual([])
+    expect(
+      FeaturedFlows.appsOf({
+        _tag: "flows",
+        items: [],
+        apps: [{ flow: "review", title: "Review a PR", picture: "review" }, { flow: 1 }]
+      })
+    )
+      .toEqual([{ flow: "review", title: "Review a PR", picture: "review" }])
+    expect(FeaturedFlows.appsOf({ _tag: "flows", items: [] })).toEqual([])
+  })
+
+  it("lists the apps after the flows, one line each", () => {
+    const apps = [{ flow: "issue.implement", title: "Fix an issue", picture: "issue" }, {
+      flow: "review",
+      title: "Review a PR",
+      picture: "review"
+    }]
+    expect(FeaturedFlows.human(items, apps)).toBe(
+      "  alpha   Describes alpha.\n  lint    Describes lint.\n  review  Describes review.\napps:\n  Fix an issue  issue.implement\n  Review a PR   review\n"
+    )
+    expect(FeaturedFlows.human(items, [])).toBe(FeaturedFlows.human(items))
+    expect(FeaturedFlows.human([], apps)).toBe(
+      "No flows discovered under flows/.\napps:\n  Fix an issue  issue.implement\n  Review a PR   review\n"
+    )
   })
 })

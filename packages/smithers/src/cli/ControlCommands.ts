@@ -76,7 +76,10 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
           // actions every listing offers. Agents and `--json` keep the flow
           // page document unchanged.
           {
-            render: (page) => FeaturedFlows.isFlowPage(page) ? { human: FeaturedFlows.human(page.items) } : {},
+            render: (page) =>
+              FeaturedFlows.isFlowPage(page)
+                ? { human: FeaturedFlows.human(page.items, FeaturedFlows.appsOf(page)) }
+                : {},
             next: (page) => {
               const first = Array.isArray(page["items"])
                 ? page["items"][0] as { flowId?: unknown } | undefined
