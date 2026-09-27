@@ -108,7 +108,7 @@ const program = CellTurn.run({ state, flows }).pipe(
   Effect.provide(engineLayer),
   Effect.provide(QuickJSSandbox.layer),
   Effect.provide(Steering.layerNoop()),
-  Effect.provide(Evaluator.layerFromEnvironment(process.env, "my host"))
+  Effect.provide(Evaluator.layerFromSeat(seat))
 )
 ```
 
@@ -122,10 +122,10 @@ The stream requires four services:
   adapts the durable notification queue of
   [`@smthrs/notifications`](https://notifications.smithers.sh/reference/api/) for one run lineage.
 - `Evaluator.Evaluator` from [`@smthrs/model`](https://model.smithers.sh/reference/api/): the transport the
-  completion brake asks. **Export `AI_GATEWAY_API_KEY` or deliberately bind a
-  scripted judge.** `Evaluator.layerFromEnvironment(process.env, "my host")`
-  refuses composition without a key, before a database, socket or process opens.
-  A judge that later fails still ends the run as `completion_unjudged`.
+  completion brake asks. **Bind a subscription seat or a deliberately scripted
+  judge.** `Evaluator.layerFromSeat(seat)` judges with a seat your
+  `SeatResolver` resolved; it needs no provider API key or gateway key.
+  A judge that fails still ends the run as `completion_unjudged`.
   A scripted judge must read evidence and dispatch by question id; see the
   [whole-host fixture](https://github.com/smithersai/smithers/blob/main/flows/test/fixtures/scripted-judge.ts).
 

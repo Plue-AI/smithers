@@ -1410,10 +1410,9 @@ delivered no transport, and the evaluator's own `unreachable`, `refused`,
 `Evaluator.Evaluator` is a **required service** of `read`, of
 `judgeCompletion`, of `CellTurn.run` and of `Agent.run` above them, and every
 host binds a real or deliberately scripted judge at composition time.
-`Evaluator.layerFromEnvironment(process.env, "my host")` refuses synchronously
-when `AI_GATEWAY_API_KEY` is missing, empty or blank. Select it before opening
-a database, socket or process. A host missing a judge fails to boot; a configured
-judge that fails during a run still produces `completion_unjudged`.
+`Evaluator.layerFromSeat(seat)` judges with a resolved subscription seat and
+needs no provider API key or gateway key. A judge that fails during a run
+produces `completion_unjudged`.
 
 Offline hosts bind `Evaluator.layerScripted` and compute answers from the actual
 evidence, dispatched by question id. One evaluator serves every classifier in

@@ -280,7 +280,7 @@ separately, because the base run carries the same shape:
 
 Attribution is omitted unless both reports parsed. `invalidProbe` is Jev's
 answer, asked through the `Evaluator` service, so the flow also needs an
-evaluator and a host needs `AI_GATEWAY_API_KEY`; a judge that does not answer
+evaluator on a subscription seat; a judge that does not answer
 fails the call rather than leaving the run unjudged. Fails with
 `provider_unavailable` when no runner is declared, a container transport is
 missing, or the judge is unreachable or refuses, `request_failed` when the

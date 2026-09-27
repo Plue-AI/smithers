@@ -144,8 +144,8 @@ const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope",
 
 The attribution is Jev's: `classify` asks `probeAttribution`, the exported
 `probe/attribution` declaration, through the `Evaluator` service of
-[`@smthrs/model`](https://model.smithers.sh/reference/api/), so a host needs `AI_GATEWAY_API_KEY` and a bound
-evaluator. Two things are still decided without it, because an exit code is a
+[`@smthrs/model`](https://model.smithers.sh/reference/api/), so a host needs a bound evaluator on a
+subscription seat. Two things are still decided without it, because an exit code is a
 fact rather than prose: a zero exit is never classified, and 126 and 127 are
 the shell's own refusal to start the command. An answer below
 `CONFIDENCE_FLOOR` is the tree's failure, which leaves a genuine reproduction

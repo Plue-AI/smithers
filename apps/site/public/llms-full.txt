@@ -14824,8 +14824,8 @@ The project's own test runner as one ordinary flow. A host that has no
 runner binds `TestRunner.layerNoop` and the flow says so when it is called. The
 `Evaluator` is what the flow attributes a non-zero exit with: Jev answers
 whether the run failed about the code or about the command it was handed, so a
-host binds an evaluator and sets `AI_GATEWAY_API_KEY`, and a judge that does
-not answer fails the call.
+host binds an evaluator on a subscription seat, and a judge that does not
+answer fails the call.
 
 ### StandardFlows.memory, StandardFlows.recallFlow, StandardFlows.JudgedRecallOutput
 
@@ -19573,7 +19573,7 @@ https://smithers.sh/docs/reference/api/control/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/control/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/control/docs/api.md) · [package docs](https://control.smithers.sh)
 
-> **Related APIs:** [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/)
+> **Related APIs:** [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/)
 
 Every module is importable from the root entry point as a namespace and from
 its own subpath:
@@ -20236,13 +20236,12 @@ approval or authorizes a remedy.
 The one registered checker that reads semantic activity, bound by the ID
 `jev.session`. See [Configure observational health](https://control.smithers.sh/guides/observe-health/).
 
-`makeJevSessionChecker(options)` builds it over an explicit `env`, `fetch`, `url`,
-and `timeoutMs`; `jevSessionChecker` is the instance `makeRegistry` admits, reading
-the host process. The probe asks Jev, through the Vercel AI Gateway at
-`jevEvaluationUrl` as model `jevModelId`, one choice question over `working`,
-`idle`, and `needs-input` and one boolean question about whether the output ends
-waiting for a person. State is the session's `alive`, `exitCode`, and the newest
-`jevStateTailCharacters` of output, sent with zero data retention.
+`makeJevSessionChecker({ evaluator, timeoutMs })` uses the host's existing
+subscription judge. `Health.makeRegistry(config, kind, evaluator)` binds it to
+`jev.session`. It asks one choice question over `working`, `idle`, and
+`needs-input`, plus a boolean question about waiting for a person. Evidence is
+`alive`, `exitCode`, and the newest `jevStateTailCharacters` of output.
+It reads no gateway key and has no separate authentication path.
 
 An answer becomes a report only at confidence `jevConfidenceFloor` or above:
 `needs-input` reports reason `prompt-detected`, `working` and `idle` report `ok`.
@@ -20252,14 +20251,13 @@ A reading below the floor is Jev's own answer and reports
 There is no fallback to another model or to a healthy-looking answer. An
 unexposed output tail and a session that is not alive keep the lifecycle report,
 because there is nothing to ask about. Every other way the probe cannot ask
-fails it with `JevProbeError`, whose `reason` is `unconfigured` (no
-`AI_GATEWAY_API_KEY`), `http` (with the gateway's `status`), `timeout`,
+fails it with `JevProbeError`, whose `reason` is `unconfigured` (no host evaluator), `http` (with the provider's `status`), `timeout`,
 `unreachable`, or `malformed` (a body that does not answer the question asked).
 `Health.evaluate` records a failing probe as `outcome: "error"` with reason
 `probe-error` and no report, so `rollup` reads the subject `stale`, activity
 `unknown`, health `unknown`, reason `probe-error`, never healthy, and
 `CheckPolicy.backoff` spaces the retries. A host that binds `jev.session` must
-supply the key.
+supply its evaluator through `Health.makeRegistry(config, kind, evaluator)`.
 
 `jevRequestTimeoutMs` is the deadline on the call and `jevProbeTimeoutMs` the
 wider probe budget this checker asks a binding for, so the typed `timeout`
@@ -27869,10 +27867,9 @@ delivered no transport, and the evaluator's own `unreachable`, `refused`,
 `Evaluator.Evaluator` is a **required service** of `read`, of
 `judgeCompletion`, of `CellTurn.run` and of `Agent.run` above them, and every
 host binds a real or deliberately scripted judge at composition time.
-`Evaluator.layerFromEnvironment(process.env, "my host")` refuses synchronously
-when `AI_GATEWAY_API_KEY` is missing, empty or blank. Select it before opening
-a database, socket or process. A host missing a judge fails to boot; a configured
-judge that fails during a run still produces `completion_unjudged`.
+`Evaluator.layerFromSeat(seat)` judges with a resolved subscription seat and
+needs no provider API key or gateway key. A judge that fails during a run
+produces `completion_unjudged`.
 
 Offline hosts bind `Evaluator.layerScripted` and compute answers from the actual
 evidence, dispatched by question id. One evaluator serves every classifier in
@@ -34805,6 +34802,7 @@ never name an option the question did not offer.
 | `Evaluator`                                                                                                                          | service interface and tag | `evaluate({ state, questions }) => Effect<{ answers, confidence?, usage?, latencyMs }, EvaluatorError>`. `confidence` is the provider's own number per question, read from `providerMetadata.typesafe.confidence` and absent when the transport sent none. Tag id `/model/Evaluator`.                                                                                                                                                                                                                                                                                                       |
 | `layerVercelGateway(options)`                                                                                                        | layer                     | Jev through the Vercel AI Gateway over the kernel `HttpClient`. One deadline over the whole evaluation; a 429, 502, 503 or 504, or a connection that failed before any status, is asked again after a doubling pause from `retryBackoffMs` (100 ms), and one shed on every attempt fails `refused`. Options: `apiKey` (a `Redacted` or a `Config` read at construction), `model` (`typesafe-ai/jev`), `timeoutMs` (3000), `attempts` (3), `zeroDataRetention` (true), `baseUrl` (`https://ai-gateway.vercel.sh/v4/ai/evaluation-model`). Every request runs as a `model:call` on the model. |
 | `layerScripted(script)`                                                                                                              | layer                     | Answers from `(request) => answers` or `(request) => Effect<answers, EvaluatorError>`. A scripted answer may omit its `type`; the layer fills it from the question and decodes the result like a gateway body, so a script answering the wrong shape fails as `invalid_answer`.                                                                                                                                                                                                                                                                                                             |
+| `layerFromSeat(seat, { timeoutMs? })` | layer | Judges through an existing resolved seat's model and credentials. Accepts `{ modelId, model }`, including subscription seats. No gateway key or alternative auth path. Invalid, missing, out-of-range and truncated verdicts fail closed; provider errors are redacted. The default deadline is 120 seconds. |
 | `layerFromEnvironment(environment, host)`                                                                                            | layer                     | Selects `layerVercelGateway` or throws an `EvaluatorError` at composition time when `AI_GATEWAY_API_KEY` is missing, empty or blank. Requires a host name for the refusal. Call before opening databases, sockets or processes. An offline host deliberately binds `layerScripted` with an evidence-based judge. Needs the kernel `HttpClient`. The URL is `SMITHERS_EVALUATOR_BASE_URL` when set, else `Endpoint.providerOrigin("vercel", environment)` + `/v4/ai/evaluation-model`, so `SMITHERS_MODEL_PROXY_URL` reroutes it.                                                            |
 | `environmentKey`                                                                                                                     | constant                  | `"AI_GATEWAY_API_KEY"`, the variable `layerFromEnvironment` reads.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `layerUnavailable()`                                                                                                                 | layer                     | Fails every request as `unreachable`; a classifier outage fixture, and the binding for a host composed to drive no run, never a completion-capable host's default.                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -43026,8 +43024,8 @@ const attribution = yield * Probe.classify({ command: "pytest tests/x.py::nope",
 
 The attribution is Jev's: `classify` asks `probeAttribution`, the exported
 `probe/attribution` declaration, through the `Evaluator` service of
-[`@smthrs/model`](/docs/reference/api/model/), so a host needs `AI_GATEWAY_API_KEY` and a bound
-evaluator. Two things are still decided without it, because an exit code is a
+[`@smthrs/model`](/docs/reference/api/model/), so a host needs a bound evaluator on a
+subscription seat. Two things are still decided without it, because an exit code is a
 fact rather than prose: a zero exit is never classified, and 126 and 127 are
 the shell's own refusal to start the command. An answer below
 `CONFIDENCE_FLOOR` is the tree's failure, which leaves a genuine reproduction

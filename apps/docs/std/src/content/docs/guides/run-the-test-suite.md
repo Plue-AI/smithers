@@ -97,7 +97,7 @@ prove.
 
 Jev makes that attribution. The flow asks the `probe/attribution` classifier
 through the `Evaluator` service of [`@smthrs/model`](https://model.smithers.sh/reference/api/), so a host
-binds an evaluator and sets `AI_GATEWAY_API_KEY`. Two answers still come from
+binds an evaluator on a subscription seat. Two answers still come from
 the exit code alone, because an exit code is a fact rather than prose: a zero
 exit is never attributed anywhere but the tree, and 126 and 127 are the shell's
 own refusal to start the command. There is no third path. A judge that cannot
