@@ -16493,6 +16493,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/src/internal/RoleProfile.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/src/internal/SourceRevision.ts"
       },
       {
