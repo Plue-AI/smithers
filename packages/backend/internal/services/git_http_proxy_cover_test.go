@@ -18,12 +18,12 @@ import (
 
 func TestGitHTTPProxy_Cov_AuthenticateAuthorizeAndAuthErrorBranches(t *testing.T) {
 	svc := NewGitHTTPProxyService(nil, nil, &mockGitHTTPRepoHostClient{})
-	user, scopes, err := svc.authenticateToken(context.Background(), " ", "alice", "demo")
+	credential, err := svc.authenticateTokenWithPaths(context.Background(), " ", "alice", "demo")
 	require.NoError(t, err)
-	assert.Nil(t, user)
-	assert.Nil(t, scopes)
+	assert.Nil(t, credential.user)
+	assert.Nil(t, credential.scopes)
 
-	_, _, err = svc.authenticateToken(context.Background(), "token", "alice", "demo")
+	_, err = svc.authenticateTokenWithPaths(context.Background(), "token", "alice", "demo")
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, gitHTTPProxyCovStatus(t, err))
 
@@ -33,7 +33,7 @@ func TestGitHTTPProxy_Cov_AuthenticateAuthorizeAndAuthErrorBranches(t *testing.T
 		},
 	}
 	svc = NewGitHTTPProxyService(q, nil, &mockGitHTTPRepoHostClient{})
-	_, _, err = svc.authenticateToken(context.Background(), "token", "alice", "demo")
+	_, err = svc.authenticateTokenWithPaths(context.Background(), "token", "alice", "demo")
 	require.Error(t, err)
 	assert.Equal(t, http.StatusUnauthorized, gitHTTPProxyCovStatus(t, err))
 
@@ -46,7 +46,7 @@ func TestGitHTTPProxy_Cov_AuthenticateAuthorizeAndAuthErrorBranches(t *testing.T
 		},
 	}
 	svc = NewGitHTTPProxyService(q, nil, &mockGitHTTPRepoHostClient{})
-	_, _, err = svc.authenticateToken(context.Background(), "token", "alice", "demo")
+	_, err = svc.authenticateTokenWithPaths(context.Background(), "token", "alice", "demo")
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, gitHTTPProxyCovStatus(t, err))
 

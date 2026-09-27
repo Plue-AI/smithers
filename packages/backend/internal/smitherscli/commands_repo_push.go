@@ -188,8 +188,9 @@ func runRepoPush(ctx *incur.CommandContext) (any, error) {
 	} else if checkout, err = resolveLocalCheckout(workingCopy); err != nil {
 		return nil, err
 	}
-	// Every reader of a public repository can fetch refs/smithers/users/*,
-	// and jj snapshots untracked files into @.
+	// Other readers do not see refs/smithers/users/<id>/, but it is not
+	// secret: its objects share a public repository's object store, and jj
+	// snapshots untracked files into @.
 	if workingCopy {
 		repository, err := APIRequest("GET", "/api/repos/"+owner+"/"+repo, nil, nil)
 		if err != nil {

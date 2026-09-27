@@ -266,7 +266,7 @@ func (s *Server) userRefsFor(r *http.Request, keepName string) (gitDir string, u
 		return "", 0, nil, nil, nil, badRequest("invalid user id")
 	}
 	gitDir = s.config.GitBackendPath(owner, repo)
-	unlock = s.locks.Lock(s.config.RepoPath(owner, repo))
+	unlock = s.lockRepo(s.config.RepoPath(owner, repo))
 	fail := func(err error) (string, int64, map[string]string, map[string]int64, func(), error) {
 		unlock()
 		return "", 0, nil, nil, nil, err
@@ -415,7 +415,7 @@ func (s *Server) sweepUserRefs(ctx context.Context) {
 		gitDir := filepath.Dir(path)
 		repoPath := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(gitDir))))
 		func() {
-			unlock := s.locks.Lock(repoPath)
+			unlock := s.lockRepo(repoPath)
 			defer unlock()
 			// The repository may have moved or gone while the sweep waited.
 			if _, err := os.Stat(filepath.Join(gitDir, userRefIndexFile)); err != nil {

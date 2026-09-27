@@ -1045,6 +1045,13 @@ func (p sshPrincipal) auditPrincipalType() string {
 }
 
 func (s *Server) proxyGitCommand(ctx context.Context, sess ssh.Session, gitCmd, owner, repo string, pusher sshPrincipal) error {
+	// A person's key sees its user's own refs/smithers/users/<id>/ refs; a
+	// deploy key sees none (#2253).
+	viewer := pusher.UserID
+	if pusher.IsDeployKey {
+		viewer = 0
+	}
+	ctx = repohost.WithRefViewer(ctx, viewer)
 	switch gitCmd {
 	case "git-upload-pack":
 		return s.proxyUploadPack(ctx, sess, owner, repo)
@@ -1083,11 +1090,12 @@ func (s *Server) proxyUploadPack(ctx context.Context, sess ssh.Session, owner, r
 		r: io.LimitReader(sess, maxRequestSize+1),
 	}
 	postUploadPack := func(body []byte, out io.Writer) error {
-		// Use a background context so SSH session context cancellation doesn't
-		// abort the HTTP request while repo-host is still processing. The timeout
+		// Detach from the SSH session context so its cancellation doesn't abort
+		// the HTTP request while repo-host is still processing; the ref viewer
+		// stays. The timeout
 		// must be generous: it bounds the whole clone/fetch response, and a hardcoded
 		// 60s truncated large or slow clones. Mirror the receive-pack default.
-		bgCtx, cancel := context.WithTimeout(context.Background(), s.uploadPackTimeout())
+		bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.uploadPackTimeout())
 		defer cancel()
 		return s.RepoHostClient.ProxyUploadPackBody(bgCtx, owner, repo, bytes.NewReader(body), out)
 	}

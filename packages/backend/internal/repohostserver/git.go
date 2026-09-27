@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,54 +55,72 @@ func (d *idleDeadlineWriter) Write(p []byte) (int, error) {
 	return d.w.Write(p)
 }
 
-// receivePackEnv is the environment for every git receive-pack process,
-// advertisement included. Environment configuration keeps the subprocess
-// arguments free of protocol-specific overrides.
-//
-//   - receive.maxInputSize: git enforces it before publishing refs, including
-//     identity-encoded streams that bypass the gzip decoder's cap.
-//   - receive.hideRefs=refs/jj/: jj's refs/jj/keep/* retention pins are not
-//     advertised, so a `git push --mirror` never tries to prune them, and git
-//     itself refuses an update to them if one slips past the command peek.
-//   - receive.hideRefs=refs/smithers/case-collision/: the case-collision
-//     repair's backups are hidden the same way.
-func receivePackEnv(maxInputSize int64) []string {
-	return append(os.Environ(), "GIT_CONFIG_COUNT=3",
-		"GIT_CONFIG_KEY_0=receive.maxInputSize",
-		fmt.Sprintf("GIT_CONFIG_VALUE_0=%d", maxInputSize),
-		"GIT_CONFIG_KEY_1=receive.hideRefs",
-		"GIT_CONFIG_VALUE_1="+repohost.JJRefPrefix,
-		"GIT_CONFIG_KEY_2=receive.hideRefs",
-		"GIT_CONFIG_VALUE_2="+repohost.RefCaseCollisionPrefix)
+// refViewer is the user whose own refs/smithers/users/<id>/ refs a git
+// request may see and write: the X-Smithers-Pusher-Id the API sets from the
+// credential it authenticated, on fetches as on pushes. A workspace
+// credential (X-Smithers-Workspace-Id) writes no user ref and sees none, and
+// without the header no user ref is visible.
+func refViewer(r *http.Request) int64 {
+	if strings.TrimSpace(r.Header.Get("X-Smithers-Workspace-Id")) != "" {
+		return 0
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(r.Header.Get("X-Smithers-Pusher-Id")), 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
 }
 
-// uploadPackEnv is the environment for every git upload-pack process,
-// advertisement included: the case-collision repair's backups are not
-// fetched, so a `git clone --mirror` never carries them into a mirror push.
-func uploadPackEnv() []string {
-	return append(os.Environ(), "GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=uploadpack.hideRefs",
-		"GIT_CONFIG_VALUE_0="+repohost.RefCaseCollisionPrefix)
+// hiddenRefs are the refs no git client sees or writes (#2253): jj's own
+// refs/jj/keep/* pins, the case-collision repair's backups, and every user's
+// refs/smithers/users/<id>/ but the viewer's own. A `git clone --mirror`
+// never carries them, and a `git push --mirror` never tries to prune them;
+// git itself refuses an update to a hidden ref if one slips past the command
+// peek. The later negated entry wins over the earlier prefix.
+func hiddenRefs(viewer int64) []string {
+	refs := []string{repohost.JJRefPrefix, repohost.RefCaseCollisionPrefix, repohost.UserRefPrefix}
+	if viewer > 0 {
+		refs = append(refs, "!"+repohost.UserRefPrefix+strconv.FormatInt(viewer, 10)+"/")
+	}
+	return refs
+}
+
+// gitServiceEnv is the environment for every git receive-pack or upload-pack
+// process, advertisement included. Environment configuration keeps the
+// subprocess arguments free of protocol-specific overrides. receive-pack's
+// receive.maxInputSize is enforced by git before publishing refs, including
+// identity-encoded streams that bypass the gzip decoder's cap. Both services
+// hide the same refs, so a mirror clone pushes back only refs it can see.
+func gitServiceEnv(command string, maxInputSize, viewer int64) []string {
+	section := "uploadpack"
+	var config []string
+	if command == "receive-pack" {
+		section = "receive"
+		config = append(config, "receive.maxInputSize", strconv.FormatInt(maxInputSize, 10))
+	}
+	for _, ref := range hiddenRefs(viewer) {
+		config = append(config, section+".hideRefs", ref)
+	}
+	env := append(os.Environ(), "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)/2))
+	for i := 0; i < len(config); i += 2 {
+		env = append(env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i/2, config[i]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i/2, config[i+1]))
+	}
+	return env
 }
 
 // streamGitRPC runs a git smart-HTTP RPC and streams its stdout directly to dst
 // using io.Copy with a 32 KB buffer so large packfiles are never accumulated in
 // memory. The function returns once the git subprocess has exited.
 func streamGitRPC(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer) error {
-	return streamGitRPCCapped(ctx, gitDir, command, body, dst, maxDecompressedGitRequestSize)
+	return streamGitRPCCapped(ctx, gitDir, command, body, dst, maxDecompressedGitRequestSize, 0)
 }
 
 // streamGitRPCCapped is streamGitRPC with receive-pack's pack size capped at
-// maxInputSize.
-func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer, maxInputSize int64) error {
+// maxInputSize, for viewer (refViewer).
+func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer, maxInputSize, viewer int64) error {
 	args := []string{command, "--stateless-rpc", gitDir}
 	cmd := streamGitCommandContext(ctx, "git", args...)
-	switch command {
-	case "receive-pack":
-		cmd.Env = receivePackEnv(maxInputSize)
-	case "upload-pack":
-		cmd.Env = uploadPackEnv()
-	}
+	cmd.Env = gitServiceEnv(command, maxInputSize, viewer)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -175,18 +194,18 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 // can send a reply (e.g. receive-pack, where jj ref import must happen first).
 // For streaming responses prefer streamGitRPC.
 func runGitRPCBuffered(ctx context.Context, gitDir, command string, body io.Reader) ([]byte, error) {
-	return runRPCBuffered(ctx, gitDir, command, body, maxDecompressedGitRequestSize)
+	return runRPCBuffered(ctx, gitDir, command, body, maxDecompressedGitRequestSize, 0)
 }
 
 // runReceivePackBuffered runs receive-pack buffered with its pack capped at
 // maxInputSize.
-func runReceivePackBuffered(ctx context.Context, gitDir string, body io.Reader, maxInputSize int64) ([]byte, error) {
-	return runRPCBuffered(ctx, gitDir, "receive-pack", body, maxInputSize)
+func runReceivePackBuffered(ctx context.Context, gitDir string, body io.Reader, maxInputSize, viewer int64) ([]byte, error) {
+	return runRPCBuffered(ctx, gitDir, "receive-pack", body, maxInputSize, viewer)
 }
 
-func runRPCBuffered(ctx context.Context, gitDir, command string, body io.Reader, maxInputSize int64) ([]byte, error) {
+func runRPCBuffered(ctx context.Context, gitDir, command string, body io.Reader, maxInputSize, viewer int64) ([]byte, error) {
 	var buf bytes.Buffer
-	if err := streamGitRPCCapped(ctx, gitDir, command, body, &buf, maxInputSize); err != nil {
+	if err := streamGitRPCCapped(ctx, gitDir, command, body, &buf, maxInputSize, viewer); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -315,7 +334,7 @@ func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands 
 // GitHub sync credential is exempt: it copies GitHub's refs as they are.
 //
 // It fails closed on a missing default: once the default bookmark has
-// existed (recordDefaultBookmark), a push cannot create it again. With no
+// existed (lockRepo records it), a push cannot create it again. With no
 // old value any commit would pass as its new one. A default that has never
 // existed, as in a new repository, is created by a push as usual.
 func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, after map[string]string) error {
@@ -351,25 +370,9 @@ func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, aft
 	return nil
 }
 
-// defaultBookmarkBornFile names the default bookmark once it has existed.
+// defaultBookmarkBornFile lists, one per line, every bookmark that has
+// existed while it was the default.
 const defaultBookmarkBornFile = "smithers-default-bookmark-born"
-
-// recordDefaultBookmark marks the default bookmark born when refs, listed
-// under the repository lock, hold it. Every push records it, the GitHub sync
-// credential's included, whose pushes are exempt from the forward-only check.
-func recordDefaultBookmark(ctx context.Context, gitDir string, refs map[string]string) error {
-	defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
-	if err != nil {
-		return nil
-	}
-	if _, ok := refs["refs/heads/"+defaultBookmark]; !ok {
-		return nil
-	}
-	if err := markDefaultBookmarkBorn(gitDir, defaultBookmark); err != nil {
-		return internalError("failed to record the default bookmark", err)
-	}
-	return nil
-}
 
 // markDefaultBookmarkBorn records that bookmark, the default, exists.
 func markDefaultBookmarkBorn(gitDir, bookmark string) error {
@@ -377,20 +380,36 @@ func markDefaultBookmarkBorn(gitDir, bookmark string) error {
 		return nil
 	}
 	marker := filepath.Join(gitDir, defaultBookmarkBornFile)
-	if err := os.WriteFile(marker+".pending", []byte(bookmark+"\n"), 0o644); err != nil {
+	raw, err := os.ReadFile(marker)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if len(raw) > 0 && raw[len(raw)-1] != '\n' {
+		raw = append(raw, '\n')
+	}
+	if err := os.WriteFile(marker+".pending", append(raw, bookmark+"\n"...), 0o644); err != nil {
 		return err
 	}
 	return os.Rename(marker+".pending", marker)
 }
 
-// defaultBookmarkBorn reports whether bookmark, the default, has existed.
-// A marker that cannot be read counts as born: the check fails closed.
+// defaultBookmarkBorn reports whether bookmark has existed while it was the
+// default. A marker that cannot be read counts as born: the check fails
+// closed.
 func defaultBookmarkBorn(gitDir, bookmark string) bool {
 	raw, err := os.ReadFile(filepath.Join(gitDir, defaultBookmarkBornFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return false
 	}
-	return err != nil || strings.TrimSpace(string(raw)) == bookmark
+	if err != nil {
+		return true
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == bookmark {
+			return true
+		}
+	}
+	return false
 }
 
 // setGitDefaultBookmark updates the bare repository's HEAD symref. Git permits

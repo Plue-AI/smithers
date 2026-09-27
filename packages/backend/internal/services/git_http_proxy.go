@@ -75,10 +75,11 @@ func (s *GitHTTPProxyService) ProxyInfoRefs(
 	if err != nil {
 		return "", err
 	}
-	user, scopes, err := s.authenticateToken(ctx, token, owner, repo)
+	credential, err := s.authenticateTokenWithPaths(ctx, token, owner, repo)
 	if err != nil {
 		return "", err
 	}
+	user, scopes := credential.user, credential.scopes
 	if mode == AccessModeWrite && user == nil {
 		return "", errors.Unauthorized("authentication required")
 	}
@@ -92,7 +93,7 @@ func (s *GitHTTPProxyService) ProxyInfoRefs(
 		return "", gitHTTPAuthErrorForUser(user, mode, err)
 	}
 
-	contentType, err := s.repoHost.InfoRefs(ctx, owner, repo, service, stdout)
+	contentType, err := s.repoHost.InfoRefs(repohost.WithRefViewer(ctx, credential.refViewer()), owner, repo, service, stdout)
 	if err != nil {
 		return "", gitProxyFailure(ctx, "info refs", owner, repo, err)
 	}
@@ -105,12 +106,13 @@ func (s *GitHTTPProxyService) ProxyUploadPack(
 	stdin io.Reader,
 	stdout io.Writer,
 ) error {
-	user, scopes, err := s.authenticateToken(ctx, token, owner, repo)
+	credential, err := s.authenticateTokenWithPaths(ctx, token, owner, repo)
 	if err != nil {
 		return err
 	}
+	user := credential.user
 	if user != nil {
-		if err := requireScopeForMode(scopes, AccessModeRead); err != nil {
+		if err := requireScopeForMode(credential.scopes, AccessModeRead); err != nil {
 			return err
 		}
 	}
@@ -119,7 +121,7 @@ func (s *GitHTTPProxyService) ProxyUploadPack(
 		return gitHTTPAuthErrorForUser(user, AccessModeRead, err)
 	}
 
-	if err := s.repoHost.ProxyUploadPack(ctx, owner, repo, stdin, stdout); err != nil {
+	if err := s.repoHost.ProxyUploadPack(repohost.WithRefViewer(ctx, credential.refViewer()), owner, repo, stdin, stdout); err != nil {
 		return gitProxyFailure(ctx, "upload-pack", owner, repo, err)
 	}
 	return nil
@@ -224,11 +226,6 @@ func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, o
 // see middleware.RepositoryRestrictionScope) is downgraded to anonymous when
 // the request targets any repository other than the one it is bound to, so a
 // leaked token cannot read private — or push to any — other repositories.
-func (s *GitHTTPProxyService) authenticateToken(ctx context.Context, token, owner, repo string) (*db.User, middleware.ScopeSet, error) {
-	credential, err := s.authenticateTokenWithPaths(ctx, token, owner, repo)
-	return credential.user, credential.scopes, err
-}
-
 // gitHTTPCredential is what a git request's token authenticates: its user
 // (nil when anonymous), grants and bindings, and who holds it.
 type gitHTTPCredential struct {
@@ -237,6 +234,16 @@ type gitHTTPCredential struct {
 	allowedPaths []string
 	workspaceID  string
 	kind         middleware.CredentialKind
+}
+
+// refViewer is the user whose own refs/smithers/users/<id>/ refs the
+// credential sees in git reads: a person's, never a workspace credential's,
+// which writes no user ref.
+func (c gitHTTPCredential) refViewer() int64 {
+	if c.user == nil || c.workspaceID != "" {
+		return 0
+	}
+	return c.user.ID
 }
 
 func (s *GitHTTPProxyService) authenticateTokenWithPaths(

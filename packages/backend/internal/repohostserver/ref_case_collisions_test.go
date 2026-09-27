@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -280,8 +279,7 @@ func TestRefuseDefaultBookmarkRewind(t *testing.T) {
 			r := newCaseRepo(t, t.TempDir())
 			a, b = r.a, r.b
 			if tc.born {
-				// A push that saw the default records it.
-				require.NoError(t, recordDefaultBookmark(context.Background(), r.gitDir, map[string]string{main: a}))
+				require.NoError(t, markDefaultBookmarkBorn(r.gitDir, "main"))
 			}
 			err := refuseDefaultBookmarkRewind(context.Background(), r.gitDir, tc.before(), tc.after())
 			if !tc.refused {
@@ -295,65 +293,16 @@ func TestRefuseDefaultBookmarkRewind(t *testing.T) {
 	}
 }
 
-// Another default is not blocked by the marker of an earlier one.
-func TestDefaultBookmarkBornNamesOneBookmark(t *testing.T) {
+// Another default is not blocked by the marker of an earlier one, and
+// switching the default away and back keeps the first one born.
+func TestDefaultBookmarkBornNamesEveryDefault(t *testing.T) {
 	dir := t.TempDir()
 	require.False(t, defaultBookmarkBorn(dir, "main"))
 	require.NoError(t, markDefaultBookmarkBorn(dir, "main"))
 	require.True(t, defaultBookmarkBorn(dir, "main"))
 	require.False(t, defaultBookmarkBorn(dir, "trunk"))
-}
-
-// The repair's backups are hidden from fetches and pushes: a mirror clone
-// does not carry them, and a `git push --mirror` from a repository without
-// them does not try to prune them (repo-host refuses every client write
-// under refs/smithers/).
-func TestMirrorPushIgnoresCaseCollisionBackups(t *testing.T) {
-	f := newLaneHTTPFixture(t, nil)
-	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/info/refs"):
-			r.URL.Path = "/repos/alice/demo/git/info-refs"
-		case strings.HasSuffix(r.URL.Path, "/git-upload-pack"):
-			r.URL.Path = "/repos/alice/demo/git/upload-pack"
-		case strings.HasSuffix(r.URL.Path, "/git-receive-pack"):
-			r.URL.Path = "/repos/alice/demo/git/receive-pack"
-		default:
-			http.NotFound(w, r)
-			return
-		}
-		r.RequestURI = ""
-		r.Header.Set("Authorization", validAuth())
-		f.srv.Handler().ServeHTTP(w, r)
-	}))
-	defer proxy.Close()
-	remote := proxy.URL + "/demo.git"
-	git := func(args ...string) string {
-		t.Helper()
-		out, err := exec.Command("git", args...).CombinedOutput()
-		require.NoError(t, err, "git %v: %s", args, out)
-		return string(out)
-	}
-
-	source := filepath.Join(t.TempDir(), "source.git")
-	git("clone", "--quiet", "--bare", f.repo.gitDir, source)
-	for _, line := range strings.Split(git("--git-dir", source, "for-each-ref", "--format=%(refname)"), "\n") {
-		if line != "" && !strings.HasPrefix(line, "refs/heads/") {
-			git("--git-dir", source, "update-ref", "-d", line)
-		}
-	}
-	backup := repohost.RefCaseCollisionBackup("t", 0, "refs/heads/Main")
-	git("--git-dir", f.repo.gitDir, "update-ref", backup, f.base)
-
-	tip := f.commit("mirror work", func(dir string) {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "src", "m.go"), []byte("package m\n"), 0o644))
-	})
-	git("-C", f.clientDir, "push", "--quiet", source, "HEAD:refs/heads/main")
-	git("--git-dir", source, "push", "--mirror", remote)
-	require.Equal(t, tip, f.repo.refs()["refs/heads/main"], "the mirror push landed")
-	require.Equal(t, f.base, f.repo.refs()[backup], "the mirror push left the backup")
-
-	mirror := filepath.Join(t.TempDir(), "mirror.git")
-	git("clone", "--quiet", "--mirror", remote, mirror)
-	require.NotContains(t, git("--git-dir", mirror, "for-each-ref", "--format=%(refname)"), repohost.RefCaseCollisionPrefix)
+	require.NoError(t, markDefaultBookmarkBorn(dir, "trunk"))
+	require.True(t, defaultBookmarkBorn(dir, "trunk"))
+	require.True(t, defaultBookmarkBorn(dir, "main"))
+	require.False(t, defaultBookmarkBorn(dir, "mai"))
 }

@@ -1719,6 +1719,29 @@ type ReceivePackMetadata struct {
 // PusherCredentialHeader carries ReceivePackMetadata.PusherCredential.
 const PusherCredentialHeader = "X-Smithers-Pusher-Credential"
 
+type refViewerKey struct{}
+
+// WithRefViewer marks the git reads made with ctx (info-refs, upload-pack) as
+// userID's: repo-host shows them that user's own refs/smithers/users/<id>/
+// refs and no other user's (#2253). A read without it sees no user ref. A
+// push names its viewer through ReceivePackMetadata.PusherID.
+func WithRefViewer(ctx context.Context, userID int64) context.Context {
+	return context.WithValue(ctx, refViewerKey{}, userID)
+}
+
+// RefViewer is the user WithRefViewer named for ctx, else 0.
+func RefViewer(ctx context.Context) int64 {
+	userID, _ := ctx.Value(refViewerKey{}).(int64)
+	return userID
+}
+
+// setRefViewer adds ctx's ref viewer to a git read request.
+func setRefViewer(ctx context.Context, req *http.Request) {
+	if userID := RefViewer(ctx); userID > 0 {
+		req.Header.Set("X-Smithers-Pusher-Id", strconv.FormatInt(userID, 10))
+	}
+}
+
 // ProxyReceivePack streams a git receive-pack RPC to repo-host,
 // forwarding pusher identity and ref metadata as HTTP headers.
 func (c *Client) ProxyReceivePack(ctx context.Context, owner, repo string, stdin io.Reader, stdout io.Writer, meta ...ReceivePackMetadata) error {
@@ -1874,6 +1897,9 @@ func (c *Client) proxyGitRPCWithMeta(
 		req.Header.Set("Accept", accept)
 	}
 	c.applyAuthHeader(req)
+	if rpcPath == "upload-pack" {
+		setRefViewer(ctx, req)
+	}
 
 	if meta.RefName != "" {
 		req.Header.Set("X-Smithers-Push-Ref", meta.RefName)
@@ -1952,6 +1978,7 @@ func (c *Client) proxyGitInfoRefs(
 	req.URL.RawQuery = query.Encode()
 	req.Header.Set("Accept", fmt.Sprintf("application/x-%s-advertisement", service))
 	c.applyAuthHeader(req)
+	setRefViewer(ctx, req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

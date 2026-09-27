@@ -107,7 +107,7 @@ func TestRestoreGitRefsRefusesToClobberRefChangedSinceListing(t *testing.T) {
 func TestReceivePackAdvertisementHidesJJRefs(t *testing.T) {
 	f := newRestoreFixture(t, 1)
 	cmd := exec.Command("git", "receive-pack", "--stateless-rpc", "--advertise-refs", f.gitDir)
-	cmd.Env = receivePackEnv(maxDecompressedGitRequestSize)
+	cmd.Env = gitServiceEnv("receive-pack", maxDecompressedGitRequestSize, 0)
 	out, err := cmd.Output()
 	require.NoError(t, err)
 	// A `git push --mirror` prunes every advertised ref its source lacks, so

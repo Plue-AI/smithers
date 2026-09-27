@@ -111,7 +111,7 @@ func (s *Server) syncGitRefs(repoPath, gitDir string) error {
 		return nil
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 
 	// Re-check under the lock: a concurrent request may have exported while we
@@ -133,9 +133,11 @@ func (s *Server) syncGitRefs(repoPath, gitDir string) error {
 // warmGitRefs exports refs and refreshes the cache from a caller that already
 // holds the repository write lock, moving the export off the next reader's
 // critical path. It is best effort: a failure is logged and leaves the cache
-// untouched, so the next read still exports and still surfaces the error.
+// untouched, so the next read still exports and still surfaces the error. An
+// unreadable operation head is left to that read, which exports regardless.
 func (s *Server) warmGitRefs(repoPath string) {
-	if s.refExports.current(repoPath, jjOperationHead(repoPath)) {
+	opHead := jjOperationHead(repoPath)
+	if opHead == "" || s.refExports.current(repoPath, opHead) {
 		return
 	}
 	if err := s.ffi.ExportGitRefs(repoPath); err != nil {

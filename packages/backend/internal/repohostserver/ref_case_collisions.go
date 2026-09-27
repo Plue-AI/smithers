@@ -39,7 +39,7 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 	}
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -74,26 +74,19 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 		// Without a default, only mythical and protected names are reserved.
 		defaultBookmark = ""
 	}
-	// Record the default before any repair step can fail.
-	if err := recordDefaultBookmark(r.Context(), gitDir, refs); err != nil {
-		return err
-	}
 	report := repohost.RefCaseCollisionReport{Collisions: repohost.PlanRefCaseCollisions(names, defaultBookmark, req.ProtectedPatterns)}
 	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
 	changed := false
 	// jj drops the removed bookmarks and adopts a renamed one, also after a
-	// later variant fails.
+	// later variant fails; releasing the lock exports the import and records
+	// a default the repair renamed into place.
 	defer func() {
 		if !changed {
 			return
 		}
-		if err := s.ffi.ImportGitRefs(repoPath); err != nil {
-			if s.logger != nil {
-				s.logger.Warn("failed to import repaired refs", "repo_path", repoPath, "error", err)
-			}
-			return
+		if err := s.ffi.ImportGitRefs(repoPath); err != nil && s.logger != nil {
+			s.logger.Warn("failed to import repaired refs", "repo_path", repoPath, "error", err)
 		}
-		s.warmGitRefs(repoPath)
 	}()
 	n := 0
 	for i := range report.Collisions {
@@ -112,11 +105,6 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 				return internalError("failed to repair "+variant, err)
 			}
 			collision.Backups = append(collision.Backups, backup)
-			if repair.Rename && repair.Canonical == "refs/heads/"+defaultBookmark {
-				if err := markDefaultBookmarkBorn(gitDir, defaultBookmark); err != nil {
-					return internalError("failed to record the default bookmark", err)
-				}
-			}
 		}
 	}
 	return writeJSON(w, http.StatusOK, report)

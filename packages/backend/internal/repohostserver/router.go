@@ -56,6 +56,8 @@ type Server struct {
 	pushOutbox *pushHookOutbox
 	stopReplay context.CancelFunc
 	stopSweep  context.CancelFunc
+	// stopBackfill stops the startup default-bookmark backfill.
+	stopBackfill context.CancelFunc
 }
 
 type loadableFFIClient interface {
@@ -124,6 +126,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	server.startPushHookReplay(pushHookReplayInterval)
 	server.startUserRefSweep(userRefSweepInterval)
+	server.startDefaultBookmarkBackfill()
 	return server, nil
 }
 
@@ -275,6 +278,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.stopSweep != nil {
 		s.stopSweep()
 	}
+	if s.stopBackfill != nil {
+		s.stopBackfill()
+	}
 	done := make(chan struct{})
 	go func() {
 		s.background.Wait()
@@ -376,7 +382,7 @@ func (s *Server) initRepo(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	repoPath := s.config.RepoPath(req.Owner, req.Repo)
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -701,7 +707,7 @@ func (s *Server) importRefs(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	repoPath := s.config.RepoPath(owner, repo)
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -710,7 +716,6 @@ func (s *Server) importRefs(w http.ResponseWriter, r *http.Request) error {
 	if err := s.ffi.ImportGitRefs(repoPath); err != nil {
 		return err
 	}
-	s.warmGitRefs(repoPath)
 	return writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -759,11 +764,7 @@ func (s *Server) infoRefs(w http.ResponseWriter, r *http.Request) error {
 	cmdCtx, cancelCmd := context.WithCancel(r.Context())
 	defer cancelCmd()
 	cmd := exec.CommandContext(cmdCtx, "git", gitCommand, "--stateless-rpc", "--advertise-refs", gitDir)
-	if gitCommand == "receive-pack" {
-		cmd.Env = receivePackEnv(maxDecompressedGitRequestSize)
-	} else {
-		cmd.Env = uploadPackEnv()
-	}
+	cmd.Env = gitServiceEnv(gitCommand, maxDecompressedGitRequestSize, refViewer(r))
 	var refStderr bytes.Buffer
 	cmd.Stderr = &refStderr
 	stdout, err := cmd.StdoutPipe()
@@ -839,7 +840,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 
 	if _, err := os.Stat(gitDir); err != nil {
@@ -922,7 +923,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	// jj ref import and push hooks so we can still return an HTTP error if the
 	// git subprocess itself fails before any bytes are written to the client.
 	pushed := &countingReader{r: peeked}
-	body, err := runReceivePackBuffered(r.Context(), gitDir, readCloserWithBody(pushed, requestBody), maxInputSize)
+	body, err := runReceivePackBuffered(r.Context(), gitDir, readCloserWithBody(pushed, requestBody), maxInputSize, refViewer(r))
 	gitErr := err
 	if gitErr != nil && userRefs && pushed.n > maxInputSize {
 		gitErr = &appError{StatusCode: http.StatusRequestEntityTooLarge, Code: "user_ref_push_too_large",
@@ -942,9 +943,6 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	}
 	if gitErr != nil {
 		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, gitErr)
-	}
-	if err := recordDefaultBookmark(enforceCtx, gitDir, beforeRefs); err != nil {
-		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, err)
 	}
 	if sender.PusherCredential != jjmiddleware.CredentialSync {
 		if err := refuseDefaultBookmarkRewind(enforceCtx, gitDir, beforeRefs, afterRefs); err != nil {
@@ -989,11 +987,8 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 		s.pushOutbox.discard(outboxPaths)
 		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, fmt.Errorf("import git refs after receive-pack: %w", err))
 	}
-
-	// Pay the export here, while the write lock is already held, rather than
-	// leaving it for the first clone after the push: CI pushes once and then
-	// clones from dozens of tasks at the same moment.
-	s.warmGitRefs(repoPath)
+	// Releasing the lock exports the import, so the clones CI starts right
+	// after a push wait for one export instead of each running one.
 
 	if len(outboxPaths) > 0 {
 		s.background.Add(1)
@@ -1055,7 +1050,7 @@ func (s *Server) uploadPack(w http.ResponseWriter, r *http.Request) error {
 	// server-side only — the broken stream will cause the git client to fail.
 	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
 	w.WriteHeader(http.StatusOK)
-	if err := streamGitRPC(r.Context(), gitDir, "upload-pack", &idleDeadlineBody{rc: rc, r: requestBody}, &idleDeadlineWriter{rc: rc, w: w}); err != nil {
+	if err := streamGitRPCCapped(r.Context(), gitDir, "upload-pack", &idleDeadlineBody{rc: rc, r: requestBody}, &idleDeadlineWriter{rc: rc, w: w}, maxDecompressedGitRequestSize, refViewer(r)); err != nil {
 		if s.logger != nil {
 			s.logger.Error("upload-pack stream failed after headers committed",
 				"owner", owner, "repo", repo, "error", err)
@@ -1480,7 +1475,7 @@ func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) error {
 		return badRequest("invalid bookmark name: " + err.Error())
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1540,7 +1535,7 @@ func (s *Server) setDefaultBookmark(w http.ResponseWriter, r *http.Request) erro
 
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1570,7 +1565,7 @@ func (s *Server) deleteBookmark(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1644,7 +1639,7 @@ func (s *Server) backoutChange(w http.ResponseWriter, r *http.Request) error {
 		return badRequest("invalid target bookmark name: " + err.Error())
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1683,7 +1678,7 @@ func (s *Server) splitChange(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1851,7 +1846,7 @@ func (s *Server) composeSuperproject(w http.ResponseWriter, r *http.Request) err
 		return badRequest("invalid superproject request")
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1918,7 +1913,7 @@ func (s *Server) land(w http.ResponseWriter, r *http.Request, appendOnly bool) e
 		}
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
@@ -1936,13 +1931,8 @@ func (s *Server) land(w http.ResponseWriter, r *http.Request, appendOnly bool) e
 	if err != nil {
 		return err
 	}
+	// A land moves the target bookmark; releasing the lock exports it.
 	result, err := s.ffi.LandChanges(repoPath, string(payload))
-	if err == nil && !req.LookupOnly {
-		// A land moves the target bookmark; export it to the git backend now,
-		// under the lock we already hold, so the clones that follow a landing
-		// read git only.
-		s.warmGitRefs(repoPath)
-	}
 	if err != nil {
 		if appendOnly && req.LookupOnly {
 			if ffiErr, ok := err.(*repohostffi.Error); ok && ffiErr.Code == "landing_receipt_missing" {
@@ -1987,7 +1977,7 @@ func (s *Server) getWorkingTreeStatus(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 
 	result, err := s.ffi.GetWorkingTreeStatus(repoPath)
@@ -2011,7 +2001,7 @@ func (s *Server) createSnapshot(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	unlock := s.locks.Lock(repoPath)
+	unlock := s.lockRepo(repoPath)
 	defer unlock()
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err

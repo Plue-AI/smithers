@@ -58,7 +58,7 @@ func TestGitHTTPProxy_Z_InfoRefsUploadAndAuthErrorBranches(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	svc = NewGitHTTPProxyService(nil, nil, nil)
-	_, _, err = svc.authenticateToken(ctx, token, "alice", "demo")
+	_, err = svc.authenticateTokenWithPaths(ctx, token, "alice", "demo")
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	svc = NewGitHTTPProxyService(&mockGitHTTPProxyQuerier{
@@ -66,10 +66,10 @@ func TestGitHTTPProxy_Z_InfoRefsUploadAndAuthErrorBranches(t *testing.T) {
 			return db.GetAuthInfoByTokenHashRow{}, errors.New("db failed")
 		},
 	}, nil, nil)
-	_, _, err = svc.authenticateToken(ctx, token, "alice", "demo")
+	_, err = svc.authenticateTokenWithPaths(ctx, token, "alice", "demo")
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
-	_, _, err = svc.authenticateToken(ctx, " ", "alice", "demo")
+	_, err = svc.authenticateTokenWithPaths(ctx, " ", "alice", "demo")
 	require.NoError(t, err)
 
 	svc = NewGitHTTPProxyService(&mockGitHTTPProxyQuerier{

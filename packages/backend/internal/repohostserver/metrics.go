@@ -53,6 +53,7 @@ type Metrics struct {
 	serviceHealth     prometheus.Gauge
 	pushHookDelivery  *prometheus.CounterVec
 	pushHookPending   prometheus.Gauge
+	staleGitLocks     prometheus.Counter
 }
 
 func NewMetrics() (*Metrics, error) {
@@ -85,6 +86,11 @@ func newMetrics(registry *prometheus.Registry) (*Metrics, error) {
 		Help: "Push events persisted in the outbox and not yet acknowledged by the API.",
 	})
 
+	staleGitLocks := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "smithers_repo_host_stale_git_locks_removed_total",
+		Help: "Git lock files a crashed writer left behind, removed under the repository lock.",
+	})
+
 	for _, label := range operationLabels {
 		operationDuration.WithLabelValues(label)
 	}
@@ -107,6 +113,9 @@ func newMetrics(registry *prometheus.Registry) (*Metrics, error) {
 	if err := registry.Register(pushHookPending); err != nil {
 		return nil, err
 	}
+	if err := registry.Register(staleGitLocks); err != nil {
+		return nil, err
+	}
 
 	serviceUp.Set(1)
 
@@ -117,6 +126,7 @@ func newMetrics(registry *prometheus.Registry) (*Metrics, error) {
 		serviceHealth:     serviceHealth,
 		pushHookDelivery:  pushHookDelivery,
 		pushHookPending:   pushHookPending,
+		staleGitLocks:     staleGitLocks,
 	}, nil
 }
 
