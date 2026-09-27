@@ -147,9 +147,12 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	cmd := streamGitCommandContext(ctx, "git", args...)
 	cmd.Env = gitServiceEnv(command, maxInputSize, viewer)
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("open git stdin: %w", err)
+	// exec copies the body into git's stdin and Wait owns that pipe, so a git
+	// that exits before the body ends is not a failure (#2266).
+	var stdin *bodyReader
+	if body != nil {
+		stdin = &bodyReader{r: body}
+		cmd.Stdin = stdin
 	}
 
 	var stderr bytes.Buffer
@@ -164,20 +167,6 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 		_ = pr.Close()
 		return fmt.Errorf("start git %s: %w", command, err)
 	}
-
-	// Copy stdin in a goroutine so we can drain stdout concurrently.
-	copyErrCh := make(chan error, 1)
-	go func() {
-		var copyErr error
-		if body != nil {
-			_, copyErr = io.Copy(stdin, body)
-		}
-		closeErr := stdin.Close()
-		if copyErr == nil {
-			copyErr = closeErr
-		}
-		copyErrCh <- copyErr
-	}()
 
 	// Drain git stdout into dst. We close the write end of the pipe once git
 	// exits so that the io.Copy below terminates naturally.
@@ -200,10 +189,14 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	_ = pw.CloseWithError(waitErr)
 
 	dstErr := <-dstErrCh
-	copyErr := <-copyErrCh
 
-	if copyErr != nil {
-		return fmt.Errorf("stream request body to git %s: %w", command, copyErr)
+	if stdin != nil && stdin.err != nil {
+		return fmt.Errorf("stream request body to git %s: %w", command, stdin.err)
+	}
+	if stdin != nil && !stdin.eof {
+		// exec ignores the broken pipe of a git that exits 0 without reading
+		// the whole body, as receive-pack does past receive.maxInputSize.
+		return fmt.Errorf("stream request body to git %s: %w", command, errBodyUnread)
 	}
 	if waitErr != nil {
 		return fmt.Errorf("git-%s failed: %s", command, strings.TrimSpace(stderr.String()))
@@ -212,6 +205,29 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 		return fmt.Errorf("stream git %s output: %w", command, dstErr)
 	}
 	return nil
+}
+
+// errBodyUnread reports a git that exited before reading the whole body.
+var errBodyUnread = errors.New("git exited before reading the whole body")
+
+// bodyReader records how the request body ended. Wait drops a read error
+// when git exits non-zero, and the body's failure is the cause worth
+// reporting; eof tells a fully delivered body from one git stopped reading.
+type bodyReader struct {
+	r   io.Reader
+	err error
+	eof bool
+}
+
+func (b *bodyReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	switch {
+	case err == io.EOF:
+		b.eof = true
+	case err != nil:
+		b.err = err
+	}
+	return n, err
 }
 
 // runGitRPCBuffered runs a git smart-HTTP RPC and accumulates the entire stdout

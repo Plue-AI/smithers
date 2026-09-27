@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +73,70 @@ func TestGit_Cov_RunGitRPCBufferedSuccessAndFailure(t *testing.T) {
 	_, err = runGitRPCBuffered(context.Background(), t.TempDir(), "receive-pack", nil)
 	if err == nil {
 		t.Fatal("expected buffered git failure")
+	}
+}
+
+// lateEOFReader ends the request body only after git has exited: it waits
+// for the marker git writes as its last act, so exec's own post-exit close
+// of git's stdin comes first.
+type lateEOFReader struct{ marker string }
+
+func (r lateEOFReader) Read([]byte) (int, error) {
+	for {
+		if _, err := os.Stat(r.marker); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	return 0, io.EOF
+}
+
+// Issue #2266: git exiting before the request body ends is a successful RPC,
+// not "close |1: file already closed".
+func TestGit_Cov_StreamGitRPCSucceedsWhenGitExitsBeforeBodyEOF(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "exited")
+	installGitStub(t, "#!/bin/sh\nprintf done\n: > '"+marker+"'\nexit 0\n")
+
+	var out strings.Builder
+	err := streamGitRPC(context.Background(), t.TempDir(), "upload-pack", lateEOFReader{marker: marker}, &out)
+	if err != nil {
+		t.Fatalf("streamGitRPC returned error: %v", err)
+	}
+	if out.String() != "done" {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+// A git that exits without reading the whole body (receive-pack refusing a
+// pack past receive.maxInputSize) failed the RPC even when it exits 0.
+func TestGit_Cov_StreamGitRPCReportsUnreadBody(t *testing.T) {
+	installGitStub(t, "#!/bin/sh\nexit 0\n")
+
+	err := streamGitRPC(context.Background(), t.TempDir(), "receive-pack", strings.NewReader(strings.Repeat("x", 1<<20)), io.Discard)
+	if err == nil {
+		t.Fatal("expected unread body error")
+	}
+	if !strings.Contains(err.Error(), "stream request body to git receive-pack") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Issue #2266: a fast-exiting git never turns a successful RPC into an error.
+func TestGit_Cov_StreamGitRPCFastExitStress(t *testing.T) {
+	installGitStub(t, "#!/bin/sh\nprintf buffered\nexit 0\n")
+	dir := t.TempDir()
+
+	failures := 0
+	for i := 0; i < 1000; i++ {
+		got, err := runGitRPCBuffered(context.Background(), dir, "upload-pack", strings.NewReader("0000"))
+		if err != nil || string(got) != "buffered" {
+			failures++
+			t.Logf("iteration %d: output %q, error %v", i, got, err)
+		}
+	}
+	if failures != 0 {
+		t.Fatalf("%d of 1000 successful RPCs failed", failures)
 	}
 }
 
