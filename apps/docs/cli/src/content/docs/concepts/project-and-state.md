@@ -115,7 +115,7 @@ Anything outside it is not read, including the 0.x `SMITHERS_HOME`,
 | Variable | Meaning |
 | --- | --- |
 | `SMITHERS_REMOTE` | The control plane to act on. The environment form of `--remote`. |
-| `SMITHERS_API_KEY` | Bearer credential. The environment form of `--credential`. |
+| `SMITHERS_TOKEN` | Session token override for the saved login. |
 | `SMITHERS_MCP_CONFIG` | Path to the `--mcp-config` server array. |
 | `SMITHERS_BACKEND` | Database backend. Only `sqlite` is supported. |
 | `SMITHERS_OPENAI_AUTH` | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. |

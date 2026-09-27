@@ -1,14 +1,18 @@
 package services
 
 import (
+	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -17,18 +21,19 @@ import (
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
-func TestWorkspaceCodingHostPreservesGeneralCLI(t *testing.T) {
+func TestWorkspaceCodingHostAndNpmCLI(t *testing.T) {
 	dir := t.TempDir()
-	cli := []byte("#!/bin/sh\necho general-cli\n")
 	host := []byte("#!/bin/sh\necho coding-host\n")
-	for name, data := range map[string][]byte{"cli": cli, "host": host} {
+	for name, data := range map[string][]byte{"host": host, "cli.tar": []byte("npm package archive")} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0700))
 	}
-	t.Setenv(workspaceCLIBinaryEnv, filepath.Join(dir, "cli"))
 	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(dir, "host"))
+	t.Setenv(workspaceCLIPackageEnv, filepath.Join(dir, "cli.tar"))
 	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
-	for path, expected := range map[string][]byte{workspaceSmithersCLIB64Path: cli, workspaceCodingHostB64Path: host} {
+	require.Contains(t, buildWorkspaceClaudeBootstrapScript(), "/usr/local/lib/smithers-cli/node_modules/@smthrs/cli/bin/smithers.mjs")
+	require.NotContains(t, buildWorkspaceClaudeBootstrapScript(), "init --global")
+	for path, expected := range map[string][]byte{workspaceCodingHostB64Path: host, workspaceCLIPackageB64Path + ".part0000": []byte("npm package archive")} {
 		data, err := base64.StdEncoding.DecodeString(req.Files[path].Content)
 		require.NoError(t, err)
 		decoder, err := gzip.NewReader(bytes.NewReader(data))
@@ -38,7 +43,6 @@ func TestWorkspaceCodingHostPreservesGeneralCLI(t *testing.T) {
 		require.NoError(t, decoder.Close())
 		require.Equal(t, expected, actual)
 	}
-	require.Contains(t, buildWorkspaceClaudeBootstrapScript(), workspaceSmithersCLIPath+`\" init --global --no-skill`)
 }
 
 func TestWorkspaceCodingHostStagingExecutesAndRefusesBrokenPayload(t *testing.T) {
@@ -99,21 +103,18 @@ func TestWorkspaceCodingHostStagingExecutesAndRefusesBrokenPayload(t *testing.T)
 // must receive it next to the host, from the same image-path-or-env source.
 func TestWorkspaceJJExportStagedAlongsideCodingHost(t *testing.T) {
 	dir := t.TempDir()
-	cli := []byte("#!/bin/sh\necho general-cli\n")
 	host := []byte("#!/bin/sh\necho coding-host\n")
 	export := []byte("#!/bin/sh\necho jj-export\n")
-	for name, data := range map[string][]byte{"cli": cli, "host": host, "export": export} {
+	for name, data := range map[string][]byte{"host": host, "export": export} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0700))
 	}
-	t.Setenv(workspaceCLIBinaryEnv, filepath.Join(dir, "cli"))
 	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(dir, "host"))
 	t.Setenv(workspaceJJExportBinaryEnv, filepath.Join(dir, "export"))
 	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 	for path, expected := range map[string][]byte{
-		workspaceSmithersCLIB64Path: cli,
-		workspaceCodingHostB64Path:  host,
-		workspaceJJExportB64Path:    export,
+		workspaceCodingHostB64Path: host,
+		workspaceJJExportB64Path:   export,
 	} {
 		data, err := base64.StdEncoding.DecodeString(req.Files[path].Content)
 		require.NoError(t, err)
@@ -200,5 +201,83 @@ func TestWorkspaceJJExportStagingExecutesAndRefusesBrokenPayload(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestWorkspaceNpmCLIPackageSplitsGuestFrames(t *testing.T) {
+	raw := make([]byte, 13<<20)
+	_, err := rand.Read(raw)
+	require.NoError(t, err)
+	archive := filepath.Join(t.TempDir(), "cli.tar")
+	require.NoError(t, os.WriteFile(archive, raw, 0600))
+	t.Setenv(workspaceCLIPackageEnv, archive)
+	files := map[string]sandbox.SandboxFile{}
+	require.True(t, addWorkspaceCLI(files))
+	require.NotContains(t, files, workspaceCLIPackageB64Path)
+	require.Greater(t, len(files), 1)
+	names := make([]string, 0, len(files))
+	for name, file := range files {
+		require.LessOrEqual(t, len(file.Content), 16<<20)
+		require.Less(t, base64.StdEncoding.EncodedLen(len(file.Content)), 64<<20)
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var encoded strings.Builder
+	for _, name := range names {
+		encoded.WriteString(files[name].Content)
+	}
+	compressed, err := base64.StdEncoding.DecodeString(encoded.String())
+	require.NoError(t, err)
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	require.NoError(t, err)
+	actual, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	require.Equal(t, raw, actual)
+}
+
+func TestWorkspaceNpmCLIStagingExecutes(t *testing.T) {
+	for _, nix := range []bool{false, true} {
+		t.Run(fmt.Sprintf("nix=%t", nix), func(t *testing.T) {
+			dir := t.TempDir()
+			var archive bytes.Buffer
+			writer := tar.NewWriter(&archive)
+			script := []byte("#!/bin/sh\n[ \"$1\" = --help ]\n")
+			require.NoError(t, writer.WriteHeader(&tar.Header{Name: "node_modules/@smthrs/cli/bin/smithers.mjs", Mode: 0755, Size: int64(len(script))}))
+			_, err := writer.Write(script)
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+			source := filepath.Join(dir, "cli.tar")
+			require.NoError(t, os.WriteFile(source, archive.Bytes(), 0600))
+			t.Setenv(workspaceCLIPackageEnv, source)
+			files := map[string]sandbox.SandboxFile{}
+			require.True(t, addWorkspaceCLI(files))
+			payload := filepath.Join(dir, "payload")
+			for name, file := range files {
+				require.NoError(t, os.WriteFile(strings.ReplaceAll(name, workspaceCLIPackageB64Path, payload), []byte(file.Content), 0600))
+			}
+			bootstrap := buildWorkspaceClaudeBootstrapScript()
+			if nix {
+				bootstrap = buildWorkspaceNixBootstrapScript()
+			}
+			start := strings.Index(bootstrap, "# Install the deployed npm package")
+			end := strings.Index(bootstrap[start:], "if [ -x") + start
+			require.Greater(t, end, start)
+			bootstrap = "set -euo pipefail\n" + bootstrap[start:end]
+			bin := filepath.Join(dir, "bin")
+			require.NoError(t, os.Mkdir(bin, 0755))
+			bootstrap = strings.ReplaceAll(bootstrap, workspaceCLIPackageB64Path, payload)
+			bootstrap = strings.ReplaceAll(bootstrap, workspaceCLIPackageDir, filepath.Join(dir, "installed"))
+			bootstrap = strings.ReplaceAll(bootstrap, workspaceLocalBinDir, bin)
+			bootstrap = strings.ReplaceAll(bootstrap, "/tmp/smithers-workspace-cli-help.log", filepath.Join(dir, "help.log"))
+			output, err := exec.Command("bash", "-c", bootstrap).CombinedOutput()
+			require.NoError(t, err, string(output))
+			require.NotContains(t, string(output), "failed")
+			target, err := os.Readlink(filepath.Join(bin, "smithers"))
+			require.NoError(t, err)
+			require.Equal(t, filepath.Join(dir, "installed/node_modules/@smthrs/cli/bin/smithers.mjs"), target)
+			output, err = exec.Command(filepath.Join(bin, "smthrs"), "--help").CombinedOutput()
+			require.NoError(t, err, string(output))
+		})
 	}
 }

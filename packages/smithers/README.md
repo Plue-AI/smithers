@@ -9,7 +9,7 @@ all Smithers packages share one Effect runtime.
 
 **Documentation:** https://cli.smithers.sh
 
-`@smthrs/cli` installs `smthrs`, the command line for Smithers target graphs and durable agent flows. Build, test, lint, review, and query `PACKAGE.ts` targets, then start flows and manage their persisted runs, approvals, memory, and schedules through the same executable.
+`@smthrs/cli` installs `smithers` (also named `smthrs`), the only Smithers CLI. It manages repositories, issues, wiki pages, boxes, authentication, target graphs, and durable agent flows. Build, test, lint, review, and query `PACKAGE.ts` targets, then start flows and manage their persisted runs, approvals, memory, and schedules through the same executable.
 
 Flow control, run management, and approvals support `--remote https://host:3000`. Target execution and local operator commands use the selected workspace; history, memory, triggers, credentials, integrations, and evaluations refuse remote access. The package also exports its command tree for Node hosts.
 
@@ -18,6 +18,8 @@ The public parser is **Incur**, with **Zod** argument and option schemas. **Effe
 ## Install
 
 Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#install-the-cli).
+
+Run `smithers config set api_origin https://your-api-host` and `smithers auth login` once for backend commands. Existing Smithers keyring and origin-bound auth-file logins are reused.
 
 Node 26.4.0 or later is required. The package installs one executable under two names, `smthrs` and its `smithers` alias.
 

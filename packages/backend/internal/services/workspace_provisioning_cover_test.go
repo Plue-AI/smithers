@@ -42,15 +42,15 @@ func (m *workspaceProvisioningCovMetrics) ObserveWorkspaceSessionProvision(statu
 }
 
 func TestWorkspaceProvisioning_Cov_CLIStagingBakeRequestAndCommands(t *testing.T) {
-	t.Setenv(workspaceCLIBinaryEnv, filepath.Join(t.TempDir(), "missing-smithers"))
+	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(t.TempDir(), "missing-smithers"))
 	files := map[string]sandbox.SandboxFile{}
-	assert.False(t, addWorkspaceSmithersCLI(files))
-	assert.NotContains(t, files, workspaceSmithersCLIB64Path)
+	assert.False(t, addWorkspaceCodingHost(files))
+	assert.NotContains(t, files, workspaceCodingHostB64Path)
 
 	emptyCLI := filepath.Join(t.TempDir(), "empty-smithers")
 	require.NoError(t, os.WriteFile(emptyCLI, nil, 0o755))
-	t.Setenv(workspaceCLIBinaryEnv, emptyCLI)
-	assert.False(t, addWorkspaceSmithersCLI(files))
+	t.Setenv(workspaceCodingHostBinaryEnv, emptyCLI)
+	assert.False(t, addWorkspaceCodingHost(files))
 
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
 	req := svc.GoldenBakeVMRequest()

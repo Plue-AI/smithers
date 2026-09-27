@@ -27,7 +27,17 @@ const asked: Array<Evaluator.Request> = []
 const scripted = (answer: Evaluator.ScriptedAnswer) =>
   Evaluator.layerScripted((request) => {
     asked.push(request)
-    return { meant: answer }
+    return Object.fromEntries(
+      Object.entries(request.questions).map(([key, question]) => {
+        const choice = "choice" in answer ? answer.choice : undefined
+        return [
+          key,
+          choice === "none" || choice !== undefined && Object.hasOwn(question.criteria ?? {}, choice)
+            ? answer :
+            { choice: "none", probabilities: { none: 0.99 } }
+        ]
+      })
+    )
   })
 
 const ask = (
@@ -60,10 +70,13 @@ describe("didYouMean", () => {
   it("offers every canonical command, described by its own help line, plus none", async () => {
     await ask("stauts", [], scripted({ choice: "none" }))
 
-    const question = asked[0]!.questions["meant"]!
-    expect(question.type).toBe("choice")
-    const criteria = question.criteria as Readonly<Record<string, string>>
-    expect(Object.keys(criteria)).toEqual([...candidates.map((command) => command.name), "none"])
+    const questions = Object.values(asked[0]!.questions)
+    for (const question of questions) {
+      expect(question.type).toBe("choice")
+      expect(Object.keys(question.criteria ?? {}).length).toBeLessThanOrEqual(255)
+    }
+    const criteria = Object.assign({}, ...questions.map((question) => question.criteria)) as Record<string, string>
+    expect(Object.keys(criteria).filter((key) => key !== "none")).toEqual(candidates.map((command) => command.name))
     expect(criteria["runs show"]).toBe(candidates.find((command) => command.name === "runs show")!.description)
   })
 

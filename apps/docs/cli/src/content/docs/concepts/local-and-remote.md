@@ -22,7 +22,7 @@ is made from `Application.Config` before the parser reads a token.
 | Databases | Opens `.flows/control.db` and `.flows/engine.db` | Opens none |
 | Executor | `NodeControl.layerExecutor`, in this process | The server's |
 | Transport | None | HTTP for `/rpc`, WebSocket for `/rpc/ws` |
-| Credential | Not used | `--credential`, else `SMITHERS_API_KEY`, as a bearer token |
+| Credential | Not used | Saved login or `SMITHERS_TOKEN`, bound to the selected origin |
 | Memory | The durable store over the control database | Refused |
 
 `--remote` must be an `http://` or `https://` URL. `NodeControl.makeConfig`

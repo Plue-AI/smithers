@@ -33,9 +33,9 @@ Node environment those handlers require.
 ## Build the configuration first
 
 `NodeControl.makeConfig(args, environment, cwd)` is the pure configuration
-boundary. It reads `--remote`, `--credential`, `--mcp-config`, and `--root`
+boundary. It reads `--remote`, `--mcp-config`, and `--root`
 straight off the argument vector, falls back to `SMITHERS_REMOTE`,
-`SMITHERS_API_KEY`, and `SMITHERS_MCP_CONFIG`, resolves the project root and
+`SMITHERS_TOKEN`, and `SMITHERS_MCP_CONFIG`, resolves the project root and
 the 0.x migration root, and throws a `CliError.UsageError` naming the offending
 flag for a bad URL or an unreadable MCP file.
 

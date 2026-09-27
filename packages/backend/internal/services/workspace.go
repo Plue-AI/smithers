@@ -103,10 +103,6 @@ const (
 	workspaceClaudeScriptPath          = "/usr/local/bin/smithers-install-claude-code"
 	workspaceClaudeService             = "smithers-workspace-claude-bootstrap"
 	workspaceReadyService              = "smithers-workspace-ready"
-	workspaceSmithersCLIPath           = "/usr/local/bin/smithers"
-	workspaceSmithersCLIB64Path        = "/tmp/smithers-workspace-cli.b64"
-	workspaceCLIBinaryEnv              = "SMITHERS_WORKSPACE_CLI_BINARY"
-	workspaceDefaultCLIPath            = "/usr/local/bin/smithers"
 	workspaceCodingHostPath            = "/usr/local/bin/smithers-coding-host"
 	workspaceCodingHostB64Path         = "/tmp/smithers-workspace-coding-host.b64"
 	workspaceCodingHostBinaryEnv       = "SMITHERS_WORKSPACE_CODING_HOST_BINARY"
@@ -126,7 +122,7 @@ const (
 	workspaceDefaultJJExportPath = "/usr/local/lib/smithers/smithers-jj-export"
 	workspaceJJReleaseAPIURL     = "https://api.github.com/repos/jj-vcs/jj/releases/tags/v0.39.0"
 	workspaceNodeDistIndexURL    = "https://nodejs.org/dist/index.json"
-	workspaceNodeMajor           = "22"
+	workspaceNodeMajor           = "26"
 	workspaceLocalDir            = defaultWorkspaceHome + "/.local"
 	workspaceLocalBinDir         = defaultWorkspaceHome + "/.local/bin"
 	workspaceLocalNodeDir        = defaultWorkspaceHome + "/.local/node"
@@ -136,9 +132,11 @@ const (
 	// (via the npm `bun` package); keep in sync with BUN_VERSION in
 	// scripts/create-agent-snapshot.ts.
 	workspaceBunVersion = "1.3.9"
-	// workspaceGlobalPackInitLog captures `smithers init --global` output for
-	// the developer user's ~/.smithers workflow pack install.
-	workspaceGlobalPackInitLog = defaultWorkspaceHome + "/.smithers/global-pack-init.log"
+
+	workspaceCLIPackageEnv     = "SMITHERS_WORKSPACE_CLI_PACKAGE"
+	workspaceDefaultCLIPackage = "/opt/smithers/cli.tar"
+	workspaceCLIPackageB64Path = "/tmp/smithers-workspace-cli-package.b64"
+	workspaceCLIPackageDir     = "/usr/local/lib/smithers-cli"
 
 	// MaxActiveWorkspacesPerUser caps the number of non-deleted workspaces
 	// any single authenticated user may own (ticket 0105). Enforced on

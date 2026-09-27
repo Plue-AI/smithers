@@ -5,7 +5,7 @@ describe("execution target routing", () => {
   it.each(["resume", "cancel", "signal", "steer"])(
     "routes %s through flags without treating their values as IDs",
     (verb) => {
-      expect(executionRunId(["--root", "other-run", verb, "--credential=token", "fork-run", "--json"]))
+      expect(executionRunId(["--root", "other-run", verb, "--mcp-config=servers.json", "fork-run", "--json"]))
         .toBe("fork-run")
       expect(executionRunId([verb, "--root", "other-run", "fork-run"]))
         .toBe("fork-run")

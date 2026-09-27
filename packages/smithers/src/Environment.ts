@@ -1,12 +1,7 @@
 /**
  * The environment contract of the `smthrs` command line.
  *
- * rc.0 reads a small, closed set of `SMITHERS_*` names.
- *
- * Names outside {@link names} are not read by rc.0. In particular the 0.x
- * `SMITHERS_HOME`, `SMITHERS_TOKEN`, and `SMITHERS_WORKFLOW_*` families are
- * gone: `~/.smithers` is not a runtime input, and
- * `SMITHERS_TOKEN` belongs to a different product's CLI.
+ * Backend and remote control commands share the Smithers login.
  *
  * @since 1.0.0
  */
@@ -25,7 +20,7 @@ export interface Name {
 const entry = (suffix: string, purpose: string): Name => ({ name: `SMITHERS_${suffix}`, purpose })
 
 /**
- * Every environment variable rc.0 reads.
+ * The CLI's public environment settings.
  *
  * @category constants
  * @since 1.0.0
@@ -33,7 +28,21 @@ const entry = (suffix: string, purpose: string): Name => ({ name: `SMITHERS_${su
 export const names: ReadonlyArray<Name> = [
   entry("AUDIENCE", "Consumer override: auto, human, or agent; presentation only, never authority"),
   entry("REMOTE", "Control-plane base URL; the environment form of --remote"),
-  entry("API_KEY", "Bearer credential; the environment form of --credential"),
+  entry("TOKEN", "Smithers session token; otherwise use the saved login"),
+  entry("API_ORIGIN", "Backend API origin for the saved login and repository commands"),
+  entry("AUTH_FILE", "Path to the origin-bound Smithers login file"),
+  entry("DISABLE_SYSTEM_KEYRING", "Use the protected auth file instead of system credential storage when set to 1"),
+  entry("AUTH_USERNAME", "Local owner account name"),
+  entry("AUTH_PASSWORD", "Local owner password supplied to login"),
+  entry("AUTH_BOOTSTRAP_TOKEN", "Local owner bootstrap credential"),
+  entry("GITHUB_API_URL", "GitHub API origin for repository connection and stack commands"),
+  entry("GITHUB_APP_POLL_INTERVAL_MS", "GitHub App installation polling interval"),
+  entry("AGENT_DOCS_URL", "Documentation source for agent ask"),
+  entry("AGENT_DOCS_TIMEOUT_MS", "Documentation fetch timeout"),
+  entry("WORKSPACE_SSH_POLL_TIMEOUT_MS", "Workspace SSH readiness timeout"),
+  entry("WORKSPACE_SSH_POLL_INTERVAL_MS", "Workspace SSH readiness polling interval"),
+  entry("WORKSPACE_SSH_CONNECT_TIMEOUT_SECONDS", "SSH connection timeout"),
+  entry("WORKSPACE_CREATE_POLL_INTERVAL_MS", "Workspace provisioning polling interval"),
   entry("CREDENTIAL_KEY", "Base64 32-byte host encryption key for stored credentials"),
   entry("CACHE_URL", "Remote target-cache endpoint captured before workspace evaluation"),
   entry("CACHE_TOKEN", "Remote target-cache credential, removed from declaration environments"),

@@ -17,7 +17,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_CACHE_TOKEN` | operator | Remote target-cache credential. | none |
 | `SMITHERS_CACHE_NAMESPACE` | operator | Trust domain used when publishing target-cache results. | none |
 | `SMITHERS_REMOTE` | operator | Control-plane base URL. | `--remote` |
-| `SMITHERS_API_KEY` | operator | Preferred bearer credential channel for the remote control plane; avoids argv exposure. | `--credential` |
+| `SMITHERS_TOKEN` | operator | Preferred bearer credential channel for the remote control plane; avoids argv exposure. | `auth login` |
 | `SMITHERS_MCP_CONFIG` | operator | Path to the MCP server array the local executor projects into a run's flow catalog. | `--mcp-config` |
 | `SMITHERS_OPENAI_AUTH` | operator | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. `chatgpt` reads the codex CLI's ChatGPT session at `$CODEX_HOME/auth.json` instead of `OPENAI_API_KEY`; any other value refuses the seat. | none |
 | `SMITHERS_BACKEND` | operator | Database backend: `sqlite` or `postgres`. Any other value exits 1 with `unsupported_database`. | `--backend` (hidden) |

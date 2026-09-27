@@ -63,7 +63,7 @@ export const localDecision = (root: string, decision: "approve" | "deny", approv
       ["--import", judge, smithersBin, "approvals", decision, JSON.stringify(approval), "--root", root, "--json"],
       {
         cwd: root,
-        env: { ...process.env, SMITHERS_REMOTE: undefined, SMITHERS_API_KEY: undefined },
+        env: { ...process.env, SMITHERS_REMOTE: undefined, SMITHERS_TOKEN: undefined },
         timeout: 120_000,
         encoding: "utf8"
       },
@@ -153,8 +153,6 @@ export interface ServeProcess {
 export interface ServeOptions {
   /** Overrides the generated bearer credential. */
   readonly credential?: string | undefined
-  /** Exercises the CLI's documented environment fallback instead of its flag. */
-  readonly credentialSource?: "flag" | "environment" | undefined
   /** How long the verb gets to bind and mount its routes. */
   readonly timeoutMs?: number | undefined
 }
@@ -170,11 +168,10 @@ export const startServe = async (root: string, options: ServeOptions = {}): Prom
   const timeoutMs = options.timeoutMs ?? 120_000
   const port = await freePort()
   const argv = ["--import", judge, smithersBin, "serve", "--root", root, "--port", String(port)]
-  if (options.credentialSource !== "environment") argv.push("--credential", token)
   const process_ = spawn(process.execPath, argv, {
     stdio: ["ignore", "pipe", "pipe"],
     cwd: root,
-    env: { ...process.env, SMITHERS_API_KEY: options.credentialSource === "environment" ? token : undefined }
+    env: { ...process.env, SMITHERS_TOKEN: token }
   })
   const pid = process_.pid
   if (pid === undefined) throw new Error("smthrs serve has no pid")

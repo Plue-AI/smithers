@@ -37,7 +37,7 @@ const execute = (root: string, command: string, input: string) =>
         MIGRATION_JUDGE: new URL("./fixtures/scripted-native-host.ts", import.meta.url).href,
         INPUT: input,
         SMITHERS_REMOTE: "",
-        SMITHERS_API_KEY: "",
+        SMITHERS_TOKEN: "",
         SMITHERS_BACKEND: "sqlite",
         SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY,
         SMITHERS_AUDIENCE: "human",

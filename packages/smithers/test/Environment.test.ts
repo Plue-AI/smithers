@@ -5,11 +5,25 @@ import { describe, expect, it } from "vitest"
 import * as Environment from "../src/Environment.ts"
 
 describe("the environment contract", () => {
-  it("names every variable rc.0 reads", () => {
+  it("documents the shared login, backend commands, and local CLI settings", () => {
     expect(Environment.names.map((name) => name.name)).toEqual([
       "SMITHERS_AUDIENCE",
       "SMITHERS_REMOTE",
-      "SMITHERS_API_KEY",
+      "SMITHERS_TOKEN",
+      "SMITHERS_API_ORIGIN",
+      "SMITHERS_AUTH_FILE",
+      "SMITHERS_DISABLE_SYSTEM_KEYRING",
+      "SMITHERS_AUTH_USERNAME",
+      "SMITHERS_AUTH_PASSWORD",
+      "SMITHERS_AUTH_BOOTSTRAP_TOKEN",
+      "SMITHERS_GITHUB_API_URL",
+      "SMITHERS_GITHUB_APP_POLL_INTERVAL_MS",
+      "SMITHERS_AGENT_DOCS_URL",
+      "SMITHERS_AGENT_DOCS_TIMEOUT_MS",
+      "SMITHERS_WORKSPACE_SSH_POLL_TIMEOUT_MS",
+      "SMITHERS_WORKSPACE_SSH_POLL_INTERVAL_MS",
+      "SMITHERS_WORKSPACE_SSH_CONNECT_TIMEOUT_SECONDS",
+      "SMITHERS_WORKSPACE_CREATE_POLL_INTERVAL_MS",
       "SMITHERS_CREDENTIAL_KEY",
       "SMITHERS_CACHE_URL",
       "SMITHERS_CACHE_TOKEN",
@@ -36,7 +50,7 @@ describe("the environment contract", () => {
 
   it("does not infer alternate prefixes", () => {
     expect(Environment.read({ FLOWS_BACKEND: "pglite" }, "SMITHERS_BACKEND")).toBeUndefined()
-    expect(Environment.read({ FLOWS_API_KEY: "token" }, "SMITHERS_API_KEY")).toBeUndefined()
+    expect(Environment.read({ FLOWS_API_KEY: "token" }, "SMITHERS_TOKEN")).toBeUndefined()
     expect(Environment.read({ FLOWS_RUN_ID: "run-1" }, "SMITHERS_RUN_ID")).toBeUndefined()
     expect(Environment.read({ FLOWS_REMOTE: "alternate" }, "SMITHERS_REMOTE")).toBeUndefined()
   })
@@ -47,7 +61,7 @@ describe("the environment contract", () => {
 
   it("treats an exported-but-empty value as unset", () => {
     // An exported blank is how a shell spells "not configured"; reading it as
-    // a value turns `export SMITHERS_API_KEY=` into an empty bearer token.
+    // a value turns `export SMITHERS_TOKEN=` into an empty bearer token.
     expect(Environment.read({ SMITHERS_REMOTE: "" }, "SMITHERS_REMOTE")).toBeUndefined()
   })
 

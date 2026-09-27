@@ -54,11 +54,14 @@ const segmentOk = (segment: string): boolean => SEGMENT.test(segment) && segment
  * @category parsing
  * @since 1.0.0
  */
-export const repoFromRemote = (remote: string): string | null => {
+export const repoFromRemote = (remote: string, allowedHosts?: ReadonlySet<string>): string | null => {
   const trimmed = remote.trim()
   let path: string
   const scp = /^[\w.-]+@[\w.-]+:(?!\/)(.+)$/.exec(trimmed)
   if (scp !== null) {
+    if (
+      allowedHosts && !allowedHosts.has(trimmed.slice(trimmed.indexOf("@") + 1, trimmed.indexOf(":")).toLowerCase())
+    ) return null
     path = scp[1]!
   } else {
     let parsed: URL
@@ -68,6 +71,7 @@ export const repoFromRemote = (remote: string): string | null => {
       return null
     }
     if (!["https:", "http:", "ssh:", "git:", "git+ssh:"].includes(parsed.protocol)) return null
+    if (allowedHosts && !allowedHosts.has(parsed.hostname.toLowerCase())) return null
     if (parsed.search !== "" || parsed.hash !== "") return null
     path = parsed.pathname
   }
@@ -169,7 +173,20 @@ const firstRemote = (host: Host, directory: string): string | null => {
  * @category constructors
  * @since 1.0.0
  */
-export const resolveRepo = (host: Host, directory: string): string => {
+export const resolveRepo = (host: Host, directory: string, allowedHosts?: ReadonlySet<string>): string => {
+  if (allowedHosts) {
+    const remotes = [
+      host.read("jj", ["git", "remote", "list"], directory),
+      host.read("git", ["remote", "-v"], directory)
+    ]
+      .flatMap((output) => (output ?? "").split("\n").map((line) => line.trim().split(/\s+/)))
+      .sort(([a], [b]) => Number(b === "origin") - Number(a === "origin"))
+    for (const [, remote] of remotes) {
+      const repo = remote && repoFromRemote(remote, allowedHosts)
+      if (repo) return repo
+    }
+    throw new CliError.UsageError({ message: "Could not determine repository. Use --repo OWNER/REPO." })
+  }
   const remote = firstRemote(host, directory)
   if (remote === null) {
     throw new CliError.UsageError({ message: `${directory} has no git remote naming owner/repo.` })

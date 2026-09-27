@@ -3,10 +3,9 @@ smthrs integrations list — List configured integrations and credential referen
 Usage: smthrs integrations list [options]
 
 Options:
-  --root <string>        Project root (defaults to the nearest Smithers project)
-  --remote <string>      Remote control server; local operator commands refuse this option
-  --credential <string>  Remote control credential
-  --config <string>       (default: .smithers/integrations.json)
+  --root <string>    Project root (defaults to the nearest Smithers project)
+  --remote <string>  Remote control server; local operator commands refuse this option
+  --config <string>   (default: .smithers/integrations.json)
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

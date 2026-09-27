@@ -7,11 +7,10 @@ Arguments:
   value
 
 Options:
-  --root <string>        Project root (defaults to the nearest Smithers project)
-  --remote <string>      Remote control server; local operator commands refuse this option
-  --credential <string>  Remote control credential
-  --namespace <string>   Memory namespace: user:cli, flow:<id>, agent:<id>, or global:<id> (default: user:cli)
-  --id <string>          Namespace identifier when --namespace is a bare lifetime such as user
+  --root <string>       Project root (defaults to the nearest Smithers project)
+  --remote <string>     Remote control server; local operator commands refuse this option
+  --namespace <string>  Memory namespace: user:cli, flow:<id>, agent:<id>, or global:<id> (default: user:cli)
+  --id <string>         Namespace identifier when --namespace is a bare lifetime such as user
   --value-json
   --ttl-ms <number>
   --tag <array>

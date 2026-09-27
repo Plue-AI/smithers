@@ -23,14 +23,13 @@ func sampleBootstrapVars() map[string]string {
 		"NodeInstallLog":      "/tmp/node-install.log",
 		"ClaudeInstallScript": "npm install -g claude",
 		"DownloadScript":      "ZG93bmxvYWQ=",
-		"CLIB64Path":          "/opt/smithers-cli.b64",
-		"CLIPath":             "/usr/local/bin/smithers",
 		"CodingHostPath":      "/usr/local/bin/smithers-coding-host",
 		"CodingHostB64Path":   "/opt/smithers-coding-host.b64",
 		"JJExportPath":        "/usr/local/bin/smithers-jj-export",
 		"JJExportB64Path":     "/opt/smithers-jj-export.b64",
 		"BunVersion":          "1.3.9",
-		"PackInitScript":      "SMITHERS_YES=1 smithers init --global --no-skill",
+		"CLIPackageB64Path":   "/opt/cli-package.b64",
+		"CLIPackageDir":       "/usr/local/lib/smithers-cli",
 	}
 }
 
@@ -57,8 +56,6 @@ func TestBootstrapTemplateRenders(t *testing.T) {
 		{"shebang first line", "#!/bin/bash"},
 		{"strict mode", "set -euo pipefail"},
 		{"smithers state dir", "install -d -o dev -g dev -m 700 /home/dev/.smithers"},
-		{"cli payload decode", `base64 -d "/opt/smithers-cli.b64" | gzip -dc > "/usr/local/bin/smithers".tmp`},
-		{"cli smoke test", `"/usr/local/bin/smithers" --help`},
 		{"jj release url exported", `export SMITHERS_JJ_RELEASE_API_URL="https://api.github.com/repos/jj-vcs/jj/releases/latest"`},
 		{"jj release scratch uses writable disk", `export SMITHERS_JJ_ARCHIVE="/var/tmp/smithers-jj-release.tar.gz"`},
 		{"node index url exported", `export SMITHERS_NODE_INDEX_URL="https://nodejs.org/dist/index.json"`},
@@ -71,10 +68,6 @@ func TestBootstrapTemplateRenders(t *testing.T) {
 		{"bun guarded install", "if ! command -v bun >/dev/null 2>&1; then"},
 		{"bun pinned npm install", "npm install -g --prefix /usr/local bun@1.3.9 >/tmp/smithers-workspace-bun-install.log 2>&1"},
 		{"bun install best-effort", "smithers workspace bootstrap: bun install failed; continuing without bun"},
-		{"pack init gated on staged cli", `if [ -x "/usr/local/bin/smithers" ]; then`},
-		{"pack init via runuser as developer", `runuser -u dev -- env -i HOME=/home/dev USER=dev LOGNAME=dev PATH=/home/dev/.local/bin:/usr/local/bin:/usr/bin:/bin bash -lc "SMITHERS_YES=1 smithers init --global --no-skill"`},
-		{"pack init best-effort", "smithers workspace bootstrap: global smithers pack init failed; continuing"},
-		{"pack init skipped without cli", "smithers workspace bootstrap: smithers cli missing; skipping global pack init"},
 		{"jj export payload decode", `base64 -d < "/opt/smithers-jj-export.b64" | gzip -dc > "/usr/local/bin/smithers-jj-export".tmp`},
 		{"jj export installed 0755", `install -m 0755 "/usr/local/bin/smithers-jj-export".tmp "/usr/local/bin/smithers-jj-export"`},
 		{"jj export smoke as developer", `LOGNAME=dev PATH=/home/dev/.local/bin:/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin "/usr/local/bin/smithers-jj-export" --version`},
@@ -97,11 +90,11 @@ func TestBootstrapTemplateShellQuotesInjectedValues(t *testing.T) {
 	// Paths and URLs flow into the script via %q so shell metacharacters in
 	// config values cannot break out of the quoted string.
 	vars := sampleBootstrapVars()
-	vars["CLIB64Path"] = `/opt/evil"; rm -rf /; echo "`
+	vars["CodingHostB64Path"] = `/opt/evil"; rm -rf /; echo "`
 	out := renderBootstrap(t, vars)
 
 	if !strings.Contains(out, `"/opt/evil\"; rm -rf /; echo \""`) {
-		t.Errorf("CLIB64Path with shell metacharacters was not escaped by %%q:\n%s", out)
+		t.Errorf("CodingHostB64Path with shell metacharacters was not escaped by %%q:\n%s", out)
 	}
 	if strings.Contains(out, `"; rm -rf /; echo ""`) {
 		t.Errorf("unescaped shell injection survived in rendered script")
@@ -112,7 +105,7 @@ func TestBootstrapTemplateRejectsMissingField(t *testing.T) {
 	// Guard against silently rendering "<no value>" if the template gains a
 	// field the provisioning code does not supply.
 	vars := sampleBootstrapVars()
-	delete(vars, "CLIPath")
+	delete(vars, "CLIPackageB64Path")
 
 	tmpl, err := template.New("bootstrap").Option("missingkey=error").Parse(BootstrapTemplate)
 	if err != nil {

@@ -207,7 +207,7 @@ func TestWorkflowSandboxScheduler_Cov_CloneURLAndVMRequestBranches(t *testing.T)
 	assert.Equal(t, "secret", req.Init.Services[0].Env["TOKEN"])
 	runScript := req.Files[defaultWorkflowSandboxRunnerSH]
 	assert.True(t, runScript.Executable)
-	assert.Contains(t, runScript.Content, ".smithers/workflows/workflow.tsx")
+	assert.Contains(t, runScript.Content, "flows/workflow/flow.ts")
 	require.NotNil(t, req.WaitForReady)
 	assert.False(t, *req.WaitForReady)
 }

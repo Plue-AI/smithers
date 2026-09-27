@@ -5,7 +5,6 @@ Usage: smthrs memory notes list [options]
 Options:
   --root <string>                           Project root (defaults to the nearest Smithers project)
   --remote <string>                         Remote control server; local operator commands refuse this option
-  --credential <string>                     Remote control credential
   --namespace <string>                      Memory namespace: user:cli, flow:<id>, agent:<id>, or global:<id> (default: user:cli)
   --id <string>                             Namespace identifier when --namespace is a bare lifetime such as user
   --limit <number>                           (default: 100)

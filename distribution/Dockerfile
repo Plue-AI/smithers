@@ -74,7 +74,7 @@ COPY evals evals
 COPY apps apps
 COPY examples examples
 COPY scripts scripts
-COPY distribution/flow-host-manifest.mjs distribution/flow-host-manifest.mjs
+COPY distribution/flow-host-manifest.mjs distribution/build-cli.mjs distribution/
 COPY --from=flows-jj /src/packages/smithers/flows/jj/wasm/flows_jj.wasm packages/smithers/flows/jj/wasm/flows_jj.wasm
 RUN npm install --global pnpm@11.25.0 --ignore-scripts --no-audit --no-fund \
   && node --version && pnpm --version && bun --version \
@@ -82,6 +82,9 @@ RUN npm install --global pnpm@11.25.0 --ignore-scripts --no-audit --no-fund \
 ARG BUILD_SHA
 RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40,64}$' \
   && SMITHERS_BUILD_SHA="$BUILD_SHA" pnpm --dir apps/app run build:web
+# Ship the same npm package and production dependencies for offline boxes.
+RUN node distribution/build-cli.mjs /out/cli \
+  && tar -cf /out/cli.tar -C /out/cli .
 RUN pnpm --dir flows run typecheck
 RUN node flows/coding/build.mjs /out/flow-hosts/smithers-coding-host \
   && node apps/model-host/build.mjs /out/flow-hosts/smithers-model-host \
@@ -97,12 +100,10 @@ RUN printf '%s' "$BUILD_SHA" | grep -Eq '^[0-9a-f]{40,64}$' || (echo 'BUILD_SHA 
 COPY go.mod go.sum ./
 RUN go mod download
 COPY apps/backend apps/backend
-COPY apps/smithers apps/smithers
 COPY packages/backend packages/backend
 COPY packages/smithers/package.json packages/smithers/package.json
 COPY scripts/build-backend.sh scripts/build-backend.sh
 RUN GOMAXPROCS=2 CGO_ENABLED=1 sh scripts/build-backend.sh /out/smithers-backend "$BUILD_SHA"
-RUN GOMAXPROCS=2 CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o /out/smithers ./apps/smithers
 
 # Debian/glibc is required by libsmithers_ffi; Alpine/musl is ABI-incompatible.
 # This base supplies PostgreSQL 18 pg_dump/pg_restore/psql for maintenance.
@@ -112,9 +113,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
   && install -d -o smithers -g smithers -m 0700 /var/lib/smithers \
   && install -d -o root -g root -m 0755 /opt/smithers /opt/smithers/bin /opt/smithers/lib /opt/smithers/web /opt/smithers/migrations /opt/smithers/licenses
 COPY --from=backend /out/smithers-backend /opt/smithers/bin/smithers-backend
-COPY --from=backend /out/smithers /opt/smithers/bin/smithers
 COPY --from=node-runtime /usr/local/bin/node /opt/smithers/bin/node
 COPY --from=web /out/flow-hosts/ /opt/smithers/bin/
+COPY --from=web /out/cli /opt/smithers/cli
+COPY --from=web /out/cli.tar /opt/smithers/cli.tar
 COPY --from=web /usr/local/LICENSE /opt/smithers/licenses/node-LICENSE
 COPY --from=smithers-rust /out/bin/smithers-jj-export /opt/smithers/bin/smithers-jj-export
 COPY --from=jj-cli /out/jj/bin/jj /opt/smithers/bin/jj
@@ -129,8 +131,10 @@ ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0
 RUN schema_version="$(find /opt/smithers/migrations -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1 | cut -c 1-4 | sed 's/^0*//')" \
   && test -n "$schema_version" \
   && sed -i "s/^SMITHERS_DISTRIBUTION_VERSION=.*/SMITHERS_DISTRIBUTION_VERSION=${SMITHERS_DISTRIBUTION_VERSION}/; s/^SMITHERS_SCHEMA_VERSION=.*/SMITHERS_SCHEMA_VERSION=${schema_version}/" /opt/smithers/version.env \
-  && chmod 0555 /opt/smithers/*.sh /opt/smithers/bin/node /opt/smithers/bin/smithers /opt/smithers/bin/smithers-backend /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-chat-connector /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj \
+  && chmod 0555 /opt/smithers/*.sh /opt/smithers/bin/node /opt/smithers/bin/smithers-backend /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-chat-connector /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj \
   && chmod 0444 /opt/smithers/bin/flow-hosts.json /opt/smithers/bin/*.sha256 \
+  && ln -s ../cli/node_modules/@smthrs/cli/bin/smithers.mjs /opt/smithers/bin/smithers \
+  && ln -s smithers /opt/smithers/bin/smthrs \
   && cd /opt/smithers/bin \
   && sha256sum -c smithers-coding-host.sha256 smithers-model-host.sha256 smithers-chat-connector.sha256 \
   && ./node --version | grep -Eq '^v26\.' \
@@ -139,7 +143,8 @@ RUN schema_version="$(find /opt/smithers/migrations -maxdepth 1 -type f -name '[
   && PATH=/opt/smithers/bin:$PATH ./smithers-coding-host --help >/dev/null \
   && PATH=/opt/smithers/bin:$PATH ./smithers-model-host --help >/dev/null \
   && chown -R root:root /opt/smithers && chown smithers:smithers /var/lib/smithers
-ENV SMITHERS_DATA_ROOT=/var/lib/smithers \
+ENV SMITHERS_WORKSPACE_CLI_PACKAGE=/opt/smithers/cli.tar \
+    SMITHERS_DATA_ROOT=/var/lib/smithers \
     SMITHERS_FLOW_HOST_MANIFEST=/opt/smithers/bin/flow-hosts.json \
     SMITHERS_WORKSPACE_CODING_HOST_BINARY=/opt/smithers/bin/smithers-coding-host \
     SMITHERS_MODEL_HOST_BUNDLE=/opt/smithers/bin/smithers-model-host \

@@ -223,14 +223,13 @@ const nonTerminalControl = Layer.effect(
 ).pipe(Layer.provide(testControl))
 
 describe("Control surface", () => {
-  it("parses the remote bearer credential from either CLI spelling", () => {
+  it("resolves the remote bearer from the shared session", () => {
     const resolved = NodeControl.makeConfig(
       [
         "--remote",
-        "https://control.example.test",
-        "--credential=alpha-secret"
+        "https://control.example.test"
       ],
-      {},
+      { SMITHERS_TOKEN: "alpha-secret" },
       "/work"
     )
 
@@ -638,9 +637,11 @@ describe("Control surface", () => {
     const remote = await Effect.runPromise(
       Effect.gen(function*() {
         const server = yield* HttpServer.HttpServer
-        const shared = ["--remote", addressUrl(server), "--credential", "alpha-secret"]
+        const shared = ["--remote", addressUrl(server)]
         const result = yield* scenario(shared).pipe(
-          Effect.provide(NodeControl.layerControl(NodeControl.makeConfig(shared, {}, "/work"))),
+          Effect.provide(
+            NodeControl.layerControl(NodeControl.makeConfig(shared, { SMITHERS_TOKEN: "alpha-secret" }, "/work"))
+          ),
           Effect.provide(scenarioServices)
         )
         return { hostname: server.address._tag === "InetAddressV4" ? server.address.address.toString() : "", result }

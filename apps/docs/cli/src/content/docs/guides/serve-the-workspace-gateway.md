@@ -51,7 +51,7 @@ Loopback needs no credential. `Serve.loopbackHosts` is `127.0.0.1`, `::1`, and
 origins so a web page or rebound hostname cannot inherit the local operator.
 
 Anything else needs both an explicit `--listen` and a bearer token. Export
-`SMITHERS_API_KEY` before starting the server:
+`SMITHERS_TOKEN` before starting the server:
 
 ```bash
 smthrs serve --host 0.0.0.0 --port 3000 --listen
@@ -61,7 +61,7 @@ Omitting either one is refused before the server is built:
 
 ```text
 Refusing to bind 0.0.0.0: pass --listen to serve on a non-loopback address.
-Refusing to bind 0.0.0.0 without a Bearer [REDACTED_TOKEN]: set SMITHERS_API_KEY (preferred) or pass --credential.
+Refusing to bind 0.0.0.0 without a Bearer [REDACTED_TOKEN]: set SMITHERS_TOKEN.
 ```
 
 `[REDACTED_TOKEN]` in the second sentence is not a value you passed. The
@@ -71,10 +71,7 @@ the CLI's own message.
 The rule is strict because the failure it prevents is silent: an
 unauthenticated control plane on a laptop's LAN address can launch agents with
 the operator's credentials, and nothing about that looks wrong from the
-outside. Prefer the exported `SMITHERS_API_KEY` environment variable. The
-compatibility flag `--credential` warns on stderr even under `--quiet`: its
-value is visible in process listings and may remain in shell history. The
-warning never echoes the credential.
+outside. Prefer the exported `SMITHERS_TOKEN` environment variable. Use `smithers auth login` for remote clients; `SMITHERS_TOKEN` supplies the gateway host token.
 
 A valid bearer is not automatically an approver in `smthrs serve` or its
 `smthrs gateway` alias. The CLI host defaults to `ApprovalAuthority.local`; a credentialed gateway stamps

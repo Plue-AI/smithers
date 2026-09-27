@@ -39,6 +39,6 @@ A plan-level approval records a decision without launching work. Execute the app
 
 `smthrs approvals deny <approval>` refuses the exact request. The argument can be serialized JSON or `@file`, just as for `approve`.
 
-All three commands accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_API_KEY`. `--credential` is a compatibility flag that warns on stderr because process listings and shell history expose its value. Use `--format json` for a structured decision receipt.
+All three commands accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_TOKEN`. The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override. Use `--format json` for a structured decision receipt.
 
 For a parked execution, [Waiting for approval](/docs/troubleshooting/waiting-approval/) explains how to locate its request and resume after a decision.

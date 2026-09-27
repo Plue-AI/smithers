@@ -27,7 +27,12 @@ The TUI uses your local model provider keys, not a Smithers account. See [Config
 </TabItem>
 <TabItem label="CLI">
 
-Local commands need no account. Commands that reach a remote Smithers take `--remote` and `--credential`, or `SMITHERS_REMOTE` and `SMITHERS_API_KEY`.
+**Available now.**
+
+```sh
+smithers config set api_origin https://your-api-host
+smithers auth login
+```
 
 </TabItem>
 <TabItem label="API">
@@ -52,7 +57,12 @@ Not applicable.
 </TabItem>
 <TabItem label="CLI">
 
-Not applicable.
+**Available now.**
+
+```sh
+smithers auth status
+smithers auth logout
+```
 
 </TabItem>
 <TabItem label="API">

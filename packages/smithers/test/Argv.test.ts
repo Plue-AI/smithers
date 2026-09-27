@@ -39,7 +39,7 @@ describe("the shared globals", () => {
     // The root command carries the whole shared table; a scanner that misses
     // one of these is how `resume <fork> --silent` lost its worktree.
     expect(declared.map((entry) => entry.flag).sort()).toEqual(
-      ["--audience", "--credential", "--json", "--mcp-config", "--quiet", "--remote", "--root", "--silent", "--verbose"]
+      ["--audience", "--json", "--mcp-config", "--quiet", "--remote", "--root", "--silent", "--verbose"]
     )
     for (const { flag, words } of [...declared, { flag: "--backend", words: ["--backend", "sqlite"] }]) {
       const inline = words.length === 2 ? [`${words[0]}=${words[1]}`] : words
@@ -59,8 +59,6 @@ describe("the shared globals", () => {
       "/project",
       "--remote",
       "https://plane.test",
-      "--credential",
-      "token",
       "--mcp-config",
       "servers.json",
       "--quiet",
@@ -73,7 +71,6 @@ describe("the shared globals", () => {
     expect(connectionOptions.parse(parsed)).toEqual({
       root: "/project",
       remote: "https://plane.test",
-      credential: "token",
       mcpConfig: "servers.json",
       quiet: true
     })
@@ -98,7 +95,6 @@ describe("the shared globals", () => {
     expect(Argv.parse(["--remote="]).remote).toBe("")
     expect(Argv.parse(["--remote", "--credential", "secret"])).toMatchObject({
       remote: "--credential",
-      credential: undefined,
       rest: ["secret"]
     })
     expect(Argv.parse(["resume", "--root"])).toMatchObject({ root: undefined, rest: ["resume", "--root"], first: 0 })

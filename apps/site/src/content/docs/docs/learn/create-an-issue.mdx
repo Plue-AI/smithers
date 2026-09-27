@@ -25,7 +25,13 @@ An issue is something to get done. It moves `open → fixed → verified → clo
 </TabItem>
 <TabItem label="CLI">
 
-**Planned.** Issue commands in `smthrs` ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers issue create --repo acme/app --title "Footer link is hard to find" --body "Make the label clearer."
+smithers issue list --repo acme/app
+smithers issue view 42 --repo acme/app
+```
 
 </TabItem>
 <TabItem label="API">
@@ -59,7 +65,11 @@ Set `SMITHERS_API` to your Smithers API origin and `SMITHERS_TOKEN` to a persona
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers issue edit 42 --repo acme/app --label smithers
+```
 
 </TabItem>
 <TabItem label="API">
@@ -93,7 +103,12 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers api /api/repos/acme/app/issues/42 --method PATCH --field state=fixed
+smithers api /api/repos/acme/app/issues/42 --method PATCH --field state=verified
+```
 
 </TabItem>
 <TabItem label="API">

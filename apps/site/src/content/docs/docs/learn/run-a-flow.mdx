@@ -32,6 +32,7 @@ A flow is a repeatable job the repository defines: review a change, triage an is
 ```sh
 smthrs flow list
 smthrs flow show review
+smithers flow list --repo acme/app
 ```
 
 </TabItem>
@@ -84,6 +85,8 @@ Quote values with spaces: `text="hello world"`. A missing input opens a form: Ta
 
 ```sh
 smthrs flow start review --data '{"args":"Review the working copy"}'
+smithers flow start review --repo acme/app
+smithers runs watch RUN_ID --repo acme/app
 ```
 
 Add `--detached` to return as soon as the run is admitted.

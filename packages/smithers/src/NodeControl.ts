@@ -47,6 +47,7 @@ import type { EngineDurable, ModuleRegistration } from "./internal/NativeControl
 
 import * as CommandStatus from "./internal/CommandStatus.ts"
 
+import { Session } from "./internal/backend/Session.ts"
 import * as NodeWebSocket from "./internal/NodeWebSocket.ts"
 import * as SupervisorMemory from "./internal/SupervisorMemory.ts"
 import * as Output from "./Output.ts"
@@ -166,10 +167,7 @@ export const makeConfig = (
   }
   return {
     remote,
-    // The imported reference gave `--credential` no environment
-    // fallback, so a hosted gateway had to spell the token on every command
-    // line (the release policy).
-    credential: globals.credential ?? Environment_.read(environment, "SMITHERS_API_KEY"),
+    credential: remote === undefined ? undefined : new Session(environment).resolve(new URL(remote).origin)?.token,
     mcpServers: mcpServersFromArguments(globals, environment),
     // `--root` is resolved here rather than in a handler because the durable
     // layers are built from it, and they are built before any flag is parsed.

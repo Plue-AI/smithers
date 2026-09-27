@@ -43,9 +43,7 @@ func assertWorkspaceClaudeBootstrap(t *testing.T, req sandbox.CreateRequest) {
 	assert.Contains(t, scriptFile.Content, workspaceLocalBinDir)
 	assert.Contains(t, scriptFile.Content, workspaceLocalNodeDir)
 	assert.Contains(t, scriptFile.Content, "runuser -u "+defaultWorkspaceUser)
-	assert.Contains(t, scriptFile.Content, `if ! base64 -d "`+workspaceSmithersCLIB64Path+`" | gzip -dc`)
-	assert.Contains(t, scriptFile.Content, `install -m 755 "`+workspaceSmithersCLIPath+`".tmp "`+workspaceSmithersCLIPath+`"`)
-	assert.Contains(t, scriptFile.Content, `"`+workspaceSmithersCLIPath+`" --help >/tmp/smithers-workspace-cli-help.log 2>&1`)
+	assert.Contains(t, scriptFile.Content, `cat "`+workspaceCLIPackageB64Path+`".part* | base64 -d | tar -xzf -`)
 	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: failed to decode/decompress smithers cli payload")
 	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: smithers cli payload absent")
 
@@ -53,7 +51,7 @@ func assertWorkspaceClaudeBootstrap(t *testing.T, req sandbox.CreateRequest) {
 	// best-effort so network failures cannot fail provisioning.
 	assert.Contains(t, scriptFile.Content, "npm install -g --prefix /usr/local bun@"+workspaceBunVersion)
 	assert.Contains(t, scriptFile.Content, "continuing without bun")
-	assert.Contains(t, scriptFile.Content, "init --global --no-skill")
+	assert.Contains(t, scriptFile.Content, "smithers-cli/bin/smithers.mjs")
 	// SMITHERS_YES=1 is the non-interactive switch for `smithers init`.
 	assert.Contains(t, scriptFile.Content, "SMITHERS_YES=1")
 	assert.NotContains(t, scriptFile.Content, "--yes")
@@ -106,17 +104,17 @@ func TestLocalMicrosandboxHostFirewall(t *testing.T) {
 	assert.Equal(t, "host", policy.EgressAllow[0].Host)
 }
 
-func TestWorkspaceService_BuildWorkspaceVMRequestIncludesSmithersCLIWhenAvailable(t *testing.T) {
+func TestWorkspaceService_BuildWorkspaceVMRequestIncludesCodingHostWhenAvailable(t *testing.T) {
 	cliBytes := []byte("#!/bin/sh\necho smithers-test\n")
 	cliPath := filepath.Join(t.TempDir(), "smithers")
 	require.NoError(t, os.WriteFile(cliPath, cliBytes, 0o755))
-	t.Setenv(workspaceCLIBinaryEnv, cliPath)
+	t.Setenv(workspaceCodingHostBinaryEnv, cliPath)
 
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
 	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 
-	file, ok := req.Files[workspaceSmithersCLIB64Path]
+	file, ok := req.Files[workspaceCodingHostB64Path]
 	require.True(t, ok)
 	assert.False(t, file.Executable)
 	assert.Empty(t, file.Encoding)
@@ -678,7 +676,7 @@ func TestWorkspaceService_VerifyPairSourceWorkspace_RejectsMalformedID(t *testin
 	assert.Equal(t, 404, apiErr.Status, "malformed source workspace id must be a uniform NotFound, not a 500")
 }
 
-func TestBuildWorkspaceClaudeBootstrapScript_PackInitRendersAsSingleRunnableLine(t *testing.T) {
+func TestBuildWorkspaceClaudeBootstrapScript_InstallRendersAsSingleRunnableLine(t *testing.T) {
 	t.Parallel()
 
 	script := buildWorkspaceClaudeBootstrapScript()
@@ -695,8 +693,8 @@ func TestBuildWorkspaceClaudeBootstrapScript_PackInitRendersAsSingleRunnableLine
 
 	// The pack init survives as a single runnable command.
 	assert.Contains(t, script, "set -euo pipefail; export")
-	assert.Contains(t, script, "export SMITHERS_YES=1;")
-	assert.Contains(t, script, "init --global --no-skill")
+	assert.NotContains(t, script, "init --global")
+	assert.Contains(t, script, "smithers-cli/bin/smithers.mjs")
 	// The claude installer likewise stays single-line.
 	assert.Contains(t, script, "export NPM_CONFIG_PREFIX=")
 }

@@ -756,7 +756,9 @@
     "effect": "4.0.0-rc.115",
     "incur": "0.5.1",
     "react": "19.2.8",
-    "typescript": "5.9.3"
+    "tar": "7.5.22",
+    "typescript": "5.9.3",
+    "yaml": "2.9.0"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

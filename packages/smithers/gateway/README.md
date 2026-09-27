@@ -61,7 +61,7 @@ import * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
 // `Control`, `Projections`, `SyncServer`, and the `SyncAuth` middleware.
 const gateway = NodeGateway.layer(
   { workspaceHash: "…", gatewayId: "…", protocolVersion: "1", version: "1.0.0-rc.0" },
-  { host: "0.0.0.0", port: 7331, listen: true, credential: process.env.SMITHERS_API_KEY }
+  { host: "0.0.0.0", port: 7331, listen: true, credential: process.env.SMITHERS_TOKEN }
 )
 ```
 

@@ -3,11 +3,12 @@ smthrs flow list — List project flows
 Usage: smthrs flow list [options]
 
 Options:
+  --repo, -R <string>
   --root <string>        Project directory; defaults to the nearest Smithers project
   --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
-  --credential <string>  Remote credential; defaults to SMITHERS_API_KEY
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
+  --cloud                Use repository flows and runs on the backend
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -9,7 +9,7 @@
  */
 
 import * as UnsupportedBackend from "@smthrs/database/UnsupportedBackend"
-import { Console, Effect } from "effect"
+import { Effect } from "effect"
 import * as CliError from "../CliError.ts"
 import * as Environment from "../Environment.ts"
 import * as Project from "../Project.ts"
@@ -20,18 +20,13 @@ import * as Project from "../Project.ts"
  * @since 1.0.0
  */
 export interface Options {
-  readonly credential?: string | undefined
   /** The hidden `--backend` flag; the Incur tree never declares it. */
   readonly backend?: string | undefined
   readonly environment?: Environment.Source | undefined
 }
 
-const credentialWarning =
-  "Warning: --credential exposes secrets in process listings and shell history; SMITHERS_API_KEY is the preferred channel."
-
 const preface = (options: Options) =>
   Effect.gen(function*() {
-    if (options.credential !== undefined) yield* Console.error(credentialWarning)
     // A 0.x PostgreSQL or PGlite project still exports its connection strings.
     // rc.0 ignores them and says so, once per invocation, because a silently
     // ignored connection string is how a project ends up running against SQLite

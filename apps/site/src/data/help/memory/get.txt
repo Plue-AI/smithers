@@ -6,11 +6,10 @@ Arguments:
   key
 
 Options:
-  --root <string>        Project root (defaults to the nearest Smithers project)
-  --remote <string>      Remote control server; local operator commands refuse this option
-  --credential <string>  Remote control credential
-  --namespace <string>   Memory namespace: user:cli, flow:<id>, agent:<id>, or global:<id> (default: user:cli)
-  --id <string>          Namespace identifier when --namespace is a bare lifetime such as user
+  --root <string>       Project root (defaults to the nearest Smithers project)
+  --remote <string>     Remote control server; local operator commands refuse this option
+  --namespace <string>  Memory namespace: user:cli, flow:<id>, agent:<id>, or global:<id> (default: user:cli)
+  --id <string>         Namespace identifier when --namespace is a bare lifetime such as user
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

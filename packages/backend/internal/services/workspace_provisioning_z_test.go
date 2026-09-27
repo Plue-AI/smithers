@@ -170,19 +170,19 @@ func TestWorkspaceProvisioning_Z_BootstrapAndCLIErrorBranches(t *testing.T) {
 
 	cliPath := filepath.Join(t.TempDir(), "smithers")
 	require.NoError(t, os.WriteFile(cliPath, []byte("payload"), 0o755))
-	t.Setenv(workspaceCLIBinaryEnv, cliPath)
+	t.Setenv(workspaceCodingHostBinaryEnv, cliPath)
 	oldGzip := newWorkspaceGzipWriter
 	defer func() { newWorkspaceGzipWriter = oldGzip }()
 
 	newWorkspaceGzipWriter = func(io.Writer) workspaceGzipWriteCloser {
 		return workspaceZFailGzip{writeErr: stderrors.New("write failed")}
 	}
-	assert.False(t, addWorkspaceSmithersCLI(map[string]sandbox.SandboxFile{}))
+	assert.False(t, addWorkspaceCodingHost(map[string]sandbox.SandboxFile{}))
 
 	newWorkspaceGzipWriter = func(io.Writer) workspaceGzipWriteCloser {
 		return workspaceZFailGzip{closeErr: stderrors.New("close failed")}
 	}
-	assert.False(t, addWorkspaceSmithersCLI(map[string]sandbox.SandboxFile{}))
+	assert.False(t, addWorkspaceCodingHost(map[string]sandbox.SandboxFile{}))
 
 	// A 5xx is a tier fault, never a snapshot fault, however snapshot-flavored
 	// the prose is.
@@ -193,7 +193,7 @@ func TestWorkspaceProvisioning_Z_BootstrapAndCLIErrorBranches(t *testing.T) {
 
 	var compressed bytes.Buffer
 	newWorkspaceGzipWriter = oldGzip
-	require.True(t, addWorkspaceSmithersCLI(map[string]sandbox.SandboxFile{"/tmp/probe": {Content: compressed.String()}}))
+	require.True(t, addWorkspaceCodingHost(map[string]sandbox.SandboxFile{"/tmp/probe": {Content: compressed.String()}}))
 }
 
 func TestWorkspaceProvisioning_Z_CreateAsyncForkAndSnapshotBranches(t *testing.T) {

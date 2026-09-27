@@ -35,7 +35,7 @@ composition rather than of a single call site.
 
 **Credentials stay out of process arguments.** The local executor reads a
 provider credential only while resolving a model route. A detached launch
-inherits the parent's environment, including `SMITHERS_API_KEY`, and puts only
+inherits the parent's environment, including `SMITHERS_TOKEN`, and puts only
 the approval payload, `--mcp-config`, and `--root` on the child's command line.
 
 **Agent-reachable equipment runs guarded.** `layerGuardedPlatform` resolves,

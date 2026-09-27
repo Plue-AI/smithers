@@ -38,7 +38,7 @@ const dataArgs = (data: string | undefined) => data === undefined ? [] : ["--dat
 
 /** The notices and backend refusal every local verb applies before it reads. */
 const checks = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>
-  Globals.guard({ credential: connection.credential, environment: runtime.environment ?? process.env })
+  Globals.guard({ environment: runtime.environment ?? process.env })
 
 /** The project's discovered flows, after the local checks. */
 const discovered = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>

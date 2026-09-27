@@ -54,15 +54,10 @@ const (
 	workflowSandboxIdleTimeoutSeconds = int64((maxWorkflowSandboxTimeout + 10*time.Minute) / time.Second)
 	defaultWorkflowSandboxService     = "smithers-workflow"
 	defaultWorkflowSandboxWorkdir     = "/workspace/repo"
-	defaultWorkflowSandboxRunnerTSX   = "/opt/smithers/workflow-runner.tsx"
 	defaultWorkflowSandboxRunnerSH    = "/opt/smithers/run-workflow.sh"
-	// defaultWorkflowSandboxOrchestratorPackage pins the smithers-orchestrator
-	// version dispatched via `bun x --package ...` at VM boot time so sandboxes
-	// don't silently pick up whatever "latest" resolves to when they boot.
-	defaultWorkflowSandboxOrchestratorPackage = "smithers-orchestrator@0.28.0"
 )
 
-var defaultWorkflowSandboxPackages = []string{"git", "curl", "jj", "bun"}
+var defaultWorkflowSandboxPackages = []string{"git", "curl", "jj", "nodejs_26"}
 var defaultWorkflowSandboxRegistries = []string{
 	"registry.npmjs.org",
 	"registry.yarnpkg.com",
@@ -954,13 +949,10 @@ func (w *WorkflowSandboxSchedulerWorker) buildCreateVMRequest(
 
 	workflowPath := strings.TrimPrefix(strings.TrimSpace(def.Path), "/")
 	if workflowPath == "" {
-		workflowPath = ".smithers/workflows/workflow.tsx"
+		workflowPath = "flows/workflow/flow.ts"
 	}
 
 	files := map[string]sandbox.SandboxFile{
-		defaultWorkflowSandboxRunnerTSX: {
-			Content: workflowSandboxRunnerTSXSource(),
-		},
 		defaultWorkflowSandboxRunnerSH: {
 			Content:    workflowSandboxRunnerScript(run.ID, workflowPath),
 			Executable: true,
@@ -1193,16 +1185,14 @@ func workflowSandboxRunnerScript(runID int64, workflowPath string) string {
 		"export SMITHERS_WORKFLOW_PATH=" + shellQuote(path.Join(defaultWorkflowSandboxWorkdir, workflowPath)),
 		"export SMITHERS_WORKFLOW_ROOT=" + shellQuote(defaultWorkflowSandboxWorkdir),
 		"export SMITHERS_WORKFLOW_RUN_ID=" + shellQuote(strconv.FormatInt(runID, 10)),
-		// Install the global smithers workflow pack into ~/.smithers so runs
-		// work even when the cloned repo ships no .smithers/ of its own. The
-		// oneshot runs as user `smithers` but systemd may not set HOME, so be
-		// defensive. SMITHERS_YES=1 is the non-interactive switch (the pinned
-		// 0.26.1 CLI has no --yes flag); init is idempotent. BEST-EFFORT: the
-		// script is `set -euo pipefail`, so the `||` fallback keeps a
-		// transient network failure from killing a run whose workflow lives
-		// in the repo.
-		"export HOME=\"${HOME:-/home/smithers}\"",
-		"SMITHERS_YES=1 bun x --package " + defaultWorkflowSandboxOrchestratorPackage + " smithers init --global --no-skill || echo \"smithers global pack install failed; continuing\"",
+		`export HOME="${HOME:-/home/smithers}"`,
+		`cli_dir="$HOME/.local/lib/smithers-cli"`,
+		`mkdir -p "$cli_dir" "$HOME/.local/bin"`,
+		"test -s " + shellQuote(workspaceCLIPackageB64Path+".part0000"),
+		"cat " + shellQuote(workspaceCLIPackageB64Path) + `.part* | base64 -d | tar -xzf - -C "$cli_dir"`,
+		"base64 -d " + shellQuote(workspaceJJExportB64Path) + ` | gzip -d > "$HOME/.local/bin/smithers-jj-export"`,
+		`chmod 755 "$HOME/.local/bin/smithers-jj-export"`,
+		`export SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$HOME/.local/bin/smithers-jj-export"`,
 		"cd " + shellQuote(defaultWorkflowSandboxWorkdir),
 		// sandbox provider clones via a token-bearing URL that persists in
 		// .git/config's remote.origin.url. The token is revoked server-side
@@ -1213,53 +1203,7 @@ func workflowSandboxRunnerScript(runID int64, workflowPath string) string {
 		`if [ -n "$origin_url" ] && [ "$scrubbed_url" != "$origin_url" ]; then`,
 		`  git remote set-url origin "$scrubbed_url" || true`,
 		"fi",
-		"bun run " + defaultWorkflowSandboxRunnerTSX,
-	}, "\n")
-}
-
-func workflowSandboxRunnerTSXSource() string {
-	return strings.Join([]string{
-		`import { spawn } from "node:child_process";`,
-		`import { existsSync } from "node:fs";`,
-		"const workflowPath = process.env.SMITHERS_WORKFLOW_PATH;",
-		"if (!workflowPath) {",
-		"  throw new Error('SMITHERS_WORKFLOW_PATH is required');",
-		"}",
-		"const rootDir = process.env.SMITHERS_WORKFLOW_ROOT || " + strconv.Quote(defaultWorkflowSandboxWorkdir) + ";",
-		"const runID = process.env.SMITHERS_WORKFLOW_RUN_ID?.trim();",
-		`const runArgs = ["up", workflowPath, "--root", rootDir, "--max-concurrency", "1"];`,
-		"if (runID) {",
-		`  runArgs.push("--run-id", runID);`,
-		"}",
-		"const customCli = process.env.SMITHERS_ORCHESTRATOR_CLI?.trim();",
-		"let bunArgs;",
-		"if (customCli && existsSync(customCli)) {",
-		`  bunArgs = ["run", customCli, ...runArgs];`,
-		"} else {",
-		`  bunArgs = ["x", "--package", "` + defaultWorkflowSandboxOrchestratorPackage + `", "smithers", ...runArgs];`,
-		"}",
-		`const child = spawn("bun", bunArgs, {`,
-		"  cwd: rootDir,",
-		"  env: process.env,",
-		`  stdio: "inherit",`,
-		"});",
-		"await new Promise((resolve, reject) => {",
-		`  child.on("error", reject);`,
-		`  child.on("exit", (code, signal) => {`,
-		"    if (signal) {",
-		"      reject(new Error(`smithers orchestrator terminated by signal ${signal}`));",
-		"      return;",
-		"    }",
-		"    if ((code ?? 1) !== 0) {",
-		"      reject(new Error(`smithers orchestrator exited with status ${code ?? 1}`));",
-		"      return;",
-		"    }",
-		"    resolve(undefined);",
-		"  });",
-		"});",
-		"if (workflowPath) {",
-		"  console.log(`completed smithers orchestrator run for ${workflowPath}`);",
-		"}",
+		`exec node "$cli_dir/node_modules/@smthrs/cli/bin/smithers.mjs" flow start ` + shellQuote(strings.TrimSuffix(strings.TrimPrefix(workflowPath, "flows/"), "/flow.ts")) + " --root " + shellQuote(defaultWorkflowSandboxWorkdir),
 	}, "\n")
 }
 

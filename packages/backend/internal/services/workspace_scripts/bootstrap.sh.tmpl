@@ -3,50 +3,12 @@ set -euo pipefail
 install -d -o {{.User}} -g {{.User}} -m 700 {{.Home}}/.smithers
 install -d -o {{.User}} -g {{.User}} -m 755 {{.LocalDir}}
 install -d -o {{.User}} -g {{.User}} -m 755 {{.LocalBinDir}}
-# CLI staging degrades softly: a broken payload must not fail the bootstrap
-# unit (jj/node/claude installs below still run, and callers that re-run this
-# script — e.g. the clone command's jj fallback — must not die on a CLI-only
-# problem). A workspace without the smithers CLI is degraded but usable.
-if [ -s {{printf "%q" .CLIB64Path}} ]; then
-  if ! base64 -d {{printf "%q" .CLIB64Path}} | gzip -dc > {{printf "%q" .CLIPath}}.tmp; then
-    echo "smithers workspace bootstrap: failed to decode/decompress smithers cli payload; continuing without cli" >&2
-    rm -f {{printf "%q" .CLIPath}}.tmp
-  elif [ ! -s {{printf "%q" .CLIPath}}.tmp ]; then
-    echo "smithers workspace bootstrap: decoded smithers cli payload is empty; continuing without cli" >&2
-    rm -f {{printf "%q" .CLIPath}}.tmp
-  else
-    install -m 755 {{printf "%q" .CLIPath}}.tmp {{printf "%q" .CLIPath}}
-    rm -f {{printf "%q" .CLIPath}}.tmp
-    if ! {{printf "%q" .CLIPath}} --help >/tmp/smithers-workspace-cli-help.log 2>&1; then
-      echo "smithers workspace bootstrap: installed smithers cli failed --help smoke; removing it" >&2
-      rm -f {{printf "%q" .CLIPath}}
-    else
-      echo "smithers workspace bootstrap: installed smithers cli" >&2
-    fi
-  fi
-else
-  echo "smithers workspace bootstrap: smithers cli payload absent" >&2
-fi
-# Bun + the global smithers workflow pack (~/.smithers). Entirely best-effort:
-# a transient network failure must not fail workspace provisioning. Bun is
-# installed system-wide (pinned via npm, the image ships nodejs/npm but no
-# bun) so `smithers init --global` can run the pack's `bun install` and pack
-# workflows can execute later.
+# Bun remains available for repository tools.
 if ! command -v bun >/dev/null 2>&1; then
   npm install -g --prefix /usr/local bun@{{.BunVersion}} >/tmp/smithers-workspace-bun-install.log 2>&1 || \
     echo "smithers workspace bootstrap: bun install failed; continuing without bun" >&2
 fi
-if [ -x {{printf "%q" .CLIPath}} ]; then
-  if command -v runuser >/dev/null 2>&1; then
-    runuser -u {{.User}} -- env -i HOME={{.Home}} USER={{.User}} LOGNAME={{.User}} PATH={{.LocalBinDir}}:/usr/local/bin:/usr/bin:/bin bash -lc {{printf "%q" .PackInitScript}} || \
-      echo "smithers workspace bootstrap: global smithers pack init failed; continuing" >&2
-  else
-    su - {{.User}} -c {{printf "%q" .PackInitScript}} || \
-      echo "smithers workspace bootstrap: global smithers pack init failed; continuing" >&2
-  fi
-else
-  echo "smithers workspace bootstrap: smithers cli missing; skipping global pack init" >&2
-fi
+
 # A base image can ship a newer, incompatible JJ. The native coding adapter
 # requires this exact release, so existence alone cannot satisfy bootstrap.
 smithers_jj_compatible() {
@@ -151,6 +113,20 @@ else
   echo "smithers workspace bootstrap: jj export helper payload absent" >&2
 fi
 # End configured jj export staging.
+# Install the deployed npm package without a registry or a second CLI binary.
+if [ -s {{printf "%q" .CLIPackageB64Path}}.part0000 ]; then
+  mkdir -p {{printf "%q" .CLIPackageDir}}
+  if cat {{printf "%q" .CLIPackageB64Path}}.part* | base64 -d | tar -xzf - -C {{printf "%q" .CLIPackageDir}}; then
+    ln -sfn {{printf "%q" (printf "%s/node_modules/@smthrs/cli/bin/smithers.mjs" .CLIPackageDir)}} {{.LocalBinDir}}/smithers
+    ln -sfn smithers {{.LocalBinDir}}/smthrs
+    PATH={{.LocalBinDir}}:$PATH {{.LocalBinDir}}/smithers --help >/tmp/smithers-workspace-cli-help.log 2>&1 || \
+      echo "smithers workspace bootstrap: npm CLI smoke failed; see /tmp/smithers-workspace-cli-help.log" >&2
+  else
+    echo "smithers workspace bootstrap: npm CLI package extraction failed" >&2
+  fi
+else
+  echo "smithers workspace bootstrap: npm CLI package absent" >&2
+fi
 if [ -x {{printf "%q" (printf "%s/claude" .LocalBinDir)}} ] || command -v claude >/dev/null 2>&1; then
   chown -R {{.User}}:{{.User}} {{.LocalDir}} {{.Home}}/.smithers
   exit 0

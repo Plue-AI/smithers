@@ -24,7 +24,7 @@ The server binds `127.0.0.1:3000` and needs no bearer on loopback. The [`smthrs 
 
 ## 2. Bind a non-loopback address
 
-Supply `SMITHERS_API_KEY` through your secret manager or parent process environment, then pass `--listen`:
+Supply `SMITHERS_TOKEN` through your secret manager or parent process environment, then pass `--listen`:
 
 ```bash
 smthrs serve --host 0.0.0.0 --port 3000 --listen
@@ -34,7 +34,7 @@ smthrs serve --host 0.0.0.0 --port 3000 --listen
 
 ## 3. Point clients at the server
 
-Verbs that act on runs accept the global `--remote` flag and read the bearer from `SMITHERS_API_KEY`. To drive the served project from another machine, export `SMITHERS_API_KEY` from your secret manager and point `--remote` at the HTTPS origin of the TLS-terminating proxy:
+Verbs that act on runs accept the global `--remote` flag and read the bearer from `SMITHERS_TOKEN`. To drive the served project from another machine, export `SMITHERS_TOKEN` from your secret manager and point `--remote` at the HTTPS origin of the TLS-terminating proxy:
 
 ```bash
 smthrs runs list --remote https://control.example.com
@@ -51,14 +51,14 @@ Never pair a bearer with a non-loopback `http://` remote. `--remote` falls back 
 
 ```bash
 export SMITHERS_REMOTE=https://control.example.com
-export SMITHERS_API_KEY="<the bearer token>"
+export SMITHERS_TOKEN="<the bearer token>"
 ```
 
 Reads render the same over `--remote` as they do locally: `smthrs runs show` states this explicitly for its diagnosis card. The [environment variables reference](/docs/reference/environment-variables/) lists both variables.
 
 ## 4. Store client credentials
 
-The server takes its bearer token from `SMITHERS_API_KEY` (or the compatibility flag `--credential`) on every start. Programmatic clients built on `@smthrs/control` keep their own credentials in a `CredentialStore`.
+The server takes its bearer token from `SMITHERS_TOKEN` on every start. Programmatic clients built on `@smthrs/control` keep their own credentials in a `CredentialStore`.
 
 The store only ever sees a `SealedRecord`: an id, an opaque name, base64 ciphertext, a per-record nonce, a `version` counter, and a timestamp. A `CredentialCipher` seals the secret before the record reaches the store, so plaintext never crosses the persistence boundary and a stolen store is ciphertext. Writes are compare-and-set on `version`: a writer that read version *n* commits version *n + 1*, and a concurrent writer that read the same *n* is refused with `CredentialConflict` rather than silently overwriting the winner.
 
@@ -97,4 +97,4 @@ exit 1
 - [Run a read-only follower](/docs/guides/sync-followers/): consume the journal stream this server mounts at `/sync` and `/sync/ws`.
 - [`smthrs serve`](/docs/reference/cli/serve/): the full flag, output, and exit-code reference.
 - [HTTP API](/docs/reference/http-api/): the routes `serve` mounts.
-- [Environment variables](/docs/reference/environment-variables/): `SMITHERS_REMOTE` and `SMITHERS_API_KEY`.
+- [Environment variables](/docs/reference/environment-variables/): `SMITHERS_REMOTE` and `SMITHERS_TOKEN`.

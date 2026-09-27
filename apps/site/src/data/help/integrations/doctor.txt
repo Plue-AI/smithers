@@ -8,7 +8,6 @@ Arguments:
 Options:
   --root <string>        Project root (defaults to the nearest Smithers project)
   --remote <string>      Remote control server; local operator commands refuse this option
-  --credential <string>  Remote control credential
   --config <string>       (default: .smithers/integrations.json)
   --offline
   --timeout-ms <number>   (default: 10000)

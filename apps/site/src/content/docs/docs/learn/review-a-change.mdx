@@ -29,7 +29,12 @@ A change is the code a run proposes, with the evidence for landing it.
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers change diff CHANGE_ID
+smithers land view 42 --repo acme/app
+```
 
 </TabItem>
 <TabItem label="API">
@@ -56,7 +61,12 @@ A change is the code a run proposes, with the evidence for landing it.
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers land checks 42 --repo acme/app
+smithers land conflicts 42 --repo acme/app
+```
 
 </TabItem>
 <TabItem label="API">
@@ -87,7 +97,12 @@ On a repository that sends work upstream, including Smithers itself, landing ope
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers land review 42 --repo acme/app --approve --commit COMMIT_ID
+smithers land land 42 --repo acme/app --commit COMMIT_ID
+```
 
 </TabItem>
 <TabItem label="API">

@@ -84,15 +84,20 @@ const meant = (candidates: ReadonlyArray<Command>) =>
       typed: Schema.String.annotate({ description: "The command the person typed, which the parser refused" }),
       args: Schema.String.annotate({ description: "The rest of the command line, as they typed it" })
     }),
-    questions: {
-      meant: Classifier.choice({
-        instructions: "Which command did the person mean?",
+    // Jev permits 255 options per question; include none in every partition.
+    // One request still evaluates the entire public command tree.
+    questions: Object.fromEntries(Array.from({ length: Math.ceil(candidates.length / 254) }, (_, index) => [
+      index === 0 ? "meant" : `meant${index + 1}`,
+      Classifier.choice({
+        instructions: "Which command did the person mean? Choose none if it is outside these options.",
         criteria: {
-          ...Object.fromEntries(candidates.map((command) => [command.name, command.description])),
+          ...Object.fromEntries(
+            candidates.slice(index * 254, (index + 1) * 254).map((command) => [command.name, command.description])
+          ),
           [none]: "No command is what they meant"
         }
       })
-    }
+    ]))
   })
 
 /**
@@ -118,11 +123,14 @@ export const didYouMean = (
     return Effect.succeed(undefined)
   }
   return meant(candidates).evaluate({ typed, args: args.join(" ") }).pipe(
-    Effect.map((answers) =>
-      answers.meant.value === none || answers.meant.confidence < floor
-        ? undefined
-        : `Did you mean: smthrs ${answers.meant.value}?`
-    ),
+    Effect.map((answers) => {
+      const matches = Object.values(answers).filter((answer) => answer.value !== none && answer.confidence >= floor)
+        .sort((left, right) => right.confidence - left.confidence)
+      const first = matches[0]
+      return first === undefined || first.confidence === matches[1]?.confidence
+        ? undefined :
+        `Did you mean: smthrs ${first.value}?`
+    }),
     Effect.catch((error) => Effect.succeed(`Could not ask Jev for a suggestion: ${error.code}`))
   )
 }

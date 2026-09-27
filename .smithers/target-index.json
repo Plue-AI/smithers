@@ -16523,6 +16523,70 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Admin.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/AgentDocs.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Auth.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Client.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Commands.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Copy.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Definitions.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Local.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Misc.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Repositories.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Resources.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Runs.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/SSH.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Session.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Stack.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/Workspaces.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/src/operator/Credentials.ts"
       },
       {

@@ -42,14 +42,13 @@ type bootstrapVars struct {
 	NodeInstallLog      string
 	ClaudeInstallScript string
 	DownloadScript      string // base64-encoded TypeScript
-	CLIB64Path          string
-	CLIPath             string
 	CodingHostB64Path   string
 	CodingHostPath      string
 	JJExportB64Path     string
 	JJExportPath        string
 	BunVersion          string
-	PackInitScript      string
+	CLIPackageB64Path   string
+	CLIPackageDir       string
 }
 
 var bootstrapTmpl = template.Must(template.New("bootstrap").Parse(workspace_scripts.BootstrapTemplate))
@@ -80,17 +79,7 @@ func buildWorkspaceClaudeBootstrapScript() string {
 		fmt.Sprintf("npm install -g %q >%s 2>&1", workspaceClaudePackage, workspaceClaudeInstallLog),
 	}, "; ")
 
-	// Installs the global smithers workflow pack into the developer user's
-	// ~/.smithers via the staged CLI binary. PATH includes /usr/local/bin so
-	// the pack's default `bun install` finds the bun installed above (init
-	// degrades gracefully if bun is missing). SMITHERS_YES=1 is the
-	// non-interactive switch for the pinned CLI.
-	packInitScript := strings.Join([]string{
-		"set -euo pipefail",
-		fmt.Sprintf("export PATH=%q", workspaceLocalBinDir+":/usr/local/bin:/usr/bin:/bin"),
-		"export SMITHERS_YES=1",
-		fmt.Sprintf("%q init --global --no-skill >%s 2>&1", workspaceSmithersCLIPath, workspaceGlobalPackInitLog),
-	}, "; ")
+	// The npm package is the only interactive CLI installed in a workspace.
 
 	vars := bootstrapVars{
 		User:                defaultWorkspaceUser,
@@ -104,14 +93,13 @@ func buildWorkspaceClaudeBootstrapScript() string {
 		NodeInstallLog:      workspaceNodeInstallLog,
 		ClaudeInstallScript: claudeInstallScript,
 		DownloadScript:      downloadScript,
-		CLIB64Path:          workspaceSmithersCLIB64Path,
-		CLIPath:             workspaceSmithersCLIPath,
 		CodingHostB64Path:   workspaceCodingHostB64Path,
 		CodingHostPath:      workspaceCodingHostPath,
 		JJExportB64Path:     workspaceJJExportB64Path,
 		JJExportPath:        workspaceJJExportPath,
 		BunVersion:          workspaceBunVersion,
-		PackInitScript:      packInitScript,
+		CLIPackageB64Path:   workspaceCLIPackageB64Path,
+		CLIPackageDir:       workspaceCLIPackageDir,
 	}
 
 	var buf bytes.Buffer
@@ -121,15 +109,26 @@ func buildWorkspaceClaudeBootstrapScript() string {
 	return buf.String()
 }
 
-func workspaceCLIBinaryPath() string {
-	if configured := strings.TrimSpace(os.Getenv(workspaceCLIBinaryEnv)); configured != "" {
-		return configured
+// addWorkspaceCLI stages the deployed npm package, including production dependencies.
+func addWorkspaceCLI(files map[string]sandbox.SandboxFile) bool {
+	archive := strings.TrimSpace(os.Getenv(workspaceCLIPackageEnv))
+	if archive == "" {
+		archive = workspaceDefaultCLIPackage
 	}
-	return workspaceDefaultCLIPath
-}
-
-func addWorkspaceSmithersCLI(files map[string]sandbox.SandboxFile) bool {
-	return addWorkspaceExecutable(files, workspaceCLIBinaryPath(), workspaceSmithersCLIB64Path, workspaceCLIBinaryEnv, "cli")
+	if !addWorkspaceExecutable(files, archive, workspaceCLIPackageB64Path, workspaceCLIPackageEnv, "npm CLI package") {
+		return false
+	}
+	// The installed dependency tree exceeds one guest RPC's 64 MiB frame.
+	// Each file is itself base64-encoded by that transport, so keep these
+	// already-encoded pieces below 16 MiB and concatenate them in the guest.
+	encoded := files[workspaceCLIPackageB64Path].Content
+	delete(files, workspaceCLIPackageB64Path)
+	const pieceSize = 16 << 20
+	for index, offset := 0, 0; offset < len(encoded); index, offset = index+1, offset+pieceSize {
+		end := min(offset+pieceSize, len(encoded))
+		files[fmt.Sprintf("%s.part%04d", workspaceCLIPackageB64Path, index)] = sandbox.SandboxFile{Content: encoded[offset:end]}
+	}
+	return true
 }
 
 func addWorkspaceCodingHost(files map[string]sandbox.SandboxFile) bool {
@@ -151,7 +150,7 @@ func addWorkspaceJJExport(files map[string]sandbox.SandboxFile) bool {
 	return addWorkspaceExecutable(files, path, workspaceJJExportB64Path, workspaceJJExportBinaryEnv, "jj export helper")
 }
 
-// Both private host and general CLI reuse the existing single-file guest transport.
+// Runtime helpers reuse the existing single-file guest transport.
 func addWorkspaceExecutable(files map[string]sandbox.SandboxFile, cliPath, target, env, label string) bool {
 	raw, err := os.ReadFile(cliPath)
 	if err != nil || len(raw) == 0 {
@@ -558,7 +557,7 @@ func (s *WorkspaceService) buildContainerWorkspaceVMRequest(ctx context.Context,
 			Executable: true,
 		},
 	}
-	addWorkspaceSmithersCLI(files)
+	addWorkspaceCLI(files)
 	addWorkspaceCodingHost(files)
 	addWorkspaceJJExport(files)
 

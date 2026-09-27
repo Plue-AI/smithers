@@ -76,7 +76,7 @@ If the gateway was bound with a credential, send it:
 
 ```bash
 curl -s http://127.0.0.1:3000/projections \
-  -H "authorization: Bearer $SMITHERS_API_KEY" \
+  -H "authorization: Bearer $SMITHERS_TOKEN" \
   -H 'content-type: application/json' \
   --data-binary '{"_tag":"Request","id":1,"tag":"Projection.Snapshot","payload":{"selector":{"_tag":"workspace-runs"}},"headers":[]}
 '

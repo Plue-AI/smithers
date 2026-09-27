@@ -59,7 +59,7 @@ const workspaceNixActivationWaitCommand = `i=0; until { ` + workspaceNixActivati
 	`; }; do i=$((i + 1)); [ "$i" -lt 240 ] || exit 75; sleep 0.25; done`
 
 // buildWorkspaceNixBootstrapScript renders the NixOS variant of the workspace
-// bootstrap: CLI staging + ~/.local links + global pack + Claude via npm.
+// bootstrap: ~/.local links and the npm CLI and Claude packages.
 func buildWorkspaceNixBootstrapScript() string {
 	claudeInstallScript := strings.Join([]string{
 		"set -euo pipefail",
@@ -67,12 +67,7 @@ func buildWorkspaceNixBootstrapScript() string {
 		fmt.Sprintf("export NPM_CONFIG_PREFIX=%q", workspaceLocalDir),
 		fmt.Sprintf("npm install -g %q >%s 2>&1", workspaceClaudePackage, workspaceClaudeInstallLog),
 	}, "; ")
-	packInitScript := strings.Join([]string{
-		"set -euo pipefail",
-		fmt.Sprintf("export PATH=%q", workspaceLocalBinDir+":/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin"),
-		"export SMITHERS_YES=1",
-		fmt.Sprintf("%q init --global --no-skill >%s 2>&1", workspaceSmithersCLIPath, workspaceGlobalPackInitLog),
-	}, "; ")
+
 	vars := bootstrapVars{
 		User:                defaultWorkspaceUser,
 		Home:                defaultWorkspaceHome,
@@ -82,14 +77,13 @@ func buildWorkspaceNixBootstrapScript() string {
 		NodeInstallLog:      workspaceNodeInstallLog,
 		ClaudeInstallScript: claudeInstallScript,
 		DownloadScript:      base64.StdEncoding.EncodeToString([]byte(workspace_scripts.DownloadReleaseScript)),
-		CLIB64Path:          workspaceSmithersCLIB64Path,
-		CLIPath:             workspaceSmithersCLIPath,
 		CodingHostB64Path:   workspaceCodingHostB64Path,
 		CodingHostPath:      workspaceCodingHostPath,
 		JJExportB64Path:     workspaceJJExportB64Path,
 		JJExportPath:        workspaceJJExportPath,
 		BunVersion:          workspaceBunVersion,
-		PackInitScript:      packInitScript,
+		CLIPackageB64Path:   workspaceCLIPackageB64Path,
+		CLIPackageDir:       workspaceCLIPackageDir,
 	}
 	var buf bytes.Buffer
 	if err := bootstrapNixTmpl.Execute(&buf, vars); err != nil {

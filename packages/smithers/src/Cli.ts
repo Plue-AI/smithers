@@ -47,6 +47,8 @@ import * as Unsupported from "./Unsupported.ts"
 import * as Update from "./Update.ts"
 import { packageVersion } from "./Version.ts"
 
+import { mount as mountBackend } from "./internal/backend/Commands.ts"
+
 const options = Bridge.connectionOptions
 
 /** Decisions use the same subscription judge as native flow completions. */
@@ -57,7 +59,6 @@ const evaluator = (environment: Record<string, string | undefined>): Layer.Layer
 
 /** The shared guard's inputs, read from the typed connection options. */
 const globalsOf = (connection: Bridge.ConnectionOptions, config: Bridge.Runtime): Globals.Options => ({
-  credential: connection.credential,
   environment: config.environment ?? process.env
 })
 
@@ -170,7 +171,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
                 host: c.options.host,
                 port: c.options.port,
                 listen: c.options.listen,
-                credential: c.options.credential ?? (config.environment ?? process.env)["SMITHERS_API_KEY"]
+                credential: (config.environment ?? process.env)["SMITHERS_TOKEN"]
               },
               c.options,
               config
@@ -367,6 +368,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
             config
           ))
     })
+  mountBackend(cli, config)
   // Incur 0.5 intercepts `mcp` before looking up registered commands. Dispatch
   // the mounted subtree directly so registration uses Agents.addMcp as documented.
   const serve = cli.serve.bind(cli)
@@ -383,6 +385,17 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     const index = parsed.restIndices[offset]
     if (parsed.rest[offset] === "mcp" && index !== undefined && !argv.includes("--mcp")) {
       return mcp.serve([...argv.slice(0, index), ...argv.slice(index + 1)], serveOptions)
+    }
+    if (parsed.rest[offset] === "repo" && index !== undefined && argv[index + 1] === "clone") {
+      // Incur does not consume a literal tail. Preserve git/jj clone options
+      // as values of the existing repeatable clone-arg option.
+      const separator = argv.indexOf("--", index + 2)
+      if (separator >= 0) {
+        argv = [
+          ...argv.slice(0, separator),
+          ...argv.slice(separator + 1).map((value) => `--clone-arg=${value}`)
+        ]
+      }
     }
     const typed = parsed.rest[offset]
     if (typed === undefined) return serve(argv, serveOptions)

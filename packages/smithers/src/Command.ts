@@ -50,10 +50,6 @@ import * as Update from "./Update.ts"
 import * as Verb from "./Verb.ts"
 
 const global = {
-  credential: Flag.String("credential").pipe(
-    Flag.optional,
-    Flag.withDescription("Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv")
-  ),
   json: Flag.Boolean("json").pipe(
     Flag.withDefault(false),
     Flag.withDescription("Print the machine-readable document instead of the human rendering")
@@ -147,7 +143,6 @@ const selectedFlow = (value: string) =>
   })
 
 const globalsOf = Effect.map(rootCommand, (root): Globals.Options => ({
-  credential: Option.getOrUndefined(root.credential),
   backend: Option.getOrUndefined(root.backend),
   environment: process.env
 }))

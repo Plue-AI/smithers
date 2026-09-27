@@ -39,7 +39,6 @@ The canonical `serve` command also hosts the durable trigger scheduler over the 
 | `--host` | string | `127.0.0.1` | The address to bind. |
 | `--port` | integer | `3000` | The port to bind. |
 | `--listen` | boolean | `false` | Allow a non-loopback bind. A bearer token is still required. |
-| `--credential` | string | unset | Compatibility flag; warns on stderr. Prefer `SMITHERS_API_KEY` to avoid argv exposure. A bearer credential is required for a non-loopback bind. |
 | `--quiet` | boolean | `false` | Do not print the listening banner. |
 
 ## Output
@@ -61,7 +60,7 @@ Refusing to bind <host>: pass --listen to serve on a non-loopback address.
 A non-loopback bind with no bearer token exits 1:
 
 ```text
-Refusing to bind <host> without a bearer token: set SMITHERS_API_KEY (preferred) or pass --credential.
+Refusing to bind <host> without a bearer token: set SMITHERS_TOKEN.
 ```
 
 ## Exit codes

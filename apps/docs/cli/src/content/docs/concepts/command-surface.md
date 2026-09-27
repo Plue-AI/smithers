@@ -89,7 +89,6 @@ Every verb accepts the shared flag set, declared once on the root command:
 | --- | --- | --- |
 | `--root` | path | The project to act on, instead of walking up from the working directory. |
 | `--remote` | URL | The control plane to act on. Falls back to `SMITHERS_REMOTE`. |
-| `--credential` | token | Bearer token for that control plane. Falls back to `SMITHERS_API_KEY`. |
 | `--json` | none | Print the machine document instead of the human rendering. |
 | `--quiet` | none | Suppress banners and progress on stderr; stdout documents still print. |
 | `--mcp-config` | path | The JSON array of MCP servers the local executor projects into a run's flow catalog. |
@@ -98,16 +97,15 @@ Every verb accepts the shared flag set, declared once on the root command:
 `effect/unstable/cli` adds `--help`, `--version`, `--wizard`,
 `--completions <shell>`, and `--log-level <level>`.
 
-`--root`, `--remote`, `--credential`, and `--mcp-config` are read from raw argv
+`--root`, `--remote`, and `--mcp-config` are read from raw argv
 by `NodeControl.makeConfig` before the parser runs, because the durable layers
 are built from them. They are declared on the command tree as well so the
 parser accepts them.
 
-Over MCP the host owns the connection. A tool argument spelling `remote` or
-`credential` is refused with exit 2, so a connected client cannot aim the
-host's `SMITHERS_API_KEY` at a control plane it chose. An MCP session reaches
-whatever `SMITHERS_REMOTE` and `SMITHERS_API_KEY` name in the server's own
-environment, and nothing else.
+Over MCP the host owns the connection. A tool argument spelling `remote` is refused with exit 2, so a connected client cannot aim the
+host's `SMITHERS_TOKEN` at a control plane it chose. An MCP session reaches
+the host-configured `SMITHERS_REMOTE`, using its saved Smithers login or
+`SMITHERS_TOKEN`. Login and destination configuration are host-only operations.
 
 `--quiet` never suppresses the stdout document. It is safe to combine with
 `--json` when a script wants the machine document without banners or progress

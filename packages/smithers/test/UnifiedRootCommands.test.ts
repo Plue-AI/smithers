@@ -180,7 +180,7 @@ describe("unified root command dispatch", () => {
       result.config
     )
     expect(ports.query).not.toHaveBeenCalled()
-    expect(ports.doctorFromRegistry).toHaveBeenCalledExactlyOnceWith({ credential: undefined, environment: {} })
+    expect(ports.doctorFromRegistry).toHaveBeenCalledExactlyOnceWith({ environment: {} })
     expect(ports.invoke).not.toHaveBeenCalled()
     const output = JSON.parse(result.stdout)
     expect(output).toMatchObject(healthy)
@@ -190,14 +190,14 @@ describe("unified root command dispatch", () => {
   })
 
   it("routes remote doctor through the selected control transport", async () => {
-    const result = await invoke(["doctor", "--remote", "https://fixture.invalid", "--credential", "k", "--json"])
+    const result = await invoke(["doctor", "--remote", "https://fixture.invalid", "--json"])
     expect(ports.query).toHaveBeenCalledExactlyOnceWith(
       expect.anything(),
-      { remote: "https://fixture.invalid", credential: "k", quiet: false },
+      { remote: "https://fixture.invalid", quiet: false },
       result.config
     )
     expect(ports.project).not.toHaveBeenCalled()
-    expect(ports.doctorFromControl).toHaveBeenCalledExactlyOnceWith({ credential: "k", environment: {} })
+    expect(ports.doctorFromControl).toHaveBeenCalledExactlyOnceWith({ environment: {} })
     expect(JSON.parse(result.stdout)).toMatchObject(healthy)
   })
 
@@ -222,12 +222,12 @@ describe("unified root command dispatch", () => {
       { root: "/fixture", quiet: true },
       result.config
     )
-    expect(ports.update).toHaveBeenCalledExactlyOnceWith({ credential: undefined, environment: {} })
+    expect(ports.update).toHaveBeenCalledExactlyOnceWith({ environment: {} })
     expect(JSON.parse(result.stdout)).toBe("@smthrs/cli 1.0.0 is current.")
     expect(result.codes).not.toContain(1)
   })
 
-  it("starts hosting with explicit connection credentials before environment fallback", async () => {
+  it("starts hosting with the shared session token", async () => {
     const result = await invoke([
       "serve",
       "--host",
@@ -235,20 +235,18 @@ describe("unified root command dispatch", () => {
       "--port",
       "0",
       "--listen",
-      "--credential",
-      "explicit-fixture",
       "--json"
-    ], { environment: { SMITHERS_API_KEY: "environment-fixture" } })
+    ], { environment: { SMITHERS_TOKEN: "environment-fixture" } })
     expect(ports.host).toHaveBeenCalledExactlyOnceWith(
-      { host: "127.0.0.1", port: 0, listen: true, credential: "explicit-fixture" },
-      expect.objectContaining({ credential: "explicit-fixture", port: 0, listen: true }),
+      { host: "127.0.0.1", port: 0, listen: true, credential: "environment-fixture" },
+      expect.objectContaining({ port: 0, listen: true }),
       result.config
     )
     expect(JSON.parse(result.stdout)).toEqual({ result: "hosting" })
   })
 
   it("uses the supplied environment credential and binding defaults", async () => {
-    await invoke(["serve", "--json"], { environment: { SMITHERS_API_KEY: "environment-fixture" } })
+    await invoke(["serve", "--json"], { environment: { SMITHERS_TOKEN: "environment-fixture" } })
     expect(ports.host.mock.calls[0]![0]).toMatchObject({ credential: "environment-fixture", listen: false })
     expect(ports.host.mock.calls[0]![0].port).toBeGreaterThan(0)
   })
@@ -275,7 +273,6 @@ describe("unified root command dispatch", () => {
       result.config
     )
     expect(ports.sweep).toHaveBeenCalledExactlyOnceWith({ olderThan: "12h", dryRun }, {
-      credential: undefined,
       environment: {}
     })
     expect(JSON.parse(result.stdout)).toMatchObject(cleanSweep)
@@ -338,7 +335,7 @@ describe("unified root command dispatch", () => {
       verifyFormat: undefined,
       verifyTypecheck: ["tsc --noEmit", "tsc -p test"],
       verifyTest: undefined
-    }, { credential: undefined, environment: {} })
+    }, { environment: {} })
     expect(JSON.parse(result.stdout)).toMatchObject({ exitCode: 0, units: [] })
     expect(result.codes).toEqual([0])
   })
@@ -372,7 +369,7 @@ describe("unified root command dispatch", () => {
     expect(ports.query).toHaveBeenCalledOnce()
     expect(ports.bug).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ summary: "first second", runId: run, yes: false, dryRun: false }),
-      { credential: undefined, environment: {} }
+      { environment: {} }
     )
   })
 

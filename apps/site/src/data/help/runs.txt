@@ -11,11 +11,13 @@ Commands:
   logs        Read run events or follow new events as they commit
   output      Read recorded outputs for one node or all nodes
   replay      Replay committed history and sealed results without re-executing any actions
+  rerun       Rerun a workflow
   resume      Resume a parked durable run
   rewind      Preview or archive a run's suffix and restore an earlier frame; requires --yes to mutate
   show        Show a run's current status and diagnosis
   signal      Deliver a durable JSON signal
   steer       Send an attributed operator message
+  watch       Watch a workflow run in real-time (streams logs, status changes, and completion)
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

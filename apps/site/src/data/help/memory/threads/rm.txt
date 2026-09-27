@@ -6,9 +6,8 @@ Arguments:
   thread
 
 Options:
-  --root <string>        Project root (defaults to the nearest Smithers project)
-  --remote <string>      Remote control server; local operator commands refuse this option
-  --credential <string>  Remote control credential
+  --root <string>    Project root (defaults to the nearest Smithers project)
+  --remote <string>  Remote control server; local operator commands refuse this option
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

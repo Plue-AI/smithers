@@ -18,7 +18,6 @@ export interface Globals {
   readonly options: ReadonlyMap<string, string | boolean>
   readonly root: string | undefined
   readonly remote: string | undefined
-  readonly credential: string | undefined
   readonly mcpConfig: string | undefined
   readonly backend: string | undefined
   readonly audience: string | undefined
@@ -41,7 +40,6 @@ export interface Globals {
 const valued = {
   "--root": "root",
   "--remote": "remote",
-  "--credential": "credential",
   "--mcp-config": "mcpConfig",
   "--backend": "backend",
   "--audience": "audience",
@@ -101,7 +99,6 @@ export const parse = (args: ReadonlyArray<string> | Globals): Globals => {
   const values: Record<(typeof valued)[keyof typeof valued], string | undefined> = {
     root: undefined,
     remote: undefined,
-    credential: undefined,
     mcpConfig: undefined,
     backend: undefined,
     audience: undefined,

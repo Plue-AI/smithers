@@ -175,10 +175,10 @@ describe("control bridge configuration and routing", () => {
   })
 
   it("refuses caller-selected connection overrides over MCP and keeps the host destination", async () => {
-    const environment = { SMITHERS_REMOTE: "https://host.invalid", SMITHERS_API_KEY: "host-bearer" }
+    const environment = { SMITHERS_REMOTE: "https://host.invalid", SMITHERS_TOKEN: "host-bearer" }
     const host = { ...runtime, environment }
     await Presentation.scope({ request: {}, command: "flow_list" }, host, async () => {
-      for (const override of [{ remote: "https://attacker.invalid" }, { credential: "caller-chosen" }]) {
+      for (const override of [{ remote: "https://attacker.invalid" }]) {
         expect(() => Bridge.configuration({ ...local, ...override }, host)).toThrow(/is not accepted over MCP/)
         await expect(Bridge.invoke(["ls"], { ...local, ...override }, host)).rejects.toThrow(/is not accepted over MCP/)
         await expect(Bridge.query(Effect.void, { ...local, ...override }, host)).rejects.toThrow(
@@ -194,8 +194,8 @@ describe("control bridge configuration and routing", () => {
         principal: { id: "mcp", kind: "agent" }
       }))
     })
-    expect(Bridge.configuration({ ...local, remote: "https://explicit.invalid", credential: "operator" }, host))
-      .toMatchObject({ remote: "https://explicit.invalid", credential: "operator", principal: undefined })
+    expect(Bridge.configuration({ ...local, remote: "https://explicit.invalid" }, host))
+      .toMatchObject({ remote: "https://explicit.invalid", principal: undefined })
   })
 
   it("keeps concurrent CLI and MCP identities separate", async () => {
@@ -216,7 +216,6 @@ describe("control bridge configuration and routing", () => {
     expect(Bridge.connectionArguments({
       root: "some project",
       remote: "https://control.invalid",
-      credential: "fixture",
       mcpConfig: "servers.json",
       quiet: true
     })).toEqual([
@@ -224,8 +223,6 @@ describe("control bridge configuration and routing", () => {
       "some project",
       "--remote",
       "https://control.invalid",
-      "--credential",
-      "fixture",
       "--mcp-config",
       "servers.json",
       "--quiet"
@@ -233,20 +230,20 @@ describe("control bridge configuration and routing", () => {
   })
 
   it("resolves relative roots, caller environment and explicit transport precedence", () => {
-    const environment = { SMITHERS_REMOTE: "https://env.invalid", SMITHERS_API_KEY: "env-fixture" }
+    const environment = { SMITHERS_REMOTE: "https://env.invalid", SMITHERS_TOKEN: "env-fixture" }
     expect(Bridge.configuration({ root: relativeRoot, quiet: false }, { environment })).toMatchObject({
       root: resolve(relativeRoot),
       remote: "https://env.invalid",
       credential: "env-fixture",
       executionRoot: undefined
     })
-    expect(Bridge.configuration({ ...local, remote: "https://explicit.invalid", credential: "explicit-fixture" }, {
+    expect(Bridge.configuration({ ...local, remote: "https://explicit.invalid" }, {
       environment,
       executionRoot: "/snapshot"
     })).toMatchObject({
       root: local.root,
       remote: "https://explicit.invalid",
-      credential: "explicit-fixture",
+      credential: "env-fixture",
       executionRoot: "/snapshot"
     })
     vi.stubEnv("SMITHERS_REMOTE", "https://ambient.invalid")

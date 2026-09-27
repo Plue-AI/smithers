@@ -91,7 +91,7 @@ describe("the bind rule", () => {
     const refusal = Serve.refuse(bind({ host: "10.0.0.4", listen: true }))
 
     expect(refusal?.message).toContain("without a bearer token")
-    expect(refusal?.message).toContain("SMITHERS_API_KEY")
+    expect(refusal?.message).toContain("SMITHERS_TOKEN")
     expect(Serve.refuse(bind({ host: "10.0.0.4", listen: true, credential: "" }))?.message)
       .toContain("without a bearer token")
   })
@@ -196,7 +196,7 @@ describe("the serve command", () => {
       ]))
       : undefined
     const abort = new AbortController()
-    const running = Bridge.host(bind({ port, credential }), { root, credential, quiet: true }, {
+    const running = Bridge.host(bind({ port, credential }), { root, quiet: true }, {
       environment: {},
       evaluator: ScriptedJudge.layer,
       approvalAuthority,
@@ -278,7 +278,7 @@ describe("the serve command", () => {
       String(port)
     ], {
       cwd: root,
-      env: { ...process.env, SMITHERS_API_KEY: credential, SMITHERS_REMOTE: "" },
+      env: { ...process.env, SMITHERS_TOKEN: credential, SMITHERS_REMOTE: "" },
       stdio: ["ignore", "ignore", "pipe"],
       timeout: 150_000,
       killSignal: "SIGKILL"

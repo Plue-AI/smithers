@@ -40,7 +40,7 @@ const gateway = NodeGateway.layer(health, {
   host: "0.0.0.0",
   port: 7331,
   listen: true,
-  credential: process.env.SMITHERS_API_KEY,
+  credential: process.env.SMITHERS_TOKEN,
   allowedHosts: ["gateway.example.com"],
   // Optional, and worth setting behind a relay that cuts idle tunnels sooner
   // than 600 seconds.
@@ -54,11 +54,11 @@ From the command line, bind the machine's concrete LAN address so that address
 is also admitted by the Host policy (replace this example with your address):
 
 ```bash
-export SMITHERS_API_KEY="<the bearer token from your secret manager>"
+export SMITHERS_TOKEN="<the bearer token from your secret manager>"
 smthrs serve --host 192.168.1.10 --port 3000 --listen
 ```
 
-The server reads the bearer from `SMITHERS_API_KEY`, which keeps it out of the
+The server reads the bearer from `SMITHERS_TOKEN`, which keeps it out of the
 long-lived process's argv. See
 [Serve the workspace gateway](/pkg/cli/guides/serve-the-workspace-gateway).
 
@@ -81,7 +81,7 @@ Clients send it as a bearer token:
 
 ```bash
 curl -s https://gateway.example.com/projections \
-  -H "authorization: Bearer $SMITHERS_API_KEY" \
+  -H "authorization: Bearer $SMITHERS_TOKEN" \
   -H 'content-type: application/json' \
   --data-binary '{"_tag":"Request","id":1,"tag":"Projection.Snapshot","payload":{"selector":{"_tag":"workspace-runs"}},"headers":[]}
 '

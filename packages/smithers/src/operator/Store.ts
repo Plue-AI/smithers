@@ -19,8 +19,7 @@ import * as Project from "../Project.ts"
  */
 export const localFields = {
   root: z.string().optional().describe("Project root (defaults to the nearest Smithers project)"),
-  remote: z.string().optional().describe("Remote control server; local operator commands refuse this option"),
-  credential: z.string().optional().describe("Remote control credential")
+  remote: z.string().optional().describe("Remote control server; local operator commands refuse this option")
 }
 
 /**
@@ -31,7 +30,6 @@ export const localFields = {
 export interface LocalOptions {
   readonly root?: string | undefined
   readonly remote?: string | undefined
-  readonly credential?: string | undefined
 }
 
 /**

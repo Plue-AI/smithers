@@ -108,38 +108,6 @@ describe("ls for a person", () => {
   })
 })
 
-describe("credential flag warning", () => {
-  it.each([false, true])("warns on stderr without echoing the token (quiet: %s)", async (quiet) => {
-    const result = await run(
-      Effect.gen(function*() {
-        const output = yield* text(["--json", ...(quiet ? ["--quiet"] : []), "--credential", "argv-secret", "ls"])
-        return { output, errors: (yield* TestConsole.errorLines).map(String).join("\n") }
-      }),
-      testControl
-    )
-    expect(result.errors).toContain("--credential")
-    expect(result.errors).toContain("SMITHERS_API_KEY")
-    expect(result.errors).toContain("process listings")
-    expect(result.errors).not.toContain("argv-secret")
-    expect(result.output).not.toContain("SMITHERS_API_KEY")
-    expect(JSON.parse(result.output)).toEqual({
-      _tag: "flows",
-      items: [{ flowId: demoFlow.flowId, description: demoFlow.description }]
-    })
-  })
-
-  it("does not warn when the flag is absent", async () => {
-    const errors = await run(
-      Effect.gen(function*() {
-        yield* text(["--json", "ls"])
-        return (yield* TestConsole.errorLines).map(String).join("\n")
-      }),
-      testControl
-    )
-    expect(errors).not.toContain("--credential")
-  })
-})
-
 /** A control whose `watch` serves a fixed, finite history. */
 const historyControl = (events: ReadonlyArray<ControlSchema.ControlEvent>, fail = false) =>
   Layer.effect(

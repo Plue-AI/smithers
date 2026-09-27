@@ -412,7 +412,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_Success(t *testing.T) {
 				ID:           7,
 				RepositoryID: 100,
 				Name:         "CI",
-				Path:         ".smithers/workflows/ci.tsx",
+				Path:         "flows/ci/flow.ts",
 			}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
@@ -442,9 +442,8 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_Success(t *testing.T) {
 			assert.EqualValues(t, 4096, *req.MemSizeMB)
 			assert.EqualValues(t, 2048, *req.RootfsSizeMB)
 			assert.Contains(t, req.Packages, "git")
-			assert.Contains(t, req.Packages, "bun")
-			assert.NotNil(t, req.Files[defaultWorkflowSandboxRunnerTSX])
-			assert.Contains(t, req.Files[defaultWorkflowSandboxRunnerTSX].Content, "smithers-orchestrator")
+			assert.Contains(t, req.Packages, "nodejs_26")
+			assert.Contains(t, req.Files[defaultWorkflowSandboxRunnerSH].Content, "node_modules/@smthrs/cli/bin/smithers.mjs")
 			assert.Contains(t, req.Files[defaultWorkflowSandboxRunnerSH].Content, "SMITHERS_WORKFLOW_RUN_ID")
 			assert.NotNil(t, req.Init)
 			require.Len(t, req.Init.Services, 1)
@@ -508,7 +507,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_ExecFailureMarksRunFailure(t *t
 			}}, nil
 		},
 		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
+			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: "flows/ci/flow.ts"}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, _ int64) (db.Repository, error) {
 			return db.Repository{
@@ -570,7 +569,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_ExecFailureRevokesCredentials(t
 			}}, nil
 		},
 		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
+			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: "flows/ci/flow.ts"}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, _ int64) (db.Repository, error) {
 			return db.Repository{
@@ -786,7 +785,7 @@ func newSandboxSchedulerRunQuerier(runID, stepID int64) *mockWorkflowSandboxSche
 			}}, nil
 		},
 		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
+			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: "flows/ci/flow.ts"}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, _ int64) (db.Repository, error) {
 			return db.Repository{
@@ -1111,7 +1110,7 @@ func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 			}}, nil
 		},
 		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
+			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: "flows/ci/flow.ts"}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
 			return db.Repository{
@@ -1214,7 +1213,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_TimeoutMarksFailureWithFinaliza
 			}}, nil
 		},
 		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
+			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: "flows/ci/flow.ts"}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, _ int64) (db.Repository, error) {
 			return db.Repository{
@@ -1320,23 +1319,21 @@ func TestWorkflowSandboxExecCommand_ProducesValidMultilineScript(t *testing.T) {
 	assert.NotContains(t, cmd, "fi &&")
 }
 
-func TestWorkflowSandboxRunnerTSXSource_UsesSmithersOrchestratorCLI(t *testing.T) {
+func TestWorkflowSandboxRunnerScript_UsesNpmCLI(t *testing.T) {
 	t.Parallel()
-
-	source := workflowSandboxRunnerTSXSource()
-	assert.Contains(t, source, "smithers-orchestrator@0.28.0")
-	assert.Contains(t, source, `["x", "--package", "smithers-orchestrator@0.28.0", "smithers", ...runArgs]`)
-	assert.Contains(t, source, `const runArgs = ["up", workflowPath, "--root", rootDir, "--max-concurrency", "1"];`)
-	assert.NotContains(t, source, "await mod.default()")
+	script := workflowSandboxRunnerScript(42, "flows/ci/flow.ts")
+	assert.Contains(t, script, `exec node "$cli_dir/node_modules/@smthrs/cli/bin/smithers.mjs" flow start 'ci' --root '/workspace/repo'`)
+	assert.NotContains(t, script, "smithers-orchestrator")
+	assert.NotContains(t, script, "bun x")
 }
 
 func TestWorkflowSandboxRunnerScript_ExportsRunMetadata(t *testing.T) {
 	t.Parallel()
 
-	script := workflowSandboxRunnerScript(42, ".smithers/workflows/ci.tsx")
+	script := workflowSandboxRunnerScript(42, "flows/ci/flow.ts")
 	assert.Contains(t, script, `SMITHERS_WORKFLOW_RUN_ID='42'`)
 	assert.Contains(t, script, `SMITHERS_WORKFLOW_ROOT='/workspace/repo'`)
-	assert.Contains(t, script, `SMITHERS_WORKFLOW_PATH='/workspace/repo/.smithers/workflows/ci.tsx'`)
+	assert.Contains(t, script, `SMITHERS_WORKFLOW_PATH='/workspace/repo/flows/ci/flow.ts'`)
 }
 
 func TestWorkflowSandboxRunnerScript_QuotesWorkflowPath(t *testing.T) {
@@ -1365,29 +1362,19 @@ func TestShellQuote_PreservesBashMetacharacters(t *testing.T) {
 	assert.Empty(t, stderr.String())
 }
 
-func TestWorkflowSandboxRunnerScript_InstallsGlobalPackBeforeRun(t *testing.T) {
+func TestWorkflowSandboxRunnerScript_InstallsNpmCLIBeforeRun(t *testing.T) {
 	t.Parallel()
 
-	script := workflowSandboxRunnerScript(42, ".smithers/workflows/ci.tsx")
+	script := workflowSandboxRunnerScript(42, "flows/ci/flow.ts")
 
 	// The oneshot runs as user `smithers`; HOME may be unset under systemd.
 	assert.Contains(t, script, `export HOME="${HOME:-/home/smithers}"`)
 
-	// Global pack init: pinned package, SMITHERS_YES=1 (the non-interactive
-	// flag), no --no-install (the pack needs bun install), and best-effort so
-	// a transient network failure cannot kill a repo-local workflow run under
-	// `set -euo pipefail`.
-	initLine := "SMITHERS_YES=1 bun x --package smithers-orchestrator@0.28.0 smithers init --global --no-skill || echo \"smithers global pack install failed; continuing\""
-	assert.Contains(t, script, initLine)
-	assert.NotContains(t, script, "--yes")
-	assert.NotContains(t, script, "--no-install")
-
-	// Ordering: the init runs before the orchestrator is launched.
-	initIdx := strings.Index(script, "smithers init --global")
-	runIdx := strings.Index(script, "bun run /opt/smithers/workflow-runner.tsx")
-	require.GreaterOrEqual(t, initIdx, 0)
-	require.GreaterOrEqual(t, runIdx, 0)
-	assert.Less(t, initIdx, runIdx, "global pack install must run before the workflow runner")
+	assert.Contains(t, script, "test -s '/tmp/smithers-workspace-cli-package.b64.part0000'")
+	assert.Contains(t, script, `exec node "$cli_dir/node_modules/@smthrs/cli/bin/smithers.mjs" flow start`)
+	assert.NotContains(t, script, "bun x")
+	assert.NotContains(t, script, "init --global")
+	assert.NotContains(t, script, "--run-id")
 
 	// The script stays fail-fast for everything else.
 	assert.Contains(t, script, "set -euo pipefail")
@@ -1401,13 +1388,13 @@ func TestWorkflowSandboxRunnerScript_InstallsGlobalPackBeforeRun(t *testing.T) {
 func TestWorkflowSandboxRunnerScript_ScrubsCloneCredential(t *testing.T) {
 	t.Parallel()
 
-	script := workflowSandboxRunnerScript(42, ".smithers/workflows/ci.tsx")
+	script := workflowSandboxRunnerScript(42, "flows/ci/flow.ts")
 	assert.Contains(t, script, "git remote get-url origin")
 	assert.Contains(t, script, "git remote set-url origin")
 
 	// Ordering: scrub happens after cd into the repo, before the runner starts.
 	scrubIdx := strings.Index(script, "git remote set-url origin")
-	runIdx := strings.Index(script, "bun run /opt/smithers/workflow-runner.tsx")
+	runIdx := strings.Index(script, "exec node")
 	require.GreaterOrEqual(t, scrubIdx, 0)
 	require.GreaterOrEqual(t, runIdx, 0)
 	assert.Less(t, scrubIdx, runIdx, "credential scrub must run before the workflow runner")
@@ -1472,7 +1459,7 @@ func testWorkflowSandboxSchedulerWorkerLongRunStillFinalizes(t *testing.T) {
 			}}, nil
 		},
 		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: ".smithers/workflows/ci.tsx"}, nil
+			return db.WorkflowDefinition{ID: 7, RepositoryID: 100, Path: "flows/ci/flow.ts"}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, _ int64) (db.Repository, error) {
 			return db.Repository{ID: 100, Name: "demo", UserID: pgtype.Int8{Int64: 11, Valid: true}}, nil
@@ -1564,7 +1551,7 @@ func TestWorkflowSandboxSchedulerWorker_OrgOwnedRepoClonesWithRepoBoundCredentia
 			return []db.WorkflowRun{{ID: 77, RepositoryID: 300, WorkflowDefinitionID: 7, TriggerRef: "main"}}, nil
 		},
 		getWorkflowDefinitionFn: func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
-			return db.WorkflowDefinition{ID: 7, RepositoryID: 300, Path: ".smithers/workflows/ci.tsx"}, nil
+			return db.WorkflowDefinition{ID: 7, RepositoryID: 300, Path: "flows/ci/flow.ts"}, nil
 		},
 		getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
 			return db.Repository{ID: id, Name: "infra", OrgID: pgtype.Int8{Int64: 44, Valid: true}}, nil

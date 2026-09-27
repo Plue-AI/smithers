@@ -40,7 +40,6 @@ import * as RunProgress from "./RunProgress.ts"
 export const connectionOptions = z.object({
   root: z.string().optional().describe("Project directory; defaults to the nearest Smithers project"),
   remote: z.string().optional().describe("Remote control plane URL; defaults to SMITHERS_REMOTE"),
-  credential: z.string().optional().describe("Remote credential; defaults to SMITHERS_API_KEY"),
   mcpConfig: z.string().optional().describe("Path to the configured MCP servers"),
   quiet: z.boolean().default(false).describe("Suppress progress messages")
 })
@@ -79,7 +78,6 @@ export const connectionArguments = (options: ConnectionOptions): Array<string> =
     const [flag, value] of [
       ["root", options.root],
       ["remote", options.remote],
-      ["credential", options.credential],
       ["mcp-config", options.mcpConfig]
     ] as const
   ) {
@@ -91,16 +89,16 @@ export const connectionArguments = (options: ConnectionOptions): Array<string> =
 
 // The control plane an MCP session reaches, and the credential it presents,
 // are host configuration. Honouring them as tool arguments would let any
-// connected client aim the host's SMITHERS_API_KEY at a server it chose.
+// connected client aim the host's SMITHERS_TOKEN at a server it chose.
 // Refuse the override rather than silently substituting the host destination,
 // so a caller is never told it queried a plane it did not.
 const hostConnection = (options: ConnectionOptions): ConnectionOptions => {
   if (Presentation.current()?.transport !== "mcp") return options
-  for (const flag of ["remote", "credential"] as const) {
+  for (const flag of ["remote"] as const) {
     if (options[flag] !== undefined) {
       throw new CliError.UsageError({
         message:
-          `--${flag} is not accepted over MCP; the host selects the control plane with SMITHERS_REMOTE and SMITHERS_API_KEY`
+          `--${flag} is not accepted over MCP; the host selects the control plane with SMITHERS_REMOTE and SMITHERS_TOKEN`
       })
     }
   }

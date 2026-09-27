@@ -1,0 +1,30 @@
+smthrs wiki — wiki
+
+Usage: smthrs wiki <command>
+
+Commands:
+  create     Create a wiki page
+  delete     Delete a wiki page
+  edit       Edit a wiki page
+  history    List a wiki page's history by page id, renames and the deletion included
+  index      Show a space's navigation index: pages with tags and backlinks, folders, tags
+  list       List wiki pages
+  revisions  List revisions for a wiki page
+  search     Search wiki pages by title, slug, and body content
+  view       View a wiki page
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output

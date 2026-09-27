@@ -80,14 +80,14 @@ describe("the shared verb pre-handler", () => {
     expect(written).toEqual([])
   })
 
-  it("warns that --credential exposes the secret it was handed", async () => {
+  it("never prints the shared session token", async () => {
     const errors: Array<unknown> = []
     vi.spyOn(console, "error").mockImplementation((...args) => void errors.push(args.join(" ")))
     vi.stubEnv("SMITHERS_BACKEND", "")
     capture()
     await Effect.runPromise(
-      Globals.guard({ credential: "sk-secret", backend: "sqlite", environment: {} }).pipe(legacy([]))
+      Globals.guard({ backend: "sqlite", environment: { SMITHERS_TOKEN: "sk-secret" } }).pipe(legacy([]))
     )
-    expect([...errors, ...written].join("")).toContain("--credential exposes secrets")
+    expect([...errors, ...written].join("")).not.toContain("sk-secret")
   })
 })

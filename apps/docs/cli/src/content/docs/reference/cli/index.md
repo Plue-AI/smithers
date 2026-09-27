@@ -6,7 +6,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/doc
 
 ## Canonical commands
 
-`smthrs` combines the target graph and durable control plane. A **target** is a
+`smithers` (`smthrs` is the same executable) combines backend commands, the target graph and durable control plane. A **target** is a
 `PACKAGE.ts` declaration, a **flow** is a durable program built with
 `Flow.make`, and a **run** is a persisted execution of a flow. `run` executes
 run-kind targets; `flow start` starts durable flows.
@@ -41,10 +41,50 @@ conservatively select more work.
 For scripts, target commands and `generate ci/package` document `--workspace`
 in their schemas but the executable also accepts `--root` as an alias;
 flow and operator commands use `--root`. Flow control, ordinary run management, and approvals select a host from
-`SMITHERS_REMOTE` or `--remote` and authenticate with `SMITHERS_API_KEY`.
-`--credential` is a compatibility flag that warns on stderr because process listings and shell history expose its value.
+`SMITHERS_REMOTE` or `--remote` and authenticate with the saved login or `SMITHERS_TOKEN`.
+The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override.
 History, memory, triggers, credentials,
 integrations, evaluations, and local maintenance reject remote access.
+
+## Backend commands
+
+Set `SMITHERS_API_ORIGIN` or run `smithers config set api_origin https://your-api-host`,
+then `smithers auth login`. One saved login serves backend commands and remote
+control-plane commands on that origin. `SMITHERS_TOKEN` overrides the saved login
+for automation. Login reads the existing OS keyring, `~/.config/smithers/auth.json`,
+and legacy config token; a new login removes the legacy token. Login and token
+status never print credentials. Local owner installations use `auth local bootstrap`
+and `auth local login`; provider subscriptions use `auth connect claude|codex`.
+
+| Commands | Backend behavior |
+| --- | --- |
+| `issue create/list/view/edit/close/reopen/comment` | Issues, cursor pagination (`--all`), additive labels and assignees. |
+| `wiki list/search/view/create/edit/delete/revisions/index/history` | Wiki pages, public/private selection and revision checks. |
+| `repo create/list/view/clone/fork/transfer/edit/archive/unarchive/delete` | Repository administration and cloning. |
+| `repo connect/disconnect/status/mirror-sync/push` | GitHub connection and lease-protected personal refs. |
+| `workspace create/list/view/delete/fork/snapshots/watch/ssh/shell/exec/cp/issue` | Boxes, terminal sessions, durable SSH commands, file copies and issue runs. |
+| `flow list/start --cloud`, `flow dispatch` | Repository flows; use `--repo OWNER/REPO` to select the repository. |
+| `runs list/show/rerun/cancel/logs/watch --cloud` | Backend runs. `watch` waits for the real terminal result. |
+| `change status/list/show/diff/files/conflicts`, `bookmark list/create/delete` | Local jj changes and bookmarks. |
+| `land create/list/view/edit/review/comment/checks/conflicts/land` | Landing requests with commit-bound review and merge gates. |
+| `stack submit/unsubmit/status/sync/land` | Linked GitHub requests, review and CI gates, and ordered landing. |
+| `changeset create/get/list/land` | Organization changesets. |
+| `search repos/issues/code/users`, `label`, `notification` | Search, repository labels and notifications. |
+| `secret`, `variable`, `ssh-key`, `org`, `webhook`, `extension linear`, `artifact` | Backend resources and integrations. |
+| `cache cloud list/stats/clear`, `cache connect`, `cache token` | Backend caches. `cache status/prune/clear` retains local target-cache behavior. |
+| `agent ask`, `agent session list/view/run/chat` | Cached documentation and backend conversations. |
+| `admin`, `beta` | Existing administrative and rollout APIs; destructive commands require confirmation or `--yes`. |
+| `api <path>`, `config`, `completion bash/zsh/fish` | Raw API calls, configuration and completion scripts. |
+
+`--repo OWNER/REPO` (or `-R`) also selects the backend for overlapping `flow` and
+`runs` commands. Without `--repo` or `--cloud`, their existing local/control-plane
+behavior remains. Backend commands detect the repository from git or jj when
+`--repo` is omitted. Use `--json` for structured output and `--help` or `--schema`
+for each command's complete arguments.
+
+The Go executable is removed. Its `status` is now `change status`, `run view` is
+`runs show --cloud`, other `run` operations are under `runs --cloud`, and
+`workflow run` is `flow start --cloud`. `workflow watch` is `runs watch --cloud`.
 
 ## Pending human waits
 

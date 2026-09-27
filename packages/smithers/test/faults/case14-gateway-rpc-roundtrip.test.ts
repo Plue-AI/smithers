@@ -94,7 +94,7 @@ describe("case14 gateway RPC round trip", () => {
     const pid = server.pid
     const credential = server.token
     await server.stop()
-    server = await startServe(directory, { credential, credentialSource: "environment" })
+    server = await startServe(directory, { credential })
     expect(server.pid).not.toBe(pid)
     expect(server.argv).not.toContain("--credential")
     await remote(Effect.gen(function*() {

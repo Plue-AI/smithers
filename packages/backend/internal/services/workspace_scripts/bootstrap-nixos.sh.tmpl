@@ -2,8 +2,7 @@
 # Bootstrap for kind=vm / kind=desktop workspaces (NixOS guests built from
 # nix/modules/base.nix). The closure already ships node, npm, bun, jj, git and
 # the language servers, so this only stages what is per-workspace: the
-# smithers CLI payload, the developer's ~/.local links, the global workflow
-# pack, and Claude Code via npm. Every step is best-effort: a transient
+# developer's ~/.local links, the npm CLI and Claude Code. Every step is best-effort: a transient
 # network failure must not fail workspace provisioning.
 set -euo pipefail
 group="$(id -gn {{.User}})"
@@ -17,28 +16,7 @@ for tool in node npm npx bun jj; do
     ln -sfn "$resolved" {{.LocalBinDir}}/"$tool"
   fi
 done
-if [ -s {{printf "%q" .CLIB64Path}} ]; then
-  if ! base64 -d {{printf "%q" .CLIB64Path}} | gzip -dc > {{printf "%q" .CLIPath}}.tmp; then
-    echo "smithers workspace bootstrap: failed to decode/decompress smithers cli payload; continuing without cli" >&2
-    rm -f {{printf "%q" .CLIPath}}.tmp
-  elif [ ! -s {{printf "%q" .CLIPath}}.tmp ]; then
-    echo "smithers workspace bootstrap: decoded smithers cli payload is empty; continuing without cli" >&2
-    rm -f {{printf "%q" .CLIPath}}.tmp
-  else
-    install -m 755 {{printf "%q" .CLIPath}}.tmp {{printf "%q" .CLIPath}}
-    rm -f {{printf "%q" .CLIPath}}.tmp
-    # The bun-compiled CLI is a dynamic glibc binary; nix-ld (programs.nix-ld)
-    # supplies /lib64/ld-linux-x86-64.so.2 and the base libraries it needs.
-    if ! {{printf "%q" .CLIPath}} --help >/tmp/smithers-workspace-cli-help.log 2>&1; then
-      echo "smithers workspace bootstrap: installed smithers cli failed --help smoke; removing it" >&2
-      rm -f {{printf "%q" .CLIPath}}
-    else
-      echo "smithers workspace bootstrap: installed smithers cli" >&2
-    fi
-  fi
-else
-  echo "smithers workspace bootstrap: smithers cli payload absent" >&2
-fi
+
 # The configured coding host is separate from the interactive/general CLI.
 # Failure leaves the workspace usable; a bound gateway preflight refuses it.
 if [ -s {{printf "%q" .CodingHostB64Path}} ]; then
@@ -94,16 +72,20 @@ else
   echo "smithers workspace bootstrap: jj export helper payload absent" >&2
 fi
 # End configured jj export staging.
-if [ -x {{printf "%q" .CLIPath}} ]; then
-  if command -v runuser >/dev/null 2>&1; then
-    runuser -u {{.User}} -- env -i HOME={{.Home}} USER={{.User}} LOGNAME={{.User}} PATH={{.LocalBinDir}}:/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin bash -lc {{printf "%q" .PackInitScript}} || \
-      echo "smithers workspace bootstrap: global smithers pack init failed; continuing" >&2
+
+# Install the deployed npm package without a registry or a second CLI binary.
+if [ -s {{printf "%q" .CLIPackageB64Path}}.part0000 ]; then
+  mkdir -p {{printf "%q" .CLIPackageDir}}
+  if cat {{printf "%q" .CLIPackageB64Path}}.part* | base64 -d | tar -xzf - -C {{printf "%q" .CLIPackageDir}}; then
+    ln -sfn {{printf "%q" (printf "%s/node_modules/@smthrs/cli/bin/smithers.mjs" .CLIPackageDir)}} {{.LocalBinDir}}/smithers
+    ln -sfn smithers {{.LocalBinDir}}/smthrs
+    PATH={{.LocalBinDir}}:$PATH {{.LocalBinDir}}/smithers --help >/tmp/smithers-workspace-cli-help.log 2>&1 || \
+      echo "smithers workspace bootstrap: npm CLI smoke failed; see /tmp/smithers-workspace-cli-help.log" >&2
   else
-    su - {{.User}} -c {{printf "%q" .PackInitScript}} || \
-      echo "smithers workspace bootstrap: global smithers pack init failed; continuing" >&2
+    echo "smithers workspace bootstrap: npm CLI package extraction failed" >&2
   fi
 else
-  echo "smithers workspace bootstrap: smithers cli missing; skipping global pack init" >&2
+  echo "smithers workspace bootstrap: npm CLI package absent" >&2
 fi
 if [ -x {{printf "%q" (printf "%s/claude" .LocalBinDir)}} ] || command -v claude >/dev/null 2>&1; then
   chown -R {{.User}}:"$group" {{.LocalDir}} {{.Home}}/.smithers

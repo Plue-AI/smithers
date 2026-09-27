@@ -18,7 +18,6 @@ another product composition root.
 - `packages/backend/app`
 - `packages/backend/blobs`
 - `packages/backend/canonicalimport`
-- `packages/backend/cli`
 - `packages/backend/cmd/failurecodes`
 - `packages/backend/cmd/legacyimport`
 - `packages/backend/commerce`
@@ -98,7 +97,6 @@ needed by adapters without copying product queries or schemas.
 - `packages/backend/internal/routes`
 - `packages/backend/internal/services`
 - `packages/backend/internal/services/workspace_scripts`
-- `packages/backend/internal/smitherscli`
 - `packages/backend/internal/sse`
 - `packages/backend/internal/ssh`
 - `packages/backend/internal/subscriptiontoken`

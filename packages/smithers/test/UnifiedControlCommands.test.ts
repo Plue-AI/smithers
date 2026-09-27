@@ -195,8 +195,6 @@ describe("unified control dispatch", () => {
       "/fixture",
       "--remote",
       "https://control.invalid",
-      "--credential",
-      "private-fixture",
       "--json"
     ])
     expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
@@ -204,7 +202,6 @@ describe("unified control dispatch", () => {
       expect.objectContaining({
         root: "/fixture",
         remote: "https://control.invalid",
-        credential: "private-fixture",
         quiet: false
       }),
       result.config

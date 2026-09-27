@@ -32,7 +32,7 @@ The bind rule is strict and fails closed.
 
 - The default bind is `127.0.0.1:3000`. A loopback host (`127.0.0.1`, `::1`, or `localhost`) needs no opt-in and no credential. The ingress guard rejects foreign Host values and browser origins before HTTP or WebSocket RPC handling.
 - A non-loopback bind requires an explicit `--listen`. Without it the verb refuses: `Refusing to bind <host>: pass --listen to serve on a non-loopback address.`
-- A non-loopback bind also requires a bearer credential, set as `SMITHERS_API_KEY` (preferred) or passed with `--credential`. Without one the verb refuses: `Refusing to bind <host> without a bearer token: set SMITHERS_API_KEY (preferred) or pass --credential.`
+- A non-loopback bind also requires a bearer credential, set as `SMITHERS_TOKEN`. Without one the verb refuses: `Refusing to bind <host> without a bearer token: set SMITHERS_TOKEN.`
 - The server speaks plain HTTP only. For network access, terminate TLS at a trusted reverse proxy or use an encrypted tunnel so the bearer token is not sent in cleartext.
 
 One shared bearer authenticates every mount and binds one principal. There are no users, no roles, no per-run ownership, and no scopes.

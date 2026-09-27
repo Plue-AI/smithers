@@ -5,7 +5,7 @@
  * and once as the `--flag` it forwards to `Bridge.invoke`. Nothing else pins
  * the pairs, so a flag renamed on one side would parse on the unified tree and
  * be refused by the legacy parser at run time. This walks every bridged verb's
- * unified help and asserts each flag it declares is one the legacy verb
+ * local control help and asserts each flag it declares is one the legacy verb
  * declares too. The connection options and the unified globals are the
  * bridge's own and are translated, not forwarded.
  */
@@ -14,9 +14,10 @@ import { Control } from "@smthrs/control"
 import { Effect, Layer } from "effect"
 import { TestConsole } from "effect/testing"
 import { Command } from "effect/unstable/cli"
+import { Cli } from "incur"
 import { describe, expect, it } from "vitest"
-import { makeCli } from "../src/Cli.ts"
 import * as Bridge from "../src/cli/ControlBridge.ts"
+import { createApprovalsCli, createFlowCli, createRunsCli } from "../src/cli/ControlCommands.ts"
 import { cli } from "../src/Command.ts"
 import * as Output from "../src/Output.ts"
 import { packageVersion } from "../src/Version.ts"
@@ -45,7 +46,10 @@ const flagsOf = (text: string): ReadonlyArray<string> => [...new Set(text.match(
 
 const unifiedHelp = async (path: ReadonlyArray<string>): Promise<string> => {
   let stdout = ""
-  await makeCli({ environment: {} }).serve([...path, "--help"], {
+  await Cli.create("smithers").command(createFlowCli()).command(createRunsCli()).command(createApprovalsCli()).serve([
+    ...path,
+    "--help"
+  ], {
     env: {},
     stdout: (text) => {
       stdout += text

@@ -6,10 +6,9 @@ Arguments:
   thread
 
 Options:
-  --root <string>        Project root (defaults to the nearest Smithers project)
-  --remote <string>      Remote control server; local operator commands refuse this option
-  --credential <string>  Remote control credential
-  --limit <number>        (default: 100)
+  --root <string>      Project root (defaults to the nearest Smithers project)
+  --remote <string>    Remote control server; local operator commands refuse this option
+  --limit <number>      (default: 100)
   --after-id <string>
   --after-at <number>
 

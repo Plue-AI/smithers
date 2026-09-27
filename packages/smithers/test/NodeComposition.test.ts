@@ -128,10 +128,10 @@ describe("NodeControl.makeConfig", () => {
       .toThrow("--remote must be an http:// or https:// URL; got \"--credential\"")
   })
 
-  it("resolves a credential with no remote at all", () => {
-    expect(configuration(["--credential=secret"], {})).toEqual({
+  it("does not resolve credentials for local execution", () => {
+    expect(configuration([], { SMITHERS_TOKEN: "secret" })).toEqual({
       remote: undefined,
-      credential: "secret",
+      credential: undefined,
       mcpServers: undefined
     })
   })
@@ -144,10 +144,10 @@ describe("NodeControl.makeConfig", () => {
     })
   })
 
-  it("reads SMITHERS_API_KEY as the --credential fallback", () => {
-    expect(configuration([], { SMITHERS_API_KEY: "from-environment" }).credential).toBe("from-environment")
-    expect(configuration(["--credential=from-argv"], { SMITHERS_API_KEY: "from-environment" }).credential)
-      .toBe("from-argv")
+  it("reads the shared Smithers token for remote calls", () => {
+    expect(configuration(["--remote=https://api.test"], { SMITHERS_TOKEN: "from-environment" }).credential).toBe(
+      "from-environment"
+    )
   })
 
   it("reads the MCP servers named by --mcp-config, and by the environment", async () => {
@@ -254,15 +254,19 @@ describe("NodeControl.config", () => {
   it("reads the current process arguments and environment", () => {
     const argv = process.argv
     const previous = process.env.SMITHERS_REMOTE
+    const previousToken = process.env.SMITHERS_TOKEN
     try {
-      process.argv = [process.execPath, "smthrs", "--credential=from-argv"]
+      process.argv = [process.execPath, "smthrs"]
+      process.env.SMITHERS_TOKEN = "shared-token"
       process.env.SMITHERS_REMOTE = "https://from-environment.test"
       const resolved = Effect.runSync(NodeControl.config)
       expect(resolved.remote).toBe("https://from-environment.test")
-      expect(resolved.credential).toBe("from-argv")
+      expect(resolved.credential).toBe("shared-token")
       expect(typeof resolved.root).toBe("string")
     } finally {
       process.argv = argv
+      if (previousToken === undefined) delete process.env.SMITHERS_TOKEN
+      else process.env.SMITHERS_TOKEN = previousToken
       if (previous === undefined) delete process.env.SMITHERS_REMOTE
       else process.env.SMITHERS_REMOTE = previous
     }

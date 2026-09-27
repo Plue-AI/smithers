@@ -25,7 +25,12 @@ The TUI works in your local checkout; it doesn't use boxes. Hosted boxes in the 
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers workspace create --repo acme/app --name dev --wait
+smithers workspace list --repo acme/app
+```
 
 </TabItem>
 <TabItem label="API">
@@ -52,7 +57,13 @@ Not applicable: the TUI edits your local files and runs commands with `!`.
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers workspace shell BOX_ID --repo acme/app
+smithers workspace exec BOX_ID --repo acme/app --command "pwd"
+smithers workspace cp ./file BOX_ID:/tmp/file --repo acme/app
+```
 
 </TabItem>
 <TabItem label="API">
@@ -77,7 +88,12 @@ Not applicable.
 </TabItem>
 <TabItem label="CLI">
 
-**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+**Available now.**
+
+```sh
+smithers workspace view BOX_ID --repo acme/app
+smithers workspace delete BOX_ID --repo acme/app --yes
+```
 
 </TabItem>
 <TabItem label="API">
