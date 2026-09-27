@@ -8,6 +8,7 @@ import { basename, dirname, join, resolve, sep } from "node:path"
 import { spawn } from "node:child_process"
 import { nativeTarget } from "../native-target"
 import { appEntryPath } from "./app-entry"
+import { realHost } from "./host"
 
 export { appEntryPath, expect }
 
@@ -436,8 +437,7 @@ export const test = selectedBase.extend<RealFixtures>({
     })
     if (!bootstrap.ok()) throw new Error(`Real host bootstrap preflight failed: HTTP ${bootstrap.status()} ${await bootstrap.text()}`)
     const body = await bootstrap.json() as { host?: unknown; authFlow?: unknown; capabilities?: unknown; buildSha?: unknown }
-    // Every web origin is `host: "cloud"`; the hosted deployment signs in by redirect, a self-hosted one with owner credentials.
-    const verifiedHost = body.host === "cloud" ? (body.authFlow === "redirect" ? "production" : "local") : body.host
+    const verifiedHost = realHost(body)
     if (verifiedHost !== "local" && verifiedHost !== "production" && verifiedHost !== "native") {
       throw new Error(`Real host bootstrap returned an unsupported host identity: ${JSON.stringify(body.host)}`)
     }
@@ -451,12 +451,12 @@ export const test = selectedBase.extend<RealFixtures>({
       if (body.buildSha !== process.env.SMITHERS_REAL_E2E_BUILD_SHA) throw new Error("Production build changed since preflight; restart the canary against a consistent deployment.")
       testInfo.annotations.push({ type: "real-build-sha", description: body.buildSha })
     }
-    if (body.host === "local" && !token &&
+    if (verifiedHost === "local" && !token &&
       process.env.SMITHERS_REAL_AUTH_KIND !== "owner-session" &&
       process.env.SMITHERS_REAL_AUTH_KIND !== "application-token") {
       throw new Error("Local real host preflight found no configured authentication.")
     }
-    if (body.host === "local") {
+    if (verifiedHost === "local") {
       const health = await request.get(new URL("/api/health", baseURL).toString())
       if (!health.ok()) throw new Error(`Local real host health preflight failed: HTTP ${health.status()} ${await health.text()}`)
     }
