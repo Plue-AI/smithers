@@ -359,13 +359,17 @@ test("the driver reads the toolchain steps copied out of ci.yml", () => {
   assert.equal(step("Install ripgrep").with.tool, "ripgrep@14.1.1")
   assert.equal(step("Install Go").with["go-version"], "1.26.8")
   assert.equal(step("Install Foundry").with.version, "v1.8.1")
+  const postgres = step("Install PostgreSQL")
+  assert.equal(postgres.shell, "bash")
+  assert.match(postgres.run, /--no-install-recommends 'postgresql-18'/)
+  assert.match(postgres.run, />> "\$GITHUB_PATH"$/m)
 })
 
 test("the toolchain the gates need is installed before the first gate", () => {
   const names = release.jobs.publish.steps.map((candidate) => candidate.name ?? candidate.uses)
   const firstGate = names.indexOf("Workspace targets")
   assert.notEqual(firstGate, -1, "release.yml no longer runs the workspace target graph")
-  for (const name of ["Install Go", "Install Foundry", "Install ripgrep", "Install system packages"]) {
+  for (const name of ["Install Go", "Install Foundry", "Install ripgrep", "Install system packages", "Install PostgreSQL"]) {
     const index = names.indexOf(name)
     assert.notEqual(index, -1, `release.yml does not install ${name.replace("Install ", "")}`)
     assert.ok(index < firstGate, `${name} must run before the first gate`)
@@ -499,6 +503,29 @@ test("release rebuilds and byte-compares the committed wasm before packing", () 
     assert.ok(steps.indexOf(install) < steps.indexOf(actual))
     assert.ok(steps.indexOf(actual) < pack)
     assert.equal(actual.if, gateCondition)
+  }
+})
+
+test("a directory a step appends to $GITHUB_PATH leads PATH for later steps", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "release-github-path-")))
+  try {
+    installDriver(root)
+    writeFileSync(join(root, "workflow.yml"), [
+      "name: Fixture", "jobs:", "  publish:", "    steps:",
+      "      - name: Add tool directory",
+      "        run: echo /opt/fixture-tool/bin >> \"$GITHUB_PATH\"",
+      "      - name: Read PATH",
+      "        run: case \"$PATH\" in /opt/fixture-tool/bin:*) exit 0 ;; *) exit 23 ;; esac"
+    ].join("\n"))
+    const result = spawnSync(process.execPath, [
+      join(root, "scripts/release-rehearsal.mjs"), "--workflow", "workflow.yml",
+      "--runner-temp", join(root, "runner"), "--transcript", join(root, "transcript.json")
+    ], { encoding: "utf8", timeout: 30_000 })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    const transcript = JSON.parse(readFileSync(join(root, "transcript.json"), "utf8"))
+    assert.deepEqual(transcript.steps.map((entry) => entry.status), ["passed", "passed"])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })
 

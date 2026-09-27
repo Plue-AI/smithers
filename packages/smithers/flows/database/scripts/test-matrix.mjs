@@ -29,7 +29,9 @@ try {
     directory = await mkdtemp(join(tmpdir(), "smithers-sql-matrix-"))
     const listeningPort = await port()
     await run(pg("initdb"), ["-D", directory, "-A", "trust", "--encoding=UTF8", "--locale=C"])
-    await run(pg("pg_ctl"), ["-D", directory, "-l", join(directory, "server.log"), "-o", `-h 127.0.0.1 -p ${listeningPort}`, "-w", "start"])
+    // Debian builds default the socket to /var/run/postgresql, which only the postgres group may write.
+    const socket = process.platform === "win32" ? "" : ` -k ${directory}`
+    await run(pg("pg_ctl"), ["-D", directory, "-l", join(directory, "server.log"), "-o", `-h 127.0.0.1 -p ${listeningPort}${socket}`, "-w", "start"])
     started = true
     url = `postgres://${encodeURIComponent(userInfo().username)}@127.0.0.1:${listeningPort}/postgres?sslmode=disable`
   }

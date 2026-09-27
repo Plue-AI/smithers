@@ -407,6 +407,57 @@ export const FoundrySetup = Schema.Struct({ release: FoundryRelease })
 export type FoundrySetup = typeof FoundrySetup.Type
 
 /**
+ * The PostgreSQL major releases a runner may install.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const PostgresRelease = Schema.Literals(["18"])
+
+/**
+ * The PostgreSQL major releases a runner may install.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type PostgresRelease = typeof PostgresRelease.Type
+
+/**
+ * The oldest PostgreSQL major a runner image may supply in place of an install.
+ *
+ * Memory full-text search collates with `pg_c_utf8`, which PostgreSQL 17
+ * introduced. The Windows image ships a disabled PostgreSQL 17 server, and
+ * the generated step uses its binaries rather than run an installer.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const postgresFloor = 17
+
+/**
+ * Schema for a declared PostgreSQL installation.
+ *
+ * The storage conformance matrix runs every SQL-backed suite once on SQLite
+ * and once on a throwaway PostgreSQL cluster it starts with `initdb` and
+ * `pg_ctl`, and it refuses rather than skips when they are missing. The
+ * generated step puts those binaries on `PATH`: PGDG `postgresql-<release>` on
+ * Linux, Homebrew `postgresql@<release>` on macOS, and the image's own server
+ * on Windows when it is at least {@link postgresFloor}.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const PostgresSetup = Schema.Struct({ release: PostgresRelease })
+
+/**
+ * One declared PostgreSQL installation.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type PostgresSetup = typeof PostgresSetup.Type
+
+/**
  * Schema for the docker daemon configuration a job needs.
  *
  * Hosted runners ship a docker daemon whose default `docker` build driver
@@ -487,6 +538,15 @@ export const Go = (options: { readonly release: GoRelease }): GoSetup => GoSetup
  */
 export const Foundry = (options: { readonly release: FoundryRelease }): FoundrySetup =>
   FoundrySetup.make({ release: options.release })
+
+/**
+ * Declares that a job puts the PostgreSQL server binaries on `PATH`.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const Postgres = (options: { readonly release: PostgresRelease }): PostgresSetup =>
+  PostgresSetup.make({ release: options.release })
 
 /**
  * Declares that a job's docker daemon uses the containerd image store, so
@@ -915,6 +975,8 @@ export const Toolchain = Schema.Struct({
   apt: Schema.optional(AptSetup),
   go: Schema.optional(GoSetup),
   foundry: Schema.optional(FoundrySetup),
+  /** Put the PostgreSQL server binaries on `PATH`. */
+  postgres: Schema.optional(PostgresSetup),
   /** Configure the runner's docker daemon; a no-op where there is none. */
   docker: Schema.optional(DockerSetup),
   /** Install Nix and run every step inside the declared environment. */
@@ -970,6 +1032,7 @@ export const Needs = (options: {
   readonly apt?: AptSetup | undefined
   readonly go?: GoSetup | undefined
   readonly foundry?: FoundrySetup | undefined
+  readonly postgres?: PostgresSetup | undefined
   readonly docker?: DockerSetup | undefined
   readonly nix?: NixSetup | undefined
   readonly browser?: SystemBrowser | undefined
@@ -980,7 +1043,7 @@ export const Needs = (options: {
     // The environment supplies every interpreter and language toolchain, so a
     // job that also installs one on the runner would run two copies and the
     // generated PATH would decide which. Refuse the mix rather than pick.
-    const mixed = (["runtimes", "rust", "cargoBinaries", "jj", "ripgrep", "go", "foundry"] as const).filter((name) => {
+    const mixed = (["runtimes", "rust", "cargoBinaries", "jj", "ripgrep", "go", "foundry", "postgres"] as const).filter((name) => {
       const value = options[name]
       return Array.isArray(value) ? value.length > 0 : value !== undefined
     })
@@ -1010,6 +1073,7 @@ export const Needs = (options: {
     ...(options.apt === undefined ? {} : { apt: options.apt }),
     ...(options.go === undefined ? {} : { go: options.go }),
     ...(options.foundry === undefined ? {} : { foundry: options.foundry }),
+    ...(options.postgres === undefined ? {} : { postgres: options.postgres }),
     ...(options.docker === undefined ? {} : { docker: options.docker }),
     ...(options.nix === undefined ? {} : { nix: options.nix }),
     ...(options.browser === undefined ? {} : { browser: options.browser }),

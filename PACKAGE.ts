@@ -202,6 +202,10 @@ const bubblewrap = Smithers.CiToolchain.Apt({ packages: ["bubblewrap"] })
 const go = Smithers.CiToolchain.Go({ release: "1.26.8" })
 const foundry = Smithers.CiToolchain.Foundry({ release: "v1.8.1" })
 const dockerImageStore = Smithers.CiToolchain.Docker({ imageStore: "containerd" })
+// The storage matrix (`packages/smithers/flows/database/scripts/test-matrix.mjs`)
+// runs every SQL-backed package suite on SQLite and on a throwaway PostgreSQL
+// cluster it starts with `initdb`/`pg_ctl`, and refuses when they are missing.
+const postgres = Smithers.CiToolchain.Postgres({ release: "18" })
 
 // Hosted Go adapters need a real database server; each test suite creates its
 // own database on it. This target runs only in the required Linux backend job,
@@ -318,6 +322,7 @@ const ci = Smithers.GithubCiGen({
         apt: bubblewrap,
         go,
         foundry,
+        postgres,
         docker: dockerImageStore
       }),
       steps: [
@@ -337,6 +342,7 @@ const ci = Smithers.GithubCiGen({
         apt: bubblewrap,
         go,
         foundry,
+        postgres,
         docker: dockerImageStore,
         artifacts: Smithers.CiToolchain.Artifacts({
           artifact: "ci-test-tier-evidence",
@@ -664,6 +670,7 @@ const ci = Smithers.GithubCiGen({
         apt: bubblewrap,
         go,
         foundry,
+        postgres,
         docker: dockerImageStore
       }),
       // Match the workspace gate's bound: each suite also runs Vitest workers,

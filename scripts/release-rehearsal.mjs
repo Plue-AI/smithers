@@ -382,6 +382,8 @@ export const main = async (argv) => {
     : resolve(options.runnerTemp)
   const githubEnvFile = join(runnerTemp, "github-env")
   writeFileSync(githubEnvFile, "")
+  const githubPathFile = join(runnerTemp, "github-path")
+  writeFileSync(githubPathFile, "")
   const logPath = resolve(options.log ?? join(runnerTemp, "rehearsal.log"))
   const log = createWriteStream(logPath, { flags: "a" })
 
@@ -391,6 +393,7 @@ export const main = async (argv) => {
   }
 
   let pathPrefix = options.node.fallback === undefined ? [] : [resolve(options.node.fallback)]
+  let githubPath = []
   const results = []
   let failed = false
   for (const step of job.steps) {
@@ -458,11 +461,12 @@ export const main = async (argv) => {
       conclude("skipped")
       continue
     }
-    const stepEnv = { ...process.env, ...contexts.env, GITHUB_ENV: githubEnvFile, RUNNER_TEMP: runnerTemp }
+    const stepEnv = { ...process.env, ...contexts.env, GITHUB_ENV: githubEnvFile, GITHUB_PATH: githubPathFile, RUNNER_TEMP: runnerTemp }
     for (const [key, value] of Object.entries(step.env ?? {})) {
       stepEnv[key] = interpolate(value, contexts)
     }
-    if (pathPrefix.length > 0) stepEnv.PATH = `${pathPrefix.join(":")}:${stepEnv.PATH}`
+    const prefix = [...githubPath, ...pathPrefix]
+    if (prefix.length > 0) stepEnv.PATH = `${prefix.join(":")}:${stepEnv.PATH}`
     announce("running")
     const outcome = await runStep(interpolate(step.run, contexts), stepEnv, log)
     record.exitCode = outcome.exitCode
@@ -476,6 +480,10 @@ export const main = async (argv) => {
       if (assignment !== null) contexts.env[assignment[1]] = assignment[2]
     }
     writeFileSync(githubEnvFile, "")
+    // ...and prepend directories to PATH by appending them to $GITHUB_PATH.
+    const added = readFileSync(githubPathFile, "utf8").split("\n").filter((line) => line !== "")
+    githubPath = [...added.reverse(), ...githubPath]
+    writeFileSync(githubPathFile, "")
     const seconds = Math.round(record.durationMs / 1000)
     const summary = `--- ${record.status}: ${name} (exit ${record.exitCode}, ${seconds}s)\n`
     process.stdout.write(summary)

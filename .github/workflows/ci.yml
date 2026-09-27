@@ -76,7 +76,6 @@ jobs:
         with:
           "tool": "ripgrep@14.1.1"
       - name: "Install system packages"
-        id: setup
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
@@ -84,6 +83,36 @@ jobs:
               sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
             fi
           fi
+        shell: "bash"
+      - name: "Install PostgreSQL"
+        id: setup
+        run: |
+          case "$(uname -s)" in
+            Linux)
+              sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends postgresql-common
+              sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null
+              echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf >/dev/null
+              sudo apt-get install -y -qq --no-install-recommends 'postgresql-18'
+              pg_bin=/usr/lib/postgresql/18/bin path_entry="$pg_bin" floor=18
+              ;;
+            Darwin)
+              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install --quiet 'postgresql@18'
+              pg_bin="$(brew --prefix 'postgresql@18')/bin" path_entry="$pg_bin" floor=18
+              ;;
+            MINGW*|MSYS*)
+              pg_bin="$(cygpath -u "${PGBIN:?the runner image names no PostgreSQL in PGBIN}")" path_entry="$PGBIN" floor=17
+              ;;
+            *) echo "no PostgreSQL install for $(uname -s)" >&2; exit 1 ;;
+          esac
+          version="$("$pg_bin/initdb" --version)"
+          major="${version#*) }"
+          major="${major%%[!0-9]*}"
+          if [ -z "$major" ] || [ "$major" -lt "$floor" ]; then
+            echo "$version is not PostgreSQL $floor or later" >&2
+            exit 1
+          fi
+          echo "$version"
+          printf '%s\n' "$path_entry" >> "$GITHUB_PATH"
         shell: "bash"
       - name: "Workspace targets"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
@@ -164,7 +193,6 @@ jobs:
         with:
           "tool": "ripgrep@14.1.1"
       - name: "Install system packages"
-        id: setup
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
@@ -172,6 +200,36 @@ jobs:
               sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
             fi
           fi
+        shell: "bash"
+      - name: "Install PostgreSQL"
+        id: setup
+        run: |
+          case "$(uname -s)" in
+            Linux)
+              sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends postgresql-common
+              sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null
+              echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf >/dev/null
+              sudo apt-get install -y -qq --no-install-recommends 'postgresql-18'
+              pg_bin=/usr/lib/postgresql/18/bin path_entry="$pg_bin" floor=18
+              ;;
+            Darwin)
+              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install --quiet 'postgresql@18'
+              pg_bin="$(brew --prefix 'postgresql@18')/bin" path_entry="$pg_bin" floor=18
+              ;;
+            MINGW*|MSYS*)
+              pg_bin="$(cygpath -u "${PGBIN:?the runner image names no PostgreSQL in PGBIN}")" path_entry="$PGBIN" floor=17
+              ;;
+            *) echo "no PostgreSQL install for $(uname -s)" >&2; exit 1 ;;
+          esac
+          version="$("$pg_bin/initdb" --version)"
+          major="${version#*) }"
+          major="${major%%[!0-9]*}"
+          if [ -z "$major" ] || [ "$major" -lt "$floor" ]; then
+            echo "$version is not PostgreSQL $floor or later" >&2
+            exit 1
+          fi
+          echo "$version"
+          printf '%s\n' "$path_entry" >> "$GITHUB_PATH"
         shell: "bash"
       - name: "Examples"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
@@ -798,7 +856,6 @@ jobs:
         with:
           "tool": "ripgrep@14.1.1"
       - name: "Install system packages"
-        id: setup
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
@@ -806,6 +863,36 @@ jobs:
               sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
             fi
           fi
+        shell: "bash"
+      - name: "Install PostgreSQL"
+        id: setup
+        run: |
+          case "$(uname -s)" in
+            Linux)
+              sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends postgresql-common
+              sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null
+              echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf >/dev/null
+              sudo apt-get install -y -qq --no-install-recommends 'postgresql-18'
+              pg_bin=/usr/lib/postgresql/18/bin path_entry="$pg_bin" floor=18
+              ;;
+            Darwin)
+              HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install --quiet 'postgresql@18'
+              pg_bin="$(brew --prefix 'postgresql@18')/bin" path_entry="$pg_bin" floor=18
+              ;;
+            MINGW*|MSYS*)
+              pg_bin="$(cygpath -u "${PGBIN:?the runner image names no PostgreSQL in PGBIN}")" path_entry="$PGBIN" floor=17
+              ;;
+            *) echo "no PostgreSQL install for $(uname -s)" >&2; exit 1 ;;
+          esac
+          version="$("$pg_bin/initdb" --version)"
+          major="${version#*) }"
+          major="${major%%[!0-9]*}"
+          if [ -z "$major" ] || [ "$major" -lt "$floor" ]; then
+            echo "$version is not PostgreSQL $floor or later" >&2
+            exit 1
+          fi
+          echo "$version"
+          printf '%s\n' "$path_entry" >> "$GITHUB_PATH"
         shell: "bash"
       - name: "Package test targets"
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}

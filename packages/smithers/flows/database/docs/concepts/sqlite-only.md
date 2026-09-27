@@ -110,7 +110,9 @@ Each owning package runs the matrix through `pnpm coverage`,
 `pnpm test:matrix`, and its factory test target; plain `pnpm test` runs SQLite only. It runs the existing suite once
 on SQLite and once on a real PostgreSQL server. Set `SMITHERS_TEST_PG_URL` to a
 scratch database, or let the runner create and remove a temporary local cluster.
-`PG_BIN` selects the PostgreSQL binaries. Tests use isolated schemas and remove
+`PG_BIN` selects the PostgreSQL 17+ binaries; a factory target inherits only
+`PATH`, so `initdb` and `pg_ctl` must be on it there (CI declares
+`CiToolchain.Postgres`). Tests use isolated schemas and remove
 them when their scopes close. Native file-format and historical SQLite-only
 corruption fixtures stay on SQLite; PostgreSQL-specific adapter tests exercise
 independent pools and exact storage types. Coverage from both runs is merged

@@ -182,6 +182,9 @@ describe("CiToolchain.Nix", () => {
     expect(() => CiToolchain.Needs({ nix, ripgrep: CiToolchain.Ripgrep({ release: "14.1.1" }) })).toThrowError(
       /remove ripgrep/
     )
+    expect(() => CiToolchain.Needs({ nix, postgres: CiToolchain.Postgres({ release: "18" }) })).toThrowError(
+      /remove postgres/
+    )
     expect(CiToolchain.Needs({ nix, runtimes: [] }).nix).toEqual(nix)
   })
 })

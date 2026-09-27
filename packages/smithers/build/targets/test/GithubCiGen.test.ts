@@ -1695,6 +1695,33 @@ describe("system packages", () => {
     expect(without).not.toContain("containerd image store")
   })
 
+  it("puts a PostgreSQL server on PATH on every runner, under bash, as the job's last setup step", () => {
+    const postgres = CiToolchain.Postgres({ release: "18" })
+    expect(CiToolchain.Needs({ postgres }).postgres).toEqual(postgres)
+    const rendered = render({
+      ...goldenAttrs,
+      jobs: [{
+        id: "test",
+        name: "test",
+        runsOn: "ubuntu-latest",
+        toolchain: CiToolchain.Needs({ runtimes: [node], apt: CiToolchain.Apt({ packages: ["bubblewrap"] }), postgres }),
+        steps: [{ name: "Targets", verb: Verb.Test, pattern: "//packages/..." }]
+      }],
+      gates: []
+    })
+    const step = rendered.slice(rendered.indexOf("- name: \"Install PostgreSQL\""))
+    expect(rendered.indexOf("Install system packages")).toBeLessThan(rendered.indexOf("Install PostgreSQL"))
+    expect(step).toMatch(/^- name: "Install PostgreSQL"\n\s+id: setup\n/)
+    expect(step).toContain("shell: \"bash\"")
+    expect(step).toContain("sudo apt-get install -y -qq --no-install-recommends 'postgresql-18'")
+    expect(step).toContain("pg_bin=/usr/lib/postgresql/18/bin")
+    expect(step).toContain("brew install --quiet 'postgresql@18'")
+    expect(step).toContain(`floor=${CiToolchain.postgresFloor}`)
+    expect(step).toContain("printf '%s\\n' \"$path_entry\" >> \"$GITHUB_PATH\"")
+    expect(rendered).not.toMatch(otherCondition)
+    expect(() => CiToolchain.Postgres({ release: "16" as never })).toThrow()
+  })
+
   it("refuses a package name apt would not accept", () => {
     expect(() => CiToolchain.Apt({ packages: ["bubble wrap"] })).toThrow()
     expect(() => CiToolchain.Apt({ packages: [] })).toThrow()

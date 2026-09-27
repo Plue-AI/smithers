@@ -980,6 +980,48 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
       ].join("\n")
     })
   }
+  if (needs.postgres !== undefined) {
+    // Targets inherit PATH but not arbitrary variables, so the binaries reach
+    // the storage matrix through GITHUB_PATH. One step serves the platform
+    // matrix by detecting the runner, under bash for the reason the apt step
+    // gives. The Debian package would create and start a cluster nobody uses;
+    // the matrix starts its own, so the default cluster is switched off.
+    const release = needs.postgres.release
+    steps.push({
+      name: "Install PostgreSQL",
+      shell: "bash",
+      run: [
+        "case \"$(uname -s)\" in",
+        "  Linux)",
+        "    sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends postgresql-common",
+        "    sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null",
+        "    echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf >/dev/null",
+        `    sudo apt-get install -y -qq --no-install-recommends ${shellWord(`postgresql-${release}`)}`,
+        `    pg_bin=/usr/lib/postgresql/${release}/bin path_entry="$pg_bin" floor=${release}`,
+        "    ;;",
+        "  Darwin)",
+        `    HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install --quiet ${
+          shellWord(`postgresql@${release}`)
+        }`,
+        `    pg_bin="$(brew --prefix ${shellWord(`postgresql@${release}`)})/bin" path_entry="$pg_bin" floor=${release}`,
+        "    ;;",
+        "  MINGW*|MSYS*)",
+        `    pg_bin="$(cygpath -u "\${PGBIN:?the runner image names no PostgreSQL in PGBIN}")" path_entry="$PGBIN" floor=${CiToolchain.postgresFloor}`,
+        "    ;;",
+        "  *) echo \"no PostgreSQL install for $(uname -s)\" >&2; exit 1 ;;",
+        "esac",
+        "version=\"$(\"$pg_bin/initdb\" --version)\"",
+        "major=\"${version#*) }\"",
+        "major=\"${major%%[!0-9]*}\"",
+        "if [ -z \"$major\" ] || [ \"$major\" -lt \"$floor\" ]; then",
+        "  echo \"$version is not PostgreSQL $floor or later\" >&2",
+        "  exit 1",
+        "fi",
+        "echo \"$version\"",
+        "printf '%s\\n' \"$path_entry\" >> \"$GITHUB_PATH\""
+      ].join("\n")
+    })
+  }
   if (needs.browser !== undefined) {
     const executable = needs.browser.executable
     steps.push({
