@@ -1,8 +1,13 @@
-# TUI documentation
+# TUI playground and recordings
 
-A dedicated Astro site. Author pages in `apps/tui/docs/`; this site reads those
-files directly. It is separate from the generated package-reference fleet in
-`apps/docs/`.
+Two things live here:
+
+- **The playground** at tui.smithers.sh: the production agent on a two-file
+  browser sandbox. Every former TUI guide URL redirects to its page on
+  smithers.sh, where the TUI docs now live (`apps/site/src/content/docs/docs/tui/`
+  and the TUI tabs of `docs/learn/`).
+- **The recorder** that turns the scripts in `apps/tui/docs/recordings/` into
+  the TUI GIFs on smithers.sh.
 
 ```bash
 pnpm --filter @smithers/tui-docs build
@@ -10,40 +15,34 @@ pnpm --filter @smithers/tui-docs start
 ```
 
 Open http://localhost:4388. `dev` runs Astro's editor server; use `start` for the
-same-origin sponsored endpoint. The browser can call a CORS-enabled provider
-from either server.
+same-origin sponsored endpoint.
 
-## Executable Markdown
+## Recordings
 
 A `tui-script` fence selects a reviewed scenario and drives the production TUI
-in a private PTY. The [authoring reference](../tui/docs/reference/recordings.md)
-lists the grammar. `Wait for answer` and worker/monitor status waits inspect
-persisted receipts; visible source text cannot satisfy a completion assertion.
-Repeated IDs must have identical scripts. `browser-script` drives the real
-playground in Chromium with controlled responses at its HTTP provider boundary.
+in a private PTY. The [authoring reference](../tui/docs/README.md) lists the
+grammar. `Wait for answer` and worker/monitor status waits inspect persisted
+receipts; visible source text cannot satisfy a completion assertion. Repeated
+IDs must have identical scripts. `browser-script` drives the real playground in
+Chromium with controlled responses at its HTTP provider boundary.
 
 Scenarios supply deterministic model responses and disposable projects. Cells,
-files, workers, flows, approvals, session recovery, and controls execute for
-real. Clipboard and external-editor fixtures stay inside the private workspace.
-Monitor examples use a local provider/judge. None of these recordings measures
-live model quality. The recorder captures terminal cells and colors through
-xterm, renders PNG frames in Chromium, and encodes GIFs with FFmpeg. Markdown
-embeds each GIF with a reduced-motion poster and accessible text transcript.
+files, workers, flows, approvals, conversation recovery, and controls execute
+for real. None of these recordings measures live model quality. The recorder
+captures terminal cells and colors through xterm, renders PNG frames in
+Chromium, and encodes GIFs with FFmpeg into `public/recordings/`.
+`pnpm --filter @smithers/site run capture:learn tui` records the ones the site
+uses and copies them to `apps/site/public/images/learn/`.
 
-`//apps/tui-docs:recordings` declares the source docs, TUI inputs, workspace
-runtime source closure, scripts, and lockfile. `:build` depends on that target.
-Both are cached builds. The recorder also verifies content hashes before a
-local cache hit and restores missing public artifacts from `.cache/recordings`.
-It publishes a receipt only after successful execution and GIF encoding.
-Source changes invalidate the record; prose-only changes reuse the same script.
+`//apps/tui-docs:recordings` declares the scripts, TUI inputs, workspace
+runtime source closure, and lockfile, and is a cached build. The recorder
+verifies content hashes before a local cache hit and restores missing public
+artifacts from `.cache/recordings`.
 
 Recording requires Node from `.node-version`, Bun >=1.4, Python 3, Git, FFmpeg,
 Chromium, and the native workspace helper for flow examples. Set
 `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to its installed path.
-`SMITHERS_DOCS_BUN`, `FFMPEG`, and `CHROME_BIN` select installed
-tools. Linux uses Playwright's installed Chromium; macOS defaults to Chrome.
-Model replay makes recording offline. The site itself needs no native TUI or
-private service once built.
+`SMITHERS_DOCS_BUN`, `FFMPEG`, and `CHROME_BIN` select installed tools.
 
 ## Browser host and recovery
 
@@ -90,9 +89,10 @@ Self-hosting variables: `PORT`, `HOST`, `DOCS_ORIGIN`, `DOCS_BUDGET_DB`,
 shared by requests to the same server. Hosted deployment, keys, domain setup,
 and multi-instance routing belong in the private deployment repository.
 
-Command and keyboard tables come from the TUI registries. After changing either,
-run `pnpm --filter @smithers/tui-docs sync:reference`. Coverage tests require a
-recording on every page, valid local links, and every registered command/key.
+The Commands and Keys pages on smithers.sh come from the TUI registries. After
+changing either, run `pnpm --filter @smithers/tui-docs sync:reference`. Coverage
+tests require a script for every TUI GIF the site uses and every registered
+command and key on those pages.
 
 ## Evidence
 
@@ -110,7 +110,7 @@ They start the portable server on an unused port; `DOCS_TEST_URL` selects an
 existing server instead.
 They cover unresolved transport, editable chat, duplicate submission, cross-tab
 exclusion, historical visibility, reload during a model request, branch isolation,
-personal credentials, provider refusal, mobile width, every site route, and every embedded GIF. Unit tests
+personal credentials, provider refusal, mobile width, and the former guide redirects. Unit tests
 also interrupt the real agent and recover it without duplicate completed calls.
 These are offline correctness tests, not evidence of a live OpenRouter model's
 quality or a hosted deployment. Release tracking: issue #1774.

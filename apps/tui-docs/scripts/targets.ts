@@ -13,6 +13,15 @@ const inputs = [
   Smithers.file("//scripts/workspace-packages.mjs")
 ]
 export const sourceFiles = Smithers.Filegroup({ srcs: inputs, cwd })
+/** The smithers.sh pages the coverage test checks against the TUI registries. */
+const sitePages = Smithers.Filegroup({
+  srcs: [
+    Smithers.file("//apps/site/src/content/docs/docs/tui/commands.mdx"),
+    Smithers.file("//apps/site/src/content/docs/docs/tui/keys.mdx"),
+    Smithers.file("//apps/site/scripts/journeys/journeys.mjs")
+  ],
+  cwd
+})
 export const recordings = (docs: ReturnType<typeof Smithers.Filegroup>, tui: ReturnType<typeof Smithers.Filegroup>) =>
   Smithers.ToolBuild({
     tool: "tui-recordings",
@@ -47,7 +56,7 @@ export const test = (docs: ReturnType<typeof Smithers.Filegroup>) =>
       )
     ),
     srcs: [Smithers.glob("test/**/*")],
-    deps: [sourceFiles, docs],
+    deps: [sourceFiles, docs, sitePages],
     cwd
   })
 export const browserTest = (build: ReturnType<typeof Smithers.ToolBuild>) =>

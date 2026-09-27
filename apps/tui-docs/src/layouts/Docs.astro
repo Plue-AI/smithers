@@ -1,22 +1,13 @@
 ---
-import { getCollection } from 'astro:content'
 import '../styles/site.css'
-const { title, description, headings = [] } = Astro.props
-const pages = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order)
-const sections = ['Start', 'Use the TUI', 'Automate', 'Reference']
-const href = (id: string) => id === 'readme' ? '/' : `/${id}/`
+const { title, description } = Astro.props
 ---
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/><meta name="description" content={description}/><title>{title} · Smithers TUI</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"/></head>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/><meta name="description" content={description}/><title>{title}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"/></head>
 <body>
 <a class="skip" href="#content">Skip to content</a>
-<header><a class="brand" href="/"><span class="mark">s_</span> smithers <span class="badge">TUI</span></a><nav aria-label="Links"><a href="https://github.com/smithersai/smithers/tree/main/apps/tui">Source ↗</a></nav></header>
-<div class="shell">
-<aside class="sidebar"><nav aria-label="Documentation">{sections.map(section => <Fragment><span class="nav-label">{section}</span>{pages.filter(page => page.data.section === section).map(page => <a href={href(page.id)} aria-current={Astro.url.pathname === href(page.id) ? 'page' : undefined}>{page.data.title}</a>)}</Fragment>)}</nav></aside>
-<main id="content"><div class="eyebrow">SMITHERS / TERMINAL AGENT</div><h1>{title}</h1><article><slot/></article></main>
-<aside class="on-page"><div class="nav-label">ON THIS PAGE</div>{headings.filter((h: { depth: number }) => h.depth === 2).map((h: { slug: string; text: string }) => <a href={`#${h.slug}`}>{h.text}</a>)}</aside>
-</div>
-
+<header><a class="brand" href="/"><span class="mark">s_</span> smithers <span class="badge">TUI</span></a><nav aria-label="Links"><a href="https://smithers.sh/docs/tui/">Docs ↗</a><a href="https://github.com/smithersai/smithers/tree/main/apps/tui">Source ↗</a></nav></header>
+<main id="content"><h1>{title}</h1><article><slot/></article></main>
 </body>
 </html>

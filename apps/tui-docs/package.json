@@ -3,10 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Executable documentation for the Smithers terminal agent",
+  "description": "The Smithers TUI browser playground and the recorder behind the TUI GIFs on smithers.sh",
   "scripts": {
     "dev": "astro dev",
-    "build": "node scripts/record.mjs && astro build",
+    "build": "astro build",
     "check": "astro check",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "record": "node scripts/record.mjs",

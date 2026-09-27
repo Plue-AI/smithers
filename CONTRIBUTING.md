@@ -50,9 +50,11 @@ and `pnpm docs:build`. Preview the main docs locally with
 `pnpm --filter @smithers/site run dev` and open `/docs/`. Commit generated
 content with its source changes.
 
-The TUI site is separate from both pipelines: author in `apps/tui/docs/` and
-use `apps/tui-docs` for executable recordings, command/key references, and
-site checks. See [TUI docs](apps/tui-docs/README.md). Regeneration does not
+TUI user docs live on the main site: the TUI tabs of `docs/learn/` and the
+TUI reference in `docs/tui/`. The scripts behind their GIFs live in
+`apps/tui/docs/recordings/`; `apps/tui-docs` records them, generates the
+command and key pages, and serves the browser playground. See
+[TUI playground and recordings](apps/tui-docs/README.md). Regeneration does not
 publish the app's repository Wiki; [the wiki recipe](factory/wiki/README.md)
 tracks its distinct generation, review, and Cloud publication receipts.
 

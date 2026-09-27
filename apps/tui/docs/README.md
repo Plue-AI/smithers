@@ -1,60 +1,51 @@
----
-title: Smithers in your terminal
-description: Make a change, inspect every step, and pick up where you left off.
-order: 0
-section: Start
----
+# TUI recordings
 
-Smithers is a coding agent that runs your requests as flows. Ask for a change, keep chatting while it works, and inspect the steps behind the result.
+The files in `recordings/` hold the scripts behind every TUI GIF on [smithers.sh](https://smithers.sh/docs/tui/). A `tui-script` fence names a scenario and drives the actual TUI in a private PTY. Model responses are deterministic fixtures; cells, file changes, session writes, controls, and checks execute for real.
 
-## Try it
-
-Fix a small bug in a private browser workspace. Run the agent, inspect a checkpoint, then branch to try a different approach.
-
-<playground></playground>
-
-The sandbox has two files and no access to your computer. Open **Settings** to use an OpenAI-compatible provider. Without a key, requests use the site's sponsored OpenRouter service when configured.
-
-## Make your first change
-
-Start with a failing check. Give Smithers the command that reproduces it and the result you expect.
-
-```tui-script fix-add
-Type "Fix math.js so node check.mjs passes."
+```tui-script recording-example
+Use "basic"
+Type "Explain math.js"
 Press Enter
-Wait for answer "Fixed"
-Capture "The agent edits math.js and verifies the result."
+Wait for answer "Ready."
+Capture "A Markdown script executes the terminal and captures its result."
 ```
 
-This recording runs the real terminal app against a scratch repository. Model responses come from a recorded session; file changes and checks execute again at build time. Other guides use deterministic model fixtures to exercise each control.
+## Script vocabulary
 
-## Keep the useful parts
+| Instruction                              | Effect                                                                |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `Use "basic"`                            | Select a reviewed fixture; must be first.                             |
+| `Type "text"`                            | Type text into the actual terminal.                                   |
+| `Press Ctrl+S`                           | Send a named key; single-letter controls are also supported.          |
+| `Wait for answer "Fixed"`                | Require a saved successful answer; source text cannot satisfy it.     |
+| `Wait for worker "review" status "done"` | Require the latest saved worker status; `monitor` is also supported.  |
+| `Wait for "text"`                        | Require visible terminal output before continuing.                    |
+| `Wait 500 ms`                            | Wait for an animation or guarded interaction; bounded to ten seconds. |
+| `Capture "caption"`                      | Save a frame and its text transcript.                                 |
+| `Expect file "math.js" contains "a + b"` | Verify the real fixture file.                                         |
+| `Restart`                                | Stop the process and reopen the same session with `-c`.               |
 
-Follow three examples in order:
+Browser examples use `browser-script` with `Click`, `Fill`, and `Capture` against the real playground. Provider responses are controlled at the HTTP boundary.
 
-1. [Fix a failing check](./guides/fix-a-bug.md). Give the agent a result it can verify.
-2. [Inspect and branch](./guides/time-travel.md). Read the steps, compare the files, and try another path.
-3. [Keep working](./guides/background-work.md). Delegate work without blocking chat.
+## Build and cache
 
-[Run Smithers locally](./installation.md) when you are ready to use your own repository.
+```bash
+pnpm exec smthrs build '//apps/tui-docs:recordings'
+pnpm --filter @smithers/site run capture:learn tui
+pnpm exec smthrs test '//apps/tui-docs:browserTests'
+```
 
-## Explore the terminal
+`:build` depends on `:recordings`, the Markdown, the renderer/runtime source closure, and the lockfile. The recorder hashes scenario inputs and tool versions, verifies cached artifact hashes, and publishes a receipt after assertions and encoding succeed. A changed caption or script invalidates its recording. GIFs, reduced-motion PNGs, transcripts, and receipts are build outputs.
 
-| Goal                                              | Guide                                          |
-| ------------------------------------------------- | ---------------------------------------------- |
-| Write, steer, or queue a prompt                   | [Chat](./guides/chat.md)                       |
-| Find a file, command, session, or worker          | [Search](./guides/search.md)                   |
-| Run a command and choose its context              | [Shell](./guides/shell.md)                     |
-| Delegate, stop, resume, and inspect a worker tree | [Background work](./guides/background-work.md) |
-| Review an edit and undo its captured changes      | [Diffs and undo](./guides/review-changes.md)   |
-| Save, resume, fork, and compact a conversation    | [Sessions](./guides/sessions.md)               |
-| Select a model and reasoning effort               | [Models](./guides/models.md)                   |
-| Approve or refuse consequential calls             | [Approvals](./guides/approvals.md)             |
-| Choose visible lanes and a theme                  | [Views and filters](./guides/appearance.md)    |
-| Read estimated time and tokens                    | [Estimates](./guides/estimates.md)             |
+Install the pinned Node, Bun 1.4 or later, Python 3, Git, FFmpeg, Chromium, and the native workspace helper for flow examples. `CHROME_BIN`, `FFMPEG`, `SMITHERS_DOCS_BUN`, and `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` select installed tools. A failed example fails the build.
 
-## Automate recurring work
+## Record a model run
 
-[Run durable flows](./automation/flows.md), [define custom agents](./automation/agents.md), [publish views and cards](./automation/views.md), [contribute shortcuts](./automation/extensions.md), and [monitor changes](./automation/monitors.md).
+```bash
+SMITHERS_TUI_APPROVE=all SMITHERS_TUI_RECORD=run.jsonl bun apps/tui/src/ask.ts "Fix the failing check."
+SMITHERS_TUI_REPLAY=run.jsonl bun run tui /path/to/scratch-project
+```
 
-The [command](./reference/commands.md), [keyboard](./reference/keys.md), [CLI](./reference/cli.md), and [configuration](./reference/configuration.md) references cover the complete terminal interface. Use [troubleshooting](./reference/troubleshooting.md) to recover a failure and [executable documentation](./reference/recordings.md) to reproduce a recording.
+`SMITHERS_TUI_REPLAY_SPEED` divides recorded delays. `SMITHERS_TUI_REPLAY_HOLD_MS` holds each reply before its first delta, useful for cancellation and queue examples. Replayed cells still have real effects: use a disposable project.
+
+The native unit suite is `bun test ./test` from `apps/tui`. The PTY suite is `bun test ./e2e` and requires `zmuxd`. Documentation capture has its own Python PTY driver and does not require zmux.

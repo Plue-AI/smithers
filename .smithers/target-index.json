@@ -9661,15 +9661,7 @@
       },
       {
         "kind": "file",
-        "path": "apps/tui-docs/src/content.config.ts"
-      },
-      {
-        "kind": "file",
         "path": "apps/tui-docs/src/layouts/Docs.astro"
-      },
-      {
-        "kind": "file",
-        "path": "apps/tui-docs/src/pages/[...slug].astro"
       },
       {
         "kind": "file",

@@ -1,14 +1,13 @@
 ---
-import { getEntry, render } from 'astro:content'
-import Docs from '../layouts/Docs.astro'
+import Page from '../layouts/Docs.astro'
 import Playground from '../components/Playground.astro'
-const page = (await getEntry('docs', 'readme'))!
-const { Content, headings } = await render(page)
 ---
-<Docs {...page.data} headings={headings}><Content/><template id="playground-template"><Playground/></template></Docs>
+<Page title="Smithers playground" description="Try the Smithers agent on a two-file sandbox in your browser.">
+<p>Fix a small bug in a private browser sandbox. Move the checkpoint slider to see the files at any step; branch to try another approach. The sandbox has no access to your computer. Open <strong>Settings</strong> to use your own OpenAI-compatible provider.</p>
+<Playground/>
+<p><a href="https://smithers.sh/docs/tui/">Run Smithers in your terminal</a></p>
+</Page>
 <script>
-const template = document.querySelector<HTMLTemplateElement>('#playground-template')!
-document.querySelector('playground')?.replaceWith(template.content)
 import { mount } from '../playground/ui'
 mount()
 </script>
