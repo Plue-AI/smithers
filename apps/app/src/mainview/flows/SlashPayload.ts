@@ -693,6 +693,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const { rest, repo } = splitTrailingRepo(positional)
     return rest === "" || repo === undefined ? no("Choose a Wiki page slug and repository.") : ok({ slug: rest, repo, ...(space === undefined ? {} : { space }) })
   },
+  "wiki.view": (args) => trimmed(args) === "read" || trimmed(args) === "edit" ? ok({ view: trimmed(args) }) : no("A Wiki page view is read or edit."),
   "wiki.space": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
     if (rest !== "public" && rest !== "private") return no("A Wiki space is public or private.")

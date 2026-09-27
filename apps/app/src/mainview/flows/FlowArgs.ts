@@ -32,6 +32,7 @@ export interface FlowInput {
   readonly "wiki.cloud": { readonly repo: string; readonly page: number; readonly space?: "public" | "private" }
   readonly "wiki.cloud.open": { readonly slug: string; readonly repo: string; readonly space?: "public" | "private" }
   readonly "wiki.space": { readonly space: "public" | "private"; readonly repo?: string }
+  readonly "wiki.view": { readonly view: "read" | "edit" }
   readonly "wiki.cloud.rename": { readonly slug?: string; readonly path: string; readonly repo?: string }
   readonly "wiki.cloud.delete": { readonly slug: string; readonly repo?: string }
   readonly "wiki.history": { readonly slug: string; readonly repo?: string; readonly page?: number }
@@ -206,6 +207,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "wiki.cloud": payload => line(token(payload, "repo"), token(payload, "page"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
   "wiki.cloud.open": payload => line(token(payload, "slug"), token(payload, "repo"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
   "wiki.space": payload => line(token(payload, "space"), token(payload, "repo")),
+  "wiki.view": payload => line(token(payload, "view")),
   "wiki.cloud.rename": payload => line(token(payload, "slug"), token(payload, "path"), token(payload, "repo")),
   "wiki.cloud.delete": payload => line(token(payload, "slug"), token(payload, "repo")),
   "wiki.history": payload => line(token(payload, "slug"), token(payload, "page"), token(payload, "repo")),

@@ -226,6 +226,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly retryCloudWiki: (id: string) => Promise<string | void | { value: string }>
   /** The Wiki spaces (#1922): the switch, the space's navigation index, a page's history, and the writes the pane offers. */
   readonly setWikiSpace: (space: string, repo?: string) => Promise<string | void>
+  readonly setWikiPageView: (view: string) => Promise<string | void>
   readonly loadWikiIndex: (repo?: string, space?: WikiSpace, quiet?: boolean) => Promise<string | { value: string }>
   readonly showWikiHistory: (slug: string, repo?: string, page?: number) => Promise<string | void | { value: string }>
   readonly createCloudWikiPage: (title: string, repo?: string) => Promise<string | void | { value: string }>
@@ -1256,7 +1257,7 @@ export const createAppController = (
   const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
   const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,
-    setWikiSpace, loadWikiIndex, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
+    setWikiSpace, setWikiPageView, loadWikiIndex, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
   const {
     clearConversation,
     selectWorldDocument,
@@ -1703,6 +1704,7 @@ export const createAppController = (
     retryCloudWiki,
     attachWorldEditor,
     setWikiSpace,
+    setWikiPageView,
     loadWikiIndex,
     showWikiHistory,
     createCloudWikiPage,

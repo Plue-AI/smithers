@@ -336,6 +336,7 @@ export const FLOW_NAMES = [
   "wiki.select",
   "wiki.space",
   "wiki.sync",
+  "wiki.view",
   "world",
   "world.delete",
   "world.delete.cancel",

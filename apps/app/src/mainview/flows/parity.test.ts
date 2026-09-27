@@ -318,7 +318,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../StorageRecoveryButton.tsx": 1,
     "../SubagentGrid.tsx": 4,
       "../FlowsSurface.tsx": 2,
-      "../WorldSurface.tsx": 14, // The wiki spaces (#1922): the switch, New page, Graph, History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.
+      "../WorldSurface.tsx": 15, // The wiki spaces (#1922): the switch, New page, Graph, Edit (wiki.view), History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.
       "../HelpBubble.tsx": 1,
       "../InputModeMenu.tsx": 2,

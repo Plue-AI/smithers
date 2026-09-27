@@ -126,6 +126,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "world.document.removed": z.object({ "type": z.literal("world.document.removed"), "actor": ActorSchema, "id": z.string() }).strict(),
   "wiki.pane.changed": z.object({ "type": z.literal("wiki.pane.changed"), "actor": ActorSchema, "pane": z.enum(["document", "graph"]), "path": z.union([z.string(), z.null()]) }).strict(),
   "wiki.space.changed": z.object({ "type": z.literal("wiki.space.changed"), "actor": ActorSchema, "space": WikiSpaceSchema }).strict(),
+  "wiki.page-view.changed": z.object({ "type": z.literal("wiki.page-view.changed"), "actor": ActorSchema, "view": z.enum(["read", "edit"]) }).strict(),
   "world.delete.asked": z.object({ "type": z.literal("world.delete.asked"), "actor": ActorSchema, "id": z.union([z.string(), z.null()]) }).strict(),
   "connector.local.requested": z.object({ "type": z.literal("connector.local.requested"), "actor": z.literal("user"), "access": z.enum(REPOSITORY_ACCESS_VALUES) }).strict(),
   "connector.local.cancelled": z.object({ "type": z.literal("connector.local.cancelled"), "actor": z.enum(["user", "system"]) }).strict(),

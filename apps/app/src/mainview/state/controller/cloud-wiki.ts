@@ -422,6 +422,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     return { value: `${outcome.pages.length} ${at} ${WIKI_DISPLAY_NAME} page${outcome.pages.length === 1 ? "" : "s"} in ${repo}: ${outcome.pages.map((page) => page.path).join(", ") || "none"}.` }
   }
 
+  /** `wiki.view <read|edit>`: the pane shows the page rendered, or its editor. */
+  const setWikiPageView = async (view: string): Promise<string | void> => {
+    if (view !== "read" && view !== "edit") return "A Wiki page view is read or edit."
+    if ((ctx.store.session().wikiPageView ?? "read") !== view) ctx.store.dispatch({ type: "wiki.page-view.changed", actor: ctx.commandActor, view })
+  }
+
   /** `wiki.space <public|private>`: the pane shows that space, and its index is read. */
   const setWikiSpace = async (spaceArg: string, repoArg?: string): Promise<string | void> => {
     if (spaceArg !== "public" && spaceArg !== "private") return "A Wiki space is public or private."
@@ -523,8 +529,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         shared.watch(id)
         const document = shared.read(id)!
         yield* shared.persist({ ...document, cloud: { ...document.cloud, phase: "live" } }, actor)
-        // With the Wiki pane open, the page opened is the page shown (the pane reads the session's selection).
-        if (ctx.store.session().surface === "world") ctx.store.dispatch({ type: "world.document.selected", actor, id })
+        // With the Wiki pane open, the page opened is the page shown (the pane reads the session's selection), and no card doubles it in the chat.
+        if (ctx.store.session().surface === "world" && actor === "user") {
+          ctx.store.dispatch({ type: "world.document.selected", actor, id })
+          void shared.flush(id)
+          return { value: `Opened ${document.path} at page revision ${incoming.page.revision}.` }
+        }
         const cardId = `wiki-open-${id}`
         const previous = ctx.store.collections.cards.get(cardId)
         const card: Card = {
@@ -840,6 +850,6 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     return false
   }
   return { listCloudWiki, openCloudWiki, editCloudWiki, prepareCloudWiki, retryCloudWiki, attachWorldEditor, scrollEditor,
-    loadWikiIndex, setWikiSpace, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki,
+    loadWikiIndex, setWikiSpace, setWikiPageView, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki,
     wikiIndexes: shared.wikiIndexes, hasIndexedPage }
 }

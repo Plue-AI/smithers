@@ -3,17 +3,18 @@ import { MarkdownEditorSurface, KnowledgeGraphSurface } from "./ViewModules"
 import { flowAction, flowProps } from "./flows/FlowAction"
 import { flowArgs } from "./flows/FlowArgs"
 import { fileGesture } from "./flows/CommandGesture"
-import { Button, EmptyState } from "@smthrs/ui"
-import { BacklinksPanel, OutlineView } from "@smthrs/ui/vault"
+import { Badge, Button, EmptyState, Eyebrow } from "@smthrs/ui"
+import { BacklinksPanel, OutlineView, parseOutline } from "@smthrs/ui/vault"
 import { useLiveQuery } from "@tanstack/react-db"
-import { BookOpen, History, Paperclip, Pencil, Plus, Trash2, Waypoints } from "lucide-react"
-import { Suspense, useMemo, useRef } from "react"
+import { BookOpen, History, Paperclip, Pencil, Plus, TextCursorInput, Trash2, Waypoints } from "lucide-react"
+import { Suspense, useMemo, useRef, useState } from "react"
 import { activeRepositoryId } from "./state/RepoContext"
 import { useController } from "./ControllerContext"
 import { WIKI_DISPLAY_NAME, WIKI_GRAPH_ALL_SCOPE } from "./state/AppState"
 import type { WorldDocument } from "./state/AppState"
 import { SurfaceHeader } from "./SurfaceChrome"
-import { attachmentUrl, indexDocumentId, indexLinksOf, isAttachment, openIndexPath, useWikiScope, WikiSpaceSwitch, WikiTree } from "./wiki/WikiNavigation"
+import { attachmentUrl, indexDocumentId, indexLinksOf, indexPageAt, isAttachment, openIndexPath, useWikiScope, WikiSpaceSwitch, WikiTree } from "./wiki/WikiNavigation"
+import { pageLinksOf, WikiPageView } from "./wiki/WikiPageView"
 import { linkGraphOf, linksOf, neighbourhoodOf } from "./wiki/VaultAdapter"
 
 
@@ -35,7 +36,8 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
       id: session.id,
       selectedWorldDocumentId: session.selectedWorldDocumentId,
       wikiPane: session.wikiPane,
-      wikiGraphPath: session.wikiGraphPath
+      wikiGraphPath: session.wikiGraphPath,
+      wikiPageView: session.wikiPageView
     }))
   )
   const session = sessionRows[0] ?? controller.store.session()
@@ -51,6 +53,16 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
   const graphMode = session.wikiPane === "graph"
   const graphPath = session.wikiGraphPath ?? null
   const fileInput = useRef<HTMLInputElement>(null)
+  /* The page view: the rendered page, or the editor (wiki.view). A local note has only its editor. */
+  const reading = (session.wikiPageView ?? "read") === "read" && selected?.cloud !== undefined && repo !== null
+  /* The heading a `[[Page#Heading]]` link named, until the page it opened has scrolled to it: transient chrome. */
+  const [pendingHeading, setPendingHeading] = useState<{ readonly id: string; readonly heading: string } | null>(null)
+  /** A wikilink activated in the reading view: the page by its path in this space, and the heading it names. */
+  const followLink = (path: string, heading?: string) => {
+    const page = repo === null ? undefined : indexPageAt(index, path)
+    if (page !== undefined && repo !== null) setPendingHeading(heading === undefined ? null : { id: indexDocumentId(repo, page), heading })
+    openIndexPath(scope, shown, controller.runCommand, path)
+  }
   /*
    * Librarian L5: the link rail and the graph are derived from the same
    * notes the sidebar lists (no effect, no second store). In a space the rail
@@ -141,7 +153,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                     <Button variant="ghost" size="icon" aria-label={`History of ${attachment.path}`} title="History"
                       {...flowAction(controller.runCommand, "wiki.history", flowArgs("wiki.history", { slug: attachment.slug, repo }))}><History size={13} /></Button>
                     <Button variant="ghost" size="icon" aria-label={`Rename ${attachment.path}`} title="Rename"
-                      {...flowAction(controller.runCommand, "wiki.cloud.rename", flowArgs("wiki.cloud.rename", { slug: attachment.slug, path: "", repo }))}><Pencil size={13} /></Button>
+                      {...flowAction(controller.runCommand, "wiki.cloud.rename", flowArgs("wiki.cloud.rename", { slug: attachment.slug, path: "", repo }))}><TextCursorInput size={13} /></Button>
                     <Button variant="ghost" size="icon" className="world-delete-btn" aria-label={`Delete ${attachment.path}`} title="Delete"
                       {...flowAction(controller.runCommand, "wiki.cloud.delete", flowArgs("wiki.cloud.delete", { slug: attachment.slug, repo }))}><Trash2 size={13} /></Button>
                   </div>
@@ -163,6 +175,8 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                   <div>
                     {selected.cloud === undefined ? null : <span className="world-document-revision" data-testid="wiki-page-revision">r{selected.cloud.remoteRevision}</span>}
                     {selected.cloud === undefined || repo === null || slug === undefined ? null : <>
+                      <Button variant="ghost" size="icon" aria-label="Edit" title="Edit" data-testid="wiki-page-edit" aria-pressed={!reading}
+                        {...flowAction(controller.runCommand, "wiki.view", reading ? "edit" : "read")}><Pencil size={13} /></Button>
                       {/* Attach: the file comes from the human's own dialog; the gesture carries it to wiki.attach. */}
                       <input ref={fileInput} type="file" hidden data-testid="wiki-attach-input" onChange={(event) => {
                         const file = event.currentTarget.files?.[0]
@@ -175,7 +189,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                       <Button variant="ghost" size="icon" aria-label={`History of ${selected.title}`} title="History" data-testid="wiki-page-history"
                         {...flowAction(controller.runCommand, "wiki.history", flowArgs("wiki.history", { slug, repo }))}><History size={13} /></Button>
                       <Button variant="ghost" size="icon" aria-label={`Rename ${selected.title}`} title="Rename" data-testid="wiki-page-rename"
-                        {...flowAction(controller.runCommand, "wiki.cloud.rename", flowArgs("wiki.cloud.rename", { slug, path: "", repo }))}><Pencil size={13} /></Button>
+                        {...flowAction(controller.runCommand, "wiki.cloud.rename", flowArgs("wiki.cloud.rename", { slug, path: "", repo }))}><TextCursorInput size={13} /></Button>
                       <Button variant="ghost" size="icon" className="world-delete-btn" aria-label={`Delete ${selected.title}`} title="Delete" data-testid="wiki-page-delete"
                         {...flowAction(controller.runCommand, "wiki.cloud.delete", flowArgs("wiki.cloud.delete", { slug, repo }))}><Trash2 size={13} /></Button>
                     </>}
@@ -192,7 +206,12 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                   </div>
                 </div>
                 {selected.cloud?.error == null ? null : <p className="world-document-notice" role="status">{selected.cloud.error}</p>}
-                {/* Layout only: the editor releases Tab itself (§21.2, `escapeTabOrder`). */}
+                {reading && repo !== null ? <div className="world-reading-region">
+                  <WikiPageView body={selected.body} links={pageLinksOf(index, selected.cloud?.pageId)} index={index} repo={repo} space={space}
+                    focusHeading={pendingHeading?.id === selected.id ? pendingHeading.heading : undefined}
+                    onFocused={() => setPendingHeading(null)} onOpen={followLink} />
+                </div> :
+                /* Layout only: the editor releases Tab itself (§21.2, `escapeTabOrder`). */
                 <div className="world-editor-region">
                   <Suspense fallback={<ViewSkeleton />}>
                     <MarkdownEditorSurface
@@ -213,7 +232,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                       }}
                     />
                   </Suspense>
-                </div>
+                </div>}
               </>
             ) :
             (
@@ -236,18 +255,23 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
               <BacklinksPanel
                 backlinks={[...links.backlinks]}
                 linksOut={[...links.linksOut]}
-                onOpenNote={(path) => openIndexPath(scope, shown, controller.runCommand, path)}
+                onOpenNote={(path) => followLink(path)}
                 linkProps={(path) => flowProps(indexPage === undefined ? "wiki.open" : "wiki.cloud.open", indexPage === undefined ? path : flowArgs("wiki.cloud.open", { slug: path.replace(/\.md$/i, "").split("/").pop() ?? path, repo: repo!, space }))}
               />
               {links.unresolved.length === 0 ? null : <ul className="wiki-unresolved" aria-label="Unresolved links">
                 {links.unresolved.map((target) => <li key={target}>[[{target}]]</li>)}
               </ul>}
-              {/* Each heading is the button door of wiki.heading: the editor scrolls to its source line. */}
-              <OutlineView
-                markdown={selected.body}
-                onHeadingClick={(line) => controller.runCommand("wiki.heading", String(line))}
-                headingProps={(heading) => flowProps("wiki.heading", String(heading.line))}
-              />
+              {/* The outline: each heading is the button door of wiki.heading; the editor scrolls to its source line, the reading view to the heading. */}
+              <section className="sui-vault-links-section wiki-outline" aria-label="Outline">
+                <div className="sui-vault-links-head"><Eyebrow>Outline</Eyebrow><Badge variant="secondary">{parseOutline(selected.body).length}</Badge></div>
+                <OutlineView
+                  markdown={selected.body}
+                  onHeadingClick={(line) => reading
+                    ? setPendingHeading({ id: selected.id, heading: parseOutline(selected.body).find((heading) => heading.line === line)?.text ?? "" })
+                    : controller.runCommand("wiki.heading", String(line))}
+                  headingProps={(heading) => flowProps("wiki.heading", String(heading.line))}
+                />
+              </section>
             </aside>
           ) :
           null}

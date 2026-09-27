@@ -867,6 +867,8 @@ export const SessionSchema = z.object({
   wikiGraphPath: z.string().nullable().optional(),
   /** The Wiki space the pane shows (#1922): public (repository-readable) or private (explicit access). Absent reads public. */
   wikiSpace: WikiSpaceSchema.optional(),
+  /** The Wiki pane's page view: the rendered page (read) or its editor (edit). Absent reads read. */
+  wikiPageView: z.enum(["read", "edit"]).optional(),
   /** Repository whose disconnect confirmation is open. */
   pendingConnectorRemovalId: z.string().nullable().optional(),
   /*
@@ -1516,6 +1518,12 @@ export type AppTransition =
     actor: Actor
     space: WikiSpace
   }
+  | {
+    /* The Wiki pane's page view: the rendered page or its editor. */
+    type: "wiki.page-view.changed"
+    actor: Actor
+    view: "read" | "edit"
+  }
 
   | {
     /*
@@ -1855,6 +1863,7 @@ export const initialSession = (theme: Session["theme"]): Session => ({
   pendingWorldDeleteId: null,
   wikiPane: "document",
   wikiSpace: "public",
+  wikiPageView: "read",
   wikiGraphPath: null,
   pendingConnectorRemovalId: null,
   activeTabId: MAIN_TAB_ID,

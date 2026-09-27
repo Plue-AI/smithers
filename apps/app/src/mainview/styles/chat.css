@@ -1186,3 +1186,12 @@
 .world-attachment { display: grid; place-items: center; flex: 1; min-height: 0; padding: 24px; overflow: auto; }
 .world-attachment img { max-width: 100%; max-height: 100%; border-radius: var(--r-sm); box-shadow: var(--shadow-1); }
 .wiki-unresolved { margin: 0; padding: 0 4px; list-style: none; color: var(--text-faint); font-family: var(--font-mono); font-size: var(--fs-caption); }
+.world-reading-region { flex: 1; min-height: 0; overflow: auto; }
+.wiki-page { width: min(100%, 760px); margin: 0 auto; padding: 38px 48px 120px; }
+.wiki-page .sui-md { font-size: var(--fs-body); }
+.wiki-page a.sui-md-link { color: var(--brand); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--brand) 40%, transparent); text-underline-offset: 2px; }
+/* A target the space has no page for: marked, never a door. */
+.wiki-page a.sui-md-link[href^="#unresolved/"] { color: var(--text-faint); text-decoration-style: dashed; cursor: default; }
+.wiki-embed { margin: 16px 0; }
+.wiki-embed img { display: block; max-width: 100%; border-radius: var(--r-sm); box-shadow: var(--shadow-1); }
+.wiki-outline { margin-top: 4px; }

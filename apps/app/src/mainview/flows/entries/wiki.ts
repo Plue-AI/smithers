@@ -218,6 +218,14 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ space, repo }) => actions.setWikiSpace(space, repo)
   }),
   flow({
+    /* The pane's page view: the rendered page with its links, or the editor. */
+    name: "wiki.view",
+    summary: "Show the Wiki page rendered, or its editor",
+    args: "read|edit",
+    input: Schema.Struct({ view: Schema.Literals(["read", "edit"]) }),
+    handler: ({ view }) => actions.setWikiPageView(view)
+  }),
+  flow({
     name: "wiki.cloud.new",
     summary: "Create a page in the repository Wiki",
     args: "<title> [owner/repo]",

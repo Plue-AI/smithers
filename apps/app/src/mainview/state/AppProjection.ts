@@ -238,6 +238,7 @@ export const APP_TRANSITION_TYPES = {
   "world.document.upserted": true,
   "wiki.pane.changed": true,
   "wiki.space.changed": true,
+  "wiki.page-view.changed": true,
   "world.delete.asked": true,
   "world.document.removed": true,
   "connector.local.requested": true,
@@ -2122,6 +2123,12 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         case "wiki.space.changed":
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.wikiSpace = transition.space
+          })
+          break
+
+        case "wiki.page-view.changed":
+          collections.sessions.update(SESSION_ID, (draft) => {
+            draft.wikiPageView = transition.view
           })
           break
 
