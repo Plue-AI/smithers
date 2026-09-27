@@ -369,6 +369,8 @@ from `Capability.Action.literals` and frozen.
   "net:get:**",
   "net:post:**",
   "model:call:**",
+  "memory:read:**",
+  "memory:write:**",
   "proc:spawn:**",
   "jj:status:**",
   "jj:diff:**",
