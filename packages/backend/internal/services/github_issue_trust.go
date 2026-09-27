@@ -16,51 +16,42 @@ import (
 // that configures its own label uses that label instead.
 const issueApprovalLabel = "smithers"
 
-// Issue and comment text is an instruction channel into an agent that holds
-// the repository's credentials, and no model-side screen is a security
-// boundary. Automatic work therefore starts only when the event's author is a
-// repository OWNER, MEMBER or COLLABORATOR (the gate the review Action uses).
-// NONE, CONTRIBUTOR, FIRST_TIMER, FIRST_TIME_CONTRIBUTOR, MANNEQUIN and a
-// missing value start nothing; a maintainer can still run the work by hand.
-func trustedGitHubAuthorAssociation(association string) bool {
-	switch strings.ToUpper(strings.TrimSpace(association)) {
-	case "OWNER", "MEMBER", "COLLABORATOR":
-		return true
-	}
-	return false
-}
+// Issue, pull request, comment and review text is an instruction channel
+// into an agent that holds the repository's credentials, and no model-side
+// screen is a security boundary. Automatic work therefore starts only from
+// text whose author and last writers are maintainers (GitHubTextStamper and
+// the native event payloads decide it once, at ingress), or from outsider
+// text a maintainer approved with the trigger label. A maintainer can still
+// run the work by hand.
 
-// gitHubLabelApplication is the label one "labeled" event applied and who
-// applied it. The zero value is any other event, or a sweep.
+// labelAppliedByMaintainerField is the field of a labeled event's label that
+// says whether a maintainer person applied it (GitHubTextStamper, native
+// label payloads); a label without it fails closed.
+const labelAppliedByMaintainerField = "smithers_applied_by_maintainer"
+
+// gitHubLabelApplication is the label one "labeled" event applied and
+// whether a maintainer person applied it. The zero value is any other event,
+// or a sweep.
 type gitHubLabelApplication struct {
-	Label      string
-	SenderType string
-	// ByAuthor is an application by the issue's own author, such as an issue
-	// form's template labels.
-	ByAuthor bool
+	Label        string
+	ByMaintainer bool
 }
 
-// gitHubLabelApplied reads the label application from a signed issue event.
+// gitHubLabelApplied reads the label application from a stamped issue event.
 func gitHubLabelApplied(action string, payload []byte) gitHubLabelApplication {
 	if !strings.EqualFold(strings.TrimSpace(action), "labeled") {
 		return gitHubLabelApplication{}
 	}
 	var event struct {
 		Label *struct {
-			Name string `json:"name"`
+			Name         string `json:"name"`
+			ByMaintainer bool   `json:"smithers_applied_by_maintainer"`
 		} `json:"label"`
-		Sender *gitHubActor `json:"sender"`
-		Issue  *struct {
-			User *gitHubActor `json:"user"`
-		} `json:"issue"`
 	}
-	if json.Unmarshal(payload, &event) != nil || event.Label == nil || event.Sender == nil || event.Issue == nil || event.Issue.User == nil {
+	if json.Unmarshal(payload, &event) != nil || event.Label == nil {
 		return gitHubLabelApplication{}
 	}
-	author, sender := event.Issue.User, event.Sender
-	byAuthor := sender.ID == 0 || author.ID == 0 || sender.ID == author.ID ||
-		strings.EqualFold(strings.TrimSpace(sender.Login), strings.TrimSpace(author.Login))
-	return gitHubLabelApplication{Label: event.Label.Name, SenderType: sender.Type, ByAuthor: byAuthor}
+	return gitHubLabelApplication{Label: event.Label.Name, ByMaintainer: event.Label.ByMaintainer}
 }
 
 // nativePersonActor is the person a native write names: the sender of a
@@ -119,50 +110,37 @@ func issueCarriesLabel(labels []string, label string) bool {
 
 // issueTextByMaintainerField is the field of an event's issue, pull
 // request, comment or review object that says whether its text is a
-// maintainer's own: a trusted author, and every part (a title, a body) last
-// written by the author or another maintainer person. GitHub names the
-// author's standing, not the writer's, so the webhook worker
-// (GitHubTextStamper) and the native event payloads set it; an object without
-// it fails closed.
+// maintainer's own: its author and the last writer of every part (a title, a
+// body) are maintainer persons. GitHub names the author's association, not
+// the writer's standing, so the webhook worker (GitHubTextStamper) and the
+// native event payloads set it; an object without it fails closed.
 const issueTextByMaintainerField = "smithers_text_by_maintainer"
-
-// maintainerText reports whether an object's text is a maintainer's own: a
-// trusted author, and the last write of each part was by the author or
-// another maintainer person. An edit by anyone else (a triage user, an app or
-// bot, a run credential, an import) makes it outsider text until a
-// maintainer writes it again or, for an issue, approves it with the trigger
-// label.
-func maintainerText(authorAssociation string, textByMaintainer bool) bool {
-	return textByMaintainer && trustedGitHubAuthorAssociation(authorAssociation)
-}
 
 // approvesIssueText is the single rule for whether an issue event approves
 // the issue's current text for credentialed work started by trigger. A
-// maintainer's text is approved as written. Other text is approved only by
-// this event applying the trigger label, while the label is on the issue.
-// GitHub lets only people with triage access change labels, but an issue form
-// applies its template labels as the author, and an app (including the
-// repository's own agent) is not a maintainer, so the application must come
-// from a user other than the author. Any other label, assignee or milestone
-// change approves nothing.
-func approvesIssueText(authorAssociation string, textByMaintainer bool, labels []string, applied gitHubLabelApplication, trigger string) bool {
-	if maintainerText(authorAssociation, textByMaintainer) {
+// maintainer's text is approved as written. Other text (an outsider's, or a
+// maintainer's issue someone else edited) is approved only by this event: a
+// maintainer person applying the trigger label, while the label is on the
+// issue. An app (including the repository's own agent), a read or triage
+// user, and an outsider author's own label approve nothing, and neither does
+// any other label, assignee or milestone change.
+func approvesIssueText(textByMaintainer bool, labels []string, applied gitHubLabelApplication, trigger string) bool {
+	if textByMaintainer {
 		return true
 	}
 	trigger = strings.TrimSpace(trigger)
 	return trigger != "" && strings.EqualFold(strings.TrimSpace(applied.Label), trigger) &&
-		applied.SenderType == "User" && !applied.ByAuthor && issueCarriesLabel(labels, trigger)
+		applied.ByMaintainer && issueCarriesLabel(labels, trigger)
 }
 
 // authoredText is the part of an event's issue, pull request, comment or
 // review object the trust rule reads.
 type authoredText struct {
-	AuthorAssociation string `json:"author_association"`
-	TextByMaintainer  bool   `json:"smithers_text_by_maintainer"`
+	TextByMaintainer bool `json:"smithers_text_by_maintainer"`
 }
 
 func (a *authoredText) maintainers() bool {
-	return a != nil && maintainerText(a.AuthorAssociation, a.TextByMaintainer)
+	return a != nil && a.TextByMaintainer
 }
 
 // eventIssue is the part of an event's issue object the trust rule reads.
@@ -193,12 +171,12 @@ func gitHubIssueEventApproves(eventType, action string, payload []byte, trigger 
 		}
 		applied = gitHubLabelApplication{}
 	}
-	return approvesIssueText(event.Issue.AuthorAssociation, event.Issue.TextByMaintainer, issueLabelNames(event.Issue.Labels), applied, trigger)
+	return approvesIssueText(event.Issue.TextByMaintainer, issueLabelNames(event.Issue.Labels), applied, trigger)
 }
 
 // gitHubEventByOutsider reports whether an event carries text that is not a
-// maintainer's own (maintainerText): an issue approved by a label, or a pull
-// request, comment or review. Work it starts never changes a protected path.
+// maintainer's own: an issue approved by a label, or a pull request, comment
+// or review. Work it starts never changes a protected path.
 func gitHubEventByOutsider(payload []byte) bool {
 	var event struct {
 		Issue       *authoredText `json:"issue"`

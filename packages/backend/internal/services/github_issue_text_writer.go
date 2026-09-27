@@ -8,22 +8,37 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
-// GitHub's issue events carry the author's association with the repository,
-// never the editor's, so who last wrote an issue's title and who last wrote
-// its body are read separately: the sender of an opened or edited event for
-// the parts it wrote, otherwise GitHub's edit history. A writer counts as a
-// maintainer when it is a user who is the author or holds write access; an
-// app, a bot, a deleted account or a triage user does not.
+// GitHub's events carry the author's association with the repository, never
+// the editor's, and an association (MEMBER, COLLABORATOR) does not say
+// whether the account may write. So the author and the last writer of each
+// part of an object's text (an issue's or pull request's title and body, a
+// comment's or review's body) are read separately: the sender of an event for
+// the parts it wrote, otherwise GitHub's edit history. Each must be a
+// maintainer: a user whose live repository permission is write, maintain or
+// admin. An app, a bot, a deleted account, a read or triage user is not.
 
-// gitHubIssueTextAPI reads issue writers and collaborator permissions.
+// gitHubMaintainerTTL is how long a permission answer is reused.
+const gitHubMaintainerTTL = time.Minute
+
+// gitHubIssueTextAPI reads text writers and collaborator permissions.
 type gitHubIssueTextAPI struct {
 	api *landingGitHubAPI
+	now func() time.Time
+
+	mu          sync.Mutex
+	maintainers map[string]gitHubMaintainerAnswer
+}
+
+type gitHubMaintainerAnswer struct {
+	maintainer bool
+	at         time.Time
 }
 
 // errGitHubIssueTextUnavailable is a transient failure: the caller retries.
@@ -34,7 +49,7 @@ var errGitHubIssueTextUnavailable = errors.New("GitHub did not answer who wrote 
 // account).
 type gitHubIssueText struct {
 	Title, Body             string
-	Author                  string
+	Author                  *gitHubActor
 	TitleWriter, BodyWriter *gitHubActor
 }
 
@@ -104,7 +119,7 @@ func (g *gitHubIssueTextAPI) IssueText(ctx context.Context, token, owner, repo s
 	text := gitHubIssueText{Title: issue.Title, Body: issue.Body}
 	if author := issue.Author.actor(); author != nil {
 		// GraphQL types the author by its account; the rule needs a user.
-		text.Author, text.TitleWriter, text.BodyWriter = author.Login, author, author
+		text.Author, text.TitleWriter, text.BodyWriter = author, author, author
 	}
 	if len(issue.Renames.Nodes) > 0 {
 		text.TitleWriter = issue.Renames.Nodes[0].Actor.actor()
@@ -122,8 +137,22 @@ func gitHubTransient(status int) bool {
 	return status >= 500 || status == http.StatusTooManyRequests || status == http.StatusForbidden
 }
 
-// Maintainer reports whether login holds write access to the repository.
+// Maintainer reports whether login may write the repository: GitHub's
+// permission is admin or write (maintain reads as write, triage as read, and
+// a custom role as its base). An answer is reused for gitHubMaintainerTTL; a
+// failure is not remembered and fails the caller closed.
 func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo, login string) (bool, error) {
+	key := strings.ToLower(owner + "/" + repo + "/" + login)
+	now := time.Now
+	if g.now != nil {
+		now = g.now
+	}
+	g.mu.Lock()
+	cached, ok := g.maintainers[key]
+	g.mu.Unlock()
+	if ok && now().Sub(cached.at) < gitHubMaintainerTTL {
+		return cached.maintainer, nil
+	}
 	var out struct {
 		Permission string `json:"permission"`
 	}
@@ -132,28 +161,29 @@ func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo,
 	if err != nil || gitHubTransient(status) {
 		return false, errGitHubIssueTextUnavailable
 	}
-	return status == http.StatusOK && (out.Permission == "admin" || out.Permission == "write"), nil
+	maintainer := status == http.StatusOK && (out.Permission == "admin" || out.Permission == "write")
+	g.mu.Lock()
+	if g.maintainers == nil {
+		g.maintainers = map[string]gitHubMaintainerAnswer{}
+	}
+	at := now()
+	for other, answer := range g.maintainers {
+		if at.Sub(answer.at) >= gitHubMaintainerTTL {
+			delete(g.maintainers, other)
+		}
+	}
+	g.maintainers[key] = gitHubMaintainerAnswer{maintainer: maintainer, at: at}
+	g.mu.Unlock()
+	return maintainer, nil
 }
 
-// gitHubUserWrote reports whether writer is a user and is the author.
-func gitHubUserWrote(author gitHubActor, writer *gitHubActor) bool {
-	if writer == nil || writer.Type != "User" {
-		return false
-	}
-	return (author.ID != 0 && writer.ID == author.ID) ||
-		(strings.TrimSpace(author.Login) != "" && strings.EqualFold(strings.TrimSpace(writer.Login), strings.TrimSpace(author.Login)))
-}
-
-// writerIsMaintainer applies the writer rule: a user who is the author, or a
-// user with write access.
-func (g *gitHubIssueTextAPI) writerIsMaintainer(ctx context.Context, token, owner, repo string, author gitHubActor, writer *gitHubActor) (bool, error) {
-	if gitHubUserWrote(author, writer) {
-		return true, nil
-	}
-	if writer == nil || writer.Type != "User" || strings.TrimSpace(writer.Login) == "" {
+// personIsMaintainer applies the maintainer rule to one account: a user
+// (never an app, bot or organization) with write access.
+func (g *gitHubIssueTextAPI) personIsMaintainer(ctx context.Context, token, owner, repo string, actor *gitHubActor) (bool, error) {
+	if actor == nil || actor.Type != "User" || strings.TrimSpace(actor.Login) == "" {
 		return false, nil
 	}
-	return g.Maintainer(ctx, token, owner, repo, writer.Login)
+	return g.Maintainer(ctx, token, owner, repo, actor.Login)
 }
 
 // gitHubIssueTextWrite is what one event says about an issue's text: its
@@ -166,10 +196,10 @@ type gitHubIssueTextWrite struct {
 	TitleWriter, BodyWriter *gitHubActor
 }
 
-// TextByMaintainer reports whether both parts of an issue's text were last
-// written by maintainers. A part the event did not write is read from GitHub
-// and must still be the event's text; text GitHub no longer shows is not a
-// maintainer's.
+// TextByMaintainer reports whether an object's author and the last writer
+// of both parts of its text are maintainers. A part the event did not write
+// is read from GitHub and must still be the event's text; text GitHub no
+// longer shows is not a maintainer's.
 func (g *gitHubIssueTextAPI) TextByMaintainer(ctx context.Context, token, owner, repo string, write gitHubIssueTextWrite) (bool, error) {
 	if write.TitleWriter == nil || write.BodyWriter == nil {
 		current, err := g.IssueText(ctx, token, owner, repo, write.Number)
@@ -192,12 +222,12 @@ func (g *gitHubIssueTextAPI) TextByMaintainer(ctx context.Context, token, owner,
 			}
 			write.BodyWriter = current.BodyWriter
 		}
-		if write.Author.Login == "" {
-			write.Author.Login = current.Author
+		if write.Author.Login == "" && current.Author != nil {
+			write.Author = *current.Author
 		}
 	}
-	for _, writer := range []*gitHubActor{write.TitleWriter, write.BodyWriter} {
-		if ok, err := g.writerIsMaintainer(ctx, token, owner, repo, write.Author, writer); err != nil || !ok {
+	for _, person := range []*gitHubActor{&write.Author, write.TitleWriter, write.BodyWriter} {
+		if ok, err := g.personIsMaintainer(ctx, token, owner, repo, person); err != nil || !ok {
 			return false, err
 		}
 	}
@@ -210,8 +240,9 @@ type gitHubIssueTextTokens interface {
 }
 
 // GitHubTextStamper sets issueTextByMaintainerField on every issue, pull
-// request, comment and review object of a signed event before any consumer
-// reads it. Without one, or for an untrusted author, the field is false.
+// request, comment and review object of a signed event, and
+// labelAppliedByMaintainerField on the label a labeled event applied, before
+// any consumer reads it. Without one, both are false.
 type GitHubTextStamper struct {
 	api    *gitHubIssueTextAPI
 	tokens gitHubIssueTextTokens
@@ -290,10 +321,33 @@ func (s *GitHubTextStamper) stampGitHubText(ctx context.Context, eventType, acti
 		}
 		changed = true
 	}
+	if kind == "issue" && strings.EqualFold(action, "labeled") && len(raw["label"]) > 0 {
+		var label map[string]json.RawMessage
+		if json.Unmarshal(raw["label"], &label) == nil && label != nil {
+			byMaintainer, err := run.labelApplication()
+			if err != nil {
+				return nil, err
+			}
+			label[labelAppliedByMaintainerField], _ = json.Marshal(byMaintainer)
+			if raw["label"], err = json.Marshal(label); err != nil {
+				return nil, err
+			}
+			changed = true
+		}
+	}
 	if !changed {
 		return payload, nil
 	}
 	return json.Marshal(raw)
+}
+
+// labelApplication reads whether a labeled event's sender is a maintainer
+// person.
+func (r *gitHubTextStamp) labelApplication() (bool, error) {
+	if r.stamper == nil || r.stamper.api == nil || r.stamper.tokens == nil || r.event.Installation.ID <= 0 || r.event.Sender == nil {
+		return false, nil
+	}
+	return r.personIsMaintainer(r.event.Repository.Owner.Login, r.event.Repository.Name, r.event.Sender)
 }
 
 // gitHubTextStamp stamps one event; it mints at most one token.
@@ -312,8 +366,7 @@ type gitHubTextStamp struct {
 // history; a comment or review body the event did not write is not trusted.
 func (r *gitHubTextStamp) object(kind, action, name string, text gitHubTextObject) (bool, error) {
 	s := r.stamper
-	if s == nil || s.api == nil || s.tokens == nil || r.event.Installation.ID <= 0 ||
-		!trustedGitHubAuthorAssociation(text.AuthorAssociation) {
+	if s == nil || s.api == nil || s.tokens == nil || r.event.Installation.ID <= 0 {
 		return false, nil
 	}
 	sender := r.event.Sender
@@ -337,7 +390,7 @@ func (r *gitHubTextStamp) object(kind, action, name string, text gitHubTextObjec
 	case own && (strings.EqualFold(action, "opened") || strings.EqualFold(action, "created") || strings.EqualFold(action, "submitted")):
 		write.TitleWriter, write.BodyWriter = sender, sender
 	case own && strings.EqualFold(action, "edited"):
-		if ok, err := r.writerIsMaintainer(owner, repo, write.Author, sender); err != nil || !ok {
+		if ok, err := r.personIsMaintainer(owner, repo, sender); err != nil || !ok {
 			return false, err
 		}
 		if _, ok := r.event.Changes["title"]; ok {
@@ -355,9 +408,6 @@ func (r *gitHubTextStamp) object(kind, action, name string, text gitHubTextObjec
 		}
 		write.TitleWriter = write.BodyWriter
 	}
-	if gitHubUserWrote(write.Author, write.TitleWriter) && gitHubUserWrote(write.Author, write.BodyWriter) {
-		return true, nil
-	}
 	token, err := r.installationToken()
 	if err != nil {
 		return false, err
@@ -365,15 +415,12 @@ func (r *gitHubTextStamp) object(kind, action, name string, text gitHubTextObjec
 	return s.api.TextByMaintainer(r.ctx, token, owner, repo, write)
 }
 
-func (r *gitHubTextStamp) writerIsMaintainer(owner, repo string, author gitHubActor, writer *gitHubActor) (bool, error) {
-	if gitHubUserWrote(author, writer) {
-		return true, nil
-	}
+func (r *gitHubTextStamp) personIsMaintainer(owner, repo string, person *gitHubActor) (bool, error) {
 	token, err := r.installationToken()
 	if err != nil {
 		return false, err
 	}
-	return r.stamper.api.writerIsMaintainer(r.ctx, token, owner, repo, author, writer)
+	return r.stamper.api.personIsMaintainer(r.ctx, token, owner, repo, person)
 }
 
 func (r *gitHubTextStamp) installationToken() (string, error) {

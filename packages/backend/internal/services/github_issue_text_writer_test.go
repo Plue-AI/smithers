@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ type fakeIssueTextGitHub struct {
 	title, body, author     string
 	titleWriter, bodyWriter *gitHubGraphQLActor // nil: never changed
 	permissions             map[string]string
+	permissionReads         map[string]int
 	status                  int
 	reads                   int
 }
@@ -49,7 +51,7 @@ func (f *fakeIssueTextGitHub) authorNode(r *http.Request) map[string]string {
 func newFakeIssueTextGitHub(t *testing.T) (*fakeIssueTextGitHub, *GitHubTextStamper) {
 	t.Helper()
 	fake := &fakeIssueTextGitHub{title: "Empty config crashes", body: "Steps: use []", author: "contributor",
-		permissions: map[string]string{}}
+		permissions: map[string]string{"contributor": "admin"}, permissionReads: map[string]int{}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
@@ -73,6 +75,7 @@ func newFakeIssueTextGitHub(t *testing.T) (*fakeIssueTextGitHub, *GitHubTextStam
 			return
 		}
 		if login, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/repos/Acme/demo/collaborators/"), "/permission"); ok {
+			fake.permissionReads[login]++
 			permission, known := fake.permissions[login]
 			if !known {
 				w.WriteHeader(http.StatusNotFound)
@@ -100,7 +103,7 @@ func issueTextEvent(t *testing.T, action string, sender map[string]any, changes 
 		"action": action, "installation": map[string]any{"id": 777}, "changes": changed, "sender": sender,
 		"repository": map[string]any{"id": 9001, "name": "demo", "owner": map[string]string{"login": "Acme"}},
 		"issue": map[string]any{"number": 24, "title": "Empty config crashes", "body": "Steps: use []", "author_association": "OWNER",
-			"user": map[string]any{"id": 922, "login": "contributor"}, "labels": []map[string]string{{"name": "smithers"}}},
+			"user": map[string]any{"id": 922, "login": "contributor", "type": "User"}, "labels": []map[string]string{{"name": "smithers"}}},
 	})
 	require.NoError(t, err)
 	return payload
@@ -148,22 +151,15 @@ func TestGitHubIssueTextEditedByAnAppOrTriageUserIsNotApproved(t *testing.T) {
 			retitled := stampIssueText(t, stamper, "edited", issueTextEvent(t, "edited", issueAuthor, "title"))
 			assert.False(t, gitHubIssueEventApproves("issues", "edited", retitled, issueApprovalLabel))
 
-			// The author's own label does not approve it; another
-			// maintainer re-applying the trigger label does, as outsider
-			// text: it never changes a protected path.
-			byAuthor := issueTextEvent(t, "labeled", issueAuthor)
-			var own map[string]any
-			require.NoError(t, json.Unmarshal(byAuthor, &own))
-			own["label"] = map[string]string{"name": "smithers"}
-			byAuthor, _ = json.Marshal(own)
-			assert.False(t, gitHubIssueEventApproves("issues", "labeled", stampIssueText(t, stamper, "labeled", byAuthor), issueApprovalLabel))
-			labeled := issueTextEvent(t, "labeled", issueEditor)
-			var raw map[string]any
-			require.NoError(t, json.Unmarshal(labeled, &raw))
-			raw["label"] = map[string]string{"name": "smithers"}
-			labeled, _ = json.Marshal(raw)
-			labeled = stampIssueText(t, stamper, "labeled", labeled)
-			assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel))
+			// The maintainer author re-applying the trigger label approves
+			// it, and so does another maintainer, as outsider text: it
+			// never changes a protected path.
+			fake.permissions["maintainer"] = "write"
+			for _, sender := range []map[string]any{issueAuthor, issueEditor} {
+				labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, sender))
+				assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel))
+			}
+			labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, issueEditor))
 			assert.True(t, gitHubEventByOutsider(labeled))
 		})
 	}
@@ -177,7 +173,7 @@ func TestGitHubIssueTextEditedByAMaintainerIsApproved(t *testing.T) {
 	edited := stampIssueText(t, stamper, "edited", issueTextEvent(t, "edited", issueAuthor, "title", "body"))
 	assert.True(t, gitHubIssueEventApproves("issues", "edited", edited, issueApprovalLabel))
 	assert.False(t, gitHubEventByOutsider(edited))
-	assert.Zero(t, fake.reads, "the author's own edit of both parts needs no lookup")
+	assert.Equal(t, 1, fake.reads, "the author's own edit of both parts reads only the author's standing")
 
 	opened := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
 	assert.True(t, gitHubIssueEventApproves("issues", "opened", opened, ""))
@@ -277,7 +273,7 @@ func textEvent(t *testing.T, kind, action string, sender map[string]any, changes
 	var event map[string]any
 	require.NoError(t, json.Unmarshal(issueTextEvent(t, action, sender, changes...), &event))
 	authored := func(fields map[string]any) map[string]any {
-		fields["author_association"], fields["user"] = "OWNER", map[string]any{"id": 922, "login": "contributor"}
+		fields["author_association"], fields["user"] = "OWNER", map[string]any{"id": 922, "login": "contributor", "type": "User"}
 		return fields
 	}
 	pull := authored(map[string]any{"number": 24, "title": "Empty config crashes", "body": "Steps: use []"})
@@ -358,4 +354,70 @@ func TestGitHubCommentPullAndReviewTextByAMaintainerIsTrusted(t *testing.T) {
 	fake.bodyWriter = nil
 	dismissed := stampText(t, stamper, "pull_request_review", "dismissed", textEvent(t, "pull_request_review", "dismissed", issueEditor))
 	assert.True(t, gitHubEventByOutsider(dismissed))
+}
+
+// labeledEvent is issueTextEvent applying the smithers label.
+func labeledEvent(t *testing.T, sender map[string]any) []byte {
+	t.Helper()
+	var event map[string]any
+	require.NoError(t, json.Unmarshal(issueTextEvent(t, "labeled", sender), &event))
+	event["label"] = map[string]string{"name": "smithers"}
+	payload, err := json.Marshal(event)
+	require.NoError(t, err)
+	return payload
+}
+
+// GitHub's MEMBER and COLLABORATOR associations include accounts that can
+// only read or triage. An author, writer or label sender counts as a
+// maintainer only while GitHub answers write, maintain or admin; the answer
+// is reused for a minute and a failure is retried, never trusted.
+func TestGitHubAuthorStandingIsReadLive(t *testing.T) {
+	t.Parallel()
+	fake, stamper := newFakeIssueTextGitHub(t)
+	now := time.Unix(1_800_000_000, 0)
+	stamper.api.now = func() time.Time { return now }
+	fake.permissions["contributor"] = "read" // a triage member: GitHub reports triage as read
+
+	opened := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", opened, issueApprovalLabel), "a read or triage member's issue")
+	comment := stampText(t, stamper, "issue_comment", "created", textEvent(t, "issue_comment", "created", issueAuthor))
+	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", comment, ""))
+	pull := stampText(t, stamper, "pull_request", "opened", textEvent(t, "pull_request", "opened", issueAuthor))
+	assert.True(t, gitHubEventByOutsider(pull))
+	assert.Equal(t, 1, fake.permissionReads["contributor"], "one answer serves every object for a minute")
+
+	fake.permissions["contributor"] = "write"
+	cached := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", cached, ""), "the cached answer stands within the minute")
+	now = now.Add(gitHubMaintainerTTL)
+	granted := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", granted, ""), "a maintainer (maintain reads as write)")
+
+	fake.status = http.StatusBadGateway
+	now = now.Add(gitHubMaintainerTTL)
+	_, err := stamper.stampGitHubText(context.Background(), "issues", "opened", issueTextEvent(t, "opened", issueAuthor))
+	require.ErrorIs(t, err, errGitHubIssueTextUnavailable, "an unanswered lookup is retried, never trusted")
+}
+
+// Only a maintainer person applies the trigger label: a triage user or an
+// app does not, and a maintainer may approve their own issue after someone
+// else edited it.
+func TestGitHubTriggerLabelNeedsAMaintainerPerson(t *testing.T) {
+	t.Parallel()
+	fake, stamper := newFakeIssueTextGitHub(t)
+	fake.permissions["triager"], fake.permissions["maintainer"] = "read", "write"
+	fake.bodyWriter = &gitHubGraphQLActor{Typename: "Bot", Login: "some-app[bot]"}
+	for name, sender := range map[string]map[string]any{"triage user": issueTriager, "app": issueBot} {
+		labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, sender))
+		assert.False(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), name)
+	}
+	for name, sender := range map[string]map[string]any{"another maintainer": issueEditor, "the maintainer author": issueAuthor} {
+		labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, sender))
+		assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), name)
+		assert.True(t, gitHubEventByOutsider(labeled), "approved by label: never a protected path")
+	}
+	outsider, fresh := newFakeIssueTextGitHub(t)
+	outsider.permissions["contributor"] = "read"
+	own := stampIssueText(t, fresh, "labeled", labeledEvent(t, issueAuthor))
+	assert.False(t, gitHubIssueEventApproves("issues", "labeled", own, issueApprovalLabel), "an outsider author's own label")
 }

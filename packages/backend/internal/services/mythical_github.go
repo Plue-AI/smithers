@@ -24,12 +24,12 @@ type mythicalGitHubRepo struct {
 
 // mythicalIssue is what admission reads of one GitHub issue.
 type mythicalIssue struct {
-	Number            int64
-	Title, Body, URL  string
-	State             string // open | closed
-	AuthorAssociation string
-	// TextByMaintainer: the title and body were last written by the author
-	// or another maintainer person (maintainerText).
+	Number           int64
+	Title, Body, URL string
+	State            string // open | closed
+	Author           gitHubActor
+	// TextByMaintainer: the author and the last writers of the title and
+	// body are maintainer persons (issueTextByMaintainerField).
 	TextByMaintainer bool
 	Labels           []string
 	PullRequest      bool
@@ -55,9 +55,11 @@ type mythicalPull struct {
 type mythicalGitHub interface {
 	Resolve(ctx context.Context, repository db.Repository, owner string, actorUserID int64) (mythicalGitHubRepo, error)
 	OpenIssues(ctx context.Context, gh mythicalGitHubRepo) ([]mythicalIssue, error)
-	// IssueTextByMaintainer reads whether an open issue's title and body,
-	// still as listed, were last written by maintainers.
+	// IssueTextByMaintainer reads whether an open issue's author and the
+	// last writers of its title and body, still as listed, are maintainers.
 	IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error)
+	// Maintainer reads whether an account is a maintainer person.
+	Maintainer(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error)
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
 	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string) (mythicalPull, error)
@@ -74,6 +76,7 @@ var mythicalGitHubAPIPermissions = map[string]string{"contents": "read", "issues
 
 type mythicalGitHubAPI struct {
 	api         *landingGitHubAPI
+	text        *gitHubIssueTextAPI
 	store       MythicalGitHubStore
 	tokens      LandingGitHubPullTokens
 	prover      GitHubRepoPushProver
@@ -85,8 +88,9 @@ type mythicalGitHubAPI struct {
 // dispatch and proves the stack actor's own push access before any write, the
 // credential policy of landing pull requests.
 func NewMythicalGitHub(store MythicalGitHubStore, tokens LandingGitHubPullTokens, prover GitHubRepoPushProver, connections RepoSyncConnectionChecker) *mythicalGitHubAPI {
+	api := &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL}
 	return &mythicalGitHubAPI{
-		api:   &landingGitHubAPI{client: observability.NewHTTPClient(30 * time.Second), baseURL: githubAPIBaseURL},
+		api: api, text: &gitHubIssueTextAPI{api: api},
 		store: store, tokens: tokens, prover: prover, connections: connections,
 		gitBase: func() string {
 			if base := strings.TrimSpace(os.Getenv("SMITHERS_GITHUB_GIT_BASE_URL")); base != "" {
@@ -137,14 +141,14 @@ func (g *mythicalGitHubAPI) Resolve(ctx context.Context, repository db.Repositor
 }
 
 type mythicalGitHubIssue struct {
-	Number            int64   `json:"number"`
-	Title             string  `json:"title"`
-	Body              *string `json:"body"`
-	HTMLURL           string  `json:"html_url"`
-	State             string  `json:"state"`
-	AuthorAssociation string  `json:"author_association"`
-	TextByMaintainer  bool    `json:"smithers_text_by_maintainer"`
-	Labels            []struct {
+	Number           int64       `json:"number"`
+	Title            string      `json:"title"`
+	Body             *string     `json:"body"`
+	HTMLURL          string      `json:"html_url"`
+	State            string      `json:"state"`
+	User             gitHubActor `json:"user"`
+	TextByMaintainer bool        `json:"smithers_text_by_maintainer"`
+	Labels           []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
 	PullRequest *struct{} `json:"pull_request"`
@@ -152,7 +156,7 @@ type mythicalGitHubIssue struct {
 
 func (i mythicalGitHubIssue) issue() mythicalIssue {
 	out := mythicalIssue{Number: i.Number, Title: i.Title, URL: i.HTMLURL, State: i.State,
-		AuthorAssociation: i.AuthorAssociation, TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil}
+		Author: i.User, TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil}
 	if i.Body != nil {
 		out.Body = *i.Body
 	}
@@ -163,8 +167,12 @@ func (i mythicalGitHubIssue) issue() mythicalIssue {
 }
 
 func (g *mythicalGitHubAPI) IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
-	return (&gitHubIssueTextAPI{api: g.api}).TextByMaintainer(ctx, gh.Token, gh.Owner, gh.Name,
-		gitHubIssueTextWrite{Number: issue.Number, Title: issue.Title, Body: issue.Body})
+	return g.text.TextByMaintainer(ctx, gh.Token, gh.Owner, gh.Name,
+		gitHubIssueTextWrite{Number: issue.Number, Title: issue.Title, Body: issue.Body, Author: issue.Author})
+}
+
+func (g *mythicalGitHubAPI) Maintainer(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error) {
+	return g.text.personIsMaintainer(ctx, gh.Token, gh.Owner, gh.Name, &account)
 }
 
 // OpenIssues lists every open issue, bounded to 20 pages of 100.

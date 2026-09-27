@@ -132,7 +132,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		return err
 	}
 	digest := mythicalIssueDigest(issue)
-	outsider := !maintainerText(issue.AuthorAssociation, issue.TextByMaintainer)
+	outsider := !issue.TextByMaintainer
 	body := issue.Body
 	if len(body) > mythicalPromptBytes {
 		body = body[:mythicalPromptBytes]
@@ -144,7 +144,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		}
 		approved := ""
 		switch {
-		case approvesIssueText(issue.AuthorAssociation, issue.TextByMaintainer, issue.Labels, applied, issueApprovalLabel):
+		case approvesIssueText(issue.TextByMaintainer, issue.Labels, applied, issueApprovalLabel):
 			approved = digest
 		case issueCarriesLabel(issue.Labels, issueApprovalLabel) && err == nil && existing.ApprovedDigest == digest:
 			approved = digest
@@ -257,16 +257,21 @@ func (s *MythicalService) backfill(ctx context.Context, repositoryID int64) (Myt
 	open := make(map[int64]bool, len(issues))
 	for _, issue := range issues {
 		open[issue.Number] = true
-		// A listing names no writer: text the item already holds keeps its
-		// writer; new text is read from GitHub's history, and text GitHub
-		// cannot answer for waits for the next sweep.
-		if trustedGitHubAuthorAssociation(issue.AuthorAssociation) {
-			if item, ok := known[issue.Number]; ok && item.IssueDigest == mythicalIssueDigest(issue) {
-				issue.TextByMaintainer = !item.Outsider
-			} else if issue.TextByMaintainer, err = s.github.IssueTextByMaintainer(ctx, gh, issue); err != nil {
-				s.logger.Warn("mythical.issue_writer_failed", "repository_id", repositoryID, "issue", issue.Number, "error", err)
-				continue
+		// A listing names no writer. Text the item already holds keeps the
+		// verdict on its writers, judged when they wrote it, and its author's
+		// standing is read again; new text is read from GitHub's history.
+		// Text GitHub cannot answer for waits for the next sweep.
+		var err error
+		if item, ok := known[issue.Number]; ok && item.IssueDigest == mythicalIssueDigest(issue) {
+			if !item.Outsider {
+				issue.TextByMaintainer, err = s.github.Maintainer(ctx, gh, issue.Author)
 			}
+		} else {
+			issue.TextByMaintainer, err = s.github.IssueTextByMaintainer(ctx, gh, issue)
+		}
+		if err != nil {
+			s.logger.Warn("mythical.issue_writer_failed", "repository_id", repositoryID, "issue", issue.Number, "error", err)
+			continue
 		}
 		if err := s.ObserveIssue(ctx, repositoryID, issue, gitHubLabelApplication{}); err != nil {
 			return counts, err

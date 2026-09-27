@@ -99,16 +99,18 @@ func TestRepositoryJobEventMatching(t *testing.T) {
 }
 
 // A stranger's issue matches a job only through the job's trigger label (its
-// configured label, else smithers) applied by a person, on the labeled text.
+// configured label, else smithers) applied by a maintainer person
+// (smithers_applied_by_maintainer), on the labeled text.
 func TestRepositoryJobStrangerIssueNeedsTheTriggerLabel(t *testing.T) {
 	t.Parallel()
-	stranger := func(action, applied, sender string, labels ...string) db.RepositoryJobEvent {
+	stranger := func(action, applied string, byMaintainer bool, labels ...string) db.RepositoryJobEvent {
 		names := make([]map[string]string, 0, len(labels))
 		for _, label := range labels {
 			names = append(names, map[string]string{"name": label})
 		}
 		payload, err := json.Marshal(map[string]interface{}{
-			"action": action, "label": map[string]string{"name": applied}, "sender": map[string]interface{}{"id": 7, "login": "maintainer", "type": sender},
+			"action": action, "label": map[string]interface{}{"name": applied, "smithers_applied_by_maintainer": byMaintainer},
+			"sender": map[string]interface{}{"id": 7, "login": "maintainer", "type": "User"},
 			"issue": map[string]interface{}{"number": 4, "author_association": "NONE", "labels": names, "body": "text",
 				"user": map[string]interface{}{"id": 9, "login": "stranger"}},
 		})
@@ -117,26 +119,23 @@ func TestRepositoryJobStrangerIssueNeedsTheTriggerLabel(t *testing.T) {
 	}
 	future := repositoryJobTestInput()
 	future.Events = []RepositoryJobEventRule{{Type: "issues", Actions: []string{"opened", "edited", "reopened", "labeled", "assigned"}}}
-	require.False(t, repositoryJobMatches(future, stranger("opened", "", "User")))
-	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", "User", "invalid")), "any label is not approval")
-	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", "User", "invalid", "smithers")), "a later label is not approval")
-	require.False(t, repositoryJobMatches(future, stranger("assigned", "", "User", "smithers")))
-	require.False(t, repositoryJobMatches(future, stranger("labeled", "smithers", "Bot", "smithers")), "an app is not a maintainer")
-	byAuthor := stranger("labeled", "smithers", "User", "smithers")
-	byAuthor.Payload = json.RawMessage(strings.Replace(string(byAuthor.Payload), `"id":7`, `"id":9`, 1))
-	require.False(t, repositoryJobMatches(future, byAuthor), "an issue form's template label is the author's own")
-	require.True(t, repositoryJobMatches(future, stranger("labeled", "smithers", "User", "smithers")))
+	require.False(t, repositoryJobMatches(future, stranger("opened", "", true)))
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", true, "invalid")), "any label is not approval")
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", true, "invalid", "smithers")), "a later label is not approval")
+	require.False(t, repositoryJobMatches(future, stranger("assigned", "", true, "smithers")))
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "smithers", false, "smithers")), "an app, a triage user or the stranger")
+	require.True(t, repositoryJobMatches(future, stranger("labeled", "smithers", true, "smithers")))
 
 	labeled := future
 	labeled.Label = "auto"
-	require.True(t, repositoryJobMatches(labeled, stranger("labeled", "auto", "User", "auto")))
-	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "invalid", "User", "auto", "invalid")))
-	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "smithers", "User", "smithers")), "the job's own label is its trigger")
+	require.True(t, repositoryJobMatches(labeled, stranger("labeled", "auto", true, "auto")))
+	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "invalid", true, "auto", "invalid")))
+	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "smithers", true, "smithers")), "the job's own label is its trigger")
 
 	trial := future
 	trial.Mode, trial.TrialIssueNumber, trial.TrialSource = "trial", 4, "github"
-	require.True(t, repositoryJobMatches(trial, stranger("opened", "", "User")), "the registration scopes its own trial issue")
-	other := stranger("labeled", "invalid", "User", "invalid")
+	require.True(t, repositoryJobMatches(trial, stranger("opened", "", true)), "the registration scopes its own trial issue")
+	other := stranger("labeled", "invalid", true, "invalid")
 	other.IssueNumber = 5
 	require.False(t, repositoryJobMatches(trial, other))
 }
@@ -850,60 +849,78 @@ func TestRepositoryJobOutsiderRunMarksItsWorkspace(t *testing.T) {
 	input.Events = []RepositoryJobEventRule{{Type: "issues", Actions: []string{"opened", "labeled"}}}
 	_, err := service.Register(ctx, "gateway", "token", "issues", input)
 	require.NoError(t, err)
-	admit := func(delivery, association, action string) {
-		body := json.RawMessage(fmt.Sprintf(`{"action":%q,"label":{"name":"smithers"},"sender":{"id":7,"login":"maintainer","type":"User"},
-			"issue":{"id":100,"number":41,"user":{"id":9,"login":"author"},"author_association":%q,"smithers_text_by_maintainer":true,"labels":[{"name":"smithers"}]}}`, action, association))
+	admit := func(delivery string, byMaintainer bool, action string) {
+		body := json.RawMessage(fmt.Sprintf(`{"action":%q,"label":{"name":"smithers","smithers_applied_by_maintainer":true},"sender":{"id":7,"login":"maintainer","type":"User"},
+			"issue":{"id":100,"number":41,"user":{"id":9,"login":"author"},"smithers_text_by_maintainer":%t,"labels":[{"name":"smithers"}]}}`, action, byMaintainer))
 		require.NoError(t, service.AdmitGitHubEvent(ctx, gateway.target.RepositoryID, db.GithubWebhookJob{DeliveryID: delivery, Payload: body},
 			TriggerEvent{Type: "issues", Action: action}))
 		repositoryJobPoll(t, service, gateway)
 	}
-	admit("maintainer", "MEMBER", "opened")
+	admit("maintainer", true, "opened")
 	marked, err := q.IsOutsiderWorkspace(ctx, input.WorkspaceID)
 	require.NoError(t, err)
 	require.False(t, marked)
-	admit("outsider", "NONE", "labeled")
+	admit("outsider", false, "labeled")
 	marked, err = q.IsOutsiderWorkspace(ctx, input.WorkspaceID)
 	require.NoError(t, err)
 	require.True(t, marked)
 }
 
-// A native issue or comment carries its author's association, so native and
-// GitHub events share one trust rule.
-func TestRepositoryJobNativeEventsCarryTheAuthorsAssociation(t *testing.T) {
+// A native issue, comment or label carries the maintainer stamps GitHub
+// events get from the webhook worker, so native and GitHub events share one
+// trust rule. A maintainer is a person who may write the repository.
+func TestRepositoryJobNativeEventsCarryTheMaintainerStamps(t *testing.T) {
 	pool, _, _, g, _ := repositoryJobFixture(t)
 	ctx := context.Background()
 	repo := g.target.RepositoryID
-	var stranger, writer int64
-	for name, id := range map[string]*int64{"stranger": &stranger, "writer": &writer} {
+	var stranger, writer, reader int64
+	for name, id := range map[string]*int64{"stranger": &stranger, "writer": &writer, "reader": &reader} {
 		login := name + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
 			login, login+"@example.invalid").Scan(id))
 	}
-	_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, writer)
+	_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write'),($1,$3,'read')`, repo, writer, reader)
 	require.NoError(t, err)
-	association := func(number int64, author int64) (string, string) {
-		var issueID int64
-		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO issues(repository_id,number,title,author_id) VALUES($1,$2,'native',$3) RETURNING id`,
-			repo, number, author).Scan(&issueID))
-		_, err := pool.Exec(ctx, `INSERT INTO issue_comments(issue_id,user_id,body,type) VALUES($1,$2,'more','comment')`, issueID, stranger)
+	// write runs one statement in a transaction that names its writer, as
+	// IssueService does.
+	write := func(editor int64, statement string, args ...any) {
+		tx, err := pool.Begin(ctx)
 		require.NoError(t, err)
-		var issue, comment string
-		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'issue'->>'author_association' FROM repository_job_events
+		defer func() { _ = tx.Rollback(ctx) }()
+		_, err = tx.Exec(ctx, `SELECT set_config('smithers.issue_text_editor', $1, true)`, strconv.FormatInt(editor, 10))
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, statement, args...)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
+	}
+	stamps := func(number int64, author int64) (bool, bool) {
+		write(author, `INSERT INTO issues(repository_id,number,title,author_id) VALUES($1,$2,'native',$3)`, repo, number, author)
+		var issueID int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM issues WHERE repository_id=$1 AND number=$2`, repo, number).Scan(&issueID))
+		write(author, `INSERT INTO issue_comments(issue_id,user_id,body,type) VALUES($1,$2,'more','comment')`, issueID, author)
+		var issue, comment bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT (payload->'issue'->>'smithers_text_by_maintainer')::boolean FROM repository_job_events
 			WHERE repository_id=$1 AND issue_number=$2 AND event_type='issues'`, repo, number).Scan(&issue))
-		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'comment'->>'author_association' FROM repository_job_events
+		require.NoError(t, pool.QueryRow(ctx, `SELECT (payload->'comment'->>'smithers_text_by_maintainer')::boolean FROM repository_job_events
 			WHERE repository_id=$1 AND issue_number=$2 AND event_type='issue_comment'`, repo, number).Scan(&comment))
 		return issue, comment
 	}
-	issue, comment := association(71, g.target.UserID)
-	require.Equal(t, "OWNER", issue)
-	require.Equal(t, "NONE", comment)
-	issue, _ = association(72, writer)
-	require.Equal(t, "COLLABORATOR", issue)
-	issue, _ = association(73, stranger)
-	require.Equal(t, "NONE", issue)
+	for number, want := range map[int64]struct {
+		author     int64
+		maintainer bool
+	}{71: {g.target.UserID, true}, 72: {writer, true}, 73: {stranger, false}, 74: {reader, false}} {
+		issue, comment := stamps(number, want.author)
+		require.Equal(t, want.maintainer, issue, "issue %d", number)
+		require.Equal(t, want.maintainer, comment, "comment on %d", number)
+	}
+	var association int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_job_events WHERE repository_id=$1
+		AND (payload->'issue' ? 'author_association' OR payload->'comment' ? 'author_association')`, repo).Scan(&association))
+	require.Zero(t, association, "native events name no GitHub-style association to trust")
 
-	// A native label names who applied it: a maintainer's smithers label
-	// approves a stranger's issue, the stranger's own label does not.
+	// A native label names whether a maintainer applied it: a maintainer's
+	// smithers label approves a stranger's issue, the stranger's own label
+	// and a read collaborator's do not.
 	q := db.New(pool)
 	var labelID, issueID int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO labels(repository_id,name,color) VALUES($1,'smithers','ffffff') RETURNING id`, repo).Scan(&labelID))
@@ -920,7 +937,66 @@ func TestRepositoryJobNativeEventsCarryTheAuthorsAssociation(t *testing.T) {
 		return gitHubIssueEventApproves("issues", "labeled", payload, issueApprovalLabel)
 	}
 	require.False(t, labeled(stranger))
+	require.False(t, labeled(reader))
+	require.True(t, labeled(writer))
 	require.True(t, labeled(g.target.UserID))
+}
+
+// The native maintainer rule is canWriteRepo, for every way a person holds
+// access to a user's or an organization's repository.
+func TestRepositoryNativeMaintainerIsCanWriteRepo(t *testing.T) {
+	pool, q, _, g, _ := repositoryJobFixture(t)
+	ctx := context.Background()
+	person := func(name string) int64 {
+		login := strings.ToLower(name) + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		var id int64
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email) VALUES($1,$1,$2,$2) RETURNING id`,
+			login, login+"@example.invalid").Scan(&id))
+		return id
+	}
+	orgName := "org" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	var orgID, orgRepo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO organizations(name,lower_name,description) VALUES($1,$1,'') RETURNING id`, orgName).Scan(&orgID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(org_id,name,lower_name,description,is_public,default_bookmark,next_issue_number)
+		VALUES($1,'r','r','',TRUE,'main',1) RETURNING id`, orgID).Scan(&orgRepo))
+	people := map[string]int64{"owner": g.target.UserID}
+	for _, name := range []string{"orgOwner", "member", "teamRead", "teamWrite", "teamAdmin", "exMember", "collabRead", "collabWrite", "collabAdmin", "stranger"} {
+		people[name] = person(name)
+	}
+	exec := func(statement string, args ...any) {
+		_, err := pool.Exec(ctx, statement, args...)
+		require.NoError(t, err)
+	}
+	exec(`INSERT INTO org_members(organization_id,user_id,role) VALUES($1,$2,'owner'),($1,$3,'member'),($1,$4,'member'),($1,$5,'member'),($1,$6,'member')`,
+		orgID, people["orgOwner"], people["member"], people["teamRead"], people["teamWrite"], people["teamAdmin"])
+	for _, permission := range []string{"read", "write", "admin"} {
+		var team int64
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO teams(organization_id,name,lower_name,permission) VALUES($1,$2,$2,$2) RETURNING id`,
+			orgID, permission).Scan(&team))
+		exec(`INSERT INTO team_repos(team_id,repository_id) VALUES($1,$2)`, team, orgRepo)
+		member := people["team"+strings.ToUpper(permission[:1])+permission[1:]]
+		exec(`INSERT INTO team_members(team_id,user_id) VALUES($1,$2)`, team, member)
+		if permission == "write" {
+			// A team member who left the organization keeps no grant.
+			exec(`INSERT INTO team_members(team_id,user_id) VALUES($1,$2)`, team, people["exMember"])
+		}
+	}
+	for _, repo := range []int64{g.target.RepositoryID, orgRepo} {
+		exec(`INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'read'),($1,$3,'write'),($1,$4,'admin')`,
+			repo, people["collabRead"], people["collabWrite"], people["collabAdmin"])
+		repository, err := q.GetRepoByID(ctx, repo)
+		require.NoError(t, err)
+		for name, id := range people {
+			want, err := canWriteRepo(ctx, q, repository, id)
+			require.NoError(t, err)
+			var got bool
+			require.NoError(t, pool.QueryRow(ctx, `SELECT repository_native_maintainer($1,$2)`, repo, id).Scan(&got))
+			require.Equal(t, want, got, "%s on repository %d", name, repo)
+		}
+		var none bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT repository_native_maintainer($1,NULL)`, repo).Scan(&none))
+		require.False(t, none, "text no person wrote")
+	}
 }
 
 // A native label reaches the one trust rule through the label service, which
@@ -1099,8 +1175,31 @@ func TestRepositoryJobNativeCommentTextNamesItsLastWriter(t *testing.T) {
 	require.False(t, matched)
 	_, err = issues.UpdateIssueComment(session(&writer), &writer, owner.Username, repoName, own.ID, UpdateIssueCommentInput{Body: "also the CHANGELOG, please"})
 	require.NoError(t, err)
-	approved, _ = last("edited")
+	approved, matched = last("edited")
 	require.True(t, approved, "another maintainer's edit")
+	require.True(t, matched)
+
+	// A retried request with the same identity keeps the first writer.
+	keyed, err := issues.CreateIssueComment(session(&owner), &owner, owner.Username, repoName, created.Number,
+		CreateIssueCommentInput{Body: "keyed", IdempotencyKey: "retry-1"})
+	require.NoError(t, err)
+	_, _ = last("created")
+	retried, err := issues.CreateIssueComment(run, &owner, owner.Username, repoName, created.Number,
+		CreateIssueCommentInput{Body: "keyed", IdempotencyKey: "retry-1"})
+	require.NoError(t, err)
+	require.Equal(t, keyed.ID, retried.ID)
+	var editor pgtype.Int8
+	require.NoError(t, pool.QueryRow(ctx, `SELECT body_editor_id FROM issue_comments WHERE id=$1`, keyed.ID).Scan(&editor))
+	require.Equal(t, owner.ID, editor.Int64, "the retry does not rename the writer")
+
+	// Deleting the writer's account clears the writer; the comment is no
+	// longer a maintainer's.
+	_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE user_id=$1`, writerID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, writerID)
+	require.NoError(t, err, "ON DELETE SET NULL clears the writer")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT body_editor_id FROM issue_comments WHERE id=$1`, own.ID).Scan(&editor))
+	require.False(t, editor.Valid)
 
 	_, err = issues.CreateIssueComment(run, &owner, owner.Username, repoName, created.Number, CreateIssueCommentInput{Body: "from a run"})
 	require.NoError(t, err)

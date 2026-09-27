@@ -27,8 +27,8 @@ func gitHubIssueEventJob(eventType, action string) db.GithubWebhookJob {
 			"action":"created",
 			"installation":{"id":777},
 			"repository":{"id":9001,"name":"demo","full_name":"Acme/demo","owner":{"login":"Acme"},"default_branch":"trunk"},
-			"issue":{"id":512,"number":24,"title":"Empty config crashes","body":"Steps: use []","state":"open","html_url":"https://github.com/Acme/demo/issues/24","user":{"id":922,"login":"contributor"},"labels":[{"name":"bug"}],"author_association":"COLLABORATOR"},
-			"comment":{"id":2048,"body":"Here is the requested configuration: []","user":{"id":922,"login":"contributor"},"html_url":"https://github.com/Acme/demo/issues/24#issuecomment-2048","author_association":"COLLABORATOR"},
+			"issue":{"id":512,"number":24,"title":"Empty config crashes","body":"Steps: use []","state":"open","html_url":"https://github.com/Acme/demo/issues/24","user":{"id":922,"login":"contributor","type":"User"},"labels":[{"name":"bug"}],"author_association":"COLLABORATOR"},
+			"comment":{"id":2048,"body":"Here is the requested configuration: []","user":{"id":922,"login":"contributor","type":"User"},"html_url":"https://github.com/Acme/demo/issues/24#issuecomment-2048","author_association":"COLLABORATOR"},
 			"sender":{"id":922,"login":"contributor","type":"User"}
 		}`),
 	}
@@ -284,9 +284,9 @@ func setGitHubIssueEventLabel(t *testing.T, job *db.GithubWebhookJob, label, sen
 	job.Payload = encode(raw)
 }
 
-// Only the trigger label, applied by a person other than the author,
-// approves a stranger's issue text; any other label, an app's label, or an
-// assignee or milestone change approves nothing. Workflow triggers configure
+// Only the trigger label, applied by a maintainer person, approves a
+// stranger's issue text; any other label, an app's or the stranger's own
+// label, or an assignee or milestone change approves nothing. Workflow triggers configure
 // no trigger label, so a stranger's issue never starts one.
 func TestGitHubIssueEventWorker_OnlyTheTriggerLabelFromAPersonStartsAStrangersIssue(t *testing.T) {
 	t.Parallel()
@@ -316,9 +316,14 @@ func TestGitHubIssueEventWorker_OnlyTheTriggerLabelFromAPersonStartsAStrangersIs
 				return []db.WorkflowTrigger{{WorkflowDefinitionID: 10, EventType: "issues", Enabled: true}}, nil
 			}
 			dispatcher := &mockGitHubWebhookEventRunDispatcher{}
-			require.NoError(t, NewGitHubWebhookEventWorker(queries, dispatcher).PollOnce(context.Background()))
+			fake, stamper := newFakeIssueTextGitHub(t)
+			fake.permissions = map[string]string{"user7": "write"}
+			worker := NewGitHubWebhookEventWorker(queries, dispatcher)
+			worker.SetTextStamper(stamper)
+			require.NoError(t, worker.PollOnce(context.Background()))
 			assert.Empty(t, dispatcher.calls)
-			assert.Equal(t, tc.starts, gitHubIssueEventApproves("issues", tc.action, job.Payload, issueApprovalLabel))
+			stamped := stampIssueText(t, stamper, tc.action, job.Payload)
+			assert.Equal(t, tc.starts, gitHubIssueEventApproves("issues", tc.action, stamped, issueApprovalLabel))
 			assert.Equal(t, []int64{job.ID}, queries.markDoneIDs)
 		})
 	}
