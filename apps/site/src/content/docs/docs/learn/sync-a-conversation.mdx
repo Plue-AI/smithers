@@ -28,10 +28,6 @@ A conversation syncs with one Slack thread or one Telegram chat or topic. A mess
 
 <AppScreenshot src="/images/learn/preview-integrations.png" alt="Design preview of the Connect card with Slack, Linear, and Notion rows." caption="Design preview with example data. Not connected yet." width={868} height={338} />
 
-:::note[Capture needed]
-The app connecting a chat to a Slack thread, then showing it as connected. Needs the chat-sync backend and #2116 landed, and a test Slack workspace.
-:::
-
 </TabItem>
 <TabItem label="TUI">
 
@@ -67,10 +63,6 @@ An empty `thread_id` starts a new Slack thread. For Telegram, `scope_id` is the 
 **Planned.** The conversation shows each message with its author, a `slack` mark on synced ones, and **Retry** on a message that did not deliver ([#2111](https://github.com/smithersai/smithers/issues/2111)).
 
 <AppScreenshot src="/images/learn/preview-chat.png" alt="Design preview of a chat: messages from a person and two agents, a Slack link, reactions, and a failed message with Retry." caption="Design preview with example data. Not connected yet." width={868} height={691} />
-
-:::note[Capture needed]
-A reply typed in Slack appearing once in the app, then an edit and a delete. Needs a live Slack round trip (#2105).
-:::
 
 </TabItem>
 <TabItem label="TUI">

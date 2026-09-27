@@ -12,7 +12,7 @@
  *   4. every internal link resolves to a page that exists
  *   5. every link anchor resolves to a heading on the target page
  *   6. imports in ts fences resolve to published packages
- *   7. no "coming soon" or "TODO" in prose
+ *   7. no "coming soon", "capture needed", or "TODO" in prose
  *   8. every anchor the 1.0 CLI links to exists on the migration page
  *   9. the API roster's workspace-private labels match the package manifests
  *  10. a page that imports a workspace-private package says so beside its name
@@ -160,7 +160,7 @@ for (const p of pages) {
     fenceOpen = !fenceOpen
   }
   // 7. coming soon
-  const soon = p.noFences.match(/coming soon/i)
+  const soon = p.noFences.match(/coming soon|capture needed/i)
   if (soon) err(p.path, `banned phrase: ${soon[0]}`)
   // 11. registration entry point. The home page registers a repository through
   // GitHub sign-in plus installing the Smithers GitHub App, so no page may send

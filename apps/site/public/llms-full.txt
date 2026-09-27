@@ -867,10 +867,6 @@ A conversation syncs with one Slack thread or one Telegram chat or topic. A mess
 
 Design preview with example data. Not connected yet.
 
-:::note[Capture needed]
-The app connecting a chat to a Slack thread, then showing it as connected. Needs the chat-sync backend and #2116 landed, and a test Slack workspace.
-:::
-
 **TUI**
 
 **Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
@@ -901,10 +897,6 @@ An empty `thread_id` starts a new Slack thread. For Telegram, `scope_id` is the 
 ![Design preview of a chat: messages from a person and two agents, a Slack link, reactions, and a failed message with Retry.](/images/learn/preview-chat.png)
 
 Design preview with example data. Not connected yet.
-
-:::note[Capture needed]
-A reply typed in Slack appearing once in the app, then an edit and a delete. Needs a live Slack round trip (#2105).
-:::
 
 **TUI**
 
@@ -1732,10 +1724,6 @@ With no pages yet, **Create Wiki** generates them.
 
 The Wiki card before any pages exist.
 
-:::note[Capture needed]
-An edit to a note saved as a new revision. Needs a signed-in account on a repository with the Wiki service on.
-:::
-
 **TUI**
 
 **Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
@@ -1849,10 +1837,6 @@ Paste the repository's link. Smithers analyzes it while you watch, answering eac
 **GUI**
 
 **Planned.** Sign in with GitHub on [smithers.sh](https://smithers.sh/smithersai/smithers), then select **Register a repository** on [the home page](https://smithers.sh/?register=1), or enter `/repository.register`. Paste the link. Smithers' own choices animate as it makes them. A row in the sidebar shows where it is: Analyzing, In review, Setting up, Ready.
-
-:::note[Capture needed]
-A GIF of registering a repository in the real app: the link, the analysis choosing its answers, the report, and the In review row. Needs `/repository.register` on main.
-:::
 
 **TUI**
 
