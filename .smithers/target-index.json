@@ -9889,6 +9889,14 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/subagent-view.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/subagents.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/subprocess.ts"
       },
       {
