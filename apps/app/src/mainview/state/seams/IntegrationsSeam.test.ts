@@ -29,12 +29,11 @@ test("connected rows come from the registered routes: the owner's Slack admissio
     : Response.json([{ id: 1, repo_owner: "someone", repo_name: "else", linear_team_key: "OPS", is_active: true, last_sync_at: null },
       { id: 2, repo_owner: "owner", repo_name: "repo", linear_team_key: "ENG", is_active: true, last_sync_at: "2026-09-26T09:40:00Z" }]))
   try {
-    expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C001, C002\nlinear: connected · ENG\nnotion: coming-soon" })
+    expect(await seam.listIntegrations("Owner/Repo")).toEqual({ value: "slack: connected · C001, C002\nlinear: connected · ENG" })
     expect(seen.sort()).toEqual([LINEAR, CHANNELS].sort())
     expect(rows()).toEqual([
       { id: "slack", state: "connected", detail: "C001, C002" },
-      { id: "linear", state: "connected", detail: "ENG", lastSyncAt: "2026-09-26T09:40:00Z" },
-      { id: "notion", state: "coming-soon" }
+      { id: "linear", state: "connected", detail: "ENG", lastSyncAt: "2026-09-26T09:40:00Z" }
     ])
   } finally { await store.dispose?.() }
 })
@@ -45,7 +44,7 @@ test("no admissions and no Linear row for this repository read not-connected", a
     : Response.json([{ id: 1, repo_owner: "someone", repo_name: "else", linear_team_key: "OPS", is_active: true }]))
   try {
     await seam.listIntegrations("Owner/Repo")
-    expect(rows()?.map(row => row.state)).toEqual(["not-connected", "not-connected", "coming-soon"])
+    expect(rows()?.map(row => row.state)).toEqual(["not-connected", "not-connected"])
   } finally { await store.dispose?.() }
 })
 
@@ -57,8 +56,7 @@ test("a route this server does not register is unavailable, not a disconnected a
     await seam.listIntegrations("Owner/Repo")
     expect(rows()).toEqual([
       { id: "slack", state: "unavailable" },
-      { id: "linear", state: "error", error: "token revoked" },
-      { id: "notion", state: "coming-soon" }
+      { id: "linear", state: "error", error: "token revoked" }
     ])
   } finally { await store.dispose?.() }
 })

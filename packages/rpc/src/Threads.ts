@@ -76,9 +76,9 @@ export type TaskMeta = z.infer<typeof TaskMetaSchema>
  * @category schemas
  */
 export const IntegrationRowSchema = z.object({
-  id: z.enum(["slack", "linear", "notion"]),
+  id: z.enum(["slack", "linear"]),
   /** `unavailable`: this server (or this host's proxy) has no route for the service, which is not the same as the account being disconnected. */
-  state: z.enum(["connected", "not-connected", "coming-soon", "unavailable", "error"]),
+  state: z.enum(["connected", "not-connected", "unavailable", "error"]),
   /** The mapped target in the service's own words (`#smithers-team`, `ENG`). */
   detail: z.string().optional(),
   /** The server's error, verbatim. */

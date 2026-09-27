@@ -85,7 +85,7 @@ export const createIntegrationsSeam = (ctx: SeamContext): IntegrationsSeam => {
       const work = async () => {
         const [slack, linear] = await Promise.all([slackRow(repo), linearRow(repo)])
         if (!current()) return TOAST_SUPERSEDED
-        const rows: Array<IntegrationRow> = [slack, linear, { id: "notion", state: "coming-soon" }]
+        const rows: Array<IntegrationRow> = [slack, linear]
         const latest = ctx.store.collections.cards.get(CONNECT_CARD_ID)
         const card = latest?.kind === "connect" ? latest : base
         await ctx.dispatch({ type: "card.upsert", actor, card: { ...card, payload: { ...card.payload, integrations: { repo, rows } } } }).isPersisted.promise

@@ -3,7 +3,7 @@ import { MarkdownEditorSurface } from "../ViewModules"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { Badge, Button, FileTree } from "@smthrs/ui"
-import { BookOpen, ExternalLink, GitPullRequest, Hash, ListChecks, Server } from "lucide-react"
+import { ExternalLink, GitPullRequest, Hash, ListChecks, Server } from "lucide-react"
 import { ageLabel } from "../Timestamps"
 import { Suspense, useId, useContext, type ReactNode } from "react"
 import { parseOutline } from "@smthrs/ui/vault"
@@ -60,11 +60,11 @@ export const ConnectCardBody = ({
         Import
       </Button>
     </li>
-    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack, Linear, Notion for conversations, issues and the wiki, read by integrations.list. */}
+    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack for conversations and Linear for issues, read from the registered routes by integrations.list. */}
     {card.payload.integrations?.rows.map((row) => (
       <li key={row.id} className="connect-store-row" data-integration={row.id} data-state={row.state}>
         <span className="connect-store-icon">
-          {row.id === "slack" ? <Hash size={16} aria-hidden="true" /> : row.id === "linear" ? <ListChecks size={16} aria-hidden="true" /> : <BookOpen size={16} aria-hidden="true" />}
+          {row.id === "slack" ? <Hash size={16} aria-hidden="true" /> : <ListChecks size={16} aria-hidden="true" />}
         </span>
         <span className="connect-store-text">
           <strong>{INTEGRATION_NAMES[row.id]}</strong>
@@ -75,7 +75,6 @@ export const ConnectCardBody = ({
           {row.error === undefined ? null : <span className="connect-store-error" role="alert">{row.error}</span>}
         </span>
         {row.state === "connected" ? <Badge variant="success">Connected ✓</Badge>
-          : row.state === "coming-soon" ? <Badge variant="outline">Coming soon</Badge>
           : row.state === "unavailable" ? <Badge variant="outline">Unavailable</Badge>
           : row.state === "error" ? <Badge variant="destructive">Error</Badge>
           : null}
@@ -84,8 +83,8 @@ export const ConnectCardBody = ({
   </ul>
 )
 
-const INTEGRATION_NAMES = { slack: "Slack", linear: "Linear", notion: "Notion" } as const
-const INTEGRATION_SYNCS = { slack: "conversations", linear: "issues", notion: "wiki" } as const
+const INTEGRATION_NAMES = { slack: "Slack", linear: "Linear" } as const
+const INTEGRATION_SYNCS = { slack: "conversations", linear: "issues" } as const
 
 /*
  * The world query's embedded answer card (§2c″) — the answer rides in the chat
