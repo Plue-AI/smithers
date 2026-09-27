@@ -120,3 +120,37 @@ it("does not use ambient API keys for a native judgment", async () => {
     )
   ).rejects.toMatchObject({ code: "unreachable" })
 })
+
+it.each(["unavailable", "disconnected"] as const)(
+  "fails closed when the subscription pool is %s during resolution",
+  async (failure) => {
+    const sent: string[] = []
+    const executor = RequestExecutor.RequestExecutor.of({
+      execute: (request) => {
+        sent.push(request.url)
+        expect(request.url).toBe("https://pool.example/routes")
+        const response = failure === "unavailable"
+          ? Response.json({ error: "private pool diagnostic" }, { status: 503 })
+          : Response.json({ routes: sent.length === 1 ? ["chatgpt"] : [] })
+        return Effect.succeed(HttpClientResponse.fromWeb(request, response))
+      }
+    })
+    await expect(Effect.runPromise(
+      Effect.flatMap(Evaluator.Evaluator, (judge) =>
+        judge.evaluate({
+          state: "proof",
+          questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
+        })).pipe(Effect.provide(
+          layerSeatEvaluator({
+            SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
+            SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
+            SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+            CODEX_HOME: "/nonexistent",
+            AI_GATEWAY_API_KEY: "must-not-use",
+            OPENAI_API_KEY: "must-not-use"
+          }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+        ))
+    )).rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
+    expect(sent).toHaveLength(failure === "unavailable" ? 1 : 2)
+  }
+)
