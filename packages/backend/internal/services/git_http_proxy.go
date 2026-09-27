@@ -308,7 +308,7 @@ func (s *GitHTTPProxyService) authenticateTokenWithPaths(
 		scopes:       middleware.ParseTokenScopes(authRow.TokenScopes),
 		allowedPaths: middleware.ParseTokenPathRestrictions(authRow.TokenScopes),
 		workspaceID:  middleware.ParseTokenWorkspaceRestriction(authRow.TokenScopes),
-		kind:         middleware.TokenCredentialKind(authRow.TokenSystemIssued, authRow.TokenScopes),
+		kind:         middleware.TokenCredentialKind(authRow.TokenSystemIssued, authRow.TokenScopes, user.UserType),
 	}, nil
 }
 

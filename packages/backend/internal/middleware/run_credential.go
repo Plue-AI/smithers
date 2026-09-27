@@ -40,9 +40,14 @@ const syncCredentialScope = "credential:sync"
 // system token as CredentialSync.
 func SyncCredentialScope() string { return syncCredentialScope }
 
-// TokenCredentialKind classifies an access token from its stored fields.
-func TokenCredentialKind(systemIssued bool, rawScopes string) CredentialKind {
+// TokenCredentialKind classifies an access token from its stored fields
+// and its user's account type. An agent account (a bot or service user) is
+// an agent whatever token it holds: its token is an agent run's.
+func TokenCredentialKind(systemIssued bool, rawScopes, userType string) CredentialKind {
 	if !systemIssued {
+		if IsAgentAccount(userType) {
+			return CredentialAgentRun
+		}
 		return CredentialPerson
 	}
 	for _, part := range tokenScopeEntries(rawScopes) {
@@ -72,13 +77,27 @@ func (k CredentialKind) Reviewed() bool {
 	return k == CredentialPerson || k == CredentialPlatform
 }
 
+// IsAgentAccount reports whether a user account is an agent's (a bot or a
+// service), not a person's.
+func IsAgentAccount(userType string) bool {
+	return userType == "bot" || userType == "service"
+}
+
 // CredentialKind reports who holds the request's credential. A session, and
-// any request without a token, is a person's.
+// any request without a token, is a person's unless its account is an
+// agent's.
 func (a *AuthInfo) CredentialKind() CredentialKind {
+	userType := ""
+	if a != nil && a.User != nil {
+		userType = a.User.UserType
+	}
 	if a == nil || !a.IsTokenAuth {
+		if IsAgentAccount(userType) {
+			return CredentialAgentRun
+		}
 		return CredentialPerson
 	}
-	return TokenCredentialKind(a.TokenSystemIssued, a.RawScopes)
+	return TokenCredentialKind(a.TokenSystemIssued, a.RawScopes, userType)
 }
 
 // IsRunCredential reports whether the request authenticated with a
@@ -87,6 +106,13 @@ func (a *AuthInfo) CredentialKind() CredentialKind {
 // but no person is making the request.
 func (a *AuthInfo) IsRunCredential() bool {
 	return a != nil && a.IsTokenAuth && a.TokenSystemIssued
+}
+
+// IsAgent reports whether an agent, not a person, makes the request: a run
+// credential, or any credential of an agent account (a bot or service
+// user). It takes no person's decision and holds no administrator's power.
+func (a *AuthInfo) IsAgent() bool {
+	return a.IsRunCredential() || a != nil && a.User != nil && IsAgentAccount(a.User.UserType)
 }
 
 // RequirePerson refuses a run credential on a decision only a person may
@@ -103,8 +129,11 @@ func RequirePerson(ctx context.Context, action string) error {
 }
 
 func requirePerson(ctx context.Context, action string) *apierrors.APIError {
-	if AuthInfoFromContext(ctx).IsRunCredential() {
-		return apierrors.Forbidden("a run credential cannot " + action)
+	if info := AuthInfoFromContext(ctx); info.IsAgent() {
+		if info.IsRunCredential() {
+			return apierrors.Forbidden("a run credential cannot " + action)
+		}
+		return apierrors.Forbidden("an agent account cannot " + action)
 	}
 	return nil
 }

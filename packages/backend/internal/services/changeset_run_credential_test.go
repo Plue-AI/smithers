@@ -35,6 +35,13 @@ func TestLandChangesetRefusesRunCredentials(t *testing.T) {
 		assert.Contains(t, apiErr.Message, "run credential", name)
 	}
 
+	// An agent account's own token is an agent's too (D-23).
+	bot := &db.User{ID: 2, Username: "ci-bot", UserType: "bot"}
+	_, err := unread.LandChangeset(middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: bot, IsTokenAuth: true, RawScopes: "write:repository"}), bot, "acme", 1)
+	var botErr *pkgerrors.APIError
+	require.True(t, errors.As(err, &botErr), "%v", err)
+	assert.Equal(t, http.StatusForbidden, botErr.Status)
+
 	for name, info := range map[string]*middleware.AuthInfo{
 		"person token": {User: actor, IsTokenAuth: true, RawScopes: "write:repository"},
 		"session":      {User: actor},

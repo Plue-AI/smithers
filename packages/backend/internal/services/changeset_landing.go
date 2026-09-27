@@ -68,6 +68,9 @@ func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, or
 	if err := middleware.RequirePerson(ctx, "land a changeset"); err != nil {
 		return ChangesetResponse{}, err
 	}
+	if actsAsAgent(ctx, actor) {
+		return ChangesetResponse{}, pkgerrors.Forbidden("an agent cannot land a changeset")
+	}
 	org, err := s.requireOrgMember(ctx, actor, orgName)
 	if err != nil {
 		return ChangesetResponse{}, err

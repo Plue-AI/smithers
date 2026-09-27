@@ -612,13 +612,16 @@ describe("the change card", () => {
           blockedBy: [
             { kind: "check", name: "lint", repo: "smithers", missing: null, count: null, path: null, candidates: [] },
             { kind: "review", name: null, repo: null, missing: "agent_lgtm", count: null, path: null, candidates: [] },
+            { kind: "review", name: null, repo: null, missing: "person_approval", count: null, path: null, candidates: [] },
             { kind: "agent_policy", name: null, repo: null, missing: null, count: null, path: "docs/guide.md", candidates: ["ana"] }
           ]
         }
       })
     )
     expect(landButton(blocked.host).disabled).toBe(true)
-    expect(landReason(blocked.host)).toBe("check lint · agent LGTM missing · agent changes denied on docs/guide.md")
+    expect(landReason(blocked.host)).toBe(
+      "check lint · agent LGTM missing · person approval missing · agent changes denied on docs/guide.md"
+    )
     blocked.host.remove()
 
     /* A person's requested changes read plainly, and that person is one press from being asked again. */

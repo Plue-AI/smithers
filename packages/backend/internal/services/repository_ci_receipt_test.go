@@ -9,6 +9,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
@@ -381,6 +382,15 @@ func (f *repositoryCiReceiptFixture) landingWorkerFor(t *testing.T, commitID, ch
 	})
 	require.NoError(t, err)
 	_, err = f.queries.AddLandingRequestChange(ctx, db.AddLandingRequestChangeParams{LandingRequestID: landingRequest.ID, ChangeID: changeID, PositionInStack: 0})
+	require.NoError(t, err)
+	// The agent's landing onto main carries its person's approval of this
+	// exact revision (D-23), so only the CI receipt decides here.
+	revisions, err := json.Marshal(map[string]approvalRevision{changeID: {CommitID: commitID, Seq: 1}})
+	require.NoError(t, err)
+	_, err = f.queries.CreateLandingRequestReview(ctx, db.CreateLandingRequestReviewParams{
+		LandingRequestID: landingRequest.ID, ReviewerID: pgtype.Int8{Int64: userID, Valid: true},
+		ReviewerKind: "human", Type: "approve", ChangeRevisions: revisions,
+	})
 	require.NoError(t, err)
 	expectedCommitID := strings.Repeat("8", 40)
 	appendRequest, err := json.Marshal(repohost.LandRequest{

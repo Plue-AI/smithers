@@ -268,6 +268,7 @@ type LandingQuerier interface {
 	GetChangeByChangeID(ctx context.Context, arg db.GetChangeByChangeIDParams) (db.Change, error)
 	ListAllProtectedBookmarksByRepo(ctx context.Context, repositoryID int64) ([]db.ProtectedBookmark, error)
 	CountApprovedLandingRequestReviews(ctx context.Context, landingRequestID int64) (int64, error)
+	CountCurrentApprovedLandingRequestReviews(ctx context.Context, arg db.CountCurrentApprovedLandingRequestReviewsParams) (int64, error)
 
 	// Mention queries (used by MentionService wired into CreateLandingRequest/CreateLandingComment).
 	GetUserByLowerUsername(ctx context.Context, lowerUsername string) (db.User, error)
@@ -709,8 +710,7 @@ func (s *LandingService) CreateLandingRequest(ctx context.Context, actor *db.Use
 		StackSize:      int64(len(changeIDs)),
 		// A landing an agent run opens is agent-authored, so agent policies
 		// (ownership agent_policy, the repository CI policy) apply to it.
-		AgentAuthored: authorAgentSessionID != "" || landingRequestIsAgentAuthored(ctx) ||
-			middleware.AuthInfoFromContext(ctx).CredentialKind() == middleware.CredentialAgentRun,
+		AgentAuthored:        authorAgentSessionID != "" || landingRequestIsAgentAuthored(ctx) || actsAsAgent(ctx, actor),
 		AuthorAgentSessionID: authorAgentSessionID,
 	}
 
@@ -899,6 +899,12 @@ func (s *LandingService) SetLandingRequestAutoLand(ctx context.Context, actor *d
 	if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
 		return LandingRequestResponse{}, err
 	}
+	// Auto-land outlives its target: the landing could be retargeted onto
+	// the default bookmark later, so an agent sets only an agent's landing
+	// to land.
+	if !current.AgentAuthored && actsAsAgent(ctx, actor) {
+		return LandingRequestResponse{}, pkgerrors.Forbidden("an agent cannot set a person's landing to land")
+	}
 	if current.State != landingStateOpen {
 		return LandingRequestResponse{}, pkgerrors.Conflict("auto-land can only be enabled for an open landing request")
 	}
@@ -979,6 +985,19 @@ func (s *LandingService) UpdateLandingRequest(ctx context.Context, actor *db.Use
 		(req.TargetBookmark != nil && strings.TrimSpace(*req.TargetBookmark) != current.TargetBookmark) ||
 		(req.SourceBookmark != nil && strings.TrimSpace(*req.SourceBookmark) != current.SourceBookmark) {
 		if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
+			return LandingRequestResponse{}, err
+		}
+	}
+	// Reopening re-arms a dormant auto-land, and retargeting moves a
+	// landing onto the default bookmark: neither is an agent's to do to a
+	// person's landing there.
+	if req.TargetBookmark != nil && strings.TrimSpace(*req.TargetBookmark) != current.TargetBookmark {
+		if err := requireAgentLandsAgentWork(ctx, actor, repository, current.AgentAuthored, strings.TrimSpace(*req.TargetBookmark)); err != nil {
+			return LandingRequestResponse{}, err
+		}
+	}
+	if req.State != nil && !strings.EqualFold(strings.TrimSpace(*req.State), current.State) {
+		if err := requireAgentLandsAgentWork(ctx, actor, repository, current.AgentAuthored, current.TargetBookmark); err != nil {
 			return LandingRequestResponse{}, err
 		}
 	}
@@ -1132,6 +1151,9 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 	if err := requireOwnLandingOrPerson(ctx, actor, landingRow.AuthorID); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
+	if err := requireAgentLandsAgentWork(ctx, actor, repository, landingRow.AgentAuthored, landingRow.TargetBookmark); err != nil {
+		return LandLandingRequestAccepted{}, err
+	}
 	if landingRow.State != landingStateOpen && landingRow.State != landingStateFailed {
 		return LandLandingRequestAccepted{}, pkgerrors.Conflict("landing request is not open or failed")
 	}
@@ -1199,7 +1221,17 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 				return LandLandingRequestAccepted{}, err
 			}
 			if len(blocks) > 0 {
-				return LandLandingRequestAccepted{}, landingBlocked(blocks, "landing requirements are not satisfied")
+				return LandLandingRequestAccepted{}, landingBlocked(blocks, landingBlockedMessage(blocks))
+			}
+		} else if agentLandingOntoDefault(repository, landingRow.AgentAuthored, landingRow.TargetBookmark) {
+			// The worker re-checks the exact appended revisions; an append
+			// with no person's approval at all is refused now.
+			approved, err := s.currentPersonApprovals(ctx, repository.ID, landingRow.ID)
+			if err != nil {
+				return LandLandingRequestAccepted{}, err
+			}
+			if approved == 0 {
+				return LandLandingRequestAccepted{}, landingBlocked([]LandingBlock{personApprovalBlock}, agentLandingApprovalReason)
 			}
 		}
 
@@ -1299,6 +1331,16 @@ func (s *LandingService) landingBlockers(ctx context.Context, repository db.Repo
 		}
 		if len(commitIDs) == 0 || approvedCommits < int64(len(commitIDs)) {
 			blocks = append(blocks, LandingBlock{Kind: "review", Missing: "agent_lgtm"})
+		}
+	}
+
+	if agentLandingOntoDefault(repository, landingRow.AgentAuthored, landingRow.TargetBookmark) {
+		approved, err := s.currentPersonApprovals(ctx, repository.ID, landingRow.ID)
+		if err != nil {
+			return nil, err
+		}
+		if approved == 0 {
+			blocks = append(blocks, personApprovalBlock)
 		}
 	}
 
@@ -1455,6 +1497,58 @@ func landingBlocked(blocks []LandingBlock, message string) error {
 func landingRequestIsAgentAuthored(ctx context.Context) bool {
 	info := middleware.AuthInfoFromContext(ctx)
 	return info != nil && info.IsTokenAuth && len(middleware.ParseTokenPathRestrictions(info.RawScopes)) > 0
+}
+
+// agentLandingApprovalReason is the one reason an agent's landing onto the
+// default bookmark waits (D-23): a person approves it through the landing
+// review gate. A send-upstream repository delivers through its GitHub pull
+// request instead, whose merge is that approval; it never passes this gate.
+const agentLandingApprovalReason = "an agent's landing onto the default bookmark needs a person's approval"
+
+// personApprovalBlock is that gate's block.
+var personApprovalBlock = LandingBlock{Kind: "review", Missing: "person_approval"}
+
+// agentLandingOntoDefault reports whether an agent's landing targets the
+// repository's default bookmark. A repository with no recorded default
+// bookmark gates every target.
+func agentLandingOntoDefault(repository db.Repository, agentAuthored bool, target string) bool {
+	return agentAuthored && (repository.DefaultBookmark == "" || target == repository.DefaultBookmark)
+}
+
+// currentPersonApprovals counts the people whose approval is of the
+// landing's current revisions; an agent's review, including one through a
+// run credential, is never a person's.
+func (s *LandingService) currentPersonApprovals(ctx context.Context, repositoryID, landingID int64) (int64, error) {
+	count, err := s.queries.CountCurrentApprovedLandingRequestReviews(ctx, db.CountCurrentApprovedLandingRequestReviewsParams{LandingRequestID: landingID, RepositoryID: repositoryID})
+	if err != nil {
+		return 0, pkgerrors.Internal("failed to count current approvals").WithCause(err)
+	}
+	return count, nil
+}
+
+// actsAsAgent reports whether an agent makes the request: an agent account
+// (bot or service), or a run credential acting as its person.
+func actsAsAgent(ctx context.Context, actor *db.User) bool {
+	return actor != nil && middleware.IsAgentAccount(actor.UserType) || middleware.AuthInfoFromContext(ctx).IsAgent()
+}
+
+// requireAgentLandsAgentWork keeps an agent from landing, or retargeting, a
+// person's landing onto the default bookmark: agent work reaches it only as
+// an agent's landing, which waits for a person's approval (D-23).
+func requireAgentLandsAgentWork(ctx context.Context, actor *db.User, repository db.Repository, agentAuthored bool, target string) error {
+	if agentAuthored || !actsAsAgent(ctx, actor) || !agentLandingOntoDefault(repository, true, target) {
+		return nil
+	}
+	return pkgerrors.Forbidden("an agent cannot land a person's landing onto the default bookmark")
+}
+
+// landingBlockedMessage is the gate's one reason for its blocks: an agent's
+// landing that waits only for a person's approval states that reason.
+func landingBlockedMessage(blocks []LandingBlock) string {
+	if len(blocks) == 1 && blocks[0].Kind == personApprovalBlock.Kind && blocks[0].Missing == personApprovalBlock.Missing {
+		return agentLandingApprovalReason
+	}
+	return "landing requirements are not satisfied"
 }
 
 // requireOwnLandingOrPerson lets a run credential land or queue only its
@@ -2003,6 +2097,15 @@ func (s *LandingService) populateLandingReadiness(
 		reviewBlocked = approvedCount < requiredApprovals
 	}
 
+	personApprovalBlocked := false
+	if agentLandingOntoDefault(repository, response.AgentAuthored, targetBookmark) {
+		approved, err := s.currentPersonApprovals(ctx, repository.ID, landingRequestID)
+		if err != nil {
+			return err
+		}
+		personApprovalBlocked = approved == 0
+	}
+
 	agentReviewBlocked := make(map[string]bool, len(changeIDs))
 	if requireAgentLGTM {
 		q, ok := s.queries.(landingAgentReviewQuerier)
@@ -2063,6 +2166,9 @@ func (s *LandingService) populateLandingReadiness(
 				Kind:    "review",
 				Missing: "agent_lgtm",
 			})
+		}
+		if personApprovalBlocked {
+			response.BlockedBy[changeID] = append(response.BlockedBy[changeID], personApprovalBlock)
 		}
 		if conflictStatus == "conflicted" {
 			conflicts, err := s.repoHost.GetChangeConflicts(ctx, strings.TrimSpace(owner), repository.Name, changeID)
@@ -2340,8 +2446,9 @@ func (s *LandingService) CreateLandingReview(ctx context.Context, actor *db.User
 		return db.LandingRequestReview{}, err
 	}
 
-	// Neither a human approval nor an agent LGTM can be self-authored.
-	if reviewType == "approve" && landingRow.AuthorID == actor.ID {
+	// Neither a human approval nor an agent LGTM can be self-authored. An
+	// agent wrote an agent-authored landing, so its person may approve it.
+	if reviewType == "approve" && landingRow.AuthorID == actor.ID && (reviewerKind != "human" || !landingRow.AgentAuthored) {
 		return db.LandingRequestReview{}, pkgerrors.UnprocessableEntity("author cannot approve their own landing request")
 	}
 

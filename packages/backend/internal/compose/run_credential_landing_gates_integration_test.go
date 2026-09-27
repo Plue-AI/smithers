@@ -33,8 +33,14 @@ type gateTestRepoHost struct {
 	factory string
 }
 
-func (h gateTestRepoHost) GetChange(_ context.Context, _, _, changeID string) (repohost.Change, error) {
-	return repohost.Change{ChangeID: changeID, CommitID: h.commits[changeID], ParentChangeIDs: []string{}}, nil
+// GetChange serves a change by its change id or its commit id.
+func (h gateTestRepoHost) GetChange(_ context.Context, _, _, selector string) (repohost.Change, error) {
+	for changeID, commitID := range h.commits {
+		if selector == commitID {
+			return repohost.Change{ChangeID: changeID, CommitID: commitID, ParentChangeIDs: []string{}}, nil
+		}
+	}
+	return repohost.Change{ChangeID: selector, CommitID: h.commits[selector], ParentChangeIDs: []string{}}, nil
 }
 
 func (h gateTestRepoHost) GetChangeFiles(context.Context, string, string, string) ([]repohost.ChangeFile, error) {
@@ -53,7 +59,10 @@ func (h gateTestRepoHost) ListDirectory(context.Context, string, string, string,
 }
 
 func (h gateTestRepoHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
-	return []repohost.Bookmark{{Name: "main", TargetChangeID: "mainchangezzzzzz", TargetCommitID: "9999999999999999999999999999999999999999"}}, "", nil
+	return []repohost.Bookmark{
+		{Name: "main", TargetChangeID: "mainchangezzzzzz", TargetCommitID: "9999999999999999999999999999999999999999"},
+		{Name: "release", TargetChangeID: "releasechangezzz", TargetCommitID: "8888888888888888888888888888888888888888"},
+	}, "", nil
 }
 
 // landingGateFixture is a repository with two people and one commit per
@@ -277,8 +286,12 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	rec = serve(person, http.MethodPost, fmt.Sprintf("%s/threads/%d/ack", ownPath, ownThread), `{}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	// Landing its person's own landing onto main is a person's decision
+	// (D-23); the person lands it.
 	rec = serve(run, http.MethodPut, ownPath+"/land", `{"commit_id":"2222222222222222222222222222222222222222"}`)
-	assert.Equal(t, http.StatusAccepted, rec.Code, "a run could not land its own change: %s", rec.Body.String())
+	assert.Equal(t, http.StatusForbidden, rec.Code, "a run landed its person's landing onto main: %s", rec.Body.String())
+	rec = serve(person, http.MethodPut, ownPath+"/land", `{"commit_id":"2222222222222222222222222222222222222222"}`)
+	assert.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 
 	// A landing a run opens is agent-authored, so agent policies apply to it.
 	for name, bearer := range map[string]string{"bound agent run": run, "unbound agent run": runs["unbound agent run"], "person": person} {

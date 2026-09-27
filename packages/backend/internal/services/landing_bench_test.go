@@ -239,6 +239,10 @@ func (m *benchLandingQuerier) CountApprovedLandingRequestReviews(_ context.Conte
 	return 0, nil
 }
 
+func (m *benchLandingQuerier) CountCurrentApprovedLandingRequestReviews(context.Context, db.CountCurrentApprovedLandingRequestReviewsParams) (int64, error) {
+	return 0, nil
+}
+
 func (m *benchLandingQuerier) RevertLandingRequestToOpen(_ context.Context, id int64) (db.LandingRequest, error) {
 	return db.LandingRequest{ID: id, State: "open"}, nil
 }

@@ -72,11 +72,12 @@ func TestChangesRequestedBlocksLandingPostgres(t *testing.T) {
 	// reviewer's later approval does.
 	landing, commit = path("approvedbbbbbbbb")
 	review(reviewer, landing, "request_changes", commit)
-	for _, bearer := range []string{author, authorRun} {
-		code, body = land(bearer, landing, commit)
-		assert.Equal(t, http.StatusUnprocessableEntity, code, body)
-		assert.Contains(t, body, blocked)
-	}
+	code, body = land(author, landing, commit)
+	assert.Equal(t, http.StatusUnprocessableEntity, code, body)
+	assert.Contains(t, body, blocked)
+	// The author's run never lands the author's landing onto main (D-23).
+	code, body = land(authorRun, landing, commit)
+	assert.Equal(t, http.StatusForbidden, code, body)
 	rec := f.serve(author, http.MethodGet, landing, ``)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), `{"kind":"review","name":"gate-other","missing":"changes_requested"}`)

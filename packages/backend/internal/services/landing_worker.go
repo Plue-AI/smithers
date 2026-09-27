@@ -639,7 +639,7 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 		return err
 	}
 	if !qOK || !rhOK {
-		if exact != nil || outsider {
+		if exact != nil || outsider || agentLandingOntoDefault(repository, lr.AgentAuthored, lr.TargetBookmark) {
 			return fmt.Errorf("append requires the complete ownership inspection capability")
 		}
 		return nil
@@ -691,12 +691,14 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 	if err != nil {
 		return err
 	}
-	if requiredHumanApprovals > 0 {
-		var count int64
-		if exact != nil {
-			approvals, loadErr := q.ListSubmittedLandingApprovals(ctx, lr.ID)
-			if loadErr != nil {
-				return loadErr
+	// personApprovals counts the people who approved: of exactly the pinned
+	// revisions for an append, of the current ones when current, else any.
+	personApprovals := func(current bool) (int64, error) {
+		switch {
+		case exact != nil:
+			approvals, err := q.ListSubmittedLandingApprovals(ctx, lr.ID)
+			if err != nil {
+				return 0, err
 			}
 			seen := map[int64]bool{}
 			for _, approval := range approvals {
@@ -715,12 +717,24 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 					seen[approval.ReviewerID.Int64] = true
 				}
 			}
-			count = int64(len(seen))
-		} else if dismiss {
-			count, err = q.CountCurrentApprovedLandingRequestReviews(ctx, db.CountCurrentApprovedLandingRequestReviewsParams{LandingRequestID: lr.ID, RepositoryID: repository.ID})
-		} else {
-			count, err = q.CountApprovedLandingRequestReviews(ctx, lr.ID)
+			return int64(len(seen)), nil
+		case current:
+			return q.CountCurrentApprovedLandingRequestReviews(ctx, db.CountCurrentApprovedLandingRequestReviewsParams{LandingRequestID: lr.ID, RepositoryID: repository.ID})
+		default:
+			return q.CountApprovedLandingRequestReviews(ctx, lr.ID)
 		}
+	}
+	if agentLandingOntoDefault(repository, lr.AgentAuthored, lr.TargetBookmark) {
+		count, err := personApprovals(true)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return errors.New(agentLandingApprovalReason)
+		}
+	}
+	if requiredHumanApprovals > 0 {
+		count, err := personApprovals(dismiss)
 		if err != nil {
 			return err
 		}
@@ -728,19 +742,25 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 			return fmt.Errorf("missing required human approval")
 		}
 	}
-	var reviewers []string
-	if requireAgentLGTM || lr.AgentAuthored {
-		reviewers, err = repositoryReviewerAgents(ctx, rh, owner, repository)
-		if err != nil {
-			return err
+	// agentLGTMs reports whether a named reviewer agent's LGTM covers every
+	// current commit (D-22).
+	agentLGTMs := func() (bool, error) {
+		if len(currentCommitIDs) == 0 {
+			return false, nil
 		}
+		reviewers, err := repositoryReviewerAgents(ctx, rh, owner, repository)
+		if err != nil {
+			return false, err
+		}
+		count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: lr.ID, CommitIds: currentCommitIDs, ReviewerLogins: reviewers})
+		return count == int64(len(currentCommitIDs)), err
 	}
 	if requireAgentLGTM {
-		count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: lr.ID, CommitIds: currentCommitIDs, ReviewerLogins: reviewers})
+		ok, err := agentLGTMs()
 		if err != nil {
 			return err
 		}
-		if len(currentCommitIDs) == 0 || count < int64(len(currentCommitIDs)) {
+		if !ok {
 			return fmt.Errorf("missing current agent LGTM")
 		}
 	}
@@ -770,14 +790,7 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 	if err != nil {
 		return err
 	}
-	agentLGTMCurrent := false
-	if lr.AgentAuthored && len(currentCommitIDs) > 0 {
-		count, err := q.CountCurrentAgentLandingReviewCommits(ctx, db.CountCurrentAgentLandingReviewCommitsParams{LandingRequestID: lr.ID, CommitIds: currentCommitIDs, ReviewerLogins: reviewers})
-		if err != nil {
-			return err
-		}
-		agentLGTMCurrent = count == int64(len(currentCommitIDs))
-	}
+	var agentLGTMCurrent *bool
 	for _, item := range resolved.TouchedPaths {
 		candidates := approvingCandidates(item.Owners)
 		if lr.AgentAuthored && item.AgentPolicy == ownership.PolicyDeny {
@@ -789,8 +802,17 @@ func (w *LandingWorker) recheckOwnershipAt(ctx context.Context, repository db.Re
 		if dismiss, _ := landingDismissStaleReviews(rules, lr.TargetBookmark); exact == nil && !dismiss && anyPrincipalApproval(approvals, item.Owners) {
 			continue
 		}
-		if lr.AgentAuthored && item.AgentPolicy == ownership.PolicyAutoLand && agentLGTMCurrent {
-			continue
+		if lr.AgentAuthored && item.AgentPolicy == ownership.PolicyAutoLand {
+			if agentLGTMCurrent == nil {
+				ok, err := agentLGTMs()
+				if err != nil {
+					return err
+				}
+				agentLGTMCurrent = &ok
+			}
+			if *agentLGTMCurrent {
+				continue
+			}
 		}
 		return fmt.Errorf("missing owner approval for %s (candidates: %s)", item.Path, strings.Join(candidates, ", "))
 	}

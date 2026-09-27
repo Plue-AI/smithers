@@ -425,7 +425,7 @@ func capCredentialPermission(ctx context.Context, repositoryID int64, user *db.U
 	if authInfo == nil || user == nil || authInfo.User == nil || authInfo.User.ID != user.ID {
 		return permission
 	}
-	if !authInfo.IsRunCredential() && authInfo.RepositoryRestriction() != repositoryID {
+	if !authInfo.IsAgent() && authInfo.RepositoryRestriction() != repositoryID {
 		return permission
 	}
 	if permissionRank(permission) > permissionRank(PermissionWrite) {

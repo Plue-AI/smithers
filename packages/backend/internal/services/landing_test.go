@@ -112,6 +112,7 @@ type mockLandingQuerier struct {
 	listAllProtectedBookmarksByRepoFn              func(ctx context.Context, repositoryID int64) ([]db.ProtectedBookmark, error)
 	countApprovedLandingRequestReviewsFn           func(ctx context.Context, landingRequestID int64) (int64, error)
 	countCurrentAgentLandingReviewCommitsFn        func(ctx context.Context, arg db.CountCurrentAgentLandingReviewCommitsParams) (int64, error)
+	countCurrentApprovedLandingRequestReviewsFn    func(ctx context.Context, arg db.CountCurrentApprovedLandingRequestReviewsParams) (int64, error)
 	getLandingRequestReviewByIDFn                  func(ctx context.Context, id int64) (db.LandingRequestReview, error)
 	createLandingRequestCalled                     bool
 	lastCreateLandingRequestArg                    db.CreateLandingRequestParams
@@ -587,6 +588,13 @@ func (m *mockLandingQuerier) CountApprovedLandingRequestReviews(ctx context.Cont
 	m.lastCountApprovedLandingRequestReviewsID = landingRequestID
 	if m.countApprovedLandingRequestReviewsFn != nil {
 		return m.countApprovedLandingRequestReviewsFn(ctx, landingRequestID)
+	}
+	return 0, nil
+}
+
+func (m *mockLandingQuerier) CountCurrentApprovedLandingRequestReviews(ctx context.Context, arg db.CountCurrentApprovedLandingRequestReviewsParams) (int64, error) {
+	if m.countCurrentApprovedLandingRequestReviewsFn != nil {
+		return m.countCurrentApprovedLandingRequestReviewsFn(ctx, arg)
 	}
 	return 0, nil
 }

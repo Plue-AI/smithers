@@ -215,11 +215,12 @@ func canOwnRepo(ctx context.Context, q RepoPermQuerier, repository db.Repository
 	return isOwner, nil
 }
 
-// actsThroughRunCredential reports whether the request authenticated as
-// userID with a system-issued credential.
+// actsThroughRunCredential reports whether an agent makes the request as
+// userID: a system-issued credential, or an agent account's own
+// (middleware.AuthInfo.IsAgent).
 func actsThroughRunCredential(ctx context.Context, userID int64) bool {
 	info := middleware.AuthInfoFromContext(ctx)
-	return info.IsRunCredential() && info.User != nil && info.User.ID == userID
+	return info.IsAgent() && info.User != nil && info.User.ID == userID
 }
 
 // CanAdminRepo reports whether userID has admin or owner access to repository.

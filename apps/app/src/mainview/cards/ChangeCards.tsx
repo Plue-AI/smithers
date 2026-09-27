@@ -85,6 +85,7 @@ const blockWords = (block: LandingBlock): string => {
   if (block.kind === "review") {
     if (block.missing === "human_approval") return `${block.count ?? 1} human approval${(block.count ?? 1) === 1 ? "" : "s"} missing`
     if (block.missing === "agent_lgtm") return "agent LGTM missing"
+    if (block.missing === "person_approval") return "person approval missing"
     if (block.missing === "changes_requested") return `changes requested by ${block.name ?? "a reviewer"}`
     return `review ${block.name ?? ""}`.trim()
   }
