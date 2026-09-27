@@ -405,6 +405,8 @@ export const TreeEpoch = Schema.Struct({
   frames: NonNegativeSafeInt,
   /** Calls of this frame that may write, issued before this one. */
   calls: NonNegativeSafeInt,
+  /** Digest of those calls, chained in issue order: which writes, not only how many. */
+  writes: Schema.optional(Schema.String),
   /** Digest of the whole-tree measurement the frame opened on. */
   tree: Schema.optional(Schema.String),
   /** The run, when no whole-tree measurement exists: the reading is reused only inside it. */
@@ -506,7 +508,9 @@ export class Call extends Schema.Class<Call>("flows/harness/Cell/Call")({
    * text after its own edit. `frames` is the run's frame clock — the count of
    * earlier frames that changed the workspace, measured where the host can
    * measure — and `calls` is how many calls of this frame that may write
-   * were issued before this one. Both are derived from the journaled call
+   * were issued before this one, with `writes` chaining what they asked, so
+   * two runs that wrote differently read different questions. All are derived
+   * from the journaled call
    * sequence, so a replayed frame derives the same epoch and replays.
    *
    * The counters restart with every run, so they cannot tell a later run's

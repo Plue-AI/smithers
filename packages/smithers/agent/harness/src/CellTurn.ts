@@ -2208,10 +2208,13 @@ const budgetMessage = (state: State): string =>
  * from the next frame. The refusal reads only checkpointed state, so a
  * replayed frame restores the same names.
  *
- * `tree` counts the calls of this frame that may have written, in issue order.
- * A sealed reading of the live tree carries that count and the run's frame
- * clock as its `Cell.Call.epoch`, so a read after a write is a new question and
- * not a replay of the read before it. Any call that is not sealed counts, not
+ * `tree` counts the calls of this frame that may have written, in issue order,
+ * and chains their digests. A sealed reading of the live tree carries both and
+ * the run's frame clock as its `Cell.Call.epoch`, so a read after a write is a
+ * new question and not a replay of the read before it. The count alone let two
+ * runs on one tree — one that ran `git status`, one that edited the file —
+ * key their next read alike, and the second replayed the first's pre-edit
+ * text; the chain names which writes came first. Any call that is not sealed counts, not
  * only one that declared a write: a shell command declares nothing and writes
  * wherever it likes. The count advances when the call is issued, so a replayed
  * frame — which issues the same calls in the same order — derives the same
@@ -2233,7 +2236,7 @@ const callHandler = (
   ledger: Array<TruncatedOutput.Capture>,
   performed: Set<number>,
   restored: Set<string>,
-  tree: { writes: number },
+  tree: { writes: number; chain: string | undefined },
   live: Cell.LiveTree,
   callMs: number,
   replaying: boolean,
@@ -2301,7 +2304,12 @@ const callHandler = (
     }
     const sealed = descriptor.effects.tier === "sealed"
     const epoch = sealed && at === undefined
-      ? { frames: state.mutations, calls: tree.writes, ...live }
+      ? {
+        frames: state.mutations,
+        calls: tree.writes,
+        ...(tree.chain === undefined ? {} : { writes: tree.chain }),
+        ...live
+      }
       : undefined
     const call = Cell.callOf(descriptor, {
       input: invocation.input,
@@ -2317,7 +2325,12 @@ const callHandler = (
       ...(epoch === undefined ? {} : { epoch })
     })
     performed.add(invocation.ordinal)
-    if (!sealed) tree.writes++
+    if (!sealed) {
+      tree.writes++
+      tree.chain = Digest.digest(
+        CanonicalJson.stringify([tree.chain ?? null, signatureOf(invocation.flow, invocation.input, at)])
+      )
+    }
     yield* emit(new AgentEvent.CellCallStarted({ eventType: eventType.cellCallStarted, call }))
     const result = yield* issued(
       engine,
@@ -2844,7 +2857,7 @@ const evaluate = (
     /** Withheld flows this frame's calls named; see {@link callHandler}. */
     const restored = new Set<string>()
     /** Calls of this frame that may have written; see {@link callHandler}. */
-    const tree = { writes: 0 }
+    const tree: { writes: number; chain: string | undefined } = { writes: 0, chain: undefined }
     const live: Cell.LiveTree = Option.isSome(opened) && opened.value.complete
       ? { tree: opened.value.digest }
       : { session: state.session, frame: state.frame }

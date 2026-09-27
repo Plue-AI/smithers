@@ -53,7 +53,10 @@ export type Position = typeof Position.Type
 /**
  * A deferred read transaction on the reserved engine connection. The normal
  * writable client's transaction starts IMMEDIATE; a read needs only SQLite's
- * snapshot and must allow a WAL writer to commit while it reads. Reuse the SQL
+ * snapshot and must allow a WAL writer to commit while it reads. PostgreSQL
+ * reads at REPEATABLE READ so every statement shares the snapshot the position
+ * was read from; READ COMMITTED would let a concurrent commit make a row look
+ * newer than its position. Reuse the SQL
  * client's transaction service to join an existing transaction. No read body
  * exposes a mutation callback. Connection reservation and interruption release
  * remain scoped, including when BEGIN or the read fails.
@@ -67,7 +70,11 @@ export const transaction = <A, E, R>(sql: SqlClient.SqlClient, effect: Effect.Ef
       Option.isSome(existing) ? effect : Effect.scoped(Effect.gen(function*() {
         const connection = yield* sql.reserve
         return yield* Effect.acquireUseRelease(
-          connection.executeUnprepared("BEGIN", [], undefined),
+          connection.executeUnprepared(
+            sql.onDialectOrElse({ pg: () => "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY", orElse: () => "BEGIN" }),
+            [],
+            undefined
+          ),
           () => effect.pipe(Effect.provideService(sql.transactionService, [connection, 0])),
           (_, exit) =>
             connection.executeUnprepared(Exit.isSuccess(exit) ? "COMMIT" : "ROLLBACK", [], undefined).pipe(Effect.orDie)

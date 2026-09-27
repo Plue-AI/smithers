@@ -58,6 +58,33 @@ describe("CellTurn live tree epoch", () => {
     expect(await epochs("turn-2")).toEqual([{ frames: 0, calls: 0, session: "turn-2", frame: 0 }])
   })
 
+  it("keys a read after a different write differently, so one run cannot replay another's pre-edit text (#2175)", async () => {
+    const after = async (session: string, command: string) => {
+      const { engine } = await run({
+        state: state(session),
+        flows: [
+          descriptor("fs/read", { capabilities: ["fs:read:**"] }),
+          descriptor("shell", { capabilities: ["fs:read:**"], tier: "compensable" })
+        ],
+        script: [
+          emits(
+            `await ctx.call("shell", { command: ${JSON.stringify(command)} }); ` +
+              `await ctx.call("fs/read", { path: "a.py" }); ctx.done("read")`
+          )
+        ],
+        calls: [{ _tag: "Success", value: "" }, { _tag: "Success", value: "text" }],
+        tree: "a.py=before"
+      })
+      return engine.recorder.calls.map((call) => call.epoch)[1]
+    }
+    const looked = await after("turn-1", "git status")
+    const edited = await after("turn-2", "sed -i s/before/after/ a.py")
+    expect(looked).toMatchObject({ frames: 0, calls: 1, tree: "a.py=before" })
+    expect(edited).not.toEqual(looked)
+    // The same write over the same tree is the same question.
+    expect(await after("turn-3", "git status")).toEqual(looked)
+  })
+
   it("treats a walk that stopped at its bound as unmeasured", async () => {
     expect(await epochs("turn-1", "prefix", false)).toEqual([{ frames: 0, calls: 0, session: "turn-1", frame: 0 }])
   })
