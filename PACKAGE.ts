@@ -661,7 +661,8 @@ const ci = Smithers.GithubCiGen({
         { os: "macos-latest", advisory: true },
         { os: "windows-latest", advisory: true }
       ],
-      timeoutMinutes: 60,
+      // Windows ran the suites in ~48 min before twelve packages also ran on PostgreSQL (f59d673cd); 60 cut it off.
+      timeoutMinutes: 90,
       toolchain: Smithers.CiToolchain.Needs({
         cargoBinaries: nativeFilesystem,
         runtimes: [node, bun],
