@@ -578,19 +578,27 @@ named credential and an honest skip, never a shared privileged session.
 
 ## Rollback
 
-Every real deploy captures the live Worker version and verifies it before
-publication. The shared `flows/rollout/runtime.ts` implementation runs CN-1,
-the site probe, CN-18 and CN-24; CN-23 is required when either of its existing
-credential/roster inputs is configured, and recorded as skipped otherwise.
-Missing inputs for a required check, exceptions and timeouts fail the check.
+Every real deploy captures the live Worker version and checks it before
+publication. Only checks this deploy can affect trigger rollback: CN-1 (served
+SHA), the site probe and CN-24 (exact version and rollback target). CN-18 checks
+upstream Workers; CN-23 checks the upstream allowlist when either existing
+credential/roster input is configured, and is recorded as skipped otherwise.
+Upstream failures mark the run red but never roll back the Worker. Missing
+inputs for a required check, exceptions and timeouts fail the check.
 
-A failed required check automatically restores the captured version with the
-package's pinned `wrangler rollback <version-id> --yes`, then re-runs checks
-against the previous build SHA. It never chooses a target from version-list
-ordering or asks an agent or person. The invocation remains unsuccessful after
-recovery. A failed restoration or re-verification remains a failed receipt.
-The cutover activation path restores only its captured final fence and verifies
-its maintenance response and exact version; it never restores a legacy writer.
+A red baseline permits fix-forward. If the candidate passes its deployment
+checks, keep it. If the candidate also fails, the rollout automatically restores
+the exact baseline so it never deliberately leaves a worse version live. Record baseline,
+candidate and restored checks, including existing failures. A restored check
+that was already red does not claim the baseline is healthy; a new failure or
+failed restore is `rollback-failed`.
+
+Restoration uses the package's pinned `wrangler rollback <version-id> --yes`,
+then re-runs checks against the previous build SHA. It never chooses a target
+from version-list ordering or asks an agent or person. The invocation remains
+unsuccessful after recovery. The cutover activation path restores only its
+captured final fence and verifies its maintenance response and exact version;
+it never restores a legacy writer.
 
 Rollbacks restore code, assets and bindings, not mutable Durable Object or
 upstream database state. Releases must preserve storage compatibility.
@@ -600,15 +608,19 @@ describes the provider limitations.
 ### Receipt version IDs and recovery
 
 Before publication, `deploy-receipts/rollout/latest.json` records the exact
-previous version and baseline checks. Atomic updates retain publication,
+previous version, captured Worker identity and baseline checks. Atomic updates
+retain publication,
 failed checks, rollback outcome and re-verification, with timestamped copies.
 The existing deployment receipt embeds the final rollout receipt. A missing
-`Current Version ID` after publication triggers restoration too. Dry runs
-publish nothing and do not probe or restore production.
+`Current Version ID` after publication triggers restoration too. An unreadable
+previous build stamp writes a `refused` receipt without publishing. Dry runs
+publish and restore nothing; they still run CN-18 and configured CN-23, record
+the results and fail on a red check.
 
 `scripts/deploy.ts` is the current Actions entry and calls the same policy as
-`flows/rollout/flow.ts`. Self-hosters register that flow with an exclusively
-leased host, bounded checks and durable `record` storage; its structured result
+`flows/rollout/flow.ts`. Self-hosters use `executionLayer` from
+`flows/rollout/host.ts` with an exclusively leased host, bounded checks and
+durable `record` storage; its structured result
 is the rollout receipt. Any status other than `passed`, including `rolled-back`,
 fails the flow with that receipt. No model or approval is involved.
 
@@ -617,10 +629,22 @@ tracks moving this existing invocation to Cloud and publishing receipts through
 the existing app run card. Until then, receipts are Actions artifacts, not app
 receipts. Hard runner termination requires host recovery from the prepared
 receipt before another deployment; a killed process cannot restore a release.
-The existing cutover interlock also refuses a live version older than the
-newest upload, because Cloudflare's content endpoint returns the newest upload.
-That refusal remains intact after rollback; #2276 tracks the verified artifact
-source needed to resume deploys safely.
+After rollback, the next deploy may use `rollout/last-rollback.json` to verify
+an older live version. The receipt must record a terminal restoration attempt
+and a passing CN-24 recheck, the same account, Worker, target version, immutable
+version annotations, module identity/digests and newest upload seen at restore.
+The guard re-reads live traffic and newest upload to reject races; the existing
+legacy/edge/fence decision table and activation authorization still apply.
+Arbitrary older versions, missing or mismatched evidence and split traffic
+remain refused. A red restored baseline can still take the fix-forward path,
+even if the restore command reported failure but CN-24 proved the baseline is live.
+
+The existing Actions deploy restores this evidence from the latest applicable
+`deploy-receipt` artifact of a completed main-push Deploy apps run, including
+failed runs, and carries it into the next artifact. Receipt storage is trusted
+host state; self-hosters must retain it under their deployment lease. Missing
+or expired evidence cannot authorize an older live version. #2276 retains
+ownership of Cloud execution, crash recovery and app receipt publication.
 
 ### Probe it: `scripts/canary/rollback-probe.ts`
 

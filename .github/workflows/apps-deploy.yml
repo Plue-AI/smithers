@@ -7,12 +7,13 @@ name: Deploy apps
 on:
   push:
     branches: [main]
-  # A manual run is a credential-free rehearsal: the gates, then the dry-run
+  # A manual run is a read-only rehearsal: the gates, then the dry-run
   # deploy.
   workflow_dispatch: {}
 
 permissions:
   contents: read
+  actions: read
 
 # One deploy at a time, never cancelled mid-publish. GitHub keeps one pending
 # run per group and replaces it on each push, so under load the newest main
@@ -144,9 +145,17 @@ jobs:
           else
             echo "dry_run=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Restore rollback receipt
+        if: steps.mode.outputs.dry_run == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun apps/server/scripts/rollout-receipt.ts
       - name: Deploy (dry-run)
         id: deploy_dry
         if: steps.mode.outputs.dry_run == 'true'
+        env:
+          IDENTITY_SERVICE_TOKEN: ${{ secrets.IDENTITY_SERVICE_TOKEN }}
+          CANARY_ALLOWLIST_LOGINS: ${{ vars.CANARY_ALLOWLIST_LOGINS }}
         run: pnpm --filter smithers-server run deploy:dry
       # Cloudflare deploy credentials plus read-only CN-23 probe inputs. The Worker's secrets are set once on
       # the live script with `wrangler secret put` and every `wrangler deploy`

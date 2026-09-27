@@ -2,10 +2,12 @@
 import { join } from "node:path"
 import { mkdirSync, renameSync, writeFileSync } from "node:fs"
 import { parseDeployedVersions } from "./canary/rollback-verdict"
-import type { Release, RolloutHost, RolloutReceipt } from "../../../flows/rollout/runtime.ts"
+import type { RecoveryEvidence } from "./deployGuard"
+import type { CheckResult, Release, RolloutHost, RolloutReceipt } from "../../../flows/rollout/runtime.ts"
 
 export interface WorkerRolloutOptions {
-  previous: Release
+  previous: Release | (() => Promise<Release>)
+  identity?: Omit<RecoveryEvidence, "newestVersion">
   serverDir: string
   accountId: string
   worker: string
@@ -14,11 +16,13 @@ export interface WorkerRolloutOptions {
   fenceExecution?: string
   beforePublish?(): Promise<void>
   publish(): Promise<Release>
-  record(receipt: RolloutReceipt): Promise<void>
+  record(receipt: WorkerRolloutReceipt): Promise<void>
   run(cmd: readonly string[], options: { cwd: string; capture?: boolean; env?: Record<string, string>; timeout?: number }): Promise<{ exitCode: number; output: string }>
   get?: (path: string) => Promise<unknown>
   sleep?: (ms: number) => Promise<void>
 }
+
+export type WorkerRolloutReceipt = RolloutReceipt & { recovery?: RecoveryEvidence }
 
 export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost => {
   const origin = "https://canary.smithers.sh"
@@ -33,27 +37,43 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
   const sleep = options.sleep ?? (ms => Bun.sleep(ms))
   const command = (args: readonly string[], timeout = 30_000) => options.run(args, { cwd: options.serverDir, timeout,
     env: { CLOUDFLARE_ACCOUNT_ID: options.accountId } })
+  let previous: Release
+  let recovery: RecoveryEvidence | undefined = options.identity ? { ...options.identity, newestVersion: options.identity.target.versionId } : undefined
   const checks = ["CN-1", "site", "CN-18", ...(options.inviteConfigured ? ["CN-23"] : []), "CN-24"]
   return {
     checks,
+    rollbackChecks: ["CN-1", "site", "CN-24"],
     ...(options.fenceExecution ? { previousChecks: ["CN-24", "cutover-fence"] } : {}),
     skippedChecks: options.inviteConfigured ? [] : ["CN-23"],
-    capture: async () => options.previous,
+    capture: async () => {
+      previous = typeof options.previous === "function" ? await options.previous() : options.previous
+      return previous
+    },
     ...(options.beforePublish ? { beforePublish: options.beforePublish } : {}),
     publish: options.publish,
-    record: options.record,
+    record: receipt => options.record({ ...receipt, ...(recovery ? { recovery } : {}) }),
     restore: async previous => {
-      const result = await command(["node", join(options.serverDir, "node_modules/wrangler/bin/wrangler.js"),
-        "rollback", previous.version, "--yes", "--message", "Automatic rollback: required rollout check failed"], 120_000)
-      if (result.exitCode !== 0) throw new Error("Rollback command failed")
+      try {
+        const result = await command(["node", join(options.serverDir, "node_modules/wrangler/bin/wrangler.js"),
+          "rollback", previous.version, "--yes", "--message", "Automatic rollback: required rollout check failed"], 120_000)
+        if (result.exitCode !== 0) throw new Error("Rollback command failed")
+      } finally {
+        // A failed command can still have restored traffic. CN-24 verifies that separately.
+        if (options.identity) {
+          const versions = await get(`${base}/versions?per_page=1`) as { success?: boolean; result?: { items?: Array<{ id: string }> } }
+          const newestVersion = versions.result?.items?.[0]?.id
+          if (!versions.success || !newestVersion) throw new Error("Rollback evidence unavailable")
+          recovery = { ...options.identity, newestVersion }
+        }
+      }
     },
     check: async (name, release) => {
       let passed = false
       if (name === "CN-24") {
         // Query the recorded target by ID. Newer uploads and list ordering cannot change it.
-        const target = await get(`${base}/versions/${options.previous.version}`) as { success?: boolean; result?: { id?: string } }
+        const target = await get(`${base}/versions/${(previous ?? release).version}`) as { success?: boolean; result?: { id?: string } }
         const live = parseDeployedVersions(await get(`${base}/deployments`))
-        passed = target.success === true && target.result?.id === options.previous.version && live.ok &&
+        passed = target.success === true && target.result?.id === (previous ?? release).version && live.ok &&
           live.value.length === 1 && live.value[0]?.id === release.version && live.value[0]?.percentage === 100
       } else if (name === "cutover-fence") {
         const response = await fetch(`${origin}/api/user`, { signal: AbortSignal.timeout(30_000), redirect: "error" })
@@ -77,12 +97,35 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
 }
 
 /** Atomic replacement prevents a partially written recovery target. */
-export const writeRolloutReceipt = (directory: string, receipt: RolloutReceipt): void => {
+export const writeRolloutReceipt = (directory: string, receipt: WorkerRolloutReceipt): void => {
   mkdirSync(directory, { recursive: true })
   const content = `${JSON.stringify(receipt, null, 2)}\n`
-  for (const name of [`${receipt.startedAt.replace(/[:.]/g, "-")}.json`, "latest.json"]) {
+  const names = [`${receipt.startedAt.replace(/[:.]/g, "-")}.json`, "latest.json"]
+  if (receipt.recovery && receipt.rollback !== "not-needed" && ["rolled-back", "rollback-failed"].includes(receipt.status))
+    names.push("last-rollback.json")
+  for (const name of names) {
     const path = join(directory, name)
     writeFileSync(`${path}.tmp`, content, { mode: 0o600 })
     renameSync(`${path}.tmp`, path)
   }
+}
+
+/** Read-only checks still run during a rehearsal; they cannot publish or restore. */
+export const dryRunChecks = async (options: Pick<WorkerRolloutOptions, "run" | "serverDir" | "accountId" | "inviteConfigured">): Promise<{ checks: CheckResult[]; skippedChecks: string[] }> => {
+  const host = workerRolloutHost({ ...options, previous: { version: "dry-run", revision: "dry-run" }, worker: "", token: "",
+    publish: async () => { throw new Error("Dry run cannot publish") }, record: async () => {} })
+  const checks: CheckResult[] = []
+  for (const name of ["CN-18", ...(options.inviteConfigured ? ["CN-23"] : [])]) {
+    try { checks.push({ name, ...(await host.check(name, { version: "dry-run", revision: "dry-run" }, "candidate")) }) }
+    catch { checks.push({ name, status: "failed" }) }
+  }
+  return { checks, skippedChecks: options.inviteConfigured ? [] : ["CN-23"] }
+}
+
+/** Called inside capture so HTTP/JSON/timeout failures produce a refused receipt. */
+export const readPreviousRevision = async (read: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<string> => {
+  const response = await read("https://canary.smithers.sh/__build.json", { signal: AbortSignal.timeout(30_000), redirect: "error" })
+  const stamp = await response.json() as { gitSha?: string }
+  if (!response.ok || !/^[a-f0-9]{40}$/.test(stamp.gitSha ?? "")) throw new Error("Previous build identity unavailable")
+  return stamp.gitSha!
 }

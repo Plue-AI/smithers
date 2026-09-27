@@ -25,6 +25,8 @@
  * exact built artifact. There is no override flag. Anything unrecognized refuses.
  */
 import { createHash } from "node:crypto"
+import { z } from "zod"
+import { WORKER_IDENTITY } from "../src/workerIdentity"
 import { lstatSync } from "node:fs"
 import { isAbsolute } from "node:path"
 import { spawnSync } from "node:child_process"
@@ -92,10 +94,28 @@ export const decideDeploy = (local: LocalIdentity, live: LiveFacts): GuardDecisi
   return refuse("DEPLOY_GUARD_EDGE_BEFORE_CUTOVER", "the legacy Worker is live; the edge activates only over the verified cutover fence")
 }
 
+/** Evidence comes only from the exclusively owned deployment receipt store. */
+const RecoveryReceipt = z.object({
+  status: z.enum(["rolled-back", "rollback-failed"]),
+  rollback: z.enum(["succeeded", "failed"]),
+  previous: z.object({ version: z.string().min(1), revision: z.string().min(1) }),
+  reverification: z.array(z.object({ name: z.string(), status: z.enum(["passed", "failed"]) })),
+  recovery: z.object({
+    accountId: z.string(), worker: z.string(), newestVersion: z.string().min(1),
+    target: z.object({
+      versionId: z.string().min(1), entry: z.string().min(1), modules: z.array(z.string()).min(1),
+      annotations: z.record(z.string(), z.string()), digests: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/))
+    })
+  })
+}).refine(r => r.rollback === "succeeded" || r.status === "rollback-failed")
+export type RecoveryEvidence = Omit<z.infer<typeof RecoveryReceipt>["recovery"], "target"> & {
+  target: LiveFacts & { digests: Record<string, string> }
+}
+
 // ---- Live facts: GET-only ----
 type Get = <T>(path: string) => Promise<{ result: T }>
 type Content = (worker: string) => Promise<{ entry: string; modules: string[]; digests: Record<string, string> }>
-export const readLiveFacts = async (worker: string, get: Get, content: Content): Promise<LiveFacts & { digests: Record<string, string> }> => {
+export const readLiveFacts = async (worker: string, get: Get, content: Content, rollbackReceipt?: unknown): Promise<LiveFacts & { digests: Record<string, string> }> => {
   const current = async () => {
     const d = (await get<{ deployments: Array<{ versions: Array<{ version_id: string; percentage: number }> }> }>(`/workers/scripts/${worker}/deployments`)).result.deployments[0]
     if (!d || d.versions.length !== 1 || d.versions[0]!.percentage !== 100) return refuse("DEPLOY_GUARD_LIVE_SPLIT", "the live deployment is not one version at 100%")
@@ -105,11 +125,26 @@ export const readLiveFacts = async (worker: string, get: Get, content: Content):
   // Live shape (observed 2026-09-24): content/v2 serves the NEWEST UPLOAD, not the deployed version.
   // An upload-only edge build over a live legacy writer would otherwise read as "edge is live".
   const newest = (await get<{ items: Array<{ id: string }> }>(`/workers/scripts/${worker}/versions?per_page=1`)).result.items[0]?.id
-  if (newest !== versionId) refuse("DEPLOY_GUARD_LIVE_NOT_NEWEST", `live version ${versionId} is not the newest upload ${newest ?? "(none)"}; its content cannot be read`)
+  let saved: LiveFacts & { digests: Record<string, string> } | undefined
+  if (newest !== versionId) {
+    const parsed = RecoveryReceipt.safeParse(rollbackReceipt)
+    if (!parsed.success) return refuse("DEPLOY_GUARD_LIVE_NOT_NEWEST", "no verified rollback receipt for the older live version")
+    const r = parsed.data
+    const target = r.recovery.target
+    if (r.recovery.worker !== worker || r.recovery.accountId !== (process.env.CLOUDFLARE_ACCOUNT_ID || WORKER_IDENTITY.accountId) ||
+      r.previous.version !== versionId || target.versionId !== versionId || r.recovery.newestVersion !== newest ||
+      !r.reverification.some(c => c.name === "CN-24" && c.status === "passed") ||
+      !target.modules.includes(target.entry) || target.modules.length !== Object.keys(target.digests).length ||
+      target.modules.some(name => !target.digests[name]))
+      return refuse("DEPLOY_GUARD_LIVE_NOT_NEWEST", "rollback receipt does not verify this live version")
+    saved = target
+  }
   // Live shape: version annotations are top-level `result.annotations`.
   const annotations = (await get<{ annotations?: Record<string, string> }>(`/workers/scripts/${worker}/versions/${versionId}`)).result.annotations ?? {}
-  const body = await content(worker)
-  if (await current() !== versionId || (await get<{ items: Array<{ id: string }> }>(`/workers/scripts/${worker}/versions?per_page=1`)).result.items[0]?.id !== versionId) refuse("DEPLOY_GUARD_LIVE_CHANGED", "the live version changed while it was being read")
+  if (saved && JSON.stringify(Object.entries(annotations).sort()) !== JSON.stringify(Object.entries(saved.annotations).sort()))
+    return refuse("DEPLOY_GUARD_LIVE_NOT_NEWEST", "rollback target annotations differ from the receipt")
+  const body = saved ?? await content(worker)
+  if (await current() !== versionId || (await get<{ items: Array<{ id: string }> }>(`/workers/scripts/${worker}/versions?per_page=1`)).result.items[0]?.id !== newest) refuse("DEPLOY_GUARD_LIVE_CHANGED", "the live version changed while it was being read")
   return { versionId, entry: body.entry, modules: body.modules, annotations, digests: body.digests }
 }
 export const sha256 = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex")
@@ -161,7 +196,7 @@ export const cloudflareContent: Content = async worker => {
   }
   return { entry, modules: Object.keys(digests).sort(), digests }
 }
-export const liveFactsFromCloudflare = (worker: string) => readLiveFacts(worker, api, cloudflareContent)
+export const liveFactsFromCloudflare = (worker: string, rollbackReceipt?: unknown) => readLiveFacts(worker, api, cloudflareContent, rollbackReceipt)
 /** First step of every real deploy: nothing is read, built or spawned before this answers. */
 export const preflightDeploy = async (worker: string, wranglerMain: string, identityEntry: string, read = liveFactsFromCloudflare): Promise<GuardDecision> => {
   const local = classifyLocal(wranglerMain, identityEntry)

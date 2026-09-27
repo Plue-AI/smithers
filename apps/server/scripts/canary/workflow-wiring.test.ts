@@ -198,6 +198,13 @@ describe("canary probes are wired into a gate", () => {
   it("supplies read-only invite probe inputs and always retains rollback evidence", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
     const steps = deploy.jobs.deploy.steps
+    const restore = steps.find(step => step.name === "Restore rollback receipt")!
+    expect(restore.run).toBe("bun apps/server/scripts/rollout-receipt.ts")
+    expect(steps.indexOf(restore)).toBeLessThan(steps.findIndex(step => step.id === "deploy_real"))
+    const dry = steps.find(step => step.id === "deploy_dry")!
+    expect(dry.env?.IDENTITY_SERVICE_TOKEN).toBe("${{ secrets.IDENTITY_SERVICE_TOKEN }}")
+    expect(dry.env?.CANARY_ALLOWLIST_LOGINS).toBe("${{ vars.CANARY_ALLOWLIST_LOGINS }}")
+    expect(readFileSync(new URL("../deploy.ts", import.meta.url), "utf8")).toContain("rehearsalChecks = await dryRunChecks(")
     const real = steps.find(step => step.id === "deploy_real")!
     expect(real.env?.IDENTITY_SERVICE_TOKEN).toBe("${{ secrets.IDENTITY_SERVICE_TOKEN }}")
     expect(real.env?.CANARY_ALLOWLIST_LOGINS).toBe("${{ vars.CANARY_ALLOWLIST_LOGINS }}")

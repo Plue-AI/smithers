@@ -1,9 +1,7 @@
 /** A host supplies deployment ports; rollout policy never calls a model or approval. */
-import { Action, Flow, Interpreter } from "@smthrs/flow"
+import { Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, Schema } from "effect"
-import Rollout from "./flow.ts"
-import { rollout, type RolloutHost } from "./runtime.ts"
+import { Schema } from "effect"
 
 const Release = Schema.Struct({ version: Schema.String, revision: Schema.String })
 const Check = Schema.Struct({ name: Schema.String, status: Schema.Literals(["passed", "failed"]) })
@@ -17,11 +15,12 @@ export const Receipt = Schema.Struct({
     "checking",
     "restoring",
     "passed",
+    "failed",
     "refused",
     "rolled-back",
     "rollback-failed"
   ]),
-  previous: Release,
+  previous: Schema.NullOr(Release),
   candidate: Schema.NullOr(Release),
   baseline: Schema.Array(Check),
   checks: Schema.Array(Check),
@@ -31,14 +30,14 @@ export const Receipt = Schema.Struct({
   reverification: Schema.Array(Check)
 })
 export const Execute = Action.make("rollout/execute", {
-  implementationVersion: "rollout/v1",
+  implementationVersion: "rollout/v2",
   payload: {},
   success: Receipt,
   error: Schema.Union([Receipt, Schema.String]),
   nondeterministic: true
 })
 export default Flow.make("rollout", {
-  description: "Deploy, verify, automatically restore the last good release on failure, and re-verify.",
+  description: "Deploy, verify, automatically restore the baseline release on failure, and re-verify.",
   capabilities: ["deploy:rollout"],
   effects: {
     reads: ["deployment/**"],
@@ -51,16 +50,5 @@ export default Flow.make("rollout", {
   payload: {},
   success: Receipt,
   error: Schema.Union([Receipt, Schema.String]),
-  body: Node.capture({ implementationVersion: "rollout/v1" }, () => Execute.call({}))
+  body: Node.capture({ implementationVersion: "rollout/v2" }, () => Execute.call({}))
 })
-/** Supply an exclusively leased host per run. The returned receipt is the existing run output. */
-export const executionLayer = (host: RolloutHost) =>
-  Interpreter.layerWithImplementations(
-    Rollout,
-    Execute.toLayer(() =>
-      Effect.tryPromise({ try: () => rollout(host), catch: () => "Rollout receipt unavailable" }).pipe(
-        Effect.flatMap((receipt) => receipt.status === "passed" ? Effect.succeed(receipt) : Effect.fail(receipt))
-      ), {
-      implementationVersion: "rollout/v1"
-    })
-  )

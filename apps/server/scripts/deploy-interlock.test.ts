@@ -155,3 +155,42 @@ test("the real deploy.ts enforces the checkout identity before any subprocess", 
     expect(result.spawned.some(line => line.includes("wrangler"))).toBe(false)
   }
 })
+
+test("only a verified rollback receipt admits an older live version, preserving identity and race guards", async () => {
+  const target = { ...facts("edge.js", LIVE_LEGACY), digests: { "edge.js": "1".repeat(64) } }
+  const receipt = {
+    status: "rolled-back", rollback: "succeeded", previous: { version: target.versionId, revision: "a".repeat(40) },
+    reverification: [{ name: "CN-24", status: "passed" }],
+    recovery: { accountId: WORKER_IDENTITY.accountId, worker: "smithers-mvp-web", target, newestVersion: "rejected" }
+  }
+  let reads = 0
+  let moved = false
+  let uploadMoved = false
+  let uploads = 0
+  const get = (async (path: string) => path.endsWith("/deployments")
+    ? { result: { deployments: [{ versions: [{ version_id: moved && reads++ > 0 ? "other" : target.versionId, percentage: 100 }] }] } }
+    : path.endsWith("/versions?per_page=1") ? { result: { items: [{ id: uploadMoved && uploads++ > 0 ? "another-upload" : "rejected" }] } }
+    : { result: { id: target.versionId, annotations: LIVE_LEGACY } }) as never
+  const content = async () => { throw Error("must not read newest upload content") }
+  const read = (value: unknown) => readLiveFacts("smithers-mvp-web", get, content, value)
+  const live = await read(receipt)
+  expect(live).toEqual(target)
+  expect(decideDeploy("edge", live).mode).toBe("normal")
+  expect(() => decideDeploy("legacy", live)).toThrow("DEPLOY_GUARD_LEGACY_OVER_EDGE")
+  for (const bad of [undefined, {}, { ...receipt, rollback: "failed" }, { ...receipt, status: "restoring" },
+    { ...receipt, previous: { version: "other", revision: "a".repeat(40) } },
+    { ...receipt, reverification: [{ name: "CN-24", status: "failed" }] },
+    ...[ { worker: "other" }, { accountId: "other" }, { newestVersion: "older" },
+      { target: { ...target, annotations: {} } }, { target: { ...target, digests: {} } }
+    ].map(change => ({ ...receipt, recovery: { ...receipt.recovery, ...change } }))]) {
+    await expect(read(bad)).rejects.toThrow("DEPLOY_GUARD_LIVE_NOT_NEWEST")
+  }
+  // A red restored baseline can still be repaired if the exact version was restored.
+  expect(await read({ ...receipt, status: "rollback-failed" })).toEqual(target)
+  expect(await read({ ...receipt, status: "rollback-failed", rollback: "failed" })).toEqual(target)
+  moved = true
+  await expect(read(receipt)).rejects.toThrow("DEPLOY_GUARD_LIVE_CHANGED")
+  moved = false
+  uploadMoved = true
+  await expect(read(receipt)).rejects.toThrow("DEPLOY_GUARD_LIVE_CHANGED")
+})

@@ -18,10 +18,11 @@ export interface RolloutReceipt {
     | "checking"
     | "restoring"
     | "passed"
+    | "failed"
     | "refused"
     | "rolled-back"
     | "rollback-failed"
-  previous: Release
+  previous: Release | null
   candidate: Release | null
   baseline: Array<CheckResult>
   checks: Array<CheckResult>
@@ -33,6 +34,8 @@ export interface RolloutReceipt {
 /** The host owns serialization, bounded I/O, immutable versions and durable receipt storage. */
 export interface RolloutHost {
   checks: ReadonlyArray<string>
+  /** Only checks affected by this deployment can trigger restoration. */
+  rollbackChecks: ReadonlyArray<string>
   previousChecks?: ReadonlyArray<string>
   skippedChecks?: ReadonlyArray<string>
   capture(): Promise<Release>
@@ -43,19 +46,18 @@ export interface RolloutHost {
   record(receipt: RolloutReceipt): Promise<void>
 }
 
-/** No judgment: every required failure, including exceptions, restores the captured release. */
+/** Failed deployment checks restore the baseline; upstream failures only fail the run. */
 export async function rollout(host: RolloutHost): Promise<RolloutReceipt> {
   if (
-    host.checks.length === 0 || host.previousChecks?.length === 0 || new Set(host.checks).size !== host.checks.length
+    host.checks.length === 0 || host.previousChecks?.length === 0 || new Set(host.checks).size !== host.checks.length ||
+    host.rollbackChecks.length === 0 || host.rollbackChecks.some((name) => !host.checks.includes(name))
   ) throw new Error("Required checks must be nonempty and unique")
-  const previous = await host.capture()
-  if (!previous.version || !previous.revision) throw new Error("A rollback target is required")
   const startedAt = new Date().toISOString()
   const receipt: RolloutReceipt = {
     startedAt,
     updatedAt: startedAt,
     status: "captured",
-    previous,
+    previous: null,
     candidate: null,
     baseline: [],
     checks: [],
@@ -84,13 +86,18 @@ export async function rollout(host: RolloutHost): Promise<RolloutReceipt> {
     }
     return results
   }
-  await record("captured")
-  receipt.baseline = await verify(previous, "baseline")
-  if (receipt.baseline.some((c) => c.status !== "passed")) {
-    receipt.failedChecks = receipt.baseline.filter((c) => c.status !== "passed").map((c) => c.name)
+  let previous: Release
+  try {
+    previous = await host.capture()
+    if (!previous.version || !previous.revision) throw new Error("A rollback target is required")
+    receipt.previous = previous
+  } catch {
+    receipt.failedChecks = ["capture"]
     await record("refused")
     return receipt
   }
+  await record("captured")
+  receipt.baseline = await verify(previous, "baseline")
   await record("prepared")
   try {
     await host.beforePublish?.()
@@ -106,8 +113,8 @@ export async function rollout(host: RolloutHost): Promise<RolloutReceipt> {
     await record("checking")
     receipt.checks = await verify(receipt.candidate, "candidate")
     receipt.failedChecks = receipt.checks.filter((c) => c.status !== "passed").map((c) => c.name)
-    if (receipt.failedChecks.length === 0) {
-      await record("passed")
+    if (!receipt.failedChecks.some((name) => host.rollbackChecks.includes(name))) {
+      await record(receipt.failedChecks.length === 0 ? "passed" : "failed")
       return receipt
     }
   } catch {
@@ -128,7 +135,11 @@ export async function rollout(host: RolloutHost): Promise<RolloutReceipt> {
   // Even an uncertain restore has observable results. Never recursively roll forward.
   receipt.reverification = await verify(previous, "restored")
   await record(
-    receipt.rollback === "succeeded" && receipt.reverification.every((c) => c.status === "passed")
+    receipt.rollback === "succeeded" &&
+      receipt.reverification.every((c) =>
+        !(host.previousChecks ?? host.rollbackChecks).includes(c.name) || c.status === "passed" ||
+        receipt.baseline.some((b) => b.name === c.name && b.status === "failed")
+      )
       ? "rolled-back"
       : "rollback-failed"
   )

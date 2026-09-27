@@ -36,7 +36,7 @@
  * to the claim.
  */
 import { rollout, type RolloutReceipt } from "../../../flows/rollout/runtime.ts"
-import { workerRolloutHost, writeRolloutReceipt } from "./rollout"
+import { dryRunChecks, readPreviousRevision, workerRolloutHost, writeRolloutReceipt } from "./rollout"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -47,6 +47,12 @@ import { readWranglerConfig } from "../src/wranglerConfig"
 import { artifactDigest, authorizeActivation, classifyLocal, DeployGuardRefusal, liveFactsFromCloudflare, preflightDeploy, sha256, verifyActivated, type ActivationAuthorization, type GuardDecision } from "./deployGuard"
 
 const dryRun = process.argv.includes("--dry-run")
+const serverDir = fileURLToPath(new URL("..", import.meta.url))
+const recoveryPath = join(serverDir, "deploy-receipts", "rollout", "last-rollback.json")
+// This store is owned by the deploying host; CI restores it from main-push artifacts.
+const rollbackEvidence: unknown = !dryRun && existsSync(recoveryPath) ? JSON.parse(readFileSync(recoveryPath, "utf8")) : undefined
+const readLive = (worker: string) => liveFactsFromCloudflare(worker, rollbackEvidence)
+let capturedIdentity: Awaited<ReturnType<typeof readLive>> | undefined
 
 /*
  * Cutover interlock (scripts/deployGuard.ts). The first act of a real deploy,
@@ -65,12 +71,14 @@ try {
   const local = classifyLocal(readWranglerConfig().main, WORKER_IDENTITY.entry)
   if (dryRun) console.log(`[deploy] cutover interlock: dry run of the ${local} entry; the live version is not read.`)
   else {
-    guard = await preflightDeploy(WORKER_IDENTITY.name, readWranglerConfig().main, WORKER_IDENTITY.entry)
+    guard = await preflightDeploy(WORKER_IDENTITY.name, readWranglerConfig().main, WORKER_IDENTITY.entry, async worker => {
+      capturedIdentity = await readLive(worker)
+      return capturedIdentity
+    })
     console.log(`[deploy] cutover interlock: ${guard.mode} (local ${guard.local}, live ${guard.live} ${guard.liveVersion})`)
   }
 } catch (error) { guardRefused(error) }
 
-const serverDir = fileURLToPath(new URL("..", import.meta.url))
 const uiDir = fileURLToPath(new URL("../../app", import.meta.url))
 const siteDir = fileURLToPath(new URL("../../site", import.meta.url))
 /**
@@ -169,6 +177,8 @@ let versionId: string | null = null
 let rolloutReceipt: RolloutReceipt | null = null
 let activation: (ActivationAuthorization & { readonly artifactSHA256: string }) | null = null
 let dryRunArtifactSHA256: string | null = null
+let rehearsalChecks: Awaited<ReturnType<typeof dryRunChecks>> | null = null
+const inviteConfigured = Boolean(process.env.IDENTITY_SERVICE_TOKEN || process.env.CANARY_ALLOWLIST_LOGINS)
 
 if (dryRun) {
   const outdir = mkdtempSync(join(tmpdir(), "smithers-mvp-web-dry-run-"))
@@ -182,6 +192,7 @@ if (dryRun) {
   // The digest an edge activation must match: the release gate records it from this rehearsal.
   dryRunArtifactSHA256 = artifactDigest(Object.fromEntries(readdirSync(outdir).filter(name => name.endsWith(".js")).map(name => [name, sha256(readFileSync(join(outdir, name)))])))
   console.log(`[deploy] artifact ${dryRunArtifactSHA256}`)
+  rehearsalChecks = await dryRunChecks({ run, serverDir, accountId, inviteConfigured })
 } else {
   if (apiToken === undefined || apiToken === "") {
     console.error("[deploy] CLOUDFLARE_API_TOKEN is unset; a real deploy needs it (see DEPLOY.md).")
@@ -215,20 +226,15 @@ if (dryRun) {
   }
   // The live version the interlock judged must still be the one being replaced.
   try {
-    if ((await liveFactsFromCloudflare(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion) throw new DeployGuardRefusal("DEPLOY_GUARD_LIVE_CHANGED", "the live version changed after the interlock judged it")
+    if ((await readLive(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion) throw new DeployGuardRefusal("DEPLOY_GUARD_LIVE_CHANGED", "the live version changed after the interlock judged it")
   } catch (error) { guardRefused(error) }
-  // Bind the rollback SHA to the captured live version before any mutation.
-  let previousRevision = guard!.mode === "activation" ? guard!.executionID : ""
-  if (!previousRevision) {
-    const response = await fetch("https://canary.smithers.sh/__build.json", { signal: AbortSignal.timeout(30_000), redirect: "error" })
-    const previousStamp = await response.json() as { gitSha?: string }
-    if (!response.ok || !/^[a-f0-9]{40}$/.test(previousStamp.gitSha ?? "")) throw new Error("Previous build identity unavailable")
-    previousRevision = previousStamp.gitSha!
-  }
+  // Read the build stamp inside capture: even an unreadable baseline gets a receipt.
   rolloutReceipt = await rollout(workerRolloutHost({
-    previous: { version: guard!.liveVersion, revision: previousRevision },
+    previous: async () => ({ version: guard!.liveVersion,
+      revision: guard!.mode === "activation" ? guard!.executionID : await readPreviousRevision() }),
+    identity: { accountId, worker: WORKER_IDENTITY.name, target: capturedIdentity! },
     serverDir, accountId, worker: WORKER_IDENTITY.name, token: apiToken,
-    inviteConfigured: Boolean(process.env.IDENTITY_SERVICE_TOKEN || process.env.CANARY_ALLOWLIST_LOGINS),
+    inviteConfigured,
     ...(guard!.mode === "activation" ? { fenceExecution: guard!.executionID } : {}),
     run,
     record: async receipt => {
@@ -237,7 +243,7 @@ if (dryRun) {
     },
     beforePublish: async () => {
       // Baseline verification can take time; reject a moved target before publication.
-      if ((await liveFactsFromCloudflare(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion)
+      if ((await readLive(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion)
         throw new Error("Live deployment changed")
     },
     publish: async () => {
@@ -245,7 +251,7 @@ if (dryRun) {
       if (deploy.exitCode !== 0) throw new Error("Publish failed")
       versionId = deploy.output.match(/Current Version ID:\s*([0-9a-f-]{36})/)?.[1] ?? null
       if (versionId === null) throw new Error("Published version identity unavailable")
-      if (activation) verifyActivated(await liveFactsFromCloudflare(WORKER_IDENTITY.name), activation.artifactSHA256)
+      if (activation) verifyActivated(await readLive(WORKER_IDENTITY.name), activation.artifactSHA256)
       return { version: versionId, revision: gitSha }
     }
   }))
@@ -260,13 +266,14 @@ const receipt = {
   dryRun,
   dryRunMode: dryRun ? "bundle" : null,
   deployTool: "wrangler",
-  gitSha: rolloutReceipt?.status === "rolled-back" ? rolloutReceipt.previous.revision : gitSha,
+  gitSha: rolloutReceipt?.status === "rolled-back" ? rolloutReceipt.previous?.revision : gitSha,
   attemptedGitSha: gitSha,
   gitDirty,
   timestamp: new Date().toISOString(),
-  wranglerVersionId: rolloutReceipt?.status === "rolled-back" ? rolloutReceipt.previous.version :
+  wranglerVersionId: rolloutReceipt?.status === "rolled-back" ? rolloutReceipt.previous?.version :
     rolloutReceipt?.status === "rollback-failed" ? null : versionId,
   rollout: rolloutReceipt,
+  rehearsalChecks,
   versionTag: verdict.tag,
   versionMessage: verdict.message,
   runUrl,
@@ -281,4 +288,4 @@ writeFileSync(receiptPath, `${JSON.stringify(receipt, null, "\t")}\n`)
 writeFileSync(`${receiptDir}/latest.json`, `${JSON.stringify(receipt, null, "\t")}\n`)
 
 console.log(`[deploy] receipt written to ${receiptPath}`)
-if (rolloutReceipt && rolloutReceipt.status !== "passed") process.exitCode = 1
+if ((rolloutReceipt && rolloutReceipt.status !== "passed") || rehearsalChecks?.checks.some(c => c.status === "failed")) process.exitCode = 1

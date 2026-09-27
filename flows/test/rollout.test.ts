@@ -17,6 +17,7 @@ const fixture = (
       return candidate
     },
     checks: ["CN-1", "site"],
+    rollbackChecks: ["CN-1", "site"],
     check: async (name, target, phase) => {
       events.push(`${phase}:${name}:${target.revision}`)
       if (options.verifyThrows && phase === "candidate") throw Error("secret")
@@ -59,10 +60,12 @@ test("green rollout never restores", async () => {
   assert.equal((await rollout(f.host)).status, "passed")
   assert.equal(f.events.some((e) => e.startsWith("restore:")), false)
 })
-test("an unhealthy baseline refuses before publication", async () => {
+test("an unhealthy baseline permits a successful fix-forward", async () => {
   const f = fixture({ fail: "baseline:site" })
-  assert.equal((await rollout(f.host)).status, "refused")
-  assert.equal(f.events.includes("publish"), false)
+  const result = await rollout(f.host)
+  assert.equal(result.status, "passed")
+  assert.equal(result.baseline[1]?.status, "failed")
+  assert.equal(f.events.includes("publish"), true)
 })
 test("publish uncertainty and thrown checks restore, with no exception text in receipts", async () => {
   for (const options of [{ publishThrows: true }, { verifyThrows: true }]) {
@@ -111,8 +114,9 @@ test("a moved deployment is refused without overwriting another rollout", async 
 })
 
 test("the public Smithers flow fails with the deterministic recovery receipt", async () => {
-  const [{ default: Flow, executionLayer }, { FlowEngine }, NodeCrypto, { Effect, Layer }] = await Promise.all([
+  const [{ default: Flow }, { executionLayer }, { FlowEngine }, NodeCrypto, { Effect, Layer }] = await Promise.all([
     import("../rollout/flow.ts"),
+    import("../rollout/host.ts"),
     import("@smthrs/engine"),
     import("@effect/platform-node/NodeCrypto"),
     import("effect")
@@ -154,4 +158,63 @@ test("restoring a cutover fence verifies its own required checks, never app heal
   assert.equal(result.status, "rolled-back")
   assert.deepEqual(result.reverification.map((c) => c.name), ["fence-version", "maintenance-response"])
   assert.equal(f.events.some((e) => e === "restored:site:old-sha"), false)
+})
+
+test("upstream failures mark the run red without rollback", async () => {
+  const f = fixture({ fail: "candidate:CN-18" })
+  f.host.checks = ["CN-1", "site", "CN-18"]
+  const result = await rollout(f.host)
+  assert.equal(result.status, "failed")
+  assert.deepEqual(result.failedChecks, ["CN-18"])
+  assert.equal(result.rollback, "not-needed")
+  assert.equal(f.events.some((e) => e.startsWith("restore:")), false)
+})
+
+test("a failed fix-forward restores the red baseline and records all results", async () => {
+  const f = fixture()
+  f.host.check = async (name) => ({ status: name === "site" ? "failed" : "passed" })
+  const result = await rollout(f.host)
+  assert.equal(result.status, "rolled-back")
+  for (const checks of [result.baseline, result.checks, result.reverification]) {
+    assert.equal(checks.find((c) => c.name === "site")?.status, "failed")
+  }
+  assert.equal(f.events.filter((e) => e === "restore:good-version").length, 1)
+})
+
+test("upstream failures do not invalidate restoration", async () => {
+  const f = fixture()
+  f.host.checks = ["CN-1", "site", "CN-18"]
+  f.host.check = async (name, _, phase) => ({
+    status: name === "CN-18" || (phase === "candidate" && name === "site") ? "failed" : "passed"
+  })
+  assert.equal((await rollout(f.host)).status, "rolled-back")
+})
+
+test("capture errors write a refused receipt without exposing errors or publishing", async () => {
+  const f = fixture()
+  f.host.capture = async () => {
+    throw Error("secret previous build stamp unreadable")
+  }
+  const result = await rollout(f.host)
+  assert.equal(result.status, "refused")
+  assert.equal(result.previous, null)
+  assert.deepEqual(result.failedChecks, ["capture"])
+  assert.equal(f.receipts.at(-1)?.status, "refused")
+  assert.equal(JSON.stringify(f.receipts).includes("secret"), false)
+  assert.deepEqual(f.events, [])
+})
+
+test("restoration detects a new failure even when another baseline check was already red", async () => {
+  const f = fixture()
+  f.host.check = async (name, _, phase) => ({ status: name === "site" || phase === "restored" ? "failed" : "passed" })
+  assert.equal((await rollout(f.host)).status, "rollback-failed")
+})
+
+test("rollback check names cannot silently omit the required check set", async () => {
+  for (const checks of [[], ["unknown"]]) {
+    const f = fixture()
+    f.host.rollbackChecks = checks
+    await assert.rejects(rollout(f.host), /checks/)
+    assert.deepEqual(f.events, [])
+  }
 })

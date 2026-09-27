@@ -1001,7 +1001,7 @@
     },
     {
       "id": "rollout",
-      "description": "Deploy, verify, automatically restore the last good release on failure, and re-verify.",
+      "description": "Deploy, verify, automatically restore the baseline release on failure, and re-verify.",
       "summary": null,
       "featured": false,
       "kind": "ts",
