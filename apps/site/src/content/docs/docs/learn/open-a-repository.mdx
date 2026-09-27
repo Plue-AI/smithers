@@ -1,6 +1,6 @@
 ---
 title: "Open a repository"
-description: "Open a repository in Smithers, read its guide files, and add another."
+description: "Open a repository in Smithers, read its guide files, and register your own."
 sidebar:
   order: 13
 ---
@@ -68,17 +68,18 @@ Read the files in your checkout.
 </TabItem>
 </Tabs>
 
-## Add another repository
+## Register your repository
+
+Register a repository; we review it. You can register one at a time.
 
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.**
+**Planned**, being built now. Sign in with GitHub on [smithers.sh](https://smithers.sh/smithersai/smithers), then select **Register a repository** on [the home page](https://smithers.sh/?register=1), or enter `/repository.register`. Answer a few questions; the registration card shows where it is.
 
-1. Sign in with GitHub on [smithers.sh](https://smithers.sh/smithersai/smithers).
-2. Install the [Smithers GitHub App](https://github.com/apps/smitherspreviewrelease/installations/new) on the repository or its organization, or enter `/repos.import owner/repo`.
-
-Only repositories the app is installed on appear.
+:::note[Capture needed]
+Registering a repository in the real app, from the question to the In review card. Needs `/repository.register` on main.
+:::
 
 </TabItem>
 <TabItem label="TUI">
@@ -93,7 +94,7 @@ Not applicable: start the TUI in any checkout.
 </TabItem>
 <TabItem label="API">
 
-**Available now.** `POST /api/github/import` starts an import; `GET /api/github/import/{id}` follows it.
+**Planned.**
 
 </TabItem>
 </Tabs>

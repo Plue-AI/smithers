@@ -60,13 +60,13 @@ Explain this repository. Which files should I read before making a small
 documentation change? Do not modify files or start a flow.
 ```
 
-Read the response and inspect the referenced files. Complete any access step the app requests. [Account and access](/docs/app/account/) explains access labels; [Boxes](/docs/app/boxes/) covers execution environments.
+Read the response and inspect the referenced files. Complete any access step the app requests. [Account and access](/docs/learn/account/) explains access labels; [Boxes](/docs/learn/boxes/) covers execution environments.
 
 ## 4. Set up a job
 
 Select **Set up a job**, or a recommended repository job. Review its configuration and proposed plan before approving registration. Follow the run card and background toast until registration finishes. The checklist does not complete merely because you pressed the button.
 
-The repository's job buttons remain available after setup and show their current state. Use [Dispatcher](/docs/app/dispatcher/) to inspect declarations and live registrations, prepare a schedule, or run an enabled registration now.
+The repository's job buttons remain available after setup and show their current state. Use [Dispatcher](/docs/learn/agent-and-trigger/) to inspect declarations and live registrations, prepare a schedule, or run an enabled registration now.
 
 ## 5. Make and inspect a change
 
@@ -83,10 +83,10 @@ Read the resulting Change's **Diff**, **Checks**, and **Review**. For issue work
 
 ## Continue
 
-  - [Run a flow](/docs/app/flows/): Choose a task and provide its inputs.
-  - [Inspect a run](/docs/app/runs/): Read its trace, steer, or stop work.
-  - [Review a change](/docs/app/changes/): Check the diff and evidence before landing.
-  - [Troubleshoot the app](/docs/app/troubleshooting/): Resolve access, box, and run problems.
+  - [Run a flow](/docs/learn/run-a-flow/): Choose a task and provide its inputs.
+  - [Inspect a run](/docs/learn/watch-an-agent/): Read its trace, steer, or stop work.
+  - [Review a change](/docs/learn/review-a-change/): Check the diff and evidence before landing.
+  - [Troubleshoot the app](/docs/learn/troubleshooting/): Resolve access, box, and run problems.
 
 Prefer a terminal? Follow the [CLI quickstart](/docs/cli-quickstart/).
 
@@ -363,12 +363,12 @@ The sidebar keeps these areas available as you work:
 
 | Area | What you use it for |
 | --- | --- |
-| [Wiki](/docs/app/wiki/) | Read and edit notes about the project. |
-| [Dispatcher](/docs/app/dispatcher/) | Inspect rules, prepare schedules, and follow registered work. |
-| [Flows](/docs/app/flows/) | Find flows and follow their runs. |
-| [Secrets](/docs/app/secrets/) | Inspect the names and scope of repository secrets. |
-| [History](/docs/app/history/) | Read mythical history and inspect live work with `/stack.show`. |
-| [Account](/docs/app/account/) | Check your GitHub identity and alpha access. |
+| [Wiki](/docs/learn/wiki/) | Read and edit notes about the project. |
+| [Dispatcher](/docs/learn/agent-and-trigger/) | Inspect rules, prepare schedules, and follow registered work. |
+| [Flows](/docs/learn/run-a-flow/) | Find flows and follow their runs. |
+| [Secrets](/docs/learn/secrets/) | Inspect the names and scope of repository secrets. |
+| [History](/docs/learn/issue-to-main/) | Read mythical history and inspect live work with `/stack.show`. |
+| [Account](/docs/learn/account/) | Check your GitHub identity and alpha access. |
 
 Wiki and Flows open panes beside the conversation. Other results appear as cards in chat. Use **Back to the conversation** to close a pane. Use **Maximize card** when you need more room for a file or a run.
 
@@ -382,18 +382,18 @@ For a command that needs more information, fill in the form Smithers presents in
 
 ## Boxes and sessions
 
-A [box](/docs/app/boxes/) is the environment where the repository's code runs. Its files and sessions appear under the repository in the sidebar. Select a file to inspect it, or return to an existing terminal or agent session.
+A [box](/docs/learn/boxes/) is the environment where the repository's code runs. Its files and sessions appear under the repository in the sidebar. Select a file to inspect it, or return to an existing terminal or agent session.
 
 ## Public browsing and signed-in work
 
 The public repository home, guide files, and declared Dispatcher rules are available signed out. Flows, boxes, account details, and repository secrets need sign-in. A sign-in prompt is a step to complete before the requested action can run.
 
-For the access states and what they mean, see [Account and access](/docs/app/account/).
+For the access states and what they mean, see [Account and access](/docs/learn/account/).
 
 ---
 
 # Open a repository
-https://smithers.sh/docs/app/repositories/
+https://smithers.sh/docs/learn/open-a-repository/
 
 Open a repository to give your conversation a project context. In the hosted alpha, start with [smithersai/smithers](https://smithers.sh/smithersai/smithers).
 
@@ -432,12 +432,12 @@ The alpha opens selected public repositories. Registration takes two steps:
 
 Installing the app registers the repository. Only repositories the app is installed on appear in the app, so a repository you can see on GitHub is not reachable here until it is installed. Registering a repository does not by itself grant alpha access or contributor permissions.
 
-For sign-in and access approval, see [Account and access](/docs/app/account/).
+For sign-in and access approval, see [Account and access](/docs/learn/account/).
 
 ---
 
 # Talk to Smithers
-https://smithers.sh/docs/app/chat/
+https://smithers.sh/docs/learn/chat/
 
 Give Smithers a concrete outcome and the context it needs to work on the selected repository.
 
@@ -482,7 +482,7 @@ You can continue chatting after launching a flow. To change the instructions of 
 
 While the current turn is running, **Enter** sends a steer and **Alt+Enter** queues a follow-up. Queued prompts remain with their conversation and can be edited or removed. Background progress stays in the shared toast stack, with controls appropriate to the worker; the run card keeps the detailed output.
 
-For progress, stopping, and resuming, see [Inspect and steer a run](/docs/app/runs/).
+For progress, stopping, and resuming, see [Inspect and steer a run](/docs/learn/watch-an-agent/).
 
 ## Use the command menu
 
@@ -492,12 +492,12 @@ Type `/` in the message box to see available commands. Search by name, or select
 
 The menu distinguishes a repository flow from the actions in its command group.
 
-For finding files, notes, and commands together, see [Search the app](/docs/app/search/).
+For finding files, notes, and commands together, see [Search the app](/docs/learn/search/).
 
 ---
 
 # Search the app
-https://smithers.sh/docs/app/search/
+https://smithers.sh/docs/learn/search/
 
 Use the search palette when you know what you want but do not know which card or command opens it.
 
@@ -532,7 +532,7 @@ For a command that requires additional fields, Smithers opens a form in the conv
 ---
 
 # Read and edit the Wiki
-https://smithers.sh/docs/app/wiki/
+https://smithers.sh/docs/learn/wiki/
 
 Use **Wiki** to read and edit the notes Smithers keeps about the project.
 
@@ -552,7 +552,7 @@ Use **Back to the conversation** to close the pane. A note's confidence label is
 
 Select **New note** to create a note, then write in the editor. To revise an existing note, select it and edit its content. Keep facts and their sources together so another reader can check the claim.
 
-Editing a note is distinct from landing a code change. Review code through the [Change card](/docs/app/changes/).
+Editing a note is distinct from landing a code change. Review code through the [Change card](/docs/learn/review-a-change/).
 
 ## Read the repository's guide files
 
@@ -577,7 +577,7 @@ Factory lists configuration files you can open and says when a file or generated
 ---
 
 # Inspect the Dispatcher
-https://smithers.sh/docs/app/dispatcher/
+https://smithers.sh/docs/learn/agent-and-trigger/
 
 Use **Dispatcher** to inspect a repository's declared rules and the live triggers returned by its box.
 
@@ -597,7 +597,7 @@ The label **declared in .smithers/FACTORY.ts** identifies configuration read fro
 
 To inspect live trigger state, sign in with an approved account and connect a box. Open **Dispatcher** again. Read the status and event information returned for that box.
 
-For a particular event, inspect the resulting [run](/docs/app/runs/) to determine whether its flow started and what happened. A declaration alone is not a run result.
+For a particular event, inspect the resulting [run](/docs/learn/watch-an-agent/) to determine whether its flow started and what happened. A declaration alone is not a run result.
 
 ## Register a rule
 
@@ -624,11 +624,11 @@ Keep `smthrs serve` or `smthrs triggers serve` running against that project for 
 ---
 
 # Run a flow
-https://smithers.sh/docs/app/flows/
+https://smithers.sh/docs/learn/run-a-flow/
 
 A flow is repeatable work defined by the repository. Use one to review a change, triage an issue, or run other work the project provides.
 
-Running a hosted flow requires GitHub sign-in, alpha access, and an available box for a registered repository. See [Account and access](/docs/app/account/) if the app asks you to sign in or apply for access, and [Register another repository](/docs/app/repositories/#register-another-repository) if the repository you want is not in the app yet.
+Running a hosted flow requires GitHub sign-in, alpha access, and an available box for a registered repository. See [Account and access](/docs/learn/account/) if the app asks you to sign in or apply for access, and [Register another repository](/docs/learn/open-a-repository/#register-another-repository) if the repository you want is not in the app yet.
 
 ## Choose a flow
 
@@ -662,7 +662,7 @@ Submit the flow's inputs. If Smithers asks for permission, review the requested 
 
 A request is recorded before background launch. The shared toast follows launch and execution, and the run card keeps the detailed output. Wait for the real run status: an accepted request is not yet a running or completed flow. A sign-in prompt or launch error means another step is needed.
 
-Keep chatting while the flow runs. For its trace, steering, and controls, see [Inspect and steer a run](/docs/app/runs/). For the resulting diff, see [Review a change](/docs/app/changes/).
+Keep chatting while the flow runs. For its trace, steering, and controls, see [Inspect and steer a run](/docs/learn/watch-an-agent/). For the resulting diff, see [Review a change](/docs/learn/review-a-change/).
 
 ## Create a flow for repeated work
 
@@ -673,7 +673,7 @@ To author the files directly, follow the [CLI quickstart](/docs/cli-quickstart/)
 ---
 
 # Inspect and steer a run
-https://smithers.sh/docs/app/runs/
+https://smithers.sh/docs/learn/watch-an-agent/
 
 A run is one execution of a flow. Open its card to see what happened and decide what to do next.
 
@@ -716,16 +716,16 @@ Background toasts offer the controls supported by the current worker and remain 
 
 For a parked run, use `/runs.resume` and supply the run shown in the app. Resuming continues that run. Starting it again creates another execution, so choose the action that matches your intent.
 
-If the run is waiting for a decision, open its [approval](/docs/app/approvals/). If it failed, inspect its error before retrying. A disconnected box or missing credential needs a different fix from a failing test.
+If the run is waiting for a decision, open its [approval](/docs/learn/approvals/). If it failed, inspect its error before retrying. A disconnected box or missing credential needs a different fix from a failing test.
 
 ## Verify the result
 
-Read the final output and any checks the flow reports. If it produced a Change, [review its diff and checks](/docs/app/changes/) before landing it. A completed run does not by itself establish that the result is ready to merge.
+Read the final output and any checks the flow reports. If it produced a Change, [review its diff and checks](/docs/learn/review-a-change/) before landing it. A completed run does not by itself establish that the result is ready to merge.
 
 ---
 
 # Work in a box
-https://smithers.sh/docs/app/boxes/
+https://smithers.sh/docs/learn/boxes/
 
 A box is the environment where Smithers works on a repository. It holds the working copy, terminals, agent sessions, and services for that work.
 
@@ -767,12 +767,12 @@ Example data in the local app: a named snapshot and the box's available controls
 
 Use **Suspend** when you want to stop a box while retaining it for later work. Use **Resume** to bring it back. Deleting a box is a separate action; check the box's identity and the confirmation before deleting it.
 
-For secrets available to box sessions, see [Repository secrets](/docs/app/secrets/). For flow execution within the box, see [Run a flow](/docs/app/flows/).
+For secrets available to box sessions, see [Repository secrets](/docs/learn/secrets/). For flow execution within the box, see [Run a flow](/docs/learn/run-a-flow/).
 
 ---
 
 # Review an approval
-https://smithers.sh/docs/app/approvals/
+https://smithers.sh/docs/learn/approvals/
 
 An approval card asks you to decide whether a specific action can proceed. Read what the card requests before deciding.
 
@@ -784,7 +784,7 @@ An approval card asks you to decide whether a specific action can proceed. Read 
 
 While the card says **Sending your decision**, the app is submitting the response. Wait for the accepted or denied state. If submission fails, the card shows the error; the decision has not been confirmed.
 
-Approving a launch allows that launch. It does not mean that you have reviewed a resulting code change. Review that result separately through the [Change card](/docs/app/changes/).
+Approving a launch allows that launch. It does not mean that you have reviewed a resulting code change. Review that result separately through the [Change card](/docs/learn/review-a-change/).
 
 ## Find pending approvals
 
@@ -794,12 +794,12 @@ If no requests are waiting, the inbox says that no approvals are pending.
 
 ## Correct the request before approving
 
-If the requested action is too broad or targets the wrong repository, deny it and explain the correction to Smithers. For a running flow, use [Steer](/docs/app/runs/#send-a-correction) to direct the correction to that run.
+If the requested action is too broad or targets the wrong repository, deny it and explain the correction to Smithers. For a running flow, use [Steer](/docs/learn/watch-an-agent/#send-a-correction) to direct the correction to that run.
 
 ---
 
 # Review a change
-https://smithers.sh/docs/app/changes/
+https://smithers.sh/docs/learn/review-a-change/
 
 A **Change** is the unit of code review in Smithers Cloud. Open its card to inspect the proposed code and the evidence for landing it.
 
@@ -841,14 +841,14 @@ When the checks and required reviews permit landing, use the **Land** action. It
 
 If landing is blocked, read the reason on the card and complete the missing requirement. A passing agent review does not replace a required human review.
 
-The repository's policy determines the final step. A send-upstream repository opens a GitHub pull request for its owner to merge; Smithers' own repository uses this path. Verify the merged main commit before calling the work landed. The stack service owns `mythical`, and main remains append-only with one commit per stack item. See [History and the Stack](/docs/app/history/).
+The repository's policy determines the final step. A send-upstream repository opens a GitHub pull request for its owner to merge; Smithers' own repository uses this path. Verify the merged main commit before calling the work landed. The stack service owns `mythical`, and main remains append-only with one commit per stack item. See [History and the Stack](/docs/learn/issue-to-main/).
 
-For the runtime evidence behind a result, see [Inspect and steer a run](/docs/app/runs/).
+For the runtime evidence behind a result, see [Inspect and steer a run](/docs/learn/watch-an-agent/).
 
 ---
 
 # Repository secrets
-https://smithers.sh/docs/app/secrets/
+https://smithers.sh/docs/learn/secrets/
 
 Use **Secrets** to inspect which repository secrets are available to sessions in the selected repository. Sign in with an account that has permission to read this information.
 
@@ -886,7 +886,7 @@ Self-hosted operators can enable `SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTION
 ---
 
 # History and the Stack
-https://smithers.sh/docs/app/history/
+https://smithers.sh/docs/learn/issue-to-main/
 
 **History** opens the repository's **mythical history**: a narrative of how the code fits together, organized into smaller changes. It is separate from the list of flow runs.
 
@@ -914,8 +914,8 @@ Use the view that matches what you need to inspect:
 
 | Question | Where to look |
 | --- | --- |
-| What did a flow do? | [Runs](/docs/app/runs/) and the run trace. |
-| What changed between revisions? | [The Change card](/docs/app/changes/) and its revision comparisons. |
+| What did a flow do? | [Runs](/docs/learn/watch-an-agent/) and the run trace. |
+| What changed between revisions? | [The Change card](/docs/learn/review-a-change/) and its revision comparisons. |
 | What commits exist in the source repository? | The repository's GitHub history. |
 | Which issues are being planned, implemented, or checked? | `/stack.show` and its linked runs. |
 | How is the code explained through mythical history? | **History**, when the repository provides it. |
@@ -923,7 +923,7 @@ Use the view that matches what you need to inspect:
 ---
 
 # Account and access
-https://smithers.sh/docs/app/account/
+https://smithers.sh/docs/learn/account/
 
 You can explore an available public repository without signing in. Sign in with GitHub to contribute, run flows, and use a box.
 
@@ -966,7 +966,7 @@ Select **Sign out** on the Account card. Check that the app returns to the signe
 ---
 
 # Troubleshoot the app
-https://smithers.sh/docs/app/troubleshooting/
+https://smithers.sh/docs/learn/troubleshooting/
 
 Start with the message on the card or notification. It identifies the action that failed and the next step the app needs.
 
@@ -980,7 +980,7 @@ Open **Account** and complete **Sign in with GitHub**. Return to Smithers and ch
 
 Confirm that the correct repository is selected and that your account is allowed. A hosted flow also needs an available box. Read the launch error before retrying: a missing box, an unavailable service, and a failed flow need different fixes.
 
-For the launch path, see [Work in a box](/docs/app/boxes/).
+For the launch path, see [Work in a box](/docs/learn/boxes/).
 
 ## A notification covers a control
 
@@ -994,13 +994,13 @@ If a slash command is not recognized, type `/` to browse the commands available 
 
 ## Wiki or History is empty
 
-Use `/files.read README.md` or `/files.read CONTRIBUTING.md` to read existing guide files. [Wiki generation](/docs/app/wiki/#generate-or-browse-repository-pages) and [stack creation](/docs/app/history/) are separate background operations. Use the repository's GitHub page for its source history.
+Use `/files.read README.md` or `/files.read CONTRIBUTING.md` to read existing guide files. [Wiki generation](/docs/learn/wiki/#generate-or-browse-repository-pages) and [stack creation](/docs/learn/issue-to-main/) are separate background operations. Use the repository's GitHub page for its source history.
 
 ## A run stopped or is waiting
 
 Open the run card. Read the status, output, and any pending approval. If an approval is waiting, decide on that request. If the run failed, correct the reported cause before retrying.
 
-For sending a correction, stopping, or resuming, see [Inspect and steer a run](/docs/app/runs/).
+For sending a correction, stopping, or resuming, see [Inspect and steer a run](/docs/learn/watch-an-agent/).
 
 ## Report a problem
 
@@ -5870,7 +5870,7 @@ The owning code is in [`packages/backend/internal/services`](https://github.com/
 
 Inspect the run ID, tested commit, task results, and terminal status, then the GitHub check when the repository requires one. A queued run, accepted dispatch, or in-progress check is not completion; cancellation is not failure. Publication errors are logged, so confirm the check's completed result before making it required.
 
-For scheduled flows, use the app's [Dispatcher](/docs/app/dispatcher/), or host the scheduler yourself with `smthrs serve`; see [Define triggers](/docs/guides/triggers/).
+For scheduled flows, use the app's [Dispatcher](/docs/learn/agent-and-trigger/), or host the scheduler yourself with `smthrs serve`; see [Define triggers](/docs/guides/triggers/).
 
 ## Launch a flow from a CI job
 
@@ -6006,7 +6006,7 @@ The command records a pending occurrence stamped with the current time and print
 
 `smthrs triggers list` prints every registration; `smthrs triggers show <id>` adds `activeRun` and, when that run waits for approval, `activePlan`. `smthrs triggers enable <id>` and `disable <id>` flip future occurrences without touching an active run. Each occurrence records one outcome; see the [fire ledger](/docs/reference/triggers/#fire-ledger).
 
-The app's [Dispatcher](/docs/app/dispatcher/) card lists the same triggers.
+The app's [Dispatcher](/docs/learn/agent-and-trigger/) card lists the same triggers.
 
 ## Accept a verified webhook
 
@@ -50163,7 +50163,7 @@ A catch-up that owes more occurrences than `maxCatchUp` logs a warning annotated
 
 The ledger has no CLI or app listing yet. Rows are readable in `.flows/control.db`.
 
-The app's [Dispatcher](/docs/app/dispatcher/) card lists and registers triggers.
+The app's [Dispatcher](/docs/learn/agent-and-trigger/) card lists and registers triggers.
 
 ## Webhooks
 
