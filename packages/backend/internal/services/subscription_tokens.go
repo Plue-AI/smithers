@@ -217,11 +217,18 @@ func markRepositoryRebuildRequiredCount(ctx context.Context, q rebuildRequiredMa
 	return workspaces, snapshots, nil
 }
 
+// WithWorkspaceSubscriptionTokens mirrors feature_flags.subscription_connections:
+// a deployment that allows subscription tokens reuses every workspace.
+func WithWorkspaceSubscriptionTokens(allowed bool) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.subscriptionTokens = allowed }
+}
+
 // refuseRebuildRequired keeps a workspace built while its repository stored
-// a subscription token from being reused: resumed, entered, forked or
-// snapshotted. Deleting it and creating a new workspace is the rebuild.
-func refuseRebuildRequired(workspace db.Workspace) error {
-	if !workspace.RebuildRequiredAt.Valid {
+// a subscription token from being reused: resumed, entered (read-only facets
+// included), forked or snapshotted. Deleting it and creating a new workspace
+// is the rebuild.
+func (s *WorkspaceService) refuseRebuildRequired(workspace db.Workspace) error {
+	if s.subscriptionTokens || !workspace.RebuildRequiredAt.Valid {
 		return nil
 	}
 	return pkgerrors.New(pkgerrors.CodeWorkspaceRebuildRequired, "this workspace was built with a Claude or ChatGPT subscription token; delete it and create a new workspace")
@@ -229,8 +236,8 @@ func refuseRebuildRequired(workspace db.Workspace) error {
 
 // refuseRebuildRequiredSnapshot keeps a snapshot of such a workspace from
 // being restored.
-func refuseRebuildRequiredSnapshot(snapshot db.WorkspaceSnapshot) error {
-	if !snapshot.RebuildRequiredAt.Valid {
+func (s *WorkspaceService) refuseRebuildRequiredSnapshot(snapshot db.WorkspaceSnapshot) error {
+	if s.subscriptionTokens || !snapshot.RebuildRequiredAt.Valid {
 		return nil
 	}
 	return pkgerrors.New(pkgerrors.CodeWorkspaceRebuildRequired, "this snapshot was taken while its repository stored a Claude or ChatGPT subscription token; delete it and create a new workspace")

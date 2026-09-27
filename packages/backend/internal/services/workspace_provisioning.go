@@ -649,7 +649,7 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 	if err != nil {
 		return WorkspaceResponse{}, err
 	}
-	if err := refuseRebuildRequiredSnapshot(snapshot); err != nil {
+	if err := s.refuseRebuildRequiredSnapshot(snapshot); err != nil {
 		return WorkspaceResponse{}, err
 	}
 	if s.runtime != nil {
@@ -748,7 +748,7 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 	if err != nil {
 		return WorkspaceResponse{}, err
 	}
-	if err := refuseRebuildRequiredSnapshot(snapshot); err != nil {
+	if err := s.refuseRebuildRequiredSnapshot(snapshot); err != nil {
 		return WorkspaceResponse{}, err
 	}
 	if s.runtime != nil {
@@ -992,7 +992,7 @@ func (s *WorkspaceService) findOrCreatePrimaryWorkspace(ctx context.Context, rep
 			}
 			return s.createPrimaryWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata)
 		}
-		if err := refuseRebuildRequired(workspace); err != nil {
+		if err := s.refuseRebuildRequired(workspace); err != nil {
 			return db.Workspace{}, err
 		}
 		workspace, err = s.ensureWorkspaceTargetBookmark(ctx, workspace, targetBookmark)
@@ -1032,7 +1032,7 @@ func (s *WorkspaceService) findOrCreateDerivedWorkspaceForBookmark(ctx context.C
 			}
 			break
 		}
-		if err := refuseRebuildRequired(workspace); err != nil {
+		if err := s.refuseRebuildRequired(workspace); err != nil {
 			return db.Workspace{}, err
 		}
 		return workspace, nil
@@ -2231,7 +2231,7 @@ func (s *WorkspaceService) reuseWinningWorkspaceAfterActivationConflict(ctx cont
 	if err != nil {
 		return workspace, pkgerrors.Internal("load winning workspace: " + err.Error())
 	}
-	if err := refuseRebuildRequired(active); err != nil {
+	if err := s.refuseRebuildRequired(active); err != nil {
 		return workspace, err
 	}
 	return active, nil

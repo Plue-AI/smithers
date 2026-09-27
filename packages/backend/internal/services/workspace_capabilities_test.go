@@ -472,3 +472,20 @@ func TestRepositoryJobsIntegrationPendingPrimaryWaitsForCompatibility(t *testing
 		})
 	}
 }
+
+// #2206: a repository job never binds to a workspace built with a
+// subscription token; a deployment that allows the tokens still does.
+func TestRepositoryJobsIntegrationCapabilityRefusesRebuildRequired(t *testing.T) {
+	pool, q, jobs, g, config := repositoryJobFixture(t)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `UPDATE workspaces SET kind='vm', vm_id='established', rebuild_required_at=now() WHERE id=$1`, config.WorkspaceID)
+	require.NoError(t, err)
+	_, err = jobs.Register(ctx, "gateway", "token", "issues", config)
+	require.NoError(t, err)
+	input := CreateWorkspaceInput{RepositoryID: g.target.RepositoryID, UserID: g.target.UserID, Kind: "vm", RequiredCapability: repositoryJobsCapability}
+	_, err = NewWorkspaceService(q, WithWorkspaceCapabilityTransactions(pool)).findOrCreateCapabilityWorkspace(ctx, input, "main", WorkspaceEnvironment{})
+	requireRebuildRequired(t, err)
+	selected, err := NewWorkspaceService(q, WithWorkspaceCapabilityTransactions(pool), WithWorkspaceSubscriptionTokens(true)).findOrCreateCapabilityWorkspace(ctx, input, "main", WorkspaceEnvironment{})
+	require.NoError(t, err)
+	require.Equal(t, config.WorkspaceID, selected.ID)
+}

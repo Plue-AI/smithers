@@ -109,3 +109,17 @@ func TestRebuildRequiredSnapshotIsNotRestored(t *testing.T) {
 	requireRebuildRequired(t, err)
 	assert.False(t, created)
 }
+
+// A self-hosted deployment that stores subscription tokens reuses every
+// workspace and snapshot, including ones marked before it turned them on.
+func TestRebuildRequiredIsIgnoredWhenSubscriptionTokensAreAllowed(t *testing.T) {
+	t.Parallel()
+	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSubscriptionTokens(true))
+	require.NoError(t, svc.refuseRebuildRequired(flaggedWorkspace("ws")))
+	snapshot := sampleDBWorkspaceSnapshot("11111111-1111-1111-1111-111111111111", "ws", "s", "snap")
+	snapshot.RebuildRequiredAt = pgtype.Timestamptz{Valid: true}
+	require.NoError(t, svc.refuseRebuildRequiredSnapshot(snapshot))
+	hosted := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
+	requireRebuildRequired(t, hosted.refuseRebuildRequired(flaggedWorkspace("ws")))
+	requireRebuildRequired(t, hosted.refuseRebuildRequiredSnapshot(snapshot))
+}

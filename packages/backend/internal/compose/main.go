@@ -729,6 +729,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	workspaceService := services.NewWorkspaceService(runtimeStores.Workspaces,
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceCapabilityTransactions(pool),
+		services.WithWorkspaceSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections),
 		services.WithWorkspaceBillingPolicy(billingPolicy),
 		services.WithWorkspaceSandboxClient(sandboxClient),
 		services.WithWorkspaceSourceReader(repoHostClient),
@@ -1461,7 +1462,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			DeploymentAdmin:    deploymentAdminRoutes},
 	)
 	if flow != nil && options.topology.servesHTTP() {
-		browser := &browserFlowAPI{repos: repoService, workspaces: workspaceService, queries: queries, dispatcher: flow.dispatcher}
+		browser := &browserFlowAPI{repos: repoService, workspaces: workspaceService, queries: queries, dispatcher: flow.dispatcher, subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
 		flowAccess := []func(http.Handler) http.Handler{
 			cors.Handler(apiCORSOptions(cfg)), middleware.JSONTimeout(4 * time.Minute),
 			middleware.JSONAllowContentType("application/json"), middleware.MaxBodySize(middleware.MaxRequestBodySize),

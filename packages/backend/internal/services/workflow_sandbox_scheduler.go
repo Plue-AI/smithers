@@ -6,6 +6,7 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -599,7 +601,13 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 		var repoSecrets map[string]string
 		secrets, repoSecrets, err = w.secretInjector.RepositoryEnvironmentAndSecrets(runCtx, run.RepositoryID)
 		if err != nil {
-			return w.failRun(runCtx, claim, step.ID, "failed to load repository secrets")
+			message := "failed to load repository secrets"
+			var apiErr *pkgerrors.APIError
+			if stdErrors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden {
+				// A stored subscription-token refusal names the secret, never its value.
+				message = apiErr.Message
+			}
+			return w.failRun(runCtx, claim, step.ID, message)
 		}
 		for name, value := range repoSecrets {
 			redactEnv[name] = value

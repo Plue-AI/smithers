@@ -38,11 +38,17 @@ func (s *WorkspaceService) findOrCreateCapabilityWorkspace(ctx context.Context, 
 		return db.Workspace{}, pkgerrors.Internal("workspace capability transactions unavailable")
 	}
 	workspace, found, err := s.selectCapabilityWorkspace(ctx, input, bookmark, environment, nil, false, false)
+	if err == nil && found {
+		err = s.refuseRebuildRequired(workspace)
+	}
 	if err != nil || found {
 		return workspace, err
 	}
 	candidate, verified, probeErr := s.compatiblePrimaryWorkspace(ctx, input, bookmark)
 	workspace, found, err = s.selectCapabilityWorkspace(ctx, input, bookmark, environment, candidate, verified, probeErr == nil)
+	if err == nil && found {
+		err = s.refuseRebuildRequired(workspace)
+	}
 	if err != nil || found {
 		return workspace, err
 	}

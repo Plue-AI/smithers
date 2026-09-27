@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -43,6 +44,8 @@ type browserFlowAPI struct {
 		GetActiveWorkspaceForUserRepo(context.Context, db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error)
 	}
 	dispatcher *flowdispatch.Service
+	// subscriptionTokens mirrors feature_flags.subscription_connections.
+	subscriptionTokens bool
 }
 
 type browserFlowRequest struct {
@@ -94,7 +97,7 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		workspace, err := api.queries.GetWorkspaceForUserRepo(r.Context(), db.GetWorkspaceForUserRepoParams{
 			ID: workspaceID, RepositoryID: view.Repository.ID, UserID: user.ID,
 		})
-		if err == nil && workspace.RebuildRequiredAt.Valid {
+		if err == nil && workspace.RebuildRequiredAt.Valid && !api.subscriptionTokens {
 			browserFlowRefusal(w, http.StatusConflict, browserFlowRebuildRequired)
 			return request, flowruntime.Target{}, false
 		}
@@ -106,7 +109,7 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		workspace, err := api.queries.GetActiveWorkspaceForUserRepo(r.Context(), db.GetActiveWorkspaceForUserRepoParams{
 			RepositoryID: view.Repository.ID, UserID: user.ID,
 		})
-		if err == nil && workspace.RebuildRequiredAt.Valid {
+		if err == nil && workspace.RebuildRequiredAt.Valid && !api.subscriptionTokens {
 			browserFlowRefusal(w, http.StatusConflict, browserFlowRebuildRequired)
 			return request, flowruntime.Target{}, false
 		}
@@ -119,6 +122,11 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		workspace, err := api.workspaces.CreateWorkspace(r.Context(), services.CreateWorkspaceInput{
 			RepositoryID: view.Repository.ID, UserID: user.ID, RepoOwner: owner, RepoName: name,
 		})
+		var apiErr *pkgerrors.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeWorkspaceRebuildRequired {
+			browserFlowRefusal(w, http.StatusConflict, browserFlowRebuildRequired)
+			return request, flowruntime.Target{}, false
+		}
 		if err != nil || workspace.Status != "running" {
 			slog.Error("browser Flow workspace unavailable", "error", err, "status", workspace.Status)
 			browserFlowRefusal(w, http.StatusServiceUnavailable, "Workspace unavailable.")

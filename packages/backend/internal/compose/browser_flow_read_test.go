@@ -90,5 +90,12 @@ func TestBrowserFlowRefusesRebuildRequiredWorkspace(t *testing.T) {
 		_, _, ok := api.prepare(writer, request, false)
 		require.False(t, ok, body)
 		require.Equal(t, 409, writer.Code, body)
+
+		// A deployment that allows subscription tokens enters it.
+		api.subscriptionTokens = true
+		request = httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(body))
+		request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
+		_, _, ok = api.prepare(httptest.NewRecorder(), request, false)
+		require.True(t, ok, body)
 	}
 }
