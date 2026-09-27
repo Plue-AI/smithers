@@ -206,6 +206,9 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 	if errors.Is(err, ErrHostNotRunning) {
 		return nil, failure{code: "runtime_host_not_running"}
 	}
+	if errors.Is(err, ErrHostBusy) {
+		return nil, failure{code: "runtime_host_starting", retryable: true}
+	}
 	if !existingOnly && errors.Is(err, ErrSourceRevisionRequired) {
 		source, ok := resolver.launcher.(SourceResolver)
 		if !ok {
@@ -356,9 +359,13 @@ func refuse(ctx context.Context, fallback string, err error, binding Binding) er
 type failure struct {
 	code      string
 	retryable bool
+	// cause is the refusal a launcher answered, kept for a caller that
+	// renders a product refusal (a plan limit). Error never includes it.
+	cause error
 }
 
 func (value failure) Error() string              { return "flow host: " + value.code }
+func (value failure) Unwrap() error              { return value.cause }
 func (value failure) FlowRuntimeCode() string    { return value.code }
 func (value failure) FlowRuntimeRetryable() bool { return value.retryable }
 
@@ -369,9 +376,9 @@ func sanitizeFailure(fallback string, err error) error {
 		if code == "" {
 			code = fallback
 		}
-		return failure{code: code, retryable: known.FlowRuntimeRetryable()}
+		return failure{code: code, retryable: known.FlowRuntimeRetryable(), cause: err}
 	}
-	return failure{code: fallback, retryable: true}
+	return failure{code: fallback, retryable: true, cause: err}
 }
 
 var _ flowruntime.Resolver = (*Resolver)(nil)

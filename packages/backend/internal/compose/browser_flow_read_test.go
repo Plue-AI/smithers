@@ -2,6 +2,9 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -12,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
@@ -134,3 +138,57 @@ func TestBrowserFlowRefusesRebuildRequiredBox(t *testing.T) {
 	_, ok, _ = browserFlowCall(api, body, false)
 	require.True(t, ok)
 }
+
+type startingDispatcher struct {
+	ready   bool
+	err     error
+	targets []flowruntime.Target
+}
+
+func (d *startingDispatcher) CallRPC(context.Context, flowruntime.Target, string, json.RawMessage) (json.RawMessage, error) {
+	return nil, errors.New("provision never relays a procedure")
+}
+
+func (d *startingDispatcher) StartHost(_ context.Context, target flowruntime.Target) (bool, error) {
+	d.targets = append(d.targets, target)
+	return d.ready, d.err
+}
+
+// Provision starts the box's coding host and answers "provisioning" until it
+// is live, so the flows list works before the box's first run (#2198).
+func TestBrowserFlowProvisionStartsTheBoxHost(t *testing.T) {
+	deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
+	provision := func(dispatcher *startingDispatcher) *httptest.ResponseRecorder {
+		request := httptest.NewRequest("POST", "/api/workflow/provision", strings.NewReader(`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`"}`))
+		request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
+		writer := httptest.NewRecorder()
+		(&browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}).provision(writer, request)
+		return writer
+	}
+	starting := &startingDispatcher{}
+	writer := provision(starting)
+	require.Equal(t, 200, writer.Code)
+	require.JSONEq(t, `{"status":"provisioning"}`, writer.Body.String())
+	require.Equal(t, []flowruntime.Target{{TenantID: "repository:23", PrincipalID: "user:17", WorkspaceID: browserBoxID,
+		BindingKind: "browser-flow", BindingID: "owner/repo"}}, starting.targets)
+
+	writer = provision(&startingDispatcher{ready: true})
+	require.Equal(t, 200, writer.Code)
+	require.JSONEq(t, `{"status":"ready","workspaceId":"`+browserBoxID+`","gatewayId":"`+browserBoxID+`"}`, writer.Body.String())
+
+	writer = provision(&startingDispatcher{err: testFlowFailure("runtime_start_failed")})
+	require.Equal(t, 503, writer.Code)
+	require.Contains(t, writer.Body.String(), `"code":"runtime_start_failed"`)
+
+	// The plan limit that refused the start reaches the app as itself.
+	limit := pkgerrors.New(pkgerrors.CodePlanLimitExceeded, "Your Free plan allows 1 running sandbox.")
+	writer = provision(&startingDispatcher{err: fmt.Errorf("flow host: runtime_start_failed: %w", limit)})
+	require.Equal(t, 402, writer.Code)
+	require.Contains(t, writer.Body.String(), "plan_limit_exceeded")
+}
+
+type testFlowFailure string
+
+func (failure testFlowFailure) Error() string              { return string(failure) }
+func (failure testFlowFailure) FlowRuntimeCode() string    { return string(failure) }
+func (failure testFlowFailure) FlowRuntimeRetryable() bool { return true }

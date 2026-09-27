@@ -63,7 +63,8 @@ func (store *Store) Acquire(ctx context.Context, authority Authority, catalog Ca
 }
 
 // AcquireExisting takes the same owner lock but never inserts a binding or
-// generates a credential. A missing binding is an unavailable host.
+// generates a credential. A missing binding is an unavailable host, and a
+// lock held past existingLockWait (a host start) is ErrHostBusy.
 func (store *Store) AcquireExisting(ctx context.Context, authority Authority, catalog Catalog) (BindingLease, error) {
 	return store.acquire(ctx, authority, catalog, true)
 }
@@ -87,7 +88,14 @@ func (store *Store) acquire(ctx context.Context, authority Authority, catalog Ca
 		return nil, err
 	}
 	lockKey := bindingLockKey(authority, validated)
-	if _, err := connection.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+	if existingOnly {
+		// A read never waits out another caller's host start, which holds
+		// this lock for as long as the host takes to become ready (#2198).
+		if err := tryAdvisoryLock(ctx, connection, lockKey); err != nil {
+			closeLockedConnection(connection)
+			return nil, err
+		}
+	} else if _, err := connection.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, lockKey); err != nil {
 		closeLockedConnection(connection)
 		return nil, err
 	}
@@ -382,4 +390,29 @@ func closeLockedConnection(connection *pgxpool.Conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = connection.Hijack().Close(ctx)
+}
+
+// existingLockWait bounds how long a read waits for the owner lock. Ordinary
+// holders (an identity probe, a checkpoint) release it well within it.
+const existingLockWait = 2 * time.Second
+
+func tryAdvisoryLock(ctx context.Context, connection *pgxpool.Conn, lockKey string) error {
+	deadline := time.Now().Add(existingLockWait)
+	for {
+		var locked bool
+		if err := connection.QueryRow(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, lockKey).Scan(&locked); err != nil {
+			return err
+		}
+		if locked {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return ErrHostBusy
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }

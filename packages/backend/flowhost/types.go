@@ -19,6 +19,10 @@ const CatalogCoding = "coding"
 
 var ErrHostNotRunning = errors.New("flow host is not running")
 
+// ErrHostBusy answers a read while another caller holds the host's owner
+// lock, as it does for the whole of a host start.
+var ErrHostBusy = errors.New("flow host is starting")
+
 // ErrSourceRevisionRequired asks the resolver to capture a workspace snapshot
 // only when there is no durable binding to reconnect to.
 var ErrSourceRevisionRequired = errors.New("flow host creation requires a workspace source revision")

@@ -23,6 +23,7 @@ type memoryBindingStore struct {
 	acquires      int
 	rebinds       int
 	lastErrorCode string
+	busy          bool
 }
 
 func (store *memoryBindingStore) Acquire(_ context.Context, authority Authority, catalog Catalog) (BindingLease, error) {
@@ -63,10 +64,25 @@ type memoryBindingLease struct {
 }
 
 func (store *memoryBindingStore) AcquireExisting(ctx context.Context, authority Authority, catalog Catalog) (BindingLease, error) {
+	if store.busy {
+		return nil, ErrHostBusy
+	}
 	if store.binding.ID == "" {
 		return nil, ErrHostNotRunning
 	}
 	return store.Acquire(ctx, authority, catalog)
+}
+
+// A read during another caller's host start is a retryable "starting".
+func TestReadDuringAHostStartIsStarting(t *testing.T) {
+	resolver, store, launcher, target := testResolver(t)
+	store.busy = true
+	_, err := resolver.ResolveExistingFlowRuntime(context.Background(), target)
+	var known flowruntime.Failure
+	require.ErrorAs(t, err, &known)
+	require.Equal(t, "runtime_host_starting", known.FlowRuntimeCode())
+	require.True(t, known.FlowRuntimeRetryable())
+	require.Empty(t, launcher.starts)
 }
 
 func TestReadResolutionNeverCreatesRestartsOrUpgradesHost(t *testing.T) {

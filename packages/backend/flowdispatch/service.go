@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,7 +25,25 @@ type Service struct {
 	observationLimit    int
 	observationPages    int
 	runtimeCallTimeout  time.Duration
+
+	hostStartsMu sync.Mutex
+	hostStarts   map[flowruntime.Target]*hostStart
 }
+
+// hostStart is one background start of a box's host. A failed start stays
+// for hostStartFailureTTL, so the next caller learns why; err and finished
+// are written under hostStartsMu before done closes.
+type hostStart struct {
+	done     chan struct{}
+	err      error
+	finished time.Time
+}
+
+// hostStartTimeout bounds a background start past the request that asked
+// for it: longer than any catalog's readiness wait, shorter than forever.
+const hostStartTimeout = 5 * time.Minute
+
+const hostStartFailureTTL = time.Minute
 
 func New(config Config) (*Service, error) {
 	if config.Store == nil {
@@ -245,6 +264,98 @@ func (service *Service) CallRPC(ctx context.Context, target flowruntime.Target, 
 		return nil, errors.New("flow dispatch: runtime has no gateway RPC")
 	}
 	return caller.CallRPC(ctx, procedure, payload)
+}
+
+// StartHost answers whether the target's host is live. When it is not, it
+// starts the host in the background, once per target at a time, and answers
+// false at once: starting a box's host takes longer than a request should
+// wait (#2198). A start that failed is answered once to the next caller,
+// which may ask again. Reads (List, Projection.Snapshot) never start a host;
+// this is the one call that does without planning or running anything.
+//
+// A host whose catalog identity changed (runtime_upgrade_required) is
+// started too, which rebinds it: its in-flight runs already fail with
+// runtime_identity_changed at the worker's next observation, which rebinds
+// the same way.
+func (service *Service) StartHost(ctx context.Context, target flowruntime.Target) (bool, error) {
+	if err := service.takeStartFailure(target); err != nil {
+		return false, err
+	}
+	if service.starting(target) {
+		return false, nil
+	}
+	reader, ok := service.resolver.(flowruntime.ExistingResolver)
+	if !ok {
+		return false, errors.New("flow dispatch: runtime has no read-only resolver")
+	}
+	_, err := reader.ResolveExistingFlowRuntime(ctx, target)
+	if err == nil {
+		return true, nil
+	}
+	var failure flowruntime.Failure
+	if !errors.As(err, &failure) {
+		return false, err
+	}
+	switch failure.FlowRuntimeCode() {
+	case "runtime_host_starting":
+		// Another caller (a worker, another API replica) is starting it.
+		return false, nil
+	case "runtime_host_not_running", "runtime_upgrade_required":
+	default:
+		return false, err
+	}
+	service.hostStartsMu.Lock()
+	defer service.hostStartsMu.Unlock()
+	if _, started := service.hostStarts[target]; started {
+		return false, nil
+	}
+	if service.hostStarts == nil {
+		service.hostStarts = map[flowruntime.Target]*hostStart{}
+	}
+	start := &hostStart{done: make(chan struct{})}
+	service.hostStarts[target] = start
+	go func() {
+		startCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), hostStartTimeout)
+		defer cancel()
+		_, err := service.resolver.ResolveFlowRuntime(startCtx, target)
+		service.hostStartsMu.Lock()
+		defer service.hostStartsMu.Unlock()
+		if err == nil {
+			delete(service.hostStarts, target)
+		} else {
+			start.err, start.finished = err, time.Now()
+		}
+		close(start.done)
+	}()
+	return false, nil
+}
+
+// takeStartFailure answers a recent failed start once and forgets expired ones.
+func (service *Service) takeStartFailure(target flowruntime.Target) error {
+	service.hostStartsMu.Lock()
+	defer service.hostStartsMu.Unlock()
+	var failed error
+	for key, start := range service.hostStarts {
+		select {
+		case <-start.done:
+		default:
+			continue
+		}
+		if key == target && time.Since(start.finished) < hostStartFailureTTL {
+			failed = start.err
+		}
+		if key == target || time.Since(start.finished) >= hostStartFailureTTL {
+			delete(service.hostStarts, key)
+		}
+	}
+	return failed
+}
+
+func (service *Service) starting(target flowruntime.Target) bool {
+	service.hostStartsMu.Lock()
+	defer service.hostStartsMu.Unlock()
+	_, started := service.hostStarts[target]
+	return started
 }
 
 // RunWorker consumes only Flow bridge operations from the shared jobs table.

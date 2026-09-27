@@ -370,3 +370,23 @@ func deleteHostTestRepository(ctx context.Context, pool *pgxpool.Pool, repo int6
 	}
 	return tx.Commit(ctx)
 }
+
+// A read never waits out a host start: the start holds the owner lock for as
+// long as the host takes to become ready (#2198).
+func TestPostgresReadDuringAStartIsBusyNotBlocked(t *testing.T) {
+	pool := hostTestPool(t)
+	ctx := context.Background()
+	authority, catalog := hostFixture(t, pool)
+	store, err := NewStore(pool, testCodec{})
+	require.NoError(t, err)
+	starting, err := store.Acquire(ctx, authority, catalog)
+	require.NoError(t, err)
+	began := time.Now()
+	_, err = store.AcquireExisting(ctx, authority, catalog)
+	require.ErrorIs(t, err, ErrHostBusy)
+	require.Less(t, time.Since(began), existingLockWait+time.Second)
+	require.NoError(t, starting.Close())
+	read, err := store.AcquireExisting(ctx, authority, catalog)
+	require.NoError(t, err)
+	require.NoError(t, read.Close())
+}
