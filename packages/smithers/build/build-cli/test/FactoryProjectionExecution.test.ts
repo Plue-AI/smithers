@@ -140,6 +140,7 @@ describe("FactoryProjection through the CLI", () => {
       kind: "mdx",
       path: "flows/review/flow.mdx",
       capabilities: ["fs:read:**", "proc:spawn:git *"],
+      flows: [],
       model: ["openai:gpt-6-sol", "anthropic:claude-opus-5-5"],
       modelInvocable: true,
       inputSchema: expect.objectContaining({
