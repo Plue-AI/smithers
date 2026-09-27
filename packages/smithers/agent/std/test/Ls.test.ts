@@ -1,6 +1,6 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { Cause, Effect, Exit, FileSystem, Layer } from "effect"
-import * as Path from "effect/Path"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -159,7 +159,7 @@ describe("Ls", () => {
     try {
       const result = await execute(Effect.provide(
         Ls.run({ path: directory }),
-        Layer.merge(NodeFileSystem.layer, Path.layer)
+        Layer.merge(NodeFileSystem.layer, NodePath.layer)
       ))
       expect(result.entries).toEqual([])
       expect(result.total).toBe(0)

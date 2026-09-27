@@ -1266,6 +1266,7 @@
         "@effect/sql-sqlite-node": "4.0.0-rc.115",
         "@effect/vitest": "4.0.0-rc.115",
         "@eslint/js": "9.39.5",
+        "@smthrs/artifacts": "1.0.0-rc.1",
         "@smthrs/sandbox": "1.0.0-rc.1",
         "@smthrs/testing": "1.0.0-rc.1",
         "@types/node": "26.4.1",

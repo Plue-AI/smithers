@@ -1,10 +1,11 @@
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as Edit from "@smthrs/std/Edit"
 import * as Write from "@smthrs/std/Write"
-import { Effect, FileSystem, Layer, Path } from "effect"
+import { Effect, FileSystem, Layer } from "effect"
 import {
   chmod,
   mkdir,
@@ -34,7 +35,7 @@ const fixture = async () => {
 const guarded = (root: string) =>
   KernelFileSystem.layer.pipe(
     Layer.provide(AtomicFileSystem.layer),
-    Layer.provide(Path.layer),
+    Layer.provide(NodePath.layer),
     Layer.provide(Workspace.layer(root)),
     Layer.provide(GrantStore.layerNoop)
   )
@@ -62,10 +63,11 @@ describe("standard edits through an aliased workspace root", () => {
           // another existing-file replacement and a previously absent sibling.
           yield* Write.run({ path: resolved, content: "canonical\n" })
           yield* Write.run({ path: join(canonical, "new.txt"), content: "new\n" })
-        })).pipe(Effect.provide(guarded(logical)), Effect.provide(Path.layer))
+        })).pipe(Effect.provide(guarded(logical)), Effect.provide(NodePath.layer))
       )
       expect(await readFile(target, "utf8")).toBe("canonical\n")
-      expect((await stat(target)).mode & 0o7777).toBe(0o750)
+      // Windows keeps only the write bit, so the mode round-trip is POSIX-only.
+      if (process.platform !== "win32") expect((await stat(target)).mode & 0o7777).toBe(0o750)
       expect((await readdir(canonical)).sort()).toEqual(["new.txt", "target.txt"])
     } finally {
       await rm(directory, { recursive: true, force: true })

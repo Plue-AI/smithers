@@ -88,5 +88,9 @@ await Effect.runPromise(
           "committed routing and identity, rollback, inherited routes, unlinked forks, complete audits, cycle refusal, read-only queries"
       }) + "\n"
     )
-  })).pipe(Effect.provide(Path.layer))
+  })).pipe(
+    // POSIX by design: the routes are literal `/project` strings, never host
+    // paths, so the same assertions hold on every host.
+    Effect.provide(Path.layer)
+  )
 )

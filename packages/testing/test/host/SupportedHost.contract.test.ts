@@ -219,6 +219,7 @@ const httpClientCaps = {
 
 const layerWithoutJj = Layer.mergeAll(
   BrowserFileSystem.layer(makeMemoryFs()),
+  // POSIX by design: the in-memory volume has no host path syntax.
   Path.layer,
   layerSpawnerSupported,
   layerHttpClientSupported
