@@ -56,7 +56,7 @@ func TestWorkspaceService_CreateSession_ReturnsPromptlyWhileProvisioningContinue
 			}
 			return sandbox.CreateResult{ID: "vm-slow-boot"}, nil
 		},
-	}))
+	}), withProductionProvisionGrace)
 
 	start := time.Now()
 	_, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{

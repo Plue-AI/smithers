@@ -144,7 +144,7 @@ func (s *WorkspaceService) CreateSession(ctx context.Context, input CreateWorksp
 	select {
 	case outcome := <-done:
 		return outcome.session, outcome.err
-	case <-time.After(workspaceSessionProvisionGrace):
+	case <-time.After(s.sessionProvisionGrace):
 		s.observeWorkspaceSessionProvision("deferred", time.Since(provisionStartedAt))
 		slog.Info("workspace session provisioning continues in background", "session_id", session.ID, "workspace_id", workspace.ID)
 		return toWorkspaceSessionResponse(session), nil

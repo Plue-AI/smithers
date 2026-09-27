@@ -100,7 +100,7 @@ func TestWorkspaceExec_Z_FinishFailAndGraceBranches(t *testing.T) {
 			close(finished)
 			return sandbox.Sandbox{ID: "vm-source-1", State: sandbox.StateRunning}, nil
 		},
-	}))
+	}), withProductionProvisionGrace)
 	resp, err := svc.CreateSession(ctx, CreateWorkspaceSessionInput{WorkspaceID: "ws-1", RepositoryID: 101, UserID: 1})
 	require.NoError(t, err)
 	assert.Equal(t, "sess-1", resp.ID)

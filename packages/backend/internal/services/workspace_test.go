@@ -22,7 +22,18 @@ func newWorkspaceServiceForTests(q WorkspaceQuerier, opts ...WorkspaceServiceOpt
 	return NewWorkspaceService(q, append([]WorkspaceServiceOption{
 		WithWorkspaceGitBaseURL(testWorkspaceGitBaseURL),
 		func(s *WorkspaceService) { s.launchSessionCleanup = func(_ string, fn func()) { fn() } },
+		// Mocked provisioning settles at once, but a loaded runner can delay the
+		// provisioning goroutine past the production grace and turn a synchronous
+		// outcome into the pending ticket. Tests of that deferral opt back in
+		// with withProductionProvisionGrace.
+		func(s *WorkspaceService) { s.sessionProvisionGrace = time.Minute },
 	}, opts...)...)
+}
+
+// withProductionProvisionGrace restores the grace CreateSession uses in
+// production, for tests of the pending-ticket deferral itself.
+func withProductionProvisionGrace(s *WorkspaceService) {
+	s.sessionProvisionGrace = workspaceSessionProvisionGrace
 }
 
 type mockWorkspaceQuerier struct {

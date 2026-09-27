@@ -546,9 +546,12 @@ type WorkspaceService struct {
 	subscriptionTokens   bool
 	provisionTasks       *workspaceProvisionTasks
 	launchSessionCleanup func(string, func())
-	billing              BillingPolicy
-	sourceReader         WorkspaceSourceReader
-	q                    WorkspaceQuerier
+	// sessionProvisionGrace is how long CreateSession waits before answering
+	// with the pending ticket; see workspaceSessionProvisionGrace.
+	sessionProvisionGrace time.Duration
+	billing               BillingPolicy
+	sourceReader          WorkspaceSourceReader
+	q                     WorkspaceQuerier
 	// transactions holds each workspace's provisioning lock (a transaction-
 	// scoped advisory lock).
 	transactions                 RepositoryJobTransactions
@@ -781,6 +784,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		provisionTasks:               newWorkspaceProvisionTasks(),
 		boxHostActivity:              &sync.Map{},
 		launchSessionCleanup:         SafeGo,
+		sessionProvisionGrace:        workspaceSessionProvisionGrace,
 		q:                            q,
 		sshHost:                      defaultWorkspaceSSHHost,
 		workspaceUsername:            defaultWorkspaceUser,
