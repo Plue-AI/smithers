@@ -198,6 +198,58 @@ describe("signInReturnTo", () => {
 })
 
 describe("openRequestedRepo", () => {
+  test("a superseded bookmark read cannot win over the current repository entry", async () => {
+    const { store, controller } = await fixture()
+    const old = Promise.withResolvers<Response>(), fresh = Promise.withResolvers<Response>()
+    const oldStarted = Promise.withResolvers<void>(), freshStarted = Promise.withResolvers<void>()
+    const http = (reply: typeof old, started: typeof oldStarted) => async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/public/repos") return jsonResponse(catalog)
+      started.resolve()
+      return reply.promise
+    }
+    const earlier = openRequestedRepo(controller, http(old, oldStarted), "smithersai/smithers")
+    await oldStarted.promise
+    const current = openRequestedRepo(controller, http(fresh, freshStarted), "smithersai/smithers")
+    await freshStarted.promise
+    try {
+      const before = await store.eventHistory()
+      old.resolve(jsonResponse({ default_bookmark: "retired" }))
+      await earlier
+      expect((await store.eventHistory()).head).toEqual(before.head)
+      expect(store.collections.repositories.get("smithersai/smithers")?.head).toBeNull()
+      fresh.resolve(jsonResponse({ default_bookmark: "current" }))
+      await current
+      expect(store.collections.repositories.get("smithersai/smithers")?.head?.bookmark).toBe("current")
+      expect(store.collections.workingCopies.get("shared:smithersai/smithers")?.bookmark).toBe("current")
+    } finally {
+      old.resolve(jsonResponse({})); fresh.resolve(jsonResponse({}))
+      await Promise.allSettled([earlier, current])
+      await store.dispose?.()
+    }
+  })
+
+  test("a bookmark response respects a retired caller after its repository entry is ready", async () => {
+    const { store, controller } = await fixture()
+    let owned = true
+    const reply = Promise.withResolvers<Response>(), started = Promise.withResolvers<void>()
+    const opening = openRequestedRepo(controller, async input => {
+      if (String(input) === "/api/public/repos") return jsonResponse(catalog)
+      started.resolve()
+      return reply.promise
+    }, "smithersai/smithers", undefined, 320, { isCurrent: () => owned })
+    try {
+      await started.promise
+      expect(store.session().repositoryEntry?.phase).toBe("ready")
+      owned = false
+      const before = await store.eventHistory()
+      reply.resolve(jsonResponse({ default_bookmark: "retired" }))
+      await opening
+      expect((await store.eventHistory()).head).toEqual(before.head)
+      expect(store.collections.repositories.get("smithersai/smithers")?.head).toBeNull()
+      expect(store.collections.workingCopies.get("shared:smithersai/smithers")?.bookmark).toBeUndefined()
+    } finally { reply.resolve(jsonResponse({})); await opening; await store.dispose?.() }
+  })
+
   test("an unresolved URL blocks the saved selection and lone-repository fallback without blocking explicit targets", async () => {
     const { store, controller } = await fixture()
     await openRequestedRepo(controller, async () => jsonResponse(catalog), "smithersai/smithers")

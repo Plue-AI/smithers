@@ -240,6 +240,7 @@ export const openRequestedRepo = async (
     controller.runCommand("repo.tree", sharedId)
   }
   const bookmark = await defaultBookmarkOf(http, repository.id)
+  if (!current()) return
   const row = controller.store.collections.repositories.get(repository.id)
   if (bookmark === null || row === undefined || row.head !== null) return
   controller.store.dispatch({
