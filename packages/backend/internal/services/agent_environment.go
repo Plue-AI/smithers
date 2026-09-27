@@ -346,6 +346,9 @@ func (s *AgentEnvironmentService) LoadProxyBoundSecrets(ctx context.Context, rep
 		if err != nil {
 			return nil, pkgerrors.Internal("failed to decrypt agent environment secret").WithCause(err)
 		}
+		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "agent environment secret", row.Name, plaintext); err != nil {
+			return nil, err
+		}
 		secret := sandbox.EgressProxySecret{
 			Name: row.Name, Value: plaintext,
 			Hosts: append([]string(nil), row.Hosts...), MatchHeaders: append([]string(nil), row.MatchHeaders...),
@@ -438,6 +441,9 @@ func (s *AgentEnvironmentService) LoadForProvisioning(ctx context.Context, repos
 		plaintext, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
 		if err != nil {
 			return AgentEnvironmentProvisioningConfig{}, pkgerrors.Internal("failed to decrypt agent environment secret").WithCause(err)
+		}
+		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "agent environment secret", row.Name, plaintext); err != nil {
+			return AgentEnvironmentProvisioningConfig{}, err
 		}
 		result.Secrets[row.Name] = plaintext
 	}

@@ -518,7 +518,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithAgentEnvironmentOwnershipGuard(repoOwnershipFence),
 		services.WithAgentEnvironmentSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections),
 	)
-	secretInjector := services.NewSecretInjector(queries, webhookSecretCodec)
+	secretInjector := services.NewSecretInjector(queries, webhookSecretCodec, services.WithSecretInjectorSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	workflowParser := services.NewWorkflowParser()
 	workflowSyncService := services.NewWorkflowSyncService(queries, repoHostClient, workflowParser)
 	workflowRunService := services.NewWorkflowRunService(

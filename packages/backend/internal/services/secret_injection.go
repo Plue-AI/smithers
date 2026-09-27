@@ -40,17 +40,33 @@ type SecretInjectionQuerier interface {
 type SecretInjector struct {
 	queries     SecretInjectionQuerier
 	secretCodec webhook.SecretCodec
+	// subscriptionTokens mirrors feature_flags.subscription_connections.
+	subscriptionTokens bool
 }
 
-func NewSecretInjector(q SecretInjectionQuerier, codec webhook.SecretCodec) *SecretInjector {
+type SecretInjectorOption func(*SecretInjector)
+
+// WithSecretInjectorSubscriptionTokens lets a self-hosted deployment deliver a
+// stored Claude or ChatGPT subscription token. Off by default (hosted).
+func WithSecretInjectorSubscriptionTokens(allowed bool) SecretInjectorOption {
+	return func(s *SecretInjector) { s.subscriptionTokens = allowed }
+}
+
+func NewSecretInjector(q SecretInjectionQuerier, codec webhook.SecretCodec, opts ...SecretInjectorOption) *SecretInjector {
 	secretCodec := webhook.SecretCodec(webhook.NoopSecretCodec{})
 	if codec != nil {
 		secretCodec = codec
 	}
-	return &SecretInjector{
+	s := &SecretInjector{
 		queries:     q,
 		secretCodec: secretCodec,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+	return s
 }
 
 func (s *SecretInjector) ValidateRepository(ctx context.Context, repositoryID int64) error {
@@ -89,6 +105,9 @@ func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int
 			if err != nil {
 				return nil, fmt.Errorf("decrypt organization secret %q: %w", name, err)
 			}
+			if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "organization secret", name, value); err != nil {
+				return nil, err
+			}
 			if value == "" {
 				continue
 			}
@@ -109,6 +128,9 @@ func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int
 		value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
 		if err != nil {
 			return nil, fmt.Errorf("decrypt repository secret %q: %w", name, err)
+		}
+		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "repository secret", name, value); err != nil {
+			return nil, err
 		}
 		if value == "" {
 			continue
@@ -159,6 +181,9 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 			if !IsInjectedSecretName(name) {
 				return nil, nil, fmt.Errorf("organization variable %q is not a valid environment variable name", row.Name)
 			}
+			if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "organization variable", name, row.Value); err != nil {
+				return nil, nil, err
+			}
 			if row.Value == "" {
 				continue
 			}
@@ -176,6 +201,9 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 		name := strings.TrimSpace(row.Name)
 		if !IsInjectedSecretName(name) {
 			return nil, nil, fmt.Errorf("repository variable %q is not a valid environment variable name", row.Name)
+		}
+		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "repository variable", name, row.Value); err != nil {
+			return nil, nil, err
 		}
 		if row.Value == "" {
 			continue
@@ -197,6 +225,9 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 			value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
 			if err != nil {
 				return nil, nil, fmt.Errorf("decrypt organization secret %q: %w", name, err)
+			}
+			if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "organization secret", name, value); err != nil {
+				return nil, nil, err
 			}
 			if value == "" {
 				continue
@@ -220,6 +251,9 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 		value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
 		if err != nil {
 			return nil, nil, fmt.Errorf("decrypt repository secret %q: %w", name, err)
+		}
+		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "repository secret", name, value); err != nil {
+			return nil, nil, err
 		}
 		if value == "" {
 			continue

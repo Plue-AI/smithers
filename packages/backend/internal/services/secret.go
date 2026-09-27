@@ -211,6 +211,9 @@ func (s *SecretService) ListDecryptedSecretsForRepo(ctx context.Context, reposit
 		if err != nil {
 			return nil, pkgerrors.Internal("failed to decrypt secret").WithCause(err)
 		}
+		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "repository secret", name, value); err != nil {
+			return nil, err
+		}
 		secrets[name] = value
 	}
 

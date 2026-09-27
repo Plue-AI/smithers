@@ -180,6 +180,17 @@ func storedSubscriptionTokenRefused() error {
 	return pkgerrors.Forbidden("feature not available: this repository's agent environment holds a Claude or ChatGPT subscription token; remove it and use an API key")
 }
 
+// refuseStoredSubscriptionToken is the read-path guard for a secret or
+// variable saved before the write-path refusal: a path that would deliver one
+// holding a subscription token refuses with the feature gate's 403 instead.
+// The message names the entry, never its value.
+func refuseStoredSubscriptionToken(allowed bool, kind, name, value string) error {
+	if allowed || value == "" || !isSubscriptionToken(name, value) {
+		return nil
+	}
+	return pkgerrors.Forbidden("feature not available: " + kind + " " + name + " holds a Claude or ChatGPT subscription token; remove it and use an API key")
+}
+
 // agentEnvironmentLoadError keeps a refusal as it is and wraps any other load
 // failure as internal.
 func agentEnvironmentLoadError(err error) error {
