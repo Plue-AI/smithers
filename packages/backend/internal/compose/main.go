@@ -1136,6 +1136,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// binding ID and control credential (#2198).
 	repositoryJobService := services.NewRepositoryJobService(queries, services.NewFlowHostCallbacks(pool, queries), pool)
 	gitHubMainPullService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
+	mythicalService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
 	repositoryJobService.SetGitHubReadAccess(gitHubUserReposService)
 	repositoryJobService.SetOutsiderEgress(workspaceService)
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)

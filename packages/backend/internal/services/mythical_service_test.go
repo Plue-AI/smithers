@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -363,4 +364,35 @@ func TestMythicalServiceWaitsOutAHeldRepository(t *testing.T) {
 	require.NoError(t, err)
 	row = f.poll()
 	require.Equal(t, "active", row.State, row.LastError)
+}
+
+func TestMythicalFactoryReconcilesLocalMainAndRetriesFailure(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	ctx := context.Background()
+	require.NoError(t, os.MkdirAll(filepath.Join(f.work, ".smithers"), 0o755))
+	f.commit("factory", ".smithers/factory.json", `{"flows":[{"id":"engineering","kind":"mdx","capabilities":[],"flows":[],"budget":{"tokens":1000,"milliseconds":10000}}],"on":[{"event":"issue.opened:engineering","flow":"engineering"}]}`)
+	main := f.publish()
+	calls := 0
+	f.service.SetFactoryReconciler(func(_ context.Context, repo int64, revision string, projection FactoryProjection) error {
+		require.Equal(t, f.repoID, repo)
+		require.Equal(t, main, revision)
+		require.Equal(t, "engineering", projection.Flows[0].ID)
+		calls++
+		if calls == 1 {
+			return fmt.Errorf("temporarily unavailable")
+		}
+		return nil
+	})
+	_, err := f.service.RequestBootstrap(ctx, f.repoID, f.userID, 100, false)
+	require.NoError(t, err)
+	f.poll() // Bootstrap first; factory reconciliation follows on the active stack.
+	row := f.poll()
+	require.Contains(t, row.LastError, "temporarily unavailable")
+	require.Empty(t, f.hostRef("refs/heads/unrelated"))
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET next_attempt_at=NOW() WHERE repository_id=$1`, f.repoID)
+	require.NoError(t, err)
+	row = f.poll()
+	require.Empty(t, row.LastError)
+	require.Equal(t, 2, calls)
+	require.Equal(t, main, f.hostRef("refs/heads/main"))
 }

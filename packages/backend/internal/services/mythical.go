@@ -67,17 +67,23 @@ type MythicalService struct {
 
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.
-	github    mythicalGitHub
-	launcher  mythicalLauncher
-	lanes     mythicalLanes
-	wikiStore mythicalWikiStore
-	mu        sync.Mutex
-	backfills map[int64]time.Time
+	github           mythicalGitHub
+	launcher         mythicalLauncher
+	lanes            mythicalLanes
+	wikiStore        mythicalWikiStore
+	mu               sync.Mutex
+	backfills        map[int64]time.Time
+	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
 	return &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
 		logger: slog.Default(), now: time.Now}
+}
+
+// SetFactoryReconciler uses the same owner-main registration boundary as mirror pulls.
+func (s *MythicalService) SetFactoryReconciler(reconcile func(context.Context, int64, string, FactoryProjection) error) {
+	s.reconcileFactory = reconcile
 }
 
 func (s *MythicalService) queries() *db.Queries { return db.New(s.store) }
@@ -374,7 +380,13 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 			short(r.tip), short(row.TipCommit))
 	}
 	if r.mainTip == row.LandedMain {
-		// The stack is current: this claim moves the items and the wiki instead.
+		// The stack is current: reconcile its owner-approved factory before work.
+		if s.reconcileFactory != nil && repository.UserID.Valid {
+			if err := s.reconcileLocalFactory(ctx, r); err != nil {
+				return mythicalFailed("reconcile factory: %v", err)
+			}
+		}
+		// This claim moves the items and the wiki.
 		s.advanceItems(ctx, r)
 		s.advanceWiki(ctx, r)
 		return mythicalOutcome{state: "active", clearPending: true}

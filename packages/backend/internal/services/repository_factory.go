@@ -180,3 +180,33 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 	}
 	return tx.Commit(ctx)
 }
+
+// reconcileLocalFactory reads committed data at the exact folded main. The stack
+// worker already owns fetch/retry; local repositories need no GitHub mirror.
+func (s *MythicalService) reconcileLocalFactory(ctx context.Context, r *mythicalRun) error {
+	if !r.g.has(ctx, r.mainTip) {
+		if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, "refs/heads/"+r.branch); err != nil {
+			return fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		}
+	}
+	// ls-tree distinguishes an absent file from a failed read. Absence retires
+	// removed declarations; malformed data never silently retires live jobs.
+	entry, err := r.g.git(ctx, "ls-tree", r.mainTip, "--", gitHubMainPullFactoryPath)
+	if err != nil {
+		return err
+	}
+	projection := FactoryProjection{}
+	if entry != "" {
+		if !strings.HasPrefix(entry, "100644 blob ") && !strings.HasPrefix(entry, "100755 blob ") {
+			return errors.New("factory projection must be a regular file")
+		}
+		raw, err := r.g.command(ctx, nil, "show", r.mainTip+":"+gitHubMainPullFactoryPath)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(raw, &projection); err != nil {
+			return errors.New("invalid factory projection")
+		}
+	}
+	return s.reconcileFactory(ctx, r.row.RepositoryID, r.mainTip, projection)
+}

@@ -73,3 +73,20 @@ func TestFactoryReconcileRestartAndRetirement(t *testing.T) {
 		require.False(t, row.Enabled)
 	}
 }
+
+func TestLocalFactoryRemovalAndMalformedProjection(t *testing.T) {
+	f := newMythicalFixture(t)
+	ctx := context.Background()
+	calls := 0
+	service := &MythicalService{reconcileFactory: func(_ context.Context, _ int64, _ string, projection FactoryProjection) error {
+		calls++
+		require.Empty(t, projection.Flows)
+		return nil
+	}}
+	absent := f.commit("empty main", map[string]string{"README.md": "hello"})
+	require.NoError(t, service.reconcileLocalFactory(ctx, &mythicalRun{g: f.git, mainTip: absent}))
+	require.Equal(t, 1, calls, "removing factory rules must retire their registrations")
+	malformed := f.commit("invalid factory", map[string]string{gitHubMainPullFactoryPath: "not JSON"})
+	require.ErrorContains(t, service.reconcileLocalFactory(ctx, &mythicalRun{g: f.git, mainTip: malformed}), "invalid factory projection")
+	require.Equal(t, 1, calls, "a broken projection cannot silently retire registrations")
+}
