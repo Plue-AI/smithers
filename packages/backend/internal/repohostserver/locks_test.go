@@ -111,3 +111,26 @@ func TestRepoLockerLockAllSerializesSameKeysInAnyOrder(t *testing.T) {
 		t.Fatal("second multi-lock did not acquire after first unlock")
 	}
 }
+
+// LockAll waits for every held key before it takes any lock, so a held key
+// never pins the write lock of another.
+func TestLockAllWaitsForHoldsBeforeLocking(t *testing.T) {
+	l := newRepoLocker()
+	release := l.Hold("b")
+	done := make(chan struct{})
+	go func() { l.LockAll("a", "b")(); close(done) }()
+	time.Sleep(100 * time.Millisecond)
+	read := make(chan struct{})
+	go func() { l.RLock("a")(); close(read) }()
+	select {
+	case <-read:
+	case <-time.After(5 * time.Second):
+		t.Fatal("LockAll took a's lock while b was held")
+	}
+	release()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("LockAll never took the locks")
+	}
+}

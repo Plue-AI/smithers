@@ -66,7 +66,22 @@ func bootTime() (time.Time, error) {
 // processArgs is the argument vector of the process pid.
 func processArgs(pid int) ([]string, error) {
 	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
-	return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), err
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 {
+		return nil, errors.New("no arguments for pid " + strconv.Itoa(pid))
+	}
+	return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
+}
+
+// processEnv is the environment of the process pid.
+func processEnv(pid int) ([]string, error) {
+	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
 }
 
 // processCwd is the working directory of the process pid.

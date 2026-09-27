@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -322,14 +324,54 @@ func TestStartupLeavesReleasedMaintenancePidfilesAlone(t *testing.T) {
 	require.NoError(t, syscall.Kill(bystander.Process.Pid, 0))
 }
 
-// startNamed starts, in its own group and in dir, a shell under the command
-// name name with the arguments args after it, as git's gc would run. The
-// channel closes when it exits.
+var (
+	standInOnce sync.Once
+	standInDir  string
+	standInErr  error
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if standInDir != "" {
+		_ = os.RemoveAll(standInDir)
+	}
+	os.Exit(code)
+}
+
+// standIn builds, once per test binary, a program named name that sleeps
+// until it is killed, whatever its arguments: the kernel names a process
+// after the binary it runs, symlinks resolved.
+func standIn(t *testing.T, name string) string {
+	t.Helper()
+	standInOnce.Do(func() {
+		standInDir, standInErr = os.MkdirTemp("", "repohost-stand-in")
+		if standInErr != nil {
+			return
+		}
+		source := filepath.Join(standInDir, "main.go")
+		standInErr = os.WriteFile(source, []byte("package main\n\nimport \"time\"\n\nfunc main() { time.Sleep(time.Hour) }\n"), 0o644)
+		if standInErr != nil {
+			return
+		}
+		out, err := exec.Command("go", "build", "-o", filepath.Join(standInDir, "sleeper"), source).CombinedOutput()
+		if err != nil {
+			standInErr = fmt.Errorf("go build: %w: %s", err, out)
+		}
+	})
+	require.NoError(t, standInErr)
+	path := filepath.Join(t.TempDir(), name)
+	raw, err := os.ReadFile(filepath.Join(standInDir, "sleeper"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, raw, 0o755))
+	return path
+}
+
+// startNamed starts, in its own group and in dir, a process named name with
+// the arguments args, as git's gc would run. The channel closes when it
+// exits.
 func startNamed(t *testing.T, name, dir string, args ...string) (*exec.Cmd, <-chan struct{}) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	require.NoError(t, os.Symlink("/bin/sh", path))
-	cmd := exec.Command(path, append([]string{"-c", "sleep 60; :", name}, args...)...)
+	cmd := exec.Command(standIn(t, name), args...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	require.NoError(t, cmd.Start())
@@ -338,7 +380,7 @@ func startNamed(t *testing.T, name, dir string, args ...string) (*exec.Cmd, <-ch
 	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); <-exited })
 	require.Eventually(t, func() bool {
 		got, err := processName(cmd.Process.Pid)
-		return err == nil && filepath.Base(got) == name
+		return err == nil && got == name
 	}, 5*time.Second, 10*time.Millisecond)
 	return cmd, exited
 }
@@ -354,22 +396,23 @@ func writeGCPid(t *testing.T, gitDir string, pid int) {
 
 // A gc git's gc.pid names as running on this repository, from a repo-host
 // that predates maintenance pidfiles (--git-dir) or git's own detached gc (in
-// the git directory), is terminated at startup.
+// the git directory), is terminated at startup. Storage paths may hold spaces,
+// as the desktop app's (Application Support) does.
 func TestStartupTerminatesLiveGitGCFromGCPid(t *testing.T) {
 	maintenanceWaitDelay = 200 * time.Millisecond
 	t.Cleanup(func() { maintenanceWaitDelay = 10 * time.Second })
-	cfg := Config{StoragePath: t.TempDir(), AuthToken: testAuthToken}
+	cfg := Config{StoragePath: filepath.Join(t.TempDir(), "Application Support"), AuthToken: testAuthToken}
 	byArg := repoGitDir(cfg.RepoPath("alice", "arg"))
 	inDir := repoGitDir(cfg.RepoPath("alice", "cwd"))
 	require.NoError(t, os.MkdirAll(inDir, 0o755))
 	argGC, argExited := startNamed(t, "git", "", "--git-dir", byArg, "gc", "--auto")
 	cwdGC, cwdExited := startNamed(t, "git", inDir, "gc", "--auto", "--quiet")
-	time.Sleep(1100 * time.Millisecond) // past ps's one-second start times
 	writeGCPid(t, byArg, argGC.Process.Pid)
 	writeGCPid(t, inDir, cwdGC.Process.Pid)
 
-	_, err := NewWithFFI(cfg, &mockFFI{})
+	srv, err := NewWithFFI(cfg, &mockFFI{})
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 	for _, exited := range []<-chan struct{}{argExited, cwdExited} {
 		select {
 		case <-exited:
@@ -379,11 +422,13 @@ func TestStartupTerminatesLiveGitGCFromGCPid(t *testing.T) {
 	}
 	require.NoFileExists(t, filepath.Join(byArg, "gc.pid"))
 	require.NoFileExists(t, filepath.Join(inDir, "gc.pid"))
+	require.False(t, srv.locks.Held(cfg.RepoPath("alice", "arg")))
 }
 
 // A gc.pid survives its gc's SIGKILL, and its pid may be reused within
-// gcPidMaxAge by another process, a git even: startup signals none of them,
-// and removes the stale gc.pid.
+// gcPidMaxAge by another process, a git even. Startup signals none of them and
+// removes a gc.pid that is established stale: its process is gone, is not
+// git, runs gc on another repository, or started well after the file.
 func TestStartupLeavesProcessesThatReusedAGCPidAlone(t *testing.T) {
 	maintenanceWaitDelay = 200 * time.Millisecond
 	t.Cleanup(func() { maintenanceWaitDelay = 10 * time.Second })
@@ -391,27 +436,32 @@ func TestStartupLeavesProcessesThatReusedAGCPidAlone(t *testing.T) {
 	later := repoGitDir(cfg.RepoPath("alice", "later"))
 	other := repoGitDir(cfg.RepoPath("alice", "other"))
 	notGit := repoGitDir(cfg.RepoPath("alice", "notgit"))
-	elsewhere := t.TempDir()
+	gone := repoGitDir(cfg.RepoPath("alice", "gone"))
 
 	// A git gc of this very repository that started after gc.pid was written.
 	reused, _ := startNamed(t, "git", "", "--git-dir", later, "gc")
 	writeGCPid(t, later, reused.Process.Pid)
-	old := time.Now().Add(-time.Minute)
+	old := time.Now().Add(-2 * gcStartSlack)
 	require.NoError(t, os.Chtimes(filepath.Join(later, "gc.pid"), old, old))
-	// A git gc of another repository, and a program that is not git.
-	otherGC, _ := startNamed(t, "git", elsewhere, "gc", "--auto")
+	// A git gc of another repository, a program that is not git, and a
+	// process that exited.
+	otherGC, _ := startNamed(t, "git", t.TempDir(), "gc", "--auto")
 	notGitGC, _ := startNamed(t, "postgres", "", "--git-dir", notGit, "gc")
-	time.Sleep(1100 * time.Millisecond)
+	exited := exec.Command("true")
+	require.NoError(t, exited.Run())
 	writeGCPid(t, other, otherGC.Process.Pid)
 	writeGCPid(t, notGit, notGitGC.Process.Pid)
+	writeGCPid(t, gone, exited.Process.Pid)
 
-	_, err := NewWithFFI(cfg, &mockFFI{})
+	srv, err := NewWithFFI(cfg, &mockFFI{})
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 	for _, cmd := range []*exec.Cmd{reused, otherGC, notGitGC} {
 		require.NoError(t, syscall.Kill(cmd.Process.Pid, 0), "startup signalled %v", cmd.Args)
 	}
-	for _, dir := range []string{later, other, notGit} {
+	for _, dir := range []string{later, other, notGit, gone} {
 		require.NoFileExists(t, filepath.Join(dir, "gc.pid"))
+		require.False(t, srv.locks.Held(repositoryPathOf(dir)))
 	}
 }
 
@@ -432,23 +482,171 @@ func TestCancelledMaintenanceRemovesGCPid(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
 }
 
-// A maintenance group that outlives SIGKILL fails startup: its git locks stay.
-func TestStartupFailsWhileOrphanedMaintenanceSurvives(t *testing.T) {
-	maintenanceWaitDelay = 100 * time.Millisecond
-	t.Cleanup(func() { maintenanceWaitDelay = 10 * time.Second })
-	cfg := Config{StoragePath: t.TempDir(), AuthToken: testAuthToken}
-	gitDir := repoGitDir(cfg.RepoPath("alice", "demo"))
-	require.NoError(t, os.MkdirAll(gitDir, 0o755))
+// requireHeld checks that writes to repoPath wait, and returns a channel that
+// closes once one gets through.
+func requireHeld(t *testing.T, srv *Server, repoPath string) <-chan struct{} {
+	t.Helper()
+	require.True(t, srv.locks.Held(repoPath))
+	written := make(chan struct{})
+	go func() {
+		unlock := srv.locks.Lock(repoPath)
+		close(written)
+		unlock()
+	}()
+	select {
+	case <-written:
+		t.Fatalf("a write to held %s went through", repoPath)
+	case <-time.After(300 * time.Millisecond):
+	}
+	return written
+}
+
+// requireWritable checks that a write to repoPath goes through.
+func requireWritable(t *testing.T, srv *Server, repoPath string) {
+	t.Helper()
+	require.False(t, srv.locks.Held(repoPath))
+	written := make(chan struct{})
+	go func() {
+		unlock := srv.locks.Lock(repoPath)
+		close(written)
+		unlock()
+	}()
+	select {
+	case <-written:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("a write to %s waited", repoPath)
+	}
+}
+
+// requireReleased waits for a write to a held repository to go through.
+func requireReleased(t *testing.T, written <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-written:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the held repository was never released")
+	}
+}
+
+// holdFixture is storage with a repository to hold and one to write.
+func holdFixture(t *testing.T) (cfg Config, held, free string) {
+	t.Helper()
+	maintenanceWaitDelay, holdPollInterval = 100*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { maintenanceWaitDelay, holdPollInterval = 10*time.Second, 5*time.Second })
+	cfg = Config{StoragePath: t.TempDir(), AuthToken: testAuthToken}
+	held, free = cfg.RepoPath("alice", "held"), cfg.RepoPath("alice", "free")
+	for _, repoPath := range []string{held, free} {
+		require.NoError(t, os.MkdirAll(repoGitDir(repoPath), 0o755))
+	}
+	return cfg, held, free
+}
+
+// newHoldServer starts a server on cfg, stopped when the test ends.
+func newHoldServer(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	srv, err := NewWithFFI(cfg, &mockFFI{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	return srv
+}
+
+// A maintenance group that outlives SIGKILL holds writes to its repository,
+// and keeps its git locks, until it exits; other repositories stay writable.
+func TestStartupHoldsARepositoryWhoseMaintenanceSurvives(t *testing.T) {
+	cfg, held, free := holdFixture(t)
+	gitDir := repoGitDir(held)
 	lock := filepath.Join(gitDir, "packed-refs.lock")
 	require.NoError(t, os.WriteFile(lock, nil, 0o644))
 	// This process holds the pidfile lock, as a process SIGKILL cannot reach
 	// would; the file names no group.
-	held, err := os.Create(filepath.Join(gitDir, maintenancePidFile))
+	survivor, err := os.Create(filepath.Join(gitDir, maintenancePidFile))
 	require.NoError(t, err)
-	defer held.Close()
-	require.NoError(t, syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+	require.NoError(t, syscall.Flock(int(survivor.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
 
-	_, err = NewWithFFI(cfg, &mockFFI{})
-	require.ErrorContains(t, err, "still running")
+	srv := newHoldServer(t, cfg)
+	written := requireHeld(t, srv, held)
+	requireWritable(t, srv, free)
 	require.FileExists(t, lock)
+	// Reads proceed, a writer waiting or not.
+	read := make(chan struct{})
+	go func() { srv.locks.RLock(held)(); close(read) }()
+	select {
+	case <-read:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a read of the held repository waited")
+	}
+	require.NoError(t, srv.syncGitRefs(held, gitDir))
+
+	require.NoError(t, survivor.Close())
+	requireReleased(t, written)
+	require.NoFileExists(t, lock)
+	require.False(t, srv.locks.Held(held))
+}
+
+// A gc.pid naming a live git that runs gc on the repository but cannot be
+// placed before the file (it started within gcStartSlack after it) is neither
+// signalled nor removed: it holds writes to its repository until it exits.
+func TestStartupHoldsARepositoryWhoseGCCannotBeIdentified(t *testing.T) {
+	cfg, held, free := holdFixture(t)
+	gitDir := repoGitDir(held)
+	gc, gcExited := startNamed(t, "git", "", "--git-dir", gitDir, "gc")
+	writeGCPid(t, gitDir, gc.Process.Pid)
+	old := time.Now().Add(-time.Minute)
+	require.NoError(t, os.Chtimes(filepath.Join(gitDir, "gc.pid"), old, old))
+
+	srv := newHoldServer(t, cfg)
+	written := requireHeld(t, srv, held)
+	requireWritable(t, srv, free)
+	require.NoError(t, syscall.Kill(gc.Process.Pid, 0), "startup signalled an unidentified process")
+	require.FileExists(t, filepath.Join(gitDir, "gc.pid"))
+
+	require.NoError(t, syscall.Kill(-gc.Process.Pid, syscall.SIGKILL))
+	<-gcExited
+	requireReleased(t, written)
+	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
+}
+
+// A live git whose arguments cannot be read holds its repository too.
+func TestStartupHoldsARepositoryWhoseGCArgumentsCannotBeRead(t *testing.T) {
+	cfg, held, free := holdFixture(t)
+	gitDir := repoGitDir(held)
+	gc, _ := startNamed(t, "git", "", "--git-dir", gitDir, "gc")
+	writeGCPid(t, gitDir, gc.Process.Pid)
+	var unreadable atomic.Bool
+	unreadable.Store(true)
+	lookupProcessArgs = func(pid int) ([]string, error) {
+		if unreadable.Load() {
+			return nil, errors.New("unreadable")
+		}
+		return processArgs(pid)
+	}
+	t.Cleanup(func() { lookupProcessArgs = processArgs })
+
+	srv := newHoldServer(t, cfg)
+	written := requireHeld(t, srv, held)
+	requireWritable(t, srv, free)
+	require.NoError(t, syscall.Kill(gc.Process.Pid, 0), "startup signalled an unidentified process")
+	require.FileExists(t, filepath.Join(gitDir, "gc.pid"))
+
+	// Once it can be identified, the gc is terminated and the hold released.
+	unreadable.Store(false)
+	requireReleased(t, written)
+	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
+}
+
+// Shutdown keeps a hold: nothing writes to the repository while its
+// maintenance may still run.
+func TestShutdownKeepsAHold(t *testing.T) {
+	cfg, held, _ := holdFixture(t)
+	survivor, err := os.Create(filepath.Join(repoGitDir(held), maintenancePidFile))
+	require.NoError(t, err)
+	defer survivor.Close()
+	require.NoError(t, syscall.Flock(int(survivor.Fd()), syscall.LOCK_EX|syscall.LOCK_NB))
+
+	srv := newHoldServer(t, cfg)
+	require.True(t, srv.locks.Held(held))
+	require.NoError(t, srv.Shutdown(context.Background()))
+	require.NoError(t, survivor.Close())
+	time.Sleep(5 * holdPollInterval)
+	require.True(t, srv.locks.Held(held))
 }

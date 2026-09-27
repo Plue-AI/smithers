@@ -60,6 +60,9 @@ type Server struct {
 	stopMaintenance context.CancelFunc
 	maintenanceMu   sync.Mutex
 	maintenanceDue  map[string]struct{}
+	// stopHolds stops checking repositories held for orphaned maintenance
+	// (orphaned_maintenance.go).
+	stopHolds context.CancelFunc
 }
 
 type loadableFFIClient interface {
@@ -169,9 +172,7 @@ func NewWithFFI(cfg Config, ffi FFIClient) (*Server, error) {
 		httpClient: pushHookClient(),
 	}
 	server.pushOutbox = newPushHookOutbox(server)
-	if err := server.reapOrphanedMaintenance(); err != nil {
-		return nil, err
-	}
+	server.reapOrphanedMaintenance()
 	return server, nil
 }
 
@@ -285,6 +286,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.stopMaintenance != nil {
 		s.stopMaintenance()
+	}
+	if s.stopHolds != nil {
+		s.stopHolds()
 	}
 	done := make(chan struct{})
 	go func() {

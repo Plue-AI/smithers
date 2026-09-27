@@ -413,7 +413,10 @@ func (s *Server) sweepUserRefs(ctx context.Context) {
 			return
 		}
 		gitDir := filepath.Dir(path)
-		repoPath := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(gitDir))))
+		repoPath := repositoryPathOf(gitDir)
+		if s.locks.Held(repoPath) {
+			continue
+		}
 		func() {
 			unlock := s.lockRepo(repoPath)
 			defer unlock()

@@ -110,6 +110,11 @@ func (s *Server) syncGitRefs(repoPath, gitDir string) error {
 	if s.refExports.current(repoPath, opHead) {
 		return nil
 	}
+	// A held repository takes no write (orphaned_maintenance.go): its git
+	// refs are served as they are.
+	if s.locks.Held(repoPath) {
+		return nil
+	}
 
 	unlock := s.lockRepo(repoPath)
 	defer unlock()
