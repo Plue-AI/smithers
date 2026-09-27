@@ -94,8 +94,10 @@ const decide = async (page: Page, request: APIRequestContext, decision: "approve
       await expect(card).toContainText(decision === "approve" ? "Approved" : "Denied")
       await reloadApp(page)
       await expect(card).toHaveAttribute("data-status", "acted")
+      await expect(card).toContainText(decision === "approve" ? "Approved" : "Denied")
       await expect(card.getByRole("button", { name: /^(Approve|Deny)$/ })).toHaveCount(0)
       expect((await projection("approvals")).find(row => row.requestId === pending.requestId)?.status).toBe(recorded)
+      expect((await projection("run-summary"))[0]?.status).toBe("completed")
     })
   })
 }
