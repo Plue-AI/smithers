@@ -58,6 +58,7 @@ export const key = {
   ctrlA: "\x01",
   ctrlBracket: "\x1d",
   ctrlBackslash: "\x1c",
+  ctrlLeft: "\x1b[1;5D",
   up: "\x1b[A",
   down: "\x1b[B",
   tab: "\t",

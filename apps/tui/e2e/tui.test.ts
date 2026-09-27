@@ -352,7 +352,7 @@ describe("tabs", () => {
     await tui.until((screen) => !screen.includes("esc Chat") && screen.includes("ctrl+k Search"), 5_000, "chat footer")
   }, 60_000)
 
-  it("cycles tabs with ctrl+] and ctrl+\\", async () => {
+  it("cycles tabs with ctrl+] and ctrl+left", async () => {
     const { tui } = await start()
     await tui.press(key.ctrlBracket)
     await tui.until((screen) => screen.includes("esc Chat"), 5_000, "summary after ctrl+]")
@@ -362,8 +362,8 @@ describe("tabs", () => {
       5_000,
       "chat after ctrl+]"
     )
-    await tui.press(key.ctrlBackslash)
-    await tui.until((screen) => screen.includes("esc Chat"), 5_000, "summary after ctrl+\\")
+    await tui.press(key.ctrlLeft)
+    await tui.until((screen) => screen.includes("esc Chat"), 5_000, "summary after ctrl+left")
   }, 60_000)
 
   it("steps once per ctrl+] even when two arrive before the next render", async () => {

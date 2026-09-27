@@ -110,8 +110,8 @@ describe("key registry", () => {
     expect(unregistered(handlerKeys(withCtrlA))).toEqual(["app.tsx: key.ctrl && key.name === \"a\""])
 
     const withArray = app.replace(
-      "[\"right\", \"left\", \"]\", \"\\\\\"]",
-      "[\"right\", \"left\", \"]\", \"\\\\\", \"b\"]"
+      "[\"right\", \"left\", \"]\", \"[\"]",
+      "[\"right\", \"left\", \"]\", \"[\", \"b\"]"
     )
     expect(withArray).not.toBe(app)
     expect(unregistered(handlerKeys(withArray))).toEqual([expect.stringContaining("\"b\"")])
@@ -185,7 +185,8 @@ describe("key registry", () => {
     expect(Keys.matches({ name: "p", ctrl: true, shift: true }, "ctrl+shift+p")).toBe(true)
     expect(Keys.matches({ name: "kpenter" }, "enter")).toBe(true)
     expect(Keys.bindingFor({ name: "]", ctrl: true })?.id).toBe("next-tab")
-    expect(Keys.bindingFor({ name: "\\", ctrl: true })?.id).toBe("previous-tab")
+    expect(Keys.bindingFor({ name: "[", ctrl: true })?.id).toBe("previous-tab")
+    expect(Keys.bindingFor({ name: "\\", ctrl: true })?.id).not.toBe("previous-tab")
     expect(Keys.bindingFor({ name: "?" }, "composer")?.id).toBe("keys")
     expect(Keys.bindingFor({ name: "y" }, "approval")?.id).toBe("allow")
   })

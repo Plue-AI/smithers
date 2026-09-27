@@ -48,7 +48,8 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "summary", keys: ["ctrl+s"], label: "Summary", context: "global", group: "Tabs" },
   // Ctrl+Left/Right stay as aliases; macOS takes them for Spaces by default.
   { id: "next-tab", keys: ["ctrl+]", "ctrl+right"], label: "Next tab", context: "global", group: "Tabs" },
-  { id: "previous-tab", keys: ["ctrl+\\", "ctrl+left"], label: "Previous tab", context: "global", group: "Tabs" },
+  { id: "previous-tab", keys: ["ctrl+[", "ctrl+left"], label: "Previous tab", context: "global", group: "Tabs" },
+  { id: "chat", keys: ["ctrl+\\"], label: "Chat", context: "global", group: "Tabs" },
   { id: "parent", keys: ["ctrl+y"], label: "Back", context: "global", group: "Tabs" },
   { id: "scroll", keys: ["pageup", "pagedown"], label: "Scroll", context: "global", group: "Global" },
   {

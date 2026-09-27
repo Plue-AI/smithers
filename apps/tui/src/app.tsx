@@ -1573,7 +1573,7 @@ export function App(props: AppProps) {
     const filling = liveForm.current
     if (filling !== undefined && open === undefined) {
       // Palette, summary and tab switching still work: they close the form and leave the run parked.
-      if (!(key.ctrl && ["k", "s", "y", "left", "right", "]", "\\"].includes(key.name))) {
+      if (!(key.ctrl && ["k", "s", "y", "left", "right", "]", "["].includes(key.name))) {
         return Dispatch.formKey(key, filling, {
           // Retarget the native input before later bytes in the same terminal
           // read arrive. Advancing only the ref leaves typing on the old field.
@@ -1629,10 +1629,10 @@ export function App(props: AppProps) {
       }))
     }
     if (
-      (key.ctrl && ["right", "left", "]", "\\"].includes(key.name)) || (key.name === "tab" && panelFocus && !key.shift)
+      (key.ctrl && ["right", "left", "]", "["].includes(key.name)) || (key.name === "tab" && panelFocus && !key.shift)
     ) {
       key.preventDefault()
-      flushSync(() => stepTab(surfaces, key.name === "left" || key.name === "\\"))
+      flushSync(() => stepTab(surfaces, key.name === "left" || key.name === "["))
       return
     }
     // Contributed keys never shadow a built-in one (`Contributions` refused those), and a
