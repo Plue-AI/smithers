@@ -24560,10 +24560,24 @@ import { Action, Flow, Interpreter } from "@smthrs/flows"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import { Effect, Layer, Schema } from "effect"
 const Greet = Action.make("demo/Greet", { payload: { name: Schema.String }, success: Schema.String })
-const Hello = Flow.make("demo/Hello", { payload: { name: Schema.String }, success: Schema.String, body: (payload) => Greet.call(payload) })
-const code = Interpreter.layer(Hello).pipe(Layer.provideMerge(Greet.toLayer(({ name }) => Effect.succeed(`hi ${name}`))), Layer.provideMerge(Action.layerImplementations))
-const host = NodeRuntime.layerHost({ filename: ".flows/engine.db", workspaceRoot: ".", owner: { hostId: "demo" } }, code)
-console.log(await Effect.runPromise(Hello.execute({ name: "ada" }, { executionId: "demo-1" }).pipe(Effect.provide(host), Effect.scoped)))
+const Hello = Flow.make("demo/Hello", {
+  payload: { name: Schema.String },
+  success: Schema.String,
+  body: (payload) => Greet.call(payload)
+})
+const code = Interpreter.layer(Hello).pipe(
+  Layer.provideMerge(Greet.toLayer(({ name }) => Effect.succeed(`hi ${name}`))),
+  Layer.provideMerge(Action.layerImplementations)
+)
+const host = NodeRuntime.layerHost(
+  { filename: ".flows/engine.db", workspaceRoot: ".", owner: { hostId: "demo" } },
+  code
+)
+console.log(
+  await Effect.runPromise(
+    Hello.execute({ name: "ada" }, { executionId: "demo-1" }).pipe(Effect.provide(host), Effect.scoped)
+  )
+)
 ```
 
 ## The barrel
@@ -29959,7 +29973,14 @@ import { Effect, FileSystem, Layer } from "effect"
 const raw = Layer.mergeAll(TestHost.layer({ files: { "/w/a.txt": "hi" } }), Workspace.layer("/w"))
 const read = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString("/w/a.txt"))
 // Refused with permission_required: no rule authorizes fs:read.
-Effect.runPromise(read.pipe(Effect.provide(HostServices.layer), Effect.provide(Layer.orDie(GrantStore.layer({ attended: false }))), Effect.provide(raw), Effect.scoped))
+Effect.runPromise(
+  read.pipe(
+    Effect.provide(HostServices.layer),
+    Effect.provide(Layer.orDie(GrantStore.layer({ attended: false }))),
+    Effect.provide(raw),
+    Effect.scoped
+  )
+)
 ```
 
 ## Entry points
@@ -31472,7 +31493,11 @@ import * as McpFlows from "@smthrs/mcp/McpFlows"
 import { Effect } from "effect"
 
 const program = Effect.scoped(Effect.gen(function*() {
-  const source = yield* McpFlows.connected({ server: "github", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] })
+  const source = yield* McpFlows.connected({
+    server: "github",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-github"]
+  })
   return yield* source.bindings()
 }))
 ```
@@ -34687,7 +34712,12 @@ import { NotificationQueue } from "@smthrs/notifications"
 
 const deliver = Effect.gen(function*() {
   const queue = yield* NotificationQueue.NotificationQueue
-  const receipt = yield* queue.drain({ runId: "run-1", targetLineageId: "run-1/root", boundary: "turn-1", wouldIdle: true })
+  const receipt = yield* queue.drain({
+    runId: "run-1",
+    targetLineageId: "run-1/root",
+    boundary: "turn-1",
+    wouldIdle: true
+  })
   return receipt.notifications
 }).pipe(Effect.provide(NotificationQueue.layer))
 ```
@@ -38493,11 +38523,11 @@ use the selected process runner.
 
 ## Requirements
 
-| Requirement                                        | Why                                                                                                       |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Node.js >=26.4.0                                   | the minimum this package's `engines` field declares                                                       |
-| the `smithers-jj-export` helper                    | `AtomicFileSystem` runs every guarded filesystem operation through it                                     |
-| a POSIX host                                       | Windows has none of those primitives and is unsupported                                                   |
+| Requirement                     | Why                                                                   |
+| ------------------------------- | --------------------------------------------------------------------- |
+| Node.js >=26.4.0                | the minimum this package's `engines` field declares                   |
+| the `smithers-jj-export` helper | `AtomicFileSystem` runs every guarded filesystem operation through it |
+| a POSIX host                    | Windows has none of those primitives and is unsupported               |
 
 The helper is a real prerequisite, not a soft one, and it fails LATE by
 design. `NodeHost.layer` builds cleanly on a host without it, because the
@@ -38910,7 +38940,10 @@ Every function that can refuse returns `Effect<A, PluginError>`, except
 ```ts
 import { Kernel, make } from "@smthrs/plugin"
 
-const editor = make({ name: "flows-plugin-editor", hooks: { config: () => Effect.succeed({ editor: { readOnly: false } }) } })
+const editor = make({
+  name: "flows-plugin-editor",
+  hooks: { config: () => Effect.succeed({ editor: { readOnly: false } }) }
+})
 const kernel = await Effect.runPromise(Kernel.make([editor], {}, { target: "harness" }))
 console.log(kernel.config) // { editor: { readOnly: false } }
 ```
@@ -40899,7 +40932,12 @@ const owner = { hostId: "worker-1", pid: process.pid, nonce: "9c31-af02" }
 const program = Effect.gen(function*() {
   const runs = yield* RunStore.RunStore
   yield* runs.create("build-42", JSON.stringify({ step: "checkout" }))
-  const taken = yield* runs.claimAndOwn("build-42", { status: "pending", owner: null, heartbeatAtMs: null }, owner, Date.now())
+  const taken = yield* runs.claimAndOwn(
+    "build-42",
+    { status: "pending", owner: null, heartbeatAtMs: null },
+    owner,
+    Date.now()
+  )
   if (taken._tag === "Activated") yield* runs.transitionOwned("build-42", owner, "completed")
 })
 ```
@@ -42543,8 +42581,10 @@ Links are read in three forms: Slack `<url|label>` and `<url>`, markdown
 links (a bracketed label followed by the URL in parentheses), and bare
 `http(s)://` URLs. `words`, `questions`, `barePaths`,
 and `linkedReferences` read link labels as prose and skip link URLs.
-`excludes` and `leakage` match whole words and phrases case-insensitively; an
-entry written `/source/flags` is a regular expression. `requiredLinks` ignores
+`includes`, `excludes` and `leakage` match whole words and phrases
+case-insensitively, so "No" is not found in "not"; an entry written `renew*`
+is a stem whose last word may continue ("renewal"), and one written
+`/source/flags` is a regular expression. `requiredLinks` ignores
 scheme and host case, a trailing slash, and a fragment, and accepts a found URL
 that extends the required one with a path or query. `linkedReferences` accepts
 `/pull/` for a template containing `/issues/`. `count` defaults to at least one
@@ -42564,7 +42604,7 @@ call when no bound is set.
 | `Checks.ScorerOptions`    | interface | models       | Scorer id, version, name, config, and the checks function.                     |
 | `Checks.words`            | const     | measuring    | Counts words, reading link labels and skipping link URLs.                      |
 | `Checks.length`           | const     | checks       | Word count within inclusive `min` and `max`.                                   |
-| `Checks.includes`         | const     | checks       | Every entry present, case-insensitively; an array is any-of.                   |
+| `Checks.includes`         | const     | checks       | Every whole word, phrase, or `/regex/flags` present; an array is any-of.       |
 | `Checks.excludes`         | const     | checks       | No forbidden whole word, phrase, or `/regex/flags` match.                      |
 | `Checks.opener`           | const     | checks       | The message does not open with a listed phrase.                                |
 | `Checks.truncated`        | const     | checks       | No cut-off word, trailing ellipsis, or unclosed code fence.                    |
@@ -43057,7 +43097,14 @@ import * as CacheStore from "@smthrs/step-cache/CacheStore"
 import * as TestCacheStore from "@smthrs/step-cache/test/TestCacheStore"
 const cached = Effect.gen(function*() {
   const cache = yield* CacheStore.CacheStore
-  yield* cache.put({ keyDigest: "compile-v1", result: { bytes: 41_022 }, meta: {}, createdAtMs: Date.now(), recordedRunId: "run-a", recordedEventSeq: 7 })
+  yield* cache.put({
+    keyDigest: "compile-v1",
+    result: { bytes: 41_022 },
+    meta: {},
+    createdAtMs: Date.now(),
+    recordedRunId: "run-a",
+    recordedEventSeq: 7
+  })
   return yield* cache.get("compile-v1")
 }).pipe(Effect.provide(TestCacheStore.layer))
 ```
@@ -44084,7 +44131,10 @@ import { Conformance, EngineSubject, FlowEngineLike } from "@smthrs/testing"
 import { describe, it } from "@smthrs/testing/Vitest"
 describe("engine conformance", () => {
   for (const c of Conformance.coreSuite()) {
-    it.scoped(c.name, () => Effect.flatMap(EngineSubject.EngineSubject, c.run).pipe(Effect.provide(FlowEngineLike.layerMemory)))
+    it.scoped(
+      c.name,
+      () => Effect.flatMap(EngineSubject.EngineSubject, c.run).pipe(Effect.provide(FlowEngineLike.layerMemory))
+    )
   }
 })
 ```
@@ -46475,8 +46525,13 @@ for how to get it.
 import * as Trigger from "@smthrs/triggers/Trigger"
 
 const nightly = Trigger.make({
-  id: "nightly-report", flowId: "reports/nightly", input: { channel: "#ops" },
-  cron: "0 3 * * *", timezone: "UTC", overlap: "skip", enabled: true
+  id: "nightly-report",
+  flowId: "reports/nightly",
+  input: { channel: "#ops" },
+  cron: "0 3 * * *",
+  timezone: "UTC",
+  overlap: "skip",
+  enabled: true
 })
 ```
 

@@ -30,7 +30,10 @@ Every function that can refuse returns `Effect<A, PluginError>`, except
 ```ts
 import { Kernel, make } from "@smthrs/plugin"
 
-const editor = make({ name: "flows-plugin-editor", hooks: { config: () => Effect.succeed({ editor: { readOnly: false } }) } })
+const editor = make({
+  name: "flows-plugin-editor",
+  hooks: { config: () => Effect.succeed({ editor: { readOnly: false } }) }
+})
 const kernel = await Effect.runPromise(Kernel.make([editor], {}, { target: "harness" }))
 console.log(kernel.config) // { editor: { readOnly: false } }
 ```

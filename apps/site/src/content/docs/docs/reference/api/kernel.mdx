@@ -36,7 +36,14 @@ import { Effect, FileSystem, Layer } from "effect"
 const raw = Layer.mergeAll(TestHost.layer({ files: { "/w/a.txt": "hi" } }), Workspace.layer("/w"))
 const read = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString("/w/a.txt"))
 // Refused with permission_required: no rule authorizes fs:read.
-Effect.runPromise(read.pipe(Effect.provide(HostServices.layer), Effect.provide(Layer.orDie(GrantStore.layer({ attended: false }))), Effect.provide(raw), Effect.scoped))
+Effect.runPromise(
+  read.pipe(
+    Effect.provide(HostServices.layer),
+    Effect.provide(Layer.orDie(GrantStore.layer({ attended: false }))),
+    Effect.provide(raw),
+    Effect.scoped
+  )
+)
 ```
 
 ## Entry points
