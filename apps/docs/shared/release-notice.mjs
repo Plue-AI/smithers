@@ -3,6 +3,6 @@ import { defineRouteMiddleware } from "@astrojs/starlight/route-data"
 
 export const onRequest = defineRouteMiddleware(({ locals }) => {
   locals.starlightRoute.entry.data.banner ??= {
-    content: 'These docs describe the unpublished Smithers 1.0 release candidate. <a href="https://smithers.sh/docs/installation/#use-the-source-checkout-before-publication">Use the source checkout</a>; npm commands apply after publication.'
+    content: 'These docs describe the unpublished Smithers 1.0 release candidate. <a href="https://smithers.sh/docs/installation/#install-the-cli">Install it from the source checkout</a>.'
   }
 })
