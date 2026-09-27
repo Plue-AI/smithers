@@ -80,7 +80,7 @@ not be a release-candidate feature. `@smthrs/triggers`, `@smthrs/evals` and
 composes them. Memory semantic recall and observability OTLP export are not
 rc.0 features either, and `@smthrs/gateway` publishes because consumers need
 its wire schemas while its supervision runtime is still a noop. The
-[known limitations and evidence](../apps/site/docs/reference/support-matrix.md#known-limitations-and-evidence)
+[known limitations](../apps/site/docs/reference/support-matrix.md#known-limitations)
 table records what each limit rests on; in particular, the published OTLP layer
 is application-wired rather than a shipped default.
 
@@ -368,7 +368,7 @@ lives. The items an alpha operator hits first:
   older than the cutoff, the sweep re-drives at most 64 stale rows per
   one-second tick, and a caller-supplied `isAlive` can refuse the steal for
   unbounded time. See the
-  [known limitations and evidence](../apps/site/docs/reference/support-matrix.md#known-limitations-and-evidence)
+  [known limitations](../apps/site/docs/reference/support-matrix.md#known-limitations)
   table.
 - **Flow registrations are in-memory.** A restarted process resumes nothing
   until it re-registers the handlers for its stored runs, because registration
