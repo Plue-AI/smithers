@@ -1289,6 +1289,55 @@ func (q *Queries) PauseRepositoryJob(ctx context.Context, arg PauseRepositoryJob
 	return items, nil
 }
 
+const personPressedRepositoryTrial = `-- name: PersonPressedRepositoryTrial :one
+SELECT EXISTS (
+    SELECT 1 FROM repository_setup_requests
+    WHERE repository_id = $1 AND user_id = $2 AND job = $3
+      AND request_id = $4::text
+      AND person_trial_press AND NOT terminal
+      AND (workspace_id IS NULL OR workspace_id = $5::uuid)
+      AND input->>'operation' = 'trial'
+      AND input->>'revision' = $6::bigint::text
+      AND input->>'digest' = $7::text
+      AND input->'draft'->>'trialTitle' = $8::text
+      AND COALESCE(input->'draft'->>'trialBody', '') = $9::text
+)::boolean
+`
+
+type PersonPressedRepositoryTrialParams struct {
+	RepositoryID int64  `json:"repository_id"`
+	UserID       int64  `json:"user_id"`
+	Job          string `json:"job"`
+	RequestID    string `json:"request_id"`
+	WorkspaceID  string `json:"workspace_id"`
+	Revision     int64  `json:"revision"`
+	Digest       string `json:"digest"`
+	Title        string `json:"title"`
+	Body         string `json:"body"`
+}
+
+// Whether the person pressed Trial in exactly this setup request (its
+// request id is the trial's), for this candidate, trial text and box, and
+// the request is still running. Only a person reaches the setup trial route
+// (person_trial_press), so a match is that person's own filing of the
+// trial issue.
+func (q *Queries) PersonPressedRepositoryTrial(ctx context.Context, arg PersonPressedRepositoryTrialParams) (bool, error) {
+	row := q.db.QueryRow(ctx, personPressedRepositoryTrial,
+		arg.RepositoryID,
+		arg.UserID,
+		arg.Job,
+		arg.RequestID,
+		arg.WorkspaceID,
+		arg.Revision,
+		arg.Digest,
+		arg.Title,
+		arg.Body,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const projectRepositoryJobDispatch = `-- name: ProjectRepositoryJobDispatch :execrows
 UPDATE repository_job_dispatches SET status=$2,run_id=$3,plan=$4,receipt=$5,error=$6,
   next_attempt_at=$7,claim_token=NULL,lease_until=NULL,updated_at=now()

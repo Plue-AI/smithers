@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -76,6 +77,22 @@ func (s *RepositoryJobService) CreateTrial(ctx context.Context, hostID, bearer, 
 		return empty, err
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
+		// A person who pressed Trial for exactly this candidate and text (the
+		// person-only setup route) files the issue as their own. Anything
+		// else is the trial's agent filing: it starts no credentialed work
+		// without a maintainer's trigger label or an agentIssueSources rule.
+		pressed, err := q.PersonPressedRepositoryTrial(ctx, db.PersonPressedRepositoryTrialParams{RepositoryID: repo.ID, UserID: target.UserID,
+			Job: job, RequestID: requestID, WorkspaceID: target.WorkspaceID, Revision: input.Revision, Digest: input.Digest, Title: input.Title, Body: input.Body})
+		if err != nil {
+			return empty, err
+		}
+		writer := db.SetIssueTextEditorParams{Source: "trial"}
+		if pressed {
+			writer = db.SetIssueTextEditorParams{Editor: strconv.FormatInt(target.UserID, 10)}
+		}
+		if err = q.SetIssueTextEditor(ctx, writer); err != nil {
+			return empty, err
+		}
 		issue, err := q.CreateIssue(ctx, db.CreateIssueParams{RepositoryID: repo.ID, Title: input.Title, Body: input.Body, AuthorID: target.UserID})
 		if err != nil {
 			return empty, err

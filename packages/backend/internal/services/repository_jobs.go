@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -79,6 +80,19 @@ type RepositoryJobService struct {
 	transactions   RepositoryJobTransactions
 	githubRead     RepositoryJobGitHubReadAccess
 	outsiderEgress RepositoryJobOutsiderEgress
+	policy         repositoryPolicyHost
+}
+
+// SetRepositoryPolicyReader wires the repo host the worker reads the default
+// bookmark's owner-committed policy through (agentIssueSources). Without it,
+// an issue an agent source wrote waits.
+func (s *RepositoryJobService) SetRepositoryPolicyReader(host interface {
+	ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	GetFileAtChange(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
+}) {
+	if s != nil {
+		s.policy = host
+	}
 }
 
 // RepositoryJobOutsiderEgress narrows a marked workspace's box before

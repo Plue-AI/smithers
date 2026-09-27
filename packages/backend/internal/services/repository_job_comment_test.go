@@ -36,8 +36,9 @@ func (store repositoryCommentFailureTransactions) Begin(ctx context.Context) (pg
 func TestRepositoryJobsIntegrationNativeReply(t *testing.T) {
 	pool, _, s, g, input := repositoryJobFixture(t)
 	ctx := context.Background()
-	trial, err := s.CreateTrial(ctx, "gateway", "token", "issues", "native-reply-trial", RepositoryJobTrialInput{
-		Repo: input.Repo, WorkspaceID: input.WorkspaceID, Revision: input.Revision, Digest: input.Digest, Title: "Reply test"})
+	trialInput := RepositoryJobTrialInput{Repo: input.Repo, WorkspaceID: input.WorkspaceID, Revision: input.Revision, Digest: input.Digest, Title: "Reply test"}
+	pressTrial(t, pool, g.target, "issues", "native-reply-trial", trialInput)
+	trial, err := s.CreateTrial(ctx, "gateway", "token", "issues", "native-reply-trial", trialInput)
 	require.NoError(t, err)
 	input.Mode, input.TrialSource, input.TrialIssueNumber = "trial", "smithers-cloud", trial.Number
 	_, err = s.Register(ctx, "gateway", "token", "issues", input)

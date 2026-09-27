@@ -201,6 +201,18 @@ export const Issues = Schema.Literals(["read", "two-way", "none"])
 export const Changes = Schema.Literals(["land", "send-upstream", "none"])
 
 /**
+ * An agent source that files issues under a person's account without that
+ * person writing them: `run` (an agent run's credential), `linear` (the Linear
+ * import) or `trial` (a repository job's live trial nobody pressed). Such an
+ * issue starts credentialed work only with a maintainer's trigger label, or
+ * when the policy lists its source in `agentIssueSources`.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const AgentIssueSource = Schema.Literals(["run", "linear", "trial"])
+
+/**
  * The GitHub policy, `S.Github.Policy({...})`.
  *
  * @category schemas
@@ -211,7 +223,8 @@ export const GithubPolicy = Schema.TaggedStruct("GithubPolicy", {
   issues: Issues,
   changes: Changes,
   protectedPaths: Schema.Array(Schema.String),
-  reviewerAgents: Schema.Array(Schema.String)
+  reviewerAgents: Schema.Array(Schema.String),
+  agentIssueSources: Schema.Array(AgentIssueSource)
 })
 
 /**
@@ -233,7 +246,8 @@ export type GithubPolicy = typeof GithubPolicy.Type
  * outsider's issue never touches: a name without `/` matches at any depth, a
  * path with `/` matches from the repository root down. `reviewerAgents` names
  * the agent accounts whose LGTM counts toward `require_agent_lgtm`; no other
- * agent's does.
+ * agent's does. `agentIssueSources` lets issues an agent source files start
+ * credentialed work without a maintainer's trigger label.
  *
  * @category models
  * @since 1.0.0
@@ -244,6 +258,7 @@ export interface GithubPolicyOptions {
   readonly changes?: GithubPolicy["changes"] | undefined
   readonly protectedPaths?: ReadonlyArray<string> | undefined
   readonly reviewerAgents?: ReadonlyArray<string> | undefined
+  readonly agentIssueSources?: ReadonlyArray<typeof AgentIssueSource.Type> | undefined
 }
 
 /**
@@ -267,7 +282,7 @@ export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
   const plain = Home.plainOptions(
     "Github.Policy",
     options,
-    new Set(["mirror", "issues", "changes", "protectedPaths", "reviewerAgents"])
+    new Set(["mirror", "issues", "changes", "protectedPaths", "reviewerAgents", "agentIssueSources"])
   )
   const policy = Home.decode("Github.Policy", GithubPolicy, {
     _tag: "GithubPolicy",
@@ -275,7 +290,8 @@ export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
     issues: plain["issues"] ?? "read",
     changes: plain["changes"] ?? "send-upstream",
     protectedPaths: plain["protectedPaths"] ?? [],
-    reviewerAgents: plain["reviewerAgents"] ?? []
+    reviewerAgents: plain["reviewerAgents"] ?? [],
+    agentIssueSources: plain["agentIssueSources"] ?? []
   })
   for (const login of policy.reviewerAgents) {
     if (login.trim() !== login || login === "") {
@@ -476,7 +492,8 @@ export const GithubProjection = Schema.Struct({
   issues: Issues,
   changes: Changes,
   protectedPaths: Schema.optionalKey(Schema.Array(Schema.String)),
-  reviewerAgents: Schema.optionalKey(Schema.Array(Schema.String))
+  reviewerAgents: Schema.optionalKey(Schema.Array(Schema.String)),
+  agentIssueSources: Schema.optionalKey(Schema.Array(AgentIssueSource))
 })
 
 /**
@@ -527,6 +544,9 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
             : {}),
           ...(declaration.github.reviewerAgents.length > 0 ?
             { reviewerAgents: declaration.github.reviewerAgents }
+            : {}),
+          ...(declaration.github.agentIssueSources.length > 0 ?
+            { agentIssueSources: declaration.github.agentIssueSources }
             : {})
         }
       }),

@@ -13,9 +13,10 @@ import (
 // write and the assignee/label replacement commit together or not at all, so
 // a failed association write never leaves a committed issue behind a 500.
 type issueWriteTx interface {
-	// SetIssueTextEditor names the person whose title and body writes follow
-	// (nativeIssueTextEditor); "" names no one.
-	SetIssueTextEditor(ctx context.Context, editor string) error
+	// SetIssueTextEditor names the account whose title and body writes
+	// follow, or the agent source that writes them for no one
+	// (nativeIssueTextWriter); "" names neither.
+	SetIssueTextEditor(ctx context.Context, editor, source string) error
 	CreateIssue(ctx context.Context, arg db.CreateIssueParams) (db.Issue, error)
 	UpdateIssue(ctx context.Context, arg db.UpdateIssueParams) (db.Issue, error)
 	ReplaceIssueAssignees(ctx context.Context, arg db.ReplaceIssueAssigneesParams) error
@@ -65,8 +66,8 @@ type pgxIssueWriteTx struct {
 	q  *db.Queries
 }
 
-func (t *pgxIssueWriteTx) SetIssueTextEditor(ctx context.Context, editor string) error {
-	return t.q.SetIssueTextEditor(ctx, editor)
+func (t *pgxIssueWriteTx) SetIssueTextEditor(ctx context.Context, editor, source string) error {
+	return t.q.SetIssueTextEditor(ctx, db.SetIssueTextEditorParams{Editor: editor, Source: source})
 }
 
 func (t *pgxIssueWriteTx) CreateIssue(ctx context.Context, arg db.CreateIssueParams) (db.Issue, error) {
@@ -112,7 +113,7 @@ type nonTxIssueWriteTx struct {
 }
 
 // SetIssueTextEditor is a no-op outside a transaction: no writer is named.
-func (nonTxIssueWriteTx) SetIssueTextEditor(context.Context, string) error { return nil }
+func (nonTxIssueWriteTx) SetIssueTextEditor(context.Context, string, string) error { return nil }
 
 func (t nonTxIssueWriteTx) CreateIssue(ctx context.Context, arg db.CreateIssueParams) (db.Issue, error) {
 	return t.q.CreateIssue(ctx, arg)

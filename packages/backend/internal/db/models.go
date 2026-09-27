@@ -820,6 +820,8 @@ type Issue struct {
 	IdempotencyKey           string             `json:"idempotency_key"`
 	TitleEditorID            pgtype.Int8        `json:"title_editor_id"`
 	BodyEditorID             pgtype.Int8        `json:"body_editor_id"`
+	FiledBy                  string             `json:"filed_by"`
+	TextSource               pgtype.Text        `json:"text_source"`
 }
 
 type IssueArtifact struct {
@@ -1921,6 +1923,7 @@ type RepositorySetupRequest struct {
 	ObservationError string          `json:"observation_error"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
+	PersonTrialPress bool            `json:"person_trial_press"`
 }
 
 type RepositoryStorageOperation struct {

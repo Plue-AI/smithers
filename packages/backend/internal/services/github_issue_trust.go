@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -59,22 +60,28 @@ func gitHubLabelApplied(action string, payload []byte) gitHubLabelApplication {
 // through their own session or token is named. A system-issued run credential
 // acts as the user who owns the run, but the run's agent is not that person:
 // like a GitHub App on GitHub it names no one, so its label approves no
-// outsider's text and its edit leaves no maintainer text.
+// outsider's text and its edit leaves no maintainer text. An agent account's
+// own credential names no one either.
 func nativePersonActor(ctx context.Context, actorID int64) pgtype.Int8 {
-	if middleware.AuthInfoFromContext(ctx).IsRunCredential() {
+	if middleware.AuthInfoFromContext(ctx).IsAgent() {
 		return pgtype.Int8{}
 	}
 	return pgtype.Int8{Int64: actorID, Valid: actorID > 0}
 }
 
-// nativeIssueTextEditor is the person a native issue write names as the
-// writer of its title and body (record_issue_text_editor): nativePersonActor,
-// so a run credential's edit names no one.
-func nativeIssueTextEditor(ctx context.Context, actorID int64) string {
+// nativeIssueTextWriter is who a native issue write names as the writer of
+// its title and body (record_issue_text_editor): the acting account
+// (nativePersonActor), or, for a run credential, no account and the "run"
+// agent source, so the issue it files or the text it writes never counts as
+// a maintainer's.
+func nativeIssueTextWriter(ctx context.Context, actorID int64) (editor, source string) {
 	if person := nativePersonActor(ctx, actorID); person.Valid {
-		return strconv.FormatInt(person.Int64, 10)
+		return strconv.FormatInt(person.Int64, 10), ""
 	}
-	return ""
+	if middleware.AuthInfoFromContext(ctx).IsRunCredential() {
+		return "", "run"
+	}
+	return "", ""
 }
 
 type gitHubActor struct {
@@ -116,16 +123,26 @@ func issueCarriesLabel(labels []string, label string) bool {
 // native event payloads set it; an object without it fails closed.
 const issueTextByMaintainerField = "smithers_text_by_maintainer"
 
+// issueText is what the ingress stamps say about an issue's current text:
+// whether it is a maintainer's own (issueTextByMaintainerField), and the
+// agent source that filed and wrote all of it (authoredText.TextSource).
+type issueText struct {
+	ByMaintainer bool
+	Source       string
+}
+
 // approvesIssueText is the single rule for whether an issue event approves
 // the issue's current text for credentialed work started by trigger. A
-// maintainer's text is approved as written. Other text (an outsider's, or a
-// maintainer's issue someone else edited) is approved only by this event: a
-// maintainer person applying the trigger label, while the label is on the
-// issue. An app (including the repository's own agent), a read or triage
-// user, and an outsider author's own label approve nothing, and neither does
-// any other label, assignee or milestone change.
-func approvesIssueText(textByMaintainer bool, labels []string, applied gitHubLabelApplication, trigger string) bool {
-	if textByMaintainer {
+// maintainer's text is approved as written, and so is text an agent source
+// filed and wrote when allowedSources (the default bookmark's owner-committed
+// agentIssueSources) names that source. Other text (an outsider's, an
+// agent's, or a maintainer's issue someone else edited) is approved only by
+// this event: a maintainer person applying the trigger label, while the
+// label is on the issue. An app or agent (including the repository's own
+// agent), a read or triage user, and an outsider author's own label approve
+// nothing, and neither does any other label, assignee or milestone change.
+func approvesIssueText(text issueText, allowedSources []string, labels []string, applied gitHubLabelApplication, trigger string) bool {
+	if text.ByMaintainer || (text.Source != "" && slices.Contains(allowedSources, text.Source)) {
 		return true
 	}
 	trigger = strings.TrimSpace(trigger)
@@ -134,9 +151,12 @@ func approvesIssueText(textByMaintainer bool, labels []string, applied gitHubLab
 }
 
 // authoredText is the part of an event's issue, pull request, comment or
-// review object the trust rule reads.
+// review object the trust rule reads. TextSource is the native stamp naming
+// the agent source ("run", "linear", "trial") that filed an issue and wrote
+// all its current text; absent for anything else (0060).
 type authoredText struct {
-	TextByMaintainer bool `json:"smithers_text_by_maintainer"`
+	TextByMaintainer bool   `json:"smithers_text_by_maintainer"`
+	TextSource       string `json:"smithers_text_source"`
 }
 
 func (a *authoredText) maintainers() bool {
@@ -152,7 +172,8 @@ type eventIssue struct {
 // gitHubIssueEventApproves applies approvesIssueText to one event. A comment
 // adds its own text, so it must be a maintainer's too, and it never
 // approves outsider issue text. Events that carry no issue text pass.
-func gitHubIssueEventApproves(eventType, action string, payload []byte, trigger string) bool {
+// allowedSources is the repository's agentIssueSources.
+func gitHubIssueEventApproves(eventType, action string, payload []byte, trigger string, allowedSources []string) bool {
 	kind := NormalizeTriggerName(eventType)
 	if kind != "issue" && kind != "issue_comment" {
 		return true
@@ -171,7 +192,8 @@ func gitHubIssueEventApproves(eventType, action string, payload []byte, trigger 
 		}
 		applied = gitHubLabelApplication{}
 	}
-	return approvesIssueText(event.Issue.TextByMaintainer, issueLabelNames(event.Issue.Labels), applied, trigger)
+	return approvesIssueText(issueText{ByMaintainer: event.Issue.TextByMaintainer, Source: event.Issue.TextSource},
+		allowedSources, issueLabelNames(event.Issue.Labels), applied, trigger)
 }
 
 // gitHubEventByOutsider reports whether an event carries text that is not a

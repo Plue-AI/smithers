@@ -46,8 +46,12 @@ func TestRepositorySetupHTTPPersistsAndReconnectsWithoutRuntimeLaunch(t *testing
 	product.SetFlowDispatcher(dispatcher)
 	handler := repositorySetupAPI{repos: services.NewRepoService(queries, nil, ""), setup: product}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Fixture-Identity") == "owner" {
+		switch r.Header.Get("X-Fixture-Identity") {
+		case "owner":
 			r = r.WithContext(context.WithValue(r.Context(), middleware.UserContextKey, &user))
+		case "run":
+			ctx := context.WithValue(r.Context(), middleware.UserContextKey, &user)
+			r = r.WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &user, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository"}))
 		}
 		handler.serve(w, r)
 	}))
@@ -74,6 +78,16 @@ func TestRepositorySetupHTTPPersistsAndReconnectsWithoutRuntimeLaunch(t *testing
 	}
 	status, _ := call(http.MethodPost, "/api/repository-setup/inspect", body, false)
 	require.Equal(t, http.StatusUnauthorized, status)
+	// A trial files its issue as the person who pressed it (D-25): an agent's
+	// run credential cannot press it.
+	runTrial, err := http.NewRequest(http.MethodPost, server.URL+"/api/repository-setup/trial", bytes.NewReader(body))
+	require.NoError(t, err)
+	runTrial.Header.Set("Content-Type", "application/json")
+	runTrial.Header.Set("X-Fixture-Identity", "run")
+	refused, err := server.Client().Do(runTrial)
+	require.NoError(t, err)
+	_ = refused.Body.Close()
+	require.Equal(t, http.StatusForbidden, refused.StatusCode)
 	status, data := call(http.MethodPost, "/api/repository-setup/inspect", body, true)
 	require.Equal(t, http.StatusAccepted, status, string(data))
 	var response services.SetupResponse

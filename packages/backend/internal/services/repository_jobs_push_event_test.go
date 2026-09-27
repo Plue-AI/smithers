@@ -20,6 +20,6 @@ func TestRepositoryJobPushWithoutActionMatchesCIRegistration(t *testing.T) {
 	require.Equal(t, "refs/heads/main", event.Ref)
 	require.Equal(t, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", event.CommitSHA)
 	stored := db.RepositoryJobEvent{EventType: event.Type, EventAction: event.Action, Payload: body}
-	require.False(t, repositoryJobMatches(RegisterRepositoryJobInput{Events: []RepositoryJobEventRule{{Type: "push", Actions: []string{"pushed"}}}}, stored))
-	require.True(t, repositoryJobMatches(RegisterRepositoryJobInput{Events: []RepositoryJobEventRule{{Type: "push", Actions: []string{}}}}, stored))
+	require.False(t, repositoryJobMatches(RegisterRepositoryJobInput{Events: []RepositoryJobEventRule{{Type: "push", Actions: []string{"pushed"}}}}, stored, nil))
+	require.True(t, repositoryJobMatches(RegisterRepositoryJobInput{Events: []RepositoryJobEventRule{{Type: "push", Actions: []string{}}}}, stored, nil))
 }

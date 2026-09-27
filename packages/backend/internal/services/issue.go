@@ -427,7 +427,8 @@ func (s *IssueService) CreateIssue(ctx context.Context, actor *db.User, owner, r
 					}
 				}
 			}
-			if werr := tx.SetIssueTextEditor(ctx, nativeIssueTextEditor(ctx, actor.ID)); werr != nil {
+			editor, source := nativeIssueTextWriter(ctx, actor.ID)
+			if werr := tx.SetIssueTextEditor(ctx, editor, source); werr != nil {
 				return werr
 			}
 			var werr error
@@ -648,7 +649,8 @@ func (s *IssueService) UpdateIssue(ctx context.Context, actor *db.User, owner, r
 	}
 	var updated db.Issue
 	if err := s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
-		if werr := tx.SetIssueTextEditor(ctx, nativeIssueTextEditor(ctx, actor.ID)); werr != nil {
+		editor, source := nativeIssueTextWriter(ctx, actor.ID)
+		if werr := tx.SetIssueTextEditor(ctx, editor, source); werr != nil {
 			return werr
 		}
 		var werr error
@@ -820,13 +822,14 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, actor *db.User, o
 	// The comment's writer is the person acting; a run credential names no
 	// one, and neither does the issue-sync intake, whose text an external
 	// account wrote under the owner's name.
-	commenter, editor := actor.Username, nativeIssueTextEditor(ctx, actor.ID)
+	commenter := actor.Username
+	editor, _ := nativeIssueTextWriter(ctx, actor.ID)
 	if req.externalCommenter != "" {
 		commenter, editor = req.externalCommenter, ""
 	}
 	var comment db.IssueComment
 	err = s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
-		if werr := tx.SetIssueTextEditor(ctx, editor); werr != nil {
+		if werr := tx.SetIssueTextEditor(ctx, editor, ""); werr != nil {
 			return werr
 		}
 		var werr error
@@ -953,13 +956,13 @@ func (s *IssueService) UpdateIssueComment(ctx context.Context, actor *db.User, o
 		return IssueCommentResponse{}, pkgerrors.NotFound("issue comment not found")
 	}
 
-	editor := nativeIssueTextEditor(ctx, actor.ID)
+	editor, _ := nativeIssueTextWriter(ctx, actor.ID)
 	if req.externalCommenter {
 		editor = ""
 	}
 	var updated db.IssueComment
 	err = s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
-		if werr := tx.SetIssueTextEditor(ctx, editor); werr != nil {
+		if werr := tx.SetIssueTextEditor(ctx, editor, ""); werr != nil {
 			return werr
 		}
 		var werr error

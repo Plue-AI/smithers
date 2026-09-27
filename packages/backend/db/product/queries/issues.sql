@@ -314,5 +314,7 @@ LIMIT sqlc.arg(page_size);
 
 -- name: SetIssueTextEditor :exec
 -- Names the person who writes issue titles and bodies in this transaction
--- (record_issue_text_editor); an empty editor names no one.
-SELECT set_config('smithers.issue_text_editor', sqlc.arg(editor)::text, true);
+-- (record_issue_text_editor), or the agent source that writes them for no
+-- person; an empty editor and source name no one.
+SELECT set_config('smithers.issue_text_editor', sqlc.arg(editor)::text, true),
+    set_config('smithers.issue_text_source', sqlc.arg(source)::text, true);

@@ -280,7 +280,7 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 	// Repository jobs apply the trust rule with their own trigger label when
 	// they match the event. Workflow triggers configure none, so only a
 	// maintainer's issue text starts them.
-	workflowsApprove := gitHubIssueEventApproves(job.EventType, event.Action, job.Payload, "")
+	workflowsApprove := gitHubIssueEventApproves(job.EventType, event.Action, job.Payload, "", nil)
 	for _, repositoryID := range repoIDs {
 		if w.repositoryJobs != nil {
 			if err := w.repositoryJobs.AdmitGitHubEvent(ctx, repositoryID, job, event); err != nil {

@@ -84,20 +84,20 @@ func TestRepositoryJobEventMatching(t *testing.T) {
 	t.Parallel()
 	input := repositoryJobTestInput()
 	event := db.RepositoryJobEvent{EventType: "issue", EventAction: "opened", Payload: json.RawMessage(`{"issue":{"author_association":"OWNER","labels":[{"name":"auto"}]}}`)}
-	require.False(t, repositoryJobMatches(input, event), "no one said a maintainer wrote the text")
+	require.False(t, repositoryJobMatches(input, event, nil), "no one said a maintainer wrote the text")
 	event.Payload = json.RawMessage(`{"issue":{"author_association":"OWNER","smithers_text_by_maintainer":true,"labels":[{"name":"auto"}]}}`)
-	require.True(t, repositoryJobMatches(input, event))
+	require.True(t, repositoryJobMatches(input, event, nil))
 	input.Events = nil
-	require.False(t, repositoryJobMatches(input, event))
+	require.False(t, repositoryJobMatches(input, event, nil))
 	input = repositoryJobTestInput()
 	input.Label = "auto"
-	require.True(t, repositoryJobMatches(input, event))
+	require.True(t, repositoryJobMatches(input, event, nil))
 	input.Label = "other"
-	require.False(t, repositoryJobMatches(input, event))
+	require.False(t, repositoryJobMatches(input, event, nil))
 	input.Mode = "trial"
-	require.True(t, repositoryJobMatches(input, event))
+	require.True(t, repositoryJobMatches(input, event, nil))
 	event.EventAction = "closed"
-	require.False(t, repositoryJobMatches(input, event))
+	require.False(t, repositoryJobMatches(input, event, nil))
 }
 
 // A stranger's issue matches a job only through the job's trigger label (its
@@ -121,25 +121,28 @@ func TestRepositoryJobStrangerIssueNeedsTheTriggerLabel(t *testing.T) {
 	}
 	future := repositoryJobTestInput()
 	future.Events = []RepositoryJobEventRule{{Type: "issues", Actions: []string{"opened", "edited", "reopened", "labeled", "assigned"}}}
-	require.False(t, repositoryJobMatches(future, stranger("opened", "", true)))
-	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", true, "invalid")), "any label is not approval")
-	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", true, "invalid", "smithers")), "a later label is not approval")
-	require.False(t, repositoryJobMatches(future, stranger("assigned", "", true, "smithers")))
-	require.False(t, repositoryJobMatches(future, stranger("labeled", "smithers", false, "smithers")), "an app, a triage user or the stranger")
-	require.True(t, repositoryJobMatches(future, stranger("labeled", "smithers", true, "smithers")))
+	require.False(t, repositoryJobMatches(future, stranger("opened", "", true), nil))
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", true, "invalid"), nil), "any label is not approval")
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "invalid", true, "invalid", "smithers"), nil), "a later label is not approval")
+	require.False(t, repositoryJobMatches(future, stranger("assigned", "", true, "smithers"), nil))
+	require.False(t, repositoryJobMatches(future, stranger("labeled", "smithers", false, "smithers"), nil), "an app, a triage user or the stranger")
+	require.True(t, repositoryJobMatches(future, stranger("labeled", "smithers", true, "smithers"), nil))
 
 	labeled := future
 	labeled.Label = "auto"
-	require.True(t, repositoryJobMatches(labeled, stranger("labeled", "auto", true, "auto")))
-	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "invalid", true, "auto", "invalid")))
-	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "smithers", true, "smithers")), "the job's own label is its trigger")
+	require.True(t, repositoryJobMatches(labeled, stranger("labeled", "auto", true, "auto"), nil))
+	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "invalid", true, "auto", "invalid"), nil))
+	require.False(t, repositoryJobMatches(labeled, stranger("labeled", "smithers", true, "smithers"), nil), "the job's own label is its trigger")
 
+	// A trial registration's own issue is approved like any other (D-25):
+	// its registration scopes it, and approves nothing.
 	trial := future
 	trial.Mode, trial.TrialIssueNumber, trial.TrialSource = "trial", 4, "github"
-	require.True(t, repositoryJobMatches(trial, stranger("opened", "", true)), "the registration scopes its own trial issue")
+	require.False(t, repositoryJobMatches(trial, stranger("opened", "", true), nil), "a trial issue is not approved by its registration")
+	require.True(t, repositoryJobMatches(trial, stranger("labeled", "smithers", true, "smithers"), nil))
 	other := stranger("labeled", "invalid", true, "invalid")
 	other.IssueNumber = 5
-	require.False(t, repositoryJobMatches(trial, other))
+	require.False(t, repositoryJobMatches(trial, other, nil))
 }
 
 func TestRepositoryJobTrialAuthorityComesFromRegistration(t *testing.T) {
@@ -291,6 +294,27 @@ func (g *repositoryJobTestGateway) projectPending(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// pressTrial records the person's own press of Trial for request, as the
+// person-only setup route does (repositorySetupAPI).
+func pressTrial(t *testing.T, pool *pgxpool.Pool, target BoxHostTarget, job, requestID string, request RepositoryJobTrialInput) {
+	t.Helper()
+	ctx := context.Background()
+	operation, setup := uuid.NewString(), uuid.NewString()
+	_, err := pool.Exec(ctx, `INSERT INTO product_job_requests (id, tenant_id, principal_id, operation, request_id, payload_fingerprint, payload, authorization_context, state, request_receipt)
+		VALUES ($1::uuid, 'test', 'test', 'repository-setup', $2, decode(repeat('00', 32), 'hex'), '{}', '{}', 'running', '{}')`, operation, operation)
+	require.NoError(t, err)
+	input, err := json.Marshal(map[string]any{"operation": "trial", "revision": request.Revision, "digest": request.Digest,
+		"draft": map[string]any{"trialTitle": request.Title, "trialBody": request.Body}})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO repository_setup_requests (id, user_id, repository_id, request_id, job, input, operation_id, response, person_trial_press)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, '{}', true)`, setup, target.UserID, target.RepositoryID, requestID, job, input, operation)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM repository_setup_requests WHERE id = $1`, setup)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM product_job_requests WHERE id = $1`, operation)
+	})
 }
 
 func repositoryJobFixture(t *testing.T) (*pgxpool.Pool, *db.Queries, *RepositoryJobService, *repositoryJobTestGateway, RegisterRepositoryJobInput) {
@@ -742,6 +766,7 @@ func TestRepositoryJobsIntegrationTrialCreationIsAtomicAndIdempotent(t *testing.
 	_, err := s.Register(ctx, "gateway", "token", "issues", input)
 	require.NoError(t, err)
 	request := RepositoryJobTrialInput{Repo: input.Repo, WorkspaceID: input.WorkspaceID, Revision: input.Revision, Digest: input.Digest, Title: "Real setup trial", Body: "Reproduce an empty configuration"}
+	pressTrial(t, pool, g.target, "issues", "setup-request", request)
 	const attempts = 8
 	results := make(chan RepositoryJobTrialResult, attempts)
 	failures := make(chan error, attempts)
@@ -937,7 +962,7 @@ func TestRepositoryJobNativeEventsCarryTheMaintainerStamps(t *testing.T) {
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `DELETE FROM issue_labels WHERE issue_id=$1`, issueID)
 		require.NoError(t, err)
-		return gitHubIssueEventApproves("issues", "labeled", payload, issueApprovalLabel)
+		return gitHubIssueEventApproves("issues", "labeled", payload, issueApprovalLabel, nil)
 	}
 	require.False(t, labeled(stranger))
 	require.False(t, labeled(reader))
@@ -1039,7 +1064,7 @@ func TestRepositoryJobNativeLabelsApproveOnlyAPersonsTriggerLabel(t *testing.T) 
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `DELETE FROM repository_job_events WHERE repository_id=$1 AND issue_number=81 AND event_action='labeled'`, repo)
 		require.NoError(t, err)
-		return gitHubIssueEventApproves("issues", "labeled", payload, issueApprovalLabel)
+		return gitHubIssueEventApproves("issues", "labeled", payload, issueApprovalLabel, nil)
 	}
 	require.False(t, approves(session, "invalid"), "a maintainer's other label approves nothing")
 	require.False(t, approves(run, issueApprovalLabel), "the owner's run applies the trigger label as an agent")
@@ -1047,7 +1072,7 @@ func TestRepositoryJobNativeLabelsApproveOnlyAPersonsTriggerLabel(t *testing.T) 
 	var unlabeled []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM repository_job_events WHERE repository_id=$1 AND issue_number=81
 		AND event_action='unlabeled' AND payload->'label'->>'name'=$2 LIMIT 1`, repo, issueApprovalLabel).Scan(&unlabeled))
-	require.False(t, gitHubIssueEventApproves("issues", "unlabeled", unlabeled, issueApprovalLabel), "removing a label approves nothing")
+	require.False(t, gitHubIssueEventApproves("issues", "unlabeled", unlabeled, issueApprovalLabel, nil), "removing a label approves nothing")
 }
 
 // A native issue's text is its maintainer author's own only while a
@@ -1088,7 +1113,7 @@ func TestRepositoryJobNativeIssueTextNamesItsLastWriter(t *testing.T) {
 			Scan(&event.Source, &event.EventType, &event.EventAction, &event.IssueNumber, &event.Payload))
 		_, err := pool.Exec(ctx, `DELETE FROM repository_job_events WHERE repository_id=$1 AND issue_number=$2`, repo, number)
 		require.NoError(t, err)
-		return gitHubIssueEventApproves("issues", action, event.Payload, issueApprovalLabel), repositoryJobMatches(job, event)
+		return gitHubIssueEventApproves("issues", action, event.Payload, issueApprovalLabel, nil), repositoryJobMatches(job, event, nil)
 	}
 	edit := func(actx context.Context, actor *db.User, number int64, title, body *string) {
 		t.Helper()
@@ -1162,7 +1187,7 @@ func TestRepositoryJobNativeCommentTextNamesItsLastWriter(t *testing.T) {
 			Scan(&event.Source, &event.EventType, &event.EventAction, &event.IssueNumber, &event.Payload))
 		_, err := pool.Exec(ctx, `DELETE FROM repository_job_events WHERE repository_id=$1 AND issue_number=$2`, repo, created.Number)
 		require.NoError(t, err)
-		return gitHubIssueEventApproves("issue_comment", action, event.Payload, issueApprovalLabel), repositoryJobMatches(job, event)
+		return gitHubIssueEventApproves("issue_comment", action, event.Payload, issueApprovalLabel, nil), repositoryJobMatches(job, event, nil)
 	}
 
 	own, err := issues.CreateIssueComment(session(&owner), &owner, owner.Username, repoName, created.Number, CreateIssueCommentInput{Body: "also the CHANGELOG"})

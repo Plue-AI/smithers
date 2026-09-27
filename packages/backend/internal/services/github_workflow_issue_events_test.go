@@ -259,7 +259,7 @@ func TestGitHubIssueEventWorker_UntrustedAuthorsStartNothing(t *testing.T) {
 	dispatcher := &mockGitHubWebhookEventRunDispatcher{}
 	require.NoError(t, NewGitHubWebhookEventWorker(queries, dispatcher).PollOnce(context.Background()))
 	assert.Empty(t, dispatcher.calls, "a maintainer's comment on a stranger's issue starts nothing")
-	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", job.Payload, issueApprovalLabel))
+	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", job.Payload, issueApprovalLabel, nil))
 }
 
 func setGitHubIssueEventLabel(t *testing.T, job *db.GithubWebhookJob, label, senderType string, senderID int, issueLabels ...string) {
@@ -323,7 +323,7 @@ func TestGitHubIssueEventWorker_OnlyTheTriggerLabelFromAPersonStartsAStrangersIs
 			require.NoError(t, worker.PollOnce(context.Background()))
 			assert.Empty(t, dispatcher.calls)
 			stamped := stampIssueText(t, stamper, tc.action, job.Payload)
-			assert.Equal(t, tc.starts, gitHubIssueEventApproves("issues", tc.action, stamped, issueApprovalLabel))
+			assert.Equal(t, tc.starts, gitHubIssueEventApproves("issues", tc.action, stamped, issueApprovalLabel, nil))
 			assert.Equal(t, []int64{job.ID}, queries.markDoneIDs)
 		})
 	}

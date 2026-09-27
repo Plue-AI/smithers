@@ -11,6 +11,10 @@ of it.
 - Added `reviewerAgents` to `Smithers.Github.Policy` and its projection.
   Only the named agent accounts' LGTMs count toward a protected bookmark's
   required agent LGTM.
+- Added `agentIssueSources` to `Smithers.Github.Policy` and its projection.
+  An issue an agent source (`run`, `linear`, `trial`) files starts
+  credentialed work without a maintainer's trigger label only when its source
+  is listed.
 - Added `Target.guard`, so a rule that refuses something its schema cannot
   express keeps its `id`, `attrs` schema, and `kinds` instead of erasing them
   behind a hand-written `Target.AnyTarget` wrapper. Every catalog rule now

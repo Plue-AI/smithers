@@ -181,19 +181,19 @@ func TestGitHubIssueTextEditedByAnAppOrTriageUserIsNotApproved(t *testing.T) {
 			fake, stamper := newFakeIssueTextGitHub(t)
 			fake.permissions["triager"] = "read"
 			edited := stampIssueText(t, stamper, "edited", issueTextEvent(t, "edited", sender, "body"))
-			assert.False(t, gitHubIssueEventApproves("issues", "edited", edited, issueApprovalLabel))
-			assert.False(t, gitHubIssueEventApproves("issues", "edited", edited, ""))
+			assert.False(t, gitHubIssueEventApproves("issues", "edited", edited, issueApprovalLabel, nil))
+			assert.False(t, gitHubIssueEventApproves("issues", "edited", edited, "", nil))
 			assert.True(t, gitHubEventByOutsider(edited))
-			assert.False(t, repositoryJobMatches(job, db.RepositoryJobEvent{Source: "github", EventType: "issues", EventAction: "edited", IssueNumber: 24, Payload: edited}))
+			assert.False(t, repositoryJobMatches(job, db.RepositoryJobEvent{Source: "github", EventType: "issues", EventAction: "edited", IssueNumber: 24, Payload: edited}, nil))
 
 			// A later event reads the body's writer from GitHub's history.
 			fake.bodyWriter = &gitHubGraphQLActor{Typename: sender["type"].(string), Login: sender["login"].(string)}
 			assigned := stampIssueText(t, stamper, "assigned", issueTextEvent(t, "assigned", issueEditor))
-			assert.False(t, gitHubIssueEventApproves("issues", "assigned", assigned, issueApprovalLabel))
+			assert.False(t, gitHubIssueEventApproves("issues", "assigned", assigned, issueApprovalLabel, nil))
 
 			// The maintainer's own title-only edit does not approve the body.
 			retitled := stampIssueText(t, stamper, "edited", issueTextEvent(t, "edited", issueAuthor, "title"))
-			assert.False(t, gitHubIssueEventApproves("issues", "edited", retitled, issueApprovalLabel))
+			assert.False(t, gitHubIssueEventApproves("issues", "edited", retitled, issueApprovalLabel, nil))
 
 			// The maintainer author re-applying the trigger label approves
 			// it, and so does another maintainer, as outsider text: it
@@ -201,7 +201,7 @@ func TestGitHubIssueTextEditedByAnAppOrTriageUserIsNotApproved(t *testing.T) {
 			fake.permissions["maintainer"] = "write"
 			for _, sender := range []map[string]any{issueAuthor, issueEditor} {
 				labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, sender))
-				assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel))
+				assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel, nil))
 			}
 			labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, issueEditor))
 			assert.True(t, gitHubEventByOutsider(labeled))
@@ -215,16 +215,16 @@ func TestGitHubIssueTextEditedByAMaintainerIsApproved(t *testing.T) {
 	t.Parallel()
 	fake, stamper := newFakeIssueTextGitHub(t)
 	edited := stampIssueText(t, stamper, "edited", issueTextEvent(t, "edited", issueAuthor, "title", "body"))
-	assert.True(t, gitHubIssueEventApproves("issues", "edited", edited, issueApprovalLabel))
+	assert.True(t, gitHubIssueEventApproves("issues", "edited", edited, issueApprovalLabel, nil))
 	assert.False(t, gitHubEventByOutsider(edited))
 	assert.Equal(t, 1, fake.reads, "the author's own edit of both parts reads only the author's standing")
 
 	opened := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.True(t, gitHubIssueEventApproves("issues", "opened", opened, ""))
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", opened, "", nil))
 
 	fake.permissions["maintainer"] = "write"
 	byOther := stampIssueText(t, stamper, "edited", issueTextEvent(t, "edited", issueEditor, "body"))
-	assert.True(t, gitHubIssueEventApproves("issues", "edited", byOther, ""), "another maintainer's body edit, author's title")
+	assert.True(t, gitHubIssueEventApproves("issues", "edited", byOther, "", nil), "another maintainer's body edit, author's title")
 
 	fake.bodyWriter = &gitHubGraphQLActor{Typename: "User", Login: "maintainer"}
 	commented, err := stamper.stampGitHubText(context.Background(), "issue_comment", "created", issueTextEvent(t, "created", issueAuthor))
@@ -241,17 +241,17 @@ func TestGitHubIssueTextFailsClosed(t *testing.T) {
 	fake, stamper := newFakeIssueTextGitHub(t)
 	fake.body = "rewritten since the event"
 	stale := stampIssueText(t, stamper, "labeled", issueTextEvent(t, "labeled", issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issues", "labeled", stale, ""))
+	assert.False(t, gitHubIssueEventApproves("issues", "labeled", stale, "", nil))
 
 	fake.body = "Steps: use []"
 	fake.bodyWriter = &gitHubGraphQLActor{} // a deleted account
 	ghost := stampIssueText(t, stamper, "labeled", issueTextEvent(t, "labeled", issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issues", "labeled", ghost, ""))
+	assert.False(t, gitHubIssueEventApproves("issues", "labeled", ghost, "", nil))
 
 	var none *GitHubTextStamper
 	unread, err := none.stampGitHubText(context.Background(), "issues", "opened", issueTextEvent(t, "opened", issueAuthor))
 	require.NoError(t, err)
-	assert.False(t, gitHubIssueEventApproves("issues", "opened", unread, ""))
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", unread, "", nil))
 
 	fake.status = http.StatusBadGateway
 	_, err = stamper.stampGitHubText(context.Background(), "issues", "labeled", issueTextEvent(t, "labeled", issueAuthor))
@@ -264,12 +264,12 @@ func TestGitHubIssueTextReadsTheTitleWriterAndGitHubErrors(t *testing.T) {
 	t.Parallel()
 	fake, stamper := newFakeIssueTextGitHub(t)
 	approved := stampIssueText(t, stamper, "reopened", issueTextEvent(t, "reopened", issueAuthor))
-	assert.True(t, gitHubIssueEventApproves("issues", "reopened", approved, ""), "never edited: the author wrote it")
+	assert.True(t, gitHubIssueEventApproves("issues", "reopened", approved, "", nil), "never edited: the author wrote it")
 	fake.titleWriter = &gitHubGraphQLActor{Typename: "Bot", Login: "some-app[bot]"}
 	renamed := stampIssueText(t, stamper, "reopened", issueTextEvent(t, "reopened", issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issues", "reopened", renamed, ""))
+	assert.False(t, gitHubIssueEventApproves("issues", "reopened", renamed, "", nil))
 	edited := stampIssueText(t, stamper, "edited", issueTextEvent(t, "edited", issueAuthor, "body"))
-	assert.False(t, gitHubIssueEventApproves("issues", "edited", edited, ""), "the author's body edit keeps the bot's title")
+	assert.False(t, gitHubIssueEventApproves("issues", "edited", edited, "", nil), "the author's body edit keeps the bot's title")
 
 	fake.status = http.StatusForbidden
 	_, err := stamper.stampGitHubText(context.Background(), "issues", "reopened", issueTextEvent(t, "reopened", issueAuthor))
@@ -359,16 +359,16 @@ func TestGitHubCommentPullAndReviewTextIsReadByItsLastWriter(t *testing.T) {
 			fake.permissions["triager"] = "read"
 
 			comment := stampText(t, stamper, "issue_comment", "edited", textEvent(t, "issue_comment", "edited", sender, "body"))
-			assert.False(t, gitHubIssueEventApproves("issue_comment", "edited", comment, issueApprovalLabel))
+			assert.False(t, gitHubIssueEventApproves("issue_comment", "edited", comment, issueApprovalLabel, nil))
 			assert.True(t, gitHubEventByOutsider(comment))
-			assert.False(t, repositoryJobMatches(job, db.RepositoryJobEvent{Source: "github", EventType: "issue_comment", EventAction: "edited", IssueNumber: 24, Payload: comment}))
+			assert.False(t, repositoryJobMatches(job, db.RepositoryJobEvent{Source: "github", EventType: "issue_comment", EventAction: "edited", IssueNumber: 24, Payload: comment}, nil))
 
 			for _, kind := range []string{"pull_request", "pull_request_review"} {
 				edited := stampText(t, stamper, kind, "edited", textEvent(t, kind, "edited", sender, "body"))
 				assert.True(t, gitHubEventByOutsider(edited), kind)
 			}
 			created := stampText(t, stamper, "issue_comment", "created", textEvent(t, "issue_comment", "created", sender))
-			assert.False(t, gitHubIssueEventApproves("issue_comment", "created", created, ""), "an app posting as the author's comment is not the author")
+			assert.False(t, gitHubIssueEventApproves("issue_comment", "created", created, "", nil), "an app posting as the author's comment is not the author")
 		})
 	}
 }
@@ -377,12 +377,12 @@ func TestGitHubCommentPullAndReviewTextByAMaintainerIsTrusted(t *testing.T) {
 	t.Parallel()
 	fake, stamper := newFakeIssueTextGitHub(t)
 	created := stampText(t, stamper, "issue_comment", "created", textEvent(t, "issue_comment", "created", issueAuthor))
-	assert.True(t, gitHubIssueEventApproves("issue_comment", "created", created, issueApprovalLabel))
+	assert.True(t, gitHubIssueEventApproves("issue_comment", "created", created, issueApprovalLabel, nil))
 	assert.False(t, gitHubEventByOutsider(created))
 
 	fake.permissions["maintainer"] = "write"
 	edited := stampText(t, stamper, "issue_comment", "edited", textEvent(t, "issue_comment", "edited", issueEditor, "body"))
-	assert.True(t, gitHubIssueEventApproves("issue_comment", "edited", edited, ""), "another maintainer's edit")
+	assert.True(t, gitHubIssueEventApproves("issue_comment", "edited", edited, "", nil), "another maintainer's edit")
 
 	for kind, action := range map[string]string{"pull_request": "opened", "pull_request_review": "submitted"} {
 		assert.False(t, gitHubEventByOutsider(stampText(t, stamper, kind, action, textEvent(t, kind, action, issueAuthor))), kind)
@@ -423,19 +423,19 @@ func TestGitHubAuthorStandingIsReadLive(t *testing.T) {
 	fake.permissions["contributor"] = "read" // a triage member: GitHub reports triage as read
 
 	opened := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issues", "opened", opened, issueApprovalLabel), "a read or triage member's issue")
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", opened, issueApprovalLabel, nil), "a read or triage member's issue")
 	comment := stampText(t, stamper, "issue_comment", "created", textEvent(t, "issue_comment", "created", issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", comment, ""))
+	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", comment, "", nil))
 	pull := stampText(t, stamper, "pull_request", "opened", textEvent(t, "pull_request", "opened", issueAuthor))
 	assert.True(t, gitHubEventByOutsider(pull))
 	assert.Equal(t, 1, fake.permissionReads["contributor"], "one answer serves every object for a minute")
 
 	fake.permissions["contributor"] = "write"
 	cached := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issues", "opened", cached, ""), "the cached answer stands within the minute")
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", cached, "", nil), "the cached answer stands within the minute")
 	now = now.Add(gitHubMaintainerTTL)
 	granted := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.True(t, gitHubIssueEventApproves("issues", "opened", granted, ""), "a maintainer (maintain reads as write)")
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", granted, "", nil), "a maintainer (maintain reads as write)")
 
 	fake.status = http.StatusBadGateway
 	now = now.Add(gitHubMaintainerTTL)
@@ -453,17 +453,17 @@ func TestGitHubTriggerLabelNeedsAMaintainerPerson(t *testing.T) {
 	fake.bodyWriter = &gitHubGraphQLActor{Typename: "Bot", Login: "some-app[bot]"}
 	for name, sender := range map[string]map[string]any{"triage user": issueTriager, "app": issueBot} {
 		labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, sender))
-		assert.False(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), name)
+		assert.False(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel, nil), name)
 	}
 	for name, sender := range map[string]map[string]any{"another maintainer": issueEditor, "the maintainer author": issueAuthor} {
 		labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, sender))
-		assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), name)
+		assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel, nil), name)
 		assert.True(t, gitHubEventByOutsider(labeled), "approved by label: never a protected path")
 	}
 	outsider, fresh := newFakeIssueTextGitHub(t)
 	outsider.permissions["contributor"] = "read"
 	own := stampIssueText(t, fresh, "labeled", labeledEvent(t, issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issues", "labeled", own, issueApprovalLabel), "an outsider author's own label")
+	assert.False(t, gitHubIssueEventApproves("issues", "labeled", own, issueApprovalLabel, nil), "an outsider author's own label")
 }
 
 // withIssueApp marks an event's own issue or comment as created through a
@@ -488,18 +488,18 @@ func TestGitHubAppActingForAMaintainerIsTheApp(t *testing.T) {
 	fake.permissions["maintainer"] = "write"
 
 	opened := stampIssueText(t, stamper, "opened", withIssueApp(t, issueTextEvent(t, "opened", issueAuthor), "issue"))
-	assert.False(t, gitHubIssueEventApproves("issues", "opened", opened, issueApprovalLabel), "an app opened it for the maintainer")
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", opened, issueApprovalLabel, nil), "an app opened it for the maintainer")
 	reopened := stampIssueText(t, stamper, "reopened", withIssueApp(t, issueTextEvent(t, "reopened", issueAuthor), "issue"))
-	assert.False(t, gitHubIssueEventApproves("issues", "reopened", reopened, ""), "the app's text, never rewritten")
+	assert.False(t, gitHubIssueEventApproves("issues", "reopened", reopened, "", nil), "the app's text, never rewritten")
 	fake.titleWriter = &gitHubGraphQLActor{Typename: "User", Login: "contributor"}
 	fake.bodyWriter = &gitHubGraphQLActor{Typename: "User", Login: "maintainer"}
 	rewritten := stampIssueText(t, stamper, "reopened", withIssueApp(t, issueTextEvent(t, "reopened", issueAuthor), "issue"))
-	assert.False(t, gitHubIssueEventApproves("issues", "reopened", rewritten, ""), "GitHub does not say whether the app made the edits too")
+	assert.False(t, gitHubIssueEventApproves("issues", "reopened", rewritten, "", nil), "GitHub does not say whether the app made the edits too")
 	fake.titleWriter, fake.bodyWriter = nil, nil
 
 	comment := stampText(t, stamper, "issue_comment", "created",
 		withIssueApp(t, textEvent(t, "issue_comment", "created", issueAuthor), "comment"))
-	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", comment, ""), "an app posted it for the maintainer")
+	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", comment, "", nil), "an app posted it for the maintainer")
 
 	fake.issueViaApp = true
 	pull := stampText(t, stamper, "pull_request", "opened", textEvent(t, "pull_request", "opened", issueAuthor))
@@ -510,10 +510,10 @@ func TestGitHubAppActingForAMaintainerIsTheApp(t *testing.T) {
 	fake.bodyWriter = &gitHubGraphQLActor{Typename: "Bot", Login: "some-app[bot]"}
 	fake.labelsViaApp["maintainer"] = true
 	labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, issueEditor))
-	assert.False(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), "an app applied the label for the maintainer")
+	assert.False(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel, nil), "an app applied the label for the maintainer")
 	fake.labelsViaApp["maintainer"] = false
 	labeled = stampIssueText(t, stamper, "labeled", labeledEvent(t, issueEditor))
-	assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), "the maintainer's own label")
+	assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel, nil), "the maintainer's own label")
 
 	// Only the application this event reports counts: an older one of the
 	// same label is not it, and GitHub's list may not show it yet.
@@ -536,19 +536,19 @@ func TestGitHubPermissionEventsForgetCachedMaintainers(t *testing.T) {
 	stamper.api.now = func() time.Time { return now }
 	fake.permissions["contributor"] = "write"
 	granted := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.True(t, gitHubIssueEventApproves("issues", "opened", granted, ""))
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", granted, "", nil))
 
 	fake.permissions["contributor"] = "read"
 	stamper.forgetMaintainers("issues", []byte(`{"repository":{"name":"demo","owner":{"login":"Acme"}}}`))
 	cached := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.True(t, gitHubIssueEventApproves("issues", "opened", cached, ""), "an issue event changes no permission")
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", cached, "", nil), "an issue event changes no permission")
 
 	stamper.forgetMaintainers("member", []byte(`{"action":"edited","repository":{"name":"other","owner":{"login":"acme"}}}`))
 	demoted := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.False(t, gitHubIssueEventApproves("issues", "opened", demoted, ""), "the demotion is read at once")
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", demoted, "", nil), "the demotion is read at once")
 
 	fake.permissions["contributor"] = "write"
 	stamper.forgetMaintainers("organization", []byte(`{"action":"member_removed","organization":{"login":"Acme"}}`))
 	restored := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
-	assert.True(t, gitHubIssueEventApproves("issues", "opened", restored, ""))
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", restored, "", nil))
 }

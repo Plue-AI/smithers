@@ -1140,6 +1140,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
 	repositoryJobService.SetGitHubReadAccess(gitHubUserReposService)
 	repositoryJobService.SetOutsiderEgress(workspaceService)
+	repositoryJobService.SetRepositoryPolicyReader(repoHostClient)
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, repositorySetupService)
 	if err != nil {

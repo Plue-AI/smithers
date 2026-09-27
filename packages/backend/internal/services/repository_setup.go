@@ -15,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -93,6 +94,14 @@ func (s *RepositorySetupService) Request(ctx context.Context, repoID, userID int
 	if err := ValidateSetupInput(&input); err != nil {
 		return SetupRecord{}, pkgerrors.BadRequest(err.Error())
 	}
+	// A trial files its issue as the person who pressed it
+	// (PersonPressedRepositoryTrial), so only a person presses it.
+	personTrialPress := input.Operation == "trial"
+	if personTrialPress {
+		if err := middleware.RequirePerson(ctx, "start a live trial"); err != nil {
+			return SetupRecord{}, err
+		}
+	}
 	if err := s.authorize(ctx, repoID, userID, true); err != nil {
 		return SetupRecord{}, err
 	}
@@ -142,7 +151,7 @@ func (s *RepositorySetupService) Request(ctx context.Context, repoID, userID int
 	}
 	response := setupInitial(input)
 	encoded, _ := json.Marshal(response)
-	value, err := scanSetup(tx.QueryRow(ctx, `INSERT INTO repository_setup_requests(id,user_id,repository_id,request_id,job,input,operation_id,workspace_id,response) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,'')::uuid,$9) RETURNING `+setupColumns, id, userID, repoID, input.RequestID, input.Job, payload, receipt.OperationID, input.WorkspaceID, encoded))
+	value, err := scanSetup(tx.QueryRow(ctx, `INSERT INTO repository_setup_requests(id,user_id,repository_id,request_id,job,input,operation_id,workspace_id,response,person_trial_press) VALUES($1,$2,$3,$4,$5,$6,$7,NULLIF($8,'')::uuid,$9,$10) RETURNING `+setupColumns, id, userID, repoID, input.RequestID, input.Job, payload, receipt.OperationID, input.WorkspaceID, encoded, personTrialPress))
 	if err != nil {
 		return SetupRecord{}, err
 	}

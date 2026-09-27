@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -13,14 +14,22 @@ import (
 
 // factoryGitHubPolicy is the `github` block of the committed factory
 // projection (.smithers/factory.json, S.Github.Policy): the owner's
-// committed decisions about which paths and agents the repository trusts.
+// committed decisions about which paths, agents and agent issue sources the
+// repository trusts.
 type factoryGitHubPolicy struct {
 	// ProtectedPaths extends the built-in trust roots (protectedPaths).
 	ProtectedPaths []string `json:"protectedPaths"`
 	// ReviewerAgents are the logins whose agent LGTM counts toward
 	// require_agent_lgtm and an ownership auto_land policy.
 	ReviewerAgents []string `json:"reviewerAgents"`
+	// AgentIssueSources are the agent sources ("run", "linear", "trial")
+	// whose filed issues start credentialed work without a label.
+	AgentIssueSources []string `json:"agentIssueSources"`
 }
+
+// agentIssueSources are the native sources that file issues under a person's
+// account without that person writing them (issues.filed_by, 0060).
+var agentIssueSources = []string{"run", "linear", "trial"}
 
 // parseFactoryGitHubPolicy reads a factory projection's github block. A
 // missing projection is the empty policy; an unreadable one is an error,
@@ -38,6 +47,11 @@ func parseFactoryGitHubPolicy(projection []byte) (factoryGitHubPolicy, error) {
 	}
 	if factory.Github != nil {
 		policy = *factory.Github
+	}
+	for _, source := range policy.AgentIssueSources {
+		if !slices.Contains(agentIssueSources, source) {
+			return factoryGitHubPolicy{}, fmt.Errorf("%s names an unknown agent issue source %q", factoryProjectionPath, source)
+		}
 	}
 	for _, login := range policy.ReviewerAgents {
 		if strings.TrimSpace(login) == "" {

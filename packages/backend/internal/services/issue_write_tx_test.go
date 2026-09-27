@@ -25,7 +25,7 @@ type mockIssueWriteTx struct {
 	rolledBack bool
 }
 
-func (m *mockIssueWriteTx) SetIssueTextEditor(_ context.Context, editor string) error {
+func (m *mockIssueWriteTx) SetIssueTextEditor(_ context.Context, editor, _ string) error {
 	m.editors = append(m.editors, editor)
 	return nil
 }

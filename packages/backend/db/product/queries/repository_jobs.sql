@@ -280,3 +280,22 @@ WHERE repository_id=$1 AND job=$2 AND plan_digest=$3;
 -- name: ListRepositoryJobApprovals :many
 SELECT * FROM repository_job_approvals
 WHERE repository_id=$1 AND job=$2 ORDER BY approved_at DESC LIMIT 50;
+
+-- name: PersonPressedRepositoryTrial :one
+-- Whether the person pressed Trial in exactly this setup request (its
+-- request id is the trial's), for this candidate, trial text and box, and
+-- the request is still running. Only a person reaches the setup trial route
+-- (person_trial_press), so a match is that person's own filing of the
+-- trial issue.
+SELECT EXISTS (
+    SELECT 1 FROM repository_setup_requests
+    WHERE repository_id = sqlc.arg(repository_id) AND user_id = sqlc.arg(user_id) AND job = sqlc.arg(job)
+      AND request_id = sqlc.arg(request_id)::text
+      AND person_trial_press AND NOT terminal
+      AND (workspace_id IS NULL OR workspace_id = sqlc.arg(workspace_id)::uuid)
+      AND input->>'operation' = 'trial'
+      AND input->>'revision' = sqlc.arg(revision)::bigint::text
+      AND input->>'digest' = sqlc.arg(digest)::text
+      AND input->'draft'->>'trialTitle' = sqlc.arg(title)::text
+      AND COALESCE(input->'draft'->>'trialBody', '') = sqlc.arg(body)::text
+)::boolean;

@@ -114,6 +114,10 @@ func (t *pgxLinearIssueImportTx) CreateIssue(ctx context.Context, arg db.CreateI
 	return t.q.CreateIssue(ctx, arg)
 }
 
+func (t *pgxLinearIssueImportTx) SetIssueTextEditor(ctx context.Context, arg db.SetIssueTextEditorParams) error {
+	return t.q.SetIssueTextEditor(ctx, arg)
+}
+
 func (t *pgxLinearIssueImportTx) CreateLinearIssueMap(ctx context.Context, arg db.CreateLinearIssueMapParams) (db.LinearIssueMap, error) {
 	return t.q.CreateLinearIssueMap(ctx, arg)
 }
@@ -1527,6 +1531,16 @@ func (s *LinearSyncService) createImportedLinearIssueMapping(ctx context.Context
 		importedTitle = "Imported Linear issue"
 	}
 
+	// The import files the issue under the integration's account, but no
+	// person wrote it: its agent source is "linear" (0060). Outside a
+	// transaction nothing is named, and the issue is filed by no one known.
+	if named, ok := q.(interface {
+		SetIssueTextEditor(context.Context, db.SetIssueTextEditorParams) error
+	}); ok {
+		if err := named.SetIssueTextEditor(ctx, db.SetIssueTextEditorParams{Source: "linear"}); err != nil {
+			return db.Issue{}, fmt.Errorf("name the linear import: %w", err)
+		}
+	}
 	created, err := q.CreateIssue(ctx, db.CreateIssueParams{
 		RepositoryID: integration.JjhubRepoID,
 		Title:        importedTitle,

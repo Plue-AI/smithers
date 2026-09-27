@@ -147,7 +147,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		}
 		approved := ""
 		switch {
-		case approvesIssueText(issue.TextByMaintainer, issue.Labels, applied, issueApprovalLabel):
+		case approvesIssueText(issueText{ByMaintainer: issue.TextByMaintainer}, nil, issue.Labels, applied, issueApprovalLabel):
 			approved = digest
 		case issueCarriesLabel(issue.Labels, issueApprovalLabel) && err == nil && existing.ApprovedDigest == digest:
 			approved = digest

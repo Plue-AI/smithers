@@ -65,7 +65,9 @@ func (s *RepositoryJobService) Start(ctx context.Context) {
 	}
 }
 
-func repositoryJobMatches(config RegisterRepositoryJobInput, event db.RepositoryJobEvent) bool {
+// repositoryJobMatches reports whether a registration takes an event.
+// allowedSources is the repository's owner-committed agentIssueSources.
+func repositoryJobMatches(config RegisterRepositoryJobInput, event db.RepositoryJobEvent, allowedSources []string) bool {
 	matched := false
 	for _, rule := range config.Events {
 		if NormalizeTriggerName(rule.Type) != NormalizeTriggerName(event.EventType) {
@@ -83,15 +85,13 @@ func repositoryJobMatches(config RegisterRepositoryJobInput, event db.Repository
 	if !matched {
 		return false
 	}
-	// The trial issue's authority is the registration's own scope; every
-	// other issue event needs its text approved for this job's trigger label.
-	trialIssue := config.Mode == "trial" && config.TrialIssueNumber > 0 &&
-		event.IssueNumber == config.TrialIssueNumber && event.Source == config.TrialSource
+	// Every issue event, a trial's included, needs its text approved for
+	// this job's trigger label (a trial issue a person pressed is theirs).
 	trigger := config.Label
 	if trigger == "" {
 		trigger = issueApprovalLabel
 	}
-	if !trialIssue && !gitHubIssueEventApproves(event.EventType, event.EventAction, event.Payload, trigger) {
+	if !gitHubIssueEventApproves(event.EventType, event.EventAction, event.Payload, trigger, allowedSources) {
 		return false
 	}
 	if config.Label == "" || config.Mode == "trial" {
@@ -116,14 +116,31 @@ func (s *RepositoryJobService) PollOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	sources := map[int64][]string{}
 	for _, row := range admissions {
 		reg, event := row.RepositoryJobRegistration, row.RepositoryJobEvent
 		var config RegisterRepositoryJobInput
 		if err := json.Unmarshal(reg.Configuration, &config); err != nil {
 			return fmt.Errorf("invalid repository job registration %s", reg.ID)
 		}
+		matched := repositoryJobMatches(config, event, nil)
+		// The owner-committed agentIssueSources are read only when they could
+		// decide: the event's issue an agent source wrote, and nothing else
+		// approved it. An unreadable policy approves nothing (fail closed; a
+		// maintainer's label still does).
+		if !matched && repositoryJobEventTextSource(event.Payload) != "" {
+			allowed, known := sources[reg.RepositoryID]
+			if !known {
+				var err error
+				if allowed, err = s.agentIssueSources(ctx, reg); err != nil {
+					slog.Warn("repository_jobs.policy_unreadable", "repository_id", reg.RepositoryID, "error", err)
+				}
+				sources[reg.RepositoryID] = allowed
+			}
+			matched = repositoryJobMatches(config, event, allowed)
+		}
 		status := "skipped"
-		if repositoryJobMatches(config, event) {
+		if matched {
 			status = "queued"
 		}
 		if err := s.q.EnqueueRepositoryJobDispatch(ctx, db.EnqueueRepositoryJobDispatchParams{
@@ -263,6 +280,40 @@ func repositoryJobDispatchEvent(reg db.RepositoryJobRegistration, claim db.Repos
 
 // repositoryName authorizes the registration's user to write its repository
 // and answers the repository's owner/name.
+// repositoryJobEventTextSource is the agent source an event's issue text
+// names (issueText.Source), or "".
+func repositoryJobEventTextSource(payload []byte) string {
+	var event struct {
+		Issue *authoredText `json:"issue"`
+	}
+	if json.Unmarshal(payload, &event) != nil || event.Issue == nil {
+		return ""
+	}
+	return event.Issue.TextSource
+}
+
+// agentIssueSources are the agent sources the repository's default bookmark
+// lets file issues that start credentialed work (agentIssueSources).
+func (s *RepositoryJobService) agentIssueSources(ctx context.Context, reg db.RepositoryJobRegistration) ([]string, error) {
+	if s.policy == nil {
+		return nil, errors.New("repository policy reader unavailable")
+	}
+	name, err := s.repositoryName(ctx, reg)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := s.q.GetRepoByID(ctx, reg.RepositoryID)
+	if err != nil {
+		return nil, err
+	}
+	owner, repoName, _ := strings.Cut(name, "/")
+	policy, err := readRepositoryPolicy(ctx, s.policy, owner, repoName, repo.DefaultBookmark)
+	if err != nil {
+		return nil, err
+	}
+	return policy.AgentIssueSources, nil
+}
+
 func (s *RepositoryJobService) repositoryName(ctx context.Context, reg db.RepositoryJobRegistration) (string, error) {
 	repo, err := s.authorizedRepo(ctx, reg.RepositoryID, reg.UserID, true)
 	if err != nil {
