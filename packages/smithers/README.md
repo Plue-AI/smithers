@@ -3,8 +3,8 @@
 Release candidate scope, host requirements and compatibility review are defined in the [library support policy](https://github.com/smithersai/smithers/blob/main/RELEASE_SUPPORT.md).
 
 This package declares `effect` and `@effect/platform-node` as exact
-`4.0.0-rc.115` direct dependencies. `@effect/sql-sqlite-node` is the sole peer
-dependency, required at `4.0.0-rc.115`. Keep the application on that version so
+`4.0.0-rc.115` direct dependencies. `@effect/sql-sqlite-node` is the required peer
+dependency, at `4.0.0-rc.115`; `@effect/sql-pg` is an optional peer for PostgreSQL. Keep the application on that version so
 all Smithers packages share one Effect runtime.
 
 **Documentation:** https://cli.smithers.sh
@@ -202,9 +202,7 @@ Provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `CER
 
 `smthrs --mcp` serves Incur's generated command surface on stdio. `smthrs mcp add` registers it with a supported agent; use `smthrs mcp add --help` for client selection. The CLI schemas also drive MCP arguments, so target and operator commands share their command-line contracts. Long-running host commands marked `mcp: false` are omitted.
 
-The separately exported `McpServer` module retains the older named-tool protocol for existing hosts. Its compatibility tool names and unsupported responses do not define the generated public server. Reserved `system/*` flows remain unavailable through normal flow discovery and launch.
-
-The legacy `McpServer` adapter limits frames to 4 MiB and history results to 10,000 events and 1 MiB. Generated command responses follow their command-specific limits.
+Reserved `system/*` flows remain unavailable through normal flow discovery and launch.
 
 `--mcp-config <path>` is the other direction: it connects MCP servers the local executor projects into a run's flow catalog. It is meaningless against `--remote`, where the executor is not this process's to configure.
 

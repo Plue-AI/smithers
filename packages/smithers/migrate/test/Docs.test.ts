@@ -58,9 +58,8 @@ const unpadded = (text: string): string =>
 describe("scanner installation guides", () => {
   it.each(["embed-the-scanners", "scan-a-project"])("%s keeps the native compiler installed", (guide) => {
     const page = read(`../docs/guides/${guide}.md`)
-    const commands = [...page.matchAll(/^pnpm add -D @smthrs\/migrate@next.*$/gm)].map((match) => match[0])
-
-    expect(commands).toEqual(["pnpm add -D @smthrs/migrate@next"])
+    expect(page).not.toMatch(/--no-optional|--omit[= ]optional|@smthrs\/migrate@next/)
+    expect(page).toContain("native compiler")
     expect(page).toContain("(../installation.md)")
   })
 })
