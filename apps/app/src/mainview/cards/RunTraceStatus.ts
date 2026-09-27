@@ -47,8 +47,16 @@ const visible = (model: TraceModel, cursor = Infinity) => uniqueCallEvents(model
 export interface RunStatus {
   readonly verdict?: string
   readonly activity?: string
-  readonly condition?: "thrashing" | "blocked" | "approval"
+  readonly condition?: "thrashing" | "blocked" | "approval" | "runaway"
   readonly action?: "resume" | "approval"
+  /** The runaway guard a park recorded: a budget or a time limit was hit. */
+  readonly guard?: "budget" | "time"
+}
+
+/** The park reasons the runaway guards record (budget and time limits are incidents, never working limits). */
+const RUNAWAY_REASONS: Readonly<Record<string, "budget" | "time">> = {
+  budget: "budget", "budget-limit": "budget", "token-budget": "budget",
+  time: "time", "time-limit": "time", timeout: "time", runaway: "time"
 }
 
 /**
@@ -62,6 +70,8 @@ export interface RunStatus {
 interface StepCondition {
   thrashing: boolean
   parked: "resume" | "approval" | undefined
+  /** The guard that parked this invocation; cleared by the run's own resume. */
+  runaway: "budget" | "time" | undefined
 }
 
 /** Current work and a separate condition. Historical callers must supply their cursor. */
@@ -75,7 +85,7 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
   /** The record's own step; a prompt journal records one unscoped stream. */
   const step = (row: { readonly payload?: unknown }): StepCondition => {
     const key = callScope(row) ?? ""
-    const held = conditions.get(key) ?? { thrashing: false, parked: undefined }
+    const held = conditions.get(key) ?? { thrashing: false, parked: undefined, runaway: undefined }
     conditions.set(key, held)
     return held
   }
@@ -147,13 +157,18 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
         if (text(p.flow) !== undefined && p.passed !== undefined) step(row).thrashing = false
         break
       case "control.agent.suspended":
-      case "control.run.parked": step(row).parked = p.reason === "approval" ? "approval" : "resume"; break
+      case "control.run.parked": {
+        const held = step(row)
+        held.parked = p.reason === "approval" ? "approval" : "resume"
+        held.runaway = typeof p.reason === "string" ? RUNAWAY_REASONS[p.reason] : undefined
+        break
+      }
       // The invocation ended. Whatever it was carrying ended with it.
       case "control.agent.resolved":
       case "control.agent.aborted": conditions.delete(callScope(row) ?? ""); break
       // The run's own record that it is running again ends every park it holds.
       // It says nothing about a brake, so it closes none.
-      case "control.run.resumed": for (const one of conditions.values()) one.parked = undefined; break
+      case "control.run.resumed": for (const one of conditions.values()) { one.parked = undefined; one.runaway = undefined } break
       case "control.approval.requested":
         if (text(p.requestId) !== undefined) approvals.add(p.requestId as string)
         break
@@ -176,11 +191,18 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
   // step recorded it first: the action is what the header offers.
   const parked = outstanding.some((one) => one.parked === "resume")
     ? "resume" : outstanding.find((one) => one.parked !== undefined)?.parked
+  // A guard that parked the run is an incident: it outranks an ordinary park,
+  // and a person answers it with the same Resume (continue) or a Stop.
+  const guard = outstanding.find((one) => one.runaway !== undefined)?.runaway
   const condition: RunStatus["condition"] = approvals.size > 0 ? "approval"
+    : guard !== undefined ? "runaway"
     : parked !== undefined ? "blocked"
     : outstanding.some((one) => one.thrashing) ? "thrashing" : undefined
   const action: RunStatus["action"] = approvals.size > 0 ? "approval" : parked === "resume" ? "resume" : undefined
-  return { ...(activity === undefined ? {} : { activity }), ...(condition === undefined ? {} : { condition }), ...(action === undefined ? {} : { action }) }
+  return {
+    ...(activity === undefined ? {} : { activity }), ...(condition === undefined ? {} : { condition }),
+    ...(action === undefined ? {} : { action }), ...(guard === undefined ? {} : { guard })
+  }
 }
 
 export type GoalState = "pending" | "running" | "passed" | "failed" | "narrowed" | "stale"

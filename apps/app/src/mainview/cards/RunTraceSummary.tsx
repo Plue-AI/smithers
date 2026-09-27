@@ -27,6 +27,7 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send }: {
   const action = verdict !== undefined ? undefined : current.action ??
     (phase === "waiting-approval" || waiting === "approval" ? "approval" : waiting === undefined ? undefined : "resume")
   const condition = verdict !== undefined ? undefined : action === "approval" ? "Approval needed"
+    : current.condition === "runaway" ? `Runaway · ${current.guard === "budget" ? "budget" : "time limit"}`
     : current.condition === "thrashing" ? "Thrashing" : current.condition === "blocked" || action === "resume" ? "Blocked" : undefined
   const status = verdict ?? phase
   const activity = verdict === undefined && (phase === "running" || phase === "waiting-approval") ? current.activity : undefined
@@ -38,7 +39,8 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send }: {
   return <header className="run-outcome" data-phase={status} data-testid={`run-outcome-${runId}`} aria-label="Current run status">
     <span className="run-outcome-dot" data-status={status} aria-hidden />
     <span className="run-outcome-words">{verdict === undefined ? activity ?? words[phase] ?? phase : words[verdict]}</span>
-    {condition === undefined || condition === words[phase] && activity === undefined ? null : <span className="run-outcome-condition">{condition}</span>}
+    {condition === undefined || condition === words[phase] && activity === undefined ? null
+      : <span className="run-outcome-condition" data-condition={current.condition ?? (action === "approval" ? "approval" : "blocked")}>{condition}</span>}
     {needsHelp === undefined || needsHelp === "none" ? null : (
       <span
         className="run-needs-help-dot"

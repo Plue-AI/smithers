@@ -24,7 +24,7 @@ export interface FlowInput {
   readonly "agent.session.stop": { readonly sessionId: string; readonly repo: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
   readonly "commits.read": { readonly ref: string; readonly repo: string }
-  readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" }
+  readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" | "steps" }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
   readonly "runs.graph.follow": { readonly runId: string; readonly follow: boolean }
   readonly "runs.coding.select": { readonly runId: string; readonly changeId: string }

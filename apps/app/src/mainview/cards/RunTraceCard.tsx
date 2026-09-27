@@ -13,6 +13,9 @@ import { codingEvidenceOf } from "./CodingPlan"
 import { FlowRunGraph, runGraphOfCard } from "./FlowRunGraph"
 import { CodingPlanBody } from "./CodingPlanCard"
 import { RunTraceSummary } from "./RunTraceSummary"
+import { launchSourceOf } from "../state/WorkflowLaunch"
+import { StepList, stepFacts } from "./RunTraceSteps"
+import { traceSteps } from "./TraceSteps"
 import { CodingPocBody } from "./CodingPocCard"
 import { CodingVibeBody } from "./CodingVibeCard"
 import type { Card, FlowDurationsRow } from "../state/AppState"
@@ -225,6 +228,9 @@ export const RunTraceBody = ({
     ran.calls > 0 ? count(ran.calls, "call") : undefined,
     whole.counts.spans > 0 ? durationWords(ran.wall) : undefined
   ].filter((fact) => fact !== undefined)
+  /* What started the run, as the launch recorded it: a pushed ref's name, else the flow the input named. Never inferred. */
+  const launchSource = launchSourceOf(card)
+  const trigger = launchSource !== undefined ? `from ${launchSource} · ${card.payload.workflow}` : undefined
   const scrub = card.payload.liveTail === false ? (
     <span className="run-trace-scrub">
       {card.payload.cursorSeq !== undefined ? <span className="run-trace-cursor">At #{card.payload.cursorSeq}</span> : null}
@@ -270,7 +276,40 @@ export const RunTraceBody = ({
           {steps.map((step, index) => <li key={`${index}:${step}`}>{step}</li>)}
         </ol>
       )}
-      {planOnly ? null : view === "graph" && runGraph !== undefined ? (
+      {planOnly ? null : view === "steps" ? (
+        <>
+          <div className="run-trace-bar" data-view="steps" role="group" aria-label="Trace presentation">
+            <button
+              type="button"
+              className="run-trace-filter run-trace-view"
+              aria-pressed={false}
+              {...flowAction(onRunCommand, "runs.trace.view", flowArgs("runs.trace.view", { runId, view: "turns" }))}
+            >
+              Timeline
+            </button>
+            <span className="run-trace-bar-title">Steps</span>
+            <span className="run-trace-clock" data-testid={`run-trace-steps-facts-${runId}`}>{stepFacts(traceSteps(model), wall).join(" · ")}</span>
+            {scrub}
+          </div>
+          <PhaseStrip model={whole} records={card.payload.events ?? []} runId={runId} cursorSeq={card.payload.cursorSeq} onRunCommand={onRunCommand} />
+          {/* The trigger as its own row (DESIGN §3.4): only what the launch recorded — its source ref, the flow it ran. */}
+          {trigger === undefined ? null : (
+            <div className="run-trigger" data-testid={`run-trigger-${runId}`}>
+              <span className="agent-trigger-glyph" aria-hidden>⚡</span>
+              <span className="run-step-time">{model.extent.start > 0 ? timeLabel(model.extent.start) : ""}</span>
+              <span className="run-step-type">trigger</span>
+              <span className="run-trigger-text">{trigger}</span>
+            </div>
+          )}
+          <StepList model={model} runId={runId} selected={card.payload.selection} cardId={card.id} onRunCommand={onRunCommand}
+            detail={<SpanPane span={selected} model={model} runId={runId} />} />
+          {model.counts.spans === 0 ? (
+            <p className="run-trace-empty" data-testid={`run-trace-empty-${runId}`}>
+              {settled ? "No steps were recorded." : "No steps yet."}
+            </p>
+          ) : null}
+        </>
+      ) : view === "graph" && runGraph !== undefined ? (
         <FlowRunGraph
           card={card}
           view={runGraph}
@@ -291,6 +330,14 @@ export const RunTraceBody = ({
                 {...flowAction(onRunCommand, "runs.trace.view", flowArgs("runs.trace.view", { runId, view: "timeline" }))}
               >
                 Details
+              </button>
+              <button
+                type="button"
+                className="run-trace-filter run-trace-view"
+                aria-pressed={false}
+                {...flowAction(onRunCommand, "runs.trace.view", flowArgs("runs.trace.view", { runId, view: "steps" }))}
+              >
+                Steps
               </button>
               {runGraph === undefined ? null : (
                 <button
@@ -614,7 +661,7 @@ const TurnDetail = ({ card, model, selected, scope, frame, onRunCommand }: {
 }
 
 /** The selected span's facts, and nothing the journal did not record. */
-const SpanPane = (
+export const SpanPane = (
   { span, model, runId }: { readonly span: TraceSpan; readonly model: TraceModel; readonly runId: string }
 ) => {
   const { detail } = span

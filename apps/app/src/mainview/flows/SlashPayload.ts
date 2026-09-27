@@ -568,7 +568,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "runs.trace.view": (args) => {
     const [runId, view, ...rest] = tokensOf(args)
     if (runId === undefined) return no("runs.trace.view needs a run id")
-    if (view !== "turns" && view !== "timeline" && view !== "graph") return no("runs.trace.view needs turns, timeline or graph")
+    if (view !== "turns" && view !== "timeline" && view !== "graph" && view !== "steps") return no("runs.trace.view needs turns, timeline, graph or steps")
     if (rest.length > 0) return no("runs.trace.view takes a run id and one view")
     return ok({ runId, view })
   },

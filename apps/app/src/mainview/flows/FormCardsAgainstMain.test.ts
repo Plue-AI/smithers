@@ -340,7 +340,7 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
   },
   {
     flow: "runs.trace.view", kind: "sentence", rows: 13,
-    because: "The graph IS the third view of a run, so the line that refuses a bad one has to name it: main@origin says `runs.trace.view needs turns or timeline` and this branch says `runs.trace.view needs turns, timeline or graph` (SlashPayload.ts). Every swept line whose second token is not a view reads the new sentence; no card moves."
+    because: "The graph IS the third view of a run and the step list the fourth, so the line that refuses a bad one has to name them: main@origin says `runs.trace.view needs turns, timeline or graph` and this branch says `runs.trace.view needs turns, timeline, graph or steps` (SlashPayload.ts). Every swept line whose second token is not a view reads the new sentence; no card moves."
   },
   {
     flow: "triggers.register", kind: "sentence", rows: 6,

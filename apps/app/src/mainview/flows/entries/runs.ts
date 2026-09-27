@@ -220,11 +220,11 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     name: "runs.trace.view",
-    summary: "Show a run's turn explanations, full execution timeline or graph in its embedded card",
+    summary: "Show a run's turn explanations, full execution timeline, graph or step list in its embedded card",
     runtimeAny: ["cloud"],
     hidden: true,
-    args: "[sourceCard=id] <runId> <turns|timeline|graph>",
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, view: Schema.Literals(["turns", "timeline", "graph"]) }),
+    args: "[sourceCard=id] <runId> <turns|timeline|graph|steps>",
+    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, view: Schema.Literals(["turns", "timeline", "graph", "steps"]) }),
     handler: ({ runId, view, sourceCard }) => actions.traceView(runId, view, sourceCard)
   }),
   flow({

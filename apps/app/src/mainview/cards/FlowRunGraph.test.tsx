@@ -574,7 +574,7 @@ describe("the run card's graph door", () => {
 
   test("is present once the run has nodes, and asks for the graph view", () => {
     const { host, dispatched } = renderTrace({ traceView: "turns", plan: RECORDED.plan })
-    expect(viewButtons(host)).toEqual(["Details", "Graph"])
+    expect(viewButtons(host)).toEqual(["Details", "Steps", "Graph"])
     act(() => (host.querySelector("[data-flow-args=\"run-1 graph\"]") as HTMLElement).click())
     // The card seam stamps the source card onto every act it raises.
     expect(dispatched).toEqual([{ name: "runs.trace.view", args: "sourceCard=flow-run-run-1 run-1 graph" }])
