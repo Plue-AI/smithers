@@ -83,7 +83,7 @@ Read the resulting Change's **Diff**, **Checks**, and **Review**. Checks pass â†
 
 ## Continue
 
-  - [Run a flow](/docs/learn/run-a-flow/): Choose a task and provide its inputs.
+  - [Run a flow](/docs/learn/run-a-flow/): Choose a flow and provide its inputs.
   - [Inspect a run](/docs/learn/watch-an-agent/): Read its trace, steer, or stop work.
   - [Review a change](/docs/learn/review-a-change/): Check the diff and evidence before landing.
   - [Troubleshoot the app](/docs/learn/troubleshooting/): Resolve access, box, and run problems.
