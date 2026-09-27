@@ -2,6 +2,7 @@ import { expect, test, type Page } from "./browserTest"
 import type { SetupHostInput, SetupOperationResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import type { z } from "zod"
 import { SCOPED_TEST_USER, skipSignup } from "./identity"
+import { settleAnimations } from "./animations"
 
 // Real built app, SQLite, registry and keyboard. Setup/Control responses are
 // explicit fixtures: these tests do not claim a host executed repository work.
@@ -100,14 +101,14 @@ test("Chat summons at the top over setup and closes with keyboard or an outside 
   const hint = page.getByRole("button", { name: "Dismiss help", exact: true })
   if (await hint.isVisible()) await hint.click()
   const transcript = page.getByTestId("transcript")
-  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)))
+  await page.evaluate(settleAnimations)
   const before = await transcript.boundingBox()
   await page.keyboard.press("Control+k")
   const composer = page.getByTestId("composer-input")
   await expect(composer).toBeFocused()
   const overlay = page.getByTestId("composer-overlay")
   await expect(overlay).toBeVisible()
-  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)))
+  await page.evaluate(settleAnimations)
   const metrics = await overlay.evaluate(node => ({ position: getComputedStyle(node).position,
     background: getComputedStyle(node).backgroundColor, top: node.querySelector(".composer-wrap")!.getBoundingClientRect().top }))
   expect(metrics).toMatchObject({ position: "fixed", background: "rgba(0, 0, 0, 0)" })
@@ -124,7 +125,7 @@ test("Chat summons at the top over setup and closes with keyboard or an outside 
   await page.keyboard.press("Control+k")
   await expect(overlay).toBeVisible()
   await expect(composer).toHaveValue("Keep this draft")
-  await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)))
+  await page.evaluate(settleAnimations)
   await page.screenshot({ path: testInfo.outputPath("setup-composer.png"), fullPage: true })
   await overlay.click({ position: { x: 5, y: 500 } })
   await expect(overlay).toBeHidden()
