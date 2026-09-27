@@ -47,15 +47,16 @@ const bareNode = CiToolchain.Node({ runtime, release: "26.4.0", cachePackageStor
 const rust = CiToolchain.Rust({ toolchain: RustToolchain.Pinned({}) })
 
 describe("CI concurrency", () => {
-  it("cancels superseded PR runs and gives every pushed commit its own group", () => {
+  it("keeps one run in flight per branch, the newest commit next, and cancels superseded PR runs", () => {
     const workflow = render(goldenAttrs)
-    // GitHub replaces a PENDING run in the same group even with
-    // cancel-in-progress false, so a ref-keyed group dropped most main pushes
-    // (#2071). A commit-keyed group is never shared by two pushes.
+    // A commit-keyed group (#2071) queued a run per push faster than runners
+    // drained them, so no main run completed for hours (#2085). A ref-keyed
+    // group holds one running and one pending run; each push replaces the
+    // pending one, and only PR runs cancel the one in progress.
     expect(workflow).toContain(
-      "concurrency:\n  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}\n  cancel-in-progress: true\n"
+      "concurrency:\n  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
     )
-    expect(workflow).not.toContain("github.ref)")
+    expect(workflow).not.toContain("github.sha)")
     expect(render({ ...goldenAttrs, cancelInProgress: false })).toContain("cancel-in-progress: false")
   })
 })
@@ -215,8 +216,8 @@ on:
   pull_request:
   workflow_dispatch:
 concurrency:
-  group: ci-\${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}
-  cancel-in-progress: true
+  group: ci-\${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: \${{ github.event_name == 'pull_request' }}
 jobs:
   "test":
     name: "workspace graph"

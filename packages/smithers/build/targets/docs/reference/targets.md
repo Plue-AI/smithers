@@ -521,9 +521,10 @@ Declared values override inherited defaults, cache credentials are withheld,
 and explicitly minted secret placeholders are applied last.
 
 `Smithers.GithubCiGen` groups concurrent runs by pull request number, falling
-back to the commit SHA for other events. With the default
-`cancelInProgress: true`, a new PR run cancels the previous run for that PR;
-each pushed commit retains its own run and verdict. Set
+back to the ref for other events. A pushed branch keeps one run in flight and
+its newest commit pending; each push replaces the pending run, so a busy branch
+gets a verdict every run length. With the default `cancelInProgress: true`, a
+new PR run cancels the previous run for that PR. Set
 `cancelInProgress: false` to disable cancellation.
 The last setup step renders `id: setup`, and every target step renders
 `if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}`: a red gate

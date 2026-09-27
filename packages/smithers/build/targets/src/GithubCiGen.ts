@@ -1471,11 +1471,15 @@ export const render = (attrs: Attrs): string => {
     "on:",
     ...triggers,
     "concurrency:",
-    // GitHub replaces a pending run in the same group even when
-    // cancel-in-progress is false, so a group shared by pushes drops commits.
-    // Every non-PR run is keyed by its commit and never superseded.
-    "  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}",
-    `  cancel-in-progress: ${attrs.cancelInProgress}`,
+    // One group per PR and one per pushed branch. GitHub keeps at most one
+    // running and one pending run in a group and replaces the pending one
+    // with each new push, so a busy branch always has one full run in flight
+    // and the newest commit next, and a verdict lands every run length. A
+    // run per commit (#2071) queued faster than runners drained it and no
+    // main run completed for hours (#2085). Superseded PR runs are cancelled;
+    // a branch's in-progress run always finishes.
+    "  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
+    `  cancel-in-progress: ${attrs.cancelInProgress ? "${{ github.event_name == 'pull_request' }}" : "false"}`,
     "jobs:"
   ]
   const cacheEnv = cacheEnvironment(attrs)

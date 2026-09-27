@@ -293,6 +293,7 @@ that target runs again.
 See [`packages/smithers/build/API-REVIEW.md`](../API-REVIEW.md) for the review
 order and current API questions.
 
-Generated CI concurrency groups use the pull request number, or the commit SHA
-for other events. Superseded PR runs cancel by default; each pushed commit keeps
-its own run and verdict. Set `cancelInProgress: false` to disable cancellation.
+Generated CI concurrency groups use the pull request number, or the ref for
+other events. A pushed branch keeps one run in flight and its newest commit
+pending; each push replaces the pending run. Superseded PR runs cancel by
+default. Set `cancelInProgress: false` to disable cancellation.
