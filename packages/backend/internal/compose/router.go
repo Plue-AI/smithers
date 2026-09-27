@@ -1622,6 +1622,11 @@ func buildRouter(
 				// (app-not-installed / permission-missing / no-org-grant / token-broken
 				// / ok), from the App's own installation lookup.
 				r.With(githubUserRepoRead...).Get("/user/github-access/{owner}/{repo}", gitHubUserReposHandler.GetGitHubAccessDiagnosis)
+				// The caller's repositories the GitHub App verifiably covers, from
+				// the inventory and access diagnosis above, called in process.
+				// The optional id filters; it never grants access.
+				r.With(githubUserRepoRead...).Get("/user/github-app/installations", gitHubUserReposHandler.ListGitHubAppInstallations)
+				r.With(githubUserRepoRead...).Get("/user/github-app/installations/{installationId}", gitHubUserReposHandler.ListGitHubAppInstallations)
 			}
 			if gitHubSyncedReposHandler != nil {
 				// Service-to-service feed: github-sync reads the sync registry here

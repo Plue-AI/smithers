@@ -4,11 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -147,6 +149,43 @@ func (h *GitHubUserReposHandler) GetGitHubAccessDiagnosis(w http.ResponseWriter,
 	}
 	pkgerrors.WriteJSON(w, http.StatusOK, diagnosis)
 }
+
+// ListGitHubAppInstallations answers GET /user/github-app/installations and
+// /user/github-app/installations/{installationId} with the caller's
+// repositories the GitHub App verifiably covers, as
+// {"repos":[{fullName,pushedAt,installationId}]}. The path id filters the
+// result; it never grants access to another user's installation.
+func (h *GitHubUserReposHandler) ListGitHubAppInstallations(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	user, err := requireRouteUser(r)
+	if err != nil {
+		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
+		return
+	}
+	if h.Service == nil {
+		pkgerrors.WriteError(w, pkgerrors.Internal("github app installations service unavailable"))
+		return
+	}
+	installationID := chi.URLParam(r, "installationId")
+	if installationID != "" && !validInstallationID.MatchString(installationID) {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("Invalid installation id."))
+		return
+	}
+	repos, verifyErr := services.VerifyGitHubAppInstallations(r.Context(), h.Service, user.ID, installationID)
+	if verifyErr != nil {
+		// Every verification error carries a message written for clients, so
+		// a 5xx keeps its sentence; its cause still reaches the server log.
+		if verifyErr.Status >= http.StatusInternalServerError {
+			middleware.LoggerFromContext(r.Context()).Error("github app installation verification failed",
+				"status", verifyErr.Status, "code", verifyErr.Code, "cause", verifyErr.Cause())
+		}
+		pkgerrors.WriteError(w, verifyErr)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"repos": repos})
+}
+
+var validInstallationID = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // ListGitHubRepoIssueComments answers GET
 // /user/github-repos/{owner}/{repo}/issues/{number}/comments from the synced

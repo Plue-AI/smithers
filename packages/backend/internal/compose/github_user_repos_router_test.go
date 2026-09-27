@@ -139,6 +139,8 @@ func TestServerRouter_GitHubUserRepoRoutesRejectRestrictedPATBeforeService(t *te
 		"/api/user/github-repos/smithersai/smithers/pulls?state=open&per_page=100&page=1",
 		"/api/user/github-repos/smithersai/smithers/issues/7/comments?per_page=100",
 		"/api/user/github-repos/smithersai/smithers/pulls/7/diff",
+		"/api/user/github-app/installations",
+		"/api/user/github-app/installations/42",
 	}
 
 	for _, path := range paths {
@@ -168,4 +170,26 @@ func TestServerRouter_GitHubRepoObjectRouteAllowsSessionAndCallsService(t *testi
 	assert.JSONEq(t, `{}`, rec.Body.String())
 	assert.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"))
 	assert.Equal(t, int32(1), service.calls.Load())
+}
+
+func TestServerRouter_GitHubAppInstallationsServesSessionUser(t *testing.T) {
+	service := &githubUserReposRouterService{}
+	router := githubUserReposSecurityRouter(service)
+	for _, path := range []string{"/api/user/github-app/installations", "/api/user/github-app/installations/42"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req = req.WithContext(middleware.ContextWithAuthInfo(req.Context(), &middleware.AuthInfo{
+				User:        &db.User{ID: 7, Username: "octo", LowerUsername: "octo"},
+				IsTokenAuth: false,
+			}))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.JSONEq(t, `{"repos":[]}`, rec.Body.String())
+			assert.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"))
+		})
+	}
+	unauthenticated := httptest.NewRecorder()
+	router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/user/github-app/installations", nil))
+	assert.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
 }

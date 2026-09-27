@@ -12909,6 +12909,108 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/user/github-app/installations:
+    get:
+      summary: GET /api/user/github-app/installations
+      description: The caller's GitHub repositories the GitHub App verifiably covers, from the repository inventory (100 per page, at most 10 pages, most recently pushed first) and each repository's access diagnosis. An installation id filters the result; it never grants access. With no verified repository and a blocking verdict it answers 409 with that verdict's detail; an inventory over 900 repositories answers 503.
+      operationId: get_api_user_github_app_installations
+      tags:
+        - User
+      parameters: []
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Verified repositories.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repos]
+                properties:
+                  repos:
+                    type: array
+                    items:
+                      type: object
+                      required: [fullName, pushedAt, installationId]
+                      properties:
+                        fullName:
+                          type: string
+                        pushedAt:
+                          type: string
+                        installationId:
+                          type: integer
+                          format: int64
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/user/github-app/installations/{installationId}:
+    get:
+      summary: GET /api/user/github-app/installations/{installationId}
+      description: The caller's GitHub repositories the GitHub App verifiably covers, from the repository inventory (100 per page, at most 10 pages, most recently pushed first) and each repository's access diagnosis. An installation id filters the result; it never grants access. With no verified repository and a blocking verdict it answers 409 with that verdict's detail; an inventory over 900 repositories answers 503.
+      operationId: get_api_user_github_app_installations_installation_id
+      tags:
+        - User
+      parameters:
+        - name: installationId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[1-9][0-9]*$'
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Verified repositories.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repos]
+                properties:
+                  repos:
+                    type: array
+                    items:
+                      type: object
+                      required: [fullName, pushedAt, installationId]
+                      properties:
+                        fullName:
+                          type: string
+                        pushedAt:
+                          type: string
+                        installationId:
+                          type: integer
+                          format: int64
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/user/github-repos:
     get:
       summary: GET /api/user/github-repos
