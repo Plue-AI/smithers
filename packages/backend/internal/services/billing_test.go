@@ -196,6 +196,10 @@ func (m *billingQuerierMock) UpsertBillingSubscription(ctx context.Context, arg 
 	}, nil
 }
 
+func (m *billingQuerierMock) BillingSnapshotClock(context.Context) (time.Time, error) {
+	return time.Now().UTC(), nil
+}
+
 func (m *billingQuerierMock) MarkBillingSubscriptionsPaymentReversed(_ context.Context, arg db.MarkBillingSubscriptionsPaymentReversedParams) (int64, error) {
 	m.paymentReversals = append(m.paymentReversals, arg.BillingAccountID)
 	return 1, nil
@@ -742,7 +746,7 @@ func TestBillingService_UpsertSubscription_CancelsDuplicatePaidSubscription(t *t
 			"owner_type": "user", "owner_id": "42", "plan_key": "personal", "interval": "monthly",
 		},
 	}
-	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, snapshot))
+	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, observedSubscription{StripeSubscriptionSnapshot: snapshot}))
 	assert.Equal(t, []string{"sub_B"}, client.canceledSubscriptions, "the duplicate (newer) subscription must be canceled")
 }
 
@@ -771,7 +775,7 @@ func TestBillingService_UpsertSubscription_DoesNotCancelWhenCompetingRowStaleInS
 			"owner_type": "user", "owner_id": "42", "plan_key": "personal", "interval": "monthly",
 		},
 	}
-	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, snapshot))
+	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, observedSubscription{StripeSubscriptionSnapshot: snapshot}))
 	assert.Empty(t, client.canceledSubscriptions, "must not cancel a legit purchase when the competing row is stale in Stripe")
 }
 
@@ -805,7 +809,7 @@ func TestBillingService_UpsertSubscription_CancelsDuplicateAfterStaleCompetitor(
 			"owner_type": "user", "owner_id": "42", "plan_key": "personal", "interval": "monthly",
 		},
 	}
-	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, snapshot))
+	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, observedSubscription{StripeSubscriptionSnapshot: snapshot}))
 	assert.Equal(t, []string{"sub_stale", "sub_live"}, verified)
 	assert.Equal(t, []string{"sub_new"}, client.canceledSubscriptions)
 }
@@ -824,7 +828,7 @@ func TestBillingService_UpsertSubscription_DoesNotCancelWithoutCheckoutMetadata(
 	// A manually-created enterprise sub (no plan_key/interval) must never be
 	// auto-canceled even if it collides with an existing paid row.
 	snapshot := StripeSubscriptionSnapshot{ID: "sub_manual", Status: "active", Metadata: map[string]string{"owner_type": "user", "owner_id": "42"}}
-	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, snapshot))
+	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, observedSubscription{StripeSubscriptionSnapshot: snapshot}))
 	assert.Empty(t, client.canceledSubscriptions, "a non-checkout subscription must never be auto-canceled")
 }
 
@@ -848,7 +852,7 @@ func TestBillingService_UpsertSubscription_SamePlanUpdateDoesNotCancel(t *testin
 			"owner_type": "user", "owner_id": "42", "plan_key": "personal", "interval": "monthly",
 		},
 	}
-	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, snapshot))
+	require.NoError(t, svc.upsertSubscriptionSnapshot(context.Background(), account, observedSubscription{StripeSubscriptionSnapshot: snapshot}))
 	assert.Empty(t, client.canceledSubscriptions, "an update to the same subscription id must not cancel anything")
 }
 

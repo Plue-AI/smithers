@@ -161,7 +161,7 @@ func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeIn
 	if s.stripe != nil {
 		// invoice.paid can arrive before the subscription events; project the
 		// authoritative subscription first so its plan and status are known.
-		snapshot, err := s.stripe.GetSubscription(ctx, subscriptionID)
+		snapshot, err := s.fetchSubscription(ctx, subscriptionID)
 		if err != nil {
 			return pkgerrors.Internal("failed to load stripe subscription for paid invoice").WithCause(err)
 		}

@@ -5,6 +5,7 @@ package billingstore
 
 import (
 	"context"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -25,6 +26,7 @@ type Querier interface {
 	GetLatestLiveBillingSubscriptionByAccount(ctx context.Context, billingAccountID int64) (db.BillingSubscription, error)
 	ListBillingSubscriptionsByAccount(ctx context.Context, billingAccountID int64) ([]db.BillingSubscription, error)
 	UpsertBillingSubscription(ctx context.Context, arg db.UpsertBillingSubscriptionParams) (db.BillingSubscription, error)
+	BillingSnapshotClock(ctx context.Context) (time.Time, error)
 	MarkBillingSubscriptionsPaymentReversed(ctx context.Context, arg db.MarkBillingSubscriptionsPaymentReversedParams) (int64, error)
 	RecordBillingAccountPaymentReversal(ctx context.Context, arg db.RecordBillingAccountPaymentReversalParams) error
 	SettleBillingSubscriptionPayment(ctx context.Context, arg db.SettleBillingSubscriptionPaymentParams) (db.BillingSubscription, error)

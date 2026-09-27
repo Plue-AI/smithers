@@ -13,6 +13,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const billingSnapshotClock = `-- name: BillingSnapshotClock :one
+SELECT clock_timestamp()::timestamptz AS observed_at
+`
+
+// The database time just before a subscription is read from Stripe.
+func (q *Queries) BillingSnapshotClock(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, billingSnapshotClock)
+	var observed_at time.Time
+	err := row.Scan(&observed_at)
+	return observed_at, err
+}
+
 const claimStripeProcessedEvent = `-- name: ClaimStripeProcessedEvent :one
 
 
@@ -236,7 +248,7 @@ func (q *Queries) GetCreditLedgerByIdempotencyKey(ctx context.Context, arg GetCr
 }
 
 const getLatestBillingSubscriptionByAccount = `-- name: GetLatestBillingSubscriptionByAccount :one
-SELECT id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at
+SELECT id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at, snapshot_observed_at
 FROM billing_subscriptions
 WHERE billing_account_id = $1
 ORDER BY updated_at DESC, id DESC
@@ -266,12 +278,13 @@ func (q *Queries) GetLatestBillingSubscriptionByAccount(ctx context.Context, bil
 		&i.UpdatedAt,
 		&i.PaymentReversedAt,
 		&i.PaymentSettledAt,
+		&i.SnapshotObservedAt,
 	)
 	return i, err
 }
 
 const getLatestLiveBillingSubscriptionByAccount = `-- name: GetLatestLiveBillingSubscriptionByAccount :one
-SELECT id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at
+SELECT id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at, snapshot_observed_at
 FROM billing_subscriptions
 WHERE billing_account_id = $1
   AND status IN ('trialing', 'active', 'past_due')
@@ -302,6 +315,7 @@ func (q *Queries) GetLatestLiveBillingSubscriptionByAccount(ctx context.Context,
 		&i.UpdatedAt,
 		&i.PaymentReversedAt,
 		&i.PaymentSettledAt,
+		&i.SnapshotObservedAt,
 	)
 	return i, err
 }
@@ -555,7 +569,7 @@ func (q *Queries) ListBillingEntitlementsByAccount(ctx context.Context, billingA
 }
 
 const listBillingSubscriptionsByAccount = `-- name: ListBillingSubscriptionsByAccount :many
-SELECT id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at
+SELECT id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at, snapshot_observed_at
 FROM billing_subscriptions
 WHERE billing_account_id = $1
 ORDER BY updated_at DESC, id DESC
@@ -590,6 +604,7 @@ func (q *Queries) ListBillingSubscriptionsByAccount(ctx context.Context, billing
 			&i.UpdatedAt,
 			&i.PaymentReversedAt,
 			&i.PaymentSettledAt,
+			&i.SnapshotObservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -750,7 +765,7 @@ SET payment_settled_at = GREATEST(payment_settled_at, $1),
     END
 WHERE billing_account_id = $2
   AND stripe_subscription_id = $3
-RETURNING id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at
+RETURNING id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at, snapshot_observed_at
 `
 
 type SettleBillingSubscriptionPaymentParams struct {
@@ -784,6 +799,7 @@ func (q *Queries) SettleBillingSubscriptionPayment(ctx context.Context, arg Sett
 		&i.UpdatedAt,
 		&i.PaymentReversedAt,
 		&i.PaymentSettledAt,
+		&i.SnapshotObservedAt,
 	)
 	return i, err
 }
@@ -1060,7 +1076,8 @@ INSERT INTO billing_subscriptions (
     past_due_since,
     cancel_at_period_end,
     canceled_at,
-    raw_payload
+    raw_payload,
+    snapshot_observed_at
 )
 VALUES (
     $1,
@@ -1076,7 +1093,8 @@ VALUES (
     CASE WHEN $6::varchar = 'past_due' THEN NOW() ELSE NULL END,
     $11,
     $12,
-    $13
+    $13,
+    $14
 )
 ON CONFLICT (stripe_subscription_id) DO UPDATE
 SET billing_account_id = EXCLUDED.billing_account_id,
@@ -1097,8 +1115,11 @@ SET billing_account_id = EXCLUDED.billing_account_id,
     cancel_at_period_end = EXCLUDED.cancel_at_period_end,
     canceled_at = EXCLUDED.canceled_at,
     raw_payload = EXCLUDED.raw_payload,
+    snapshot_observed_at = EXCLUDED.snapshot_observed_at,
     updated_at = NOW()
-RETURNING id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at
+WHERE billing_subscriptions.snapshot_observed_at IS NULL
+   OR billing_subscriptions.snapshot_observed_at <= EXCLUDED.snapshot_observed_at
+RETURNING id, billing_account_id, stripe_subscription_id, stripe_price_id, plan_key, billing_interval, status, quantity, trial_end, current_period_start, current_period_end, past_due_since, cancel_at_period_end, canceled_at, raw_payload, created_at, updated_at, payment_reversed_at, payment_settled_at, snapshot_observed_at
 `
 
 type UpsertBillingSubscriptionParams struct {
@@ -1115,8 +1136,10 @@ type UpsertBillingSubscriptionParams struct {
 	CancelAtPeriodEnd    bool               `json:"cancel_at_period_end"`
 	CanceledAt           pgtype.Timestamptz `json:"canceled_at"`
 	RawPayload           json.RawMessage    `json:"raw_payload"`
+	SnapshotObservedAt   pgtype.Timestamptz `json:"snapshot_observed_at"`
 }
 
+// A snapshot read before the stored one is stale: no row is returned.
 func (q *Queries) UpsertBillingSubscription(ctx context.Context, arg UpsertBillingSubscriptionParams) (BillingSubscription, error) {
 	row := q.db.QueryRow(ctx, upsertBillingSubscription,
 		arg.BillingAccountID,
@@ -1132,6 +1155,7 @@ func (q *Queries) UpsertBillingSubscription(ctx context.Context, arg UpsertBilli
 		arg.CancelAtPeriodEnd,
 		arg.CanceledAt,
 		arg.RawPayload,
+		arg.SnapshotObservedAt,
 	)
 	var i BillingSubscription
 	err := row.Scan(
@@ -1154,6 +1178,7 @@ func (q *Queries) UpsertBillingSubscription(ctx context.Context, arg UpsertBilli
 		&i.UpdatedAt,
 		&i.PaymentReversedAt,
 		&i.PaymentSettledAt,
+		&i.SnapshotObservedAt,
 	)
 	return i, err
 }

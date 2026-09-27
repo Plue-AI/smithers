@@ -261,6 +261,7 @@ type BillingSubscription struct {
 	UpdatedAt            time.Time          `json:"updated_at"`
 	PaymentReversedAt    pgtype.Timestamptz `json:"payment_reversed_at"`
 	PaymentSettledAt     pgtype.Timestamptz `json:"payment_settled_at"`
+	SnapshotObservedAt   pgtype.Timestamptz `json:"snapshot_observed_at"`
 }
 
 type BillingUsageCounter struct {

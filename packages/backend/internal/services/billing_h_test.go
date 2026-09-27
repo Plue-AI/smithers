@@ -535,13 +535,13 @@ func TestBilling_H_WebhookHandlerErrorBranches(t *testing.T) {
 	subscriptionLookupErrQueries.getBillingAccountByStripeCustomerFn = func(context.Context, string) (db.BillingAccount, error) {
 		return db.BillingAccount{}, errors.New("account lookup failed")
 	}
-	err = billingHService(subscriptionLookupErrQueries, nil).handleSubscriptionEvent(ctx, stripeSubscriptionPayload{Customer: "cus_h"}, nil)
+	err = billingHService(subscriptionLookupErrQueries, nil).handleSubscriptionEvent(ctx, stripeSubscriptionPayload{Customer: "cus_h"}, nil, time.Time{})
 	assert.Equal(t, 500, httpStatus(err))
 
 	err = billingHService(billingHNewQuerier(), nil).handleSubscriptionEvent(ctx, stripeSubscriptionPayload{
 		Customer: "cus_missing",
 		Metadata: map[string]string{"owner_type": "bad", "owner_id": "42"},
-	}, nil)
+	}, nil, time.Time{})
 	require.NoError(t, err)
 
 	subscriptionUpsertErrQueries := billingHNewQuerier()
@@ -551,7 +551,7 @@ func TestBilling_H_WebhookHandlerErrorBranches(t *testing.T) {
 	err = billingHService(subscriptionUpsertErrQueries, nil).handleSubscriptionEvent(ctx, stripeSubscriptionPayload{
 		Customer: "cus_new_h",
 		Metadata: map[string]string{"owner_type": BillingOwnerTypeUser, "owner_id": "42"},
-	}, nil)
+	}, nil, time.Time{})
 	assert.Equal(t, 500, httpStatus(err))
 
 	trialEventErrQueries := billingHNewQuerier()
@@ -559,13 +559,13 @@ func TestBilling_H_WebhookHandlerErrorBranches(t *testing.T) {
 		return db.BillingSubscription{}, errors.New("subscription write failed")
 	}
 	billingHSeedAccount(trialEventErrQueries, account)
-	err = billingHService(trialEventErrQueries, nil).handleSubscriptionTrialWillEnd(ctx, stripeSubscriptionPayload{Customer: "cus_h", Status: "trialing"}, nil)
+	err = billingHService(trialEventErrQueries, nil).handleSubscriptionTrialWillEnd(ctx, stripeSubscriptionPayload{Customer: "cus_h", Status: "trialing"}, nil, time.Time{})
 	assert.Equal(t, 500, httpStatus(err))
 
 	err = billingHService(billingHNewQuerier(), nil).handleSubscriptionTrialWillEnd(ctx, stripeSubscriptionPayload{
 		Metadata: map[string]string{"owner_type": BillingOwnerTypeUser, "owner_id": "42"},
 		Status:   "trialing",
-	}, nil)
+	}, nil, time.Time{})
 	require.NoError(t, err)
 
 	err = billingHService(billingHNewQuerier(), nil).handleInvoicePaymentFailed(ctx, stripeInvoicePaymentFailedPayload{Customer: "cus_missing"})
@@ -707,11 +707,11 @@ func TestBilling_H_SubscriptionPlanResolverAndSmallHelpers(t *testing.T) {
 		overrideUpsert = arg
 		return db.BillingSubscription{}, nil
 	}
-	require.NoError(t, billingHService(overrideQueries, nil).upsertSubscriptionSnapshot(ctx, account, StripeSubscriptionSnapshot{
+	require.NoError(t, billingHService(overrideQueries, nil).upsertSubscriptionSnapshot(ctx, account, observedSubscription{StripeSubscriptionSnapshot: StripeSubscriptionSnapshot{
 		ID:      "sub_override",
 		Status:  "active",
 		PlanKey: "manual_override",
-	}))
+	}}))
 	assert.Equal(t, "manual_override", overrideUpsert.PlanKey)
 
 	blankPlanQueries := billingHNewQuerier()
@@ -724,10 +724,10 @@ func TestBilling_H_SubscriptionPlanResolverAndSmallHelpers(t *testing.T) {
 	blankPlanSvc.checkoutPlans["blank"] = map[string]billingPlanDefinition{
 		BillingPlanFree: {},
 	}
-	require.NoError(t, blankPlanSvc.upsertSubscriptionSnapshot(ctx, db.BillingAccount{ID: 444, OwnerType: "blank", OwnerID: 1}, StripeSubscriptionSnapshot{
+	require.NoError(t, blankPlanSvc.upsertSubscriptionSnapshot(ctx, db.BillingAccount{ID: 444, OwnerType: "blank", OwnerID: 1}, observedSubscription{StripeSubscriptionSnapshot: StripeSubscriptionSnapshot{
 		ID:     "sub_blank_plan",
 		Status: "active",
-	}))
+	}}))
 	assert.Equal(t, BillingPlanCustom, blankPlanUpsert.PlanKey)
 
 	uncertainQueries := billingHNewQuerier()
@@ -738,11 +738,11 @@ func TestBilling_H_SubscriptionPlanResolverAndSmallHelpers(t *testing.T) {
 	uncertainClient.getSubscriptionFn = func(context.Context, string) (StripeSubscriptionSnapshot, error) {
 		return StripeSubscriptionSnapshot{}, errors.New("stripe verify failed")
 	}
-	require.NoError(t, billingHService(uncertainQueries, uncertainClient).upsertSubscriptionSnapshot(ctx, account, StripeSubscriptionSnapshot{
+	require.NoError(t, billingHService(uncertainQueries, uncertainClient).upsertSubscriptionSnapshot(ctx, account, observedSubscription{StripeSubscriptionSnapshot: StripeSubscriptionSnapshot{
 		ID:       "sub_new_uncertain",
 		Status:   "active",
 		Metadata: map[string]string{"owner_type": "user", "owner_id": "42", "plan_key": "personal", "interval": "monthly"},
-	}))
+	}}))
 	assert.Empty(t, uncertainClient.canceledSubscriptions)
 
 	cancelErrQueries := billingHNewQuerier()
@@ -751,11 +751,11 @@ func TestBilling_H_SubscriptionPlanResolverAndSmallHelpers(t *testing.T) {
 	}
 	cancelErrClient := billingHStripeClient()
 	cancelErrClient.cancelSubscriptionErr = errors.New("cancel failed")
-	require.NoError(t, billingHService(cancelErrQueries, cancelErrClient).upsertSubscriptionSnapshot(ctx, account, StripeSubscriptionSnapshot{
+	require.NoError(t, billingHService(cancelErrQueries, cancelErrClient).upsertSubscriptionSnapshot(ctx, account, observedSubscription{StripeSubscriptionSnapshot: StripeSubscriptionSnapshot{
 		ID:       "sub_cancel_err",
 		Status:   "active",
 		Metadata: map[string]string{"owner_type": "user", "owner_id": "42", "plan_key": "personal", "interval": "monthly"},
-	}))
+	}}))
 	assert.Empty(t, cancelErrClient.canceledSubscriptions)
 
 	ensureFindErrQueries := billingHNewQuerier()

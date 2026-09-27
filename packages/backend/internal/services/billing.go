@@ -675,7 +675,7 @@ func (s *BillingService) ReconcileOrgSeats(ctx context.Context, orgID int64) err
 	}
 	// Refresh the local projection immediately so the DB row reflects the new
 	// quantity; the customer.subscription.updated webhook confirms it later.
-	snapshot, err := s.stripe.GetSubscription(ctx, subscriptionRow.StripeSubscriptionID)
+	snapshot, err := s.fetchSubscription(ctx, subscriptionRow.StripeSubscriptionID)
 	if err != nil {
 		return nil
 	}
@@ -811,13 +811,13 @@ func (s *BillingService) handleStripeEvent(ctx context.Context, eventID string, 
 		if err := json.Unmarshal(raw, &subscription); err != nil {
 			return pkgerrors.BadRequest("invalid customer.subscription payload")
 		}
-		return s.handleSubscriptionEvent(ctx, subscription, raw)
+		return s.handleSubscriptionEvent(ctx, subscription, raw, occurred)
 	case "customer.subscription.trial_will_end":
 		var subscription stripeSubscriptionPayload
 		if err := json.Unmarshal(raw, &subscription); err != nil {
 			return pkgerrors.BadRequest("invalid customer.subscription.trial_will_end payload")
 		}
-		return s.handleSubscriptionTrialWillEnd(ctx, subscription, raw)
+		return s.handleSubscriptionTrialWillEnd(ctx, subscription, raw, occurred)
 	case "invoice.paid":
 		var invoice stripeInvoicePaidPayload
 		if err := json.Unmarshal(raw, &invoice); err != nil {
@@ -1831,7 +1831,7 @@ func (s *BillingService) refreshRemoteProjection(ctx context.Context, owner bill
 		return pkgerrors.Internal("failed to load billing subscription").WithCause(err)
 	}
 	if err == nil && strings.TrimSpace(subscription.StripeSubscriptionID) != "" {
-		snapshot, err := s.stripe.GetSubscription(ctx, subscription.StripeSubscriptionID)
+		snapshot, err := s.fetchSubscription(ctx, subscription.StripeSubscriptionID)
 		if err != nil {
 			return pkgerrors.Internal("failed to refresh stripe subscription").WithCause(err)
 		}
@@ -1873,7 +1873,7 @@ func (s *BillingService) handleCheckoutSessionCompleted(ctx context.Context, ses
 	if s.stripe != nil && strings.TrimSpace(session.Subscription) != "" {
 		// A failed fetch fails the webhook so Stripe redelivers it; the
 		// transaction rolls the event claim back.
-		snapshot, err := s.stripe.GetSubscription(ctx, session.Subscription)
+		snapshot, err := s.fetchSubscription(ctx, session.Subscription)
 		if err != nil {
 			return pkgerrors.Internal("failed to load stripe subscription after checkout").WithCause(err)
 		}
@@ -1882,7 +1882,7 @@ func (s *BillingService) handleCheckoutSessionCompleted(ctx context.Context, ses
 	return nil
 }
 
-func (s *BillingService) handleSubscriptionEvent(ctx context.Context, payload stripeSubscriptionPayload, raw json.RawMessage) error {
+func (s *BillingService) handleSubscriptionEvent(ctx context.Context, payload stripeSubscriptionPayload, raw json.RawMessage, occurred time.Time) error {
 	account, err := s.findBillingAccountByCustomerID(ctx, payload.Customer)
 	if err != nil {
 		return err
@@ -1903,19 +1903,21 @@ func (s *BillingService) handleSubscriptionEvent(ctx context.Context, payload st
 	// customer.subscription.updated can carry an old "active" status and overwrite a
 	// newer "canceled" state — resurrecting a canceled subscription. Re-fetch the
 	// current subscription from Stripe and persist that authoritative snapshot
-	// (mirroring handleCheckoutSessionCompleted); fall back to the webhook payload
-	// only when Stripe is unavailable (offline/tests).
-	snapshot := snapshotFromWebhookSubscription(payload, raw)
-	if s.stripe != nil && strings.TrimSpace(payload.ID) != "" {
-		if authoritative, err := s.stripe.GetSubscription(ctx, payload.ID); err == nil {
-			snapshot = authoritative
-		}
+	// (mirroring handleCheckoutSessionCompleted). A failed fetch fails the webhook
+	// so Stripe redelivers it. Only without Stripe (offline/tests) is the payload
+	// projected, as of the event's creation.
+	if s.stripe == nil || strings.TrimSpace(payload.ID) == "" {
+		return s.projectWebhookSubscription(ctx, *account, observedSubscription{snapshotFromWebhookSubscription(payload, raw), occurred})
+	}
+	snapshot, err := s.fetchSubscription(ctx, payload.ID)
+	if err != nil {
+		return pkgerrors.Internal("failed to load stripe subscription").WithCause(err)
 	}
 	return s.projectWebhookSubscription(ctx, *account, snapshot)
 }
 
-func (s *BillingService) handleSubscriptionTrialWillEnd(ctx context.Context, payload stripeSubscriptionPayload, raw json.RawMessage) error {
-	if err := s.handleSubscriptionEvent(ctx, payload, raw); err != nil {
+func (s *BillingService) handleSubscriptionTrialWillEnd(ctx context.Context, payload stripeSubscriptionPayload, raw json.RawMessage, occurred time.Time) error {
+	if err := s.handleSubscriptionEvent(ctx, payload, raw, occurred); err != nil {
 		return err
 	}
 	account, err := s.findBillingAccountByCustomerID(ctx, payload.Customer)
@@ -1951,7 +1953,7 @@ func (s *BillingService) handleInvoicePaymentFailed(ctx context.Context, payload
 		account = &updated
 	}
 	if subscriptionID := payload.subscriptionID(); s.stripe != nil && subscriptionID != "" {
-		snapshot, err := s.stripe.GetSubscription(ctx, subscriptionID)
+		snapshot, err := s.fetchSubscription(ctx, subscriptionID)
 		if err != nil {
 			return pkgerrors.Internal("failed to refresh stripe subscription after payment failure").WithCause(err)
 		}
@@ -2085,7 +2087,32 @@ func (s *BillingService) replaceEntitlements(ctx context.Context, billingAccount
 	return nil
 }
 
-func (s *BillingService) upsertSubscriptionSnapshot(ctx context.Context, account db.BillingAccount, snapshot StripeSubscriptionSnapshot) error {
+// observedSubscription is a Stripe subscription snapshot and the database
+// time just before it was read: Stripe's state is at least that new.
+type observedSubscription struct {
+	StripeSubscriptionSnapshot
+	observedAt time.Time
+}
+
+// fetchSubscription reads a subscription from Stripe, stamped with the
+// database clock so concurrent writers on every replica compare one clock.
+func (s *BillingService) fetchSubscription(ctx context.Context, subscriptionID string) (observedSubscription, error) {
+	observedAt, err := s.queries.BillingSnapshotClock(ctx)
+	if err != nil {
+		return observedSubscription{}, fmt.Errorf("read database clock: %w", err)
+	}
+	snapshot, err := s.stripe.GetSubscription(ctx, subscriptionID)
+	if err != nil {
+		return observedSubscription{}, err
+	}
+	return observedSubscription{snapshot, observedAt}, nil
+}
+
+// upsertSubscriptionSnapshot projects snapshot unless the stored snapshot was
+// read after it (smithersai/smithers#2193): a webhook that read Stripe before
+// a concurrent webhook read and committed a newer state cannot overwrite it.
+func (s *BillingService) upsertSubscriptionSnapshot(ctx context.Context, account db.BillingAccount, observed observedSubscription) error {
+	snapshot := observed.StripeSubscriptionSnapshot
 	plan := s.planFromPrice(account.OwnerType, snapshot.PriceID, snapshot.Interval)
 	if snapshot.PlanKey != "" {
 		plan.Key = snapshot.PlanKey
@@ -2159,8 +2186,9 @@ func (s *BillingService) upsertSubscriptionSnapshot(ctx context.Context, account
 		CancelAtPeriodEnd:    snapshot.CancelAtPeriodEnd,
 		CanceledAt:           nullableTimestamptz(snapshot.CanceledAt),
 		RawPayload:           snapshot.RawPayload,
+		SnapshotObservedAt:   nullableTimestamptz(observed.observedAt),
 	})
-	if err != nil {
+	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) { // ErrNoRows: a newer snapshot is stored
 		return pkgerrors.Internal("failed to persist billing subscription").WithCause(err)
 	}
 	return nil
@@ -2171,7 +2199,7 @@ func (s *BillingService) upsertSubscriptionSnapshot(ctx context.Context, account
 // forfeits, inside its transaction: a refresh or a read that forfeited from
 // its own snapshot could take credit a concurrent webhook just granted
 // (smithersai/smithers#2175).
-func (s *BillingService) projectWebhookSubscription(ctx context.Context, account db.BillingAccount, snapshot StripeSubscriptionSnapshot) error {
+func (s *BillingService) projectWebhookSubscription(ctx context.Context, account db.BillingAccount, snapshot observedSubscription) error {
 	if err := s.upsertSubscriptionSnapshot(ctx, account, snapshot); err != nil {
 		return err
 	}

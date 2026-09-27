@@ -51,7 +51,8 @@ INSERT INTO billing_subscriptions (
     past_due_since,
     cancel_at_period_end,
     canceled_at,
-    raw_payload
+    raw_payload,
+    snapshot_observed_at
 )
 VALUES (
     sqlc.arg(billing_account_id),
@@ -67,7 +68,8 @@ VALUES (
     CASE WHEN sqlc.arg(status)::varchar = 'past_due' THEN NOW() ELSE NULL END,
     sqlc.arg(cancel_at_period_end),
     sqlc.arg(canceled_at),
-    sqlc.arg(raw_payload)
+    sqlc.arg(raw_payload),
+    sqlc.arg(snapshot_observed_at)
 )
 ON CONFLICT (stripe_subscription_id) DO UPDATE
 SET billing_account_id = EXCLUDED.billing_account_id,
@@ -88,8 +90,17 @@ SET billing_account_id = EXCLUDED.billing_account_id,
     cancel_at_period_end = EXCLUDED.cancel_at_period_end,
     canceled_at = EXCLUDED.canceled_at,
     raw_payload = EXCLUDED.raw_payload,
+    snapshot_observed_at = EXCLUDED.snapshot_observed_at,
     updated_at = NOW()
+-- A snapshot read before the stored one is stale: no row is returned.
+WHERE billing_subscriptions.snapshot_observed_at IS NULL
+   OR billing_subscriptions.snapshot_observed_at <= EXCLUDED.snapshot_observed_at
 RETURNING *;
+
+
+-- name: BillingSnapshotClock :one
+-- The database time just before a subscription is read from Stripe.
+SELECT clock_timestamp()::timestamptz AS observed_at;
 
 
 -- name: GetLatestBillingSubscriptionByAccount :one
