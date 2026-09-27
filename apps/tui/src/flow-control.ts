@@ -8,10 +8,12 @@ import * as BunControl from "@smthrs/cli/BunControl"
 import * as NodeControl from "@smthrs/cli/NodeControl"
 import { Control, type ControlSchema } from "@smthrs/control"
 import * as Diagnosis from "@smthrs/gateway/Diagnosis"
+import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { executionDigest } from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Stream } from "effect"
+import { FetchHttpClient } from "effect/unstable/http"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import * as Approvals from "./approvals.ts"
@@ -58,7 +60,11 @@ export const make = (options: {
   readonly stateRoot?: string
 }): Port => {
   const judge = NodeControl.layerSeatEvaluator(options.environment).pipe(
-    Layer.provide(NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(options.environment)))
+    Layer.provide(
+      process.versions.bun === undefined
+        ? NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(options.environment))
+        : RequestExecutor.layer.pipe(Layer.provide(FetchHttpClient.layer))
+    )
   )
   const registry = () => NativeControl.layerRegistry(options.cwd)
   let opening: Promise<Opened> | undefined

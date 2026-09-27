@@ -113,7 +113,7 @@ export interface Host {
   }
   /** One short answer from `seat`, outside any turn; estimates, descriptions and monitor updates use it. */
   readonly complete?: (input: { system: string; prompt: string; seat: string }) => Promise<string>
-  /** Whether Jev judges completions and workers bind `jev`; false when `AI_GATEWAY_API_KEY` is unset. */
+  /** Whether the host judges worker completions and binds `jev`. */
   readonly judged: boolean
   /** Whether a worker with no chosen model runs on `Seat.auto`; false on test fakes. */
   readonly routes?: boolean

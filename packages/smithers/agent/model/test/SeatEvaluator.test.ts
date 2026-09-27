@@ -18,10 +18,10 @@ const answers = {
   activity: { type: "choice", choice: "done" },
   score: { type: "score", score: 1 }
 }
-const run = (model: Model.Model, options: { timeoutMs?: number } = {}) =>
+const run = (model: Model.Model, options: { timeoutMs?: number } = {}, input = request) =>
   Effect.runPromise(
     Effect.gen(function*() {
-      return yield* (yield* Evaluator.Evaluator).evaluate(request)
+      return yield* (yield* Evaluator.Evaluator).evaluate(input)
     }).pipe(Effect.provide(Evaluator.layerFromSeat({ modelId: "gpt-6-astra", model }, options)))
   )
 const reply = (value: unknown, stopReason: "stop" | "length" = "stop") =>
@@ -54,6 +54,39 @@ describe("subscription seat evaluator", () => {
     )
       .rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
   })
+  it("rejects non-JSON evidence before contacting the seat", async () => {
+    let called = false
+    const state: Record<string, unknown> = {}
+    state.self = state
+    await expect(run(
+      Model.make({
+        stream: () => {
+          called = true
+          return Stream.empty
+        }
+      }),
+      {},
+      { ...request, state }
+    )).rejects.toMatchObject({ code: "invalid_question" })
+    expect(called).toBe(false)
+  })
+  it("preserves valid probabilities and token usage", async () => {
+    const scored = {
+      ...answers,
+      activity: { ...answers.activity, probabilities: { done: 0.9, busy: 0.1 } },
+      score: { ...answers.score, probabilities: { 0: 0.1, 1: 0.9 } }
+    }
+    const result = await run(Model.make({
+      stream: () =>
+        Stream.make(
+          { type: "text-delta", id: "answer", text: JSON.stringify({ answers: scored }) },
+          { type: "usage", inputTokens: 12, outputTokens: 7 },
+          { type: "settle", stopReason: "stop" }
+        )
+    }))
+    expect(result.answers).toEqual(scored)
+    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 7 })
+  })
   it.each([
     "not json",
     {},
@@ -61,7 +94,9 @@ describe("subscription seat evaluator", () => {
     { answers: { ...answers, accepted: { type: "boolean", probability: 2 } } },
     { answers: { ...answers, accepted: { type: "choice", choice: "done" } } },
     { answers: { ...answers, activity: { type: "choice", choice: "invented" } } },
-    { answers: { ...answers, score: { type: "score", score: 2 } } }
+    { answers: { ...answers, score: { type: "score", score: 2 } } },
+    { answers: { ...answers, activity: { ...answers.activity, probabilities: { done: 2 } } } },
+    { answers: { ...answers, score: { ...answers.score, probabilities: { 0: -0.1 } } } }
   ])("rejects invalid verdict %#", async (value) => {
     await expect(run(reply(value))).rejects.toMatchObject({ code: "invalid_answer" })
   })

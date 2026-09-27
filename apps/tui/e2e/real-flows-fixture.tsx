@@ -1,7 +1,7 @@
 /**
  * PTY host whose flow port is the real one: `FlowControl.make` over the
  * working directory's `flows/`, launching durable runs on the native control
- * plane. Only the network edges are local: an OpenAI-compatible model that
+ * plane. Only the network edges are local: a subscription pool that
  * answers every prompt flow with one cell, and a judge that passes the
  * completion. Chat is a fixed reply, since chat is not under test here.
  */
@@ -13,22 +13,38 @@ import * as FlowControl from "../src/flow-control.ts"
 import * as Host from "../src/host.ts"
 
 const stream = (text: string) => {
-  const chunk = (delta: object, finish: string | null) =>
-    `data: ${
-      JSON.stringify({
-        id: "c",
-        object: "chat.completion.chunk",
-        created: 0,
-        model: "m",
-        choices: [{ index: 0, delta, finish_reason: finish }]
-      })
-    }\n\n`
-  return `${chunk({ role: "assistant", content: text }, null)}${chunk({}, "stop")}data: [DONE]\n\n`
+  return [
+    { type: "response.output_text.delta", item_id: "answer", output_index: 0, content_index: 0, delta: text },
+    { type: "response.completed", response: { id: "response", status: "completed", usage: {} } }
+  ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
 }
+const passing = new Set(["on_target", "complete"])
 const model = Bun.serve({
   port: 0,
   fetch: async (request) => {
-    const body = await request.json() as { model: string }
+    if (new URL(request.url).pathname === "/routes") return Response.json({ routes: ["chatgpt"] })
+    const body = await request.json() as {
+      model: string
+      instructions?: string
+      input: Array<{ role?: string; content?: Array<{ text?: string }> }>
+    }
+    if (body.instructions?.startsWith("Judge the supplied evidence")) {
+      const prompt = body.input.find((item) => item.role === "user")?.content?.[0]?.text ?? ""
+      const { questions } = JSON.parse(prompt) as {
+        questions: Record<string, { type: string; criteria?: Record<string, string> }>
+      }
+      const answers = Object.fromEntries(
+        Object.entries(questions).map(([id, question]) => [
+          id,
+          question.type === "boolean"
+            ? { type: "boolean", probability: passing.has(id) ? 0.99 : 0.01 }
+            : question.type === "choice"
+            ? { type: "choice", choice: Object.keys(question.criteria ?? {})[0] ?? "" }
+            : { type: "score", score: 0 }
+        ])
+      )
+      return new Response(stream(JSON.stringify({ answers })), { headers: { "content-type": "text/event-stream" } })
+    }
     if (process.env.TUI_MODEL_LOG) appendFileSync(process.env.TUI_MODEL_LOG, body.model + "\n")
     if (body.model === process.env.TUI_REFUSED_MODEL) {
       return process.env.TUI_REFUSAL === "overflow"
@@ -42,32 +58,12 @@ const model = Bun.serve({
     })
   }
 })
-// The completion brake asks Jev; this judge says the run stayed on target and its claim holds.
-const passing = new Set(["on_target", "complete"])
-const judge = Bun.serve({
-  port: 0,
-  fetch: async (request) => {
-    const body = await request.json() as {
-      questions: Record<string, { type: string; options?: ReadonlyArray<string> }>
-    }
-    const answers = Object.fromEntries(
-      Object.entries(body.questions).map(([id, question]) => [
-        id,
-        question.type === "boolean"
-          ? { type: "boolean", probability: passing.has(id) ? 0.99 : 0.01 }
-          : question.type === "choice"
-          ? { type: "choice", choice: question.options?.[0] ?? "" }
-          : { type: "score", score: 0 }
-      ])
-    )
-    return Response.json({ answers })
-  }
-})
 Object.assign(process.env, {
-  OPENAI_API_KEY: "fixture",
-  SMITHERS_OPENAI_COMPATIBLE_BASE_URL: `http://127.0.0.1:${model.port}`,
-  AI_GATEWAY_API_KEY: "fixture",
-  SMITHERS_EVALUATOR_BASE_URL: `http://127.0.0.1:${judge.port}`
+  SMITHERS_ACCOUNT_POOL_URL: `http://127.0.0.1:${model.port}`,
+  SMITHERS_ACCOUNT_POOL_KEY: "fixture-host",
+  SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+  CODEX_HOME: "/nonexistent",
+  NO_PROXY: "*"
 })
 const environment = { ...process.env } as Record<string, string>
 const approvals = Host.make({ cwd: process.cwd(), environment, approvals: "all" }).approvals!
@@ -80,7 +76,6 @@ const host: Host.Host = {
   dispose: async () => {
     await flows.dispose()
     model.stop()
-    judge.stop()
   },
   run: (input) => {
     queueMicrotask(() =>

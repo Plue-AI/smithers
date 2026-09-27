@@ -1204,10 +1204,8 @@ const stageLegacyProject = (directory: string): string => {
 /**
  * One `smithers` process, run from inside a staged project.
  *
- * `environment` is merged over this process's own, because a verb that
- * composes its own agent host reads `AI_GATEWAY_API_KEY` from it and a case
- * about a migration gate must not pass or fail on whether the developer
- * running it happens to export a gateway key.
+ * `environment` overrides this process's environment for configuration cases.
+ * Safety gates run before the migration asks its subscription judge.
  */
 const inProject = (
   cwd: string,
@@ -1221,8 +1219,8 @@ const inProject = (
     env: { ...process.env, ...environment }
   })
 
-/** A gateway key no case here spends: every migration gate below refuses before a judge is asked anything. */
-const unspentGatewayKey = { AI_GATEWAY_API_KEY: "gateway-key-no-migration-gate-spends" }
+/** Safety gates need no model credentials and must not read local subscriptions. */
+const keylessMigration = { AI_GATEWAY_API_KEY: "", CODEX_HOME: "/nonexistent" }
 
 /**
  * The release policy detection, at the process boundary.
@@ -1478,7 +1476,7 @@ describe("the migrate verb's option surface", processBudget, () => {
   it("reaches apply mode with --apply, where plan mode never writes", () => {
     const cwd = stageTerminal()
     try {
-      const result = inProject(cwd, ["migrate", "--apply", "--json"], unspentGatewayKey)
+      const result = inProject(cwd, ["migrate", "--apply", "--json"], keylessMigration)
       const output = `${result.stdout}${result.stderr}`
 
       expect(output).not.toContain("Unrecognized flag")
@@ -1494,20 +1492,16 @@ describe("the migrate verb's option surface", processBudget, () => {
     }
   })
 
-  it("refuses an apply with no judge before it reaches the run-state gate", () => {
+  it("parks a keyless apply at the run-state gate", () => {
     const cwd = stageTerminal()
     try {
-      // Apply composes its own agent host, so the control fixture's judge does
-      // not authorize the migration's. With no key it refuses ahead of the
-      // gate the case above parks at, which is what makes it a startup contract
-      // rather than one more gate.
-      const result = inProject(cwd, ["migrate", "--apply", "--json"], { AI_GATEWAY_API_KEY: "" })
+      const result = inProject(cwd, ["migrate", "--apply", "--json"], keylessMigration)
       const output = `${result.stdout}${result.stderr}`
 
-      expect(result.status).toBe(1)
-      expect(output).toContain("smithers migrate needs AI_GATEWAY_API_KEY")
-      expect(output).toContain("deliberately bind Evaluator.layerScripted")
-      expect(output).not.toContain("--acknowledge-run-state")
+      expect(result.status).toBe(3)
+      expect(JSON.parse(result.stdout).code).toBe("run-state-blocked")
+      expect(output).toContain("--acknowledge-run-state")
+      expect(output).not.toContain("AI_GATEWAY_API_KEY")
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
@@ -1563,7 +1557,7 @@ describe("the migrate verb's target", processBudget, () => {
       const result = inProject(
         project,
         ["migrate", "--apply", "--acknowledge-run-state", "--json"],
-        unspentGatewayKey
+        keylessMigration
       )
 
       expect(result.status).toBe(1)
@@ -1579,19 +1573,20 @@ describe("the migrate verb's target", processBudget, () => {
     }
   })
 
-  it("refuses an unjudged apply without rewriting either nested project", () => {
+  it("refuses a keyless apply without version control or rewriting either nested project", () => {
     const { ancestor, project } = stageNested()
     try {
-      // The judge decision precedes the version-control gate and all writes.
+      // Version-control safety is checked before any model is needed.
       const result = inProject(
         project,
         ["migrate", "--apply", "--acknowledge-run-state", "--json"],
-        { AI_GATEWAY_API_KEY: "" }
+        keylessMigration
       )
 
       expect(result.status).toBe(1)
-      expect(JSON.parse(result.stdout).message).toContain("smithers migrate needs AI_GATEWAY_API_KEY")
-      // Missing judge configuration precedes even lock metadata creation.
+      expect(JSON.parse(result.stdout).message).toContain(`"${project}" is under no version control`)
+      expect(result.stdout).not.toContain("AI_GATEWAY_API_KEY")
+      // Safety checks precede even lock metadata creation.
       expect(existsSync(join(ancestor, ".smithers-migrate"))).toBe(false)
       expect(existsSync(join(project, ".smithers-migrate"))).toBe(false)
       expect(readFileSync(join(project, ".smithers/workflows/ship.tsx"), "utf8")).toBe("export default null\n")
