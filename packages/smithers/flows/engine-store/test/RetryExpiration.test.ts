@@ -7,6 +7,7 @@ import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
  * wall-clock budget is exhausted, without re-dispatching the action body.
  */
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Action, Flow, FlowRuntime, RetryPolicy, StepIdentity } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import { Jj } from "@smthrs/kernel"
@@ -131,14 +132,15 @@ describe("expirationMs survives a restart mid-retry (issue #45)", () => {
           }).pipe(Effect.forkChild({ startImmediately: true }))
 
           // Wait until attempt 1 durably failed and the drive is parked in its
-          // retry sleep, then kill the process mid-retry.
-          let finished = false
-          for (let i = 0; i < 500 && !finished; i++) {
-            yield* Effect.yieldNow
-            const row = yield* attempts.get(attemptId)
-            finished = Option.isSome(row) && row.value.state === "failed"
-          }
-          expect(finished).toBe(true)
+          // retry sleep, then kill the process mid-retry. The failure is
+          // database I/O, which no count of scheduler turns waits for on a
+          // server database. The test clock holds the retry sleep, so the
+          // body cannot run again while this waits.
+          yield* TestDatabase.until(
+            attempts.get(attemptId).pipe(
+              Effect.map((row) => Option.isSome(row) && row.value.state === "failed")
+            )
+          )
           expect(bodyRuns).toBe(1)
 
           // Process death mid-retry: closing the engine scope interrupts the
