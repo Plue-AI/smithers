@@ -1,4 +1,4 @@
-import { hostedSession, identityProviderFor, ownerCredentials } from "./IdentityProvider"
+import { identityProviderFor, ownerCredentials } from "./IdentityProvider"
 import type { IdentityProvider } from "./IdentityProvider"
 import type { ClientErrorReporter } from "./ClientErrors"
 import type { FlowSubmission } from "../flows/Commands"
@@ -987,12 +987,9 @@ export const createAppController = (
     return refusal
   }
 
-  // A hosted browser session uses its hosted identity seam. A selected Plue
-  // bearer/token target, and the owner's backend, read through the application client.
-  const cloudSession = hostedSession(services)
-  const applicationIdentity = cloudSession
-    ? undefined
-    : services.applicationIdentity
+  // Every selected backend reads its canonical user API, including hosted
+  // cookie sessions. The bootstrap still identifies the GitHub sign-in door.
+  const applicationIdentity = services.applicationIdentity
   let localAuth: LocalAuthController | undefined
   const {
     handleAuthReturn,

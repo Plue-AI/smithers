@@ -162,7 +162,7 @@ test("an owner backend names its credential door without promising GitHub", asyn
   })
 })
 
-test("the hosted cloud GitHub door bypasses owner-local auth and uses the cloud OAuth route", async () => {
+test("the hosted GitHub door bypasses owner credentials and uses the selected backend OAuth route", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const assigned: string[] = []
   let localStatusReads = 0
@@ -201,7 +201,7 @@ test("the hosted cloud GitHub door bypasses owner-local auth and uses the cloud 
     await controller.commands.run("auth.sign-in")
     await settle()
 
-    expect(assigned).toEqual(["/api/auth/github/start"])
+    expect(assigned).toEqual(["/api/auth/github"])
     expect(localStatusReads).toBe(0)
     expect(applicationIdentityReads).toBe(0)
   } finally {

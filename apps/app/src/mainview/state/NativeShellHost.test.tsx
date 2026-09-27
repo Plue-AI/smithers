@@ -118,6 +118,29 @@ describe("a self-host bootstrap never enables native-shell UI", () => {
   })
 })
 
+test("the hosted GitHub cookie session reads the selected backend identity and opens signup", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let identityReads = 0
+  const requests: string[] = []
+  const controller = createAppController(store, silentAgent, {
+    ...ownerSeams(WORKER),
+    applicationIdentity: { current: async () => {
+      identityReads++
+      return { username: "github-owner", admin: false }
+    } },
+    http: async (url) => { requests.push(String(url)); return new Response("{}", { status: 404 }) }
+  })
+  await controller.loadSession()
+  await settled()
+  expect(identityReads).toBeGreaterThan(0)
+  expect(requests.some(url => url.includes("/api/auth/session"))).toBe(false)
+  expect(controller.identityProvider).toBe("github")
+  expect(store.collections.identitySessions.get("identity")).toMatchObject({ state: "signed-in", login: "github-owner", provider: "github" })
+  const { host } = mount(controller)
+  expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("account")
+  expect((host.querySelector('[data-testid="signup-account"]') as HTMLInputElement | null)?.value).toBe("github-owner")
+})
+
 describe("the desktop shell still does", () => {
   test("the shell's relay adds native.shell and only that row is read", () => {
     expect(nativeShell(SHELL_OVER_SELF_HOST)).toBe(true)
