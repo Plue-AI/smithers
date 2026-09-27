@@ -3,6 +3,7 @@
 # fail) and a template for real suites, which live in private configuration.
 name: example-assistant
 role: assistant
+profile: ./flows/assistant/flow.mdx
 org: ./org
 world: ./world
 seat: openai:gpt-6-astra

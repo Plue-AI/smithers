@@ -28,12 +28,12 @@
  * `--judge`, a turn is judged again when it has no verdict or its verdict was
  * made under other judge notes or another rubric (`Rubric.judgeKey`), and
  * `--rejudge` judges every conversation again. `--check-profile` composes the
- * suite's role file (shared instructions, charter, skills, byte caps), prints
- * what it found and exits; it is the check for a role file.
+ * suite's profile (shared instructions, charter, skills, byte caps), prints
+ * what it found and exits; it is the check for a profile.
  *
  * Other flags: `--coverage` lists how many cases test each spec rule; `--cases a,b` keeps some cases; `--category a,b` keeps some
  * categories; `--reply-from summary` reads a RoleResult reply's summary; `--profile <file>` and `--common <file>` swap the
- * role file; `--label <name>` names the run; `--trace` prints every turn.
+ * profile or the shared instructions; `--label <name>` names the run; `--trace` prints every turn.
  *
  * Exit codes: 0 pass, 1 fail, 5 the harness could not run.
  *
@@ -101,14 +101,14 @@ const suite: CharacterSuite.Suite = categories === undefined
   ? loaded
   : { ...loaded, cases: loaded.cases.filter((suiteCase) => categories.includes(suiteCase.category)) }
 const commonFile = option("common")
-// A role file that does not compose (a listed skill missing, a part over its
+// A profile that does not compose (a listed skill missing, a part over its
 // byte cap) stops every mode here, named, before anything runs or spends.
 const composed = ((): Profile.Composed => {
   try {
     return Profile.compose({
       org: suite.org,
       role: suite.role,
-      profileFile: profileFile === undefined ? undefined : resolve(profileFile),
+      profile: profileFile === undefined ? suite.profile : resolve(profileFile),
       commonFile: commonFile === undefined ? undefined : resolve(commonFile)
     })
   } catch (error) {
@@ -715,7 +715,7 @@ const program = Effect.gen(function*() {
     seat: reportLive ? seatId : "replay",
     judge: judging ? suite.judgeSeat : undefined,
     profile: {
-      file: profileFile ?? `${suite.org}/Roles/${suite.role}.md`,
+      file: profileFile ?? suite.profile,
       digest: composed.digest,
       bytes: composed.bytes
     },

@@ -2,8 +2,8 @@
  * Character suites: a role, a world, and the cases that pin its behaviour.
  *
  * A suite directory holds `suite.yaml` and `cases/*.yaml`. `suite.yaml`
- * names the role, the organization directory its instructions come from,
- * the world, the seats, the suite-wide voice rules (forbidden openers and
+ * names the role, its profile (a `flows/<role>/flow.mdx` file), the
+ * directory holding the skills and shared instructions, the world, the seats, the suite-wide voice rules (forbidden openers and
  * phrases, the jargon list, how references are linked) and the judge's
  * calibration file. A case is one scenario: a world patch, the conversation
  * so far, the event that starts the turn, what must and must not happen, a
@@ -114,6 +114,9 @@ export interface Suite {
   readonly dir: string
   readonly name: string
   readonly role: string
+  /** The role's profile: a markdown flow (`flows/<role>/flow.mdx`). */
+  readonly profile: string
+  /** The directory holding `Skills/` and the shared instructions. */
   readonly org: string
   readonly world: string
   readonly seat: string
@@ -191,11 +194,15 @@ export const load = (dir: string, only?: ReadonlyArray<string>): Suite => {
     return parsed
   })
   const kept = only === undefined || only.length === 0 ? cases : cases.filter((c) => only.includes(c.id))
+  if (typeof raw.profile !== "string" || raw.profile === "") {
+    throw new Error(`${join(base, "suite.yaml")}: profile must name the role's flow.mdx`)
+  }
   const calibration = typeof raw.calibration === "string" ? at(base, raw.calibration) : undefined
   return {
     dir: base,
     name: String(raw.name ?? raw.role),
     role: String(raw.role),
+    profile: at(base, raw.profile),
     org: at(base, String(raw.org)),
     world: at(base, String(raw.world)),
     seat: String(raw.seat ?? "openai:gpt-6-astra"),

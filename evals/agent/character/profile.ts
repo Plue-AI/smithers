@@ -1,19 +1,22 @@
 /**
  * The instructions an agent profile runs with.
  *
- * A profile is a Markdown file: YAML frontmatter (`name`, `seat`, `effort`,
- * `skills`, grants and the rest, which the host reads) and a body (the
- * charter). Skills are `Skills/<name>/SKILL.md` files in the Agent Skills
- * format. A directory may also hold shared instructions every profile starts
- * with (`Common Operating Instructions.md`).
+ * A profile is the role's markdown flow, `flows/<role>/flow.mdx`: the one
+ * shape every flow has. Its frontmatter carries what the runtime reads
+ * (`description`, `model`, `effort`, `capabilities`, `budget`, `flows`) and a
+ * string `metadata` map with the role's display `name` and its `skills`, a
+ * comma-separated list; the body is the charter. Skills are
+ * `Skills/<name>/SKILL.md` files in the Agent Skills format. The skills
+ * directory may also hold shared instructions every profile starts with
+ * (`Common Operating Instructions.md`).
  *
  * The system segments are, in order: the host's {@link turnContract}, the
  * shared instructions, the charter under a `# Role:` heading, then each skill
  * the profile lists, in the profile's order, each under a `# Skill:` heading.
  * Byte caps keep a profile from silently growing: 8 KiB for the shared
- * instructions, 12 KiB for the charter, 16 KiB per skill. A profile file can
- * be swapped (`profileFile`) so two versions of one profile run against the
- * same cases.
+ * instructions, 12 KiB for the charter, 16 KiB per skill. A suite names its
+ * profile; `--profile` swaps in another file so two versions of one profile
+ * run against the same cases.
  *
  * {@link turnContract} is the host's half: the mechanics of one
  * conversational turn (where the final answer goes, that readers see only
@@ -57,11 +60,11 @@ export interface Composed {
 
 /** Where a profile's instructions come from. */
 export interface Source {
-  /** The directory holding `Roles/`, `Skills/` and the shared instructions. */
+  /** The directory holding `Skills/` and the shared instructions. */
   readonly org: string
   readonly role: string
-  /** Replaces `Roles/<role>.md`, e.g. an older version of the same profile. */
-  readonly profileFile?: string | undefined
+  /** The profile's `flow.mdx`, or an older version of it. */
+  readonly profile: string
   /** Replaces the shared instructions page. */
   readonly commonFile?: string | undefined
 }
@@ -84,15 +87,19 @@ const capped = (part: string, text: string, cap: number): string => {
 
 /** Composes a profile's system segments, or throws naming the part that is missing or too large. */
 export const compose = (source: Source): Composed => {
-  const profilePath = source.profileFile ?? join(source.org, "Roles", `${source.role}.md`)
-  const { body, meta } = split(readFileSync(profilePath, "utf8"))
+  const { body, meta } = split(readFileSync(source.profile, "utf8"))
+  const metadata = typeof meta.metadata === "object" && meta.metadata !== null
+    ? meta.metadata as Record<string, unknown>
+    : {}
   const commonPath = source.commonFile ?? commonCandidates.map((name) => join(source.org, name)).find(existsSync)
   const common = commonPath === undefined
     ? ""
     : capped("common instructions", readFileSync(commonPath, "utf8"), limits.common)
-  const name = String(meta.name ?? source.role)
+  const name = String(metadata.name ?? source.role)
   const charter = capped("charter", `# Role: ${name} (${source.role})\n\n${body.trim()}`, limits.charter)
-  const skills = Array.isArray(meta.skills) ? meta.skills.map(String) : []
+  const skills = typeof metadata.skills === "string"
+    ? metadata.skills.split(",").map((skill) => skill.trim()).filter((skill) => skill !== "")
+    : []
   const skillTexts = skills.map((skill) => {
     const path = join(source.org, "Skills", skill, "SKILL.md")
     if (!existsSync(path)) throw new Error(`skill ${skill} is listed but ${path} does not exist`)
@@ -107,7 +114,7 @@ export const compose = (source: Source): Composed => {
   return {
     role: source.role,
     name,
-    seat: String(meta.seat ?? ""),
+    seat: typeof meta.model === "string" ? meta.model : "",
     effort,
     skills,
     system,
