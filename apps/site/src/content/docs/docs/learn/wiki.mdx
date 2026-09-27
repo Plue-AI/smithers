@@ -83,7 +83,13 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/wiki/getting-started" \
 
 **Partly available.** When main moves, Smithers regenerates the declared pages, reviews them against the code, and keeps pages a person edited. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
 
-**Planned.** A private wiki beside the public one, and two-way sync with Notion or a Markdown folder.
+The single `coding/wiki` generator uses `.smithers/coding-project.json`. Refreshes retain source and review receipts; unchanged pages can reuse reviews across host deployments ([#1971](https://github.com/smithersai/smithers/issues/1971)). A requested refresh is not a completed refresh.
+
+## Markdown spaces and sync
+
+**Backend available; app connection pending** ([#1922](https://github.com/smithersai/smithers/issues/1922)). Pass `?visibility=public|private` on every wiki API request. Public pages follow repository visibility; private pages require explicit repository access. Markdown paths, YAML frontmatter, wikilinks, backlinks, tags, folders and versioned attachments share the existing page history.
+
+**Planned.** Two-way sync with Notion or a Markdown folder depends on the shared sync mechanism ([#2122](https://github.com/smithersai/smithers/issues/2122)). No existing vault is imported automatically.
 
 ## Next
 
