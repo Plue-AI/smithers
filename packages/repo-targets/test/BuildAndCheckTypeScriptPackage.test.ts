@@ -452,6 +452,7 @@ it("runs a package-owned test matrix with the same source and dependency boundar
 
 it("uses default matrix limits without a package manager or Vitest config", () => {
   const targets = BuildAndCheckTypeScriptPackage({
+    cwd: "packages/example",
     testProgram: Input.file("test-matrix.mjs"),
     vitestConfig: null
   })
