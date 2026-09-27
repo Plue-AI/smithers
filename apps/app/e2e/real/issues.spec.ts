@@ -142,13 +142,19 @@ test(
     })
     const marker = `sol12-denied-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     await runSlash(page, `/issues.create ${marker} codeplanesmithers/canary-sandbox`)
-    const signIn = page.locator('button[data-flow="auth.sign-in"]:visible').last()
+    // The refusal includes the flow's current summary. Bind the sign-in door
+    // to this command's message, so the permanent chrome cannot satisfy it.
+    const refusal = page.locator(".smithers-chat-message").filter({
+      has: page.getByText(/^Sign in with GitHub to create an issue(?:[.,]|$)/)
+    }).last()
+    const signIn = refusal.locator('button[data-flow="auth.sign-in"]')
+    await expect(refusal).toBeVisible()
     await expect(signIn).toBeVisible()
-    await expect(page.getByText("Sign in with GitHub to create an issue.", { exact: true }).last()).toBeVisible()
     expect(issueWrites).toEqual([])
 
     await reloadApp(page)
-    await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
+    await expect(refusal).toBeVisible()
+    await expect(signIn).toBeVisible()
     expect(issueWrites).toEqual([])
     expect(await (await realApi(page, request, "GET", "/api/auth/session")).json()).toEqual({ status: "signed-out" })
   }
