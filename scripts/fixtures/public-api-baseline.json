@@ -2775,7 +2775,7 @@
         "internal/WriteRetry.d.ts": "310db82e2cd590d68f9e6cfdb83f813a2d68cdda64a4d7eebba707fefe17e26f",
         "node/NodeDatabase.d.ts": "6278163fd76caad4602d61f449d1715521582676f8f79bff5aef784f3d80dc90",
         "postgres/PostgresDatabase.d.ts": "114bd1b27dcc88ff43e8fd694ad726d552b6a3f09e3953e579e5fb3861287373",
-        "test/TestDatabase.d.ts": "86631da229310f6074e030876a598121ae1e01b4bae060a171d8faeb7534351e"
+        "test/TestDatabase.d.ts": "9d24884049011ec986552485e3f3ec6c5546931ae6a8434a108528b6f1106812"
       }
     },
     "@smthrs/engine": {
@@ -6144,7 +6144,7 @@
         "Database.d.ts": "246bebf5f2048dc64b2636e10b32ed6c7c2d14eb2730455dc9b6b316344c6322",
         "Embedding.d.ts": "e06509d348908198e5eb01eb8591071dcc8d0b5ca78e3d75045b8f5fff67ca97",
         "Flows.d.ts": "62e6f8e2d57b3d5cc5ab8a466c98d10c028b6a8425e137ad1e6adb4341152397",
-        "Maintenance.d.ts": "e6c621634e287152bda68a63392b794dabd9a333682a176832d0bff7f2f69f6e",
+        "Maintenance.d.ts": "6574cdad093bf5e2c00ca08bcac6b5c386a05761c1f3d4f82ed648102fb6871f",
         "MemoryError.d.ts": "a22b28d32c4e9e0f9ed182abff4675f4df3018e2791f502a477d069cc5729a7b",
         "MemoryStore.d.ts": "a05f3dea2ca0c5c356ac6e5f3c5c70cc85aade88f32e16dfa99edb0e5172cbe9",
         "MemoryTrellis.d.ts": "be7465f277265d45f6609714fcd6975bc1dcd6069975181c6e36a00679166619",
