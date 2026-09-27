@@ -165,10 +165,14 @@ again under a new request id.
 - Real **session-auth** web-Plue browser, separately from application tokens:
   start GitHub OAuth on the deployed origin, return on that same origin,
   accept state cookie, set session+CSRF, `/api/user` signed in, CSRF-protected
-  mutation succeeds, sign-out clears it, reload stays signed out. Test both
-  canary and apex routing policy. Interactive starts redirect to the configured
-  GitHub callback origin before setting host-only state cookies. The callback
-  consumes a state-bound local `return_to`; the API public URL remains separate.
+  mutation succeeds, sign-out clears it, reload stays signed out. The apex is
+  the callback origin: the backend's `auth.github.redirectURL` is
+  `https://smithers.sh/api/auth/github/callback`, registered on the GitHub App,
+  in the same release that activates this edge (#2103). An apex start must stay
+  on the apex; a hop to canary or the API host fails acceptance. Interactive
+  starts on any other origin redirect to the apex before setting host-only
+  state cookies. The callback consumes a state-bound local `return_to` and
+  lands on the requested repository; the API public URL remains separate.
 - Selected GitHub account and real setup-URL return, installed-repository
   selection, repository setup and generic schedule actions reach canonical
   routes. Canonical session identity is the same identity used for imports.
