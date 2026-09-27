@@ -1,5 +1,6 @@
 import {
   AGENT_ROLES,
+  knownModelLabel,
   MODEL_ID
 } from "@smthrs/rpc/AgentRoles"
 import type { AgentRole } from "@smthrs/rpc/AgentRoles"
@@ -42,18 +43,25 @@ export const loadAgents = async (ctx: Pick<ControllerContext, "store">): Promise
 
 /**
  * The model a flow declares, as its frontmatter wrote it: `provider:modelId`
- * or a bare seat name (`sol`). The row shows the id and never a label this
- * app invented for it; a seat the harness could read as a flag is no model.
+ * or a bare seat name (`sol`). The row shows the display name the built-in
+ * roles give that id ("GPT-6 Sol") when it is a known one, else the id as
+ * written, never a label this app invented; a seat the harness could read
+ * as a flag is no model.
  */
 export const flowModelOf = (seat: string): AgentProfileRow["model"] | undefined => {
   const written = seat.trim()
   const colon = written.indexOf(":")
   const provider = colon === -1 ? "" : written.slice(0, colon)
   const id = colon === -1 ? written : written.slice(colon + 1)
-  return MODEL_ID.test(id) ? { provider, id, label: id } : undefined
+  return MODEL_ID.test(id) ? { provider, id, label: knownModelLabel(id) ?? id } : undefined
 }
 
-/** A flow with a model is an agent: its row, or none for a flow that names no model. */
+/**
+ * A flow with a model is an agent: its row, or none for a flow that names no
+ * model. Its label is its id: neither `flow.mdx` frontmatter (description,
+ * capabilities, model, flows, budget) nor the factory projection (id,
+ * description, summary, featured) declares a title or name for a flow.
+ */
 export const agentProfileOf = (flow: RepositoryFlow): AgentProfileRow | undefined => {
   if (flow.model === null) return undefined
   const model = flowModelOf(flow.model)

@@ -12,7 +12,8 @@ import {
   cloudRoleModelId,
   CloudRoleSchema,
   findAgentRole,
-  isCloudRoleId
+  isCloudRoleId,
+  knownModelLabel
 } from "../src/AgentRoles.ts"
 import type { AgentRole } from "../src/AgentRoles.ts"
 import { HARNESS_IDS } from "../src/LocalApp.ts"
@@ -64,6 +65,17 @@ describe("the agent role registry", () => {
     expect(AGENT_ROLE_IDS).not.toContain("reviewer")
     expect(findAgentRole("reviewer")).toBeUndefined()
     expect(findAgentRole("reviewer", [...AGENT_ROLES, custom])?.label).toBe("Reviewer")
+  })
+})
+
+describe("known model names", () => {
+  test("a model id a built-in or cloud role runs on has its display name; any other id has none", () => {
+    expect(knownModelLabel("gpt-6-sol")).toBe("GPT-6 Sol")
+    expect(knownModelLabel("claude-fable-5")).toBe("Fable 5")
+    expect(knownModelLabel("qwen-3.8-27b")).toBe("Cerebras Qwen 3.8 27B")
+    expect(knownModelLabel("gpt-6-astra")).toBeUndefined()
+    expect(knownModelLabel("sol")).toBeUndefined()
+    expect(knownModelLabel("")).toBeUndefined()
   })
 })
 

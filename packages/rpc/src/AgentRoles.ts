@@ -331,6 +331,17 @@ export const cloudRoleModelId = (role: CloudRole, env: Readonly<Record<string, s
 export const agentRoleTitle = (role: AgentRole): string => `${role.label} · ${role.model.label}`
 
 /**
+ * The display name the built-in tables give a model id ("gpt-6-sol" is
+ * "GPT-6 Sol"), or undefined for an id no built-in or cloud role runs on: a
+ * repository flow's model shows this name when the id is a known one and the
+ * id as written otherwise, never a name invented for it.
+ * @since 1.0.0
+ * @category conversions
+ */
+export const knownModelLabel = (id: string): string | undefined =>
+  [...AGENT_ROLES, ...CLOUD_AGENT_ROLES].find((role) => role.model.id === id)?.model.label
+
+/**
  * What a harness needs to launch a role: its binary name and the flag that
  * takes a model id (`claude --model`, `codex -m`, `opencode --model`). The
  * harness table (@smthrs/harness-detect) states these, verified against each

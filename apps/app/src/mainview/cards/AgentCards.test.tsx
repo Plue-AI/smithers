@@ -74,7 +74,7 @@ describe("the Agents card", () => {
       id: "checks/review",
       label: "checks/review",
       purpose: "Reviews the change.",
-      model: { provider: "openai", id: "gpt-6-sol", label: "gpt-6-sol" },
+      model: { provider: "openai", id: "gpt-6-sol", label: "GPT-6 Sol" },
       builtin: false,
       available: false,
       reason: "",
@@ -83,7 +83,7 @@ describe("the Agents card", () => {
     const host = mount(<AgentsCardBody onRunCommand={onRunCommand} card={agentsCard({ native: false, agents: [orchestrator, reviewer] })} />)
     const row = host.querySelector<HTMLElement>('[data-agent="checks/review"]')
     expect(row?.textContent).toContain("checks/review")
-    expect(row?.textContent).toContain("gpt-6-sol")
+    expect(row?.textContent).toContain("GPT-6 Sol")
     expect(row?.querySelector("[title]")?.getAttribute("title")).toBe("Reviews the change.")
     click(host, '[data-testid="agent-runs-checks/review"]')
     expect(calls).toEqual([["runs.list", JSON.stringify({ flow: "checks/review" })]])

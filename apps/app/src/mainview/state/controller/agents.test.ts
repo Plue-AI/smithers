@@ -53,14 +53,18 @@ test("the card lists the built-in roles, then the repository's flows that declar
   await loadRepository(t.store, [
     flow("review", "sol", "Reviews the working-copy change."),
     flow("checks/lint", null),
-    flow("assistant", "openai:gpt-6-astra", "Answers questions and routes work.")
+    flow("assistant", "openai:gpt-6-astra", "Answers questions and routes work."),
+    flow("product-release", "openai:gpt-6-sol", "Ships a release.")
   ])
   await t.agents.listAgents()
-  expect(t.rows().map((row) => row.id)).toEqual([...AGENT_ROLES.map((role) => role.id), "review", "assistant"])
+  expect(t.rows().map((row) => row.id)).toEqual([...AGENT_ROLES.map((role) => role.id), "review", "assistant", "product-release"])
+  // The label is the flow id (no declaration names a flow); a known model shows the built-ins' display name, an unknown one its id.
   expect(t.rows().slice(AGENT_ROLES.length)).toEqual([
     { id: "review", label: "review", purpose: "Reviews the working-copy change.", model: { provider: "", id: "sol", label: "sol" },
       builtin: false, available: false, reason: "", account: "" },
     { id: "assistant", label: "assistant", purpose: "Answers questions and routes work.", model: { provider: "openai", id: "gpt-6-astra", label: "gpt-6-astra" },
+      builtin: false, available: false, reason: "", account: "" },
+    { id: "product-release", label: "product-release", purpose: "Ships a release.", model: { provider: "openai", id: "gpt-6-sol", label: "GPT-6 Sol" },
       builtin: false, available: false, reason: "", account: "" }
   ])
   // A built-in row keeps its harness; a flow runs on Smithers itself and names none.
@@ -99,9 +103,12 @@ test("a flow id with a path segment keeps its id, which is the Runs door's flow 
   expect(repositoryAgentProfiles(t.store).map((row) => row.id)).toEqual(["checks/wiki"])
 })
 
-test("a flow's model is shown as written: a bare seat, or provider:modelId; a seat that reads as a flag is no model", () => {
+test("a flow's model is shown as written, or by the built-ins' display name when the id is a known one; a seat that reads as a flag is no model", () => {
   expect(flowModelOf("sol")).toEqual({ provider: "", id: "sol", label: "sol" })
   expect(flowModelOf(" anthropic:claude-fable-5-1 ")).toEqual({ provider: "anthropic", id: "claude-fable-5-1", label: "claude-fable-5-1" })
+  expect(flowModelOf("anthropic:claude-fable-5")).toEqual({ provider: "anthropic", id: "claude-fable-5", label: "Fable 5" })
+  expect(flowModelOf("gpt-6-luna")).toEqual({ provider: "", id: "gpt-6-luna", label: "GPT-6 Luna" })
+  expect(flowModelOf("cerebras:qwen-3.8-27b")).toEqual({ provider: "cerebras", id: "qwen-3.8-27b", label: "Cerebras Qwen 3.8 27B" })
   expect(flowModelOf("openai:-m evil")).toBeUndefined()
   expect(flowModelOf("")).toBeUndefined()
   expect(agentProfileOf(flow("plain", null))).toBeUndefined()
