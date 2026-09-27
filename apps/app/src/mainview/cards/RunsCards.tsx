@@ -21,6 +21,7 @@ import { timeLabel as clockLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
+import { AgentMark } from "../AgentMark"
 
 /** Why a run is not moving, in words: the control plane's reason, translated. */
 const waitingWords = (waiting: string): string =>
@@ -149,6 +150,34 @@ export const RunListCardBody = ({
   )
 }
 
+/** `owner/repo#number` → the issue door's arguments, when the reference has that shape. */
+const threadArgs = (thread: string): string | undefined => {
+  const match = /^([^#\s]+)#(\d+)$/.exec(thread)
+  return match === null ? undefined : flowArgs("issues.view", { repo: match[1]!, number: Number(match[2]) })
+}
+
+/** Who asked and where: the agent's mark and the thread's door, each only when recorded. */
+const InboxRefs = ({ agent, thread, runId, title, onRunCommand }: {
+  readonly agent?: { readonly id: string; readonly name: string; readonly iconUrl?: string | undefined; readonly agentId?: string | undefined } | undefined
+  readonly thread?: string | undefined
+  readonly runId: string
+  readonly title?: string | undefined
+  readonly onRunCommand?: RunCommand | undefined
+}) => {
+  const thread_ = thread === undefined ? undefined : threadArgs(thread)
+  return (
+    <span className="inbox-refs">
+      {agent === undefined ? null : <AgentMark persona={agent} size={16} onRunCommand={onRunCommand} />}
+      <span>run {onRunCommand === undefined ? <code>{runId}</code> : (
+        <button type="button" className="thread-ref" {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { runId }))}>{title ?? runId}</button>
+      )}</span>
+      {thread_ === undefined || onRunCommand === undefined ? null : (
+        <button type="button" className="thread-ref" {...flowAction(onRunCommand, "issues.view", thread_)}>{thread}</button>
+      )}
+    </span>
+  )
+}
+
 export const ApprovalsInboxCardBody = ({
   card,
   onDecideApproval,
@@ -158,16 +187,40 @@ export const ApprovalsInboxCardBody = ({
   readonly onDecideApproval: (id: string, decision: "approved" | "denied", answer?: unknown, question?: string) => void
   readonly onRunCommand?: RunCommand
 }) => {
-  const { repo, approvals } = card.payload
-  const pendingCount = approvals.filter(approval => approval.decision === undefined).length
-  if (approvals.length === 0) {
-    return <p className="smithers-card-note">No approvals are pending on {repo}.</p>
+  const { repo, approvals, incidents = [] } = card.payload
+  const grants = approvals.filter(approval => approval.decision === undefined && approval.question === undefined).length
+  const questions = approvals.filter(approval => approval.decision === undefined && approval.question !== undefined).length
+  if (approvals.length === 0 && incidents.length === 0) {
+    return <p className="smithers-card-note">Nothing needs you on {repo}.</p>
   }
+  /* The header's mono count line: one clause per kind present, incidents first. */
+  const countLine = [
+    incidents.length > 0 ? `${incidents.length} runaway` : undefined,
+    grants > 0 ? `${grants} approval${grants === 1 ? "" : "s"} pending` : undefined,
+    questions > 0 ? `${questions} question${questions === 1 ? "" : "s"} pending` : undefined
+  ].filter((clause): clause is string => clause !== undefined)
   return (
     <div className="world-card-list">
       <p className="smithers-card-note" data-testid="approvals-inbox-count">
-        {pendingCount} approval{pendingCount === 1 ? "" : "s"} pending
+        {countLine.length === 0 ? "0 approvals pending" : countLine.join(" · ")}
       </p>
+      {incidents.map((incident) => (
+        /* A runaway guard parked the run (DESIGN §3.4): Continue is the run's resume; Stop cancels it. Both confirm. */
+        <div key={incident.runId} className="inbox-incident" data-guard={incident.guard} data-testid={`inbox-incident-${incident.runId}`}>
+          <div className="inbox-incident-head">
+            <span className="run-outcome-condition" data-condition="runaway">Runaway · {incident.guard === "budget" ? "budget" : "time limit"}</span>
+            <InboxRefs agent={incident.agent} thread={incident.thread} runId={incident.runId} title={incident.title} onRunCommand={onRunCommand} />
+            <span className="inbox-age">{clockLabel(incident.parkedAt)}</span>
+          </div>
+          <p className="smithers-card-note">{incident.detail}</p>
+          {onRunCommand === undefined ? null : (
+            <div className="flow-run-actions">
+              <Button size="sm" variant="solid" {...flowAction(onRunCommand, "runs.resume", `sourceCard=${card.id} ${incident.runId}`)}>Continue</Button>
+              <Button size="sm" variant="outline" {...flowAction(onRunCommand, "flow.run.stop", incident.runId)}>Stop</Button>
+            </div>
+          )}
+        </div>
+      ))}
       {approvals.map((approval) => {
         // The row id the decision flows take: the inbox card plus the gate it names.
         const rowId = approvalActionId(card.id, approval)
@@ -186,7 +239,9 @@ export const ApprovalsInboxCardBody = ({
             {approval.question === undefined || approval.decision !== undefined || approval.pending === true ?
               <div className="sui-approval-question">{approval.question?.prompt ?? approval.title}</div> : null}
             <ConfirmationRequest>
-              <p className="sui-approval-meta">run <code>{approval.runId}</code> · {clockLabel(approval.requestedAt)}</p>
+              <p className="sui-approval-meta">
+                <InboxRefs agent={approval.agent} thread={approval.thread} runId={approval.runId} onRunCommand={onRunCommand} /> · {clockLabel(approval.requestedAt)}
+              </p>
             </ConfirmationRequest>
             {approval.decision !== undefined || approval.pending === true ?
               null :

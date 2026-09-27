@@ -432,7 +432,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * approvals inbox's two decision acts (approval.approve / approval.deny
        * through the delegated onDecideApproval).
        */
-      "../cards/RunsCards.tsx": 10,
+      "../cards/RunsCards.tsx": 14, // + the inbox's incident Continue/Stop and its run and thread references.
       "../cards/SearchResultsCard.tsx": 2,
       "../cards/SecretsCard.tsx": 5,
       /* 8 = the Stack card's Backfill, fewer/more lanes, a row's Retry, a failure's Retry, Bootstrap, and the Wiki row's pages (wiki.cloud) and Retry (wiki.create). */
