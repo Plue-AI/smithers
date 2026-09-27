@@ -82,8 +82,9 @@ export interface Service {
  * argument ("of two edges that jointly close a cycle, exactly the later
  * one fails") holds only under serialized writers. SQLite satisfies the
  * contract with its single-writer transaction lock; a PostgreSQL-backed
- * implementation must run write transactions at `SERIALIZABLE` (and retry
- * `40001`) — plain READ COMMITTED does not satisfy this contract.
+ * implementation must serialize them with a transaction-scoped advisory lock
+ * before reads, or use `SERIALIZABLE` and retry `40001`. Plain READ COMMITTED
+ * without that locking does not satisfy this contract.
  *
  * **Acquisition.** Outermost writes sharing this service queue for one permit
  * BEFORE entering Effect SQL's masked connection acquisition, and they queue at

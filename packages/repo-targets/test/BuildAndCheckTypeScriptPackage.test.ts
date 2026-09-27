@@ -431,3 +431,20 @@ describe("BuildAndCheckTypeScriptPackage declaration failures", () => {
       .toThrow(/declaration.* is invalid/)
   })
 })
+
+it("runs a package-owned test matrix with the same source and dependency boundary", () => {
+  const targets = BuildAndCheckTypeScriptPackage({
+    packageManager, cwd: "packages/example",
+    testProgram: Input.file("//scripts/sql-matrix.mjs"),
+    testTimeoutMs: 1_800_000,
+    testData: ["docs/**/*.md"]
+  })
+  const attrs = attrsOf<NodeTest.Attrs>(targets.test)
+  expect(Target.metadata(targets.test).target).toBe("NodeTest")
+  expect(NodeTest.runArgv(attrs)).toEqual(["node", "../../scripts/sql-matrix.mjs"])
+  expect(attrs.timeout).toBe("1800000ms")
+  expect(Target.metadata(targets.test).dependencies).toEqual([targets.lib])
+  expect(attrs.srcs).toContainEqual(Input.glob("docs/**/*.md"))
+  expect(attrs.srcs).toContainEqual(Input.file("vitest.config.ts"))
+  expect(attrs.srcs).toContainEqual(Input.glob("test/**/*.ts"))
+})

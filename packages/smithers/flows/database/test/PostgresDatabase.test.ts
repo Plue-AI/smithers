@@ -1,11 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Exit, Fiber, Layer, Scope } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { randomUUID } from "node:crypto"
 import * as Dialect from "../src/Dialect.ts"
 import * as DurableWriter from "../src/DurableWriter.ts"
 import * as Migrations from "../src/Migrations.ts"
+import * as NodeDatabase from "../src/node/NodeDatabase.ts"
 import * as PostgresDatabase from "../src/postgres/PostgresDatabase.ts"
+import * as TestDatabase from "../src/test/TestDatabase.ts"
 
 const url = process.env.SMITHERS_TEST_PG_URL
 const fixture = <A, E>(body: (first: SqlClient, second: SqlClient) => Effect.Effect<A, E>) =>
@@ -75,6 +77,71 @@ describe.skipIf(!url)("PostgreSQL adapter (independent pools)", () => {
     )
   })
 
+  it("rolls back commit-time constraint failures and can transact afterwards", async () => {
+    await fixture((sql, peer) =>
+      Effect.gen(function*() {
+        yield* sql`CREATE TABLE parent (id INTEGER PRIMARY KEY)`
+        yield* sql`CREATE TABLE child (id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)`
+        expect((yield* Effect.exit(sql.withTransaction(sql`INSERT INTO child VALUES(1)`)))._tag).toBe("Failure")
+        yield* sql.withTransaction(Effect.gen(function*() {
+          yield* sql`INSERT INTO parent VALUES(1)`
+          yield* sql`INSERT INTO child VALUES(1)`
+        }))
+        expect(yield* peer`SELECT * FROM child`).toEqual([{ id: 1 }])
+      })
+    )
+  })
+
+  it("rolls back a cancelled advisory-lock acquisition before reusing its connection", async () => {
+    await fixture((first, second) =>
+      Effect.scoped(Effect.gen(function*() {
+        const [identity] = yield* second<{ pid: number }>`SELECT pg_backend_pid() AS pid`
+        yield* first.withTransaction(Effect.gen(function*() {
+          const blocked = yield* second.withTransaction(second`SELECT 1`).pipe(Effect.forkScoped)
+          yield* TestDatabase.until(
+            first`SELECT 1 FROM pg_locks WHERE pid=${identity!.pid} AND NOT granted`.pipe(
+              Effect.map((rows) => rows.length > 0)
+            )
+          )
+          yield* first`SELECT pg_cancel_backend(${identity!.pid})`
+          expect((yield* Fiber.await(blocked))._tag).toBe("Failure")
+        }))
+        expect(yield* second.withTransaction(second`SELECT 1 AS value`)).toEqual([{ value: 1 }])
+      }))
+    )
+  })
+
+  it("refuses transactions after its connection scope closes", async () => {
+    await fixture((sql) =>
+      Effect.gen(function*() {
+        const [row] = yield* sql<{ schema: string }>`SELECT current_schema() AS schema`
+        const scope = yield* Scope.make()
+        const context = yield* Layer.build(PostgresDatabase.layer({ url: url!, schema: row!.schema })).pipe(
+          Scope.provide(scope)
+        )
+        const closed = Context.get(context, SqlClient)
+        yield* Scope.close(scope, Exit.void)
+        expect((yield* Effect.exit(closed.withTransaction(closed`SELECT 1`)))._tag).toBe("Failure")
+      })
+    )
+  })
+
+  it("selects the native PostgreSQL layer from an explicit schema URL", async () => {
+    await fixture((sql) =>
+      Effect.gen(function*() {
+        const [row] = yield* sql<{ schema: string }>`SELECT current_schema() AS schema`
+        const selected = new URL(url!)
+        selected.searchParams.set("schema", row!.schema)
+        const schema = yield* Effect.gen(function*() {
+          const opened = yield* SqlClient
+          return yield* opened`SELECT current_schema() AS schema`
+        }).pipe(Effect.provide(NodeDatabase.layer({ filename: selected.toString() })))
+        expect(schema).toEqual([row])
+        expect((yield* Effect.exit(sql`SELECT 9007199254740992::numeric AS unsafe`))._tag).toBe("Failure")
+      })
+    )
+  })
+
   it("round-trips safe integers, fractional rejection, bytes and Unicode without rounding", async () => {
     await fixture((sql, peer) =>
       Effect.gen(function*() {
@@ -94,4 +161,11 @@ describe.skipIf(!url)("PostgreSQL adapter (independent pools)", () => {
       })
     )
   })
+})
+
+it("rejects schema identities PostgreSQL would truncate or treat as absent", () => {
+  expect(PostgresDatabase.layer({ url: "postgres://localhost/test" })).toBeDefined()
+  for (const schema of ["", "a".repeat(64), "🐘".repeat(16), "bad\0name"]) {
+    expect(() => PostgresDatabase.layer({ url: "postgres://localhost/test", schema })).toThrow("schema")
+  }
 })

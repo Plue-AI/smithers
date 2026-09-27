@@ -9,7 +9,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { Compiler } from "effect/unstable/sql/Statement"
 
 /**
- *  postgres database options.
+ * PostgreSQL connection and schema configuration.
  *
  * @category models
  * @since 1.0.0
@@ -26,6 +26,10 @@ export interface PostgresDatabaseOptions {
  * @since 1.0.0
  */
 export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.SqlClient> => {
+  const schema = options.schema ?? "smithers_flows"
+  if (schema.length === 0 || schema.includes("\0") || new TextEncoder().encode(schema).length > 63) {
+    throw new Error("PostgreSQL schema must contain 1 to 63 UTF-8 bytes and no NUL")
+  }
   const types = PgTypes.makeRegistry()
   for (const oid of [PgTypes.OID.int8, PgTypes.OID.numeric]) {
     types.register(oid, {
@@ -44,7 +48,6 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
     SqlClient.SqlClient,
     Effect.gen(function*() {
       const pg = yield* PgClient.make({ ...options.postgres, url: Redacted.make(options.url), types })
-      const schema = options.schema ?? "smithers_flows"
       yield* pg.withTransaction(Effect.gen(function*() {
         yield* pg`SELECT pg_advisory_xact_lock(hashtextextended(${schema}, 2099))`
         yield* pg`CREATE SCHEMA IF NOT EXISTS ${pg(schema)}`
@@ -52,6 +55,7 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
       const baseCompiler = PgClient.makeCompiler()
       const compiler: Compiler = {
         dialect: "pg",
+        withoutTransform: baseCompiler,
         compile: (statement, withoutTransform) => {
           const [query, parameters] = baseCompiler.compile(statement, withoutTransform)
           // The native driver infers unsafe integral numbers as float8, whose
@@ -64,11 +68,9 @@ export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.S
                 value
             )
           ]
-        },
-        get withoutTransform() {
-          return compiler
         }
       }
+      Object.defineProperty(compiler, "withoutTransform", { value: compiler })
       const sql = yield* SqlClient.make({
         acquirer: pg.reserve.pipe(Effect.tap((conn) =>
           conn.executeUnprepared(

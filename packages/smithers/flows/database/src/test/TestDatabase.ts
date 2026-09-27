@@ -10,7 +10,6 @@ import type { Fragment } from "effect/unstable/sql/Statement"
 import { randomUUID } from "node:crypto"
 import * as DurableWriter from "../DurableWriter.ts"
 import * as NodeDatabase from "../node/NodeDatabase.ts"
-import * as PostgresDatabase from "../postgres/PostgresDatabase.ts"
 
 /**
  * Provides the production Node SQLite client and durable writer over a fresh
@@ -26,9 +25,10 @@ export const sqliteLayer = Layer.provideMerge(DurableWriter.layer(), NodeDatabas
  * @since 1.0.0
  */
 export const layer: Layer.Layer<DurableWriter.DurableWriter | SqlClient.SqlClient> = Layer.unwrap(
-  Effect.sync(() => {
+  Effect.gen(function*() {
     const url = process.env.SMITHERS_TEST_PG_URL
     if (!url) return sqliteLayer
+    const PostgresDatabase = yield* Effect.promise(() => import("../postgres/PostgresDatabase.ts"))
     const schema = `test_${randomUUID().replaceAll("-", "")}`
     const cleanup = Layer.effectDiscard(Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
@@ -152,15 +152,15 @@ export const catalog = (sql: SqlClient.SqlClient) =>
   sql.onDialectOrElse({
     pg: () =>
       sql`(
-    SELECT rel.relname AS name, 'table' AS type,
+    SELECT rel.relname AS name, rel.relname AS tbl_name, 'table' AS type,
       (SELECT string_agg(att.attname || ' ' || format_type(att.atttypid, att.atttypmod), ', ')
         FROM pg_attribute att WHERE att.attrelid = rel.oid AND att.attnum > 0 AND NOT att.attisdropped)
       || COALESCE((SELECT string_agg(pg_get_constraintdef(con.oid), ', ') FROM pg_constraint con WHERE con.conrelid = rel.oid), '') AS sql
     FROM pg_class rel JOIN pg_namespace ns ON ns.oid = rel.relnamespace
     WHERE ns.nspname = current_schema() AND rel.relkind = 'r'
-    UNION ALL SELECT indexname, 'index', indexdef FROM pg_indexes idx WHERE schemaname = current_schema()
+    UNION ALL SELECT indexname, tablename, 'index', indexdef FROM pg_indexes idx WHERE schemaname = current_schema()
       AND NOT EXISTS (SELECT 1 FROM pg_constraint con WHERE con.conindid = to_regclass(quote_ident(idx.schemaname) || '.' || quote_ident(idx.indexname)))
-    UNION ALL SELECT trg.tgname, 'trigger', pg_get_triggerdef(trg.oid)
+    UNION ALL SELECT trg.tgname, rel.relname, 'trigger', pg_get_triggerdef(trg.oid)
       FROM pg_trigger trg JOIN pg_class rel ON rel.oid = trg.tgrelid JOIN pg_namespace ns ON ns.oid = rel.relnamespace
       WHERE ns.nspname = current_schema() AND NOT trg.tgisinternal
   )`,

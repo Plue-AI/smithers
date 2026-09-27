@@ -76,6 +76,8 @@ export interface Options {
   readonly tsconfig?: Input.File | undefined
   readonly testTsconfig?: Input.File | undefined
   readonly vitestConfig?: Input.File | null | undefined
+  /** Optional test entrypoint for a package-owned multi-environment gate. */
+  readonly testProgram?: Input.File | undefined
   /**
    * Outer deadline for the complete Vitest process. Omitted, the Vitest
    * target keeps its 20-minute default. Per-case deadlines and coverage
@@ -115,7 +117,7 @@ export interface Options {
 export interface PackageTargets {
   readonly lib: ReturnType<typeof TsBuild>
   readonly check: ReturnType<typeof Typecheck>
-  readonly test: ReturnType<typeof Vitest>
+  readonly test: ReturnType<typeof Vitest> | ReturnType<typeof NodeTest>
   readonly lint: ReturnType<typeof EsLint>
   readonly fmt: ReturnType<typeof Dprint>
   readonly docs: ReturnType<typeof DocsParity>
@@ -213,7 +215,7 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
     incremental: false,
     cwd
   })
-  const test = Vitest({
+  const test = options.testProgram === undefined ? Vitest({
     ...(options.packageManager === undefined ? {} : { packageManager: options.packageManager }),
     ...(options.testTimeoutMs === undefined ? {} : { timeoutMs: options.testTimeoutMs }),
     tests: [tests],
@@ -222,6 +224,15 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
     config: vitestConfig,
     environment: "node",
     passWithNoTests: false,
+    cwd
+  }) : NodeTest({
+    ...(options.packageManager === undefined ? {} : { runtime: options.packageManager.runtime }),
+    runner: entrypoint(options.testProgram),
+    srcs: [sources, testSources, Input.file("package.json"), ...(vitestConfig === null ? [] : [vitestConfig]),
+      Input.glob("//packages/repo-targets/test-utils/effect-property.*"),
+      ...(options.testData ?? []).map((pattern) => Input.glob(pattern))],
+    deps: [lib, ...deps],
+    timeout: `${options.testTimeoutMs ?? 1_200_000}ms`,
     cwd
   })
   const lint = EsLint({

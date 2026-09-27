@@ -20,6 +20,7 @@ const port = () => new Promise((resolve, reject) => {
 })
 let directory
 let started = false
+let reports
 const bin = process.env.PG_BIN ?? (process.platform === "darwin" ? "/opt/homebrew/opt/postgresql@18/bin" : "")
 const pg = (name) => bin ? join(bin, name) : name
 try {
@@ -35,18 +36,32 @@ try {
   const { SMITHERS_TEST_PG_URL: ignored, SMITHERS_POSTGRES_URL: ignoredUrl, DATABASE_URL: ignoredDatabase, ...environment } = process.env
   const args = [join(process.cwd(), "node_modules/vitest/vitest.mjs"), "run", ...process.argv.slice(2)]
   const failures = []
+  const coverage = !process.argv.includes("--coverage.enabled=false")
+  reports = await mkdtemp(join(tmpdir(), "smithers-sql-reports-"))
+  const coverageParts = ["lines", "functions", "branches", "statements"]
+
   for (const backend of ["sqlite", "postgres"]) {
     console.log(`\nStorage matrix: ${backend}\n`)
     try {
-      await run(process.execPath, args, {
+      await run(process.execPath, coverage ? [...args,
+        "--reporter=default", "--reporter=blob", `--outputFile.blob=${join(reports, "blobs", backend + ".json")}`,
+        `--coverage.reportsDirectory=${join(reports, "coverage-" + backend)}`,
+        ...coverageParts.map((part) => `--coverage.thresholds.${part}=0`)
+      ] : args, {
         ...environment,
         SMITHERS_BACKEND: "sqlite",
         ...(backend === "postgres" ? { SMITHERS_TEST_PG_URL: url } : {})
       })
     } catch (error) { failures.push(error) }
   }
+  if (coverage) {
+    try {
+      await run(process.execPath, [args[0], `--merge-reports=${join(reports, "blobs")}`, "--coverage.enabled=true"], environment)
+    } catch (error) { failures.push(error) }
+  }
   if (failures.length) throw new AggregateError(failures, "Storage matrix failed")
 } finally {
   if (started) spawnSync(pg("pg_ctl"), ["-D", directory, "-m", "immediate", "-w", "stop"], { stdio: "inherit" })
   if (directory) await rm(directory, { recursive: true, force: true })
+  if (reports) await rm(reports, { recursive: true, force: true })
 }
