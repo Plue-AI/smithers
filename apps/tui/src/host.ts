@@ -56,6 +56,7 @@ import { aliases, delegateModels, detect, routing, workerFallbackSeats } from ".
 import * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
 import * as Replay from "./replay.ts"
+import * as Rooted from "./rooted.ts"
 import * as Runtime from "./runtime.ts"
 import * as Session from "./session.ts"
 import * as Subprocess from "./subprocess.ts"
@@ -232,7 +233,8 @@ export const make = (options: {
     // answers `authorize` below.
     Approvals.layer(options.cwd, approvalMode),
     NodeCrypto.layer,
-    NodeServices.layer
+    // Relative flow paths and commands resolve against `cwd`, never the process's own.
+    Rooted.layer(options.cwd).pipe(Layer.provideMerge(NodeServices.layer))
   )
   const runtime = ManagedRuntime.make(layer)
   let turns = 0

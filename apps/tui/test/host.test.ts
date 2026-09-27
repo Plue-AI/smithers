@@ -11,7 +11,7 @@ import { Effect } from "effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type * as Agents from "../src/agents.ts"
@@ -102,9 +102,7 @@ describe("Host.run workspace observation", () => {
         const editingSeat = `replay:${
           doneReplay(
             cwd,
-            `await ctx.call("write", { path: ${
-              JSON.stringify(join(cwd, "sessions", "project.ts"))
-            }, content: "real project edit" }); ctx.done("edited")`
+            "await ctx.call(\"write\", { path: \"sessions/project.ts\", content: \"real project edit\" }); ctx.done(\"edited\")"
           )
         }`
         const edited = await host.run({
@@ -118,6 +116,8 @@ describe("Host.run workspace observation", () => {
           }
         }).done
         expect(edited).toEqual({ _tag: "done", answer: "edited" })
+        expect(readFileSync(join(cwd, "sessions", "project.ts"), "utf8")).toBe("real project edit")
+        expect(existsSync(join(process.cwd(), "sessions", "project.ts"))).toBe(false)
         expect(new Set(events.filter((event) => event._tag === "mutation-observed").map((event) => event.mutated)))
           .toEqual(new Set([true]))
       } finally {
@@ -127,6 +127,37 @@ describe("Host.run workspace observation", () => {
       }
     })
   }
+
+  test("resolves relative flow paths against the host cwd, not the process cwd", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "tui-host-cwd-"))
+    roots.push(cwd)
+    expect(process.cwd()).not.toBe(cwd)
+    const host = Host.make({ cwd, environment: {}, approvals: "all" })
+    try {
+      const outcome = await host.run({
+        prompt: "edit",
+        role: "worker",
+        seat: `replay:${
+          doneReplay(
+            cwd,
+            [
+              "await ctx.call(\"write\", { path: \"relative.txt\", content: \"hosted\" })",
+              "await ctx.call(\"edit\", { path: \"relative.txt\", oldString: \"hosted\", newString: \"edited\" })",
+              "const read = await ctx.call(\"read\", { path: \"relative.txt\" })",
+              "const shell = await ctx.call(\"bash\", { command: \"pwd -P\" })",
+              "ctx.done(read.content + \" \" + shell.stdout.trim())"
+            ].join("; ")
+          )
+        }`,
+        history: [],
+        onEvent: () => {}
+      }).done
+      expect(outcome).toEqual({ _tag: "done", answer: `edited ${realpathSync(cwd)}` })
+      expect(existsSync(join(process.cwd(), "relative.txt"))).toBe(false)
+    } finally {
+      await host.dispose()
+    }
+  })
 
   test("a coordinator turn measures no tree: it has no flow that can move one", async () => {
     const { outcome, events } = await turn("coordinator")
