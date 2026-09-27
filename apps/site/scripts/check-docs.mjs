@@ -264,6 +264,7 @@ if (existsSync(unsupportedPath) && migration) {
 if (errors.length > 0) {
   console.error(`check-docs: ${errors.length} violation(s)`)
   for (const e of errors) console.error(`  ${e}`)
-  process.exit(1)
+  process.exitCode = 1
+} else {
+  console.log(`check-docs: ${pages.length} pages, 0 violations`)
 }
-console.log(`check-docs: ${pages.length} pages, 0 violations`)

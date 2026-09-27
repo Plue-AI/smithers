@@ -106,8 +106,17 @@ test("ingest-reference --check names the stale page and the fix command", () => 
 // on macOS pipe writes are asynchronous, so a reason printed just before it
 // can reach the reader truncated or not at all. Setting exitCode lets node
 // flush stdout and stderr first.
-test("neither check ends with process.exit()", () => {
-  for (const script of ["generate-llms.mjs", "sync-api-docs.mjs", "ingest-reference.mjs"]) {
+test("no check ends with process.exit()", () => {
+  for (const script of [
+    "check-docs.mjs",
+    "gen-cli-data.mjs",
+    "gen-examples.mjs",
+    "generate-llms.mjs",
+    "generate-project-copy.mjs",
+    "ingest-reference.mjs",
+    "sync-api-docs.mjs",
+    "sync-support-docs.mjs"
+  ]) {
     const source = readFileSync(join(site, "scripts", script), "utf8")
     assert.doesNotMatch(source, /process\.exit\(/, `${script} calls process.exit()`)
   }

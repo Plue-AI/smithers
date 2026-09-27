@@ -123,4 +123,4 @@ for (const path of stale) {
   else unlinkSync(path)
 }
 console.log(`gen-examples: ${outputs.size} page(s), ${drift} ${check ? "drifted" : "written or removed"}`)
-if (check && drift > 0) process.exit(1)
+if (check && drift > 0) process.exitCode = 1

@@ -7040,6 +7040,10 @@
       },
       {
         "kind": "file",
+        "path": "docs/api/github-maintainer-comment.vectors.json"
+      },
+      {
+        "kind": "file",
         "path": ".github/workflows/ci.yml"
       },
       {
@@ -7095,6 +7099,10 @@
       {
         "kind": "file",
         "path": "apps/review/CONTRIBUTING.md"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/github-maintainer-comment.vectors.json"
       },
       {
         "kind": "file",
@@ -7925,6 +7933,634 @@
     "dependencies": [
       "//apps/app:webSources",
       "//apps/docs/shared:sources"
+    ],
+    "source": {
+      "file": "apps/site/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/site:checkExitTest",
+    "package": "apps/site",
+    "name": "checkExitTest",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/check-exit.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/check-docs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/docs-text.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/gen-cli-data.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/gen-examples.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/generate-llms.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/generate-project-copy.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/ingest-reference.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/sync-api-docs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/scripts/sync-support-docs.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/site/src/content/docs/docs/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/site/src/data/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/public/llms.txt"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/public/llms-full.txt"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/shared/sync-content.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/bug-worker/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/agent/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/artifacts/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/canonical/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/capability/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/chain/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/cli/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/control/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/core/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/create-app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/crypto/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/database/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/engine/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/engine-store/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/errors/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/evals/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/flow/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/flows/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/fs/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/gateway/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/harness/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/integrations/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/jj/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/journal/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/kernel/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/keys/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/mcp/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/memory/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/migrate/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/model/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/notifications/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/observability/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/plan/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/plan-store/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/platform-browser/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/platform-bun/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/platform-node/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/plugin/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/registry/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/run-store/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/sandbox/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/scorers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/shared/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/smithers-patterns/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/smithers-sync/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/smthrs/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/std/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/step-cache/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/testing/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/time-travel/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/docs/triggers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/model-host/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/review/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/server/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/site/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui-docs/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "evals/agent/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "evals/authoring/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "evals/recommend/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "evals/review-seeded-bugs/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "evals/swebench/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "examples/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/errors/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/rpc/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/chain/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/evals/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/fs/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/harness-detect/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/integrations/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/memory/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/model/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/model-host/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/plugin/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/registry/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/scorers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/std/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/triggers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/build-cli/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/infra/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/targets/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/control/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/create-app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/artifacts/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/canonical/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/capability/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/core/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/crypto/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/database/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/engine/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/engine-store/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/flow/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/jj/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/journal/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/kernel/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/keys/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/observability/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/patterns/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/plan/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/plan-store/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-browser/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-bun/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-node/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/run-store/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/step-cache/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sync/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/time-travel/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/gateway/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/mcp/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/migrate/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/notifications/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/ui/ui-styleguide/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smthrs-deprecation/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/testing/package.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//apps/docs/shared:sources",
+      "//packages/errors:docsFiles",
+      "//packages/smithers/agent/chain:docsFiles",
+      "//packages/smithers/agent/evals:docsFiles",
+      "//packages/smithers/agent/fs:docsFiles",
+      "//packages/smithers/agent/harness:docsFiles",
+      "//packages/smithers/agent/integrations:docsFiles",
+      "//packages/smithers/agent/memory:docsFiles",
+      "//packages/smithers/agent/model:docsFiles",
+      "//packages/smithers/agent/plugin:docsFiles",
+      "//packages/smithers/agent/registry:docsFiles",
+      "//packages/smithers/agent/scorers:docsFiles",
+      "//packages/smithers/agent/std:docsFiles",
+      "//packages/smithers/agent/triggers:docsFiles",
+      "//packages/smithers/agent:docsFiles",
+      "//packages/smithers/build/build-cli:docsFiles",
+      "//packages/smithers/build/targets:docsFiles",
+      "//packages/smithers/build:docsFiles",
+      "//packages/smithers/control:docsFiles",
+      "//packages/smithers/create-app:docsFiles",
+      "//packages/smithers/flows/artifacts:docsFiles",
+      "//packages/smithers/flows/canonical:docsFiles",
+      "//packages/smithers/flows/capability:docsFiles",
+      "//packages/smithers/flows/core:docsFiles",
+      "//packages/smithers/flows/crypto:docsFiles",
+      "//packages/smithers/flows/database:docsFiles",
+      "//packages/smithers/flows/engine-store:docsFiles",
+      "//packages/smithers/flows/engine:docsFiles",
+      "//packages/smithers/flows/flow:docsFiles",
+      "//packages/smithers/flows/jj:docsFiles",
+      "//packages/smithers/flows/journal:docsFiles",
+      "//packages/smithers/flows/kernel:docsFiles",
+      "//packages/smithers/flows/keys:docsFiles",
+      "//packages/smithers/flows/observability:docsFiles",
+      "//packages/smithers/flows/patterns:docsFiles",
+      "//packages/smithers/flows/plan-store:docsFiles",
+      "//packages/smithers/flows/plan:docsFiles",
+      "//packages/smithers/flows/platform-browser:docsFiles",
+      "//packages/smithers/flows/platform-bun:docsFiles",
+      "//packages/smithers/flows/platform-node:docsFiles",
+      "//packages/smithers/flows/run-store:docsFiles",
+      "//packages/smithers/flows/sandbox:docsFiles",
+      "//packages/smithers/flows/step-cache:docsFiles",
+      "//packages/smithers/flows/sync:docsFiles",
+      "//packages/smithers/flows/time-travel:docsFiles",
+      "//packages/smithers/flows:docsFiles",
+      "//packages/smithers/gateway:docsFiles",
+      "//packages/smithers/mcp:docsFiles",
+      "//packages/smithers/migrate:docsFiles",
+      "//packages/smithers/notifications:docsFiles",
+      "//packages/smithers:docsFiles",
+      "//packages/testing:docsFiles"
     ],
     "source": {
       "file": "apps/site/PACKAGE.ts"
@@ -9726,6 +10362,10 @@
       {
         "kind": "file",
         "path": "apps/tui/src/ask.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/budget.ts"
       },
       {
         "kind": "file",

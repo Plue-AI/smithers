@@ -309,5 +309,5 @@ for (const path of stalePages) {
     console.log(`removed ${path.replace(root + "/", "")}`)
   }
 }
-if (check && drift > 0) process.exit(1)
+if (check && drift > 0) process.exitCode = 1
 if (drift === 0) console.log(check ? "up to date" : "nothing to write")

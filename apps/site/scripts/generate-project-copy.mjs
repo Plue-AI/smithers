@@ -181,5 +181,5 @@ for (const [path, content] of outputs) {
     console.log(`wrote ${relative(root, path)}`)
   }
 }
-if (check && drift > 0) process.exit(1)
+if (check && drift > 0) process.exitCode = 1
 if (drift === 0) console.log(check ? "up to date" : "nothing to write")

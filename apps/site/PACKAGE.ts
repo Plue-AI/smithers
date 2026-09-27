@@ -302,6 +302,38 @@ const docsTextTest = Smithers.Shell.Test({
   ]
 })
 
+/**
+ * Three generators' `--check` run against a temporary copy of their inputs and
+ * must exit 1 naming the stale file; no docs script may call process.exit().
+ */
+const checkExitTest = Smithers.Shell.Test({
+  shell: "node --test --test-concurrency=1 apps/site/scripts/check-exit.test.mjs",
+  data: [
+    Smithers.file("scripts/check-exit.test.mjs"),
+    ...[
+      "check-docs",
+      "docs-text",
+      "gen-cli-data",
+      "gen-examples",
+      "generate-llms",
+      "generate-project-copy",
+      "ingest-reference",
+      "sync-api-docs",
+      "sync-support-docs"
+    ].map((name) => Smithers.file(`scripts/${name}.mjs`)),
+    Smithers.glob("src/content/docs/docs/**/*"),
+    Smithers.glob("src/data/**/*"),
+    Smithers.file("public/llms.txt"),
+    Smithers.file("public/llms-full.txt"),
+    docsKit,
+    Smithers.file("//apps/docs/shared/sync-content.mjs"),
+    // The copied tree carries every member manifest and each documented
+    // package's docs; explicit files cross package boundaries, a glob cannot.
+    ...workspacePackages().map(({ dir }) => Smithers.file(`//${dir}/package.json`)),
+    ...[...Object.values(apiPackages), flowPackage, enginePackage, targetsPackage].map((pkg) => pkg.docsFiles)
+  ]
+})
+
 /** Fill repository cards from the public catalog: the parse, the count validation, the status fallback, and the landing grid. */
 const repoStatsTest = Smithers.Shell.Test({
   shell: "node --test --test-concurrency=1 apps/site/scripts/repo-stats.test.mjs",
@@ -476,6 +508,7 @@ export const Package = Smithers.Package({
     apiDocs,
     docsLint,
     docsTextTest,
+    checkExitTest,
     repoStatsTest,
     projectCopyTest,
     recordTapeTest,
