@@ -1,6 +1,6 @@
 ---
 title: "@smthrs/flows"
-description: "The whole Smithers durable flow engine in one dependency: declare flows and actions, run them on a Node host over local SQLite, and resume them after a crash."
+description: "The whole Smithers durable flow engine in one dependency: declare flows and actions, run them on a native host over SQLite or PostgreSQL, and resume them after a crash."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/docs/README.md"
 ---
 

@@ -100,7 +100,7 @@ NodeDatabase.layer({
 supported when the top-level setting is absent. A nonzero timeout blocks the
 Node event loop during contention, including WAL conversion at open. Keep it
 short and tune the cooperative retry bounds for longer waits. See
-[why rc.0 is SQLite only](/concepts/sqlite-only/).
+[SQLite and PostgreSQL](/concepts/sqlite-only/).
 
 ## Tune the write retries
 

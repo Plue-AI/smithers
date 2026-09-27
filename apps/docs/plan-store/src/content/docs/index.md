@@ -1,6 +1,6 @@
 ---
 title: "@smthrs/plan-store"
-description: "Record a compiled plan in an append-only SQLite store, grow it a generation at a time, and read it back verified, with rewriting refused by a trigger rather than by convention."
+description: "Record a compiled plan in an append-only SQL store, grow it a generation at a time, and read it back verified, with rewriting refused by a trigger rather than by convention."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/plan-store/docs/README.md"
 ---
 

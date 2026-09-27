@@ -66,18 +66,17 @@ by the plan id, because the command line supplies none of its own.
 `--quiet` suppresses banners and progress on stderr, but this document still
 prints.
 
-Notices go to stderr before the document. Each `SMITHERS_POSTGRES_*` or
-`SMITHERS_TEST_PG_URL` name that carries a value prints
-`ignored: <name> has no effect in 1.0.0-rc.0 (SQLite only)`, and a project that
-holds 0.x state but no `.flows/` directory prints the one-line 0.x notice from
-`Project.legacyNotice`.
+Notices go to stderr before the document. Unused legacy PostgreSQL options
+and test-only connection strings are reported. `SMITHERS_POSTGRES_URL`,
+`DATABASE_URL`, and `SMITHERS_POSTGRES_SCHEMA` configure the selected store.
+A project holding 0.x state receives the notice from `Project.legacyNotice`.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
 | `0` | The plan card was rendered. |
-| `1` | The flow id names a reserved `system/` flow, `--backend` or `SMITHERS_BACKEND` names a backend other than `sqlite`, the control plane refused the plan (flow not found, invalid input, persistence failure, unavailable), or the document exceeded a rendering bound. |
+| `1` | The flow id names a reserved `system/` flow, `--backend` or `SMITHERS_BACKEND` names a backend other than `sqlite` or `postgres`, the control plane refused the plan (flow not found, invalid input, persistence failure, unavailable), or the document exceeded a rendering bound. |
 | `2` | `--data` is not valid JSON, or the command line failed to parse. |
 | `130` | The process received `SIGINT`, or the command was interrupted. |
 | `143` | The process received `SIGTERM`. |

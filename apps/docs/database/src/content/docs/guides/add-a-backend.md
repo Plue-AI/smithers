@@ -96,10 +96,10 @@ satisfy the same contract.
 runs it against two `NodeDatabase` connections over one file, where
 serialization can only come from SQLite's cross-connection lock.
 
-## What a backend does not have to supply
+## Supplied backends
 
-The migration ladder is not part of the backend contract, and rc.0 does not
-have a dialect-parameterized one: the storage packages' migrations are
-SQLite-flavoured DDL. A Postgres client wrapped by `DurableWriter.make` gets
-correct retry classification and the normalized error vocabulary, but not a
-runnable schema. See [why rc.0 is SQLite only](/concepts/sqlite-only/).
+SQLite and PostgreSQL ship adapters and one composed migration ladder with
+small dialect-specific fragments. The PostgreSQL adapter serializes writes
+across pools with schema-scoped advisory locks. Its independent-pool contract
+tests live in `test/PostgresDatabase.test.ts`. See
+[SQLite and PostgreSQL](/concepts/sqlite-only/).

@@ -103,8 +103,8 @@ The root entry point bundles for a browser, and so does every package root it
 re-exports. What bundles is the authoring and inspection surface: you can
 declare flows, read a plan, and decode a journal event in a browser.
 
-Durable execution is a different claim: it needs Node.js 26.4.0 or later and
-local SQLite. A browser or edge runtime is not a supported durable host even
+Durable execution is a different claim: it needs a native Node.js or Bun host and
+SQLite or PostgreSQL. Node.js requires version 26.4.0 or later. A browser or edge runtime is not a supported durable host even
 when you supply another SQL client. Native modules are subpaths
 precisely so importing the root never opens `node:sqlite`.
 

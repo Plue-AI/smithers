@@ -68,7 +68,7 @@ const rows = await Effect.runPromise(program.pipe(Effect.provide(memory)))
   `invalid_namespace` before I/O. Equivalent bank spellings are allowed.
   Bare handlers and direct recall or store APIs remain unscoped.
 - Recall as a replaceable service rather than one fixed algorithm. Keyword
-  matching needs nothing beyond the store; SQLite full text search and
+  matching needs nothing beyond the store; SQLite or PostgreSQL full text search and
   in-process semantic search over embeddings are also included, and swapping
   between them changes no caller. Semantic recall searches all eligible records
   in the selected banks using bounded pages and retains only its result budget.

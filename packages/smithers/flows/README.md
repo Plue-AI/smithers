@@ -11,7 +11,7 @@ all Smithers packages share one Effect runtime.
 The whole [Smithers](https://smithers.sh) durable flow engine in one dependency.
 It re-exports every engine package under a single import, and it adds the two
 modules a Node program needs to run flows for real: `NodeRuntime`, which stands
-a durable engine up over local SQLite, and `SandboxedFlow`, which runs a child
+a durable engine up over SQLite or PostgreSQL, and `SandboxedFlow`, which runs a child
 flow's own code on a machine you provision.
 
 A flow records each step in a journal as it completes, so a process that dies
@@ -115,7 +115,9 @@ tab runs them on.
 
 [RC support matrix](https://smithers.sh/docs/reference/support-matrix/) lists runtime evidence limits.
 
-Durable execution is provided by the Node and Bun compositions over local SQLite.
+Durable execution is provided by the Node and Bun compositions over SQLite or
+PostgreSQL. See [database configuration](./database/docs/concepts/sqlite-only.md)
+for selection, schema identity, and transaction guarantees.
 The shared engine consumes injected Effect services. Browser-safe authoring and
 inspection do not establish browser or edge durable execution. Native drivers
 remain explicit subpaths so the root does not import `node:sqlite` or `bun:sqlite`.

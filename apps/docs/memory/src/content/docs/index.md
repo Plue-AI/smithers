@@ -4,14 +4,14 @@ description: "Effect services for durable cross-run facts, history, notes, recal
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/agent/memory/docs/README.md"
 ---
 
-`@smthrs/memory` is durable memory for an AI agent: facts, notes, and message threads kept in SQLite, ranked for recall, and reachable by a model through two operations it calls by name, `remember` and `recall`. The package is a set of [Effect](https://effect.website) services, so you choose the storage and recall implementations your host can support and every caller keeps working.
+`@smthrs/memory` is durable memory for an AI agent: facts, notes, and message threads kept in SQLite or PostgreSQL, ranked for recall, and reachable by a model through two operations it calls by name, `remember` and `recall`. The package is a set of [Effect](https://effect.website) services, so you choose the storage and recall implementations your host can support and every caller keeps working.
 
 ## What it solves
 
 A model's context window disappears when the process exits. Everything the next run should still know, a decision made yesterday, a convention someone corrected, the conversation so far, has to live outside the model. This package is that store, shaped around the ways agent memory goes wrong:
 
 - Scoped namespace isolation across `flow`, `agent`, `user`, and `global` memory. Bind a policy-carrying declaration with `Flows.handlersFor` to limit model-facing reads and writes to the policy namespace. Empty banks default to it; explicit banks resolving to another kind or id fail with `invalid_namespace` before I/O. Equivalent bank spellings are allowed. Bare handlers and direct recall or store APIs remain unscoped.
-- Recall is a replaceable service rather than one fixed algorithm. Keyword matching needs nothing beyond the store; SQLite full text search and in-process semantic search over embeddings are also included, and swapping between them changes no caller.
+- Recall is a replaceable service rather than one fixed algorithm. Keyword matching needs nothing beyond the store; SQLite or PostgreSQL full text search and in-process semantic search over embeddings are also included, and swapping between them changes no caller.
 - Every recall answer fits a byte budget, because recalled rows are about to become part of a prompt.
 - Writes are idempotent. Re-appending an identical message is a no-op, and re-appending the same id with different content fails with `idempotency_conflict` instead of duplicating history.
 - Notes are append-only and correct themselves by supersession, so an obsolete note drops out of recall without a destructive edit.
@@ -49,7 +49,7 @@ const rows = await Effect.runPromise(program.pipe(Effect.provide(memory)))
 
 Agents in turn run under the Smithers command line tool, [`@smthrs/cli`](https://cli.smithers.sh/reference/api/). Its [`smthrs memory`](https://smithers.sh/docs/reference/cli/memory/) command reads and writes the same store this package defines, so you can list, set, and remove facts from a terminal without writing a program.
 
-Underneath, storage is SQLite through [`@smthrs/database`](https://database.smithers.sh/reference/api/), and `MemoryStore.layer` applies its own migrations when it builds. The two flows are plain [`@smthrs/core`](https://core.smithers.sh/reference/api/) declarations, bound at run time through [`@smthrs/harness`](https://harness.smithers.sh/reference/api/). Recall is a replaceable slot declared with [`@smthrs/patterns`](https://smithers-patterns.smithers.sh/reference/api/).
+Underneath, storage is SQLite or PostgreSQL through [`@smthrs/database`](https://database.smithers.sh/reference/api/), and `MemoryStore.layer` applies its own migrations when it builds. The two flows are plain [`@smthrs/core`](https://core.smithers.sh/reference/api/) declarations, bound at run time through [`@smthrs/harness`](https://harness.smithers.sh/reference/api/). Recall is a replaceable slot declared with [`@smthrs/patterns`](https://smithers-patterns.smithers.sh/reference/api/).
 
 ## Where to go next
 

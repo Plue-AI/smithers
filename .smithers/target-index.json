@@ -12961,6 +12961,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/database/src/Dialect.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/database/src/DurableWriter.ts"
       },
       {
@@ -12985,6 +12989,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/database/src/internal/PostgresSelection.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/database/src/internal/ReleasePolicy.ts"
       },
       {
@@ -12998,6 +13006,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/database/src/node/NodeDatabase.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/database/src/postgres/PostgresDatabase.ts"
       },
       {
         "kind": "file",
@@ -15746,6 +15758,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/ControlFileSystem.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/DatabaseLocation.ts"
       },
       {
         "kind": "file",
@@ -22694,16 +22710,15 @@
     "label": "//packages/smithers/agent/integrations:test",
     "package": "packages/smithers/agent/integrations",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/integrations/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -22712,12 +22727,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/agent/integrations/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/integrations/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/integrations/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -22955,16 +22979,15 @@
     "label": "//packages/smithers/agent/memory:test",
     "package": "packages/smithers/agent/memory",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/memory/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -22973,12 +22996,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/agent/memory/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/memory/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/memory/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -24250,16 +24282,15 @@
     "label": "//packages/smithers/agent/scorers:test",
     "package": "packages/smithers/agent/scorers",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/scorers/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -24268,12 +24299,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/agent/scorers/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/scorers/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/scorers/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -24772,16 +24812,15 @@
     "label": "//packages/smithers/agent/triggers:test",
     "package": "packages/smithers/agent/triggers",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/triggers/test/**/*.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -24790,12 +24829,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/agent/triggers/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/triggers/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/triggers/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -26853,16 +26901,15 @@
     "label": "//packages/smithers/control:test",
     "package": "packages/smithers/control",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/control/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -26871,12 +26918,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/control/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/control/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/control/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -28954,18 +29010,15 @@
     "label": "//packages/smithers/flows/database:test",
     "package": "packages/smithers/flows/database",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/database/test/**/*.test.ts",
-        "exclude": [
-          "packages/smithers/flows/database/test/faults/**"
-        ]
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -28974,12 +29027,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/flows/database/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/database/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/database/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -29278,16 +29340,15 @@
     "label": "//packages/smithers/flows/engine-store:test",
     "package": "packages/smithers/flows/engine-store",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/engine-store/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -29296,12 +29357,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/flows/engine-store/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/engine-store/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/engine-store/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -30690,16 +30760,15 @@
     "label": "//packages/smithers/flows/journal:test",
     "package": "packages/smithers/flows/journal",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/journal/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -30708,12 +30777,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/flows/journal/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/journal/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/journal/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -32026,16 +32104,15 @@
     "label": "//packages/smithers/flows/plan-store:test",
     "package": "packages/smithers/flows/plan-store",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/plan-store/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -32044,12 +32121,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/flows/plan-store/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/plan-store/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/plan-store/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -33427,16 +33513,15 @@
     "label": "//packages/smithers/flows/run-store:test",
     "package": "packages/smithers/flows/run-store",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/run-store/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -33445,12 +33530,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/flows/run-store/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/run-store/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/run-store/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -34010,16 +34104,15 @@
     "label": "//packages/smithers/flows/step-cache:test",
     "package": "packages/smithers/flows/step-cache",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/step-cache/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -34028,12 +34121,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/flows/step-cache/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/step-cache/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/step-cache/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -34562,16 +34664,15 @@
     "label": "//packages/smithers/flows/time-travel:test",
     "package": "packages/smithers/flows/time-travel",
     "name": "test",
-    "rule": "Vitest",
+    "rule": "NodeTest",
     "kinds": [
       "test"
     ],
     "cacheable": false,
     "inputs": [
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/time-travel/test/**/*.test.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/smithers/flows/database/scripts/test-matrix.mjs"
       },
       {
         "kind": "glob",
@@ -34580,12 +34681,21 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "pattern": "packages/smithers/flows/time-travel/test/**/*.ts",
         "exclude": []
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/time-travel/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/time-travel/vitest.config.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/test-utils/effect-property.*",
+        "exclude": []
       }
     ],
     "outputs": [],

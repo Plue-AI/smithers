@@ -42,11 +42,9 @@ and each one is quiet rather than loud:
   block of 1000 ids, so the composed ladder is ordered and every applied
   migration is recorded under its own name.
 
-`DurableWriter.make` accepts any Effect `SqlClient`, so the retry
-classification and the error vocabulary are dialect blind. What ships in this
-release is narrower than that: a Node SQLite driver, an in-memory test layer,
-and no schema for any other dialect. See
-[why 1.0.0-rc.0 is SQLite only](./concepts/sqlite-only.md).
+`DurableWriter.make` accepts an Effect `SqlClient` with serialized write
+transactions. Node/Bun SQLite and PostgreSQL adapters share the same stores
+and migration ladder. See [SQLite and PostgreSQL](./concepts/sqlite-only.md).
 
 ## Install
 

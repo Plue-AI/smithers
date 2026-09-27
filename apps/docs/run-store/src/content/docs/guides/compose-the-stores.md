@@ -41,15 +41,12 @@ export const storage = (filename: string) =>
 `Layer.provideMerge` is what keeps the database and the writer in the output
 context, so the rest of the host can reach them too.
 
-The `SqlClient` must execute this package's SQLite migration and statement
-dialect, including triggers, `randomblob`, `typeof`, and `json_valid`. The
-composition must also satisfy the `DurableWriter` serialization contract:
-concurrent write transactions cannot both commit from snapshots that exclude
-each other's writes. The supported driver is
-`@smthrs/database/node/NodeDatabase`, backed by `@effect/sql-sqlite-node` and
-`node:sqlite`. Other databases require a dialect-specific migration and
-statement implementation, which does not exist yet. Providing an arbitrary
-Effect `SqlClient`, such as PostgreSQL, does not translate this package's SQL.
+The SQLite and PostgreSQL adapters share this package's migrations and
+statements. The composition must satisfy the `DurableWriter` serialization
+contract: concurrent write transactions cannot both commit from snapshots
+that exclude each other's writes. Use `NodeDatabase`, `BunDatabase`, or
+`PostgresDatabase` from `@smthrs/database`; a bare PostgreSQL READ COMMITTED
+client does not provide the required serialization.
 
 Store writes nested inside `DurableWriter.write` join it as savepoints. A
 transient database conflict retries the entire outer transaction. Persistence

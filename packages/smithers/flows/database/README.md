@@ -37,7 +37,8 @@ pnpm add @smthrs/database@1.0.0-rc.0 effect@4.0.0-rc.115
 pnpm add @effect/sql-sqlite-node@4.0.0-rc.115
 ```
 
-The driver-neutral root installs no SQLite adapter. Two
+PostgreSQL configuration requires the optional `@effect/sql-pg@4.0.0-rc.115`
+peer. The driver-neutral root installs no SQL adapter. Two
 copies of `effect` in one tree split the `SqlClient` service identity and a
 writer built against one copy cannot see a client provided from the other. The
 Node driver needs Node.js 26.4.0 or later for its built-in `node:sqlite`
@@ -76,20 +77,20 @@ than `Layer.provide`, so both services stay in the output. Add
 The root is driver neutral and bundles for browsers. Each driver is platform
 specific and lives at its own subpath.
 
-| Import                                | Exports                                                                              |
-| ------------------------------------- | ------------------------------------------------------------------------------------ |
-| `@smthrs/database`                    | `DurableWriter`, `Migrations`, `DatabaseMetrics`, `UnsupportedBackend` as namespaces |
-| `@smthrs/database/DurableWriter`      | the write boundary, its errors, and its layers                                       |
-| `@smthrs/database/Migrations`         | the migration composer                                                               |
-| `@smthrs/database/DatabaseMetrics`    | the write-retry counter                                                              |
-| `@smthrs/database/UnsupportedBackend` | the connection-string names this release ignores                                     |
-| `@smthrs/database/node/NodeDatabase`  | Node only. The `node:sqlite` client layer                                            |
-| `@smthrs/database/test/TestDatabase`  | Node only. The in-memory client and writer                                           |
+| Import                                       | Exports                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `@smthrs/database`                           | `DurableWriter`, `Migrations`, `DatabaseMetrics`, `UnsupportedBackend` as namespaces |
+| `@smthrs/database/DurableWriter`             | the write boundary, its errors, and its layers                                       |
+| `@smthrs/database/Migrations`                | the migration composer                                                               |
+| `@smthrs/database/DatabaseMetrics`           | the write-retry counter                                                              |
+| `@smthrs/database/UnsupportedBackend`        | the connection-string names this release ignores                                     |
+| `@smthrs/database/node/NodeDatabase`         | Node only. The `node:sqlite` client layer                                            |
+| `@smthrs/database/postgres/PostgresDatabase` | PostgreSQL client with schema-scoped write serialization                             |
+| `@smthrs/database/test/TestDatabase`         | Node only. The in-memory client and writer                                           |
 
 `DurableWriter.make` accepts any Effect `SqlClient`, so the retry
-classification and the error vocabulary are dialect blind. What ships in
-1.0.0-rc.0 is narrower: a Node SQLite driver, an in-memory test layer, and no
-schema for any other dialect.
+classification and the error vocabulary are dialect blind. SQLite and PostgreSQL adapters share the stores and migration ladder. See
+[configuration and isolation](docs/concepts/sqlite-only.md).
 
 ## What the boundary buys you
 

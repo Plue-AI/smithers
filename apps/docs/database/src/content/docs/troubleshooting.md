@@ -249,20 +249,13 @@ against the sets you compose. A gap where a block should be is the answer.
 
 ## Backend and environment
 
-### `SMITHERS_POSTGRES_URL` has no effect
+### PostgreSQL configuration
 
-That is correct, and the package will say so if you ask it: 1.0.0-rc.0 stores
-run state in local SQLite only. `UnsupportedBackend.ignoredNames(process.env)`
-lists every name in play. Choosing a backend is the separate case:
-`SMITHERS_BACKEND` or `--backend` with any value but `sqlite` exits 1 with
-`unsupported_database`, a refusal the CLI owns. See
-[why rc.0 is SQLite only](/concepts/sqlite-only/).
+`SMITHERS_POSTGRES_URL` selects PostgreSQL for native filename opens unless
+`SMITHERS_BACKEND=sqlite` is set. An explicit PostgreSQL URL selects it directly.
+Install the optional `@effect/sql-pg` peer at the version pinned by this package.
 
-### A Postgres client retries correctly but the migrations fail
-
-**Cause:** the storage packages' migrations are SQLite-flavoured DDL. The
-retry classification and the error vocabulary are dialect neutral; the schema
-is not.
-
-**Fix:** none in this release. A dialect-parameterized migration ladder is
-planned.
+Migrate the full composed set before starting stores. Independently racing
+package ladders can install a higher block before a lower package exists; the
+migration validator correctly refuses that gap. See
+[SQLite and PostgreSQL](/concepts/sqlite-only/).

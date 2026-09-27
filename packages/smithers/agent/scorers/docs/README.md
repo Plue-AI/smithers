@@ -135,7 +135,7 @@ also importable from `@smthrs/scorers/<Module>`:
 | `Binding`       | A scorer, a target flow, optional ground truth and context, and a sampling policy.                    |
 | `Sampling`      | The replay-stable policy vocabulary and the decision function over it.                                |
 | `ScoreStore`    | The durable observation contract: record, record once, page, aggregate.                               |
-| `SqlScoreStore` | The SQLite implementation of that contract, migrations included.                                      |
+| `SqlScoreStore` | The SQLite and PostgreSQL implementation of that contract, migrations included.                                      |
 | `Runner`        | Job identities, batch outcomes, and the conversion of a scorer failure into an observation.           |
 | `RunnerLive`    | The scoped queue and batch runner over whichever store is provided.                                   |
 | `ScorerError`   | The eight stable failure codes and the tagged error that carries them.                                |

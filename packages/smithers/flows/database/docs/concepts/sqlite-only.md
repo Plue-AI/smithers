@@ -1,128 +1,124 @@
 ---
-title: "Why 1.0.0-rc.0 is SQLite only"
-description: "The backend contract this release states: the three opens the Node driver refuses, the connection strings it ignores out loud, and what a Postgres client does and does not get."
+title: "SQLite and PostgreSQL"
+description: "Choose a local SQLite file or an injected PostgreSQL client for the same durable stores."
 sidebar:
   order: 3
 ---
 
-1.0.0-rc.0 stores run state in local SQLite only. That is a release decision,
-not a limitation of the write boundary, and the package enforces it in two
-places: the driver refuses opens it cannot support, and the environment half
-says out loud which names it is ignoring.
+Smithers uses Effect SQL's `SqlClient` and one `DurableWriter` for both SQLite
+and PostgreSQL. Journal, run and attempt state, plans, engine projections,
+step cache, time travel, control, memory, scores, triggers, and integration
+records use the same services and migration identities.
 
-## The three opens the driver refuses
+## Configuration
 
-`NodeDatabase.layer` runs a guard before it creates a connection, and raises
-`UnsupportedDatabase` as a defect in each of these cases:
+SQLite is the local default. `NodeDatabase.layer({ filename })` and
+`BunDatabase.layer({ filename })` select PostgreSQL when given a
+`postgres://` or `postgresql://` connection string, or when
+`SMITHERS_POSTGRES_URL` (preferred) or `DATABASE_URL` is set. Set
+`SMITHERS_BACKEND=sqlite` to keep filename opens on SQLite despite an ambient
+connection string. An explicit PostgreSQL URL still selects PostgreSQL.
+`SMITHERS_BACKEND=postgres` requires a connection string.
 
-| Code                        | Refused when                                                         | Message                                                                                  |
-| --------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `unsupported_runtime`       | `process.versions.bun` is set                                        | `Use @smthrs/database/bun/BunDatabase under Bun; NodeDatabase requires Node.js >=26.4.0` |
-| `unsupported_database_file` | the file has at least one table and no `flows_migrations` table      | `<path> is not a Smithers 1.0 database (1.0.0-rc.0 does not load a 0.x smithers.db)`     |
-| `database_locked`           | a peer held the file for the whole open ladder, so it was never read | `<path> could not be inspected because another process holds it`                         |
+Install the optional adapter alongside the database package:
 
-A refusal is a defect rather than a typed failure on purpose. `layer` is a leaf
-client layer whose error channel every durable package composes against as
-`never`, and neither refusal is recoverable at run time: both are operator
-mistakes fixed by selecting the matching native driver or another database file.
-The value carried by the defect is still typed and matchable with
-`isUnsupportedDatabase`.
-
-The Node adapter checks runtime selection first and directs Bun callers to
-BunDatabase. The shared durable engine runs on either native adapter; both use
-the same file guard and retry policy.
-
-### What the file check actually reads
-
-The guard opens the file read-only and reads `sqlite_master`. A database whose
-tables include `flows_migrations` is a Smithers 1.0 database and is waved
-through. A database with tables but no ledger is a 0.x `smithers.db`: opening
-it would add `flows_*` tables beside its `_smithers_*` ones and silently mix
-two schemas, so it is refused.
-
-Two details close bypasses that a naive probe leaves open:
-
-- **`file:` URIs are probed by their path alone.** `node:sqlite` accepts a URI
-  as a filename, which would slip past a filesystem check. The query says how
-  to open the file, never which tables it holds, and a read-only open of
-  `file:<path>?mode=rw` fails on the mode conflict before reading one, so the
-  probe drops the query and the fragment. The exception is `mode=memory`, which
-  names a pure in-memory database rather than a way to open a file. SQLite
-  honors the last `mode` when a query repeats it, so only a URI whose final
-  mode is `memory` skips the probe.
-- **A locked file is not an unreadable file.** The probe retries on the same
-  ladder the open uses, so a 0.x database is refused whether or not a 0.x
-  writer held it at that moment. A lock nobody releases exhausts the ladder and
-  is refused as `database_locked`, because the open would have waited the same
-  peer out: reporting it as a transient driver error would make
-  `isUnsupportedDatabase` answer `false` about a database this driver declined
-  to open.
-
-The guard says nothing when the file cannot be inspected at all: a path that
-does not exist, a directory, an in-memory name, or a file SQLite refuses to
-read. None of those is a 0.x database, so the driver's own open decides what
-happens next.
-
-### Why opening retries at all
-
-`SqliteClient` opens the file, sets `PRAGMA busy_timeout`, and then issues
-`PRAGMA journal_mode = WAL` inside its constructor. Two processes opening one
-file concurrently collide there in two ways, and neither is reachable by the
-write-retry policy, because the failure is a raw throw during layer
-construction rather than the `SqlError` the policy classifies:
-
-- `SQLITE_BUSY` on the mode change itself. SQLite converts a database into or
-  out of WAL only with the file to itself. The change does consult the busy
-  handler, so a contended attempt waits the whole `busyTimeout` and then
-  reports `database is locked`.
-- `SQLITE_BUSY_RECOVERY` when opening a WAL database whose log needs recovery
-  while a peer is already recovering it.
-
-Both clear as soon as the peer finishes, so the open retries on a fixed ladder
-of 40 attempts with a 5 ms base delay capped at 250 ms. The ladder is
-deliberately not configurable: it bounds a driver-internal race during layer
-construction, before any service exists to configure, and its bounds come from
-SQLite's WAL behavior rather than from your workload. Because a contended
-attempt can spend up to the configured `busyTimeout` inside SQLite before the
-ladder's own delay, the wall-clock cost of exhausting the ladder is bounded by
-that timeout, not by the delays.
-
-## The connection strings this release ignores
-
-A project migrating from a 0.x PostgreSQL or PGlite deployment still exports
-that deployment's connection strings, and rc.0 ignores them. Ignoring them in
-silence is the failure the notice exists to prevent: the project would run
-against SQLite believing it ran against PostgreSQL, and nothing in the run
-would say otherwise.
-
-`UnsupportedBackend.ignoredNames(process.env)` lists the names in play,
-`SMITHERS_TEST_PG_URL` and every `SMITHERS_POSTGRES_*` name, sorted, with an
-exported-but-blank name counting as unset. `ignoredNotice(name)` is the one
-line each gets:
-
-```text
-ignored: SMITHERS_POSTGRES_URL has no effect in 1.0.0-rc.0 (SQLite only)
+```sh
+pnpm add @effect/sql-pg@4.0.0-rc.115
 ```
 
-It is a notice, not a refusal. Nothing about the run changes and the exit code
-does not move. Choosing a backend is the separate case: `SMITHERS_BACKEND` or
-`--backend` with any value but `sqlite` exits 1 with `unsupported_database`, a
-refusal the CLI owns.
+Direct injection makes the schema explicit:
 
-The separator is part of the prefix. Every name 0.x actually read carries it,
-so `SMITHERS_POSTGRESQL_URL`, a name neither release reads, is not announced as
-one this release decided to ignore.
+```ts
+import * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as PostgresDatabase from "@smthrs/database/postgres/PostgresDatabase"
+import { Layer } from "effect"
 
-## What a non-SQLite client does and does not get
+const database = Layer.provideMerge(
+  DurableWriter.layer(),
+  PostgresDatabase.layer({
+    url: process.env.SMITHERS_POSTGRES_URL!,
+    schema: "my_workspace_engine"
+  })
+)
+```
 
-The package root bundles for browsers as a contract, and `DurableWriter.make`
-accepts any Effect `SqlClient`. A Postgres or PGlite client wrapped by the
-writer gets the full retry classification and the normalized error vocabulary,
-including the SQLSTATE values and the server texts PGlite raises without a
-code.
+Provide this layer to the existing composed migrations and stores. Run the
+composed migration ladder before constructing services; do not launch separate
+package migrations concurrently. No PostgreSQL-specific store is needed.
 
-It does not get a schema. No browser, Postgres, or PGlite client layer ships
-here, and the storage packages' migrations are SQLite-flavoured DDL, so there
-is no runnable ladder for another dialect. Postgres and PGlite layers, and a
-dialect-parameterized migration ladder, are planned and do not ship in this
-release.
+The adapter creates the schema if absent. Its database role needs permission
+to create the schema, tables, indexes, and trigger functions. The tested server
+is PostgreSQL 18 with UTF-8 encoding. Connection credentials stay in host
+configuration; do not put them into flow payloads or journals.
+
+## Store identity
+
+Direct injection defaults to `smithers_flows`. An explicit connection-string
+open can set `?schema=my_schema`. Environment-selected opens preserve the
+filename's store identity: without a configured prefix, the schema is
+`smithers_` plus a SHA-256 digest of the absolute filename. Moving that path
+therefore selects another schema.
+
+For stable deployment identity, set `SMITHERS_POSTGRES_SCHEMA`. The adapter
+appends the sanitized filename basename, so `control.db` and `engine.db`
+remain separate stores. Use a distinct prefix per workspace. PostgreSQL stores
+SQL records; artifacts, native process state, and workspaces still need durable
+host storage.
+
+The self-hosted Go backend accepts `SMITHERS_DATABASE_URL` or its
+`DATABASE_URL` fallback, with the prefixed variable taking precedence. It
+passes the resolved URL to flow-host catalogs as `SMITHERS_POSTGRES_URL`.
+Each host receives a stable `SMITHERS_POSTGRES_SCHEMA` derived from workspace
+ID and catalog family. Host generations reuse those schemas. Hosted topology
+does not pass the backend database credential into sandbox catalogs.
+
+## Transactions and SQL behavior
+
+SQLite retains its WAL/open guards and bounded busy retries. PostgreSQL uses
+READ COMMITTED transactions with a transaction-scoped advisory lock keyed by
+schema. The lock is acquired before domain reads, serializing durable writes
+across pools and processes. Nested writes use savepoints. Existing lease
+compare-and-swap, owner fencing, and retry classification remain in the shared
+stores. A custom injected SQL client must provide this serialization contract;
+a bare PostgreSQL READ COMMITTED client is insufficient.
+
+This deliberately permits one durable writer per schema, matching the current
+SQLite contract. Different schemas can write concurrently. A larger connection
+pool does not increase writer throughput within one schema. No throughput claim
+is made by the conformance suite.
+
+Integer-valued columns use PostgreSQL `NUMERIC` with integer/range checks where
+the SQLite schema has those checks; this rejects fractional writes rather than
+rounding them. Reads retain JavaScript numbers within the safe range. Binary
+vectors use `BYTEA`. JSON remains encoded text with backend-specific validation
+and extraction. PostgreSQL identity columns replace implicit SQLite insertion
+ordinals where reads require them.
+
+Memory keyword recall uses SQLite FTS5 or PostgreSQL `tsvector`/GIN with the
+`simple` configuration and `websearch_to_tsquery`. Ranking and advanced query
+syntax are backend-specific; ordinary keyword recall shares the memory API.
+
+## Recovery and tests
+
+Recovery reconstructs the same stores and migration ladder over the retained
+file or schema. Local SQLite backup bundles (`VACUUM INTO`) remain a SQLite
+maintenance format. PostgreSQL operators must back up and restore the schema
+with PostgreSQL tooling and retain the associated artifact objects and host
+state. A SQLite bundle is not a PostgreSQL export/import format.
+
+Each owning package runs the matrix through `pnpm test`, `pnpm coverage`,
+`pnpm test:matrix`, and its factory test target. It runs the existing suite once
+on SQLite and once on a real PostgreSQL server. Set `SMITHERS_TEST_PG_URL` to a
+scratch database, or let the runner create and remove a temporary local cluster.
+`PG_BIN` selects the PostgreSQL binaries. Tests use isolated schemas and remove
+them when their scopes close. Native file-format and historical SQLite-only
+corruption fixtures stay on SQLite; PostgreSQL-specific adapter tests exercise
+independent pools and exact storage types. Coverage from both runs is merged
+and checked against each package's unchanged thresholds (100% in ten packages,
+with existing measured floors in memory and integrations). Process tests exercise
+PostgreSQL hard-kill recovery and Node/Bun replay; native history resolves
+workspaces, forks, and rewind receipts through the same injected stores.
+
+The SQLite file guard still refuses a populated pre-1.0 file without
+`flows_migrations`. PostgreSQL selection does not convert such a file; choose a
+fresh schema or an explicitly managed migration of application data.

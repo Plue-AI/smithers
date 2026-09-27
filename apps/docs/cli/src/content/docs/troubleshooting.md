@@ -50,17 +50,13 @@ so a launch would park with nothing to run.
 
 **Fix.** Use the verb. `smthrs ls` never lists a reserved id.
 
-### `unsupported_database: 1.0.0-rc.0 supports local SQLite only`
+### `unsupported_database: choose sqlite or postgres`
 
-**Symptom.** Every command exits 1, including ones that touch no database.
+**Cause.** `SMITHERS_BACKEND` or `--backend` names an unsupported backend.
 
-**Cause.** `SMITHERS_BACKEND`, or `--backend`, names something other than
-`sqlite`. PostgreSQL and PGlite do not ship in rc.0, and falling back to SQLite
-silently would run a project's flows against a database it did not ask for.
-
-**Fix.** Unset `SMITHERS_BACKEND` or set it to `sqlite`. A separate,
-non-blocking notice reports each `SMITHERS_POSTGRES_*` or
-`SMITHERS_TEST_PG_URL` name that still carries a value.
+**Fix.** Use `sqlite` for local files, or `postgres` with
+`SMITHERS_POSTGRES_URL` or `DATABASE_URL`. See the
+[database configuration](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/database/docs/concepts/sqlite-only.md).
 
 ### `Refusing to bind 0.0.0.0: pass --listen ...`
 

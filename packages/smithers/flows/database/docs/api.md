@@ -352,8 +352,8 @@ it surfaces on the error channel instead.
 
 ## UnsupportedBackend
 
-The environment half of the SQLite-only contract. Strings only, so it is
-browser safe.
+Notices for unsupported legacy configuration names. This string-only module
+is browser safe.
 
 ### ignoredNames
 
@@ -361,8 +361,8 @@ browser safe.
 const ignoredNames: (environment: Readonly<Record<string, string | undefined>>) => ReadonlyArray<string>
 ```
 
-The `SMITHERS_*` names 1.0.0-rc.0 ignores: `SMITHERS_TEST_PG_URL` and every
-name beginning `SMITHERS_POSTGRES_`. Sorted, so an operator reading two runs
+Production ignores `SMITHERS_TEST_PG_URL` and legacy `SMITHERS_POSTGRES_*`
+knobs other than `SMITHERS_POSTGRES_URL` and `SMITHERS_POSTGRES_SCHEMA`. Sorted, so an operator reading two runs
 compares two identical lists. An exported-but-blank name counts as unset.
 
 The separator is part of the prefix, so `SMITHERS_POSTGRESQL_URL`, a name
@@ -377,7 +377,7 @@ const ignoredNotice: (name: string) => string
 The one line an ignored name gets:
 
 ```text
-ignored: SMITHERS_POSTGRES_URL has no effect in 1.0.0-rc.0 (SQLite only)
+ignored: SMITHERS_TEST_PG_URL has no effect in 1.0.0-rc.0 (use SMITHERS_POSTGRES_URL to select PostgreSQL)
 ```
 
 It is a notice, not a refusal: it changes no exit code and no result.
@@ -386,8 +386,8 @@ It is a notice, not a refusal: it changes no exit code and no result.
 
 Node only. `import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"`.
 
-Provides the `node:sqlite` SQL client through `@effect/sql-sqlite-node`, and
-nothing else. The write policy lives in `DurableWriter.layer`, composed on top.
+Defaults to `node:sqlite` through `@effect/sql-sqlite-node`; a configured
+PostgreSQL URL selects `PostgresDatabase` instead. The write policy lives in `DurableWriter.layer`, composed on top.
 
 ### layer
 
@@ -487,3 +487,12 @@ halves share one connection and serialization comes from the client's
 in-process transaction mutex rather than from the database.
 
 See [Test against a database](./guides/test-against-a-database.md).
+
+## PostgresDatabase
+
+Import `@smthrs/database/postgres/PostgresDatabase` and provide
+`layer({ url, schema?, postgres? })`. The optional `postgres` field passes
+Effect PostgreSQL pool/connection options; Smithers owns the type registry.
+The resulting layer provides `SqlClient`; compose `DurableWriter.layer()`
+and the owning migration set as with SQLite. See
+[configuration and isolation](./concepts/sqlite-only.md).

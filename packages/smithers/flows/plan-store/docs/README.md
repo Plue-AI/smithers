@@ -1,6 +1,6 @@
 ---
 title: "@smthrs/plan-store"
-description: "Record a compiled plan in an append-only SQLite store, grow it a generation at a time, and read it back verified, with rewriting refused by a trigger rather than by convention."
+description: "Record a compiled plan in an append-only SQL store, grow it a generation at a time, and read it back verified, with rewriting refused by a trigger rather than by convention."
 ---
 
 `@smthrs/plan-store` is where a [`@smthrs/plan`](/api/plan) plan is kept. It

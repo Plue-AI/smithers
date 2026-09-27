@@ -12,9 +12,9 @@ matching database, host and cryptography layers.
 
 The shared `@smthrs/flows/Runtime.storage` composition builds journal and durable
 store layers over injected services; it does not select a SQL driver. The native
-compositions supply that driver. Both database adapters share the schema guard
-and startup retry logic; stores use the existing `DurableWriter` transaction
-policy.
+compositions supply that driver. SQLite adapters share the file guard and startup retries. PostgreSQL uses
+the shared Effect SQL adapter and per-schema transaction locking. All stores
+use the existing `DurableWriter` transaction policy.
 
 ```ts
 import * as BunRuntime from "@smthrs/flows/BunRuntime"
@@ -44,10 +44,12 @@ have its own migration namespace in the injected database when existing stores
 do not represent it. It must not create a separate connection, job queue,
 command ledger or lease system to repeat the engine's responsibilities.
 
-The Node adapter requires Node's SQLite implementation. Under Bun, select
+For SQLite, the Node adapter requires Node's SQLite implementation. Under Bun, select
 `@smthrs/database/bun/BunDatabase`; a wrong-driver refusal names that correction.
-The durable engine itself has no Bun exclusion. Both drivers reject legacy
-Smithers 0.x databases before adding tables.
+The durable engine itself has no Bun exclusion. Both SQLite drivers reject legacy
+Smithers 0.x databases before adding tables. Either runtime can instead select
+PostgreSQL using `SMITHERS_POSTGRES_URL` or an explicit connection string; see
+[database configuration](https://database.smithers.sh/concepts/sqlite-only/).
 
 ## Evidence and regression contract
 
@@ -55,7 +57,7 @@ Smithers 0.x databases before adding tables.
 A flow executes a recorded action and parks on a durable deferred; the other
 runtime opens the same database, completes the deferred and resumes the flow.
 Reopening it in the first runtime must not repeat that action. Both directions
-are exercised. This is native Bun execution, not running Node through a Bun
+are exercised on SQLite and, with `SMITHERS_TEST_PG_URL`, PostgreSQL. This is native Bun execution, not running Node through a Bun
 package-manager shim.
 
 The Node suite contains named regression cases for registration ordering,
