@@ -27,7 +27,9 @@
  * with the current cases and checks, without calling the role's model; with
  * `--judge`, a turn is judged again when it has no verdict or its verdict was
  * made under other judge notes or another rubric (`Rubric.judgeKey`), and
- * `--rejudge` judges every conversation again.
+ * `--rejudge` judges every conversation again. `--check-profile` composes the
+ * suite's role file (shared instructions, charter, skills, byte caps), prints
+ * what it found and exits; it is the check for a role file.
  *
  * Other flags: `--coverage` lists how many cases test each spec rule; `--cases a,b` keeps some cases; `--category a,b` keeps some
  * categories; `--reply-from summary` reads a RoleResult reply's summary; `--profile <file>` and `--common <file>` swap the
@@ -99,13 +101,38 @@ const suite: CharacterSuite.Suite = categories === undefined
   ? loaded
   : { ...loaded, cases: loaded.cases.filter((suiteCase) => categories.includes(suiteCase.category)) }
 const commonFile = option("common")
-const composed = Profile.compose({
-  org: suite.org,
-  role: suite.role,
-  profileFile: profileFile === undefined ? undefined : resolve(profileFile),
-  commonFile: commonFile === undefined ? undefined : resolve(commonFile)
-})
+// A role file that does not compose (a listed skill missing, a part over its
+// byte cap) stops every mode here, named, before anything runs or spends.
+const composed = ((): Profile.Composed => {
+  try {
+    return Profile.compose({
+      org: suite.org,
+      role: suite.role,
+      profileFile: profileFile === undefined ? undefined : resolve(profileFile),
+      commonFile: commonFile === undefined ? undefined : resolve(commonFile)
+    })
+  } catch (error) {
+    process.stderr.write(`not ok: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.exit(5)
+  }
+})()
 const seatId = option("seat") ?? suite.seat
+
+if (flag("check-profile")) {
+  const cap = (used: number, limit: number) => `${used} of ${limit} bytes`
+  process.stdout.write(
+    [
+      `ok ${composed.name} (${composed.role})`,
+      `seat: ${composed.seat || "(suite's)"}; effort: ${composed.effort ?? "(default)"}`,
+      `skills: ${composed.skills.length === 0 ? "(none)" : composed.skills.join(", ")}`,
+      `common instructions: ${cap(composed.bytes.common, Profile.limits.common)}`,
+      `charter: ${cap(composed.bytes.charter, Profile.limits.charter)}`,
+      `skills: ${composed.bytes.skills} bytes (${Profile.limits.skill} per skill)`,
+      `digest: ${composed.digest}`
+    ].join("\n") + "\n"
+  )
+  process.exit(0)
+}
 
 // ---------------------------------------------------------------------------
 // One conversation
