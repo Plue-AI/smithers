@@ -1,6 +1,7 @@
 package microsandbox
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -54,4 +55,13 @@ func TestEveryNonTerminalExecStreams(t *testing.T) {
 	require.Equal(t, []string{"/bin/true", "exec", "-t", "vm", "--", "sh"}, client.command("exec", "-t", "vm", "--", "sh").Args)
 	require.Equal(t, []string{"/bin/true", "list", "--format", "json"}, client.command("list", "--format", "json").Args)
 	require.Contains(t, client.command("list").Env, "MSB_BACKEND=local")
+}
+
+// A service that dies during startup reports why: its output's end, not the
+// helper trailer or a truncation flag.
+func TestServiceStartupErrorCarriesOutputTail(t *testing.T) {
+	require.Equal(t, "Error: missing seat", outputTail("Error: missing seat\n\x00SMITHERS-EXIT 1\x00"))
+	long := outputTail(strings.Repeat("x", 5000) + "end")
+	require.True(t, strings.HasSuffix(long, "end"))
+	require.Less(t, len(long), 2100)
 }

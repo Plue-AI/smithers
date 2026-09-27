@@ -369,6 +369,16 @@ func (r *Runtime) startService(ctx context.Context, ws *workspace, spec workspac
 	return workspaceapi.Service{Name: name, Address: address}, nil
 }
 
+// outputTail is the end of a failed service's output, without the helper's
+// exit trailer, for its startup error.
+func outputTail(output string) string {
+	output = strings.TrimSpace(exitTrailer.ReplaceAllString(output, ""))
+	if len(output) > 2048 {
+		output = "…" + output[len(output)-2048:]
+	}
+	return output
+}
+
 // waitForService accepts a service once its ready port accepts a connection
 // inside the guest, or at once when it declares no port and is still running.
 func (r *Runtime) waitForService(ctx context.Context, ws *workspace, spec workspaceapi.ServiceSpec, command *guestCommand) error {
@@ -386,8 +396,9 @@ func (r *Runtime) waitForService(ctx context.Context, ws *workspace, spec worksp
 	defer cancel()
 	for {
 		if command.finished() {
-			_, stderr := command.stderr.text()
-			return fmt.Errorf("workspace service %q exited before accepting connections (%v)", spec.Name, stderr)
+			stdout, _ := command.stdout.text()
+			stderr, _ := command.stderr.text()
+			return fmt.Errorf("workspace service %q exited before accepting connections: %s", spec.Name, outputTail(stdout+"\n"+stderr))
 		}
 		if _, err := r.cli.run(readyCtx, nil, guestArgs(ws.Machine, nil, false, "probe", strconv.Itoa(int(port)))...); err == nil {
 			return nil
