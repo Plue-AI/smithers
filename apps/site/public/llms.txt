@@ -19,7 +19,7 @@
 - [Conversations](https://smithers.sh/docs/how-it-works/conversations/): A conversation is a chat with Smithers or the discussion on an issue. Conversations last, and can sync with Slack or Telegram.
 - [Issues](https://smithers.sh/docs/how-it-works/issues/): An issue is something to get done: it moves from open to fixed to verified, and the verifier is never the fixer.
 - [Wiki](https://smithers.sh/docs/how-it-works/wiki/): The wiki is what the project knows: versioned, tied to its sources, and refreshed when code lands.
-- [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a file in your repository: its instructions, its model, what it may do, and how much it may spend.
+- [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a file in your repository: its instructions, its model, what it may do, and how much it may spend. Start one from the app, the TUI, the CLI, or the API.
 - [Triggers and flows](https://smithers.sh/docs/how-it-works/triggers-and-flows/): A trigger is something that happens; a flow is the steps Smithers runs in response. Rules in .smithers/FACTORY.ts connect them.
 
 ## Tutorials: GUI, TUI, CLI, API
@@ -27,28 +27,35 @@
 - [Chat with an agent](https://smithers.sh/docs/learn/chat/): Ask Smithers a question, steer it while it works, and queue a follow-up, from the app, the terminal, a script, or the API.
 - [Sync a conversation with Slack or Telegram](https://smithers.sh/docs/learn/sync-a-conversation/): Connect a conversation to a Slack thread or a Telegram chat, and see each message once on both sides.
 - [Create an issue](https://smithers.sh/docs/learn/create-an-issue/): Open an issue, hand it to the coding factory, and move it from open to fixed to verified.
+- [Follow an issue to main](https://smithers.sh/docs/learn/issue-to-main/): See where each issue is on its way to main: planned, being built, checked, in review, or landed.
+- [Run a flow](https://smithers.sh/docs/learn/run-a-flow/): Pick one of the repository's flows, give it what it needs, and follow its run.
 - [Configure an agent and a trigger](https://smithers.sh/docs/learn/agent-and-trigger/): Write an agent as a flow.mdx file, run it once, then put it on a schedule.
+- [Work in the background](https://smithers.sh/docs/learn/background-work/): Hand off a bounded job, keep chatting, and follow, stop, or retry it.
+- [Choose a model](https://smithers.sh/docs/learn/models/): Pick the model for chat, for background work, and for each agent, and set its reasoning effort.
 - [Watch an agent work](https://smithers.sh/docs/learn/watch-an-agent/): Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you.
 - [Answer an approval](https://smithers.sh/docs/learn/approvals/): When an agent asks before acting, read the request and approve or deny it from the app, the terminal, a script, or the API.
+- [Review a change](https://smithers.sh/docs/learn/review-a-change/): Read a change's diff, checks, and reviews, answer feedback, and land it.
 - [Use the wiki](https://smithers.sh/docs/learn/wiki/): Read and edit notes, generate pages from the code, and keep them current.
+- [Open a repository](https://smithers.sh/docs/learn/open-a-repository/): Open a repository in Smithers, read its guide files, and register your own.
+- [Work in a box](https://smithers.sh/docs/learn/boxes/): Open a box for a repository, browse its files, use its terminal, and suspend or delete it.
+- [Search](https://smithers.sh/docs/learn/search/): Find a file, flow, run, issue, or command by name.
+- [Repository secrets](https://smithers.sh/docs/learn/secrets/): See which secrets a repository's boxes may use, and add or remove them.
+- [Sign in](https://smithers.sh/docs/learn/account/): Sign in with GitHub, check your account, and sign out.
+- [Troubleshooting](https://smithers.sh/docs/learn/troubleshooting/): Read the error, fix the cause, and report a problem.
 
-## Use the app
+## TUI reference
 
-- [The interface](https://smithers.sh/docs/app/): Find your way around the Smithers app: repositories, chat, cards, and the six main areas.
-- [Open a repository](https://smithers.sh/docs/learn/open-a-repository/): Open or import a repository, read its guide files, and select the context for your work.
-- [Talk to Smithers](https://smithers.sh/docs/learn/chat/): Ask for work, inspect the cards in the conversation, and steer work while it runs.
-- [Search the app](https://smithers.sh/docs/learn/search/): Use the command palette to find files, flows, notes, and other project information.
-- [Read and edit the Wiki](https://smithers.sh/docs/learn/wiki/): Open project notes, follow their sources, and understand the difference between notes and a generated repository wiki.
-- [Inspect the Dispatcher](https://smithers.sh/docs/learn/agent-and-trigger/): Inspect declared rules, register a schedule after reviewing its plan, and follow its runs.
-- [Run a flow](https://smithers.sh/docs/learn/run-a-flow/): Choose a repository flow in the app, supply its inputs, and inspect the run that starts.
-- [Inspect and steer a run](https://smithers.sh/docs/learn/watch-an-agent/): Follow a flow's status, inspect its execution trace, send a correction, and stop or resume work.
-- [Work in a box](https://smithers.sh/docs/learn/boxes/): Open a cloud box, inspect its files and terminal, and use its services and snapshots.
-- [Review an approval](https://smithers.sh/docs/learn/approvals/): Inspect a requested action and approve or deny it from the Smithers conversation.
-- [Review a change](https://smithers.sh/docs/learn/review-a-change/): Inspect a Change's diff, checks, reviews, and revisions before landing it.
-- [Repository secrets](https://smithers.sh/docs/learn/secrets/): Inspect the scope and metadata of secrets available to a repository's sessions.
-- [History and the Stack](https://smithers.sh/docs/learn/issue-to-main/): Read mythical history, inspect live issue lanes, and follow changes to their upstream pull requests.
-- [Account and access](https://smithers.sh/docs/learn/account/): Sign in with GitHub, check your alpha access, and understand what the Account card shows.
-- [Troubleshoot the app](https://smithers.sh/docs/learn/troubleshooting/): Resolve sign-in, access, box, search, and run problems in the Smithers app.
+- [Smithers in your terminal](https://smithers.sh/docs/tui/): Install and start the TUI, make a first change, and find its references.
+- [Commands](https://smithers.sh/docs/tui/commands/): Every built-in TUI slash command.
+- [Keys](https://smithers.sh/docs/tui/keys/): Every TUI shortcut, grouped by where it works.
+- [Command line](https://smithers.sh/docs/tui/cli/): Start the TUI interactive, continued, or for one answer.
+- [Configuration](https://smithers.sh/docs/tui/configuration/): Providers, TUI settings, instruction files, and where conversations are stored.
+- [Views, filters, and estimates](https://smithers.sh/docs/tui/views/): Tabs, transcript filters, themes, and time and token estimates in the TUI.
+- [Extend the TUI](https://smithers.sh/docs/tui/extend/): Publish views and cards, add keys and status items, and watch results with monitors.
+
+## The app
+
+- [The app](https://smithers.sh/docs/app/): A short tour of the Smithers app: the conversation, cards, the sidebar, and commands.
 
 ## Tutorials
 

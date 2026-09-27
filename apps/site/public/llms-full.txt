@@ -60,13 +60,13 @@ Explain this repository. Which files should I read before making a small
 documentation change? Do not modify files or start a flow.
 ```
 
-Read the response and inspect the referenced files. Complete any access step the app requests. [Account and access](/docs/learn/account/) explains access labels; [Boxes](/docs/learn/boxes/) covers execution environments.
+Read the response and inspect the referenced files. Complete any access step the app requests. [Sign in](/docs/learn/account/) covers access; [Work in a box](/docs/learn/boxes/) covers boxes.
 
 ## 4. Set up a job
 
 Select **Set up a job**, or a recommended repository job. Review its configuration and proposed plan before approving registration. Follow the run card and background toast until registration finishes. The checklist does not complete merely because you pressed the button.
 
-The repository's job buttons remain available after setup and show their current state. Use [Dispatcher](/docs/learn/agent-and-trigger/) to inspect declarations and live registrations, prepare a schedule, or run an enabled registration now.
+The repository's job buttons remain available after setup and show their current state. Use [Dispatcher](/docs/learn/agent-and-trigger/#put-it-on-a-schedule) to inspect declarations and live registrations, prepare a schedule, or run an enabled registration now.
 
 ## 5. Make and inspect a change
 
@@ -352,661 +352,2299 @@ For help choosing what to automate next, run `smthrs suggest`. It scans the proj
 
 ---
 
-# The interface
-https://smithers.sh/docs/app/
+# How Smithers works
+https://smithers.sh/docs/how-it-works/
 
-Smithers keeps your task and its results in one conversation. The repository selector sets the context. Open **Chat** with Command-K / Control-K to ask for work; cards show files, runs, approvals, and changes.
+Smithers is built from a few ideas.
 
-## The six main areas
-
-The sidebar keeps these areas available as you work:
-
-| Area | What you use it for |
+| Idea | In one line |
 | --- | --- |
-| [Wiki](/docs/learn/wiki/) | Read and edit notes about the project. |
-| [Dispatcher](/docs/learn/agent-and-trigger/) | Inspect rules, prepare schedules, and follow registered work. |
-| [Flows](/docs/learn/run-a-flow/) | Find flows and follow their runs. |
-| [Secrets](/docs/learn/secrets/) | Inspect the names and scope of repository secrets. |
-| [History](/docs/learn/issue-to-main/) | Read mythical history and inspect live work with `/stack.show`. |
-| [Account](/docs/learn/account/) | Check your GitHub identity and alpha access. |
+| [Conversation](/docs/how-it-works/conversations/) | A chat with Smithers, or the discussion on an issue. |
+| [Issue](/docs/how-it-works/issues/) | Something to get done, from open to verified. |
+| [Wiki](/docs/how-it-works/wiki/) | What the project knows, versioned and kept current. |
+| [Agent](/docs/how-it-works/agents/) | Instructions, a model, what it may do, and a budget. |
+| [Trigger](/docs/how-it-works/triggers-and-flows/) | Something that happens: a message, a schedule, an issue or code event. |
+| [Flow](/docs/how-it-works/triggers-and-flows/) | The steps Smithers runs when a trigger fires. |
+| Run | One durable execution of a flow; it resumes after a restart. |
 
-Wiki and Flows open panes beside the conversation. Other results appear as cards in chat. Use **Back to the conversation** to close a pane. Use **Maximize card** when you need more room for a file or a run.
+## How they fit
 
-## Ask, select, or type a command
+**How the pieces connect**
 
-You can ask Smithers to do something, select an action on a card, or enter its slash command. For example, **Dispatcher** and `/triggers.list` open the same information.
+A trigger starts a flow. The flow puts agents to work. Agents reply in conversations, move issues forward, and update the wiki. Every step is recorded.
 
-Type `/` to browse commands. A command such as `/review` runs a featured repository flow. A dotted command such as `/runs.list` names a specific action. A trailing dot, such as `/review.`, browses that command group. The menu shows the commands available in your session.
+1. **Something happens.** A message arrives, a schedule comes due, or an issue is labeled.
+2. **Its rule picks a flow.**
+3. **The flow runs.** Each agent uses its own model, permissions, and budget.
+4. **Work comes back.** Replies land in the conversation. Code changes arrive as pull requests. The wiki refreshes when code lands.
 
-For a command that needs more information, fill in the form Smithers presents in chat. You do not need to learn its argument syntax first.
+## Four ways in
 
-## Boxes and sessions
+Everything is meant to be reachable four ways. The tutorials show each one in a tab.
 
-A [box](/docs/learn/boxes/) is the environment where the repository's code runs. Its files and sessions appear under the repository in the sidebar. Select a file to inspect it, or return to an existing terminal or agent session.
+| Surface | For | Open it |
+| --- | --- | --- |
+| GUI | People | The Smithers app |
+| TUI | People | `smthrs tui` |
+| CLI | Scripts and agents | `smthrs <command>` |
+| API | Scripts and services | HTTP |
 
-## Public browsing and signed-in work
+## Nothing is lost
 
-The public repository home, guide files, and declared Dispatcher rules are available signed out. Flows, boxes, account details, and repository secrets need sign-in. A sign-in prompt is a step to complete before the requested action can run.
+Smithers records each step as it finishes. After a restart, a run picks up where it stopped without repeating finished work. [Durable execution](/docs/concepts/durable-execution/) explains the engine.
 
-For the access states and what they mean, see [Account and access](/docs/learn/account/).
-
----
-
-# Open a repository
-https://smithers.sh/docs/learn/open-a-repository/
-
-Open a repository to give your conversation a project context. In the hosted alpha, start with [smithersai/smithers](https://smithers.sh/smithersai/smithers).
-
-## Open an available repository
-
-1. Visit [smithers.sh](https://smithers.sh).
-2. Find the repository under **Available repos**.
-3. Select **Open Smithers**.
-
-The repository's home card shows its description and featured flows. New sessions also show the setup checklist and recommended actions.
-
-## Choose how to start
-
-Use the setup checklist to **Connect GitHub**, **Add a repository**, and **Set up a job**. Recommended actions come from the flows available on your host. The repository's job buttons remain available after setup. Choosing a job does not grant repository permissions.
-
-## Read a guide file
-
-Open Chat and use `/files.read README.md` or `/files.read CONTRIBUTING.md`. The file opens in the conversation. Use **Maximize card** to read it with more room.
-
-A file card can contain a shortened preview. If it says the file is truncated, open the source repository to read the full file.
-
-![The contribution guide is maximized in a file card while the Smithers message box stays visible.](/images/app/file.png)
-
-Maximize a file card to read it with more room. Select Restore to return to its embedded view.
-
-## Change the repository context
-
-When your account has more than one repository, use the repository selector beside the message box. Check the selected repository and box before asking for a change.
-
-## Register another repository
-
-The alpha opens selected public repositories. Registration takes two steps:
-
-1. Sign in with GitHub on [smithers.sh](https://smithers.sh/smithersai/smithers). On the web your GitHub sign-in is your Smithers account.
-2. Install the [Smithers GitHub App](https://github.com/apps/smitherspreviewrelease/installations/new) on the repository, or on the organization that owns it.
-
-Installing the app registers the repository. Only repositories the app is installed on appear in the app, so a repository you can see on GitHub is not reachable here until it is installed. Registering a repository does not by itself grant alpha access or contributor permissions.
-
-For sign-in and access approval, see [Account and access](/docs/learn/account/).
+Smithers is in alpha. Each page marks its sections **Available now**, **Partly available**, or **Planned**.
 
 ---
 
-# Talk to Smithers
+# Conversations
+https://smithers.sh/docs/how-it-works/conversations/
+
+A **conversation** lasts: a subject, its messages, and the people and agents taking part. Work starts in a conversation and reports back to it.
+
+| Kind | What it is for |
+| --- | --- |
+| Chat | A private conversation with Smithers and your agents. |
+| Issue discussion | Comments on an [issue](/docs/how-it-works/issues/), visible to the repository's team. |
+
+## Chats
+
+**Available now.** [Chat](/docs/learn/chat/) with Smithers in the app or the TUI. The app keeps your chats for your account; the TUI keeps conversations in the project.
+
+**Partly available.** The API keeps private chats, searchable and syncable, with agents replying under their own names. The app's chat list is planned ([#2111](https://github.com/smithersai/smithers/issues/2111)).
+
+## Issue discussions
+
+**Available now.** Every issue has comments, and every change to it is recorded. The list shows the repository's Smithers issues with its GitHub issues.
+
+## Messages start work
+
+A message can trigger a flow. The assistant answers, or hands the request to the right [agent](/docs/how-it-works/agents/) and posts its reply in the same conversation.
+
+**Planned.** Message triggers for chats. See [Triggers and flows](/docs/how-it-works/triggers-and-flows/).
+
+## Sync with Slack and Telegram
+
+A conversation can sync with one Slack thread or Telegram chat. Sync is two-way: a message, edit, or delete on either side appears once on the other. Agents post under their own names.
+
+**Partly available.** The API connects a conversation; setup in the app is planned ([#2116](https://github.com/smithersai/smithers/issues/2116)), and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105)). Telegram reactions are not synced ([#2110](https://github.com/smithersai/smithers/issues/2110)). See [Sync a conversation](/docs/learn/sync-a-conversation/).
+
+## Next
+
+- [Issues](/docs/how-it-works/issues/): work to get done.
+- [Chat with an agent](/docs/learn/chat/): the first tutorial.
+
+---
+
+# Issues
+https://smithers.sh/docs/how-it-works/issues/
+
+An **issue** is something to get done. Discussion happens in its comments.
+
+## States
+
+```text
+open → fixed → verified → closed
+```
+
+| Field | Meaning |
+| --- | --- |
+| State | `open`, `fixed`, `verified`, or `closed`. |
+| Fixed by | Who marked it fixed. |
+| Verified by | Who confirmed the fix. Never the fixer. |
+| Assignees, labels, milestone | Who owns it and how it is grouped. |
+
+**Partly available.** The API sets every state. The app opens, closes, and reopens issues; its **Fixed** and **Verify** buttons are planned ([#2112](https://github.com/smithersai/smithers/issues/2112)).
+
+**Planned.** Owner, due date, priority, and parent issue ([#2112](https://github.com/smithersai/smithers/issues/2112)).
+
+## Let Smithers fix it
+
+**Available now.** Label an issue `smithers`, or run `/issue.implement 42` in the app. Smithers plans the change, runs the checks, and opens a pull request. `/stack.show` shows where each issue is.
+
+## Sync with Linear
+
+**Partly available.** A repository can sync issues and comments with a Linear team, both ways. The host must enable integrations; the app has no setup screen yet ([#2116](https://github.com/smithersai/smithers/issues/2116)).
+
+## Next
+
+- [Create an issue](/docs/learn/create-an-issue/): step by step.
+- [Agents](/docs/how-it-works/agents/): who works on issues.
+
+---
+
+# Wiki
+https://smithers.sh/docs/how-it-works/wiki/
+
+The **wiki** is what people and agents know about the project. Both read it and write it. Agents read it before they plan.
+
+## Versioned
+
+**Available now.** Every edit is a new revision; earlier revisions are kept. Edits never silently overwrite each other.
+
+## Tied to sources
+
+**Available now.** Generated pages say which code they describe. See [Use the wiki](/docs/learn/wiki/).
+
+## Kept current
+
+When a change lands, Smithers regenerates the pages it affects, reviews each against the code, and publishes it. Pages a person edited stay as written.
+
+**Partly available.** Refresh runs when main moves, for repositories with the stack on and a declared wiki. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
+
+## Public and private
+
+**Planned.** A public and a private wiki per repository. The private one is for members only.
+
+## Sync with knowledge tools
+
+**Planned.** Two-way sync with Notion, and with a local Markdown folder.
+
+## Next
+
+- [Use the wiki](/docs/learn/wiki/): step by step.
+- [Agents](/docs/how-it-works/agents/): who reads it.
+
+---
+
+# Agents
+https://smithers.sh/docs/how-it-works/agents/
+
+An **agent** is a file in your repository: `flows/<id>/flow.mdx`, or `flows/<id>/SKILL.md`. An agent profile is a flow, so everything that runs flows runs agents. The front matter sets the model, what the agent may do, and its budget. The body is its instructions.
+
+## Write one
+
+**Available now.**
+
+```markdown title="flows/reviewer/flow.mdx"
+---
+description: Reviews a change and returns a verdict with reasons.
+model: [sol, opus]
+effort: high
+capabilities: ["fs:read:**", "proc:spawn:*"]
+budget:
+  tokens: 200000
+  milliseconds: 600000
+---
+
+# Review the change
+
+Read the diff. Run the tests. Return approve or request changes,
+with the evidence for each finding.
+```
+
+| Key | What it decides |
+| --- | --- |
+| `description` | One line shown wherever the agent is listed. |
+| `model` | The model: an alias such as `sol`, `astra`, `luna`, `opus`, `fable`, or `qwen`, or `provider:modelId`. A list is a primary and fallbacks. |
+| `effort` | Reasoning effort, such as `low` or `high`. |
+| `capabilities` | What it may do. Anything else is refused. |
+| `budget` | The most tokens and time one run may spend. |
+| `flows` | Other agents or flows it may call. |
+| `disable-model-invocation` | `true` lets people start it but not other agents. |
+| Body | The instructions: the job, the output, and when to stop and ask. |
+
+Skills are `SKILL.md` files beside your flows. A skill adds instructions, never permissions. [flow.mdx frontmatter](/docs/reference/flow-mdx/) lists every key.
+
+## Start one
+
+**GUI**
+
+**Available now.** Type `/` and the agent's name, or ask for it in chat. See [Run a flow](/docs/learn/run-a-flow/).
+
+**TUI**
+
+**Available now.** `/agent` opens a picker. `/agent reviewer` fills in the composer; `/agent reviewer Review math.js` starts it in the background right away.
+
+![Starting a custom review agent from the TUI.](/images/learn/tui-custom-agent.gif)
+
+The TUI with a fixture agent.
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs flow start reviewer --data '{"args":"Review the working copy"}'
+```
+
+**API**
+
+**Available now.** `POST /api/repos/{owner}/{repo}/invoke` with `{"flow":"reviewer","input":{"args":"..."}}`.
+
+The model is chosen in order: the one you asked for, then the file's `model`, then the default.
+
+## If it won't start
+
+| Code | Cause |
+| --- | --- |
+| `unknown_agent` | No agent has that name. |
+| `not_an_agent` | It's a `flow.ts` flow; run it as a flow. |
+| `not_invocable` | Another agent tried to start a people-only agent. |
+| `unreadable` | Its instructions couldn't be read. Fix the file and retry. |
+| `unknown_seat` | `model` names no known provider or alias. |
+| `unknown_effort` | `effort` isn't a supported level. |
+
+## Agents call agents
+
+**Available now.** An agent lists what it may call under `flows`. Each call is its own run, with its own model, permissions, and timeline. A called agent can only do less than its caller, never more.
+
+## See what an agent did
+
+**Available now.** Filter the run list by the agent's id, then open a run's timeline. See [Watch an agent work](/docs/learn/watch-an-agent/).
+
+**Partly available.** **Agents** in the app lists the built-in agents with a **Runs** button each; your own agents join the list with [#2113](https://github.com/smithersai/smithers/issues/2113).
+
+## Budgets
+
+**Available now.** `budget` caps a run's tokens and time.
+
+**Planned.** When a run hits its budget or time limit, it pauses and asks you to continue or stop ([#2114](https://github.com/smithersai/smithers/issues/2114)).
+
+## Memory
+
+**Partly available.** Add a memory bank to `capabilities`, such as `memory:read:global-team` and `memory:write:global-team`. The agent then recalls what's relevant from that bank as it works, and can save what it learns. Agents share a bank only when each is allowed it. See [Memory](/docs/concepts/memory/).
+
+## Next
+
+- [Configure an agent and a trigger](/docs/learn/agent-and-trigger/): put it on a schedule.
+- [Triggers and flows](/docs/how-it-works/triggers-and-flows/): what starts an agent.
+
+---
+
+# Triggers and flows
+https://smithers.sh/docs/how-it-works/triggers-and-flows/
+
+A **trigger** is something that happens. A **flow** is the steps Smithers runs when it does. A **rule** connects them.
+
+## Kinds of trigger
+
+| Trigger | Example | Status |
+| --- | --- | --- |
+| Schedule | Every weekday at 9:00, run the review. | Available now |
+| Issue event | An issue is labeled `smithers`, or gets a comment. | Partly available |
+| Code event | A change opens, lands, or main moves. | Partly available |
+| Message | A message arrives in a chat. | Planned |
+| Manual | You run a registered rule now. | Available now |
+
+## Flows
+
+A flow lives at `flows/<name>/`: a `flow.mdx` whose body is the prompt, or a `flow.ts`. Each execution is a run. Every step is recorded as it finishes, so a stopped run resumes without redoing work. [Agents](/docs/how-it-works/agents/) are flows too.
+
+**Available now.** Run flows from the app's `/` menu, the TUI's `/flow`, `smthrs flow start`, or the API. See [Flows, actions, and plans](/docs/concepts/flows-actions-plans/).
+
+## Rules
+
+A repository declares its rules in `.smithers/FACTORY.ts`, under `on`. The key is the trigger; the value names the flow.
+
+```ts title=".smithers/FACTORY.ts"
+import { Smithers as S } from "@smthrs/targets"
+
+export const factory = S.Factory({
+  summary: "How this repository develops itself.",
+  on: {
+    "issue.labeled:smithers": { flow: "implement", description: "Implement an issue labeled smithers" },
+    "change.opened": { flow: "review", description: "Review every change" },
+    "schedule:0 9 * * 1-5": { flow: "review", description: "Weekday morning review of main" }
+  }
+})
+```
+
+The app's **Dispatcher** lists each rule as declared.
+
+**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: fixing issues labeled `smithers`, and refreshing history and the wiki when code lands.
+
+**Available now.** Schedules register directly: in the app with **Dispatcher**, **Register a rule**, or for a local project with `smthrs triggers register`. See [Configure an agent and a trigger](/docs/learn/agent-and-trigger/).
+
+**Planned.** Message rules, so a chat message starts the assistant.
+
+## Once only
+
+A repeated event never runs twice.
+
+## Next
+
+- [How Smithers works](/docs/how-it-works/): the whole picture.
+- [Watch an agent work](/docs/learn/watch-an-agent/): follow a run.
+
+---
+
+# Chat with an agent
 https://smithers.sh/docs/learn/chat/
 
-Give Smithers a concrete outcome and the context it needs to work on the selected repository.
+Ask for something concrete. Smithers answers in the conversation. Slow work runs in the background, so you can keep chatting.
 
-## Ask for work
+## Send a message
 
-Select **Chat**, or press **Command+K** on macOS or **Ctrl+K** on Windows and Linux, to open the composer. The same shortcut dismisses it. In Normal mode it floats over the conversation; Vim mode keeps a dock so other panes remain reachable.
+**GUI**
+
+**Available now.**
 
 1. Check the repository name beside the message box.
-2. Write what you want to change and how you will judge the result.
-3. Select **Send message**.
+2. Select **Chat**, or press Command-K (Ctrl-K on Windows and Linux).
+3. Say what you want and how you'll judge the result. Press Enter.
 
-For a first read-only request, try this prompt:
+![Opening Chat, typing a question, and reading the reply in the Smithers app.](/images/learn/app-chat.gif)
 
-```text
-Explain this repository. Point me to the files I should read before
-contributing, and explain how to run its checks. Do not change files.
+Chat in the app, with a scripted reply.
+
+Smithers answers in prose, shows a card, or starts a flow. If a step needs sign-in, it asks in the conversation.
+
+**TUI**
+
+**Available now.**
+
+```sh
+smthrs tui
 ```
 
-For a change, include the behavior you see, the behavior you want, and any files or constraints you already know:
+Type your request and press Enter. Shift+Enter or Ctrl+J adds a line; Up and Down recall earlier prompts; Ctrl+G opens your editor for a long one. Type `@` to mention a file.
 
-```text
-The help link in the footer is hard to find. Make its label clearer,
-keep the existing styling, and run the relevant checks. Show me the diff
-before landing the change.
+New to the TUI? Start with [Smithers in your terminal](/docs/tui/).
+
+![Writing a two-line request in the TUI and reading the answer.](/images/learn/tui-composer.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Available now.** Answer one prompt and exit:
+
+```sh
+smthrs tui -p "Explain this repository. Which files should I read first?"
 ```
 
-Smithers can answer in prose, show a card, or start a flow. If the work needs sign-in or permission, complete that step in the conversation.
+The answer prints to standard output. Add `--model provider:model` to pick the model.
 
-## Work with cards
+**API**
 
-Cards keep the result next to the request that produced it. A file card shows the file; a run card shows progress; an approval card asks for a decision.
+**Partly available.** Create a private chat, then post messages as comments. An agent reply to a chat message is planned.
 
-![An Exploring card offers README.md and CONTRIBUTING.md inside the Smithers conversation.](/images/app/explore.png)
+```sh
+curl -X POST "$SMITHERS_API/api/repos/acme/app/issues" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Conversation","kind":"chat","idempotency_key":"chat-1"}'
+```
 
-Select a file on a card to read it without leaving the conversation.
+The app's own chat route, `POST /api/agent/turn`, needs a signed-in browser session.
 
-Select **Maximize card** to inspect a larger result. Return to the conversation when you are ready to continue. A **Done** label on a listing card means the listing finished loading; inspect the run's own status to determine whether the work finished.
+## Use cards and commands
 
-## Keep working while a flow runs
+Results arrive as cards beside the request: a file, a run, an approval. Select **Maximize card** for more room.
 
-You can continue chatting after launching a flow. To change the instructions of a particular run, use its **Steer** control and name the correction. That directs the message to the run you are inspecting.
+**GUI**
 
-While the current turn is running, **Enter** sends a steer and **Alt+Enter** queues a follow-up. Queued prompts remain with their conversation and can be edited or removed. Background progress stays in the shared toast stack, with controls appropriate to the worker; the run card keeps the detailed output.
-
-For progress, stopping, and resuming, see [Inspect and steer a run](/docs/learn/watch-an-agent/).
-
-## Use the command menu
-
-Type `/` in the message box to see available commands. Search by name, or select a group to explore its actions.
+**Available now.** Type `/` to browse commands and flows. A trailing dot, such as `/review.`, lists a command group.
 
 ![The slash menu shows the repository review flow and the Review command group.](/images/app/slash.png)
 
-The menu distinguishes a repository flow from the actions in its command group.
+The command menu.
 
-For finding files, notes, and commands together, see [Search the app](/docs/learn/search/).
+**TUI**
 
----
+**Available now.** Type `/` to browse commands. Repository flows appear in the same menu.
 
-# Search the app
-https://smithers.sh/docs/learn/search/
+**CLI**
 
-Use the search palette when you know what you want but do not know which card or command opens it.
+**Available now.** `smthrs --help` lists commands; add `--help` to any command.
 
-## Open search
+**API**
 
-1. Open **Chat** with **Command+K** on macOS or **Ctrl+K** on Windows and Linux.
-2. Type `?` to choose a search type, then enter a name or part of a name.
-3. Select a result or use the arrow keys and **Enter**.
+**Available now.** See [HTTP and RPC endpoints](/docs/reference/http-api/).
 
-The composer accepts ordinary chat as well as searches. Search prefixes select files, flows, and other result types; typing `/` opens the flow and command menu. Press **Escape** to dismiss the current menu before closing Chat.
+## Steer or queue while it works
 
-![The Smithers search palette lists search types and their prefixes after entering a question mark.](/images/app/search.png)
+A turn can take a while. You don't have to wait.
 
-Type ? in the palette to inspect the search types and their prefixes.
+- **Steer**: change the current request before its next step.
+- **Queue**: add a follow-up that starts after this one.
+- **Stop**: end the current turn and keep your draft.
 
-## Find a command
+**GUI**
 
-Type `/review` to find the repository's review flow. Select the flow to invoke it. To browse the Review group's actions, type `/review.` instead.
+**Available now.** While Smithers is answering, Enter steers and Alt+Enter queues. Queued messages stay with the conversation; you can edit or remove them. To correct a specific run, use **Steer** on its card.
 
-![Searching for /review shows a flow result and a separate Review command group.](/images/app/slash.png)
+**TUI**
 
-A bare flow name runs a flow; a trailing dot explores its command group.
+**Available now.** Enter steers, Alt+Enter queues, Alt+Up brings queued messages back, and Esc stops the turn and returns queued messages to the editor. Esc leaves background workers running.
 
-## Search a specific area
+![Queueing a follow-up in the TUI, bringing it back to the editor, and stopping the turn.](/images/learn/tui-queue.gif)
 
-The palette offers search types for files, flows, targets, wiki pages, history, runs, changes, issues, boxes, and secret names. Choose the relevant type to narrow the query. Secret search concerns names and metadata, not secret values.
+The TUI with a scripted test model.
 
-Available results depend on your sign-in state, selected repository, and connected box. If an area says it is unavailable, follow the reason shown in the app. An unavailable search is different from a search that ran and found no matches.
+**CLI**
 
-For a command that requires additional fields, Smithers opens a form in the conversation. Fill in the fields and review the action before submitting it.
+**Available now** for durable runs, by run ID:
 
----
-
-# Read and edit the Wiki
-https://smithers.sh/docs/learn/wiki/
-
-Use **Wiki** to read and edit the notes Smithers keeps about the project.
-
-## Open a note
-
-1. Select **Wiki** in the sidebar.
-2. Select a note from the list.
-3. Read the note and its source and confidence information.
-
-![The Wiki pane shows a World note, its source count, and its confidence label beside the chat.](/images/app/wiki.png)
-
-Wiki opens beside the conversation, so you can ask about a note while reading it.
-
-Use **Back to the conversation** to close the pane. A note's confidence label is recorded metadata; check the source when a statement matters to your work.
-
-## Add or edit a note
-
-Select **New note** to create a note, then write in the editor. To revise an existing note, select it and edit its content. Keep facts and their sources together so another reader can check the claim.
-
-Editing a note is distinct from landing a code change. Review code through the [Change card](/docs/learn/review-a-change/).
-
-## Read the repository's guide files
-
-Use `/files.read README.md` or `/files.read CONTRIBUTING.md` to read the selected repository's guide files in the conversation.
-
-A starter note named **World** is not evidence that the repository has a generated wiki.
-
-## Generate or browse repository pages
-
-Use `/wiki.create owner/repo` to request generation in the background and `/wiki.cloud owner/repo` to browse published pages when the host enables the Wiki service. Follow the generation run to completion; opening the Wiki or accepting the request does not mean pages have been published.
-
-The app's current generator creates a source index of tracked paths at a named revision. The separate engineering recipe reviews explanations against citations, but that reviewed output is not yet the app generator's output. Automatic refresh after a landed change is still tracked in [#1923](https://github.com/smithersai/smithers/issues/1923). Check a page's source revision before treating it as current.
-
-## Inspect the factory
-
-Select **Factory** in the Wiki pane to inspect the repository's wiki information and available environment configuration files. This is a way to read the factory's configuration. It does not create a box or regenerate the wiki.
-
-![The Factory card shows wiki information and the repository's environment configuration files.](/images/app/factory.png)
-
-Factory lists configuration files you can open and says when a file or generated wiki is absent.
-
----
-
-# Inspect the Dispatcher
-https://smithers.sh/docs/learn/agent-and-trigger/
-
-Use **Dispatcher** to inspect a repository's declared rules and the live triggers returned by its box.
-
-## Read the declared rules
-
-Select **Dispatcher** in the sidebar. Each rule names an event and the work it triggers in plain language.
-
-![The Dispatcher card lists declared events and the flows they trigger, with a Register a rule button.](/images/app/dispatcher.png)
-
-Signed out, Dispatcher shows the rules declared by the repository.
-
-For example, the Smithers factory declares a review when a Change opens and a review on weekday mornings. Other rules describe what to do after a landing or a box session.
-
-The label **declared in .smithers/FACTORY.ts** identifies configuration read from the repository. It does not confirm that an event listener is active or that a flow has run.
-
-## Inspect registered triggers
-
-To inspect live trigger state, sign in with an approved account and connect a box. Open **Dispatcher** again. Read the status and event information returned for that box.
-
-For a particular event, inspect the resulting [run](/docs/learn/watch-an-agent/) to determine whether its flow started and what happened. A declaration alone is not a run result.
-
-## Register a rule
-
-Select **Register a rule** and sign in if needed. Fill in the repository, flow, schedule name, five-field cron expression, and any JSON input the flow needs. Select **Prepare**, inspect the returned plan, and approve it to register the schedule. Registration needs the repository's connected workspace and registrar.
-
-Every unattended run needs token and time limits. The form uses the flow's declared limits when available; otherwise supply both `--tokens` and `--minutes`. Only the human can approve the previewed plan. If the plan changes, prepare it again.
-
-Approval starts registration in the background. Follow its run card and toast to completion; accepting the request does not mean the schedule is registered.
-
-Named registrations offer **Run now** and **Pause**. Run now starts one occurrence of an enabled registration; Pause stops future scheduled work. Follow the resulting run to its terminal status. A disabled row can still show Run now, but the registrar rejects dispatch while it is disabled.
-
-## Declare rules or use the local scheduler
-
-To declare a rule, add an entry to the `on` table in `.smithers/FACTORY.ts`, such as `"schedule:0 9 * * 1-5": { flow: "lint", description: "Weekday lint" }`. Dispatcher reads declarations from the repository's `.smithers/factory.json` projection. A declaration does not register a live trigger.
-
-To register a live cron schedule, run the CLI in the project on the box. Use `smthrs flow list` to choose an existing flow id, then register it:
-
-```bash
-smthrs triggers register nightly-lint --flow lint --cron "0 9 * * 1-5" --timezone America/New_York
+```sh
+smthrs runs steer <run> --message "Keep the public API unchanged."
 ```
 
-Keep `smthrs serve` or `smthrs triggers serve` running against that project for local schedules to fire. This CLI writes the local trigger store; the app's registration uses the repository registrar. See [Triggers](/docs/guides/triggers/) for the local scheduler contract.
+`smthrs runs cancel <run>` stops a run.
+
+**API**
+
+**Available now** for durable runs, over the API: `Steer { runId, message, idempotencyKey }` and `Cancel { runId, idempotencyKey }`. See [HTTP and RPC endpoints](/docs/reference/http-api/).
+
+## Run a shell command
+
+**GUI**
+
+**Available now** in a [box](/docs/learn/boxes/): open its terminal from the box card.
+
+**TUI**
+
+**Available now.** Start a line with `!` to run a command and add its output to the conversation, or `!!` to keep the output out. Esc cancels it.
+
+![Running a shell command from the TUI composer and adding its output to the conversation.](/images/learn/tui-shell-context.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+Use your shell.
+
+**API**
+
+**Available now.** A box's terminal is a WebSocket; see [Work in a box](/docs/learn/boxes/).
+
+## Pick up where you left off
+
+Conversations are saved. Come back to one, or branch from an earlier message to try another way.
+
+**GUI**
+
+**Available now.** The app keeps your conversation for your account. Reload and it's there.
+
+**TUI**
+
+**Available now.**
+
+| Do | How |
+| --- | --- |
+| Continue the latest | `smthrs tui -c` |
+| Pick one | `smthrs tui -r`, `/resume`, or Ctrl+K then `session:` |
+| Name it | `/name <name>` |
+| Branch from an earlier message | `/fork`; the original stays |
+| Drop old context | `/compact` |
+| Copy the last answer | `/copy` |
+
+Running work restarts from its recorded steps. `/fork` doesn't change files; press `u` in **Summary** to [undo an edit](/docs/learn/review-a-change/).
+
+![Forking a TUI conversation from an earlier message.](/images/learn/tui-fork-session.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Available now** for durable runs: `smthrs runs list`, then `smthrs runs resume <run>`.
+
+**API**
+
+**Available now** for durable runs: the `Resume` procedure.
+
+## Next
+
+- [Answer an approval](/docs/learn/approvals/): when an agent asks before acting.
+- [Watch an agent work](/docs/learn/watch-an-agent/): follow the run behind a reply.
+
+---
+
+# Sync a conversation with Slack or Telegram
+https://smithers.sh/docs/learn/sync-a-conversation/
+
+**Partly available.** The API connects a conversation to Slack or Telegram. App setup is planned, and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105).
+
+A conversation syncs with one Slack thread or one Telegram chat or topic. A message, edit, or delete on either side appears once on the other. Agents post under their own names.
+
+| | Slack | Telegram |
+| --- | --- | --- |
+| Messages and replies | Both ways | Both ways |
+| Edits | Both ways | Both ways |
+| Deletes | Both ways | Smithers to Telegram only |
+| Reactions | Both ways | Not synced ([#2110](https://github.com/smithersai/smithers/issues/2110)) |
+
+## Connect a conversation
+
+**GUI**
+
+**Planned.** Slack and Telegram rows on the Connect card ([#2116](https://github.com/smithersai/smithers/issues/2116)).
+
+![Design preview of the Connect card with Slack, Linear, and Notion rows.](/images/learn/preview-integrations.png)
+
+Design preview with example data. Not connected yet.
+
+:::note[Capture needed]
+The app connecting a chat to a Slack thread, then showing it as connected. Needs the chat-sync backend and #2116 landed, and a test Slack workspace.
+:::
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now** in the backend; live acceptance in [#2105](https://github.com/smithersai/smithers/issues/2105). One route connects a conversation (an issue number):
+
+```sh
+curl -X PUT "$SMITHERS_API/api/repos/acme/app/issues/42/sync" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"slack","connection_id":"slack-main","scope_id":"T0123","conversation_id":"C0123","thread_id":""}'
+```
+
+An empty `thread_id` starts a new Slack thread. For Telegram, `scope_id` is the bot ID and `conversation_id` the chat ID. `GET` on the same route returns the mapping and its state. A mapping cannot change once set.
+
+## See it synced
+
+**GUI**
+
+**Planned.** The conversation shows each message with its author, a `slack` mark on synced ones, and **Retry** on a message that did not deliver ([#2111](https://github.com/smithersai/smithers/issues/2111)).
+
+![Design preview of a chat: messages from a person and two agents, a Slack link, reactions, and a failed message with Retry.](/images/learn/preview-chat.png)
+
+Design preview with example data. Not connected yet.
+
+:::note[Capture needed]
+A reply typed in Slack appearing once in the app, then an edit and a delete. Needs a live Slack round trip (#2105).
+:::
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now** in the backend. Synced messages are ordinary comments: `GET /api/repos/{owner}/{repo}/issues/42/comments`. `GET /api/repos/{owner}/{repo}/issues/state-events/stream` streams new ones.
+
+## Next
+
+- [Chat with an agent](/docs/learn/chat/): start a conversation.
+- [Conversations](/docs/how-it-works/conversations/): the idea behind this page.
+
+---
+
+# Create an issue
+https://smithers.sh/docs/learn/create-an-issue/
+
+An issue is something to get done. It moves `open → fixed → verified → closed`. The person who verifies it cannot be the one who fixed it.
+
+## Open the issue
+
+**GUI**
+
+**Available now.** Enter `/issues.create` and give it a title. `/issues.list` shows open issues; `/issues.view 42` opens one; `/issues.comment` replies.
+
+**TUI**
+
+**Planned.** Issue commands in the TUI ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned.** Issue commands in `smthrs` ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.**
+
+```sh
+curl -X POST "$SMITHERS_API/api/repos/acme/app/issues" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Footer link is hard to find","body":"Make the label clearer."}'
+```
+
+Set `SMITHERS_API` to your Smithers API origin and `SMITHERS_TOKEN` to a personal access token with the `write:repository` scope. The response is the issue, with its `number`.
+
+## Hand it to the factory
+
+**GUI**
+
+**Available now.** Enter `/issue.implement 42`. The factory plans, changes, checks, and opens a pull request. `/stack.show` shows its progress.
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** Label the issue `smithers`:
+
+```sh
+curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"labels":["smithers"]}'
+```
+
+## Mark it fixed, then verified
+
+**GUI**
+
+**Available now:** `/issues.close 42` and `/issues.reopen 42`. **Planned:** **Fixed** and **Verify** buttons, and owner, due date, and priority ([#2112](https://github.com/smithersai/smithers/issues/2112)).
+
+![Design preview of the issue list with filters and rows showing state and priority.](/images/learn/preview-issues.png)
+
+Design preview with example data. Not connected yet.
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** Set `state` to `fixed`, then, as a different person, `verified`:
+
+```sh
+curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"state":"verified"}'
+```
+
+Verifying your own fix fails with `self_verification`. Verifying an issue that is not `fixed` fails with `invalid_transition`.
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): follow the factory's run.
+- [Issues](/docs/how-it-works/issues/): the idea behind this page.
+
+---
+
+# Follow an issue to main
+https://smithers.sh/docs/learn/issue-to-main/
+
+When Smithers works on issues, each one moves through a path: planned, built, checked, opened as a pull request, landed. The stack shows every issue on that path at once.
+
+## Turn it on
+
+**GUI**
+
+**Available now.** Select **History**, then **Create**. Smithers builds the stack from main in the background; a toast follows it until it's ready. Needs admin permission on the repository.
+
+![The History card with its Create action.](/images/app/history.png)
+
+History before the stack exists.
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** `POST /api/repos/{owner}/{repo}/mythical/bootstrap`, admin only.
+
+## See where each issue is
+
+**GUI**
+
+**Available now.** Enter `/stack.show`. Each issue shows its step, checks, failures, and pull request. Open its run or pull request for the detail.
+
+- `/stack.backfill` adds the repository's open issues.
+- `/stack.parallel 3` works on up to three issues at once (1 to 8).
+- `/stack.retry` retries a blocked or rejected issue.
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.**
+
+| Call | Does |
+| --- | --- |
+| `GET /api/repos/{owner}/{repo}/mythical` | The stack and every issue on it. |
+| `GET .../mythical/events` | A live stream of changes. |
+| `POST .../mythical/backfill` | Add open issues. |
+| `PUT .../mythical/config` | Set `maxParallel` (admin). |
+| `POST .../mythical/items/{id}/retry` | Retry one issue. |
+
+## When is it landed
+
+On a repository that sends work upstream, including Smithers itself, the owner merges the pull request on GitHub. The issue is landed once that commit is on main.
+
+## Next
+
+- [Review a change](/docs/learn/review-a-change/): read what an issue produced.
 
 ---
 
 # Run a flow
 https://smithers.sh/docs/learn/run-a-flow/
 
-A flow is repeatable work defined by the repository. Use one to review a change, triage an issue, or run other work the project provides.
+A flow is a repeatable job the repository defines: review a change, triage an issue, draft release notes. Each time it runs is a run.
 
-Running a hosted flow requires GitHub sign-in, alpha access, and an available box for a registered repository. See [Account and access](/docs/learn/account/) if the app asks you to sign in or apply for access, and [Register another repository](/docs/learn/open-a-repository/#register-another-repository) if the repository you want is not in the app yet.
+## Pick a flow
 
-## Choose a flow
+**GUI**
 
-Open the repository home and read the flows under **Try first**. Select a featured flow, or type its slash command in the message box.
+**Available now.** Open the repository home and read **Try first**, or type `/` and the flow's name.
 
 ![The slash menu finds the review flow declared by the Smithers repository.](/images/app/slash.png)
 
-Type a flow's name to find it without leaving the conversation.
+Finding a flow from the message box.
 
-The Smithers repository features these flows:
+**TUI**
 
-| Flow | What it does |
-| --- | --- |
-| `/review` | Review the working-copy change and explain the verdict. |
-| `/lint` | Check the files you name against repository conventions and fix findings. |
-| `/pr-triage` | Triage a GitHub pull request from its diff. |
-| `/issue-triage` | Reproduce and triage a GitHub issue. |
-| `/release-notes` | Draft release notes from commits since the last tag. |
+**Available now.** `/flows` lists the project's flows. They also appear in the `/` menu.
 
-The repository supplies this list, so another repository can offer different flows. You can also select **Flows** to open the flow pane after signing in.
+**CLI**
 
-## Supply the inputs
+**Available now.**
 
-If a form appears, fill in its fields. Include the issue, files, or change the flow should work on. Read the flow's description before launching: some flows edit files, and others inspect existing work.
-
-For a first run, use `/review` on a small change in your box. If there is no change to review, choose a flow with an input you can provide.
-
-## Start and follow the run
-
-Submit the flow's inputs. If Smithers asks for permission, review the requested action and select **Approve** to proceed or **Deny** to decline it.
-
-A request is recorded before background launch. The shared toast follows launch and execution, and the run card keeps the detailed output. Wait for the real run status: an accepted request is not yet a running or completed flow. A sign-in prompt or launch error means another step is needed.
-
-Keep chatting while the flow runs. For its trace, steering, and controls, see [Inspect and steer a run](/docs/learn/watch-an-agent/). For the resulting diff, see [Review a change](/docs/learn/review-a-change/).
-
-## Create a flow for repeated work
-
-Ask Smithers to help define the repeated work, then review the proposed flow and its requested permissions. Flows live with the repository's code, so changes to them can go through the same review process.
-
-To author the files directly, follow the [CLI quickstart](/docs/cli-quickstart/) or [Markdown flows](/docs/guides/markdown-flows/).
-
----
-
-# Inspect and steer a run
-https://smithers.sh/docs/learn/watch-an-agent/
-
-A run is one execution of a flow. Open its card to see what happened and decide what to do next.
-
-These controls require sign-in and a connected repository box.
-
-## Open a run
-
-After launching a flow, use the run card in the conversation. To find an earlier run, enter `/runs.list` and select the run from the list.
-
-Read the run's own status. A list card marked **Done** means the list loaded; it does not mean every run in the list completed.
-
-## Inspect the trace
-
-The run trace shows the work as an expandable tree and a timeline. Select a row to inspect the information recorded for that step, such as inputs, output, source, or a model call's token usage.
-
-![Example run card with status, trace filters, a call tree, and controls to stop or steer the run.](/images/app/run-example.png)
-
-Example data in the local app: the run card keeps its trace and controls together. This is not a production run.
-
-Use the filter controls to narrow the trace. Select **Maximize card** when the tree and details need more room. If the trace says **no journal yet**, it has no recorded steps to display.
-
-A prototype run uses the same trace with a prototype label. Treat a prototype as evidence for a later implementation; it does not go through the normal review and landing path.
-
-## Send a correction
-
-Enter a correction in the run's steering input and select **Steer**. For example:
-
-```text
-Keep the existing public API. Fix the internal parser and add a regression
-test for the failing input.
+```sh
+smthrs flow list
+smthrs flow show review
 ```
 
-When steering is pending, the run has not consumed the correction yet. Check the following output for the requested change in direction. Once the run is terminal, pending steering is no longer presented as a promise of future delivery.
+**API**
 
-## Stop or resume work
+**Available now.** `GET /api/repos/{owner}/{repo}/workflows` lists a repository's flows.
 
-Use the run's stop action to request cancellation. Confirm the action if asked, then check the resulting run status.
+The Smithers repository offers these:
 
-Background toasts offer the controls supported by the current worker and remain active through launch and execution. A cancelled run is shown as cancelled, separately from a failed run.
+| Flow | Job |
+| --- | --- |
+| `/review` | Review the working-copy change and explain the verdict. |
+| `/lint` | Check named files against the repository's conventions and fix findings. |
+| `/pr-triage` | Triage a GitHub pull request from its diff. |
+| `/issue-triage` | Reproduce and triage a GitHub issue. |
+| `/release-notes` | Draft release notes from the commits since the last tag. |
 
-For a parked run, use `/runs.resume` and supply the run shown in the app. Resuming continues that run. Starting it again creates another execution, so choose the action that matches your intent.
+## Run it
 
-If the run is waiting for a decision, open its [approval](/docs/learn/approvals/). If it failed, inspect its error before retrying. A disconnected box or missing credential needs a different fix from a failing test.
+**GUI**
 
-## Verify the result
+**Available now.** Select the flow and fill in its form: the issue, files, or change to work on. Approve its permissions when asked. A toast follows the run until it finishes; the run card holds the detail. Keep chatting meanwhile.
 
-Read the final output and any checks the flow reports. If it produced a Change, [review its diff and checks](/docs/learn/review-a-change/) before landing it. A completed run does not by itself establish that the result is ready to merge.
+Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
+
+**TUI**
+
+**Available now.**
+
+```text
+/flow review
+/flow echo text=hello
+```
+
+Quote values with spaces: `text="hello world"`. A missing input opens a form: Tab moves between fields, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. Each run gets its own tab; `/smithers` lists them.
+
+![Filling in a flow's input form in the TUI.](/images/learn/tui-flow-form.gif)
+
+The TUI with fixture flows.
+
+![Running a flow from the TUI and reading its result in the run tab.](/images/learn/tui-run-flow.gif)
+
+The TUI with fixture flows.
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs flow start review --data '{"args":"Review the working copy"}'
+```
+
+Add `--detached` to return as soon as the run is admitted.
+
+**API**
+
+**Available now.**
+
+```sh
+curl -X POST "$SMITHERS_API/api/repos/acme/app/invoke" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"flow":"review","input":{"args":"Review main"}}'
+```
+
+The response carries the `run_id`.
+
+## Make your own
+
+Ask Smithers to write a flow for a job you repeat, then review it like any code change. To write one yourself, see [Configure an agent and a trigger](/docs/learn/agent-and-trigger/) or [Markdown flows](/docs/guides/markdown-flows/).
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): follow the run.
+- [Review a change](/docs/learn/review-a-change/): read what it produced.
 
 ---
 
-# Work in a box
-https://smithers.sh/docs/learn/boxes/
+# Configure an agent and a trigger
+https://smithers.sh/docs/learn/agent-and-trigger/
 
-A box is the environment where Smithers works on a repository. It holds the working copy, terminals, agent sessions, and services for that work.
+An agent is a file in your repository. A trigger starts it.
 
-Opening a hosted box requires GitHub sign-in and access to the repository.
+## Write the agent
 
-## Open a box
+**Available now.** Every surface reads the same file. Create `flows/reviewer/flow.mdx`:
 
-1. Select the repository you want to work on.
-2. Type `/` and find the **Boxes** command group.
-3. Choose its open action, `/workspace.open`.
-4. Fill in the repository and bookmark if requested.
-5. Review and approve the launch request.
+```markdown title="flows/reviewer/flow.mdx"
+---
+description: Reviews the working-copy change and returns a verdict with reasons.
+model: openai:gpt-6-sol
+capabilities: ["fs:read:**", "proc:spawn:*"]
+budget:
+  tokens: 200000
+  milliseconds: 600000
+---
 
-The command keeps its `workspace.open` name; **box** is the name used in the interface. Opening a box can reuse an existing environment for that bookmark. Wait for the box's reported state before opening its terminal.
+# Review the change
 
-## Inspect the files
+Read the diff and run the tests. Return approve or request changes,
+with the evidence for each finding.
+```
 
-Expand the box under its repository in the sidebar. Expand a directory to load its contents, then select a file to open it as a card in the conversation.
+Allow only what the job needs. [flow.mdx frontmatter](/docs/reference/flow-mdx/) lists every key. On Smithers Cloud, commit it to the default branch.
 
-The file tree reflects that box's working copy. Before editing, check that you selected the intended box and repository.
+## Run it once
 
-## Use the terminal and services
+Run it like any flow: `/reviewer` in the app, `/agent reviewer` in the TUI, or `smthrs flow start reviewer`. See [Run a flow](/docs/learn/run-a-flow/).
 
-Open the box card and select its terminal action when available. The terminal runs commands in the box. Return to the conversation to ask Smithers about the output.
+## Put it on a schedule
 
-The box card also provides views for files, services, snapshots, and outbound network activity. The fields and controls depend on what the connected box supports. An absent or unavailable terminal is not an active session.
+**GUI**
 
-## Save a point to return to
+**Available now.**
 
-Use the box's snapshot action before work you may want to revisit. Name the snapshot so its purpose is clear. After the action completes, check that the snapshot appears in the list.
+1. Select **Dispatcher** in the sidebar. It lists the repository's rules and live schedules.
+2. Select **Register a rule**.
+3. Enter the flow, a name, a cron schedule such as `0 9 * * 1-5`, and any input. Select **Prepare**.
+4. Read the plan and approve it. A toast follows the registration until it is live.
 
-Forking from a snapshot creates another box from that saved state. Review the requested action before approving it.
+Each live schedule has **Run now** and **Pause**. A scheduled run needs a token and time budget; the form uses the flow's `budget`.
 
-![Example box card with the Snapshots view selected and controls to fork, snapshot, suspend, or delete.](/images/app/box-example.png)
+![The Dispatcher lists a repository's rules and the flows they start, with a Register a rule button.](/images/app/dispatcher.png)
 
-Example data in the local app: a named snapshot and the box's available controls. This is not a production box.
+Dispatcher.
 
-## Finish with the box
+**TUI**
 
-Use **Suspend** when you want to stop a box while retaining it for later work. Use **Resume** to bring it back. Deleting a box is a separate action; check the box's identity and the confirmation before deleting it.
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
 
-For secrets available to box sessions, see [Repository secrets](/docs/learn/secrets/). For flow execution within the box, see [Run a flow](/docs/learn/run-a-flow/).
+**CLI**
+
+**Available now** for a local project:
+
+```sh
+smthrs triggers register weekday-review --flow reviewer --cron "0 9 * * 1-5" --timezone America/New_York
+smthrs triggers list
+smthrs triggers fire weekday-review
+```
+
+Keep `smthrs serve` running for schedules to fire. A fired run still asks for approval. See [Define triggers](/docs/guides/triggers/).
+
+**API**
+
+**Partly available.** `GET /api/repos/{owner}/{repo}/repository-jobs` lists registrations, and `POST /api/repos/{owner}/{repo}/repository-jobs/{job}/pause` pauses one. Registering one over the API is planned.
+
+## Keep the rule with the code
+
+**Partly available.** To keep rules with the code, add them to `.smithers/FACTORY.ts`. When main moves, rules for `flow.mdx` agents go live; rules for `flow.ts` flows stay declared only. See [Triggers and flows](/docs/how-it-works/triggers-and-flows/#rules).
+
+```ts title=".smithers/FACTORY.ts"
+import { Smithers as S } from "@smthrs/targets"
+
+export const factory = S.Factory({
+  summary: "How this repository develops itself.",
+  on: {
+    "schedule:0 9 * * 1-5": { flow: "reviewer", description: "Weekday morning review" }
+  }
+})
+```
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): read the runs it produces.
+- [Agents](/docs/how-it-works/agents/): the idea behind agents.
 
 ---
 
-# Review an approval
+# Work in the background
+https://smithers.sh/docs/learn/background-work/
+
+Give a job a clear result and a small set of files. It runs in the background while you keep chatting.
+
+```text
+Fix the failing search tests. Keep changes inside src/search.ts and its tests.
+```
+
+## Hand it off
+
+**GUI**
+
+**Available now.** Ask in chat, or start a flow. A toast follows the work until it finishes; the run card holds the detail. Chat stays usable.
+
+**TUI**
+
+**Available now.** Ask in chat. Smithers starts a worker in its own tab and returns to chat. Up to six run at once (`SMITHERS_TUI_WORKERS`); more wait in order.
+
+![A worker runs in its own TUI tab while chat stays available.](/images/learn/tui-background-worker.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Available now.** Start a flow and return as soon as it's admitted:
+
+```sh
+smthrs flow start review --data '{"args":"Review main"}' --detached
+```
+
+**API**
+
+**Available now.** `POST /api/repos/{owner}/{repo}/invoke` returns at once with the `run_id`.
+
+## Follow, stop, retry
+
+| State | Means |
+| --- | --- |
+| Requested | Saved; not started yet. |
+| Queued | Waiting for a free slot. |
+| Running | Working. |
+| Waiting | Waiting for work it started. |
+| Parked | Waiting for provider capacity. |
+| Done | Finished; read the result and checks. |
+| Failed | Read the error, then retry. |
+| Cancelled | Stopped. |
+
+**GUI**
+
+**Available now.** The toast offers the controls that apply; the run card has **Steer** and **Stop**. See [Watch an agent work](/docs/learn/watch-an-agent/#steer-or-stop).
+
+**TUI**
+
+**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers, `c` opens it in chat, `x` stops, `r` retries with its earlier steps, `m` picks another model, `w` waits for the provider's reset. `/stop <id>` and `/retry <id>` work from anywhere.
+
+![Stopping and retrying a worker from its TUI tab.](/images/learn/tui-worker-controls.gif)
+
+The TUI with a scripted test model.
+
+A worker can start its own workers, three levels deep. A `tree:` tab shows them together.
+
+![A lead worker with a child worker in a TUI tree tab.](/images/learn/tui-worker-tree.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs runs list --status running
+smthrs runs cancel <run>
+smthrs runs resume <run>
+```
+
+**API**
+
+**Available now.** API procedures `List`, `Cancel`, and `Resume`; see [HTTP and RPC endpoints](/docs/reference/http-api/).
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): read a run's timeline.
+
+---
+
+# Choose a model
+https://smithers.sh/docs/learn/models/
+
+Each agent names its model in its file (`model:`). You can also pick the model for chat and override it per run.
+
+## Pick a model
+
+**GUI**
+
+**Available now.** `/model.list` shows the models and which one each job uses. `/model.assign` changes one.
+
+**TUI**
+
+**Available now.** Ctrl+L or `/model` opens the picker; type to filter. Ctrl+P and Ctrl+Shift+P step through models. `/model provider:modelId` picks one directly.
+
+![Filtering and choosing a model in the TUI picker.](/images/learn/tui-model-picker.gif)
+
+The TUI with placeholder provider keys.
+
+| Setting | Applies to |
+| --- | --- |
+| `--model provider:modelId` | Chat |
+| `SMITHERS_TUI_SEAT` | Default chat model |
+| `SMITHERS_TUI_WORKER_SEAT` | Default background model |
+| `SMITHERS_TUI_WORKER_SEATS=a,b` | Fallbacks when a provider is at its limit |
+| An agent's `model:` | That agent |
+
+**CLI**
+
+**Available now.** Set it in the flow's `model:` line. For one answer:
+
+```sh
+smthrs tui -p "Explain this repository." --model openai:gpt-6-sol
+```
+
+`smthrs doctor` lists the provider keys it found.
+
+**API**
+
+**Available now.** The flow's `model:` line decides; there is no per-request override.
+
+## Reasoning effort
+
+**GUI**
+
+**Available now.** Set `effort:` in the agent's file.
+
+**TUI**
+
+**Available now.** `/thinking` takes `default`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Shift+Tab cycles through them.
+
+**CLI**
+
+**Available now.** Set `effort:` in the agent's file.
+
+**API**
+
+**Available now.** Set `effort:` in the agent's file.
+
+Support varies by provider. See [Model seats](/docs/guides/model-seats/) for providers and keys.
+
+---
+
+# Watch an agent work
+https://smithers.sh/docs/learn/watch-an-agent/
+
+An agent's history is its runs. Each run has a timeline.
+
+## Flags to look for
+
+| Flag | Means |
+| --- | --- |
+| Thrashing | The agent repeats work without progress. |
+| Blocked | The run paused and needs a resume. |
+| Approval needed | The run waits for your decision. |
+| Runaway | A budget or time limit paused it. Planned. |
+
+## Find an agent's runs
+
+**GUI**
+
+**Available now.** Select **Agents** in the sidebar, then **Runs** beside an agent. Or enter `/runs.list` with **Flow** set to the agent's id, such as `reviewer`. Select a run to open it.
+
+![The Agents card lists each agent with its model and a Runs button.](/images/learn/app-agents.png)
+
+The Agents card.
+
+**Partly available.** The card lists the built-in agents; your own agents appear once [#2113](https://github.com/smithersai/smithers/issues/2113) lands.
+
+**TUI**
+
+**Available now.** `/smithers` lists flow runs, newest first. Select one to open its tab. Background workers each have a tab too; see [Work in the background](/docs/learn/background-work/).
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs runs list --flow reviewer
+smthrs runs list --status waiting-approval
+```
+
+**API**
+
+**Available now.** API procedure `List { _tag: "runs", filters: { flowId: "reviewer" } }`. Over HTTP, `GET /api/repos/{owner}/{repo}/workflows/{id}/runs` lists one flow's runs.
+
+## Read the timeline
+
+**GUI**
+
+**Available now.** The run card shows the trace as a tree and a timeline, with the flags above. Select a row for its inputs, output, and token use. Filter the trace, or select **Maximize card** for room.
+
+![A run card with status, trace filters, a call tree, and controls to stop or steer the run.](/images/app/run-example.png)
+
+A run card, with example data.
+
+**Available now.** Select **Steps** for one row per step: time, type, description, duration, and tokens. Select a step for its detail. **Partly available:** the first row names what started the run only for code pushes so far ([#2115](https://github.com/smithersai/smithers/issues/2115)).
+
+![The Steps view: a run flagged Runaway, with a Resume button and five steps with durations and tokens.](/images/learn/preview-run-steps.png)
+
+The Steps view, with example data.
+
+**TUI**
+
+**Available now.** The timeline sits above the composer, with phases (Researching, Implementing, Testing, Stuck, Blocked) and milestones. Press Ctrl+T to inspect it; arrows move, `[` and `]` jump between milestones, Home and End jump to the ends, Esc returns to live. An earlier point shows only what was known then.
+
+![Scrubbing the TUI timeline across phases and milestones.](/images/learn/tui-timeline.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs runs show <run>
+smthrs runs logs <run> --follow
+```
+
+`show` gives the status and a diagnosis. `logs` streams events as they commit.
+
+**API**
+
+**Available now.** API procedure `Watch { runId, follow: true }` streams events. `Projection.Snapshot` with selector `run-events` or `run-tree` returns the recorded trace.
+
+## Steer or stop
+
+**GUI**
+
+**Available now.** Type a correction in the run's steering box and select **Steer**. Use **Stop** to cancel it. For a paused run, enter `/runs.resume`. Starting it again creates a second run.
+
+```text
+Keep the existing public API. Fix the parser and add a regression test.
+```
+
+**TUI**
+
+**Available now.** In a flow run's tab, `x` stops it and `r` resumes it. `/stop <id>` and `/retry <id>` do the same by ID.
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs runs steer <run> --message "Keep the existing public API."
+smthrs runs cancel <run>
+smthrs runs resume <run>
+```
+
+**API**
+
+**Available now.** API procedures `Steer { runId, message, idempotencyKey }`, `Cancel`, and `Resume`. Over HTTP, `POST /api/repos/{owner}/{repo}/runs/{id}/cancel` and `/resume`.
+
+If the run waits on a decision, [answer the approval](/docs/learn/approvals/). If it failed, read its error before retrying. If it produced a change, [review it](/docs/learn/review-a-change/).
+
+## Next
+
+- [Answer an approval](/docs/learn/approvals/): unblock a waiting run.
+- [Review a change](/docs/learn/review-a-change/): read the result.
+
+---
+
+# Answer an approval
 https://smithers.sh/docs/learn/approvals/
 
-An approval card asks you to decide whether a specific action can proceed. Read what the card requests before deciding.
+Some steps wait for you: a file edit, a command, a launch. The run pauses until you decide. Read what it asks, then approve or deny.
 
-## Decide on a request
+## Find what's waiting
+
+**GUI**
+
+**Available now.** An approval card appears in the conversation. To list every pending request on the repository, enter `/approvals.list`. Each request names its run; open the run for context.
+
+**Available now.** **Inbox** in the sidebar opens the same list. **Planned:** runs a budget or time guard paused, with **Continue** and **Stop** ([#2114](https://github.com/smithersai/smithers/issues/2114)).
+
+![Design preview of the Inbox: a paused run with Continue and Stop, an approval, and a question.](/images/learn/preview-inbox.png)
+
+Design preview with example data. Not connected yet.
+
+**TUI**
+
+**Available now.** The request appears above the composer. Start the TUI with `--approve ask` to be asked, or `--approve deny` to refuse every call; the default allows every call. `SMITHERS_TUI_APPROVE` sets the same.
+
+```sh
+smthrs tui --approve ask
+```
+
+**Planned.** A list of pending approvals across runs ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs approvals list
+```
+
+Each entry carries the exact payload to approve. With nothing waiting, it prints `[]`.
+
+**API**
+
+**Available now**, over the gateway's projection RPC: `Projection.Snapshot` with selector `{ _tag: "approvals" }`. Each row has `runId`, `requestId`, `title`, `payload`, and `status`. See [HTTP and RPC endpoints](/docs/reference/http-api/).
+
+## Decide
+
+**GUI**
+
+**Available now.**
 
 1. Read the requested action and the repository or run it concerns.
-2. Check that the action matches the work you asked for.
-3. Select **Approve** to allow it or **Deny** to decline it.
+2. Check that it matches the work you asked for.
+3. Select **Approve** or **Deny**, and wait for the card to show your decision.
 
-While the card says **Sending your decision**, the app is submitting the response. Wait for the accepted or denied state. If submission fails, the card shows the error; the decision has not been confirmed.
+**TUI**
 
-Approving a launch allows that launch. It does not mean that you have reviewed a resulting code change. Review that result separately through the [Change card](/docs/learn/review-a-change/).
+**Available now.** Press `y` to allow once or `n` to deny. Where offered, `a` allows that kind of call for the rest of the conversation. The keys work once the editor is empty. A flow asks once for each thing it may do.
 
-## Find pending approvals
+![A flow asks for its write, process, and network permissions in turn; pressing y allows each, and the run completes.](/images/learn/tui-flow-approval.gif)
 
-Use `/approvals.list` to open the approval inbox for your repository. Each request identifies the run it belongs to. Open the run when you need its context before deciding.
+The TUI with a fixture flow.
 
-If no requests are waiting, the inbox says that no approvals are pending.
+**CLI**
 
-## Correct the request before approving
+**Available now.** Pass the payload from `approvals list`, or `@file`:
 
-If the requested action is too broad or targets the wrong repository, deny it and explain the correction to Smithers. For a running flow, use [Steer](/docs/learn/watch-an-agent/#send-a-correction) to direct the correction to that run.
+```sh
+smthrs approvals approve @approval.json
+smthrs approvals deny @approval.json
+```
+
+`--scope once|run|remembered` sets how far an approval reaches. The default is `run`.
+
+**API**
+
+**Available now.** `Approval.Submit { target, scope, idempotencyKey, decision: "approve" | "deny" }` over the API. See [HTTP and RPC endpoints](/docs/reference/http-api/).
+
+## Correct it instead
+
+If the request is too broad or targets the wrong repository, deny it and tell Smithers what to change. For a running flow, [steer the run](/docs/learn/watch-an-agent/#steer-or-stop).
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): see why a run paused.
+- [Review a change](/docs/learn/review-a-change/): check the result before it lands.
 
 ---
 
 # Review a change
 https://smithers.sh/docs/learn/review-a-change/
 
-A **Change** is the unit of code review in Smithers Cloud. Open its card to inspect the proposed code and the evidence for landing it.
-
-Review and landing actions require sign-in and repository permission.
-
-## Open the Change
-
-Open the Change from the run's result, or use `/change.view` and supply its identifier. Check the repository and revision named on the card.
+A change is the code a run proposes, with the evidence for landing it.
 
 ## Read the diff
 
-Start with the **Diff** view to inspect the changed files. Select **Full diff** to read the added and removed lines. If you need more room, select **Maximize card**.
+**GUI**
 
-When several revisions exist, use the diff's revision selectors to compare the relevant versions. A review of an earlier revision does not cover changes made after that review.
+**Available now.** Open the change from the run's result, or enter `/change.view <id>`. Start with **Diff**; select **Full diff** for every line. With several revisions, compare them with the revision selectors.
 
-![Example Change card shows its revision, file changes, review views, and landing controls.](/images/app/change-example.png)
+![A change card with its revision, changed files, review views, and landing controls.](/images/app/change-example.png)
 
-Example data in the local app: a documentation Change ready for inspection. This is not a production change.
+A change card, with example data.
+
+**TUI**
+
+**Available now** for edits the TUI made locally. Press Ctrl+S for **Summary**. Pick a row with the arrows, Enter expands it, `d` shows its diff, `v` switches split and unified.
+
+![Reading a captured edit's diff in the TUI Summary.](/images/learn/tui-review-diff.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** `GET /api/repos/{owner}/{repo}/changes/{id}` and `/changes/{id}/diff`.
 
 ## Check the evidence
 
-Open **Checks** to inspect reported check results and **Findings** for analyzer findings. Open **Review** for review verdicts, requests, and discussion. The card can also show ownership information and a walkthrough when those are available.
+**GUI**
 
-![The Checks view on an example Change card shows a reported build result.](/images/app/checks-example.png)
+**Available now.** **Checks** shows check results, **Findings** shows analyzer findings, and **Review** shows verdicts and discussion. Ask Smithers to fix a specific finding, then read the new diff and checks.
 
-Example data in the local app: checks belong to the revision you are inspecting. This result is illustrative.
+![The Checks view of a change card with a build result.](/images/app/checks-example.png)
 
-Read the reason for a failed or missing check. Ask Smithers to address the specific finding, then inspect the updated diff and the new check result.
+Checks, with example data.
 
-## Resolve review feedback
+**TUI**
 
-Use the actions on a review comment to respond or resolve it. If you ask for a correction, identify the file, the behavior that needs to change, and how to verify the fix.
+**Available now.** Expand a command row in **Summary** to read its output.
 
-Check the revision associated with each approval. The review strip indicates when the code has changed since a review.
+**CLI**
 
-## Land the result
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
 
-When the checks and required reviews permit landing, use the **Land** action. Its label can include the range of changes it will land, such as **Land 1 → 2**. Check that range and read the confirmation before submitting it, then verify the landed state.
+**API**
 
-If landing is blocked, read the reason on the card and complete the missing requirement. A passing agent review does not replace a required human review.
+**Available now.** `GET /api/repos/{owner}/{repo}/changes/{id}/findings`; reviews and comments live on the landing: `GET /api/repos/{owner}/{repo}/landings/{number}/reviews`.
 
-The repository's policy determines the final step. A send-upstream repository opens a GitHub pull request for its owner to merge; Smithers' own repository uses this path. Verify the merged main commit before calling the work landed. The stack service owns `mythical`, and main remains append-only with one commit per stack item. See [History and the Stack](/docs/learn/issue-to-main/).
+## Land it, or undo it
 
-For the runtime evidence behind a result, see [Inspect and steer a run](/docs/learn/watch-an-agent/).
+**GUI**
+
+**Available now.** When checks and required reviews pass, select **Land**. Its label shows the range, such as **Land 1 → 2**; check it before confirming. If landing is blocked, the card says what's missing.
+
+On a repository that sends work upstream, including Smithers itself, landing opens a GitHub pull request for the owner to merge.
+
+**TUI**
+
+**Available now.** Changes stay in your checkout; commit them yourself. To undo one, select its row in **Summary** and press `u`. Undo refuses if the file changed since, or if a shell command made the change.
+
+![Undoing a captured edit from the TUI Summary.](/images/learn/tui-undo-edit.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** `PUT /api/repos/{owner}/{repo}/landings/{number}/land`.
+
+## Next
+
+- [Follow an issue to main](/docs/learn/issue-to-main/): where each change is.
+
+---
+
+# Use the wiki
+https://smithers.sh/docs/learn/wiki/
+
+The wiki holds what people and agents know about the project. Every edit is a revision.
+
+## Read and edit
+
+**GUI**
+
+**Available now.**
+
+1. Select **Wiki** in the sidebar and choose a note. Its source and confidence are shown above it.
+2. Edit it in place, or select **New note**. Keep each fact with its source.
+3. Select **Back to the conversation** to close the pane.
+
+**Factory** in the pane lists the repository's wiki and environment files.
+
+![The Wiki pane open beside the conversation, showing the World note.](/images/app/wiki.png)
+
+The Wiki pane.
+
+:::note[Capture needed]
+An edit to a note saved as a new revision. Needs a signed-in account on a repository with the Wiki service on.
+:::
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now** where the host enables the Wiki service.
+
+```sh
+curl "$SMITHERS_API/api/repos/acme/app/wiki" -H "Authorization: Bearer $SMITHERS_TOKEN"
+curl "$SMITHERS_API/api/repos/acme/app/wiki/getting-started" -H "Authorization: Bearer $SMITHERS_TOKEN"
+curl -X PATCH "$SMITHERS_API/api/repos/acme/app/wiki/getting-started" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"expected_revision":3,"body":"# Getting started\n\nRun pnpm install."}'
+```
+
+`expected_revision` refuses the edit if someone saved first. `GET .../wiki/{slug}/revisions` lists history.
+
+## Generate pages from the code
+
+**GUI**
+
+**Available now.** Enter `/wiki.create owner/repo`. Smithers writes the pages declared in `.smithers/coding-project.json`, in the background. `/wiki.cloud owner/repo` browses the published pages. The repository needs its [stack](/docs/learn/issue-to-main/) turned on.
+
+**TUI**
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** `POST /api/repos/{owner}/{repo}/mythical/wiki` requests a refresh and answers `202`. It answers `409` if the stack is off or the repository declares no wiki.
+
+## Kept current
+
+**Partly available.** When main moves, Smithers regenerates the declared pages, reviews them against the code, and keeps pages a person edited. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
+
+**Planned.** A private wiki beside the public one, and two-way sync with Notion or a Markdown folder.
+
+## Next
+
+- [Wiki](/docs/how-it-works/wiki/): the idea behind this page.
+
+---
+
+# Open a repository
+https://smithers.sh/docs/learn/open-a-repository/
+
+A repository gives your conversation its context: files, flows, issues, and wiki.
+
+## Open one
+
+**GUI**
+
+**Available now.** On [smithers.sh](https://smithers.sh), pick a repository and select **Open Smithers**. Its home shows the description and featured flows. With several repositories, switch with the selector beside the message box.
+
+**TUI**
+
+**Available now.** Start it in the checkout: `smthrs tui /path/to/repo`.
+
+**CLI**
+
+**Available now.** From a checkout, open it in the app:
+
+```sh
+smthrs open
+```
+
+It opens the desktop app when installed, otherwise prints the `https://smithers.sh/<owner>/<repo>` link.
+
+**API**
+
+**Available now.** `GET /api/repos/{owner}/{repo}`; `GET /api/user/repos` lists yours.
+
+## Read its guide files
+
+**GUI**
+
+**Available now.** Enter `/files.read README.md` or `/files.read CONTRIBUTING.md`. Select **Maximize card** for room.
+
+![The contribution guide open in a maximized file card.](/images/app/file.png)
+
+A file card, maximized.
+
+**TUI**
+
+**Available now.** Ask for it, or type `@README.md` to add it to your message.
+
+**CLI**
+
+Read the files in your checkout.
+
+**API**
+
+**Available now.** `GET /api/repos/{owner}/{repo}/file/{change_id}/{path}`.
+
+## Register your repository
+
+Register a repository; we review it. You can register one at a time.
+
+**GUI**
+
+**Planned**, being built now. Sign in with GitHub on [smithers.sh](https://smithers.sh/smithersai/smithers), then select **Register a repository** on [the home page](https://smithers.sh/?register=1), or enter `/repository.register`. Answer a few questions; the registration card shows where it is.
+
+:::note[Capture needed]
+Registering a repository in the real app, from the question to the In review card. Needs `/repository.register` on main.
+:::
+
+**TUI**
+
+Not applicable: start the TUI in any checkout.
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Planned.**
+
+## Next
+
+- [Chat with an agent](/docs/learn/chat/): ask about it.
+
+---
+
+# Work in a box
+https://smithers.sh/docs/learn/boxes/
+
+A box is where Smithers works on a repository in the cloud: the working copy, terminals, agent sessions, and services.
+
+## Open a box
+
+**GUI**
+
+**Available now.** Select the repository, enter `/workspace.open`, fill in the bookmark if asked, and approve. Opening can reuse the box for that bookmark. Wait for it to report ready.
+
+**TUI**
+
+The TUI works in your local checkout; it doesn't use boxes. Hosted boxes in the TUI are **Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** `POST /api/repos/{owner}/{repo}/workspaces` creates one; `GET .../workspaces` lists them.
+
+## Files and terminal
+
+**GUI**
+
+**Available now.** Expand the box under its repository in the sidebar and select a file to open it. Open the box card for its terminal, services, and network activity.
+
+![A box card with its views and controls to suspend or delete it.](/images/app/box-example.png)
+
+A box card, with example data.
+
+**TUI**
+
+Not applicable: the TUI edits your local files and runs commands with `!`.
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** `GET .../workspaces/{id}/files` and `/files/content`; the terminal is a WebSocket at `.../workspace/sessions/{id}/terminal`.
+
+## Suspend, resume, delete
+
+**GUI**
+
+**Available now.** **Suspend** stops a box and keeps it; **Resume** brings it back. Deleting asks you to confirm the box's name.
+
+**TUI**
+
+Not applicable.
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Available now.** `POST .../workspaces/{id}/suspend`, `POST .../workspaces/{id}/resume`, `DELETE .../workspaces/{id}`. `POST .../workspaces/{id}/snapshot` saves a point; `POST .../workspaces/{id}/fork` starts a new box from it.
+
+## Next
+
+- [Repository secrets](/docs/learn/secrets/): what a box may use.
+
+---
+
+# Search
+https://smithers.sh/docs/learn/search/
+
+Search when you know what you want but not where it is.
+
+## Find anything
+
+**GUI**
+
+**Available now.** Press Command-K (Ctrl-K on Windows and Linux) and type a name. Type `?` to see the prefixes.
+
+| Prefix | Finds |
+| --- | --- |
+| none | Everything, by name |
+| `/` | Flows and commands |
+| `//` | Build targets |
+| `wiki:` | Wiki pages |
+| `run:` | Runs |
+| `change:` | Changes |
+| `#` | Issues |
+| `box:` | Boxes |
+| `secret:` | Secret names |
+
+![The search palette listing its prefixes after typing a question mark.](/images/app/search.png)
+
+Search prefixes.
+
+**TUI**
+
+**Available now.** Press Ctrl+K. Type `@` in the composer to mention a file.
+
+| Input | Finds | Enter |
+| --- | --- | --- |
+| `math` | Commands and file paths | Runs it, or inserts `@path` |
+| `/` | Commands | Runs it |
+| `text:add` | Text in files | Inserts `@path:line` |
+| `session:review` | Saved conversations | Resumes it |
+| `tab:review` | Background workers | Opens it |
+
+![Searching file contents from the TUI and inserting the match.](/images/learn/tui-text-search.gif)
+
+The TUI with a scripted test model.
+
+**CLI**
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+**API**
+
+**Partly available.** `GET /api/search/issues`, `/code`, `/repositories`, and `/users`, where the host enables search. `GET /api/repos/{owner}/{repo}/wiki/search?q=` searches the wiki.
+
+## Next
+
+- [Chat with an agent](/docs/learn/chat/): ask instead of searching.
 
 ---
 
 # Repository secrets
 https://smithers.sh/docs/learn/secrets/
 
-Use **Secrets** to inspect which repository secrets are available to sessions in the selected repository. Sign in with an account that has permission to read this information.
+Everything that runs in a repository's boxes may use its secrets. Values are never shown. Never paste a secret into chat.
 
-## Inspect the secret list
+## See the list
 
-Select **Secrets** in the sidebar. The card identifies the repository and lists the metadata returned for each secret.
+**GUI**
 
-The columns describe the following:
+**Available now.** Select **Secrets** in the sidebar. Each row shows the name, the hosts it is bound to, the header it sets, and when it changed.
 
-| Column | Meaning |
-| --- | --- |
-| **Name** | The secret's identifier. |
-| **Bound to** | The hosts covered by its binding, or **setup only** when no host binding is listed. |
-| **Header** | The request headers associated with the binding. |
-| **Updated** | The recorded update date, when available. |
+**TUI**
 
-The card does not display secret values. The scope statement says that every session in the repository may use these repository secrets.
+The TUI reads secrets from your local environment. See [Configuration](/docs/tui/configuration/).
 
-## Understand an empty or unavailable list
+**CLI**
 
-**No secrets yet** means the returned list is empty. A sign-in prompt or permission error means the list was not available to your session.
+**Available now** for local credentials, stored encrypted in the project:
 
-## Configure a required secret
+```sh
+smthrs credentials list
+```
 
-The hosted alpha's Secrets card is read-only. Ask the repository operator to configure a missing secret through the repository's supported secret-management path. Do not paste a secret value into chat to work around a missing control.
+**API**
 
-Personal secret management and a secret editor are not available in this card. For model credentials used by your local CLI, see [Model seats](/docs/guides/model-seats/).
+**Available now.** `GET /api/repos/{owner}/{repo}/secrets`, with write permission.
 
-## Coding subscription accounts
+## Add or remove one
 
-Hosted Smithers disables Claude and ChatGPT subscription connections and hides their connection buttons. It also rejects recognized subscription tokens submitted as secrets, variables, or agent environment values. A provider API key is a separate credential type.
+**GUI**
 
-Self-hosted operators can enable `SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS` for each user's own subscription. See the [self-hosted distribution guide](https://github.com/smithersai/smithers/blob/main/distribution/README.md#subscription-connections). Local CLI model-seat authentication is configured separately.
+**Planned.** Adding and removing secrets in the app. Ask a repository admin to use the API meanwhile.
 
----
+**TUI**
 
-# History and the Stack
-https://smithers.sh/docs/learn/issue-to-main/
+Set the variable in your shell before starting the TUI.
 
-**History** opens the repository's **mythical history**: a narrative of how the code fits together, organized into smaller changes. It is separate from the list of flow runs.
+**CLI**
 
-## Open History
+**Available now** for local credentials:
 
-Select **History** in the sidebar. Read the history returned for the repository, or the empty-state explanation when none exists.
+```sh
+export SMITHERS_CREDENTIAL_KEY=<your key>
+smthrs credentials add github --name "GitHub" --secret-env GITHUB_TOKEN
+smthrs credentials revoke github
+```
 
-![The History card explains that the Smithers repository has no mythical history to show.](/images/app/history.png)
+**API**
 
-An empty History card means there is no mythical history to display. It does not imply that the repository has no Git commits.
+**Available now**, admin only. `POST /api/repos/{owner}/{repo}/secrets` adds one; `DELETE /api/repos/{owner}/{repo}/secrets/{name}` removes it.
 
-Opening History reads the available history. Its **Create** action asks the server to bootstrap the repository's mythical stack from main. Sign-in and repository permission are required. Follow the background toast until the stack is active; a request acknowledgment is not a completed bootstrap.
+## Next
 
-## Inspect the live Stack
-
-Run `/stack.show` for the selected repository, or `/stack.show owner/repo`. The Stack card shows issue work, active lanes, checks, failures, and pull requests. A lane can include elapsed time, the account, and the model seat reported by the server. Open the associated run or pull request to inspect its evidence.
-
-Repository administrators can use `/stack.backfill` to admit open issues, `/stack.parallel` to set one to eight lanes, and `/stack.retry` to retry a blocked, rejected, or declined item. These actions run in the background and report their results through the shared toast stack.
-
-Only the stack service writes `mythical`. For repositories configured to send work upstream, the owner merges the GitHub pull request; main remains append-only, with one commit per item. A ready stack item or open pull request is not a landed change.
-
-## Find a different kind of history
-
-Use the view that matches what you need to inspect:
-
-| Question | Where to look |
-| --- | --- |
-| What did a flow do? | [Runs](/docs/learn/watch-an-agent/) and the run trace. |
-| What changed between revisions? | [The Change card](/docs/learn/review-a-change/) and its revision comparisons. |
-| What commits exist in the source repository? | The repository's GitHub history. |
-| Which issues are being planned, implemented, or checked? | `/stack.show` and its linked runs. |
-| How is the code explained through mythical history? | **History**, when the repository provides it. |
+- [Work in a box](/docs/learn/boxes/): where that work runs.
 
 ---
 
-# Account and access
+# Sign in
 https://smithers.sh/docs/learn/account/
 
-You can explore an available public repository without signing in. Sign in with GitHub to contribute, run flows, and use a box.
+You can browse a public repository signed out. Sign in with GitHub to chat about your work, run flows, and use a box. To work on your own repository, [register it](/docs/learn/open-a-repository/#register-your-repository); we review it.
 
 ## Sign in
 
-1. Select **Sign in with GitHub** in the app.
-2. Read the requested GitHub permissions.
-3. Complete the GitHub sign-in and return to Smithers.
+**GUI**
 
-You can also select **Account** while signed out to bring the sign-in step into the conversation.
+**Available now.** Select **Sign in with GitHub**, review the permissions, and return to Smithers.
 
-![The Account action adds a GitHub sign-in prompt to the Smithers conversation.](/images/app/account.png)
+![The Account action adds a GitHub sign-in prompt to the conversation.](/images/app/account.png)
 
-Account shows the next sign-in step when no account is connected.
+Signing in from the conversation.
 
-## Check your access
+**TUI**
 
-After signing in, select **Account**. The card identifies the connected GitHub account and its access state.
+The TUI uses your local model provider keys, not a Smithers account. See [Configuration](/docs/tui/configuration/).
 
-The access labels mean the following:
+**CLI**
 
-| Label | Meaning |
-| --- | --- |
-| **Allowed** | The account has alpha access. Repository permissions still apply. |
-| **Requested, waiting on an answer** | Your access request has been recorded and awaits a decision. |
-| **Not yet allowed** | The account is signed in but has not been granted alpha access. |
+Local commands need no account. Commands that reach a remote Smithers take `--remote` and `--credential`, or `SMITHERS_REMOTE` and `SMITHERS_API_KEY`.
 
-If the app offers an access request, submit it and wait for approval. Signing in and receiving alpha access are separate steps.
+**API**
 
-## Inspect account details
+**Available now.** Send a personal access token: `Authorization: Bearer <token>`. `GET /api/user` returns the signed-in account.
 
-When available, the card shows GitHub scopes with their descriptions and the boxes the app has loaded. A missing section means that information was not supplied; it is not a statement that the account has no permissions or boxes.
+## Check your account
 
-The Account card is read-only apart from **Sign out**. Use `/billing.plans` for plan, credit, and sandbox usage, and `/billing.portal` for subscription management when the deployment enables billing. See [Pricing](/docs/pricing/) for Free and Pro.
+**GUI**
+
+**Available now.** Select **Account**. It shows your GitHub account, its access, its scopes, and your boxes. `/billing.plans` shows your plan; see [Pricing](/docs/pricing/).
+
+**TUI**
+
+Not applicable.
+
+**CLI**
+
+Not applicable.
+
+**API**
+
+**Available now.** `GET /api/user`.
 
 ## Sign out
 
-Select **Sign out** on the Account card. Check that the app returns to the signed-out state before using another account.
+Select **Sign out** on the Account card.
 
 ---
 
-# Troubleshoot the app
+# Troubleshooting
 https://smithers.sh/docs/learn/troubleshooting/
 
-Start with the message on the card or notification. It identifies the action that failed and the next step the app needs.
+Start with the error on the card, row, or output. It names what failed and what to do next.
 
-## The app keeps asking me to sign in
+## Find the error
 
-Open **Account** and complete **Sign in with GitHub**. Return to Smithers and check that Account identifies the connected user. If the session is signed in but work is still blocked, check the access label.
+**GUI**
 
-**Requested, waiting on an answer** means the access request needs approval. Repeating the sign-in step does not grant access.
+**Available now.** Read the card or notification. Open the run card for its status, output, and any waiting approval.
 
-## Flows or boxes are unavailable
+| You see | Do |
+| --- | --- |
+| A sign-in prompt | Sign in with GitHub. |
+| Your repository isn't there | [Register it](/docs/learn/open-a-repository/#register-your-repository); we review it. |
+| No flows or boxes | Check the selected repository, then [open a box](/docs/learn/boxes/). |
+| A notification over a control | Select **Dismiss**, then retry. |
+| An unknown slash command | Type `/` and pick from the menu. |
+| An empty Wiki or History | [Generate the wiki](/docs/learn/wiki/) or [turn on the stack](/docs/learn/issue-to-main/). |
+| A waiting or failed run | [Answer its approval](/docs/learn/approvals/), or fix the error and retry. |
 
-Confirm that the correct repository is selected and that your account is allowed. A hosted flow also needs an available box. Read the launch error before retrying: a missing box, an unavailable service, and a failed flow need different fixes.
+**TUI**
 
-For the launch path, see [Work in a box](/docs/learn/boxes/).
+**Available now.** Ctrl+O expands a row's error; `/session` shows the log path.
 
-## A notification covers a control
+| You see | Do |
+| --- | --- |
+| No model available | Set a provider key and restart. See [Configuration](/docs/tui/configuration/). |
+| Worker parked | Wait for its reset, or press `m` for another model. |
+| Worker failed | Press `r` to retry. |
+| `Stop running work first` | Stop or finish running work before switching conversations or undoing. |
+| Undo refused | The file changed since; review the newer edit. |
+| Flow runs old code | Restart the TUI after changing a `flow.ts`. |
+| Input form gone | Open the flow's tab and press `a`. |
+| `y` types a letter | Empty the editor and wait for the approval keys. |
+| Monitor refused | Set `AI_GATEWAY_API_KEY`. |
 
-Dismiss the notification with its **Dismiss** button, then retry the control. Read the error first so you can address the failed action.
+![A provider refusal in the TUI with its error expanded.](/images/learn/tui-provider-failure.gif)
 
-## Search shows no result
+The TUI with a refusing test provider.
 
-Check the search type and the selected repository. A refusal or unavailable message means that search source could not answer. An empty result list means the search returned no matches.
+**CLI**
 
-If a slash command is not recognized, type `/` to browse the commands available in your session. Use the names in that menu.
+**Available now.**
 
-## Wiki or History is empty
+```sh
+smthrs doctor
+smthrs info
+```
 
-Use `/files.read README.md` or `/files.read CONTRIBUTING.md` to read existing guide files. [Wiki generation](/docs/learn/wiki/#generate-or-browse-repository-pages) and [stack creation](/docs/learn/issue-to-main/) are separate background operations. Use the repository's GitHub page for its source history.
+`doctor` checks flow discovery, providers, tools, and stored state. `info` reports the workspace and host.
 
-## A run stopped or is waiting
+**API**
 
-Open the run card. Read the status, output, and any pending approval. If an approval is waiting, decide on that request. If the run failed, correct the reported cause before retrying.
-
-For sending a correction, stopping, or resuming, see [Inspect and steer a run](/docs/learn/watch-an-agent/).
+**Available now.** An error response carries `code` and `message`, and an `X-Request-Id` header. `retry_after` or `Retry-After` says when to retry.
 
 ## Report a problem
 
-Check [Smithers status](https://status.smithers.sh) for service problems. For a reproducible app issue, include the action you selected, the visible error, the repository, and the run identifier when available. Include a screenshot with private information removed.
+Check [Smithers status](https://status.smithers.sh). Then open an issue in the [Smithers repository](https://github.com/smithersai/smithers/issues) with what you did, the error, the repository, and the run ID. Remove credentials and private code first.
 
-Open an issue in the [Smithers repository](https://github.com/smithersai/smithers/issues). Keep credentials and private source code out of the report.
+**GUI**
+
+Include a screenshot with private details removed.
+
+**TUI**
+
+Include the command, runtime version, and a redacted excerpt of the conversation log.
+
+**CLI**
+
+**Available now.** Submit a redacted report:
+
+```sh
+smthrs bug "flow start hangs after approval" --dry-run
+```
+
+**API**
+
+Include the request, status, response body, and `X-Request-Id`, without the token.
+
+---
+
+# Smithers in your terminal
+https://smithers.sh/docs/tui/
+
+`smthrs tui` is Smithers in a terminal. It works in your local checkout: ask for a change, keep chatting while it works, and inspect every step. The tutorials show it in each **TUI** tab.
+
+## Try it in a browser
+
+The [playground](https://tui.smithers.sh) runs the same agent on a two-file sandbox, with no access to your computer. Move the checkpoint slider to see the files at any step, and branch to try another approach.
+
+## Install
+
+Until the release is published, run it from a source checkout. You need the Node version in `.node-version`, pnpm 11.25.0, Bun 1.4 or later, jj 0.39.0 or later, ripgrep, and Rust 1.98.0.
+
+```bash
+git clone https://github.com/smithersai/smithers.git
+cd smithers
+pnpm install
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+bun run tui /path/to/project
+```
+
+Set a provider key first, such as `OPENAI_API_KEY`. `smthrs tui` takes the same arguments once installed. On Alpine, the compiled binary also needs `apk add libstdc++`.
+
+## Make a first change
+
+Give it a check it can run:
+
+```text
+Fix math.js so node check.mjs passes.
+```
+
+![The TUI fixes a subtraction bug in math.js and runs the check until it passes.](/images/learn/tui-fix-add.gif)
+
+The TUI replaying a recorded model run.
+
+Press Ctrl+S for **Summary**: each edit with its diff, each command with its output.
+
+## Reference
+
+- [Commands](/docs/tui/commands/) and [keys](/docs/tui/keys/)
+- [Command line](/docs/tui/cli/) and [configuration](/docs/tui/configuration/)
+- [Views, filters, and estimates](/docs/tui/views/)
+- [Extend the TUI](/docs/tui/extend/): cards, keys, and monitors
+
+---
+
+# Commands
+https://smithers.sh/docs/tui/commands/
+
+Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc closes.
+
+| Command | Action | Details |
+| --- | --- | --- |
+| `/model [query]` | Pick a model. | [Guide](/docs/learn/models/) |
+| `/theme` | Pick a theme. | [Guide](/docs/tui/views/) |
+| `/thinking [level]` | Set the reasoning effort. | [Guide](/docs/learn/models/) |
+| `/new` | Start a new session. | [Guide](/docs/learn/chat/) |
+| `/resume` | Resume a session. | [Guide](/docs/learn/chat/) |
+| `/fork` | Fork from an earlier message. | [Guide](/docs/learn/chat/) |
+| `/session` | Show the session file and tokens. | [Guide](/docs/learn/chat/) |
+| `/compact` | Drop the oldest context. | [Guide](/docs/learn/chat/) |
+| `/name <name>` | Name this session. | [Guide](/docs/learn/chat/) |
+| `/copy` | Copy the last answer. | [Guide](/docs/learn/chat/) |
+| `/summary` | Review this conversation. | [Guide](/docs/learn/review-a-change/) |
+| `/tabs` | Review background work. | [Guide](/docs/learn/background-work/) |
+| `/chat` | Return to chat. | [Guide](/docs/tui/views/) |
+| `/filter` | Show or hide workers and kinds of rows. | [Guide](/docs/tui/views/) |
+| `/grep [text]` | Show only rows containing text. | [Guide](/docs/tui/views/) |
+| `/ui [id]` | Open a custom view. | [Guide](/docs/tui/extend/) |
+| `/smithers` | Flows and runs. | [Guide](/docs/learn/run-a-flow/) |
+| `/flows` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
+| `/flow <name> [json\|key=value]` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
+| `/agent [name] [prompt]` | Run a custom agent. | [Guide](/docs/how-it-works/agents/) |
+| `/retry <id>` | Retry a stopped worker or flow. | [Guide](/docs/learn/background-work/) |
+| `/stop <id>` | Stop a worker or flow. | [Guide](/docs/learn/background-work/) |
+| `/hotkeys` | Show the keys. | [Guide](/docs/tui/keys/) |
+| `/quit` | Quit. | [Guide](/docs/tui/cli/) |
+| `/exit` | Alias for `/quit`. | [Guide](/docs/tui/cli/) |
+
+Repository flows also appear in the menu. `/model`, `/thinking`, `/flow`, and `/agent` complete their arguments. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.
+
+---
+
+# Keys
+https://smithers.sh/docs/tui/keys/
+
+Press **?** with an empty editor to see the keys for where you are. **Esc** or **?** closes the list.
+
+## Global
+
+| Key | Action |
+| --- | --- |
+| `?` | Keys. |
+| `ctrl+c` | Clear. |
+| `ctrl+d` | Exit. |
+| `ctrl+t` | Timeline. |
+| `ctrl+o` | Expand. |
+| `ctrl+g` | Edit prompt. |
+| `ctrl+k` | Search. |
+| `ctrl+s` | Summary. |
+| `ctrl+]` / `ctrl+right` | Next tab. |
+| `ctrl+\` / `ctrl+left` | Previous tab. |
+| `pageup` / `pagedown` | Scroll. |
+| `shift+up` / `shift+down` | Scroll a line. |
+
+## Composer
+
+| Key | Action |
+| --- | --- |
+| `enter` | Send. |
+| `alt+enter` | Queue. |
+| `alt+up` | Restore queue. |
+| `shift+enter` / `ctrl+j` / `linefeed` | New line. |
+| `up` / `down` | History. |
+| `ctrl+l` | Pick model. |
+| `ctrl+p` | Next model. |
+| `ctrl+shift+p` | Previous model. |
+| `shift+tab` | Thinking level. |
+| `/` | Commands. |
+| `@` | Mention file. |
+| `!` | Shell mode. |
+| `tab` | Cards. |
+
+## Working
+
+| Key | Action |
+| --- | --- |
+| `enter` | Steer. |
+| `alt+enter` | Queue. |
+| `alt+up` | Restore queue. |
+| `esc` | Interrupt. |
+
+## Shell
+
+| Key | Action |
+| --- | --- |
+| `enter` | Run command. |
+| `esc` | Cancel. |
+
+## Panel
+
+| Key | Action |
+| --- | --- |
+| `esc` | Chat. |
+| `i` | Composer. |
+| `j` / `k` / `h` / `l` / `up` / `down` / `left` / `right` | Navigate. |
+| `enter` / `space` | Expand row. |
+| `d` | Toggle diff. |
+| `v` | Split diff. |
+| `r` | Resume. |
+| `m` | Switch model. |
+| `w` | Wait for reset. |
+| `x` | Stop. |
+| `s` | Steer. |
+| `c` | Open in chat. |
+| `a` | Action. |
+| `u` | Undo changes. |
+| `tab` | Next tab. |
+
+## Picker
+
+| Key | Action |
+| --- | --- |
+| `esc` | Close. |
+| `up` / `down` / `ctrl+p` / `ctrl+n` | Move. |
+| `pageup` / `pagedown` | Page. |
+| `enter` | Choose. |
+
+## Form
+
+| Key | Action |
+| --- | --- |
+| `esc` | Close. |
+| `tab` / `down` | Next field. |
+| `shift+tab` / `up` | Previous field. |
+| `space` | Toggle. |
+| `left` / `right` | Choose. |
+| `enter` | Run. |
+
+## Approval
+
+| Key | Action |
+| --- | --- |
+| `y` | Allow. |
+| `n` | Deny. |
+| `a` | Allow all. |
+
+## Selection
+
+| Key | Action |
+| --- | --- |
+| `up` / `down` / `left` / `right` / `home` / `end` | Move. |
+| `[` / `]` / `shift+left` / `shift+right` | Milestone. |
+| `esc` / `enter` | Live. |
+
+## Completion
+
+| Key | Action |
+| --- | --- |
+| `up` / `down` / `ctrl+p` / `ctrl+n` | Move. |
+| `tab` | Complete. |
+| `enter` | Choose. |
+| `esc` | Close. |
+
+## Card
+
+| Key | Action |
+| --- | --- |
+| `enter` | Open. |
+| `up` / `down` / `tab` / `shift+tab` | Next card. |
+| `esc` | Composer. |
+
+## Editor and mouse
+
+Ctrl+A/Ctrl+E move to the beginning/end of a line. Ctrl+W deletes a word and Ctrl+U deletes to the start of the line. Ctrl+K belongs to search. Drag text to copy a selection; click tabs, worker rows, cards, or status actions to open/invoke them. Scroll with the mouse or PageUp/PageDown.
+
+Ctrl+C clears the editor; twice within 500 ms exits. Ctrl+D exits only with an empty editor. Approval letters arm only after the editor is empty and their 400 ms guard has elapsed.
+
+Repository and runtime [extensions](/docs/tui/extend/) add keys under their owner in the popup. Built-in keys and text-editing bindings cannot be shadowed.
+
+---
+
+# Command line
+https://smithers.sh/docs/tui/cli/
+
+```text
+smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny]
+```
+
+From a source checkout, use `bun run tui` with the same arguments.
+
+| Option | Short | Effect |
+| --- | --- | --- |
+| `directory` | | Working directory; defaults to the current one. |
+| `--model provider:modelId` | `-m` | Chat model; overrides `SMITHERS_TUI_SEAT`. |
+| `--continue` | `-c` | Continue the latest conversation in this directory. |
+| `--resume` | `-r` | Pick a conversation to continue. |
+| `--print "prompt"` | `-p` | Answer one prompt, print it, and exit. |
+| `--approve all` | | Run edits, commands, and network calls. The default. |
+| `--approve ask` | | Ask first. Interactive only. |
+| `--approve deny` | | Refuse them. |
+| `--help` | `-h` | Show options. |
+
+## One answer
+
+```bash
+smthrs tui /path/to/project -p "Explain how the search index is built."
+```
+
+Exits 0 on an answer and 1 on failure or cancellation. `--approve ask` is refused in this mode.
+
+![The TUI prints one answer and exits.](/images/learn/tui-print-mode.gif)
+
+Print mode with a scripted test model.
+
+## Runtime
+
+`smthrs tui` tries `SMITHERS_TUI_BIN`, an installed binary, Bun, then Node 26.4 or later. Interactive compiled builds need a writable, executable `TMPDIR`.
+
+```bash
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+node packages/smithers/scripts/build-tui.mjs
+SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$PWD/target/release/smithers-jj-export" \
+  node --experimental-ffi --disable-warning=ExperimentalWarning packages/smithers/dist/tui/main.js /path/to/project
+```
+
+## Exit
+
+`/quit` or `/exit`. Ctrl+D exits with an empty editor; Ctrl+C twice within 500 ms exits. Stop background work with its own controls first.
+
+---
+
+# Configuration
+https://smithers.sh/docs/tui/configuration/
+
+The TUI reads everything from the environment.
+
+## Providers
+
+| Variable or account | Purpose |
+| --- | --- |
+| Signed-in Codex CLI account | ChatGPT subscription; listed first in the model picker. |
+| `SMITHERS_OPENAI_AUTH=chatgpt` | Use the subscription route. |
+| `OPENAI_API_KEY` | OpenAI. |
+| `ANTHROPIC_API_KEY` | Anthropic. |
+| `OPENROUTER_API_KEY` | OpenRouter. |
+| `MOONSHOT_API_KEY` | Moonshot/Kimi. |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini. |
+| `CEREBRAS_API_KEY` | Cerebras; preferred for chat when set. |
+| `SMITHERS_OPENAI_COMPATIBLE_BASE_URL` | An OpenAI-compatible endpoint. |
+| `AI_GATEWAY_API_KEY` | Judging completions and monitors. Without it, monitors are refused. |
+
+## Settings
+
+| Variable | Default |
+| --- | --- |
+| `SMITHERS_TUI_SEAT` | Chat model; `--model` wins. |
+| `SMITHERS_TUI_WORKER_SEAT` | Background worker model. |
+| `SMITHERS_TUI_WORKER_SEATS` | Fallback models for workers, comma-separated. |
+| `SMITHERS_TUI_WORKERS` | Six workers at once; more wait in order. |
+| `SMITHERS_TUI_APPROVE` | `all`; also `ask`, `deny`. `--approve` wins. |
+| `SMITHERS_TUI_SESSION_DIR` | Where conversations are stored. |
+| `VISUAL`, then `EDITOR` | Editor for Ctrl+G; falls back to `nano`. |
+| `SMITHERS_TUI_BIN`, `SMITHERS_BUN` | Which TUI build and Bun the launcher uses. |
+| `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | Native helper for flows. |
+
+The theme is saved in `~/.smithers/tui/theme`.
+
+## Instruction files
+
+Every turn includes `~/.smithers/agent/AGENTS.md`, then, from the repository root down to the working directory, the first of `AGENTS.override.md`, `AGENTS.md`, or `CLAUDE.md` in each directory.
+
+![The TUI shows which instruction files a turn included.](/images/learn/tui-instruction-context.gif)
+
+The TUI with a scripted test model.
+
+## Stored conversations
+
+Conversations are saved under `~/.smithers/tui/sessions/<directory>--<hash>/` as private JSONL files. Credential-shaped text is redacted; file patches are kept exactly so undo works. A damaged file is renamed `.damaged` and left out of the picker. Treat the folder as private project data.
+
+---
+
+# Views, filters, and estimates
+https://smithers.sh/docs/tui/views/
+
+## Tabs
+
+Chat, Summary, workers, flow runs, and custom views each have a tab. Ctrl+] moves forward, Ctrl+\ moves back. Click a tab to open it.
+
+## Filter the transcript
+
+`/filter` shows or hides chat, each worker, and kinds of row. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
+
+![Filtering the TUI transcript by lane and text.](/images/learn/tui-transcript-filter.gif)
+
+The TUI with a scripted test model.
+
+## Theme
+
+`/theme` picks purple, blue, green, or orange.
+
+## Estimates
+
+Each turn, worker, and flow run shows a time and token estimate, such as `~7m·250k`, or `late` once it passes. Estimates learn from this project's past runs.
+
+![Time and token estimates beside running work in the TUI.](/images/learn/tui-estimates.gif)
+
+The TUI with a scripted test model.
+
+---
+
+# Extend the TUI
+https://smithers.sh/docs/tui/extend/
+
+## Publish a view
+
+A cell calls `ui.publish` with data; the TUI shows it as a view. Reusing an ID updates it in place.
+
+```js
+await ctx.call("ui.publish", {
+  id: "checks",
+  title: "Checks",
+  summary: "Two addition checks passed.",
+  rows: [{ id: "addition", label: "Addition", status: "done",
+    details: [{ kind: "code", language: "javascript", code: "assert(add(2, 3) === 5)" }] }]
+})
+```
+
+`/ui id` opens a view; `/ui` opens the newest. Blocks are `text`, `code`, `table`, or `diff`. Wrap a panel as `{ kind: "panel", placement: "card", panel }` to show it as a card in chat.
+
+![A published Checks view in the TUI.](/images/learn/tui-custom-view.gif)
+
+The TUI with a scripted test model.
+
+Limits: 24 views per conversation, 1 MB each, 500 rows, 40 blocks per row.
+
+## Add a key or status item
+
+In a flow's frontmatter:
+
+```yaml
+metadata:
+  tui:
+    keys:
+      - key: alt+r
+        label: Review
+    status: true
+    card: true
+```
+
+Or at run time with `ui.publish` and `kind: "key"` or `kind: "status"`. An action can send a prompt, start a flow or agent, or open a tab. Global keys need Ctrl or Alt; built-in keys always win.
+
+![A repository shortcut and status item in the TUI.](/images/learn/tui-repository-extension.gif)
+
+The TUI with a fixture repository.
+
+## Watch with a monitor
+
+Ask: "Watch the checks and tell me if the failure changes." A monitor watches a worker, a flow run, or a command's output, and posts an update when it changes in a way that matters.
+
+```js
+await ctx.call("monitor.create", {
+  id: "checks",
+  title: "Checks",
+  watch: "Tell me when the check output changes.",
+  source: { kind: "shell", command: "cat check-status.txt" },
+  trigger: { kind: "interval", seconds: 10 }
+})
+```
+
+Intervals run from 10 seconds to 24 hours; up to eight monitors at once. Monitors need `AI_GATEWAY_API_KEY`.
+
+![Creating and stopping a shell monitor in the TUI.](/images/learn/tui-monitor.gif)
+
+The TUI with a local test judge.
+
+---
+
+# The app
+https://smithers.sh/docs/app/
+
+The app is one conversation. The repository selector sets its context. Press Command-K (Ctrl-K on Windows and Linux) to open **Chat**. Results arrive as cards: files, runs, approvals, changes.
+
+## The sidebar
+
+| Area | For |
+| --- | --- |
+| [Inbox](/docs/learn/approvals/) | Approvals and questions waiting for you. |
+| [Conversations](/docs/learn/chat/) | Your chats and the repository's issues. |
+| [Agents](/docs/learn/watch-an-agent/) | Each agent and its runs. |
+| [Wiki](/docs/learn/wiki/) | Notes about the project. |
+| [Dispatcher](/docs/learn/agent-and-trigger/#put-it-on-a-schedule) | Rules and schedules. |
+| [Flows](/docs/learn/run-a-flow/) | The repository's flows and their runs. |
+| [Secrets](/docs/learn/secrets/) | Secret names and where they apply. |
+| [History](/docs/learn/issue-to-main/) | Each issue's path to main. |
+| [Account](/docs/learn/account/) | Your GitHub account. |
+
+Your [boxes](/docs/learn/boxes/) and their files sit under the repository.
+
+Wiki and Flows open beside the conversation; **Back to the conversation** closes them. **Maximize card** gives a card more room.
+
+## Ask, click, or type
+
+Every action works three ways: ask for it, select it on a card, or type its command. Type `/` to browse commands; a trailing dot, such as `/review.`, lists a group. A command that needs input opens a form.
+
+Signed out, you can read a public repository's home, guide files, and rules. Everything else asks you to [sign in](/docs/learn/account/).
 
 ---
 
