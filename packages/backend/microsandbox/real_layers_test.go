@@ -3,6 +3,7 @@ package microsandbox
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io/fs"
 	"os"
@@ -115,4 +116,50 @@ func TestRealMicroVMWorkspaceFromLayers(t *testing.T) {
 	t.Logf("canonical tests (%s):\n%s", time.Since(started).Round(time.Millisecond), result.Stdout)
 	require.Equal(t, 0, result.ExitCode)
 	require.Regexp(t, `Tests\s+[0-9]+ passed`, result.Stdout)
+
+	if evidence := os.Getenv("SMITHERS_MICROVM_SCREENSHOT"); evidence != "" {
+		screenshotApp(t, runtime, id, evidence)
+	}
+}
+
+// screenshotApp builds the app's SPA, serves it with its browser test host and
+// captures it with Playwright's Chromium, all inside the VM, offline.
+func screenshotApp(t *testing.T, runtime *Runtime, id, evidence string) {
+	ctx := operation("screenshot")
+	started := time.Now()
+	result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Directory: "apps/app", Args: []string{"sh", "-c",
+		"node scripts/ensure-devkit.mjs && pnpm exec vite build --configLoader runner 2>&1 | tail -3"}})
+	require.NoError(t, err)
+	require.Equal(t, 0, result.ExitCode, result.Stdout+result.Stderr)
+	t.Logf("devkit + vite build (%s): %s", time.Since(started).Round(time.Millisecond), strings.TrimSpace(result.Stdout))
+	_, err = runtime.StartService(ctx, id, workspaceapi.ServiceSpec{Name: "app", ReadyAddress: "127.0.0.1:47311", ReadyTimeout: 2 * time.Minute,
+		Command: workspaceapi.Command{Directory: "apps/app", Args: []string{"bun", "e2e/playwright/webserver.ts"},
+			Environment: map[string]string{"SMITHERS_SKIP_SPA_BUILD": "1", "SMITHERS_LOCAL_PORT": "47311", "SMITHERS_CHAT_STUB": "1"}}})
+	require.NoError(t, err)
+	script := `const { chromium } = require("playwright");
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.goto("http://127.0.0.1:47311/", { waitUntil: "networkidle" });
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: "/workspace/.acceptance/app.png" });
+  console.log(JSON.stringify({ title: await page.title(), browser: browser.version() }));
+  await browser.close();
+})().catch((error) => { console.error(error); process.exit(1); });`
+	require.NoError(t, runtime.WriteFile(ctx, id, "apps/app/.acceptance-screenshot.cjs", []byte(script), 0o644))
+	started = time.Now()
+	result, err = runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Directory: "apps/app", Args: []string{"sh", "-c",
+		"mkdir -p /workspace/.acceptance && node .acceptance-screenshot.cjs"}})
+	require.NoError(t, err)
+	require.Equal(t, 0, result.ExitCode, result.Stdout+result.Stderr)
+	t.Logf("screenshot (%s): %s", time.Since(started).Round(time.Millisecond), strings.TrimSpace(result.Stdout))
+	png, err := runtime.ReadFile(ctx, id, ".acceptance/app.png")
+	require.NoError(t, err)
+	require.True(t, bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")), "not a PNG")
+	width, height := binary.BigEndian.Uint32(png[16:20]), binary.BigEndian.Uint32(png[20:24])
+	require.Equal(t, uint32(1280), width)
+	require.Equal(t, uint32(800), height)
+	require.NoError(t, os.WriteFile(evidence, png, 0o644))
+	t.Logf("screenshot %dx%d, %d bytes → %s", width, height, len(png), evidence)
+	require.NoError(t, runtime.StopService(ctx, id, "app"))
 }

@@ -50,9 +50,10 @@ const (
 	guestUID      = 1500
 )
 
-// DefaultImage is the L0 image: node:26-bookworm (Debian 12, linux/arm64)
-// pinned by the digest qualified on the reference Mac.
-const DefaultImage = "node@sha256:838c3eef085968cb818717aeb58f0880be18afa10792df051d049501565f724e"
+// DefaultImage is the L0 image: node:26.5.0-trixie (Debian 13, glibc 2.41,
+// linux/arm64) pinned by digest. Trixie, not bookworm: the app's build stage
+// (distribution/Dockerfile) uses it, and the Hutch devkit needs glibc 2.38.
+const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d7367a72a9d037c798b"
 
 // Config selects the msb binary, the data root holding adapter metadata, the
 // VM shape, and the backend ports a guest may reach through its bridge.

@@ -31,6 +31,7 @@ CGROUP_ROOT = "/sys/fs/cgroup/smithers"
 EXIT_TRAILER = b"\x00SMITHERS-EXIT %d\x00"
 ENV_FILE = "/opt/smithers/env.json"
 REQUEST_DIR = "/run/smithers/requests"
+TOOL_HOME = "/var/cache/smithers/home"
 
 
 def fail(code, message):
@@ -352,6 +353,14 @@ def setup(user, uid, directories):
         os.system("useradd --create-home --uid %d --shell /bin/bash %s >/dev/null 2>&1 || true" % (uid, user))
     entry = pwd.getpwnam(user)
     os.makedirs(CGROUP_ROOT, exist_ok=True)
+    # Tools that download into $HOME on first run were run once in the
+    # dependency layer with HOME at the shared tool home; link what they left.
+    if os.path.isdir(TOOL_HOME):
+        for name in os.listdir(TOOL_HOME):
+            link = os.path.join(entry.pw_dir, name)
+            if not os.path.lexists(link):
+                os.symlink(os.path.join(TOOL_HOME, name), link)
+                os.lchown(link, entry.pw_uid, entry.pw_gid)
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
         os.chown(directory, entry.pw_uid, entry.pw_gid)

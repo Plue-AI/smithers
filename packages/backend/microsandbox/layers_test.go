@@ -68,6 +68,20 @@ func TestDependencyKeyFollowsDeclaredInputs(t *testing.T) {
 	require.Len(t, recipe.Nodes, 2)
 }
 
+func TestLockImportersAndToolNodes(t *testing.T) {
+	lock := "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    devDependencies: {}\n\n  apps/app:\n    dependencies: {}\n\n  packages/a:\n    dependencies: {}\n\npackages:\n\n  x@1.0.0:\n    resolution: {}\n"
+	require.Equal(t, []string{".", "apps/app", "packages/a"}, lockImporters([]byte(lock)))
+	index := `[{"label":"//:nodeModules","rule":"Install","inputs":[{"kind":"pnpm-workspace","path":"pnpm-workspace.yaml"},{"kind":"file","path":"pnpm-lock.yaml"}]},
+	{"label":"//apps/app:devkit","package":"apps/app","rule":"NodeBinary","inputs":[{"kind":"file","path":"apps/app/scripts/ensure-devkit.mjs"},{"kind":"file","path":"pnpm-lock.yaml"}]}]`
+	recipe, inputs, err := dependencyRecipe("toolchain", fakeRepository(map[string]string{".smithers/target-index.json": index,
+		"pnpm-workspace.yaml": "packages: []\n", "pnpm-lock.yaml": lock, "apps/app/package.json": "{}", "packages/a/package.json": "{}",
+		"apps/app/scripts/ensure-devkit.mjs": "//"}))
+	require.NoError(t, err)
+	require.Contains(t, inputs, "apps/app/package.json")
+	require.Contains(t, inputs, "packages/a/package.json")
+	require.Equal(t, []toolNode{{Label: "//apps/app:devkit", Package: "apps/app", Entry: "scripts/ensure-devkit.mjs"}}, recipe.Tools)
+}
+
 func TestUnixMode(t *testing.T) {
 	require.Equal(t, fs.ModeDir|0o755, unixMode(0o040755))
 	require.Equal(t, fs.ModeSymlink|0o777, unixMode(0o120777))

@@ -44,6 +44,9 @@ const (
 	layerMarkerDir  = "/opt/smithers/layers"
 	cacheRoot       = "/var/cache/smithers"
 	toolchainRoot   = "/opt/smithers/toolchain"
+	// toolHome holds what tool nodes download into $HOME (for example
+	// ~/.hutch); workspaces link its entries into the agent's home.
+	toolHome = cacheRoot + "/home"
 )
 
 // EnvironmentConfig enables graph-keyed environment layers.
@@ -653,6 +656,9 @@ func (t toolchainLayer) link() []string { return nil }
 // Domain rules match the DNS name a connection resolved through, so CDN
 // CNAME targets are listed beside the names that alias them (apt, for one,
 // connects by the canonical name). apt archives are signature-verified.
+var toolDownloadHosts = []string{"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com",
+	"hutch.blackboard.sh", "electrobun-artifacts.blackboard.sh"}
+
 var (
 	debianMirrors  = []string{"deb.debian.org", "debian.map.fastly.net", "debian.map.fastlydns.net"}
 	postgresMirror = []string{"www.postgresql.org", "www.mirrors.postgresql.org", "apt.postgresql.org", "dualstack.t.sni.global.fastly.net"}
@@ -696,7 +702,7 @@ fetch() { curl -fsSL --retry 4 --retry-all-errors -o "$3" "$1"; echo "$2  $3" | 
 	fmt.Fprintf(&s, `curl -fsSL --retry 4 -o /var/tmp/dl/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
 gpg --batch --quiet --show-keys --with-colons /var/tmp/dl/pgdg.asc | grep -q '^fpr:::::::::%[1]s:$'
 gpg --batch --quiet --dearmor < /var/tmp/dl/pgdg.asc > /usr/share/keyrings/pgdg.gpg
-echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release; echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
 apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-%[2]s >/dev/null
 rm -rf /var/lib/apt/lists/* /var/tmp/dl
 `, pgdgKeyFingerprint, t.Postgres)
@@ -712,7 +718,7 @@ rm -rf /var/lib/apt/lists/* /var/tmp/dl
 	fmt.Fprintf(&s, "printf '%%s' %s > /opt/smithers/env.json\n", shellQuote(string(encoded)))
 	// The toolchain's cargo binaries are shared read-only; each build's
 	// registry cache lives in the writable dependency cache.
-	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright; chown -R %[2]d:%[2]d %[1]s\n", cacheRoot, guestUID)
+	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright %[1]s/home; chown -R %[2]d:%[2]d %[1]s\n", cacheRoot, guestUID)
 	s.WriteString(`export PATH="` + strings.Join(pathEntries, ":") + `"
 echo "inventory node $(node --version)"; echo "inventory pnpm $(pnpm --version)"; echo "inventory bun $(bun --version)"
 echo "inventory go $(go version | cut -d' ' -f3)"; echo "inventory jj $(jj --version)"; echo "inventory rg $(rg --version | head -1)"
@@ -738,14 +744,27 @@ type dependencyNode struct {
 type dependencyLayer struct {
 	Toolchain  string           `json:"toolchain"`
 	Nodes      []dependencyNode `json:"nodes"`
+	Tools      []toolNode       `json:"tools,omitempty"`
 	Playwright []string         `json:"playwright,omitempty"`
 	Derived    bool             `json:"derived,omitempty"`
 }
 
+// toolNode is a graph node that materialises a tool from the lockfile and
+// downloads what it needs on first run (rule NodeBinary with the lockfile
+// among its inputs, such as apps/app's Hutch devkit). Its entry runs once in
+// the prepare VM with HOME at the shared tool home, so workspaces find the
+// download offline.
+type toolNode struct {
+	Label   string `json:"label"`
+	Package string `json:"package"`
+	Entry   string `json:"entry"`
+}
+
 type indexTarget struct {
-	Label  string `json:"label"`
-	Rule   string `json:"rule"`
-	Inputs []struct {
+	Label   string `json:"label"`
+	Package string `json:"package"`
+	Rule    string `json:"rule"`
+	Inputs  []struct {
 		Kind string `json:"kind"`
 		Path string `json:"path"`
 	} `json:"inputs"`
@@ -773,6 +792,39 @@ func patchedDependencies(workspace []byte) []string {
 	}
 	sort.Strings(patches)
 	return patches
+}
+
+func declares(target indexTarget, path string) bool {
+	for _, input := range target.Inputs {
+		if input.Path == path || input.Path == "//"+path {
+			return true
+		}
+	}
+	return false
+}
+
+var importerPattern = regexp.MustCompile(`(?m)^  ([^\s#'"][^:\n]*):\s*$`)
+
+// lockImporters lists the workspace member directories a pnpm lockfile's
+// importers section names.
+func lockImporters(lock []byte) []string {
+	text := string(lock)
+	start := strings.Index(text, "\nimporters:\n")
+	if start < 0 {
+		return nil
+	}
+	section := text[start+len("\nimporters:\n"):]
+	if end := strings.Index(section, "\npackages:\n"); end >= 0 {
+		section = section[:end]
+	}
+	var importers []string
+	for _, match := range importerPattern.FindAllStringSubmatch(section, -1) {
+		importer := strings.Trim(match[1], `'"`)
+		if !strings.Contains(importer, "..") && !strings.HasPrefix(importer, "/") {
+			importers = append(importers, importer)
+		}
+	}
+	return importers
 }
 
 var playwrightPattern = regexp.MustCompile(`(?m)^\s+playwright-core@([0-9]+\.[0-9]+\.[0-9]+):\s*$`)
@@ -832,6 +884,24 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 					}
 				}
 				nodes[node.Label] = node
+			case target.Rule == "NodeBinary" && declares(target, "pnpm-lock.yaml"):
+				node := &dependencyNode{Label: target.Label, Rule: target.Rule, Files: map[string]string{}}
+				entry := ""
+				for _, input := range target.Inputs {
+					if input.Kind != "file" || input.Path == "" {
+						continue
+					}
+					if err := addFile(node, input.Path); err != nil {
+						return layer, nil, err
+					}
+					if entry == "" && (strings.HasSuffix(input.Path, ".mjs") || strings.HasSuffix(input.Path, ".cjs") || strings.HasSuffix(input.Path, ".js")) {
+						entry = input.Path
+					}
+				}
+				if entry != "" && target.Package != "" && strings.HasPrefix(entry, target.Package+"/") {
+					nodes[node.Label] = node
+					layer.Tools = append(layer.Tools, toolNode{Label: target.Label, Package: target.Package, Entry: strings.TrimPrefix(entry, target.Package+"/")})
+				}
 			case strings.HasPrefix(target.Rule, "Cargo.") || target.Label == "//:nativeFfi":
 				for _, input := range target.Inputs {
 					base := path.Base(input.Path)
@@ -864,6 +934,30 @@ func dependencyRecipe(toolchainKey string, read func(string) ([]byte, bool, erro
 			}
 		}
 	}
+	// The pnpm-workspace input kind covers the workspace's member manifests;
+	// the lockfile's importers name them, so the install can link offline.
+	for _, node := range nodes {
+		if node.Rule != "Install" {
+			continue
+		}
+		// pnpm records its hook's checksum in the lockfile and refuses a
+		// frozen install without it; the build package's install measure
+		// keys on it too.
+		for _, hook := range []string{".pnpmfile.cjs", ".pnpmfile.mjs"} {
+			if err := addFile(node, hook); err != nil {
+				return layer, nil, err
+			}
+		}
+		for _, importer := range lockImporters(inputs["pnpm-lock.yaml"]) {
+			if importer == "." {
+				continue
+			}
+			if err := addFile(node, importer+"/package.json"); err != nil {
+				return layer, nil, err
+			}
+		}
+	}
+	sort.Slice(layer.Tools, func(i, j int) bool { return layer.Tools[i].Label < layer.Tools[j].Label })
 	labels := make([]string, 0, len(nodes))
 	for label := range nodes {
 		labels = append(labels, label)
@@ -915,22 +1009,38 @@ func (d dependencyLayer) allowlist() []string {
 	if len(d.Playwright) > 0 {
 		domains = append(append(domains, playwrightCDN...), debianMirrors...)
 	}
+	if len(d.Tools) > 0 {
+		// Tool nodes do not yet declare their download hosts in the target
+		// graph; these are the Hutch/Electrobun release hosts apps/app's
+		// devkit needs (tracked: declare network destinations on fetch nodes).
+		domains = append(domains, toolDownloadHosts...)
+	}
 	return domains
 }
 
 func (d dependencyLayer) script() string {
 	var s strings.Builder
-	fmt.Fprintf(&s, `set -euo pipefail
-exec 3>&1 >>/var/tmp/layer.log 2>&1
-trap 'tail -60 /var/tmp/layer.log >&2' ERR
+	fmt.Fprintf(&s, `set -eEuo pipefail
+exec 3>&1 4>&2 >>/var/tmp/layer.log 2>&1
+trap 'tail -60 /var/tmp/layer.log >&4' ERR
 set -a; eval "$(python3 -c 'import json,shlex; [print(k+"="+shlex.quote(v)) for k,v in json.load(open("/opt/smithers/env.json")).items()]')"; set +a
 cd %s/prepare/src
 `, cacheRoot)
 	if d.has("Install") {
-		s.WriteString("pnpm fetch --reporter=append-only\necho \"inventory pnpm-store $(du -sh $pnpm_config_store_dir | cut -f1)\" >&3\n")
+		// The offline install proves the store is complete for the lockfile
+		// and gives tool nodes the packages they run from.
+		s.WriteString("pnpm fetch --reporter=append-only\npnpm install --offline --frozen-lockfile --ignore-scripts --reporter=append-only\necho \"inventory pnpm-store $(du -sh $pnpm_config_store_dir | cut -f1)\" >&3\n")
+	}
+	for _, tool := range d.Tools {
+		fmt.Fprintf(&s, "(cd %s && HOME=%s node %s)\n", shellQuote(tool.Package), toolHome, shellQuote(tool.Entry))
+	}
+	if len(d.Tools) > 0 {
+		fmt.Fprintf(&s, "echo \"inventory tool-home $(du -sh %s | cut -f1)\" >&3\n", toolHome)
 	}
 	for _, version := range d.Playwright {
-		fmt.Fprintf(&s, "npx --yes playwright@%s install --with-deps chromium\n", version)
+		// Outside the workspace tree, so npx fetches this exact release rather
+		// than resolving a workspace binary.
+		fmt.Fprintf(&s, "(mkdir -p /var/tmp/playwright && cd /var/tmp/playwright && npx --yes playwright@%s install --with-deps chromium)\n", version)
 	}
 	if len(d.Playwright) > 0 {
 		s.WriteString("rm -rf /var/lib/apt/lists/* /root/.npm\necho \"inventory browsers $(ls $PLAYWRIGHT_BROWSERS_PATH | tr '\\n' ' ')\" >&3\n")
