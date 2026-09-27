@@ -42,7 +42,7 @@ func TestContainerContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(b)
-	for _, required := range []string{"FROM postgres:18.6-bookworm", "./apps/backend", "flows/coding/build.mjs", "rust:1.98.0-bookworm", "node:26.5.0-bookworm", "libsmithers_ffi.so", "USER smithers", "CMD []"} {
+	for _, required := range []string{"FROM postgres:18.6-bookworm", "sh scripts/build-backend.sh", "flows/coding/build.mjs", "rust:1.98.0-bookworm", "node:26.5.0-bookworm", "libsmithers_ffi.so", "USER smithers", "CMD []"} {
 		if !strings.Contains(text, required) {
 			t.Errorf("missing %q", required)
 		}
@@ -62,6 +62,9 @@ func TestImageBuildsEveryAppCommand(t *testing.T) {
 	}
 	built := map[string]bool{}
 	for _, line := range strings.Split(string(b), "\n") {
+		if strings.Contains(line, "sh scripts/build-backend.sh") {
+			built["apps/backend"] = true
+		}
 		if !strings.Contains(line, "go build") {
 			continue
 		}

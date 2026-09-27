@@ -196,7 +196,7 @@ cpSync(installedJj, join(nativeDir, "bin", "jj"))
 rmSync(jjInstallRoot, { recursive: true, force: true })
 await run(
   "Go backend",
-  ["go", "build", "-trimpath", "-ldflags", `-X github.com/smithersai/smithers/packages/backend/internal/compose.BuildSHA=${revision}`, "-o", join(nativeDir, "bin", "smithers-backend"), "./apps/backend"]
+  ["sh", "scripts/build-backend.sh", join(nativeDir, "bin", "smithers-backend"), revision]
 )
 await run("Node buildchain", [nodeBinary, "--version"], root, nodeEnvironment)
 await run("pinned pnpm buildchain", [pnpmBinary, "--version"], root, nodeEnvironment)

@@ -54,17 +54,26 @@ func TestAppBootstrapBalanceIsIndependentOfCheckout(t *testing.T) {
 }
 
 func TestBuildIdentityUsesInjectedRevision(t *testing.T) {
+	require.Equal(t, "dev", BuildVersion)
+	oldVersion := BuildVersion
 	old := BuildSHA
-	t.Cleanup(func() { BuildSHA = old })
+	t.Cleanup(func() { BuildVersion = oldVersion; BuildSHA = old })
+	BuildVersion = "1.0.0-rc.1"
 	BuildSHA = "abcd1234"
-	_, sha := buildIdentity()
+	version, sha := buildIdentity()
+	require.Equal(t, "1.0.0-rc.1", version)
 	require.Equal(t, "abcd1234", sha)
+	BuildVersion = "dev"
 	BuildSHA = ""
-	_, sha = buildIdentity()
+	version, sha = buildIdentity()
+	require.Equal(t, "dev", version)
 	require.Equal(t, "unknown", sha)
 }
 
 func TestAppBootstrapRoute(t *testing.T) {
+	oldVersion := BuildVersion
+	t.Cleanup(func() { BuildVersion = oldVersion })
+	BuildVersion = "1.0.0-rc.1"
 	handler := withAppBootstrap(http.NotFoundHandler(), newAppBootstrap(bootstrapFeatures{identity: true}), cors.Options{
 		AllowedOrigins: []string{"https://app.example"}, AllowedMethods: []string{"GET", "OPTIONS"},
 	})
@@ -76,7 +85,7 @@ func TestAppBootstrapRoute(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	require.Equal(t, float64(1), body["apiVersion"])
 	require.Equal(t, "cloud", body["host"])
-	require.NotEmpty(t, body["version"])
+	require.Equal(t, "1.0.0-rc.1", body["version"])
 	require.NotEmpty(t, body["buildSha"])
 	require.Equal(t, []any{"identity"}, body["capabilities"])
 	response = httptest.NewRecorder()

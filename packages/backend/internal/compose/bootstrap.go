@@ -9,8 +9,9 @@ import (
 	"github.com/go-chi/cors"
 )
 
-// BuildSHA is set by the distribution build. A local development binary may
-// leave it unset, but packaged builds must inject the exact source revision.
+// BuildVersion and BuildSHA are set by release builds. Plain local Go builds
+// retain the development version and may leave the revision unset.
+var BuildVersion = "dev"
 var BuildSHA string
 
 // appBootstrap describes only capabilities that this assembled process can
@@ -116,7 +117,7 @@ func buildIdentity() (version, sha string) {
 	if sha == "" {
 		sha = "unknown"
 	}
-	return "dev", sha
+	return BuildVersion, sha
 }
 
 func withAppBootstrap(next http.Handler, bootstrap appBootstrap, corsOptions cors.Options) http.Handler {

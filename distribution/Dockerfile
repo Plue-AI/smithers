@@ -99,7 +99,9 @@ RUN go mod download
 COPY apps/backend apps/backend
 COPY apps/smithers apps/smithers
 COPY packages/backend packages/backend
-RUN GOMAXPROCS=2 CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -X github.com/smithersai/smithers/packages/backend/internal/compose.BuildSHA=$BUILD_SHA" -o /out/smithers-backend ./apps/backend
+COPY packages/smithers/package.json packages/smithers/package.json
+COPY scripts/build-backend.sh scripts/build-backend.sh
+RUN GOMAXPROCS=2 CGO_ENABLED=1 sh scripts/build-backend.sh /out/smithers-backend "$BUILD_SHA"
 RUN GOMAXPROCS=2 CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o /out/smithers ./apps/smithers
 
 # Debian/glibc is required by libsmithers_ffi; Alpine/musl is ABI-incompatible.
