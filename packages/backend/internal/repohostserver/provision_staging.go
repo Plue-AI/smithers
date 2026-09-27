@@ -560,17 +560,20 @@ func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Reque
 	}
 	rc := http.NewResponseController(w)
 	defer func() { _ = rc.SetReadDeadline(time.Time{}) }()
+	pushCtx, pushDeadline, cancelPush, pushLimited := s.receivePackLimit(r.Context())
+	defer cancelPush()
 	// An import mirrors a user-controlled source, so it gets the same
 	// reserved-ref policy as any push with no workspace attribution:
 	// refs/smithers/ is written only by the control plane.
-	commands, peeked, peekErr := repohost.PeekReceivePackCommands(&idleDeadlineBody{rc: rc, r: requestBody})
+	commands, peeked, peekErr := repohost.PeekReceivePackCommands(&idleDeadlineBody{rc: rc, r: requestBody, until: pushDeadline})
 	if peekErr != nil {
-		return badRequest("malformed receive-pack command list")
+		return pushLimited(badRequest("malformed receive-pack command list"))
 	}
 	if msg := repohost.ReservedRefViolation(commands, "", 0); msg != "" {
 		return forbidden(msg)
 	}
-	body, gitErr := runGitRPCBuffered(r.Context(), gitDir, "receive-pack", readCloserWithBody(peeked, requestBody))
+	body, gitErr := runGitRPCBuffered(pushCtx, gitDir, "receive-pack", readCloserWithBody(peeked, requestBody))
+	gitErr = pushLimited(gitErr)
 	reconcileCtx, cancelReconcile := detachedPushContext(r.Context())
 	defer cancelReconcile()
 	afterRefs, err := listGitRefs(reconcileCtx, gitDir)

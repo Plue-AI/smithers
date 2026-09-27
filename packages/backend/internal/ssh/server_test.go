@@ -940,7 +940,7 @@ func TestServer_ReceivePackTimeout_DefaultWhenUnset(t *testing.T) {
 	t.Parallel()
 
 	server := &Server{}
-	assert.Equal(t, defaultReceivePackTimeout, server.receivePackTimeout())
+	assert.Equal(t, repohost.DefaultReceivePackMaxDuration, server.receivePackTimeout())
 }
 
 func TestSessionHandler_AuthorizedReceivePack_StreamsLargePayloadBeforeEOF(t *testing.T) {

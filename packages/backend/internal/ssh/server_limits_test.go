@@ -25,7 +25,7 @@ func TestIdleTimeout_DerivedFromPackTimeouts(t *testing.T) {
 	t.Parallel()
 
 	defaults := &Server{}
-	assert.Equal(t, defaultReceivePackTimeout+idleTimeoutSlack, defaults.idleTimeout(),
+	assert.Equal(t, repohost.DefaultReceivePackMaxDuration+idleTimeoutSlack, defaults.idleTimeout(),
 		"unset idle timeout should derive from the pack timeouts plus slack")
 
 	longerUpload := &Server{UploadPackTimeout: 30 * time.Minute}

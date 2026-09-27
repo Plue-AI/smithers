@@ -932,9 +932,11 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	// the response is written so it cannot leak into connection reuse.
 	rc := http.NewResponseController(w)
 	defer func() { _ = rc.SetReadDeadline(time.Time{}) }()
-	commands, peeked, peekErr := repohost.PeekReceivePackCommands(&idleDeadlineBody{rc: rc, r: requestBody})
+	pushCtx, pushDeadline, cancelPush, pushLimited := s.receivePackLimit(r.Context())
+	defer cancelPush()
+	commands, peeked, peekErr := repohost.PeekReceivePackCommands(&idleDeadlineBody{rc: rc, r: requestBody, until: pushDeadline})
 	if peekErr != nil {
-		return badRequest("malformed receive-pack command list")
+		return pushLimited(badRequest("malformed receive-pack command list"))
 	}
 	// The API sets X-Smithers-Pusher-Id from the credential it authenticated;
 	// it names whose refs/smithers/users/<id>/ namespace this push may write.
@@ -975,8 +977,8 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	// jj ref import and push hooks so we can still return an HTTP error if the
 	// git subprocess itself fails before any bytes are written to the client.
 	pushed := &countingReader{r: peeked}
-	body, err := runReceivePackBuffered(r.Context(), gitDir, readCloserWithBody(pushed, requestBody), maxInputSize, refViewer(r))
-	gitErr := err
+	body, err := runReceivePackBuffered(pushCtx, gitDir, readCloserWithBody(pushed, requestBody), maxInputSize, refViewer(r))
+	gitErr := pushLimited(err)
 	if gitErr != nil && userRefs && pushed.n > maxInputSize {
 		gitErr = &appError{StatusCode: http.StatusRequestEntityTooLarge, Code: "user_ref_push_too_large",
 			Message: fmt.Sprintf("a push to refs/smithers/users/ is capped at %d MiB", maxInputSize>>20)}

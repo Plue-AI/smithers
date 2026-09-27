@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:9d87db4762a480592fcb05d80f540b4354f0b791147c65043d95b5fb4a89d3a6",
+  "digest": "sha256:56cd462c0e89d718cb7d7135eb2f00de9aeff0a66bd155d0ee612d3e806e3a1c",
   "faults": [
     "user",
     "wait",
@@ -589,6 +589,13 @@
       "status": 500,
       "retry_after": 0,
       "doc": "Provisioning a box failed for a reason plue has no specific code for. Persisted on the workspace row as failure_code."
+    },
+    {
+      "code": "push_too_slow",
+      "fault": "user",
+      "status": 408,
+      "retry_after": 0,
+      "doc": "The push held its repository longer than the push duration limit and was stopped; nothing changed."
     },
     {
       "code": "quiesce_failed",

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 const (
@@ -34,6 +35,16 @@ type Config struct {
 	UserRefLimit        int
 	UserRefMaxPushBytes int64
 	UserRefTTL          time.Duration
+	// ReceivePackMaxDuration caps one push while it holds the repository's
+	// write lock; zero takes repohost.DefaultReceivePackMaxDuration.
+	ReceivePackMaxDuration time.Duration
+}
+
+func (c Config) receivePackMaxDuration() time.Duration {
+	if c.ReceivePackMaxDuration > 0 {
+		return c.ReceivePackMaxDuration
+	}
+	return repohost.DefaultReceivePackMaxDuration
 }
 
 func LoadConfig() (Config, error) {
@@ -281,6 +292,13 @@ func userRefBoundsFromEnv(cfg *Config) error {
 			return fmt.Errorf("SMITHERS_USER_REF_MAX_PUSH_BYTES must be between 1 and %d", maxDecompressedGitRequestSize)
 		}
 		cfg.UserRefMaxPushBytes = size
+	}
+	if raw := strings.TrimSpace(os.Getenv(repohost.ReceivePackMaxDurationEnv)); raw != "" {
+		limit, err := time.ParseDuration(raw)
+		if err != nil || limit <= 0 {
+			return fmt.Errorf("%s must be a positive duration such as 10m", repohost.ReceivePackMaxDurationEnv)
+		}
+		cfg.ReceivePackMaxDuration = limit
 	}
 	if raw := strings.TrimSpace(os.Getenv("SMITHERS_USER_REF_TTL")); raw != "" {
 		ttl, err := time.ParseDuration(raw)

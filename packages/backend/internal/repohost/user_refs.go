@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,25 @@ const (
 	// DefaultUserRefTTL expires a user ref this long after its last push.
 	DefaultUserRefTTL = 30 * 24 * time.Hour
 )
+
+// DefaultReceivePackMaxDuration caps one push's wall-clock time from the
+// moment repo-host takes the repository's write lock for it: a push that
+// trickles in cannot hold the lock indefinitely. The front doors (the API's
+// git route, SSH) allow a push the same time once it has started.
+const DefaultReceivePackMaxDuration = 10 * time.Minute
+
+// ReceivePackMaxDurationEnv overrides DefaultReceivePackMaxDuration, as a
+// duration such as 10m, for repo-host and the front doors alike.
+const ReceivePackMaxDurationEnv = "SMITHERS_RECEIVE_PACK_MAX_DURATION"
+
+// ReceivePackMaxDuration is ReceivePackMaxDurationEnv's value, or
+// DefaultReceivePackMaxDuration when it is unset or not a positive duration.
+func ReceivePackMaxDuration() time.Duration {
+	if limit, err := time.ParseDuration(strings.TrimSpace(os.Getenv(ReceivePackMaxDurationEnv))); err == nil && limit > 0 {
+		return limit
+	}
+	return DefaultReceivePackMaxDuration
+}
 
 // UserRefName answers the <name> of refs/smithers/users/<id>/<name>.
 func UserRefName(ref string) (int64, string, bool) {

@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:9d87db4762a480592fcb05d80f540b4354f0b791147c65043d95b5fb4a89d3a6"
+export const PLUE_FAILURE_DIGEST = "sha256:56cd462c0e89d718cb7d7135eb2f00de9aeff0a66bd155d0ee612d3e806e3a1c"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -150,6 +150,7 @@ export const PLUE_FAILURE_CODES = [
   "plan_limit_exceeded",
   "preview_unavailable",
   "provisioning_failed",
+  "push_too_slow",
   "quiesce_failed",
   "quota_exceeded",
   "rate_limit_exceeded",
@@ -395,6 +396,8 @@ export const PLUE_FAILURES = {
   "preview_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
   /** Provisioning a box failed for a reason plue has no specific code for. Persisted on the workspace row as failure_code. */
   "provisioning_failed": { fault: "bug", status: 500, retryAfter: 0 },
+  /** The push held its repository longer than the push duration limit and was stopped; nothing changed. */
+  "push_too_slow": { fault: "user", status: 408, retryAfter: 0 },
   /** The worker could not quiesce the guest in time to take the action; retrying usually succeeds. */
   "quiesce_failed": { fault: "wait", status: 409, retryAfter: 1 },
   /** The account is at a per-resource cap, such as the number of boxes it may keep running. */

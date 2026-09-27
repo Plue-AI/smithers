@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -113,4 +115,14 @@ func TestGitHTTPProxyService_ReceivePack_ReservedRefs(t *testing.T) {
 		assert.Equal(t, 403, apiStatus(t, err))
 		assert.Equal(t, 0, repoHost.receivePackCall)
 	})
+}
+
+// A push repo-host stopped at its duration limit is a 408 with its message.
+func TestGitProxyFailureKeepsAPushTooSlow(t *testing.T) {
+	err := gitProxyFailure(context.Background(), "receive-pack", "alice", "demo", &repohost.StatusError{
+		StatusCode: http.StatusRequestTimeout, Code: repohost.PushTooSlowCode, Message: "push took longer than 10m0s; nothing was changed"})
+	var apiErr *errors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusRequestTimeout, apiErr.Status)
+	require.Equal(t, "push took longer than 10m0s; nothing was changed", apiErr.Message)
 }

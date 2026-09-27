@@ -404,6 +404,9 @@ func (s *GitHTTPProxyService) authorize(ctx context.Context, userID int64, owner
 // returns the sanitized 500 the client sees. Without the log the only trace of
 // a failed clone, fetch or push is a result=error metric with no cause.
 func gitProxyFailure(ctx context.Context, operation, owner, repo string, err error) error {
+	if status, ok := repohost.IsStatusError(err); ok && status.Code == repohost.PushTooSlowCode {
+		return errors.New(errors.CodePushTooSlow, status.Message)
+	}
 	middleware.LoggerFromContext(ctx).Error("git proxy to repo-host failed",
 		"operation", operation, "owner", owner, "repo", repo, "error", err)
 	return errors.Internal("failed to proxy git " + operation)

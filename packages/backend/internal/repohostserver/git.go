@@ -35,11 +35,36 @@ var gitRPCIdleTimeout = 60 * time.Second
 type idleDeadlineBody struct {
 	rc *http.ResponseController
 	r  io.Reader
+	// until, when set, is a deadline no read may pass however steady the
+	// transfer (receivePackLimit).
+	until time.Time
 }
 
 func (b *idleDeadlineBody) Read(p []byte) (int, error) {
-	_ = b.rc.SetReadDeadline(time.Now().Add(gitRPCIdleTimeout))
+	deadline := time.Now().Add(gitRPCIdleTimeout)
+	if !b.until.IsZero() && b.until.Before(deadline) {
+		deadline = b.until
+	}
+	_ = b.rc.SetReadDeadline(deadline)
 	return b.r.Read(p)
+}
+
+// receivePackLimit bounds a push that holds the repository's write lock to
+// the configured wall-clock limit: git is stopped and the body's reads fail
+// once it passes, so a trickling client cannot keep the lock. It returns the
+// push's context, its deadline and the error to answer when the limit ended it.
+func (s *Server) receivePackLimit(ctx context.Context) (context.Context, time.Time, context.CancelFunc, func(error) error) {
+	limit := s.config.receivePackMaxDuration()
+	deadline := time.Now().Add(limit)
+	pushCtx, cancel := context.WithDeadline(ctx, deadline)
+	exceeded := func(err error) error {
+		if err != nil && errors.Is(pushCtx.Err(), context.DeadlineExceeded) {
+			return &appError{StatusCode: http.StatusRequestTimeout, Code: repohost.PushTooSlowCode,
+				Message: "push took longer than " + limit.String() + "; nothing was changed", Cause: err}
+		}
+		return err
+	}
+	return pushCtx, deadline, cancel, exceeded
 }
 
 // idleDeadlineWriter is the response-side counterpart of idleDeadlineBody:

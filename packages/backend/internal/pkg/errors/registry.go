@@ -202,6 +202,7 @@ const (
 	CodeWikiUnavailable           Code = "wiki_unavailable"
 	CodeSSEUnavailable            Code = "sse_unavailable"
 	CodeRepositoryHeld            Code = "repository_held"
+	CodePushTooSlow               Code = "push_too_slow"
 )
 
 // The shared build cache tier.
@@ -282,6 +283,7 @@ var registry = map[Code]Entry{
 	CodeAppendReceiptUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "The exact native append receipt cannot currently be verified."},
 	CodeAppendReceiptInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "The durable append request or task state has no valid matching native receipt."},
 	CodeAppendPrepareUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Native append preparation or its transactional revision projection is unavailable."},
+	CodePushTooSlow:              {Status: http.StatusRequestTimeout, Fault: FaultUser, RetryAfter: 0, Doc: "The push held its repository longer than the push duration limit and was stopped; nothing changed."},
 	CodeRepositoryHeld:           {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 5, Doc: "The repository refuses writes until maintenance a restarted repository host found running there has finished; reads still work."},
 	CodeAppendPrepareInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Native append preparation did not return the requested exact source identities."},
 	CodeLandingCreateUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Idempotent landing creation requires the existing transactional store."},

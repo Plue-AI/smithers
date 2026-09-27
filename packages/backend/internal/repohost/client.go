@@ -469,11 +469,12 @@ func (e *StatusError) Held() bool {
 	return e.StatusCode == http.StatusServiceUnavailable && e.Code == RepositoryHeldCode
 }
 
-// gitStatusError is statusError for a git route: only a hold's message is
-// repo-host's to show, and any other body stays out of the error.
+// gitStatusError is statusError for a git route: only the messages meant for
+// the pusher (a hold, a push stopped at its duration limit) are repo-host's
+// to show, and any other body stays out of the error.
 func gitStatusError(resp *http.Response) *StatusError {
 	status := statusError(resp)
-	if !status.Held() {
+	if !status.Held() && status.Code != PushTooSlowCode {
 		status.Message = ""
 	}
 	return status

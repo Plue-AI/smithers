@@ -129,7 +129,6 @@ const workspaceErrorKey contextKey = "workspace-error"
 const (
 	defaultMaxReceivePackSize       int64 = 500 * 1024 * 1024
 	defaultMaxUploadPackRequestSize int64 = 10 * 1024 * 1024
-	defaultReceivePackTimeout             = 10 * time.Minute
 	defaultUploadPackTimeout              = 10 * time.Minute
 	// defaultMaxConnTimeout must stay generous: it caps legitimate slow
 	// transfers too, and a 500MB push over a slow link can take well over an
@@ -827,9 +826,9 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 			return
 		}
 
-		if status, ok := repohost.IsStatusError(err); ok && status.Held() {
-			slog.Warn("ssh git write refused: repository held",
-				"session_id", sessionID, "git_command", gitCmd, "owner", owner, "repo", repo)
+		if status, ok := repohost.IsStatusError(err); ok && (status.Held() || status.Code == repohost.PushTooSlowCode) {
+			slog.Warn("ssh git write refused by repo-host",
+				"session_id", sessionID, "git_command", gitCmd, "owner", owner, "repo", repo, "code", status.Code)
 			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: %s\n", status.Message)
 			_ = sess.Exit(1)
 			return
@@ -1447,7 +1446,7 @@ func (s *Server) receivePackTimeout() time.Duration {
 	if s.ReceivePackTimeout > 0 {
 		return s.ReceivePackTimeout
 	}
-	return defaultReceivePackTimeout
+	return repohost.ReceivePackMaxDuration()
 }
 
 func (s *Server) uploadPackTimeout() time.Duration {

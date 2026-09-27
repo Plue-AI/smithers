@@ -44,3 +44,11 @@ does not copy them. A coding run started from one pins its commit under the
 workspace's own `refs/smithers/workspaces/<id>/sources/<commit>`, which the
 ref's expiry does not remove. Anyone who can read the repository can fetch
 these refs.
+
+## Push duration
+
+A push may hold its repository's write lock for at most 10 minutes of wall
+clock (`SMITHERS_RECEIVE_PACK_MAX_DURATION`, e.g. `10m`;
+`ReceivePackMaxDuration`), however steadily it trickles in. Past it the push
+is stopped with 408, nothing changes, and the lock is released. The API
+gives its git receive-pack route the same read deadline.
