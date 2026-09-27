@@ -8,7 +8,7 @@ test("the schedule tutorial documents reviewed registration and keeps the local 
   const flows = readFileSync(new URL("../../app/src/mainview/flows/entries/triggers.ts", import.meta.url), "utf8")
   assert.match(flows, /name: "triggers\.approve"[\s\S]*?userOnly: true/)
   assert.doesNotMatch(source, /always refuses registration|cannot be registered.*from here yet/)
-  assert.match(source, /Read the plan and approve it/)
+  assert.match(source, /prepares the plan for you to read and approve before it registers/)
   assert.match(source, /token and time budget/)
   assert.match(source, /Run now/)
   assert.match(source, /Pause/)
