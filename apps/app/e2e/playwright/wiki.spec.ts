@@ -44,7 +44,7 @@ const wikiFixture = async (page: Page) => {
     return route.fulfill(json([index]))
   })
   await page.route(
-    `**/api/repos/${repo}/wiki/architecture/document`,
+    `**/api/repos/${repo}/wiki/architecture/document?*`,
     (route) => route.fulfill(json(bootstrap()))
   )
   await page.route(`**/api/repos/${repo}/wiki/architecture/stream?*`, (route) =>
@@ -53,7 +53,7 @@ const wikiFixture = async (page: Page) => {
       contentType: "text/event-stream",
       body: ": connected\n\n"
     }))
-  await page.route(`**/api/repos/${repo}/wiki/architecture/updates`, async (route) => {
+  await page.route(`**/api/repos/${repo}/wiki/architecture/updates?*`, async (route) => {
     const input = route.request().postDataJSON() as typeof posts[number]
     posts.push(input)
     if (!accepted.has(input.update_id)) {
