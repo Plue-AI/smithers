@@ -2406,6 +2406,59 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       links: [{ source: "wiki/bounded-reads.md", target: "wiki/caps.md" }]
     }
   },
+  /* A wiki page's history (#1922): every field is required but a revision's attachment; the full one carries a rename and the deletion. */
+  "wiki-history": {
+    minimal: {
+      repo: "smithersai/smithers",
+      space: "public",
+      pageId: 1,
+      title: "Home",
+      path: "Home.md",
+      revisions: [],
+      page: 1,
+      hasNext: false
+    },
+    full: {
+      repo: "smithersai/smithers",
+      space: "private",
+      pageId: 3,
+      title: "logo.png",
+      path: "assets/logo.png",
+      revisions: [
+        {
+          revision: 3,
+          title: "logo.png",
+          path: "assets/logo.png",
+          author: "will",
+          at: "2026-09-26T03:00:00Z",
+          deleted: true,
+          digest: "c".repeat(64)
+        },
+        {
+          revision: 2,
+          title: "logo.png",
+          path: "assets/logo.png",
+          author: "ada",
+          at: "2026-09-26T02:00:00Z",
+          deleted: false,
+          digest: "b".repeat(64),
+          attachment: { digest: "b".repeat(64), mediaType: "image/png", size: 68 }
+        },
+        {
+          revision: 1,
+          title: "logo.png",
+          path: "Old/logo.png",
+          author: "will",
+          at: "2026-09-26T01:00:00Z",
+          deleted: false,
+          digest: "a".repeat(64),
+          attachment: { digest: "a".repeat(64), mediaType: "image/png", size: 68 }
+        }
+      ],
+      page: 1,
+      hasNext: true
+    }
+  },
   "anonymous-ceiling": {
     minimal: { message: "too many turns from this address", retryAt: null },
     full: { message: "too many turns from this address", retryAt: "2026-09-05T10:00:00Z" }
