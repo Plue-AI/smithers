@@ -80,7 +80,7 @@ func TestLoadRejectsEscapedOrSubstitutedHost(t *testing.T) {
 }
 
 func TestLoadRejectsMissingOrExtraFlow(t *testing.T) {
-	for _, flows := range [][]string{nil, {"librarian/history", "librarian/wiki"}} {
+	for _, flows := range [][]string{{"librarian/history"}, {"librarian/history", "librarian/wiki"}} {
 		path, hosts := bundledManifest(t)
 		librarian := hosts["librarian"]
 		librarian.Flows = flows
@@ -147,7 +147,7 @@ func TestLoadManifestAtSizeLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(registry.Librarian.Flows, ",") != "librarian/history" {
+	if len(registry.Librarian.Flows) != 0 {
 		t.Fatalf("unexpected librarian flows: %v", registry.Librarian.Flows)
 	}
 }

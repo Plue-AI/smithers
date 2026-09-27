@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { RECEIPT_CODES, runFailure, runFailureOf, SETUP_REFUSAL_COPY, SETUP_REFUSALS, setupFailureSentence, setupVerdict } from "./RunFailure"
 import { ANSWERED_CODES, runCause } from "./RunCause"
-import { librarianFailureMessage } from "./LibrarianLaunch"
 
 const INFRA = "Something on Smithers' side failed. Not your fault, and nothing your request could have changed."
 // Formatting may wrap the call, but the emitted argument must remain exact.
@@ -17,7 +16,6 @@ const journal = (cause: string) => [{ sequence: 1, kind: "control.run.failed", r
 test("uncoded execution errors use infra copy and retain the complete raw detail", () => {
   const raw = "failed — Error: Error: git exited 1"
   expect(runFailure(raw)).toEqual({ fault: "infra", message: "Something on Smithers' side failed. Not your fault, and nothing your request could have changed.", detail: raw })
-  expect(librarianFailureMessage(raw)).toBe(`Create Mythical history didn't start: ${runFailure(raw).message}`)
 })
 
 test("coded errors use the shared refusal table without interpreting raw prose", () => {
@@ -35,7 +33,6 @@ test("only the registrar's own refusal is the person's input; every other flow's
     .toEqual({ fault: "user", message: REFUSAL, detail: `invalid_receipt: ${REFUSAL}` })
   for (const [workflow, engine] of [
     ["coding/request", "Native source creation returned an invalid receipt"],
-    ["librarian/history", "Native main retention returned an invalid receipt"],
     ["repository/setup", "Setup output failed the shared response contract"]
   ]) {
     expect(runFailureOf({ workflow: workflow!, error: VERDICT, events: journal(`invalid_receipt: ${engine!}`) }))
@@ -89,7 +86,7 @@ test("a setup failure the person cannot act on stays Smithers', and no other flo
     expect(runFailureOf({ workflow: "repository/setup", error: TRIAL_VERDICT, events: setupCause(engine) }))
       .toEqual({ fault: "infra", message: INFRA, detail: TRIAL_VERDICT })
   }
-  for (const workflow of ["coding/request", "librarian/history", "repository-jobs/issues", "repository/Setup"]) {
+  for (const workflow of ["coding/request", "repository-jobs/issues", "repository/Setup"]) {
     expect(runFailureOf({ workflow, error: TRIAL_VERDICT, events: setupCause(TRIAL) }))
       .toEqual({ fault: "infra", message: INFRA, detail: TRIAL_VERDICT })
   }

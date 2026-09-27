@@ -37,7 +37,6 @@ func TestRepoGatewayProductHost_StagesExactReleaseBytes(t *testing.T) {
 	require.NotContains(t, command, "bun x")
 	require.NotContains(t, command, "--backend")
 	require.Equal(t, "alice/demo", vm.systemdSpecs[0].Env["SMITHERS_REPO"])
-	require.Equal(t, "https://jjhub.example", vm.systemdSpecs[0].Env["SMITHERS_PRODUCT_API_URL"])
 }
 
 func TestRepoGatewayProductHost_MissingArtifactFailsBeforeCreatingVM(t *testing.T) {

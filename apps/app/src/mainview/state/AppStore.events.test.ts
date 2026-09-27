@@ -318,6 +318,33 @@ describe("the live store's authoritative event path", () => {
     expect(restored.session()).not.toHaveProperty("sidebarOpen")
   })
 
+  test("version 21 upgrade drops retired Librarian launch intents", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    const launches = [{ kind: "history", repo: "owner/repo", scope: "old", phase: "started", startedAt: 1, runId: "run-1" }]
+    const snapshot = structuredClone(old.checkpoint.snapshot)
+    Object.assign(snapshot.sessions![0]!, { librarianLaunches: launches })
+    const stateHash = appProjectionHash(snapshot as unknown as Parameters<typeof appProjectionHash>[0])
+    const head = { ...old.head, projectorVersion: 21, stateHash }
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 21, snapshot, stateHash }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    editEnvelope(storage, entries => {
+      const sessions = JSON.parse(entries["smithers-mvp.app-sessions"]!)
+      sessions["s:main"].data.librarianLaunches = launches
+      entries["smithers-mvp.app-sessions"] = JSON.stringify(sessions)
+      for (const [id, data] of [["app-event-heads", head], ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+    })
+    const restored = await open(storage)
+    expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
+    expect((await restored.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
+    expect((await restored.verifyState()).valid).toBe(true)
+    expect(restored.session()).not.toHaveProperty("librarianLaunches")
+  })
+
   test("version 9 upgrade rotates a store whose journal holds a front-door turn", async () => {
     /*
      * A front-door leg (apps/server frontDoor.ts) now projects differently:
@@ -467,7 +494,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 21, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 22, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "harnesses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
@@ -735,7 +762,7 @@ describe("the live store's authoritative event path", () => {
   test("a dispatcher row persisted before slug joined it replays on this projector, unchanged and unupgraded", async () => {
     const storage = memoryStorage()
     const before = await open(storage)
-    const triggers = [{ id: "trg-1", flowId: "librarian/history", cron: "0 * * * *", timezone: "UTC", enabled: true }]
+    const triggers = [{ id: "trg-1", flowId: "review", cron: "0 * * * *", timezone: "UTC", enabled: true }]
     await before.dispatch({ type: "card.upsert", actor: "system", card: {
       id: "trigger-list", kind: "trigger-list", title: "Dispatcher", status: "active", createdAt: 1, ordinal: 1,
       payload: { repo: "alpha/one", live: true, triggers }

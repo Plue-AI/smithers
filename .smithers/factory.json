@@ -940,21 +940,6 @@
       }
     },
     {
-      "id": "librarian/history",
-      "description": "Create Mythical history and provenance notes atomically, preserving the source branch and tree.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/librarian/history/flow.ts",
-      "capabilities": [
-        "fs:read:**",
-        "fs:write:.git/**"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
-    },
-    {
       "id": "register-repository",
       "description": "Register a GitHub repository with Smithers: analyze it from its link (theme, license, checks, agent readiness, cleanup opportunities, commits, contributors, contribution intake, workflows to build, CI estimate), wait for Smithers admin review, then set it up.",
       "summary": null,

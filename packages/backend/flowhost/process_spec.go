@@ -70,10 +70,6 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 			return ProcessSpec{}, errors.New("librarian host needs its authorized repository name")
 		}
 		environment["SMITHERS_REPO"] = launch.Authority.Repository
-		environment["SMITHERS_PRODUCT_API_URL"] = launch.Catalog.ProductAPIURL
-		if launch.Catalog.ImplementationModel != "" {
-			environment["SMITHERS_LIBRARIAN_MODEL"] = launch.Catalog.ImplementationModel
-		}
 	default:
 		return ProcessSpec{}, errors.New("flow host family is unsupported")
 	}

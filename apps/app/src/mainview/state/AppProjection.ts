@@ -819,7 +819,6 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
       draft.selectedWorldDocumentId = [...collections.worldDocuments.values()][0]?.id ?? null
     }
     draft.activeRepoKey = null
-    delete draft.librarianLaunches
     delete draft.wikiRequests
     draft.maximizedCardId = null
     draft.activeFrameId = rootFrameId(branchId)
@@ -2024,10 +2023,9 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.signup = { ...(draft.signup ?? initialSignup()), ...transition.patch } })
           break
         }
-        case "librarian.launches.changed": {
-          collections.sessions.update(SESSION_ID, draft => { draft.librarianLaunches = transition.launches })
+        // Retired with the Librarian history flow (#2165); existing journals can contain it.
+        case "librarian.launches.changed":
           break
-        }
         case "coding.provider.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.codingProviderRequests = transition.requests })
           break

@@ -754,18 +754,6 @@ export const SessionSchema = z.object({
     device: z.object({ id: z.string(), userCode: z.string(), verificationUri: z.string(), interval: z.number(), expiresAt: z.string() }).optional(),
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
-  librarianLaunches: z.array(z.object({
-    /* `wiki` is the retired per-folder generator: still parsed so an older session loads, then dropped (controller/librarianRuns.ts). */
-    kind: z.enum(["wiki", "history"]),
-    repo: z.string(),
-    scope: z.string(),
-    phase: z.enum(["preparing", "launching", "started", "failed"]),
-    startedAt: z.number(),
-    /** The current attempt's receipt; an older failed card cannot overwrite a retry. */
-    runId: z.string().optional(),
-    owner: z.string().optional(),
-    reason: z.string().optional()
-  })).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
@@ -1259,7 +1247,8 @@ export type AppTransition =
   | { type: "first-run.dismissed"; actor: Actor }
   /** One merge onto the signup row; a missing row starts from initialSignup(). */
   | { type: "signup.changed"; actor: Actor; patch: Partial<Signup> }
-  | { type: "librarian.launches.changed"; actor: Actor; launches: NonNullable<Session["librarianLaunches"]> }
+  /* Retired with the Librarian history flow (#2165): replayed journals still decode it; it changes nothing. */
+  | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }

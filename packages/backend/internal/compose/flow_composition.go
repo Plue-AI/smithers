@@ -50,8 +50,8 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if len(modelSeats) > 0 {
 		modelProxyURL = productAPIURL + modelproxy.Path
 	}
-	// With subscription connections allowed, managed hosts (coding runs,
-	// the librarian) also reach the account pool: the binding user's
+	// With subscription connections allowed, managed coding hosts also
+	// reach the account pool: the binding user's
 	// connected Claude and Codex accounts, per request.
 	accountPoolURL := ""
 	if cfg.FeatureFlags.SubscriptionConnections {
@@ -66,12 +66,10 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 			ModelProxyURL: modelProxyURL, ModelSeats: modelSeats, AccountPoolURL: accountPoolURL,
 		},
 		{
+			// The product gateway: no product flow, so no model seats.
 			Key: flowhost.CatalogLibrarian, Family: flowhost.CatalogLibrarian,
 			Executable: registry.Librarian.Executable, ArtifactDigest: registry.Librarian.SHA256,
-			ServiceName: "smithers-librarian-host", ProductAPIURL: productAPIURL,
-			ImplementationModel: strings.TrimSpace(os.Getenv("SMITHERS_LIBRARIAN_MODEL")),
-			Environment:         librarianHostEnvironment(options.topology),
-			ModelProxyURL:       modelProxyURL, ModelSeats: modelSeats, AccountPoolURL: accountPoolURL,
+			ServiceName: "smithers-librarian-host", Environment: map[string]string{},
 		},
 	}
 	bindings, err := flowhost.NewStore(pool, codec)
@@ -138,18 +136,6 @@ func codingHostEnvironment(role topology) map[string]string {
 	if !role.hosted() {
 		environment["SMITHERS_CODING_LOCAL_OWNER"] = "1"
 		for _, name := range []string{"OPENAI_API_KEY", "AI_GATEWAY_API_KEY", "SMITHERS_OPENAI_COMPATIBLE_BASE_URL", "SMITHERS_EVALUATOR_BASE_URL"} {
-			if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-				environment[name] = value
-			}
-		}
-	}
-	return environment
-}
-
-func librarianHostEnvironment(role topology) map[string]string {
-	environment := make(map[string]string)
-	if !role.hosted() {
-		for _, name := range []string{"AI_GATEWAY_API_KEY", "SMITHERS_EVALUATOR_BASE_URL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"} {
 			if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 				environment[name] = value
 			}

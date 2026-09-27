@@ -23,8 +23,8 @@
 /**
  * A registry entry path, which names its flow by the directory it sits in.
  *
- * Nested directories are part of the name (`flows/librarian/history/flow.ts` is
- * `librarian/history`), which is why the capture is greedy.
+ * Nested directories are part of the name (`flows/coding/request/flow.ts` is
+ * `coding/request`), which is why the capture is greedy.
  */
 const entry = /^flows\/(.+)\/(?:flow\.ts|flow\.mdx|SKILL\.md)$/
 

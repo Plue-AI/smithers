@@ -31,7 +31,8 @@ export const writeFlowHostManifest = async ({ output, coding, librarian }) => {
   await mkdir(root, { recursive: true })
   const hosts = {
     coding: await host(root, coding, ["coding/dispatch"]),
-    librarian: await host(root, librarian, ["librarian/history"])
+    // The product gateway serves no product flow (#2165).
+    librarian: await host(root, librarian, [])
   }
   for (const entry of Object.values(hosts)) {
     await writeFile(

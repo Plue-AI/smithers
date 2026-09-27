@@ -28,9 +28,8 @@ var reservedEnvironment = map[string]struct{}{
 	"SMITHERS_API_KEY": {}, "SMITHERS_GATEWAY_ID": {},
 	"SMITHERS_OWNER_GENERATION": {}, "SMITHERS_FLOW_ARTIFACT_SHA256": {},
 	"SMITHERS_SOURCE_REVISION": {}, "SMITHERS_REPO": {},
-	"SMITHERS_PRODUCT_API_URL": {}, "SMITHERS_CODING_IMPLEMENT_MODEL": {},
-	"SMITHERS_LIBRARIAN_MODEL": {},
-	AccountPoolURLEnv:          {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
+	"SMITHERS_CODING_IMPLEMENT_MODEL": {},
+	AccountPoolURLEnv:                 {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
 }
 
 // A host shares its workspace with repository commands, so a database
@@ -74,7 +73,6 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 	catalog.Family = strings.TrimSpace(catalog.Family)
 	catalog.Executable = strings.TrimSpace(catalog.Executable)
 	catalog.ServiceName = strings.TrimSpace(catalog.ServiceName)
-	catalog.ProductAPIURL = strings.TrimRight(strings.TrimSpace(catalog.ProductAPIURL), "/")
 	catalog.ImplementationModel = strings.TrimSpace(catalog.ImplementationModel)
 	if !catalogKeyPattern.MatchString(catalog.Key) {
 		return Catalog{}, errors.New("flow host catalog key is invalid")
@@ -96,9 +94,6 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 	}
 	if catalog.ImplementationModel != "" && !explicitModel(catalog.ImplementationModel) {
 		return Catalog{}, fmt.Errorf("flow host catalog %q model must be provider:model", catalog.Key)
-	}
-	if catalog.Family == CatalogLibrarian && catalog.ProductAPIURL == "" {
-		return Catalog{}, fmt.Errorf("flow host catalog %q needs product API configuration", catalog.Key)
 	}
 	copyEnvironment := make(map[string]string, len(catalog.Environment))
 	for name, value := range catalog.Environment {

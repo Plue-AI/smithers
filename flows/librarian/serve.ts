@@ -8,7 +8,6 @@ import { parseArgs } from "node:util"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
 import { packageVersion } from "../../packages/smithers/src/Version.ts"
 import { layer } from "./host.ts"
-import { configured, fromEnvironment } from "./seats.ts"
 import * as LibrarianState from "./state.ts"
 const parsed = parseArgs({
   args: process.argv.slice(2),
@@ -30,8 +29,6 @@ else if (parsed.values.help) {
   )
 } else {
   if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "serve") throw new Error("Expected serve command")
-  const seats = fromEnvironment(process.env)
-  configured(seats)
   const root = resolve(parsed.values.root ?? process.cwd())
   const stateRoot = LibrarianState.resolveStateRoot({
     root,
@@ -61,7 +58,6 @@ else if (parsed.values.help) {
     throw new Error("SMITHERS_SOURCE_REVISION must be an immutable 40-character revision")
   }
   const options = {
-    ...seats,
     root,
     stateRoot,
     repo,

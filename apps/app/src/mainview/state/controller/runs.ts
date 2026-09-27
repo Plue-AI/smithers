@@ -111,8 +111,7 @@ export const createRunsController = (
   ctx: ControllerContext,
   nextTranscriptOrdinal: () => number,
   workflows: WorkflowController,
-  renderFlowForm?: FormsController["renderFlowForm"],
-  onRunRead?: (runId: string) => Promise<void>
+  renderFlowForm?: FormsController["renderFlowForm"]
 ): RunsController => {
   const { store, gateway } = ctx
 
@@ -244,10 +243,6 @@ export const createRunsController = (
             ...(row.statusRollup?.subjectId === `run:${row.runId}` && row.statusRollup.state === row.status ? { statusRollup: row.statusRollup } : {}),
             ...(waitingWord(row) === undefined ? {} : { waiting: waitingWord(row) }), createdAt: row.createdAt, turns: row.turns, calls: row.calls }))
         } } }).isPersisted.promise
-        for (const row of rows) {
-          if (!current()) return TOAST_SUPERSEDED
-          await onRunRead?.(row.runId)
-        }
         return current() ? errors.length ? errors.join(" · ") : true : TOAST_SUPERSEDED
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
@@ -398,9 +393,6 @@ export const createRunsController = (
         checkSource()
         await workflows.upsertRunCard({ ...target, cardId: request.cardId, requireExisting: request.requireExisting, workflow: summary.value.flowId,
           title: `${summary.value.flowId} — ${request.repo}`, firstStep: `Watching ${summary.value.flowId} (run ${request.runId}).`, observe: true })
-        if (!current()) return TOAST_SUPERSEDED
-        checkSource(true)
-        await onRunRead?.(request.runId)
         if (!current()) return TOAST_SUPERSEDED
         checkSource(true)
         // The optimistic removal must not hide progress while its durable receipt is still held.

@@ -549,7 +549,7 @@ func TestRepoGatewayService_Provision_DoesNotPersistRepoSecrets(t *testing.T) {
 
 	require.Len(t, vm.systemdSpecs, 1)
 	assert.NotContains(t, vm.systemdSpecs[0].Env, "ANTHROPIC_API_KEY")
-	assert.Len(t, vm.systemdSpecs[0].Env, 8)
+	assert.Len(t, vm.systemdSpecs[0].Env, 7)
 	assert.NotEmpty(t, vm.systemdSpecs[0].Env["SMITHERS_API_KEY"])
 }
 

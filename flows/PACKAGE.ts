@@ -370,16 +370,11 @@ const fixtures = Smithers.NodeTest({
   timeout: "20m"
 })
 
-// The standalone product gateway, built from source by the fixture itself.
-// `serve` refuses to start on an empty `AI_GATEWAY_API_KEY` because the harness
-// judges every completion, and `Exec` passes no ambient environment. The two
-// librarian flows here reach no model, and the fixture passes offline with any
-// nonempty value, so this declares the precondition rather than a credential: a
-// composition that did reach a judge would fail on it, not pass unjudged.
+// The standalone product gateway, built from source by the fixture itself. It
+// starts no runs, so it needs no evaluator credential.
 const productHost = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([fixture("product-host.test.mjs")]),
-  env: { AI_GATEWAY_API_KEY: "fixture-key-the-librarian-flows-never-spend" },
   srcs: codingSources,
   deps: codingDependencies,
   cwd,

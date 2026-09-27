@@ -18,7 +18,7 @@ const runtime = process.env.SMITHERS_PRODUCT_HOST_RUNTIME ?? process.execPath
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 const git = (root, ...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim()
 
-test("standalone product gateway executes the real librarian flow and survives restart", { timeout: 180_000 }, async t => {
+test("standalone product gateway serves an empty catalog over authenticated RPC and survives restart", { timeout: 180_000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "product-gateway-"))
   const stateRoot = await mkdtemp(join(tmpdir(), "product-gateway-state-"))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -47,13 +47,14 @@ test("standalone product gateway executes the real librarian flow and survives r
     for (let i = 0; i < 300; i++) {
       if (child.exitCode !== null) throw new Error(logs)
       const health = await fetch(`${base}/health`).then(r => r.ok ? r.json() : undefined).catch(() => undefined)
-      if (health) { assert.equal(health.protocolVersion, "1"); assert.deepEqual(health.capabilities, ["librarian/v1", "flow-runtime-bridge/v1"])
+      if (health) { assert.equal(health.protocolVersion, "1"); assert.deepEqual(health.capabilities, ["flow-runtime-bridge/v1"])
         assert.deepEqual(health.runtimeBridge, { protocol: "smithers.flow-runtime/v1", runtimeArtifactDigest: artifactDigest,
           sourceRevision: sourceHead, ownerGeneration: 7 }); return }
       await pause(100)
     }
     throw new Error(`Host did not listen: ${logs}`)
   }
+  const productFlows = async () => (await rpc("List", { _tag: "flows" })).items.map(item => item.flowId).filter(id => !id.startsWith("system/"))
   const rpc = async (tag, payload) => {
     const response = await fetch(`${base}/${tag.startsWith("Projection.") ? "projections" : "rpc"}`, {
       method: "POST", headers: { authorization: "Bearer fixture", "content-type": "application/ndjson" },
@@ -66,68 +67,24 @@ test("standalone product gateway executes the real librarian flow and survives r
   const bridge = async (path, payload) => {
     const response = await fetch(`${base}/runtime/v1/${path}`, { method: "POST",
       headers: { authorization: "Bearer fixture", "content-type": "application/json" }, body: JSON.stringify(payload) })
-    const body = await response.json()
-    assert.equal(body.protocol, "smithers.flow-runtime/v1")
-    assert.equal(body.ok, true, JSON.stringify(body))
-    return body.value
-  }
-  const settled = async runId => {
-    for (let i = 0; i < 300; i++) {
-      const snapshot = await rpc("Projection.Snapshot", { selector: { _tag: "run-summary", runId } })
-      const row = snapshot.rows[0]
-      if (["completed", "failed", "cancelled"].includes(row?.status)) return row
-      await pause(100)
-    }
-    throw new Error(`Run ${runId} did not settle: ${logs}`)
-  }
-  const run = async (kind, repo = "fixture/demo") => {
-    const plan = await rpc("Plan", { flowId: `librarian/${kind}`, input: { repo, _librarian: { kind } } })
-    await rpc("Approve", plan.approval)
-    const receipt = await rpc("Run", { _tag: "Plan", planId: plan.planId, digest: plan.digest,
-      envelope: plan.envelope, idempotencyKey: crypto.randomUUID() })
-    assert.equal(receipt._tag, "Accepted")
-    return settled(receipt.runId)
+    return { status: response.status, body: await response.json() }
   }
   await start()
   const unauthorized = await fetch(`${base}/rpc`, { method: "POST", headers: { "content-type": "application/ndjson" },
     body: JSON.stringify({ _tag: "Request", id: 1, tag: "List", payload: { _tag: "flows" }, headers: [] }) + "\n" })
   assert.match(await unauthorized.text(), /Unauthorized|unauthorized/)
-  const list = await rpc("List", { _tag: "flows" })
-  assert.deepEqual(list.items.map(item => item.flowId), ["librarian/history"])
+  // The product catalog is empty: target-repository modules never register here.
+  assert.deepEqual(await productFlows(), [])
   const bridgeRequest = { protocol: "smithers.flow-runtime/v1", operation: "launch", applicationRequestId: "product-host-bridge",
     ownerGeneration: 7, attempt: 1, runtimeArtifactDigest: artifactDigest, sourceRevision: sourceHead,
-    flowId: "librarian/history", payload: { repo: "fixture/demo", _librarian: { kind: "history" } } }
-  const parked = await bridge("command", bridgeRequest)
-  assert.equal(parked.receipt._tag, "Parked")
-  await bridge("command", { protocol: "smithers.flow-runtime/v1", operation: "approve", applicationRequestId: "product-host-bridge-approval",
-    ownerGeneration: 7, approval: parked.approval })
-  const launched = await bridge("command", { ...bridgeRequest, attempt: 2 })
-  assert.equal(launched.receipt._tag, "Accepted")
-  let bridgeObservation
-  let bridgeCursor
-  for (let i = 0; i < 300; i++) {
-    bridgeObservation = await bridge("observe", { protocol: "smithers.flow-runtime/v1", runId: launched.receipt.runId,
-      ...(bridgeCursor === undefined ? {} : { afterCursor: bridgeCursor }), limit: 25 })
-    bridgeCursor = bridgeObservation.nextCursor
-    if (bridgeObservation.terminal) break
-    await pause(100)
-  }
-  assert.equal(bridgeObservation.run.status, "completed", logs)
-  assert.match(bridgeCursor, /^\d+$/)
-  const incompatible = await fetch(`${base}/runtime/v1/command`, { method: "POST",
-    headers: { authorization: "Bearer fixture", "content-type": "application/json" },
-    body: JSON.stringify({ ...bridgeRequest, protocol: "smithers.flow-runtime/v2" }) })
+    flowId: "librarian/history", payload: { repo: "fixture/demo" } }
+  const refused = await bridge("command", bridgeRequest)
+  assert.equal(refused.body.protocol, "smithers.flow-runtime/v1")
+  assert.equal(refused.body.ok, false, JSON.stringify(refused.body))
+  const incompatible = await bridge("command", { ...bridgeRequest, protocol: "smithers.flow-runtime/v2" })
   assert.equal(incompatible.status, 400)
-  // Production workspaces can have a detached source commit after provisioning.
-  git(root, "checkout", "--detach", sourceHead)
-  const history = await run("history")
-  assert.equal(history.status, "completed", logs)
-  assert.equal(git(root, "rev-parse", "mythical^{tree}"), git(root, "rev-parse", "main^{tree}"))
-  assert.equal(git(root, "rev-parse", "HEAD"), sourceHead)
-  assert.match(git(root, "notes", "--ref=mythical", "show", "mythical"), new RegExp(sourceHead))
-  assert.equal((await run("history", "someone/else")).status, "failed")
   await stop(); await start()
-  assert.equal((await settled(history.runId)).status, "completed")
+  assert.deepEqual(await productFlows(), [])
   assert.ok((await readFile(join(stateRoot, ".flows", "control.db"))).length > 0)
   await assert.rejects(readFile(join(root, ".flows", "control.db")), { code: "ENOENT" })
 })

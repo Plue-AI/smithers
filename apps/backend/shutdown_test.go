@@ -97,7 +97,7 @@ func serveFixture(t *testing.T) (string, string) {
 	hosts := map[string]any{}
 	for family, flows := range map[string][]string{
 		"coding":    {"coding/dispatch"},
-		"librarian": {"librarian/history"},
+		"librarian": {},
 	} {
 		name := "smithers-" + family + "-host"
 		hosts[family] = map[string]any{"executable": name, "sha256": digest(executable(name)), "flows": flows}

@@ -473,10 +473,10 @@ const JOB_WORKSPACE = "b9275008-1c3e-4f2a-9a7d-0c2f5a6b1d84"
  * The repository's own gateway, which is the box a relay body that names no
  * workspace reaches: plue matches such a call to the `workspace_id IS NULL`
  * row alone (db/queries/repo_gateways.sql), and that row runs the product
- * host — the librarian flow, no registrar, and no run of one.
+ * host — no product flow, no registrar, and no run of one.
  */
 const productHost: Record<string, (payload: Record<string, unknown>) => unknown> = {
-  List: () => okFrame({ _tag: "flows", items: [{ flowId: "librarian/history" }] }),
+  List: () => okFrame({ _tag: "flows", items: [] }),
   Plan: (payload) => refusedFrame(`No flow "${String(payload.flowId)}" is registered on this workspace.`, [
     { _tag: "Fail", error: { _tag: "/control/FlowNotFound", code: "flow_not_found", flowId: payload.flowId } }
   ]),

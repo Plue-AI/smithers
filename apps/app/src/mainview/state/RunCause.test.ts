@@ -12,7 +12,6 @@ import {
   OPEN_CODED,
   RUN_CAUSE_COPY,
   runCause,
-  SHARED_ANSWERED,
   SHARED_CODES
 } from "./RunCause"
 
@@ -604,25 +603,9 @@ test("a code this table answers is one no other failure vocabulary in the repo s
   expect(shared).toEqual(
     Object.fromEntries(Object.entries(SHARED_CODES).map(([code, tags]) => [code, [...tags].sort()]))
   )
-  /* A shared code gets no sentence UNLESS the fault's own lead is false of every author
-   * that spells it, which is the one thing that makes withholding worse than answering. */
-  for (const code of Object.keys(shared)) {
-    if (Object.hasOwn(SHARED_ANSWERED, code)) expect(runCause(code)).toBeDefined()
-    else expect(runCause(code)).toBeUndefined()
-  }
-  for (const code of ANSWERED_CODES) {
-    expect(owners.get(code)?.size).toBe(Object.hasOwn(SHARED_ANSWERED, code) ? 2 : 1)
-  }
-  /* The librarian declares what its own code can surface, so these three are the model's alone. */
-  for (const code of ["content_policy", "context_overflow", "invalid_provider_output"]) {
-    expect(owners.get(code)).toEqual(new Set(["flows/model/ModelError"]))
-  }
-  /* And the two answered shared codes have exactly the second author the argument rests on:
-   * `surfaceFailure` re-raising the model's own condition, code and message unchanged. A
-   * third vocabulary spelling either one reds the map above until somebody re-decides. */
-  for (const code of Object.keys(SHARED_ANSWERED)) {
-    expect(owners.get(code)).toEqual(new Set(["flows/model/ModelError", "librarian/ProviderUnavailable"]))
-  }
+  /* A shared code gets no sentence, and every code with one has exactly one author. */
+  for (const code of Object.keys(shared)) expect(runCause(code)).toBeUndefined()
+  for (const code of ANSWERED_CODES) expect(owners.get(code)?.size).toBe(1)
 }, SWEPT)
 
 /*
@@ -636,8 +619,8 @@ test("every shape this repo declares a failure code in is read off the real tree
   const only = (code: string) => [...owners.get(code) ?? []].sort()
   /* 1. An inline `Schema.Literals([…])`. */
   expect(only("model_failed")).toEqual(["/harness/HarnessError"])
-  /* 2. A code schema another package declares: `code: ModelErrorCode`, imported from `@smthrs/model`. */
-  expect(only("no_route")).toEqual(["flows/model/ModelError", "librarian/ProviderUnavailable"])
+  /* 2. A code schema another file declares: `code: GrantStoreErrorCode`, imported from `./GrantStoreErrorCode.ts`. */
+  expect(only("request_not_found")).toEqual(["@smthrs/capability/GrantStoreError"])
   /* 3. `Data.TaggedError("tag")<{ readonly code?: WorkerFailureCode; … }>`, members in a type argument. */
   expect(only("workspace_gone")).toEqual(["SetupStoreError", "TokenError"])
   /* 4. A closed set reached through `.annotate({ identifier })`, which read as an OPEN class
@@ -854,12 +837,14 @@ test("the late-turn conditions are different sentences, not one lead", () => {
     /* A cap this side enforced, and a wait that never ended. */ "read_only_cap",
     "suspended",
     /* A record from another build. */ "incompatible_journal",
-    /* The three the person's own request is the lever for, so the lead is false for them. */
+    /* The model's own nine, each a different condition at the provider boundary. */
     "content_policy",
     "context_overflow",
     "invalid_provider_output",
-    /* And the two shared with the librarian's re-raise of the same condition, where the
-     * lead is false of both authors rather than true of neither. */
+    "no_route",
+    "authentication",
+    "provider_internal",
+    "transport",
     "quota_exceeded",
     "call_timeout"
   ] as const
@@ -872,10 +857,6 @@ test("a code this build has never heard of is answered by nothing here", () => {
   for (const code of ["", "brand_new_code", "invalid_receipt", "execution", "stale_revision"]) {
     expect(runCause(code)).toBeUndefined()
   }
-  /* And neither is one another vocabulary also spells, whoever raised it this time —
-   * except the two the lead is false for under every one of those vocabularies. */
-  for (const code of Object.keys(SHARED_CODES)) {
-    if (Object.hasOwn(SHARED_ANSWERED, code)) continue
-    expect(runCause(code)).toBeUndefined()
-  }
+  /* And neither is one another vocabulary also spells, whoever raised it this time. */
+  for (const code of Object.keys(SHARED_CODES)) expect(runCause(code)).toBeUndefined()
 })

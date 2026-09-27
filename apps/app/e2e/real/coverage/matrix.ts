@@ -90,7 +90,6 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
   ], tier: "local-infrastructure" },
   { id: "workspace", scenarios: [{ id: "workspaces.product-lifecycle", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "terminal", scenarios: [{ id: "workspaces.product-terminal-keyboard-output", capabilities: ["identity", "cloud", "cloud.terminal"] }], tier: "local-infrastructure" },
-  { id: "flow", scenarios: [{ id: "flows.product-run", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "issue", scenarios: [{ id: "issues.product-create-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "landing", scenarios: [{ id: "landings.local-change-land", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "reload", scenarios: [{ id: "issues.product-reload-readback", capabilities: ["identity"] }], tier: "local-infrastructure" }

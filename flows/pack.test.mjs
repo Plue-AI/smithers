@@ -540,18 +540,15 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "librarian/history", "register-repository", "register-repository/setup", "release", "release-content", "tutorial-change", "wiki"];
+    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "register-repository", "register-repository/setup", "release", "release-content", "tutorial-change", "wiki"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
     // registered. Both statements are about the delegation, so a module that is
     // its own flow has nothing for either to name.
     const delegatingModules = ["checks/wiki"];
-    // The product flow is discoverable like every other module flow and
-    // declares `modelInvocable: false`, because only the librarian product host
-    // implements `librarian/create-history`.
     // Registration and its setup child run only on the coding host, which implements their steps.
-    const hiddenModules = ["librarian/history", "register-repository", "register-repository/setup"];
+    const hiddenModules = ["register-repository", "register-repository/setup"];
     const [code, message] = DELEGATED.split(": ");
     assert.deepEqual(
       scan.warnings.map((warning) => `${warning.code} at ${relative(flowsRoot, warning.path).split("\\").join("/")}: ${warning.message}`).sort(),
@@ -562,9 +559,6 @@ describe("discovery over the project flows directory", () => {
         // `wiki` declares its own paths rather than inheriting the delegating
         // wildcard, so its sealed tier is raised only as far as those allow.
         "unsupported_module_metadata at wiki/flow.ts: Effect tier sealed under-classifies declared authority; using compensable",
-        // The product flow declares its own paths, so its sealed tier is
-        // raised only as far as the authority it names allows.
-        "unsupported_module_metadata at librarian/history/flow.ts: Effect tier sealed under-classifies declared authority; using compensable",
       ].sort(),
     );
     assert.deepEqual([...scan.entries].map((entry) => entry.name).sort(), [...EXPECTED_FLOWS, ...modules, ...delegatingModules].sort());

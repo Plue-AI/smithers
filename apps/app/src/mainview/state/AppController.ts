@@ -65,7 +65,6 @@ import { createHealthStatusController } from "./controller/health-status"
 import { createInputModeController } from "./controller/inputMode"
 import { createIssueFlowsController,type IssueFlowsController } from "./controller/issueFlows"
 import { createRepositorySetupController, type RepositorySetupController } from "./controller/repositorySetup"
-import { createLibrarianRunsController } from "./controller/librarianRuns"
 import { createModelCallController, type ModelCallController } from "./controller/modelCall"
 import { createModelsController,type ModelsController } from "./controller/models"
 import type { OnboardingController } from "./controller/onboarding"
@@ -1218,10 +1217,8 @@ export const createAppController = (
     forwardInboxApprovalDecision
   } = workflowController
   const { listTriggers, registerTrigger } = triggersSeam
-  const librarianRuns = actors.pair(ctx, (context, select) => createLibrarianRunsController(context, select(workflowController)))
-  const runs = actors.pair(ctx, (context, select) => createRunsController(context, store.nextOrdinal, select(workflowController), select(renderFlowForm), select(librarianRuns).inspectLibrarianRun))
+  const runs = actors.pair(ctx, (context, select) => createRunsController(context, store.nextOrdinal, select(workflowController), select(renderFlowForm)))
   const graph = actors.pair(ctx, (context, select) => createGraphController(context, select(filesSeam.readFile)))
-  void librarianRuns.recoverLaunches()
   const {
     subscribeToAgent,
     send,

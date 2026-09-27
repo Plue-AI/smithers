@@ -231,7 +231,7 @@ const flowHostBundle = (manifestPath: string): FlowHostBundle => {
   return {
     manifest,
     coding: flowHost(root, decoded.hosts.coding, "coding", ["coding/dispatch"]),
-    librarian: flowHost(root, decoded.hosts.librarian, "librarian", ["librarian/history"]),
+    librarian: flowHost(root, decoded.hosts.librarian, "librarian", []),
     node: packagedPath(root, "node", "Packaged Flow host runtime")
   }
 }

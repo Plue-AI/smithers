@@ -58,7 +58,6 @@ func (s *RepoGatewayService) productGatewayEnv(ctx context.Context, token, gatew
 	env := s.buildGatewayEnv(token)
 	secrets := s.bindGatewayModelSeats(ctx, env, gatewayID, input)
 	env["SMITHERS_GATEWAY_ID"] = gatewayID
-	env["SMITHERS_PRODUCT_API_URL"] = strings.TrimRight(s.gitBaseURL, "/")
 	env["SMITHERS_REPO"] = input.RepoOwner + "/" + input.RepoName
 	return env, secrets
 }

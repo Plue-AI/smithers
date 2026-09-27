@@ -35,7 +35,7 @@ const packagedRuntime = (): { backend: string; postgresBin: string; root: string
       librarian: {
         executable: "smithers-librarian-host",
         sha256: digest("librarian"),
-        flows: ["librarian/history"]
+        flows: []
       }
     }
   })}\n`)

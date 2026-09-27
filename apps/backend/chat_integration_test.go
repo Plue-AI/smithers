@@ -67,7 +67,7 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		sum := sha256.Sum256(content)
 		flows := []string{"coding/dispatch"}
 		if family == "librarian" {
-			flows = []string{"librarian/history"}
+			flows = []string{}
 		}
 		hosts[family] = map[string]any{"executable": name, "sha256": hex.EncodeToString(sum[:]), "flows": flows}
 	}
@@ -183,41 +183,10 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		catalog := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
 			"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": "List", "payload": map[string]string{"_tag": "flows"},
 		})
-		require.Contains(t, string(catalog), `"flowId":"librarian/history"`)
-		flowRPC := func(procedure string, payload any) map[string]any {
-			result := post("/api/workflow/rpc", tokenResult.Token, map[string]any{
-				"repo": "l3bowner/flow-http-integration", "workspaceId": workspace.ID, "procedure": procedure, "payload": payload,
-			})
-			var frame map[string]any
-			require.NoError(t, json.Unmarshal(result, &frame))
-			require.Equal(t, true, frame["ok"], string(result))
-			return frame["payload"].(map[string]any)
-		}
-		plan := flowRPC("Plan", map[string]any{"flowId": "librarian/history", "input": map[string]string{"repo": "l3bowner/flow-http-integration"}})
-		planID, ok := plan["planId"].(string)
-		require.True(t, ok, "%v", plan)
-		digest, ok := plan["digest"].(string)
-		require.True(t, ok, "%v", plan)
-		approval := map[string]any{"target": map[string]any{"_tag": "Plan", "planId": planID, "digest": digest, "envelope": plan["envelope"]},
-			"scope": "run", "idempotencyKey": "approve:" + planID, "decision": "approve"}
-		flowRPC("Approval.Submit", approval)
-		run := flowRPC("Run", map[string]any{"_tag": "Plan", "planId": planID, "digest": digest,
-			"envelope": plan["envelope"], "idempotencyKey": "run:" + planID})
-		runID, ok := run["runId"].(string)
-		require.True(t, ok, "%v", run)
-		var status string
-		for range 100 {
-			snapshot := flowRPC("Projection.Snapshot", map[string]any{"selector": map[string]string{"_tag": "run-summary", "runId": runID}})
-			rows, ok := snapshot["rows"].([]any)
-			if ok && len(rows) > 0 {
-				status, _ = rows[0].(map[string]any)["status"].(string)
-				if status == "completed" || status == "failed" || status == "cancelled" {
-					break
-				}
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		require.Equal(t, "completed", status)
+		// The product gateway serves no product flow (#2165); the admitted host
+		// answers its catalog without one.
+		require.Contains(t, string(catalog), `"ok":true`)
+		require.NotContains(t, string(catalog), `"flowId":"librarian/`)
 	}
 	key := "private-owner-model-key"
 	received := make(chan string, 1)

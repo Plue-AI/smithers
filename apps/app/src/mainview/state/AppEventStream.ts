@@ -28,7 +28,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // v18 retires signup details with their account; v19 retires the World starter note.
 // v20 renames the workspace.* commands to box.* (saved toast actions name flows).
 // v21 retires the narrative History card and the stack.* and history.amend/fold flow names (D-20).
-export const APP_PROJECTOR_VERSION = 21
+// v22 retires the Librarian launch intents with the librarian/history flow (#2165).
+export const APP_PROJECTOR_VERSION = 22
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

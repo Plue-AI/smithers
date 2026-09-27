@@ -44,7 +44,6 @@ type Catalog struct {
 	ServiceName         string
 	ReadyTimeout        time.Duration
 	Environment         map[string]string
-	ProductAPIURL       string
 	ImplementationModel string
 	// ModelProxyURL is the metered platform-model proxy reachable from the
 	// host; ModelSeats are the platform seats it serves. Each seat's key is

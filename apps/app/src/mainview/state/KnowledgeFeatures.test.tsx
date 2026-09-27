@@ -41,14 +41,13 @@ describe("the Wiki is core", () => {
     const controller = createAppController(store, silentAgent, {
       fetchImpl: async input => { calls.push(String(input)); return new Response("{}") }
     })
-    for (const name of ["wiki", "checks/wiki", "librarian/history"]) {
+    for (const name of ["wiki", "checks/wiki"]) {
       expect(await controller.runWorkflow(name, "owner/repo")).toBe("Sign in with GitHub first: flows run on your own workspace.")
     }
     // Creating the mythical history and refreshing the Wiki ask the server for its stack (#1760).
     expect(await controller.bootstrapStack("owner/repo")).toBe("Sign in to see the history.")
     expect(await controller.refreshWiki("owner/repo")).toBe("Sign in to see the history.")
     expect(calls).toEqual([])
-    expect(store.session().librarianLaunches ?? []).toEqual([])
   })
 
   test("a restored Wiki card and surface open as they were", async () => {
@@ -65,18 +64,14 @@ describe("the Wiki is core", () => {
     expect((await controller.commands.run("tab.card", card.id)).status).toBe("executed")
   })
 
-  test("a session holding a launch of the retired Wiki generator loads and drops it", async () => {
+  test("a journal holding a retired Librarian launch replays without changing the session", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const launches = [
-      { kind: "wiki" as const, repo: "owner/repo", scope: "old", phase: "failed" as const, startedAt: 1, reason: "boom" },
-      { kind: "history" as const, repo: "owner/repo", scope: "old", phase: "started" as const, startedAt: 1, runId: "run-1" }
-    ]
+    const before = store.session()
+    const launches = [{ kind: "history", repo: "owner/repo", scope: "old", phase: "started", startedAt: 1, runId: "run-1" }]
     await store.dispatch({ type: "librarian.launches.changed", actor: "system", launches }).isPersisted.promise
     createAppController(store, silentAgent)
-    for (let tick = 0; tick < 20 && (store.session().librarianLaunches ?? []).some(row => row.kind === "wiki"); tick += 1) {
-      await new Promise(resolve => setTimeout(resolve, 5))
-    }
-    expect(store.session().librarianLaunches).toEqual([launches[1]!])
+    expect("librarianLaunches" in store.session()).toBe(false)
+    expect(store.session().activeRepoKey).toBe(before.activeRepoKey)
   })
 })
 

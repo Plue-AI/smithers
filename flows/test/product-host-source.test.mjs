@@ -35,9 +35,9 @@ test("bundled product host verifies its actual catalog source before readiness a
     logs = ""
     child = spawn(process.execPath, [artifact, "serve", "--root", workspace, "--state-dir", state, "--port", String(port)], {
       cwd: workspace,
-      env: { ...process.env, AI_GATEWAY_API_KEY: "fixture-no-model-calls", SMITHERS_API_KEY: "source-test", SMITHERS_GATEWAY_ID: "11111111-1111-4111-8111-111111111111",
+      env: { ...process.env, SMITHERS_API_KEY: "source-test", SMITHERS_GATEWAY_ID: "11111111-1111-4111-8111-111111111111",
         SMITHERS_OWNER_GENERATION: "1", SMITHERS_SOURCE_REVISION: source, SMITHERS_FLOW_ARTIFACT_SHA256: digest,
-        SMITHERS_REPO: "fixture/source", SMITHERS_PRODUCT_API_URL: "http://127.0.0.1:1" },
+        SMITHERS_REPO: "fixture/source" },
       stdio: ["ignore", "pipe", "pipe"]
     })
     exited = new Promise((resolve, reject) => { child.once("exit", code => resolve(code)); child.once("error", reject) })

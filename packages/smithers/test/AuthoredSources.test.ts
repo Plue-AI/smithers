@@ -74,8 +74,8 @@ describe("matching a settled copy-back to the bundle it applied", () => {
 
   it("reads a nested directory as the nested flow name discovery gives it", () => {
     const matcher = AuthoredSources.make()
-    matcher.observe(captured(["flows/librarian/history/flow.ts", "flows/skill/SKILL.md", "flows/prompt/flow.mdx"]), 0)
-    expect(matcher.observe(settled(), 0)).toEqual(["librarian/history", "skill", "prompt"])
+    matcher.observe(captured(["flows/coding/request/flow.ts", "flows/skill/SKILL.md", "flows/prompt/flow.mdx"]), 0)
+    expect(matcher.observe(settled(), 0)).toEqual(["coding/request", "skill", "prompt"])
   })
 
   it("names each flow once however many of its files one bundle changed", () => {
