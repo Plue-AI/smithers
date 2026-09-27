@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Interpreter } from "@smthrs/flow"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, ManagedRuntime } from "effect"
 import { expect, it } from "vitest"
 import { IntegrationFailure } from "../src/core/ActionFailure.ts"
 import { IntegrationError } from "../src/core/IntegrationError.ts"
@@ -335,6 +335,62 @@ it.each([null, {}, "not json", { ok: true, result: {} }])(
       ).catch((e) => e)
       expect(failure.cause?.error ?? failure.error ?? failure).toMatchObject({ outcomeUnknown: true })
     } finally {
+      await server.close()
+    }
+  }
+)
+const durable = (server: { origin: string }) => {
+  const client = Client.make({ botToken: "fixture", apiBaseUrl: server.origin }, {})
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      Actions.layerIssueSync(() => Effect.succeed(client)),
+      Interpreter.layer(Sync.Post),
+      Interpreter.layer(Sync.Update),
+      Interpreter.layer(Sync.Delete)
+    ).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(Layer.mergeAll(FlowEngine.layerMemory, NodeCrypto.layer))
+    ) as Layer.Layer<any, any, never>
+  )
+  const run = (flow: any) => (payload: any, executionId: string) =>
+    runtime.runPromise((flow.execute(payload, { executionId }) as Effect.Effect<any, any, any>).pipe(Effect.scoped))
+  return {
+    runtime,
+    execute: { post: run(Sync.Post), update: run(Sync.Update), delete: run(Sync.Delete) } as Sync.Executor
+  }
+}
+it.each(["comment.created", "comment.edited", "comment.deleted"])(
+  "recovers a completed %s whose receipt was lost, without resending",
+  async (event) => {
+    const server = await startFixture((_req, res) => json(res, 200, { ok: true, result: { message_id: 20 } }))
+    const { runtime, execute } = durable(server)
+    try {
+      let state = "pending", token = "", lost = true
+      const receipts: any[] = []
+      const request = async (path: string, init?: RequestInit) => {
+        if (path.endsWith("/deliveries")) {
+          return Response.json([row({ event, state, message_id: "10", claim_token: token })])
+        }
+        if (init?.method === "POST") {
+          state = "dispatching"
+          token = "claim"
+          return Response.json({ state, token })
+        }
+        if (lost) throw new Error("host died before the receipt committed")
+        const r = JSON.parse(String(init?.body))
+        receipts.push(r)
+        state = r.state
+        return Response.json({})
+      }
+      await Sync.make({ ...options, request, execute }).drain().catch(() => undefined)
+      expect(state).toBe("dispatching")
+      const sends = server.requests.length
+      lost = false
+      expect(await Sync.make({ ...options, request, execute }).drain()).toBe(1)
+      expect(server.requests.length).toBe(sends)
+      expect(receipts).toEqual([expect.objectContaining({ state: "sent", token: "claim" })])
+    } finally {
+      await runtime.dispose()
       await server.close()
     }
   }

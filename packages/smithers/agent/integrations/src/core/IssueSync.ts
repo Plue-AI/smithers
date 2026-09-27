@@ -36,9 +36,13 @@ export const Delivery = Schema.Struct({
     reaction: Schema.optional(Schema.Struct({ name: Schema.String, active: Schema.Boolean }))
   }),
   message_id: Schema.String,
+  /** The claim fencing a `dispatching` row; its execution identity survives a lost receipt. */
+  claim_token: Schema.optional(Schema.String),
   mapping: Mapping
 })
 /** The connector implements only provider admission and durable action calls.
+ * `deliver` must run on a durable Flow runtime whose journal outlives the host:
+ * a lapsed claim is recovered by re-executing its original execution id.
  * @category models
  * @since 1.0.0
  */
@@ -114,11 +118,15 @@ export const make = (options: Options) => {
   const drain = async (): Promise<number> => {
     const deliveries = await listDeliveries()
     let completed = 0
+    const unsettled: Array<unknown> = []
     for (const initial of deliveries) {
       if (!options.connector.accepts(initial.mapping)) continue
       const d = (await listDeliveries()).find((row) => row.id === initial.id)
       if (d === undefined) continue
-      if (d.state !== "pending") {
+      // The backend reveals a dispatching claim's token only after its lease lapses.
+      let token = d.state === "dispatching" ? d.claim_token ?? "" : ""
+      if (d.state === "dispatching" && token === "") continue
+      if (d.state !== "pending" && token === "") {
         if (d.event !== "comment.created") continue
         const found = await options.connector.reconcile(d, `issue-sync-reconcile:${d.id}:${crypto.randomUUID()}`)
         if (found !== undefined) {
@@ -127,31 +135,41 @@ export const make = (options: Options) => {
         }
         continue
       }
-      const claim = await request(`/deliveries/${d.id}`, "POST")
-      if (!isRecord(claim) || claim["state"] !== "dispatching" || typeof claim["token"] !== "string") continue
-      const token = claim["token"]
-      let messageId = d.message_id
+      if (token === "") {
+        const claim = await request(`/deliveries/${d.id}`, "POST")
+        if (!isRecord(claim) || claim["state"] !== "dispatching" || typeof claim["token"] !== "string") continue
+        token = claim["token"]
+      }
+      // The claim's execution identity is durable: re-executing it after a lost
+      // receipt replays the journaled outcome instead of acting again.
+      let result: Awaited<ReturnType<Connector["deliver"]>>
       try {
-        const result = await options.connector.deliver(d, `issue-sync:${d.id}:${token}`)
-        messageId = result.messageId
-        await request(`/deliveries/${d.id}`, "PUT", {
-          state: result.unsupported === undefined ? "sent" : "unsupported",
-          token,
-          message_id: messageId,
-          ...(result.unsupported === undefined ? {} : { error: result.unsupported })
-        })
-        completed++
+        result = await options.connector.deliver(d, `issue-sync:${d.id}:${token}`)
       } catch (error) {
         const failure = failureOf(error)
         const partial = (failure?.deliveredMessageIds?.length ?? 0) > 0
         await request(`/deliveries/${d.id}`, "PUT", {
           state: failure !== undefined && failure.outcomeUnknown !== true && !partial ? "failed" : "outcome_unknown",
           token,
-          message_id: partial ? failure!.deliveredMessageIds!.join(",") : messageId,
+          message_id: partial ? failure!.deliveredMessageIds!.join(",") : d.message_id,
           error: failure?.message ?? "Delivery did not settle; reconcile before retrying"
         })
+        continue
+      }
+      // A failed receipt write leaves the row dispatching for replay; it is not an unknown outcome.
+      try {
+        await request(`/deliveries/${d.id}`, "PUT", {
+          state: result.unsupported === undefined ? "sent" : "unsupported",
+          token,
+          message_id: result.messageId,
+          ...(result.unsupported === undefined ? {} : { error: result.unsupported })
+        })
+        completed++
+      } catch (error) {
+        unsettled.push(error)
       }
     }
+    if (unsettled.length > 0) throw new AggregateError(unsettled, "Issue delivery receipts did not commit")
     return completed
   }
   return { ingest, drain }

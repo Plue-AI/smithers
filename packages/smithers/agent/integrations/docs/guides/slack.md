@@ -194,6 +194,8 @@ routing identities; secrets remain in the connection credential broker.
 Register `IssueSync.Post`, `Update`, `Delete`, `React`, and `Reconcile` with the
 host's existing Flow runtime and `Slack.Actions.layer`. Supply their bound
 `execute` methods as the adapter's executor; retain the provided execution ID.
+The runtime must be durable: a claim held for over 10 minutes is re-executed
+under that ID, which replays the journaled result instead of posting again.
 The `request` port calls the backend authenticated as the issue owner:
 
 ```ts

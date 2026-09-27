@@ -50,8 +50,11 @@ type IssueSyncDelivery struct {
 	Mapping    IssueSyncMapping `json:"mapping"`
 }
 
+// ListIssueSyncDeliveries returns the claim token of a dispatching row only once
+// its 10-minute lease has lapsed, so another worker replays the claim's durable
+// execution identity instead of racing a live one.
 func (q *Queries) ListIssueSyncDeliveries(ctx context.Context, ownerID, repoID, afterID int64) ([]IssueSyncDelivery, error) {
-	rows, err := q.db.Query(ctx, `SELECT d.id,d.reconcile_key,d.issue_id,d.state,e.event_type,e.payload,COALESCE(NULLIF(d.message_id,''),m.message_id,''),t.connection_id,t.scope_id,t.conversation_id,t.thread_id,t.provider FROM issue_sync_deliveries d JOIN issues i ON i.id=d.issue_id JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id LEFT JOIN issue_external_messages m ON m.issue_id=d.issue_id AND m.comment_id=(e.payload->'comment'->>'id')::bigint WHERE t.owner_id=$1 AND i.repository_id=$2 AND d.state IN ('pending','dispatching','outcome_unknown') AND d.id>$3 ORDER BY d.id LIMIT 100`, ownerID, repoID, afterID)
+	rows, err := q.db.Query(ctx, `SELECT d.id,d.reconcile_key,d.issue_id,d.state,CASE WHEN d.state='dispatching' AND d.updated_at<now()-interval '10 minutes' THEN d.claim_token ELSE '' END,e.event_type,e.payload,COALESCE(NULLIF(d.message_id,''),m.message_id,''),t.connection_id,t.scope_id,t.conversation_id,t.thread_id,t.provider FROM issue_sync_deliveries d JOIN issues i ON i.id=d.issue_id JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id LEFT JOIN issue_external_messages m ON m.issue_id=d.issue_id AND m.comment_id=(e.payload->'comment'->>'id')::bigint WHERE t.owner_id=$1 AND i.repository_id=$2 AND d.state IN ('pending','dispatching','outcome_unknown') AND d.id>$3 ORDER BY d.id LIMIT 100`, ownerID, repoID, afterID)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +62,7 @@ func (q *Queries) ListIssueSyncDeliveries(ctx context.Context, ownerID, repoID, 
 	result := []IssueSyncDelivery{}
 	for rows.Next() {
 		var d IssueSyncDelivery
-		if err = rows.Scan(&d.ID, &d.Key, &d.IssueID, &d.State, &d.Event, &d.Payload, &d.MessageID, &d.Mapping.ConnectionID, &d.Mapping.ScopeID, &d.Mapping.ConversationID, &d.Mapping.ThreadID, &d.Mapping.Provider); err != nil {
+		if err = rows.Scan(&d.ID, &d.Key, &d.IssueID, &d.State, &d.ClaimToken, &d.Event, &d.Payload, &d.MessageID, &d.Mapping.ConnectionID, &d.Mapping.ScopeID, &d.Mapping.ConversationID, &d.Mapping.ThreadID, &d.Mapping.Provider); err != nil {
 			return nil, err
 		}
 		d.Mapping.IssueID = d.IssueID

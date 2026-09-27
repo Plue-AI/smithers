@@ -123,7 +123,7 @@ describe("issue sync", () => {
   })
 
   it.each(["absent", "inconclusive"] as const)(
-    "keeps a crashed claim unknown when reconciliation is %s",
+    "keeps an unknown send unknown when reconciliation is %s",
     async (status) => {
       let posts = 0
       const request = async () =>
@@ -131,7 +131,7 @@ describe("issue sync", () => {
           id: 1,
           key: "unique-key",
           issue_id: 42,
-          state: "dispatching",
+          state: "outcome_unknown",
           event: "comment.created",
           payload: { comment: { id: 7, body: "hello" } },
           message_id: "",
@@ -212,6 +212,39 @@ const drainFixture = (
   })
   return { sync, receipts, requests }
 }
+it("replays a lapsed claim under its original execution id after a lost receipt", async () => {
+  const journal = new Map<string, unknown>()
+  let edits = 0, lost = true, state = "pending", token = ""
+  const receipts: any[] = []
+  const execute = executor({
+    update: async (p, id) => {
+      if (!journal.has(id)) {
+        edits++
+        journal.set(id, { connectionId: p.connectionId, channel: p.channel, ts: p.ts })
+      }
+      return journal.get(id) as any
+    }
+  })
+  const request = async (path: string, init?: RequestInit) => {
+    if (path.endsWith("/deliveries")) {
+      return Response.json([row({ event: "comment.edited", state, claim_token: token })])
+    }
+    if (init?.method === "POST") {
+      state = "dispatching"
+      return Response.json({ state, token: "claim" })
+    }
+    if (lost) throw new Error("receipt lost")
+    receipts.push(JSON.parse(String(init?.body)))
+    return Response.json({})
+  }
+  await expect(IssueSync.make({ ...options, request, execute }).drain()).rejects.toThrow()
+  lost = false
+  token = "claim"
+  expect(await IssueSync.make({ ...options, request, execute }).drain()).toBe(1)
+  expect([...journal.keys()]).toEqual(["issue-sync:1:claim"])
+  expect(edits).toBe(1)
+  expect(receipts).toEqual([{ state: "sent", token: "claim", message_id: "100.000001" }])
+})
 it.each(["comment.created", "comment.edited", "comment.deleted", "comment.reaction"])(
   "delivers %s using the current mapping",
   async (event) => {
@@ -342,8 +375,9 @@ it("does not admit arbitrary DMs under channel-only policy", async () => {
   expect(await sync.drain()).toBe(0)
 })
 it("reconciles a thread and rejects HTTP failures", async () => {
-  const { sync, receipts } = drainFixture([row({ state: "dispatching" })])
+  const { sync, receipts } = drainFixture([row({ state: "outcome_unknown" }), row({ id: 2, state: "dispatching" })])
   expect(await sync.drain()).toBe(1)
+  expect(receipts).toHaveLength(1)
   expect(receipts[0]).toMatchObject({ state: "sent", token: "" })
   const { sync: broken } = drainFixture([], executor(), { request: async () => new Response(null, { status: 403 }) })
   await expect(broken.drain()).rejects.toThrow("HTTP 403")
