@@ -108,7 +108,7 @@
     "build": "node scripts/build.mjs",
     "check": "tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit",
     "circular": "node scripts/circular.mjs",
-    "test": "node ../database/scripts/test-matrix.mjs",
+    "test": "vitest",
     "coverage": "node ../database/scripts/test-matrix.mjs",
     "test:matrix": "node ../database/scripts/test-matrix.mjs"
   },

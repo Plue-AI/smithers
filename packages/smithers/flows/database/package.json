@@ -185,7 +185,7 @@
     "build": "node ../../../repo-targets/scripts/build.mjs",
     "check": "tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit",
     "circular": "node ../../../repo-targets/scripts/circular.mjs",
-    "test": "node scripts/test-matrix.mjs",
+    "test": "vitest",
     "coverage": "node scripts/test-matrix.mjs",
     "test:matrix": "node scripts/test-matrix.mjs"
   },

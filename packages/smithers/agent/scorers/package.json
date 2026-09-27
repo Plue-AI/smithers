@@ -209,7 +209,7 @@
     "build": "node scripts/build.mjs",
     "check": "tsc -b tsconfig.json && tsc -p tsconfig.test.json --noEmit",
     "circular": "node scripts/circular.mjs",
-    "test": "node ../../flows/database/scripts/test-matrix.mjs",
+    "test": "vitest",
     "coverage": "node ../../flows/database/scripts/test-matrix.mjs",
     "test:matrix": "node ../../flows/database/scripts/test-matrix.mjs"
   },
