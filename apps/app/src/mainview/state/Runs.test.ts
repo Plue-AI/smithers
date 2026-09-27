@@ -3180,3 +3180,52 @@ describe("durable run opens", () => {
   })
 
 })
+
+test("admin inbox reads another account in the background and answers its existing question", async () => {
+  const store = await webStore()
+  const double = relay()
+  const held = Promise.withResolvers<void>()
+  const started = Promise.withResolvers<void>()
+  const foreignBox = "88888888-1111-4111-8111-111111111111"
+  const question = {
+    ...approvalRow("foreign-run", "register-repository/review#1", "Register other/repo?"),
+    waitRunId: "foreign-wait",
+    request: { name: "register-repository/review", kind: "select", prompt: "Register other/repo?", options: ["Approve", "Decline"] }
+  }
+  let rows = [question]
+  const submitted: Array<Record<string, any>> = []
+  const originalFetch = double.services.fetchImpl!
+  const controller = createAppController(store, silentAgent, { ...double.services, fetchImpl: async (input, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+    if (body?.procedure === "Registration.Reviews") {
+      started.resolve()
+      await held.promise
+      return json(200, { ok: true, payload: { inboxes: [{ repo: "other/repo", workspaceId: foreignBox, rows }], next: "" } })
+    }
+    if (body?.procedure === "Approval.Submit" && body.workspaceId === foreignBox) {
+      submitted.push(body)
+      rows = []
+      return json(200, { ok: true, payload: { decision: { _tag: "Accepted", receiptId: "review", runId: "foreign-run" } } })
+    }
+    return originalFetch(input, init)
+  } })
+  await signIn(store)
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+  try {
+    expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+    await started.promise
+    expect(inboxRequests(store)).toHaveLength(1)
+    expect([...store.collections.cards.values()].some(card => card.kind === "approvals-inbox" && card.payload.repo === "other/repo")).toBe(false)
+    held.resolve()
+    await waitFor(() => inboxRequests(store).length === 0)
+    const inbox = [...store.collections.cards.values()].find(card => card.kind === "approvals-inbox" && card.payload.repo === "other/repo")!
+    expect(inbox.kind === "approvals-inbox" && inbox.payload.workspaceId).toBe(foreignBox)
+    controller.answerApproval(approvalActionId(inbox.id, question), "Approve")
+    await waitFor(() => submitted.length === 1)
+    expect(submitted[0]).toMatchObject({ repo: "other/repo", workspaceId: foreignBox, payload: { ...question.payload, decision: "approve", answer: "Approve" } })
+    await waitFor(() => [...store.collections.runtimeApprovals.values()].some(row => row.scope.workspaceId === foreignBox && row.row.status === "approved"))
+    await listInbox(controller, store)
+    const refreshed = store.collections.cards.get(inbox.id)
+    expect(refreshed?.kind === "approvals-inbox" && refreshed.payload.approvals).toEqual([])
+  } finally { held.resolve() }
+})

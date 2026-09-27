@@ -17,7 +17,7 @@ repository and gets a report worth keeping, before any approval.
    repository link. Nothing is multiple choice for the user.
 2. **Analysis is one workflow**, `flows/register-repository`, built only from
    core Smithers primitives (flows, runs, human waits, the step cache). No
-   backend changes.
+   backend changes beyond the admin review relay authorized for #2157.
 3. **Cached globally per GitHub repository** (canonical `owner/repo`). An
    already-registered repository never re-runs analysis: the UI says it is
    already registered and replays the whole recorded run from its journal,
@@ -83,9 +83,13 @@ individual people, results private by default.
   corpus (#2160).
 - **Review.** A durable `select` (Approve / Decline), then a note on decline.
   Approval runs `register-repository/setup` as a child flow in the same
-  workspace. Today only the registrant's own gateway can answer the wait;
-  the admin route across accounts is #2157 (blocked on the no-backend rule,
-  recorded on #2151). The closed-alpha gate stays until it lands (#2145).
+  workspace. The admin's approvals inbox includes other accounts' reviews
+  through `packages/backend` (#2157). The relay discovers persisted workspace
+  hosts, exposes only registration review and decline-note waits, and requires
+  an admin person; run credentials cannot read or answer these reviews.
+  Answers use the existing `Approval.Submit` and durable resume path. No
+  registration table or second approval model is added. Deployment verification
+  remains required before removing the closed-alpha gate (#2145).
 - **Cache.** Per account: a repeated registration of the same repository
   reopens the recorded run and replays its journal (no launch, no model call).
   Across accounts needs #2158.

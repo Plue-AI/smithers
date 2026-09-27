@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -34,7 +35,8 @@ var browserFlowProcedures = map[string]bool{
 }
 
 type browserFlowAPI struct {
-	repos interface {
+	registrationPool *pgxpool.Pool
+	repos            interface {
 		GetRepoView(context.Context, *db.User, string, string) (services.RepoView, error)
 	}
 	queries interface {
@@ -107,6 +109,15 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 	if !provision && !browserFlowProcedures[request.Procedure] {
 		browserFlowRefusal(w, http.StatusBadRequest, "The workflow seam does not relay this procedure.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
+	}
+	if !provision && registrationDecision(request.Payload, request.Procedure) && !registrationAdmin(w, r, true) {
+		return request, flowruntime.Target{}, db.Workspace{}, false
+	}
+	if !provision && request.Procedure == "Approval.Submit" {
+		if err := middleware.RequirePerson(r.Context(), "decide an approval"); err != nil {
+			browserFlowWakeFailed(w, err)
+			return request, flowruntime.Target{}, db.Workspace{}, false
+		}
 	}
 	user := middleware.UserFromContext(r.Context())
 	if user == nil {
@@ -233,6 +244,32 @@ func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) 
 // List) of a running box whose host is down starts it and answers the same; any other procedure on a waking box is refused as workspace_starting,
 // and every procedure on a box its owner stopped as workspace_stopped.
 func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
+	if err != nil || len(body) > 1<<20 {
+		browserFlowRefusal(w, 400, "Invalid workflow request.")
+		return
+	}
+	var adminRequest browserFlowRequest
+	decoded := json.Unmarshal(body, &adminRequest) == nil
+	if decoded && registrationDecision(adminRequest.Payload, adminRequest.Procedure) {
+		if !registrationAdmin(w, r, true) {
+			return
+		}
+		if adminRequest.Procedure == "Signal" {
+			browserFlowRefusal(w, 400, "Answer this question through the approvals inbox.")
+			return
+		}
+	}
+	if decoded && (adminRequest.Procedure == "Registration.Reviews" || registrationDecision(adminRequest.Payload, adminRequest.Procedure)) {
+		serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { api.registrationRPC(w, r, adminRequest) })
+		if api.limit != nil {
+			api.limit(serve).ServeHTTP(w, r)
+		} else {
+			serve.ServeHTTP(w, r)
+		}
+		return
+	}
+	r.Body = io.NopCloser(strings.NewReader(string(body)))
 	request, target, workspace, ok := api.prepare(w, r, false)
 	if !ok {
 		return

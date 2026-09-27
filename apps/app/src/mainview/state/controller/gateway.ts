@@ -91,6 +91,12 @@ export interface FlowSummary {
 
 export type { ApprovalRow, ControlEvent, FlowDurationRow, NodeOutputRow, RunSummaryRow, TranscriptRow }
 
+/** Existing approval rows grouped by their owning workspace, from the admin relay. */
+const RegistrationInboxPage = Schema.Struct({
+  inboxes: Schema.Array(Schema.Struct({ repo: Schema.String, workspaceId: Schema.String, rows: Schema.Array(ApprovalRow), error: Schema.optional(Schema.String) })),
+  next: Schema.String
+})
+
 /** The box a flow call runs on. Every call names one. */
 export interface GatewayWorkspaceBinding {
   readonly workspaceId: string
@@ -513,6 +519,23 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
     /** Every run on the workspace, one summary row each (the run inbox's read). */
     workspaceRuns: async (repo: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<ReadonlyArray<RunSummaryRow>>> =>
       decodeRunSummaryRows(await projection(repo, { _tag: "workspace-runs" }, binding)),
+
+    /** Admin discovery retains each wait's owning workspace; no approval is retargeted. */
+    registrationInboxes: async (repo: string, binding: GatewayWorkspaceBinding): Promise<GatewayResult<typeof RegistrationInboxPage.Type.inboxes>> => {
+      const inboxes: Array<typeof RegistrationInboxPage.Type.inboxes[number]> = []
+      let after = ""
+      const seen = new Set<string>()
+      do {
+        const result = await call(repo, "Registration.Reviews", { after }, binding)
+        if (result.status !== "ok") return result
+        const page = Schema.decodeUnknownOption(RegistrationInboxPage)(result.value)
+        if (Option.isNone(page) || seen.has(page.value.next) && page.value.next !== "") return { status: "error", message: "Registration reviews could not be read." }
+        inboxes.push(...page.value.inboxes)
+        after = page.value.next
+        seen.add(after)
+      } while (after !== "")
+      return { status: "ok", value: inboxes }
+    },
 
     /** The approvals inbox: every pending gate across the workspace's runs. */
     approvalsInbox: async (repo: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<ReadonlyArray<ApprovalRow>>> =>

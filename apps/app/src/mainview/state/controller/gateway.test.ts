@@ -565,3 +565,18 @@ describe("a flow's measured durations", () => {
     expect(durations.status === "error" && durations.message).toBe("Unknown selector")
   })
 })
+
+test("registration inbox pages retain the registrant's workspace and canonical approval", async () => {
+  const row = {
+    runId: "run-1", requestId: "register-repository/review#1", title: "Register someone/repo?", request: { name: "register-repository/review" },
+    requestedAt: 1, status: "pending",
+    payload: { target: { _tag: "Node", runId: "run-1", requestId: "register-repository/review#1", digest: "wait-token", envelope: { capabilities: [], flows: [], budget: {} } }, scope: "once", idempotencyKey: "answer-1" }
+  }
+  const { seam, calls } = relay({
+    "Registration.Reviews": { ok: true, payload: { inboxes: [{ repo: "someone/repo", workspaceId: "registrant-box", rows: [row] }], next: "" } },
+    "Approval.Submit": { ok: true, payload: { decision: { _tag: "Accepted", receiptId: "answer-1", runId: "run-1" } } }
+  })
+  expect(await seam.registrationInboxes("will/repo", { workspaceId: "admin-box" })).toMatchObject({ status: "ok", value: [{ repo: "someone/repo", workspaceId: "registrant-box", rows: [row] }] })
+  await seam.submitApproval("someone/repo", row.payload as never, "approve", { workspaceId: "registrant-box" }, "Decline")
+  expect(calls[1]).toMatchObject({ procedure: "Approval.Submit", workspaceId: "registrant-box", payload: { ...row.payload, decision: "approve", answer: "Decline" } })
+})

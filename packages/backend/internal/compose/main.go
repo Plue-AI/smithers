@@ -1432,7 +1432,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			DeploymentAdmin:    deploymentAdminRoutes},
 	)
 	if flow != nil && options.topology.servesHTTP() {
-		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
+		browser := &browserFlowAPI{registrationPool: pool, repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
 			resumes:            background.Jobs[string]{Timeout: 5 * time.Minute, FailureTTL: time.Minute},
 			limit:              middleware.GlobalAPIRateLimit(queries),
 			subscriptionTokens: cfg.FeatureFlags.SubscriptionConnections}
