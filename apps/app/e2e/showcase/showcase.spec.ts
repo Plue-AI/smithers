@@ -23,6 +23,7 @@ for (const definition of loadCases()) {
     const context = await browser.newContext({
       baseURL: testInfo.project.use.baseURL,
       viewport,
+      ...(process.env.SHOWCASE_SCALE === undefined ? {} : { deviceScaleFactor: Number(process.env.SHOWCASE_SCALE) }),
       ...(videos === undefined ? {} : { recordVideo: { dir: videos, size: viewport } })
     })
     // Every case starts from an empty profile.

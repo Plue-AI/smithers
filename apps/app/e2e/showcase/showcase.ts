@@ -45,6 +45,11 @@ export interface ShowcaseApp {
    * request it sent; the flow counts only once the proof passes.
    */
   readonly saw: (flow: ShowcaseFlow, proof: () => Promise<unknown>) => Promise<void>
+  /**
+   * A still for the docs: the page (or one element) as `<SHOWCASE_STILLS>/<name>.png`, at the
+   * context's scale (`SHOWCASE_SCALE=2` for the site's 2x captures). No-op without SHOWCASE_STILLS.
+   */
+  readonly still: (name: string, target?: Locator) => Promise<void>
   readonly recording: boolean
 }
 
@@ -317,6 +322,13 @@ export const prepare = async (page: Page, recording: boolean): Promise<ShowcaseR
     saw: async (flow, proof) => {
       await proof()
       doors.push({ flow, door: "" })
+    },
+    still: async (name, target) => {
+      const directory = process.env.SHOWCASE_STILLS
+      if (directory === undefined) return
+      await page.evaluate(() => document.fonts.ready)
+      const path = `${directory}/${name}.png`
+      await (target === undefined ? page.screenshot({ path, animations: "disabled" }) : target.screenshot({ path, animations: "disabled" }))
     }
   }
   const route = async (match: (url: URL) => boolean, handler: (route: Route) => Promise<void> | void): Promise<void> => {
