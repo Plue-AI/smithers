@@ -68,7 +68,7 @@ Recovery is not an operation. Building `TimeTravel.layer` finishes or rolls back
 
 ## Boundaries
 
-Time travel is not editing history. Nothing rewrites a committed entry in place: a rewind moves the suffix after the frame into an archive and records an audit row for the whole operation, so the evidence of what the run did survives its truncation. Replay is not a resume: nothing re-executes, and a coordinate the journal does not hold is a `not_found`, not a re-run. Compensation is not a general undo: it covers exactly the effects your handlers declare, within the boundaries the journal recorded. The CLI exposes these operations under `smthrs runs`; the unified MCP server exposes the corresponding command tools.
+Nothing rewrites a committed entry: a rewind archives the suffix after the frame and records an audit row for the operation. Replay re-executes nothing; a coordinate the journal does not hold is `not_found`. Compensation covers exactly the effects your handlers declare. The CLI exposes these operations under `smthrs runs`; the unified MCP server exposes the corresponding command tools.
 
 ## Use the CLI
 

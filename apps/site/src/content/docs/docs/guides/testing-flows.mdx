@@ -146,7 +146,7 @@ To assert replay counts, read the controller: `RecordedModel.unconsumed()` retur
 | Recorded outputs | Return value, dispatch and attempt counts, journaled step and effect entries, terminal outcome | vitest `expect`, `JournalAssertions.expectJournal` |
 | Replay counts | Every recorded model call consumed, no unscripted call attempted | `RecordedModel.unconsumed()` |
 
-Two plan assertions earn their keep over time. `PlanAssertions.expectKeyGoldens` pins step keys as golden literals, so a change in how a step is keyed turns into a red test rather than a silent cache miss. `PlanAssertions.expectPlans(...).covers(...)` asserts that a static suite of built plans reaches each requested node id.
+Two more plan assertions: `PlanAssertions.expectKeyGoldens` pins step keys as golden literals, so a change in how a step is keyed turns into a red test rather than a silent cache miss. `PlanAssertions.expectPlans(...).covers(...)` asserts that a static suite of built plans reaches each requested node id.
 
 Race and interrupt cases advance virtual time: register them through `Vitest.testEffect(...).effect`, which supplies a deterministic clock, and not through `.live`, which does not.
 

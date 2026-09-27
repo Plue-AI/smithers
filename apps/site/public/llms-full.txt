@@ -3391,7 +3391,7 @@ A `confirm` accepts only a boolean, so a prose answer is refused. The re-drive r
     )
 ```
 
-The refusal is durable evidence, not a log line: it is recorded as a sealed step named `HumanTask/release#1/rejected`, carrying the task, the attempt, and the reason ("The answer must be a boolean."), so a reader of the journal sees why the answer was sent back. The attempt budget is what keeps this bounded: `maxAttempts: 3` buys one more re-ask after this refusal before the task fails with `HumanTaskFailed`, code `rejected`.
+The refusal is recorded as a sealed step named `HumanTask/release#1/rejected`, carrying the task, the attempt, and the reason ("The answer must be a boolean."), so a reader of the journal sees why the answer was sent back. The attempt budget is what keeps this bounded: `maxAttempts: 3` buys one more re-ask after this refusal before the task fails with `HumanTaskFailed`, code `rejected`.
 
 ## 5. Answer the open attempt and complete
 
@@ -4784,7 +4784,7 @@ The command selects a target kind, and the pattern selects packages or named tar
 
 `ci` excludes `run` and `review` targets. A target can participate in more than one kind; for a generator, checking for drift and applying generated output can be different modes. Preview the selected mode before execution.
 
-Durable workflows use `smthrs flow start <flow>`. The target command `smthrs run` does not mean “launch any flow.”
+Start a durable flow with `smthrs flow start <flow>`; `smthrs run` executes run-kind targets.
 
 ## Select packages and targets
 
@@ -4982,7 +4982,7 @@ On a trusted machine with both credentials available, execute a target that has 
 smthrs test '//:greeting'
 ```
 
-Inspect the cache server's request log to confirm it accepted publication. Local success alone does not prove the remote accepted the result: remote errors can fall back to local execution.
+Inspect the cache server's request log to confirm it accepted publication; remote errors fall back to local execution.
 
 In a second checkout with the same inputs and runtime, configure the same endpoint and provide the read credential. Start with an empty local result cache, then run the same target:
 
@@ -4992,7 +4992,7 @@ smthrs test '//:greeting' --format json
 
 The target's result should report `status: "hit"`. Confirm a successful remote lookup in the server log. Run it again to verify local reuse; the second invocation should not need to fetch that result remotely.
 
-If the target produces files, check that its declared output files are restored too. A cached exit status is not proof that every file your application needs was declared as an output.
+If the target produces files, check that its declared output files are restored too.
 
 ## Diagnose a miss
 
@@ -5289,7 +5289,7 @@ A detached launch returns the durable run ID and log path after the child acknow
 
 ## Verify the outcome
 
-Use `smthrs runs show <run-id>` to read the current status and diagnosis. A local attached launch exits `0` for completion, `1` for failure, `3` for waiting on approval, or `130` for cancellation. A successful read command does not mean the run succeeded; read its `status` field.
+Use `smthrs runs show <run-id>` to read the run's `status` and diagnosis. A local attached launch exits `0` for completion, `1` for failure, `3` for waiting on approval, or `130` for cancellation.
 
 Continue with [Inspect runs](/docs/guides/inspecting-runs/) to read events and outputs, or [Run flows in CI](/docs/guides/cloud-ci/#launch-a-flow-from-a-ci-job) to choose how a pipeline handles a parked run.
 
@@ -5688,7 +5688,7 @@ smthrs runs logs <run-id>
 - In an `AgentAction` composition, a quota park writes `flows.agent.quota-parked.v1` and the engine records a wait with reason `quota`. Reopening the same execution reuses its recorded deadline.
 - A composed action's spent correction produces a rejection record and a re-prompt after the schema miss; the settled answer still decodes against its declared schema.
 
-[Example 39](/docs/examples/39-agent-policies/) drives one step through all three policies on the durable engine across a process kill: the provider refuses with HTTP 429 and `retry-after`, the run parks, a second engine over the same file waits out the recorded deadline, spends a correction, and finishes. The assertions check three provider calls in all, one before the restart, one park decision, one correction.
+[Example 39](/docs/examples/39-agent-policies/) drives one step through all three policies on the durable engine across a process kill: the provider refuses with HTTP 429 and `retry-after`, the run parks, a second engine over the same file waits out the recorded deadline, spends a correction, and finishes.
 
 ## See also
 
@@ -6130,7 +6130,7 @@ The providers share one session contract, but their limits differ:
 - File transfer is byte-exact on all nine. To get bytes out of a command on a string-output provider, have the command write a file and read that back with `readFile`.
 - `JustBashSandbox`, `MicrosandboxSandbox`, `VercelSandbox`, `DaytonaSandbox`, and `CloudflareSandbox` declare no `kill`, and on those providers output arrives after the command finishes rather than streaming.
 - `Sandbox.layerHost` does not swap a dead machine mid-action. A dead machine surfaces as a failure, because opening a fresh session behind the body's back would silently discard the writes it already made; re-provisioning belongs to whoever retries the action, which acquires the session key again.
-- Real-backend suites in this repository cover host directories and processes, Docker, OrbStack Kubernetes, and Microsandbox. The remaining providers are proven against fakes that keep the vendor API shapes. For a provider you compose yourself, run the conformance suites in the verification step rather than trusting the table.
+- For a provider you compose yourself, run the conformance suites in the verification step.
 
 ## Verify it worked
 
@@ -6444,7 +6444,7 @@ const startDigest = ({ document }: { readonly document: string }) =>
 
 `spawn` returns a child handle without waiting for its result. The engine records `onParentExit: "detach"`, so the parent may complete while the child keeps going. Keep the handle to collect the result later.
 
-To collect, any engine over the same database awaits by child id. Example 36 proves the shape with two engines over one SQLite file, which is what a process restart looks like from the database's point of view: phase one spawns the child and lets the parent complete; phase two is a fresh engine that never spawned anything and answers out of durable state:
+To collect, any engine over the same database awaits by child id. Example 36 runs two engines over one SQLite file, as after a process restart: phase one spawns the child and lets the parent complete; phase two is a fresh engine that never spawned anything and answers out of durable state:
 
 ```ts
 const children = yield* ChildFlows.Children
@@ -6533,7 +6533,7 @@ const applyMigration = Action.make({
 
 `Interrupted` is the example's declared tagged error, `ledger` is the workspace file, and the dispatch wraps the action with `Action.retry(applyMigration, { times: 1 })`. The retry ladder can still run out, so the failure stays declared rather than swallowed.
 
-The engine takes two pre-images per attempt and one post-image after it. The pair is not a duplicate: one pre-image is the rollback boundary around the whole compensable dispatch, the other is the attempt row's own, which is what an adopted attempt restores after a crash. The post-image is what the boundary diffs the pre-image against.
+The engine takes two pre-images per attempt and one post-image after it. One pre-image is the rollback boundary around the whole compensable dispatch, the other is the attempt row's own, which is what an adopted attempt restores after a crash. The post-image is what the boundary diffs the pre-image against.
 
 ## 4. Handle irreversible effects at rewind time
 
@@ -6977,8 +6977,6 @@ const runId = "deploy-status-1" as JournalEvent.RunId
 const journalLogs = JournalLogger.layerJournalForwarding({ runId })
 ```
 
-Each record is snapshotted, bounded, and redacted synchronously before it joins an asynchronous queue, so caller mutation after the log call cannot change the queued record, and the journal's own redaction rules run before admission. The durable journal allocates `sourceSeq`, so rebuilding or concurrently running logger layers for one run cannot reuse an identity.
-
 - The queue defaults to 256 records and accepts a `capacity` from 1 through 65,536. A full queue drops the incoming record; the callback never blocks.
 - A snapshot accepts at most 1 MiB of encoded data, 4,096 container members, and 64 container edges. Unreadable values become `[Unrenderable]`, values past a ceiling become `[Truncated]`, and deep values become `[Deep]`.
 - Every loss advances `Metric.droppedLogRecords`: one per queue overflow, per journal delivery failure, and per defect the forwarding worker recovers from.
@@ -7063,7 +7061,7 @@ cp -R .flows /path/to/backup/flows-backup
 
 Keep the backup outside `.flows/`. Test a restore into a separate project before relying on it, with no other process writing to the restored state.
 
-The artifact tier has one cross-process hazard: a sweep deleting a blob the frozen database still references. `@smthrs/artifacts` fences it with `ArtifactBackupLease.withLease`, which holds a heartbeat-backed marker while a filesystem backup freezes its database and copies referenced blobs. Blobs may still be published during the backup; a sweep deletion runs under `ArtifactBackupLease.unlessActive`, which returns `None` while a live lease fences the deletion. A crashed lease becomes reclaimable once its heartbeat goes stale.
+A filesystem backup of the artifact tier holds `ArtifactBackupLease.withLease`, which fences sweep deletions until the backup finishes; see [`@smthrs/artifacts`](/docs/reference/api/artifacts/).
 
 Build the store and its sweep with the same directory and coordination mode: no runtime check can detect a mismatch, and a sweep running under `coordination: "process"` skips the backup lease entirely.
 
@@ -7081,13 +7079,13 @@ Then run it for real:
 smthrs gc --older-than 30d
 ```
 
-The pass deletes terminal runs (completed, failed, or cancelled) that finished before the threshold, together with every row those runs own, sweeping both `.flows/control.db` and `.flows/engine.db` so no half of a deleted run survives. It never touches a live run, never deletes a terminal run that a live run stands above or below in the lineage, and never runs against a remote control plane: it reads and writes the local `.flows/` files directly.
+The pass deletes terminal runs (completed, failed, or cancelled) that finished before the threshold, together with every row those runs own, sweeping both `.flows/control.db` and `.flows/engine.db` so no half of a deleted run survives. It never touches a live run, never deletes a terminal run that a live run stands above or below in the lineage, and refuses `--remote`: it reads and writes the local `.flows/` files directly.
 
 - `--older-than` spells a count and a unit: `s` seconds, `m` minutes, `h` hours, `d` days, `w` weeks, as in `12h`, `90m`, or `2w`. The default is `30d`. A spelling the command cannot read, including a zero window such as `0s`, exits 2.
 - The sweep document prints `olderThan` as typed, `dryRun`, one report per database, and `failures`. Each report names the `database` file, the threshold as `olderThanMs`, the `runs` oldest first (under `--dry-run`, the runs it would delete), and the `deleted` row counts per table (empty under `--dry-run`). `--json` prints the same document compactly.
 - Every database is probed before any write. A database the pass cannot open is a failure, never a report of zero runs: the report still prints, stderr names each file with its reason, and the command exits 1.
 
-Under the hood the pass is `Retention.collect` from `@smthrs/engine-store`, run over each database file. The programmatic knobs (`RetainOptions`) are `olderThanMs` (age measured from `finished_at_ms`; zero collects every terminal run), `limit` (one pass deletes at most 1000 runs, `Retention.defaultLimit`, and repeated passes converge), and `dryRun`. One `journal.transact` deletes every aged terminal run with its attempts, clock deadlines, deferred completions, journal entries, checkpoints, and time-travel archive rows, and an aged run whose descendant is still live is retained. Nothing schedules any of it.
+The programmatic form is `Retention.collect` from [`@smthrs/engine-store`](/docs/reference/api/engine-store/).
 
 ## 4. Sweep unreferenced artifacts
 
@@ -7097,8 +7095,6 @@ Run deletion does not touch the artifact tier. `@smthrs/engine-store`'s `Artifac
 - The sweep deletes every blob outside the live set and older than the grace bound. `graceMs` defaults to `defaultGraceMs`, two weeks; the grace period protects a blob published, or freshened by a dedupe `put`, after the mark began.
 - `pins` holds digests live regardless of reachability, and `dryRun` reports without deleting. The opt-in `ArtifactGcPolicy` layer (`graceMs`, `pins`) supplies the defaults an explicit `gc()` call may override; it schedules nothing.
 - The report carries `scannedBlobs`, `liveDigests`, `sweptDigests`, `reclaimedBytes`, `keptByGrace`, and `dryRun`.
-
-`ArtifactSweep` in `@smthrs/artifacts` is the host-local deletion surface underneath. Its `inventory` lists only canonical fanout files, skipping temp files, lock files, and foreign paths, and `remove` fences deletion on `ifUnmodifiedSinceMs`, returning `false` when the blob is already gone, fails the age fence, or is protected by a live backup lease.
 
 ## Verify it worked
 
@@ -7331,7 +7327,7 @@ To assert replay counts, read the controller: `RecordedModel.unconsumed()` retur
 | Recorded outputs | Return value, dispatch and attempt counts, journaled step and effect entries, terminal outcome | vitest `expect`, `JournalAssertions.expectJournal` |
 | Replay counts | Every recorded model call consumed, no unscripted call attempted | `RecordedModel.unconsumed()` |
 
-Two plan assertions earn their keep over time. `PlanAssertions.expectKeyGoldens` pins step keys as golden literals, so a change in how a step is keyed turns into a red test rather than a silent cache miss. `PlanAssertions.expectPlans(...).covers(...)` asserts that a static suite of built plans reaches each requested node id.
+Two more plan assertions: `PlanAssertions.expectKeyGoldens` pins step keys as golden literals, so a change in how a step is keyed turns into a red test rather than a silent cache miss. `PlanAssertions.expectPlans(...).covers(...)` asserts that a static suite of built plans reaches each requested node id.
 
 Race and interrupt cases advance virtual time: register them through `Vitest.testEffect(...).effect`, which supplies a deterministic clock, and not through `.live`, which does not.
 
@@ -7820,7 +7816,7 @@ The [first flow tutorial](/docs/tutorials/first-flow/) adds the interpreter and 
 
 Keep I/O in action implementations. A flow body describes how results connect. It does not read files or call models to discover the next node.
 
-The complete graph is known for each round. A flow can settle with a handoff or another bounded round, so this does not mean every node of a long-running, dynamically elaborated workflow exists at its initial launch.
+The complete graph is known for each round; a flow can continue with a handoff or another bounded round.
 
 ## Keys and approval digests
 
@@ -8070,7 +8066,7 @@ A permission failure is journal-safe by construction: the capability is defensiv
 
 ## What the boundary guarantees
 
-Ambient authority asks nothing, which is exactly the problem: any code holding the service tag could reach the host, and nothing could say later why an operation was allowed. A grant check at the adapter call site makes authority explicit, attributable, and replayable. The journal holds the decision, the suspended fiber means the answer can take as long as a person needs, and mutable inputs are snapshotted so the operation executed after an attended grant is the operation that was authorized.
+A grant check at the adapter call site makes authority explicit, attributable, and replayable. The journal holds the decision, the suspended fiber means the answer can take as long as a person needs, and mutable inputs are snapshotted so the operation executed after an attended grant is the operation that was authorized.
 
 The kernel checks capabilities at adapter call sites; it does not sandbox the operating system and cannot observe host access that bypasses the decorated services. Hermetic execution additionally requires a `StepBoundary`. `GrantStore.makeNoop` is an explicit allow-all implementation for tests, not a production policy. Through those adapters, every access through the declared surface was granted, and the grant is on the record.
 
@@ -8141,7 +8137,7 @@ Recovery is not an operation. Building `TimeTravel.layer` finishes or rolls back
 
 ## Boundaries
 
-Time travel is not editing history. Nothing rewrites a committed entry in place: a rewind moves the suffix after the frame into an archive and records an audit row for the whole operation, so the evidence of what the run did survives its truncation. Replay is not a resume: nothing re-executes, and a coordinate the journal does not hold is a `not_found`, not a re-run. Compensation is not a general undo: it covers exactly the effects your handlers declare, within the boundaries the journal recorded. The CLI exposes these operations under `smthrs runs`; the unified MCP server exposes the corresponding command tools.
+Nothing rewrites a committed entry: a rewind archives the suffix after the frame and records an audit row for the operation. Replay re-executes nothing; a coordinate the journal does not hold is `not_found`. Compensation covers exactly the effects your handlers declare. The CLI exposes these operations under `smthrs runs`; the unified MCP server exposes the corresponding command tools.
 
 ## Use the CLI
 
@@ -8405,8 +8401,6 @@ Because behavior is context, a test provides a different context: the same flow 
 Effect is pinned to exactly `4.0.0-rc.115`, and a project must resolve one Effect instance. Separate Effect instances are unsupported because their schema internals are not interoperable. The pin keeps packages on a compatible runtime; applications must still preserve their own payload and codec contracts when changing code.
 
 On top of the pin, the engine uses three Effect guarantees everywhere. Typed errors: a step's failure channel is declared and checked, so quarantine and retry decisions branch on structure. Testable layers: any credentialed or environmental piece is swapped at composition time. Structured concurrency: a run is a scope, cancellation interrupts work when its driver observes the request, and only an interrupt explicitly marked as infrastructure consumes an infrastructure retry policy.
-
-Effect is not an interchangeable detail. The pin is a hard requirement of the project layout, not a recommendation. [Installation](/docs/installation/) explains how the platform package's peer dependencies keep the runtime on that pin.
 
 ## Where Smithers diverges from upstream
 

@@ -49,8 +49,6 @@ const runId = "deploy-status-1" as JournalEvent.RunId
 const journalLogs = JournalLogger.layerJournalForwarding({ runId })
 ```
 
-Each record is snapshotted, bounded, and redacted synchronously before it joins an asynchronous queue, so caller mutation after the log call cannot change the queued record, and the journal's own redaction rules run before admission. The durable journal allocates `sourceSeq`, so rebuilding or concurrently running logger layers for one run cannot reuse an identity.
-
 - The queue defaults to 256 records and accepts a `capacity` from 1 through 65,536. A full queue drops the incoming record; the callback never blocks.
 - A snapshot accepts at most 1 MiB of encoded data, 4,096 container members, and 64 container edges. Unreadable values become `[Unrenderable]`, values past a ceiling become `[Truncated]`, and deep values become `[Deep]`.
 - Every loss advances `Metric.droppedLogRecords`: one per queue overflow, per journal delivery failure, and per defect the forwarding worker recovers from.

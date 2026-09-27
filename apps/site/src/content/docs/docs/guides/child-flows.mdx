@@ -191,7 +191,7 @@ const startDigest = ({ document }: { readonly document: string }) =>
 
 `spawn` returns a child handle without waiting for its result. The engine records `onParentExit: "detach"`, so the parent may complete while the child keeps going. Keep the handle to collect the result later.
 
-To collect, any engine over the same database awaits by child id. Example 36 proves the shape with two engines over one SQLite file, which is what a process restart looks like from the database's point of view: phase one spawns the child and lets the parent complete; phase two is a fresh engine that never spawned anything and answers out of durable state:
+To collect, any engine over the same database awaits by child id. Example 36 runs two engines over one SQLite file, as after a process restart: phase one spawns the child and lets the parent complete; phase two is a fresh engine that never spawned anything and answers out of durable state:
 
 ```ts
 const children = yield* ChildFlows.Children

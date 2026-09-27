@@ -32,7 +32,7 @@ cp -R .flows /path/to/backup/flows-backup
 
 Keep the backup outside `.flows/`. Test a restore into a separate project before relying on it, with no other process writing to the restored state.
 
-The artifact tier has one cross-process hazard: a sweep deleting a blob the frozen database still references. `@smthrs/artifacts` fences it with `ArtifactBackupLease.withLease`, which holds a heartbeat-backed marker while a filesystem backup freezes its database and copies referenced blobs. Blobs may still be published during the backup; a sweep deletion runs under `ArtifactBackupLease.unlessActive`, which returns `None` while a live lease fences the deletion. A crashed lease becomes reclaimable once its heartbeat goes stale.
+A filesystem backup of the artifact tier holds `ArtifactBackupLease.withLease`, which fences sweep deletions until the backup finishes; see [`@smthrs/artifacts`](/docs/reference/api/artifacts/).
 
 Build the store and its sweep with the same directory and coordination mode: no runtime check can detect a mismatch, and a sweep running under `coordination: "process"` skips the backup lease entirely.
 
@@ -50,13 +50,13 @@ Then run it for real:
 smthrs gc --older-than 30d
 ```
 
-The pass deletes terminal runs (completed, failed, or cancelled) that finished before the threshold, together with every row those runs own, sweeping both `.flows/control.db` and `.flows/engine.db` so no half of a deleted run survives. It never touches a live run, never deletes a terminal run that a live run stands above or below in the lineage, and never runs against a remote control plane: it reads and writes the local `.flows/` files directly.
+The pass deletes terminal runs (completed, failed, or cancelled) that finished before the threshold, together with every row those runs own, sweeping both `.flows/control.db` and `.flows/engine.db` so no half of a deleted run survives. It never touches a live run, never deletes a terminal run that a live run stands above or below in the lineage, and refuses `--remote`: it reads and writes the local `.flows/` files directly.
 
 - `--older-than` spells a count and a unit: `s` seconds, `m` minutes, `h` hours, `d` days, `w` weeks, as in `12h`, `90m`, or `2w`. The default is `30d`. A spelling the command cannot read, including a zero window such as `0s`, exits 2.
 - The sweep document prints `olderThan` as typed, `dryRun`, one report per database, and `failures`. Each report names the `database` file, the threshold as `olderThanMs`, the `runs` oldest first (under `--dry-run`, the runs it would delete), and the `deleted` row counts per table (empty under `--dry-run`). `--json` prints the same document compactly.
 - Every database is probed before any write. A database the pass cannot open is a failure, never a report of zero runs: the report still prints, stderr names each file with its reason, and the command exits 1.
 
-Under the hood the pass is `Retention.collect` from `@smthrs/engine-store`, run over each database file. The programmatic knobs (`RetainOptions`) are `olderThanMs` (age measured from `finished_at_ms`; zero collects every terminal run), `limit` (one pass deletes at most 1000 runs, `Retention.defaultLimit`, and repeated passes converge), and `dryRun`. One `journal.transact` deletes every aged terminal run with its attempts, clock deadlines, deferred completions, journal entries, checkpoints, and time-travel archive rows, and an aged run whose descendant is still live is retained. Nothing schedules any of it.
+The programmatic form is `Retention.collect` from [`@smthrs/engine-store`](/docs/reference/api/engine-store/).
 
 ## 4. Sweep unreferenced artifacts
 
@@ -66,8 +66,6 @@ Run deletion does not touch the artifact tier. `@smthrs/engine-store`'s `Artifac
 - The sweep deletes every blob outside the live set and older than the grace bound. `graceMs` defaults to `defaultGraceMs`, two weeks; the grace period protects a blob published, or freshened by a dedupe `put`, after the mark began.
 - `pins` holds digests live regardless of reachability, and `dryRun` reports without deleting. The opt-in `ArtifactGcPolicy` layer (`graceMs`, `pins`) supplies the defaults an explicit `gc()` call may override; it schedules nothing.
 - The report carries `scannedBlobs`, `liveDigests`, `sweptDigests`, `reclaimedBytes`, `keptByGrace`, and `dryRun`.
-
-`ArtifactSweep` in `@smthrs/artifacts` is the host-local deletion surface underneath. Its `inventory` lists only canonical fanout files, skipping temp files, lock files, and foreign paths, and `remove` fences deletion on `ifUnmodifiedSinceMs`, returning `false` when the blob is already gone, fails the age fence, or is protected by a live backup lease.
 
 ## Verify it worked
 

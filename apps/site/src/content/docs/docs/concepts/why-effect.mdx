@@ -56,8 +56,6 @@ Effect is pinned to exactly `4.0.0-rc.115`, and a project must resolve one Effec
 
 On top of the pin, the engine uses three Effect guarantees everywhere. Typed errors: a step's failure channel is declared and checked, so quarantine and retry decisions branch on structure. Testable layers: any credentialed or environmental piece is swapped at composition time. Structured concurrency: a run is a scope, cancellation interrupts work when its driver observes the request, and only an interrupt explicitly marked as infrastructure consumes an infrastructure retry policy.
 
-Effect is not an interchangeable detail. The pin is a hard requirement of the project layout, not a recommendation. [Installation](/docs/installation/) explains how the platform package's peer dependencies keep the runtime on that pin.
-
 ## Where Smithers diverges from upstream
 
 Smithers vendors Effect's workflow surface and extends it with explicit execution IDs, content-derived step keys, and a separate policy for infrastructure interruptions. By default, an invocation without an explicit ID or declared idempotency key receives a fresh UUID. Retain that ID to resume the work, or opt into the derived source when equal inputs should identify one execution. [Execution IDs and ownership](/docs/concepts/ownership/) and [Retries and interruption](/docs/concepts/retries/) describe these contracts.

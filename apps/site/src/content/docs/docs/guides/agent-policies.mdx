@@ -109,7 +109,7 @@ smthrs runs logs <run-id>
 - In an `AgentAction` composition, a quota park writes `flows.agent.quota-parked.v1` and the engine records a wait with reason `quota`. Reopening the same execution reuses its recorded deadline.
 - A composed action's spent correction produces a rejection record and a re-prompt after the schema miss; the settled answer still decodes against its declared schema.
 
-[Example 39](/docs/examples/39-agent-policies/) drives one step through all three policies on the durable engine across a process kill: the provider refuses with HTTP 429 and `retry-after`, the run parks, a second engine over the same file waits out the recorded deadline, spends a correction, and finishes. The assertions check three provider calls in all, one before the restart, one park decision, one correction.
+[Example 39](/docs/examples/39-agent-policies/) drives one step through all three policies on the durable engine across a process kill: the provider refuses with HTTP 429 and `retry-after`, the run parks, a second engine over the same file waits out the recorded deadline, spends a correction, and finishes.
 
 ## See also
 

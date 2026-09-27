@@ -44,7 +44,7 @@ On a trusted machine with both credentials available, execute a target that has 
 smthrs test '//:greeting'
 ```
 
-Inspect the cache server's request log to confirm it accepted publication. Local success alone does not prove the remote accepted the result: remote errors can fall back to local execution.
+Inspect the cache server's request log to confirm it accepted publication; remote errors fall back to local execution.
 
 In a second checkout with the same inputs and runtime, configure the same endpoint and provide the read credential. Start with an empty local result cache, then run the same target:
 
@@ -54,7 +54,7 @@ smthrs test '//:greeting' --format json
 
 The target's result should report `status: "hit"`. Confirm a successful remote lookup in the server log. Run it again to verify local reuse; the second invocation should not need to fetch that result remotely.
 
-If the target produces files, check that its declared output files are restored too. A cached exit status is not proof that every file your application needs was declared as an output.
+If the target produces files, check that its declared output files are restored too.
 
 ## Diagnose a miss
 

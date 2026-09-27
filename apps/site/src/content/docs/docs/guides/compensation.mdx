@@ -69,7 +69,7 @@ const applyMigration = Action.make({
 
 `Interrupted` is the example's declared tagged error, `ledger` is the workspace file, and the dispatch wraps the action with `Action.retry(applyMigration, { times: 1 })`. The retry ladder can still run out, so the failure stays declared rather than swallowed.
 
-The engine takes two pre-images per attempt and one post-image after it. The pair is not a duplicate: one pre-image is the rollback boundary around the whole compensable dispatch, the other is the attempt row's own, which is what an adopted attempt restores after a crash. The post-image is what the boundary diffs the pre-image against.
+The engine takes two pre-images per attempt and one post-image after it. One pre-image is the rollback boundary around the whole compensable dispatch, the other is the attempt row's own, which is what an adopted attempt restores after a crash. The post-image is what the boundary diffs the pre-image against.
 
 ## 4. Handle irreversible effects at rewind time
 

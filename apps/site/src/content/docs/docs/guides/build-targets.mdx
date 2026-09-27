@@ -24,7 +24,7 @@ The command selects a target kind, and the pattern selects packages or named tar
 
 `ci` excludes `run` and `review` targets. A target can participate in more than one kind; for a generator, checking for drift and applying generated output can be different modes. Preview the selected mode before execution.
 
-Durable workflows use `smthrs flow start <flow>`. The target command `smthrs run` does not mean “launch any flow.”
+Start a durable flow with `smthrs flow start <flow>`; `smthrs run` executes run-kind targets.
 
 ## Select packages and targets
 

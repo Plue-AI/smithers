@@ -65,7 +65,7 @@ A permission failure is journal-safe by construction: the capability is defensiv
 
 ## What the boundary guarantees
 
-Ambient authority asks nothing, which is exactly the problem: any code holding the service tag could reach the host, and nothing could say later why an operation was allowed. A grant check at the adapter call site makes authority explicit, attributable, and replayable. The journal holds the decision, the suspended fiber means the answer can take as long as a person needs, and mutable inputs are snapshotted so the operation executed after an attended grant is the operation that was authorized.
+A grant check at the adapter call site makes authority explicit, attributable, and replayable. The journal holds the decision, the suspended fiber means the answer can take as long as a person needs, and mutable inputs are snapshotted so the operation executed after an attended grant is the operation that was authorized.
 
 The kernel checks capabilities at adapter call sites; it does not sandbox the operating system and cannot observe host access that bypasses the decorated services. Hermetic execution additionally requires a `StepBoundary`. `GrantStore.makeNoop` is an explicit allow-all implementation for tests, not a production policy. Through those adapters, every access through the declared surface was granted, and the grant is on the record.
 

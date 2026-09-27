@@ -126,7 +126,7 @@ A `confirm` accepts only a boolean, so a prose answer is refused. The re-drive r
     )
 ```
 
-The refusal is durable evidence, not a log line: it is recorded as a sealed step named `HumanTask/release#1/rejected`, carrying the task, the attempt, and the reason ("The answer must be a boolean."), so a reader of the journal sees why the answer was sent back. The attempt budget is what keeps this bounded: `maxAttempts: 3` buys one more re-ask after this refusal before the task fails with `HumanTaskFailed`, code `rejected`.
+The refusal is recorded as a sealed step named `HumanTask/release#1/rejected`, carrying the task, the attempt, and the reason ("The answer must be a boolean."), so a reader of the journal sees why the answer was sent back. The attempt budget is what keeps this bounded: `maxAttempts: 3` buys one more re-ask after this refusal before the task fails with `HumanTaskFailed`, code `rejected`.
 
 
 ## 5. Answer the open attempt and complete

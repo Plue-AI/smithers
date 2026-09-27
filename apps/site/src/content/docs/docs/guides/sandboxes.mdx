@@ -136,7 +136,7 @@ The providers share one session contract, but their limits differ:
 - File transfer is byte-exact on all nine. To get bytes out of a command on a string-output provider, have the command write a file and read that back with `readFile`.
 - `JustBashSandbox`, `MicrosandboxSandbox`, `VercelSandbox`, `DaytonaSandbox`, and `CloudflareSandbox` declare no `kill`, and on those providers output arrives after the command finishes rather than streaming.
 - `Sandbox.layerHost` does not swap a dead machine mid-action. A dead machine surfaces as a failure, because opening a fresh session behind the body's back would silently discard the writes it already made; re-provisioning belongs to whoever retries the action, which acquires the session key again.
-- Real-backend suites in this repository cover host directories and processes, Docker, OrbStack Kubernetes, and Microsandbox. The remaining providers are proven against fakes that keep the vendor API shapes. For a provider you compose yourself, run the conformance suites in the verification step rather than trusting the table.
+- For a provider you compose yourself, run the conformance suites in the verification step.
 
 ## Verify it worked
 
