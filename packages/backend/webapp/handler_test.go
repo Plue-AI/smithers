@@ -21,6 +21,12 @@ func TestPackagedApplicationAndAPIBoundary(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "app.js"), []byte("export const ready=true"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "LICENSE"), []byte("license"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "assets"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	outside := filepath.Join(t.TempDir(), "private.txt")
 	os.WriteFile(outside, []byte("private"), 0600)
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
@@ -47,6 +53,31 @@ func TestPackagedApplicationAndAPIBoundary(t *testing.T) {
 				status               int
 			}{
 				{"/", "GET", "text/html", 200}, {"/repositories/example", "GET", "text/html", 200},
+				{"/smithersai/smithers/", "GET", "text/html", 200},
+				{"/smithersai/smithers/", "HEAD", "text/html", 200},
+				{"/smithersai/smithers/?view=wiki", "GET", "text/html", 200},
+				{"/smithersai/smithers/", "GET", "application/json", 404},
+				{"/smithersai/smithers/", "GET", "text/html;q=0", 404},
+				{"/smithersai/smithers/", "POST", "text/html", 404},
+				{"/smithersai/smithers//", "GET", "text/html", 404},
+				{"//smithersai/smithers/", "GET", "text/html", 404},
+				{"/smithersai//smithers/", "GET", "text/html", 404},
+				{"/smithersai/../smithers/", "GET", "text/html", 404},
+				{"/smithersai/%2e%2e/smithers/", "GET", "text/html", 404},
+				{"/api/missing/", "GET", "text/html", 404},
+				{"/auth/missing/", "GET", "text/html", 404},
+				{"/git/missing/", "GET", "text/html", 404},
+				{"/owner/repository.git/", "GET", "text/html", 404},
+				{"/readyz/", "GET", "text/html", 404},
+				{"/.env/", "GET", "text/html", 404},
+				{"/escape/", "GET", "text/html", 404},
+				{"/index.html/", "GET", "text/html", 404},
+				{"/app.js/", "GET", "text/html", 404},
+				{"/missing.js/", "GET", "text/html", 404},
+				{"/LICENSE", "GET", "text/html", 200},
+				{"/LICENSE/", "GET", "text/html", 404},
+				{"/assets/", "GET", "text/html", 404},
+				{"//", "GET", "text/html", 404},
 				{"/app.js", "GET", "*/*", 200}, {"/app.js", "HEAD", "*/*", 200},
 				{"/missing.js", "GET", "text/html", 404}, {"/api/missing", "GET", "text/html", 404},
 				{"/owner/repository.git/info/refs", "GET", "text/html", 404}, {"/auth/missing", "GET", "text/html", 404},
@@ -69,7 +100,7 @@ func TestPackagedApplicationAndAPIBoundary(t *testing.T) {
 				if tc.method == "HEAD" && len(body) != 0 {
 					t.Error("HEAD returned body")
 				}
-				if tc.path == "/" {
+				if tc.path == "/" || (strings.HasPrefix(tc.path, "/smithersai/smithers/") && tc.status == 200 && tc.method == "GET") {
 					if response.Header.Get("Cache-Control") != "no-cache" {
 						t.Error("index cached across configchanges")
 					}
@@ -104,7 +135,8 @@ func TestPackagedApplicationAndAPIBoundary(t *testing.T) {
 					if count != 1 {
 						t.Fatalf("target documents: %d", count)
 					}
-					conditional, _ := http.NewRequest("GET", server.URL+"/", nil)
+					conditional, _ := http.NewRequest("GET", server.URL+tc.path, nil)
+					conditional.Header.Set("Accept", tc.accept)
 					conditional.Header.Set("If-None-Match", response.Header.Get("ETag"))
 					cached, err := server.Client().Do(conditional)
 					if err != nil {

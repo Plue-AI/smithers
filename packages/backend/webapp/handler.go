@@ -124,7 +124,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "index.html"
 	}
-	if !fs.ValidPath(name) || reserved(name) {
+	// A single terminal slash is valid for an app route. Keep the original
+	// asset path so a file followed by a slash never becomes a file request.
+	routeName := strings.TrimSuffix(name, "/")
+	if !fs.ValidPath(routeName) || reserved(routeName) {
 		http.NotFound(w, r)
 		return
 	}
@@ -145,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !os.IsNotExist(err) || path.Ext(name) != "" || !wantsHTML(r) {
+	if !os.IsNotExist(err) || path.Ext(routeName) != "" || !wantsHTML(r) {
 		http.NotFound(w, r)
 		return
 	}
