@@ -484,10 +484,11 @@ describe("launch-law parity: every affordance is a command", () => {
        * since-my-review and show-all, the file rows' one-file diff, the
        * Checks picker, Open the computer, the findings' Please fix and Not
        * useful, the review facet's show-all and thread acts, the history
-       * rows' Diff to current, and the diff card's re-read — all through
+       * rows' Diff to current, the diff card's re-read, and Request
+       * review again after requested changes (ad40a699e) — all through
        * onRunCommand with data-flow set.
        */
-      "../cards/ChangeCards.tsx": 23,
+      "../cards/ChangeCards.tsx": 24,
       /*
        * The plan inside a run card: Inspect review feedback and Inspect failed
        * execution (runs.trace.select), Vibe this change (flow.run), Check
