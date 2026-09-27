@@ -7,7 +7,7 @@ gateway relay allowlist, and adds one card kind. Coordinate on
 `Flows.ts` / `registry.test.ts` with any lane still editing them.
 
 Scope, in order:
-1. **Relay allowlist.** `apps/server/src/gatewayRpc.ts` gains List runs,
+1. **Relay allowlist.** `packages/backend/internal/compose/browser_flow.go` `browserFlowProcedures` gains List runs,
    Resume, Steer (Message|Seat|Thinking|Tools), Signal, and the `transcript`,
    `run-events`, `approvals` (no runId) projections; server tests.
 2. **`run-list` card.** Header: repo and one mono count line by status; rows

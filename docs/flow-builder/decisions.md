@@ -114,7 +114,7 @@ way that cannot be repointed at the run journal.
 
 ### D-013 — Poll vs. stream for a live graph. OPEN — gates the design doc
 The run monitor polls every 2500 ms (`workflow-pump.ts`, `context.ts:175`). The
-gateway allowlist (`apps/server/src/gatewayRpc.ts:45`) **deliberately excludes**
+gateway allowlist (`packages/backend/internal/compose/browser_flow.go` `browserFlowProcedures`) **deliberately excludes**
 `Watch` and `Projection.Subscribe`: "a stream belongs on the gateway's separately
 authenticated WebSocket mounts." Temporal's stated property is liveness — "the
 Workflow updates in real-time" — and a 2.5 s poll will read as lag on a graph
@@ -180,7 +180,7 @@ The gateway serves `Projection.Subscribe` over `/projections/ws` with cursored
 snapshot/row/delta frames and a 30 s heartbeat
 (`packages/smithers/gateway/src/GatewaySchema.ts:444`,
 `gateway/src/Projections.ts:56`), and `Watch` over `/rpc/ws`. What excludes them
-is the product Worker's allowlist (`apps/server/src/gatewayRpc.ts:45`), by a
+is the product Worker's allowlist (`packages/backend/internal/compose/browser_flow.go` `browserFlowProcedures`), by a
 deliberate choice that "a stream belongs on the gateway's separately
 authenticated WebSocket mounts." So liveness is an auth/relay problem in
 `apps/server`, not an engine feature request.

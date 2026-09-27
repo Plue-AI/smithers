@@ -345,8 +345,8 @@ func TestWriteErrorAlwaysCarriesCodeAndFault(t *testing.T) {
 // TestErrorBodyPutsVerdictFirst pins the wire ORDER, not just the content.
 //
 // The Cloudflare Worker in front of plue classifies a refusal by reading only
-// the first 240 bytes of the upstream body (apps/server/src/gateway.ts,
-// refusalCode). A body whose `code` sits behind a long `message` arrives
+// the start of the upstream body (apps/server/src/Http.ts,
+// readRefusalDetail). A body whose `code` sits behind a long `message` arrives
 // truncated and unparseable, and the Worker falls back to sniffing the status
 // and the English text — exactly the guessing this registry exists to end.
 //

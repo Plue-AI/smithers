@@ -25,7 +25,7 @@ import (
 
 var browserFlowRepo = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
-// The procedure set is the product relay contract in apps/server/gatewayRpc.ts.
+// The procedure set is the product relay contract the app speaks.
 // All payload and result bodies remain canonical Control/Gateway RPC shapes.
 var browserFlowProcedures = map[string]bool{
 	"Plan": true, "Run": true, "Cancel": true, "Resume": true,

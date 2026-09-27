@@ -16,21 +16,21 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 ### runs · Run inbox: list runs with status/flow/lineage filters, active-run count, per-workflow runs (`smithers ps`, Control List runs, `workspace-runs` projection; plue GET /runs, /workflow-runs/active-count)
 
 - Source: both · coverage: none · effort: M
-- Exists: One flow-run card per run the user launched (packages/rpc/src/Cards.ts:286). The relay allowlists only List flows; no `List runs` and no `workspace-runs` selector (apps/server/src/gatewayRpc.ts:38-45; apps/app/src/mainview/state/controller/gateway.ts:99-112).
+- Exists: One flow-run card per run the user launched (packages/rpc/src/Cards.ts:286). The relay allowlists only List flows; no `List runs` and no `workspace-runs` selector (packages/backend/internal/compose/browser_flow.go browserFlowProcedures; apps/app/src/mainview/state/controller/gateway.ts:99-112).
 - UI: New `run-list` card: header repo and one mono count line by status; rows runId · flow · status · waiting reason · age · turns/calls; a row opens the flow-run card; filter chips re-invoke runs.list with the chip's argument. No sidebar badge (NO INVENTION forbids status badges outside the card); the non-terminal count is the card header's mono line and system.recommend suggests runs.list when it is non-zero.
 - Flows: `runs.list [status] [flow] [by=<principal>] [lineage=<id>] [owner/repo]; runs.open <runId>`
 
 ### runs · Resume a parked run and rerun a finished one (Control Resume, `smithers run --resume`; plue run resume/rerun)
 
 - Source: both · coverage: none · effort: S
-- Exists: flow.run.retry only re-polls the watch (apps/app/src/mainview/flows/Flows.ts:521-529). Resume is not in the relay allowlist (apps/server/src/gatewayRpc.ts:38-45).
+- Exists: flow.run.retry only re-polls the watch (apps/app/src/mainview/flows/Flows.ts:521-529). Resume is not in the relay allowlist (packages/backend/internal/compose/browser_flow.go browserFlowProcedures).
 - UI: flow-run card footer gains Resume when the run is parked and not on an approval, and Run again (same input, new run card) when terminal; both add Resume to the relay allowlist.
 - Flows: `runs.resume <runId>; runs.rerun <runId>`
 
 ### runs · Steer a running agent: operator message, seat change, thinking level, add tools (Control Steer Message|Seat|Thinking|Tools; `smithers steer`)
 
 - Source: smithers · coverage: none · effort: M
-- Exists: Nothing. Steer is absent from the relay (apps/server/src/gatewayRpc.ts:38-45) and RunSummary.steering.pending is not read (apps/app/src/mainview/state/controller/workflow-pump.ts).
+- Exists: Nothing. Steer is absent from the relay (packages/backend/internal/compose/browser_flow.go browserFlowProcedures) and RunSummary.steering.pending is not read (apps/app/src/mainview/state/controller/workflow-pump.ts).
 - UI: flow-run card gains a steer composer row under the steps plus a mono strip `seat ▾ · thinking ▾ · tools ▾`; a queued steer reads `steering pending · delivered at the next turn` until control.steer.delivered.
 - Flows: `runs.steer <runId> <message>; runs.seat <runId> <provider:model>; runs.thinking <runId> <none|minimal|low|medium|high|xhigh>; runs.tools <runId> <tool,...>`
 
@@ -137,14 +137,14 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 ### control plane targets · Run flows against a local checkout's control plane or an arbitrary remote gateway (`--remote`/`--credential`, `smithers serve`, read-only Sync follower)
 
 - Source: smithers · coverage: partial · effort: M
-- Exists: The app relays only to the per-repo Smithers Cloud workspace gateway (apps/server/src/gatewayRpc.ts:22-45); local.targets runs build targets locally, not flows.
+- Exists: The app relays only to the per-repo Smithers Cloud workspace gateway (packages/backend/internal/compose/browser_flow.go); local.targets runs build targets locally, not flows.
 - UI: Connectors surface gains rows `Local Smithers control plane` (root · .flows state · serve state; one act Serve or Stop) and `Remote gateway` (URL · token in keychain · `follow-only` as a state word derived from the connection, chosen at connect, not a toggle without a flow); flow.run target grammar gains `local` and a gateway name.
 - Flows: `gateway.connect <url> [--follow]; gateway.disconnect <name> (confirm); gateway.serve [--port]; gateway.serve.stop (confirm); flow.run <name> local|<gateway>`
 
 ### control plane targets · Per-repo workspace gateway state and wake (POST /api/repos/{owner}/{repo}/gateway provision/resume; gateway-token relay)
 
 - Source: plue · coverage: partial · effort: S
-- Exists: flow-run phases `reconnecting` and `no-capacity` (packages/rpc/src/Cards.ts:286) are the only trace; the relay targets the gateway blindly (apps/server/src/gatewayRpc.ts:22-45); the control-plane targets row covers remote and local gateways, not the per-repo cloud one.
+- Exists: flow-run phases `reconnecting` and `no-capacity` (packages/rpc/src/Cards.ts:286) are the only trace; the relay targets the gateway blindly (packages/backend/internal/compose/browser_flow.go); the control-plane targets row covers remote and local gateways, not the per-repo cloud one.
 - UI: Connectors surface `cloud` row (ADR 0005 L128-133) reads `gateway · running · <version>` or `gateway · cold` from GET /health; the run-list header repeats the word; a cold gateway's one act is Wake.
 - Flows: `gateway.status [owner/repo]; gateway.wake [owner/repo]`
 
@@ -214,7 +214,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 ### runs · Deliver a named durable signal to a run parked on WaitFor (Control Signal, `smithers signal`; NoMatchingWait)
 
 - Source: smithers · coverage: none · effort: S
-- Exists: Nothing; Signal is not relayed (apps/server/src/gatewayRpc.ts:38-45).
+- Exists: Nothing; Signal is not relayed (packages/backend/internal/compose/browser_flow.go browserFlowProcedures).
 - UI: When waitingReason is `event` the flow-run card shows `waiting for signal <name>` with a Signal button that opens one JSON payload row; a NoMatchingWait error renders verbatim under it.
 - Flows: `runs.signal <runId> <name> [json]`
 
@@ -608,7 +608,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 ## Critic notes
 
-Laws applied, from the canon on disk: WORKBENCH-UX.md §2 L76-104 (EMBED LAW, NO INVENTION 'anatomy lists are exhaustive', Flows 'every act is a flow with slash, agent, and button invocations of the same name; consequential acts carry confirm', 300ms law, Copy 'no badges that are scores, mono meta rows for ids and timestamps') and apps/app/AGENTS.md L3-16 (no takeover by default; 'no decorative chrome, no status badges, no extra pills'). ADR 0002 L5-7 (three sandbox kinds, no class picker) and ADR 0005 L128-133 (Connectors rows, one action per row) were read to check conflicts. Verified in the tree: the relay allowlist is Plan, Run, Cancel, List, Projection.Snapshot, Approval.Submit (apps/server/src/gatewayRpc.ts:38-45); Flows.ts registers no issues.edit, env.unset, repo.clone, workspace.ssh, mcp.server.*, or snapshot delete; card kinds match the UI inventory (packages/rpc/src/Cards.ts z.literal list).
+Laws applied, from the canon on disk: WORKBENCH-UX.md §2 L76-104 (EMBED LAW, NO INVENTION 'anatomy lists are exhaustive', Flows 'every act is a flow with slash, agent, and button invocations of the same name; consequential acts carry confirm', 300ms law, Copy 'no badges that are scores, mono meta rows for ids and timestamps') and apps/app/AGENTS.md L3-16 (no takeover by default; 'no decorative chrome, no status badges, no extra pills'). ADR 0002 L5-7 (three sandbox kinds, no class picker) and ADR 0005 L128-133 (Connectors rows, one action per row) were read to check conflicts. Verified in the tree: the relay allowlist is Plan, Run, Cancel, List, Projection.Snapshot, Approval.Submit (packages/backend/internal/compose/browser_flow.go browserFlowProcedures); Flows.ts registers no issues.edit, env.unset, repo.clone, workspace.ssh, mcp.server.*, or snapshot delete; card kinds match the UI inventory (packages/rpc/src/Cards.ts z.literal list).
 
 (a) Twelve capabilities in the inventories that no gap row lists and the UI inventory does not plausibly cover: repo clone to a local checkout (plue commands_repo.go:306); issue title/body edit (issue PATCH, `issue edit`); issue comment edit/delete (router.go:1145-1146); variable delete + org variables (router.go:1264, 1674-1676); workspace SSH info / SSH bridge (router.go:1407, workspace_bridge.go); per-repo gateway provision/resume state (router.go:569, 579-580) which every flow-run depends on and which the `reconnecting`/`no-capacity` phases hide; sandbox-plane dispatch/invoke (router.go:1286-1291) distinct from the gateway Plan/Run path the app uses; OAuth2 consent decision (router.go:990-991); `--mcp-config` MCP servers as run flows (packages/smithers/src/NodeControl.ts:150-189); outbound channel projection post|edit|noop (packages/smithers/control/src/Channels.ts:402-456); SMITHERS_TEST_* configuration of the agent `test` flow (NodeControl.ts:764-830). Smaller misses folded into corrections rather than new rows: memory threads/messages and ttl/compaction (MemoryStore.ts:444-464, Maintenance.ts) into the memory row; push-device registration (router.go:1491-1492) into the notification-preferences row; admin orgs/repos/metrics/synced-repos (router.go:1723-1744, 1460) into the admin row; registry entry precedence ts|mdx|skill into the discovery row.
 

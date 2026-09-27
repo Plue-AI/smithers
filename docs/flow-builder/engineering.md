@@ -86,7 +86,7 @@ re-reads run summary, transcript, approvals and pages journal events every
 
 Every engine call is a relayed POST to `/api/workflow/rpc` through
 `createGatewaySeam` (`state/controller/gateway.ts:147`) with a server-side
-allowlist (`apps/server/src/gatewayRpc.ts:45`):
+allowlist (`packages/backend/internal/compose/browser_flow.go` `browserFlowProcedures`):
 
 ```
 Plan, Run, Cancel, Resume, Steer, Signal, List  → /rpc
@@ -241,7 +241,7 @@ The gateway already serves `Projection.Subscribe` over `/projections/ws` and
 `Watch` over `/rpc/ws`, cursored (`ProjectionCursor`) with snapshot-start / row /
 snapshot-end / delta / heartbeat frames and a 30 s heartbeat sized against a
 600 s relay idle cut (`GatewaySchema.ts:444`, `Projections.ts:56`). The product
-Worker's allowlist excludes both on purpose (`apps/server/src/gatewayRpc.ts:45`).
+Worker's allowlist excludes both on purpose (`packages/backend/internal/compose/browser_flow.go` `browserFlowProcedures`).
 So D-013 is scoped to `apps/server` auth, not to building a stream.
 
 ### Human-in-the-loop is already specified
