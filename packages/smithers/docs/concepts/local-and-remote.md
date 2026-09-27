@@ -43,7 +43,8 @@ to wait rather than waiting forever.
 and the composition cannot disagree.
 
 This is what makes the attached verbs behave differently across the two
-compositions. Locally, `run`, `up`, `approve`, and `deny` stay attached after
+compositions. Locally, `flow execute`, `flow start`, `approvals approve`, and
+`approvals deny` stay attached after
 the receipt is accepted, wait for the run to settle, and report the run's
 outcome as their own exit status. Against `--remote` they print the receipt and
 return, and the exit status is the receipt's alone.
@@ -57,7 +58,7 @@ Two operations are local by nature and say so rather than pretending:
   write facts the server never reads, which is worse than a refusal because it
   looks like it worked. `smthrs memory` therefore refuses against a remote
   plane.
-- **Detached launches.** `up -d` spawns a local executor, so combining it with
+- **Detached launches.** `flow start -d` spawns a local executor, so combining it with
   `--remote` or `SMITHERS_REMOTE` exits 1.
 
 `--mcp-config` is meaningless under `--remote` for the same reason: it

@@ -69,11 +69,9 @@ printf '%s\\n' "$receipt"
       "-c",
       `
 smthrs() {
-  if [ "$1" = "--json" ]; then shift; fi
-  if [ "$1" = "approvals" ]; then shift; fi
-  case "$1" in
-    logs) [ "$2" = "run-1" ] || return 2; printf '%s\\n' "$events" ;;
-    approve) [ "$3 $4" = "--scope once" ] || return 2; printf '%s\\n' "$2" ;;
+  case "$1 $2" in
+    "runs logs") [ "$3 $4" = "run-1 --json" ] || return 2; printf '%s\\n' "$events" ;;
+    "approvals approve") [ "$4 $5 $6" = "--scope once --json" ] || return 2; printf '%s\\n' "$3" ;;
     *) return 2 ;;
   esac
 }

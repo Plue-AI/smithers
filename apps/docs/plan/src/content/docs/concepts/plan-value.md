@@ -107,9 +107,9 @@ annotations, the declared effects, the priority, and each node's own conflict
 and runtime strategies. They do not cover anything presentational, and they do
 not cover a diff's attribution report.
 
-The command line prints the same projection: [`smthrs plan`](https://smithers.sh/docs/reference/cli/plan/) renders
-the plan card and the approval payload that [`smthrs approve`](https://smithers.sh/docs/reference/cli/approve/) and
-[`smthrs run`](https://smithers.sh/docs/reference/cli/run/) accept.
+The command line prints the same projection: [`smthrs flow plan`](https://smithers.sh/docs/reference/cli/flow/)
+renders the plan card and the approval payload that
+[`smthrs approvals approve`](https://smithers.sh/docs/reference/cli/approvals/) and `smthrs flow execute` accept.
 
 ## Generations
 

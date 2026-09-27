@@ -17,9 +17,7 @@ process exits on comes from the document, not from the renderer.
 - `json` is the same document with no whitespace, selected by `--json`.
 
 Object members are ordered by UTF-16 code unit in both, so a rendering is
-byte-stable across runs and machines. Two verbs force the JSON form regardless
-of the flag: `smthrs events`, the alias of `logs --json`, and the raw event
-stream under `logs --follow --json`.
+byte-stable across runs and machines.
 
 ## What a rendering accepts
 
@@ -63,7 +61,7 @@ status of the command that printed it.
 | `0` | The command did what it was asked. |
 | `1` | The command failed, or the run it reports settled `failed`. |
 | `2` | The invocation was wrong. Retype it; the message names the flag or argument. |
-| `3` | The run is parked at `waiting-approval`. Decide it with `smthrs approve` or `smthrs deny`. |
+| `3` | The run is parked at `waiting-approval`. Decide it with `smthrs approvals approve` or `smthrs approvals deny`. |
 | `130` | The run was cancelled, or the process received `SIGINT`. |
 | `143` | The process received `SIGTERM`. |
 
@@ -98,7 +96,7 @@ so a credential handed to `Effect.logInfo` reaches neither the terminal nor
 ## Resource bounds on reads
 
 A finite history read retains at most 50,000 events and 16 MiB, with a 1 MiB
-cap on any single event. `logs --follow` applies the per-event cap without
+cap on any single event. `runs logs --follow` applies the per-event cap without
 retaining prior events. Crossing a bound returns a typed `ResourceLimitError`
 naming the operation and the subject, rather than partial output.
 

@@ -142,7 +142,7 @@ it, consults the cache, and runs whatever is missing.
 
 All three sit under [`@smthrs/cli`](/api/cli), the `smthrs` command line every
 part of Smithers hangs off. That CLI runs durable agent flows with
-`smthrs plan`, `smthrs run`, and `smthrs ps`, and smithers build is the target
+`smthrs flow plan`, `smthrs flow start`, and `smthrs runs list`, and smithers build is the target
 graph for the repository those flows work in. Start there for the product as a
 whole.
 

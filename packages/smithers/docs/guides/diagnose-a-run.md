@@ -3,8 +3,8 @@ title: "Diagnose a run"
 description: "Work out why a run stopped: check the machine with doctor, read the status card, follow the transcript, print a node output, and file a bug with the digest attached."
 ---
 
-Use `doctor` to inspect the local setup, then `status`, `logs`, and `output`
-to read a run through the control plane. Those run commands also support
+Use `doctor` to inspect the local setup, then `runs show`, `runs logs`, and
+`runs output` to read a run through the control plane. Those run commands also support
 `--remote`.
 
 ## Is the machine ready?
@@ -35,10 +35,11 @@ credential.
 ## What happened to this run?
 
 ```bash
-smthrs status <run-id>
+smthrs runs show <run-id>
 ```
 
-The status card is the diagnosis, computed from the run's journal events alone:
+`runs show` returns the run and its `diagnosis`, computed from the run's
+journal events alone. The rendered diagnosis card:
 
 ```text
 Verdict   failed: Set OPENAI_API_KEY to run the openai:gpt-6-sol seat
@@ -52,18 +53,16 @@ Next      smthrs logs run-1    # turn-by-turn transcript
 Lines appear only when they have something to say. A run with refused flow
 calls gains a `Refusals` line, aggregated by message with a count, which is
 usually where a stuck agent's real problem is. A run that is still waiting
-gains an `Unblock` line, and that line is the point of the card. It carries
-the exact command that ends the wait, already quoted for a shell:
+gains an `Unblock` line, and that line is the point of the card. It names
+what ends the wait:
 
-- A run parked on an approval gets the `smthrs approve '<payload>' --scope run`
-  and `smthrs run --resume <run-id>` pair.
-- A run no executor took, which `ps` lists as `accepted` with
-  `waitingReason: "executor"` and the card calls `pending`, gets
-  `smthrs cancel <run-id>` and a note that the alternative is to run the flow
-  from the host program that registers its delegates.
-
-`smthrs inspect` and `smthrs why` are aliases of the same verb. With no run id,
-`status` prints the run listing instead.
+- A run parked on an approval:
+  `smthrs approvals approve '<payload>' --scope run`, then
+  `smthrs runs resume <run-id>`.
+- A run no executor took, which `runs list` lists as `accepted` with
+  `waitingReason: "executor"` and the card calls `pending`:
+  `smthrs runs cancel <run-id>`, or run the flow from the host program that
+  registers its delegates.
 
 ## What happens to subprocesses after a crash?
 
@@ -81,10 +80,9 @@ processes. Cleanup does not undo filesystem writes or other completed effects.
 ## What did it do, step by step?
 
 ```bash
-smthrs logs <run-id>              # the transcript
-smthrs logs <run-id> --json       # the raw event stream
-smthrs logs <run-id> --follow     # one line per event as it lands
-smthrs events <run-id>            # alias of logs --json
+smthrs runs logs <run-id>              # the transcript
+smthrs runs logs <run-id> --json       # the raw event stream
+smthrs runs logs <run-id> --follow     # one line per event as it lands
 ```
 
 The human rendering is a turn-by-turn transcript, because a transcript needs
@@ -96,16 +94,14 @@ A finite read retains at most 50,000 events and 16 MiB, with a 1 MiB cap on any
 single event, and fails with a typed resource-limit error rather than
 truncating. Follow mode applies the per-event cap without retaining history.
 
-Omit the run id to read every run's events.
-
 ## What did a step produce?
 
 ```bash
-smthrs output <run-id>             # every registered node output
-smthrs output <run-id> result      # one node
+smthrs runs output <run-id>             # every registered node output
+smthrs runs output <run-id> result      # one node
 ```
 
-`output` projects the node outputs a run registered. A node id the run does not
+`runs output` projects the node outputs a run registered. A node id the run does not
 have is a usage error naming the run, not an empty document, so a script never
 mistakes "no such node" for "no output".
 
@@ -116,7 +112,7 @@ cannot change the command's exit status.
 ## Report it
 
 ```bash
-smthrs bug "up hangs after the second turn" --run <run-id>
+smthrs bug "flow start hangs after the second turn" --run <run-id>
 ```
 
 The summary may be quoted or supplied as separate words. Omitting it prompts on a TTY;
@@ -142,5 +138,4 @@ Reports go to `https://bug.smithers.sh/api/bugs` unless
 - [Output and exit codes](../concepts/output-and-exit-codes.md): the status
   each of these commands exits on.
 - [Script the CLI](./script-the-cli.md): answering a park from a script.
-- [`smthrs status`](/cli/status), [`smthrs logs`](/cli/logs), and
-  [`smthrs doctor`](/cli/doctor): the per-verb reference.
+- [`smthrs runs`](/cli/runs) and [`smthrs doctor`](/cli/doctor): the per-verb reference.

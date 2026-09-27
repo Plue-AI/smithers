@@ -72,7 +72,7 @@ command is acting on the project you think it is.
 
 `NodeControl.layerRegistry` discovers flows from one source: `flows/` under
 the project root, named by path. A project with no `flows/` directory simply
-has no flows, and `smthrs ls` says so. Any other discovery failure, such as an
+has no flows, and `smthrs flow list` says so. Any other discovery failure, such as an
 unreadable root or a malformed entry, is a startup failure rather than a
 silently empty catalog.
 
@@ -120,13 +120,13 @@ Anything outside it is not read, including the 0.x `SMITHERS_HOME`,
 | `SMITHERS_OPENAI_AUTH` | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. |
 | `SMITHERS_TEST_COMMAND`, `SMITHERS_TEST_CONTAINER`, `SMITHERS_TEST_CWD`, `SMITHERS_TEST_TIMEOUT_MS` | What the `test` flow runs, where, and for how long. |
 | `SMITHERS_BASH_CONTAINER` | The one container `bash` may reach. Any other `bash` call fails with `outside_container`, and the host filesystem flows are not offered. |
-| `SMITHERS_ASKS` | `park` or `refuse`, what an in-run `ask` does. Unset is `park`: the run waits for `smithers approve`. `refuse` is for a host nobody answers, such as a benchmark or CI lane: the ask fails at once with `ApprovalUnavailable` and the run continues. Any other value refuses to start. |
+| `SMITHERS_ASKS` | `park` or `refuse`, what an in-run `ask` does. Unset is `park`: the run waits for `smthrs approvals approve`. `refuse` is for a host nobody answers, such as a benchmark or CI lane: the ask fails at once with `ApprovalUnavailable` and the run continues. Any other value refuses to start. |
 | `SMITHERS_MEMORY_DB` | Path of a separate SQLite file for the memory store. Runs that name the same file share one memory bank, and only then does the supervisor write accepted sentences to it. Without it, the bank is named after the workspace and the supervisor writes nothing. |
 | `SMITHERS_SUPERVISOR_STANCE` | `careful` or `paranoid`, the stance a judged run is taught. Unset is `careful`; any other value refuses to start. |
 | `SMITHERS_BUG_ENDPOINT` | Where `smthrs bug` posts its report. |
 | `SMITHERS_JJ_PATH` | Explicit path to the `jj` binary. |
 | `SMITHERS_PYTHON3` | Absolute CPython 3 path for the Node and Bun control hosts' filesystem helper. Unset or empty uses `/usr/bin/python3`; relative paths fail startup. `PATH` is never searched. |
-| `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | How long `up -d` waits for its child's admission line. |
+| `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | How long `flow start -d` waits for its child's admission line. |
 | `SMITHERS_INSIDE_RUN`, `SMITHERS_RUN_ID` | Set on an agent process by the engine. Both keep their 0.x meaning. |
 
 ## HTTP proxies

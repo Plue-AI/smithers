@@ -182,7 +182,7 @@ submission of the same decision lands one effect.
 
 ## From the command line
 
-The same decision from a terminal is [`smthrs approve`](https://smithers.sh/docs/reference/cli/approve/) and
-[`smthrs deny`](https://smithers.sh/docs/reference/cli/deny/), which take the same payload the projection
+The same decision from a terminal is [`smthrs approvals approve`](https://smithers.sh/docs/reference/cli/approvals/) and
+`smthrs approvals deny`, which take the same payload the projection
 publishes. For the domain semantics behind both, see
 [Approvals](https://control.smithers.sh/guides/approvals/).

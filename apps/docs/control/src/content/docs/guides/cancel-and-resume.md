@@ -114,8 +114,8 @@ mechanism. An `Accepted` receipt does not establish that execution started.
 
 ## What the CLI does
 
-[`smthrs cancel`](https://smithers.sh/docs/reference/cli/cancel/) and [`smthrs down`](https://smithers.sh/docs/reference/cli/down/) both reach
-`cancel`; [`smthrs run --resume`](https://smithers.sh/docs/reference/cli/run/) reaches `resume`. Both record the
+[`smthrs runs cancel`](https://smithers.sh/docs/reference/cli/runs/) and `smthrs runs cancel-all` both reach
+`cancel`; [`smthrs runs resume`](https://smithers.sh/docs/reference/cli/runs/) reaches `resume`. Both record the
 principal the CLI authenticated, so `RunSummary.cancellation.principal` names a
 person rather than a process.
 

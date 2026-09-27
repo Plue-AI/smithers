@@ -201,7 +201,7 @@ aliases. JSON approval payloads passed to `run`, and `run --resume`, still
 route to the old handler. Prefer `flow execute` and `runs resume` in new
 scripts. The Claude mirror protocol is hidden as `internal claude`.
 
-## Compatibility verb pages
+## Command pages
 
 Every canonical command has a page generated from its `--help` at
 [smithers.sh/docs/reference/cli](https://smithers.sh/docs/reference/cli/), with

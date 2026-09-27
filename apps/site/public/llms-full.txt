@@ -17434,7 +17434,7 @@ The closed set of variables rc.0 reads.
 
 ## Detached
 
-The `up -d` launch.
+The `flow start -d` launch.
 
 | Export | Signature | Meaning |
 | --- | --- | --- |
@@ -17476,9 +17476,9 @@ Read-only projections of a run's events. Nothing here opens a database, so
 | `Refusal` | `{ message, count }` | One refused flow call, aggregated by message. |
 | `Digest` | interface | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output. |
 | `digest` | `(events) => Digest` | Computes it. Missing or malformed fields become optional or zero values rather than failing. |
-| `renderDiagnosis` | `(run, digest) => string` | The `smthrs status` card: verdict, activity, refusals, cause, and the exact next commands. |
+| `renderDiagnosis` | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, cause, and the exact next commands. |
 | `eventLine` | `(event) => string` | One follow-mode line. |
-| `renderTranscript` | `(events) => string` | The turn-by-turn transcript `smthrs logs` prints. |
+| `renderTranscript` | `(events) => string` | The turn-by-turn transcript `smthrs runs logs` prints. |
 | `shellQuote` | `(value) => string` | Quotes a value for the card's copy-paste commands. |
 
 ## NodeOutput
@@ -17766,7 +17766,7 @@ or other discovered metadata requires a new plan and approval.
 | `RunSummary`   | The projection every listing returns. Required: `runId`, `flowId`, `status`, `createdAt`, `updatedAt`. Optional: `planId`, `planDigest`, `ownerId`, `parentRunId`, `lineageId`, `roundOrdinal`, `origin`, `waitingReason`, `steering`, `pendingResume`, `parkedBy`, `cancellation`. |
 
 `waitingReason` is the run row's own column, written by the engine and only
-read here. The CLI's `ps` and `status` listings also render `executor` in that
+read here. The CLI's `runs list` and `runs show` also render `executor` in that
 position for a run that has sat at `accepted` with no owner past the launch
 handoff window; that value is computed at render time and never stored, so a
 reader going through the RPC, the gateway, or a plugin sees the field absent on

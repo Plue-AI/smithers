@@ -15,7 +15,7 @@ indentation, so both carry the same members in the same order, but only the
 compact form is meant for a parser.
 
 ```bash
-plan="$(smthrs --json plan deploy/status branch=main)"
+plan="$(smthrs flow plan deploy/status branch=main --json)"
 approval="$(printf '%s' "$plan" | jq -c '.approval')"
 ```
 
@@ -24,21 +24,20 @@ all go to stderr, so a parse never trips over a diagnostic. Redirect stderr
 when you want it:
 
 ```bash
-smthrs --json ps 2>/dev/null
+smthrs runs list --json 2>/dev/null
 ```
 
 Add `--quiet` when banners or progress on stderr are unwanted. It never
-suppresses the stdout document, so `smthrs --json --quiet ps` remains valid
+suppresses the stdout document, so `smthrs runs list --json --quiet` remains valid
 input to a JSON parser.
 
-Presentation flags can appear before or after a transition alias. `--silent`,
-`--verbose`, and `--audience human` preserve the retained fork workspace for
-`resume <run-id>` and `run <run-id> --resume`.
+`--silent`, `--verbose`, and `--audience human` preserve the retained fork
+workspace for `runs resume <run-id>`.
 
 ## Branch on the status
 
 ```bash
-smthrs run "$approval" --json
+smthrs flow execute "$approval" --json
 case $? in
   0)   echo "run completed" ;;
   1)   echo "run failed, or the command did"; exit 1 ;;
@@ -87,20 +86,17 @@ the existing run; it needs no new `flow execute` submission:
 
 ```bash
 run_id="$(printf '%s' "$receipt" | jq -r '.runId')"
-ask="$(smthrs --json logs "$run_id" \
+ask="$(smthrs runs logs "$run_id" --json \
   | jq -c 'map(select(.kind == "control.approval.requested")) | last | .payload.payload')"
-smthrs --json approvals approve "$ask" --scope once
+smthrs approvals approve "$ask" --scope once --json
 ```
 
 `--scope` decides how far the grant reaches: `once` answers this ask alone,
-`run` covers the whole run, and `remembered` covers every later run. Both
-`smthrs approvals approve` and its `smthrs approve` compatibility spelling
-default to `run`, matching what `smthrs up` grants itself. The compatibility
-MCP `resolve_approval` tool defaults to `once`. Pass the scope explicitly in scripts.
+`run` covers the whole run, and `remembered` covers every later run.
+`smthrs approvals approve` defaults to `run`, matching what `smthrs flow start`
+grants itself. The compatibility MCP `resolve_approval` tool defaults to `once`. Pass the scope explicitly in scripts.
 
-`smthrs status <run-id>` prints the approval command and a resume command on
-its `Unblock` line, already quoted for a shell. Use `smthrs runs resume
-<run-id>` to retry taking up a run if its approval was recorded without an
+Use `smthrs runs resume <run-id>` to retry taking up a run if its approval was recorded without an
 executor available to resume it.
 
 ## Retry safely
@@ -111,31 +107,31 @@ performing the operation twice.
 
 | Verb | Key |
 | --- | --- |
-| `cancel` | `cli:cancel:<run-id>` |
-| `signal` | `cli:signal:<run-id>:<payload digest>` |
-| `steer` | `cli:steer:<run-id>:<uuid>` |
-| `approve`, `deny` | The `idempotencyKey` member of the payload you pass |
+| `runs cancel` | `cli:cancel:<run-id>` |
+| `runs signal` | `cli:signal:<run-id>:<payload digest>` |
+| `runs steer` | `cli:steer:<run-id>:<uuid>` |
+| `approvals approve`, `approvals deny` | The `idempotencyKey` member of the payload you pass |
 
-`signal` includes the payload digest because two different signals to one run
+`runs signal` includes the payload digest because two different signals to one run
 are two mutations. Sending the identical payload twice replays the first
 receipt; sending a different one delivers a second signal.
 
-`steer` mints a fresh key per invocation, so two identical steering messages
+`runs steer` mints a fresh key per invocation, so two identical steering messages
 are two messages.
 
 ## Wait for a run without polling
 
 ```bash
-smthrs logs "$run_id" --follow
+smthrs runs logs "$run_id" --follow
 ```
 
 Follow mode streams one line per event as it lands, and applies the per-event
-1 MiB cap without retaining prior events. A finite read (`smthrs logs
+1 MiB cap without retaining prior events. A finite read (`smthrs runs logs
 <run-id>`) retains at most 50,000 events and 16 MiB and fails with a typed
 resource-limit error rather than truncating.
 
-Attached `run` and `up` wait for settlement when this process owns the
-executor. `approve` and `deny` wait when deciding an in-run Node approval;
+Attached `flow execute` and `flow start` wait for settlement when this process
+owns the executor. `approvals approve` and `approvals deny` wait when deciding an in-run Node approval;
 a Plan decision has no run to wait for.
 
 ## In CI
@@ -150,8 +146,7 @@ a Plan decision has no run to wait for.
   array.
 - Use `smthrs runs cancel-all --root "$project_root" --json` in an always-run
   step, with `project_root` set to the job's project directory. It reads every
-  page and cancels every nonterminal run through one control connection. The
-  legacy `down` alias uses the same cancellation operation. Use
+  page and cancels every nonterminal run through one control connection. Use
   `smthrs gc --older-than <duration>` to bound how much the databases keep.
 
 ## See also

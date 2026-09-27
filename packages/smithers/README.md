@@ -27,7 +27,6 @@ With pnpm installed and a provider key configured, initialize a workspace, disco
 
 ```sh
 smthrs init hello
-pnpm add --save-dev @smthrs/cli@1.0.0-rc.0 @smthrs/targets@1.0.0-rc.0
 pnpm exec smthrs targets
 pnpm exec smthrs flow plan hello
 pnpm exec smthrs flow start hello
@@ -35,11 +34,11 @@ pnpm exec smthrs runs list
 pnpm exec smthrs runs logs <run-id> --follow
 ```
 
-The dependency install applies after publication; before then, use the [source checkout](https://smithers.sh/docs/installation/#install-the-cli) and its workspace dependencies. `init` can use a global CLI. Target commands must use the workspace-local CLI so declarations and the loader resolve the same physical Effect and Smithers packages; matching versions in a separate global installation are insufficient.
+[Install the CLI](https://smithers.sh/docs/installation/#install-the-cli) in the workspace before the `pnpm exec` steps. `init` can use a global CLI. Target commands must use the workspace-local CLI so declarations and the loader resolve the same physical Effect and Smithers packages; matching versions in a separate global installation are insufficient.
 
 `init` creates workspace and target declarations plus `flows/hello/flow.mdx`, preserving existing files. `flow plan` compiles without execution; `flow start` plans, approves, and starts the flow. Use `flow execute <payload>` to execute a separately approved plan. Top-level `run <pattern>` executes run-kind targets, while `runs` manages durable flow execution records.
 
-When a run parks, `approvals list` returns its exact approval payload; submit it to `approvals approve`, then use `runs resume <run-id>`. A run parked on a QUESTION is listed the same way, including when a nested execution several `.child()` boundaries down is the one holding it: the entry names the open wait and what it asked. Answer it with `signal <run-id> '{"name":"<the question>","payload":...}'`, which the control plane routes to the execution holding the wait. A launch without a configured provider key is refused with the missing variable named.
+When a run parks, `approvals list` returns its exact approval payload; submit it to `approvals approve`, then use `runs resume <run-id>`. A run parked on a QUESTION is listed the same way, including when a nested execution several `.child()` boundaries down is the one holding it: the entry names the open wait and what it asked. Answer it with `runs signal <run-id> '{"name":"<the question>","payload":...}'`, which the control plane routes to the execution holding the wait. A launch without a configured provider key is refused with the missing variable named.
 
 ## Command groups
 
@@ -195,7 +194,7 @@ rc.0 reads a closed set of variables, all listed by `Environment.names`. The one
 | `SMITHERS_MCP_CONFIG`                    | Fallback for `--mcp-config`.                                                          |
 | `SMITHERS_CREDENTIAL_KEY`                | Base64-encoded 32-byte host key for encrypted credential add, rotate, and resolution. |
 | `SMITHERS_BACKEND`                       | SQLite only. Any other value exits 1 with `unsupported_database`.                     |
-| `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | How long `up -d` waits for its child to report admission.                             |
+| `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | How long `flow start -d` waits for its child to report admission.                             |
 
 Provider keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY`) are read by the seat resolver, not by the CLI itself. `smthrs doctor` reports which are present.
 

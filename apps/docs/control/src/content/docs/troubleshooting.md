@@ -74,7 +74,7 @@ Do not retry in a loop. Read the run's `ownerId` and `parkedBy`, and see
 ### `NoMatchingWait` (`no_matching_wait`)
 
 The signal named a wait point the run does not have open. The message says
-which run and which name, and points at `smthrs status <run>`. The run is
+which run and which name; `smthrs runs show <run>` shows what it waits for. The run is
 parked on something else, so completing this wait would deliver nothing.
 
 ### `InvalidInput` (`invalid_input`)

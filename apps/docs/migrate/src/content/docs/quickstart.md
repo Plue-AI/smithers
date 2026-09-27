@@ -142,11 +142,11 @@ registry discovery over the final tree. Run them again yourself, then check
 that the flows are discoverable:
 
 ```bash
-smthrs ls
+smthrs flow list
 smthrs doctor
 ```
 
-`smthrs ls` lists the flows discovered under the project. A migrated workflow
+`smthrs flow list` lists the flows discovered under the project. A migrated workflow
 that does not appear is a flow nobody can run; the report's Verification
 section names the discovery warning that explains why.
 

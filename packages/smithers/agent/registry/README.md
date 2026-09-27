@@ -125,7 +125,7 @@ const host = NodeRuntime.layerHost(
 every installed pack, under one refreshable first-found registry.
 `Executable.layer` registers everything runnable, logs a warning naming each
 refusal, and provides the whole `Catalog` as a service, so a host can print what
-it declined instead of letting an operator find out from `smthrs up <flow>`.
+it declined instead of letting an operator find out from `smthrs flow start <flow>`.
 
 It also provides `Executable.Refresh`. A flow written or edited after the host
 started has a descriptor and no executable, and `refresh.flow(name)` rebuilds

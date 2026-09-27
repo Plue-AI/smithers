@@ -175,7 +175,7 @@ engine database, so a run that exists only there is invisible here. Event reads
 alone cannot distinguish an unknown run from an empty run, so the gateway checks
 existence through `Control.list`. An existing run with no events projects successfully.
 
-**Fix** Confirm the run with `Control.list`, or [`smthrs ps`](https://smithers.sh/docs/reference/cli/ps/). If the
+**Fix** Confirm the run with `Control.list`, or [`smthrs runs list`](https://smithers.sh/docs/reference/cli/runs/). If the
 run is in the engine database but not the control plane, the launch never
 reached the control plane and the gateway is reporting that correctly.
 
@@ -313,7 +313,7 @@ carries none. The run stays parked on the wait it opened.
 **Fix** Submit the value in `Approval.Submit`'s `answer`, shaped for the
 `kind` the row's `request` declares. The mount routes it to `Control.signal`
 addressed to the row's `runId` and naming its `requestId`, and the control
-plane resolves the wait wherever in the tree it is held. `smthrs signal <root
+plane resolves the wait wherever in the tree it is held. `smthrs runs signal <root
 run> '{"name":"<the question>","payload":…}'` is the same act from a terminal.
 
 ### The workspace listing stops at 500 runs

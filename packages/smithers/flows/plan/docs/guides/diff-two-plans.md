@@ -91,8 +91,8 @@ work that will not come from cache, and `unchanged` is everything a cache hit
 will skip.
 
 The command line prints the same comparison through
-[`smthrs plan`](/cli/plan), and the plan card it renders is what
-[`smthrs approve`](/cli/approve) binds a decision to.
+[`smthrs flow plan`](/cli/flow), and the plan card it renders is what
+[`smthrs approvals approve`](/cli/approvals) binds a decision to.
 
 ## Next
 

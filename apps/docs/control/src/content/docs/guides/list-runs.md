@@ -155,5 +155,5 @@ when it shares a database with the engine. See
 - [Watch a run's events](/guides/watch-a-run/): the same runs, as they change.
 - [Run lineage](/concepts/lineage/): what `parentRunId` and `lineageId`
   select.
-- [`smthrs ps`](https://smithers.sh/docs/reference/cli/ps/) and [`smthrs status`](https://smithers.sh/docs/reference/cli/status/): the operator
+- [`smthrs runs list`](https://smithers.sh/docs/reference/cli/runs/) and `smthrs runs show`: the operator
   surface over this verb.

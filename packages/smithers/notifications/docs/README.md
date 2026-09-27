@@ -111,9 +111,9 @@ has several. See
 
 This package is one of the pieces behind [`@smthrs/cli`](/api/cli), the `smthrs`
 command line that plans, runs, and inspects durable flows. Running
-`smthrs steer <run-id> --message "..."` admits a `human-steer` notification to
+`smthrs runs steer <run-id> --message "..."` admits a `human-steer` notification to
 this queue under a stable message id, and the run reads it when its next turn
-closes. `smthrs ps` fills in each run's pending steer count from the same fold
+closes. `smthrs runs list` fills in each run's pending steer count from the same fold
 `drain` uses, which is why a listing never reports a delivered message as still
 waiting.
 

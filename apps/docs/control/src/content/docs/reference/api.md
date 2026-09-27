@@ -126,7 +126,7 @@ or other discovered metadata requires a new plan and approval.
 | `RunSummary`   | The projection every listing returns. Required: `runId`, `flowId`, `status`, `createdAt`, `updatedAt`. Optional: `planId`, `planDigest`, `ownerId`, `parentRunId`, `lineageId`, `roundOrdinal`, `origin`, `waitingReason`, `steering`, `pendingResume`, `parkedBy`, `cancellation`. |
 
 `waitingReason` is the run row's own column, written by the engine and only
-read here. The CLI's `ps` and `status` listings also render `executor` in that
+read here. The CLI's `runs list` and `runs show` also render `executor` in that
 position for a run that has sat at `accepted` with no owner past the launch
 handoff window; that value is computed at render time and never stored, so a
 reader going through the RPC, the gateway, or a plugin sees the field absent on

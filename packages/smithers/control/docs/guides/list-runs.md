@@ -154,5 +154,5 @@ when it shares a database with the engine. See
 - [Watch a run's events](./watch-a-run.md): the same runs, as they change.
 - [Run lineage](../concepts/lineage.md): what `parentRunId` and `lineageId`
   select.
-- [`smthrs ps`](/cli/ps) and [`smthrs status`](/cli/status): the operator
+- [`smthrs runs list`](/cli/runs) and `smthrs runs show`: the operator
   surface over this verb.

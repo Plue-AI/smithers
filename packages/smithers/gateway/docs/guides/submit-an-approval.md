@@ -181,7 +181,7 @@ submission of the same decision lands one effect.
 
 ## From the command line
 
-The same decision from a terminal is [`smthrs approve`](/cli/approve) and
-[`smthrs deny`](/cli/deny), which take the same payload the projection
+The same decision from a terminal is [`smthrs approvals approve`](/cli/approvals) and
+`smthrs approvals deny`, which take the same payload the projection
 publishes. For the domain semantics behind both, see
 [Approvals](/pkg/control/guides/approvals).

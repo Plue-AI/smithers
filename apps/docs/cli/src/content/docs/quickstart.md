@@ -86,7 +86,7 @@ export AI_GATEWAY_API_KEY=vck_...
 Confirm the flow is discoverable:
 
 ```bash
-smthrs ls
+smthrs flow list
 ```
 
 ```text
@@ -107,24 +107,25 @@ is why `description` comes before `flowId`.
 ## Plan the flow
 
 ```bash
-smthrs plan hello
+smthrs flow plan hello
 ```
 
-`plan` creates no run. It asks the control plane to plan the flow and prints
+`flow plan` creates no run. It asks the control plane to plan the flow and prints
 the plan card: the plan id, the content digest, the canonical summary of the
 input, the capability envelope, the node graph, and an `approval` member. That
-`approval` member is the payload `approve`, `deny`, and `run` accept unchanged.
+`approval` member is the payload `approvals approve`, `approvals deny`, and `flow execute` accept
+unchanged.
 
 Capture it for the next two steps:
 
 ```bash
-approval="$(smthrs --json plan hello | jq -c '.approval')"
+approval="$(smthrs flow plan hello --json | jq -c '.approval')"
 ```
 
 ## Submit it, and watch it park
 
 ```bash
-smthrs run "$approval"
+smthrs flow execute "$approval"
 echo "exit: $?"
 ```
 
@@ -140,27 +141,27 @@ alone: the run did not fail, it is waiting for a decision.
 ## Approve it, then run it
 
 ```bash
-smthrs approve "$approval" --scope run
+smthrs approvals approve "$approval" --scope run
 ```
 
 ```text
 {"_tag":"Accepted","receiptId":"approve:plan-1"}
 ```
 
-`approve` records the grant. It does not launch: the receipt carries no
-`runId`, and `smthrs ps` still lists nothing. Submit the same payload again,
+`approvals approve` records the grant. It does not launch: the receipt carries no
+`runId`, and `smthrs runs list` still lists nothing. Submit the same payload again,
 and this time the grant is there:
 
 ```bash
-smthrs run "$approval"
+smthrs flow execute "$approval"
 echo "exit: $?"
 ```
 
 `--scope run` grants this launch and the whole run it starts, which is the same
-grant `smthrs up` makes for itself. `once` grants a single ask, and
+grant `smthrs flow start` makes for itself. `once` grants a single ask, and
 `remembered` grants every later run.
 
-Because this process owns the executor, `run` stays attached after the receipt
+Because this process owns the executor, `flow execute` stays attached after the receipt
 is accepted, waits for the run to settle, and reports the run's outcome as its
 own exit status: 0 for `completed`, 1 for `failed`, 130 for `cancelled`, 3 if
 it parks again on an in-run ask.
@@ -175,10 +176,10 @@ LaunchFailed: Set OPENAI_API_KEY to run the openai:gpt-6-sol seat
 ## Read the run back
 
 ```bash
-smthrs ps
+smthrs runs list
 ```
 
-`ps` lists durable runs with their status, and `--status` filters on the seven
+`runs list` lists durable runs with their status, and `--status` filters on the seven
 statuses the release pins: `accepted`, `running`, `parked`,
 `waiting-approval`, `cancelled`, `completed`, and `failed`. An eighth value is
 a usage error, not an empty list.
@@ -186,25 +187,25 @@ a usage error, not an empty list.
 Take the run id from that listing and read what happened:
 
 ```bash
-smthrs status <run-id>     # the diagnosis card: what it did, and what to do next
-smthrs logs <run-id>       # the transcript; --json is the raw event stream
-smthrs output <run-id>     # every registered node output
+smthrs runs show <run-id>     # the diagnosis: what it did, and what to do next
+smthrs runs logs <run-id>     # the transcript; --json is the raw event stream
+smthrs runs output <run-id>   # every registered node output
 ```
 
-`logs --follow` streams events as they land instead of rendering a transcript.
-`output <run-id> <node-id>` prints one node's output; a node id the run does
+`runs logs --follow` streams events as they land instead of rendering a transcript.
+`runs output <run-id> <node-id>` prints one node's output; a node id the run does
 not have is a usage error naming the run, not an empty document.
 
 ## Do it in one command next time
 
-The plan, approve, run sequence collapses into one verb when the plan needs no
+The plan, approve, execute sequence collapses into one command when the plan needs no
 human review:
 
 ```bash
-smthrs up hello --data '{"args":"Describe how durable runs work"}'
+smthrs flow start hello --data '{"args":"Describe how durable runs work"}'
 ```
 
-`up` plans the flow, grants the plan's own approval at `run` scope, and submits
+`flow start` plans the flow, grants the plan's own approval at `run` scope, and submits
 it. Attached, it waits for the run to settle and exits with the run's status.
 With `-d` it launches a child process that outlives it and prints the run id
 and log path instead. See [Launch a detached run](/guides/launch-a-detached-run/).
@@ -212,20 +213,21 @@ and log path instead. See [Launch a detached run](/guides/launch-a-detached-run/
 ## Clean up
 
 ```bash
-smthrs down                            # cancel every non-terminal run
+smthrs runs cancel-all                 # cancel every non-terminal run
 smthrs gc --older-than 1s --dry-run    # report what retention would delete
 smthrs gc --older-than 1s              # delete it
 ```
 
-`down` is a list followed by a cancel, so running it twice is a no-op rather
+`runs cancel-all` is a list followed by a cancel, so running it twice is a no-op rather
 than an error. `gc` refuses `--older-than 0s`: deleting everything is not a
 retention policy, and it is the easiest value to type by accident.
 
 ## What just happened
 
 One project directory anchored every command on the same two SQLite files, so
-the run `run` started is the run `ps` listed and `gc` deleted. The approval you
-passed to `run` and `approve` was the same serialized payload `plan` printed,
+the run `flow execute` started is the run `runs list` listed and `gc` deleted.
+The approval you passed to `flow execute` and `approvals approve` was the same
+serialized payload `flow plan` printed,
 which is why another local operator process or explicitly delegated remote
 operator can decide a park this shell created. The MCP surface can inspect
 pending approvals but refuses approval and denial decisions.

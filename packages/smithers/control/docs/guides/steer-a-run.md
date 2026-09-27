@@ -134,5 +134,5 @@ transcript, which is exactly where a spoofed name would be read as truth.
 - [Watch a run's events](./watch-a-run.md): where both moments show up.
 - [Deliver a signal to a waiting run](./signal-a-run.md): the other way to
   reach a parked run, and why it is not the same thing.
-- [`smthrs steer`](/cli/steer) and
+- [`smthrs runs steer`](/cli/runs) and
   [steering on smithers.sh](/docs/guides/steering/): the operator surface.

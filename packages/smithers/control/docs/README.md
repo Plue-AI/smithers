@@ -38,9 +38,9 @@ shell.
 ## How it relates to the smthrs CLI
 
 [`@smthrs/cli`](/api/cli) is the `smthrs` command line, and it is a host over
-this package. `smthrs plan`, `smthrs approve`, `smthrs run`, `smthrs ps`, and
-`smthrs cancel` are each one call into the `Control` service defined here and
-into nothing else, which is why the same verb answers the same way against a
+this package. `smthrs flow plan`, `smthrs approvals approve`, `smthrs flow execute`,
+`smthrs runs list`, and `smthrs runs cancel` are each one call into the `Control` service defined here and
+into nothing else, which is why the same command answers the same way against a
 local project directory and against a remote plane: run the CLI with `--remote`
 and it provides `ControlClient.layer` in place of the in-process
 implementation, and no verb notices the difference.

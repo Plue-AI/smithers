@@ -106,7 +106,7 @@ A cell asks a person through the `ask` flow. The session gates it in the
 `authorize` hook, before the durable boundary opens: it registers an in-run
 approval token with the control plane, journals the exact
 `control.approval.requested` payload an operator replays through
-`smthrs approve`, and fails the call with an encoded
+`smthrs approvals approve`, and fails the call with an encoded
 `Permission.PermissionRequired`, which the controller turns into a real durable
 park annotated `reason: "approval"`. `Control.approve` records `Approved` and
 installs the grant; `Control.deny` records `Denied`. The resumed ask reads that

@@ -113,8 +113,8 @@ mechanism. An `Accepted` receipt does not establish that execution started.
 
 ## What the CLI does
 
-[`smthrs cancel`](/cli/cancel) and [`smthrs down`](/cli/down) both reach
-`cancel`; [`smthrs run --resume`](/cli/run) reaches `resume`. Both record the
+[`smthrs runs cancel`](/cli/runs) and `smthrs runs cancel-all` both reach
+`cancel`; [`smthrs runs resume`](/cli/runs) reaches `resume`. Both record the
 principal the CLI authenticated, so `RunSummary.cancellation.principal` names a
 person rather than a process.
 

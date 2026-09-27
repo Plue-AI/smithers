@@ -98,7 +98,7 @@ target that ran when you expected a cache hit is a question for this site.
 
 Both sit under [`@smthrs/cli`](/api/cli), the `smthrs` command line and the
 package the rest of Smithers hangs off. That CLI runs durable agent flows:
-`smthrs plan`, `smthrs run`, `smthrs ps`. Targets are opaque, schema-backed
+`smthrs flow plan`, `smthrs flow start`, `smthrs runs list`. Targets are opaque, schema-backed
 declarations. Build-cli plans their inputs and keys; native rules use package
 executors, while declaration bodies cross the explicit `Target.plan` boundary
 inside an executor-owned Flow. If you arrived from a search result and want the product

@@ -102,7 +102,7 @@ everything that decides what is callable at all.
 Both sit under the `smthrs` command line,
 [`@smthrs/cli`](https://cli.smithers.sh/reference/api/), which builds this registry over your project's
 `flows/` directory at startup. Every verb that names a flow, including
-[`smthrs up`](https://smithers.sh/docs/reference/cli/up/) and [`smthrs doctor`](https://smithers.sh/docs/reference/cli/doctor/), answers from that
+[`smthrs flow`](https://smithers.sh/docs/reference/cli/flow/) and [`smthrs doctor`](https://smithers.sh/docs/reference/cli/doctor/), answers from that
 one catalog.
 
 ## The package at a glance

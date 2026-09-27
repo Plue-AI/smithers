@@ -74,10 +74,10 @@ shows the canonical surface only:
 
 | Alias | Canonical form |
 | --- | --- |
-| `resume <run-id>` | `run --resume <run-id>` |
-| `workflow list` | `ls` |
-| `inspect`, `why` | `status` |
-| `events` | `logs --json` |
+| `resume <run-id>` | `runs resume <run-id>` |
+| `workflow list` | `flow list` |
+| `inspect`, `why` | `runs show` |
+| `events` | `runs logs --json` |
 | `gateway` | `serve` |
 
 ## The global flags
@@ -138,7 +138,7 @@ Three refusals behave slightly differently, and each is deliberate:
   `gateway stop` refuse. It is registered as a command group rather than an
   alias because an alias has no subcommands, and `gateway status` would
   otherwise reach the parser as a stray positional argument.
-- `workflow list` survives as the `ls` alias, so only the other `workflow`
+- `workflow list` survives as a `flow list` alias, so only the other `workflow`
   subcommands refuse.
 - `--backend sqlite` names the one backend that ships and is accepted as a
   no-op. Any other value, from the flag or from `SMITHERS_BACKEND`, exits 1
@@ -154,9 +154,8 @@ launch would park with nothing to run.
 
 The reference for each verb, with its arguments, flags, output, exit codes, and
 verbatim `--help` text, is on smithers.sh under `/cli/<verb>`: for example
-[`smthrs plan`](/cli/plan), [`smthrs run`](/cli/run), and
-[`smthrs up`](/cli/up). Those pages are generated from the parser the
+[`smthrs flow`](/cli/flow), [`smthrs runs`](/cli/runs), and
+[`smthrs approvals`](/cli/approvals). Those pages are generated from the parser the
 executable runs, so they describe the binary you installed.
 
-This site carries longer pages for the three verbs that start a run. See
-[the CLI reference index](../reference/cli/README.md).
+See [the CLI reference index](../reference/cli/README.md).

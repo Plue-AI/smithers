@@ -82,13 +82,13 @@ ignores it. Two adapters run that loop, and neither reimplements it:
 ## How this fits with the smithers CLI
 
 Most people meet this agent through [`@smthrs/cli`](https://cli.smithers.sh/reference/api/), the `smthrs`
-command line. Running `smthrs up my-flow` against a prompt flow composes
+command line. Running `smthrs flow start my-flow` against a prompt flow composes
 `AgentSession` from this package as the run executor, resolves the flow's
 declared seat against the provider keys in your environment, and binds the
-standard capability flows. The operator verbs then act on that run:
-[`smthrs steer`](https://smithers.sh/docs/reference/cli/steer/) delivers a message the loop drains at its next
-frame boundary, and [`smthrs approve`](https://smithers.sh/docs/reference/cli/approve/) answers the approval a cell
-asked a person for.
+standard capability flows. The operator commands then act on that run:
+[`smthrs runs steer`](https://smithers.sh/docs/reference/cli/runs/) delivers a message the loop drains at its
+next frame boundary, and [`smthrs approvals approve`](https://smithers.sh/docs/reference/cli/approvals/) answers
+the approval a cell asked a person for.
 
 Install `@smthrs/agent` directly when you are embedding the loop in a program of
 your own: a host with its own control plane, or a flow that wants one

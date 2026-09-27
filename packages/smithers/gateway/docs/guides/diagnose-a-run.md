@@ -10,7 +10,7 @@ fields are the whole diagnosis:
 
 - `verdict`: one line, the status plus the reason that most explains it.
 - `diagnosis`: the whole card, folded by `Diagnosis.digest`, which is also
-  what [`smthrs status`](/cli/status) folds. The terminal card adds lines a
+  what [`smthrs runs show`](/cli/runs) folds. The terminal card adds lines a
   client does not need, such as the command that unblocks a parked run, so the
   two read the same facts and print different cards.
 
@@ -111,5 +111,5 @@ alone, and `width` 0 or any negative width is the empty string.
 `run-tree` and `node-output` answer the next two questions a diagnosis raises:
 which calls the run made, and what one of them produced. Both key their rows by
 the ordinal a call opened on, so a node id from the tree is a node id
-[`smthrs output`](/cli/output) accepts. See
+[`smthrs runs output`](/cli/runs) accepts. See
 [Projections](../concepts/projections.md#how-a-node-gets-its-id).

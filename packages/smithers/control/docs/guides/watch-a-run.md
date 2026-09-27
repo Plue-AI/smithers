@@ -133,4 +133,4 @@ A watch of a run that does not exist is not an error. The partition is empty.
 - [Journal projections](../concepts/projections.md): partitions, the handoff,
   and the full list of kinds the plane writes.
 - [Find runs and page through them](./list-runs.md): the point-in-time view.
-- [`smthrs logs`](/cli/logs): the operator surface over this verb.
+- [`smthrs runs logs`](/cli/runs): the operator surface over this verb.

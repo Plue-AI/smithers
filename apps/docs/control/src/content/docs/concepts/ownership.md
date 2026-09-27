@@ -96,7 +96,7 @@ It creates no `pendingResumes` entry for host polling.
 
 A decision on an in-run approval restarts the run server-side, and the process
 that decides is usually not the process hosting the execution: an operator's
-`smthrs approve`, a gateway, a second CLI.
+`smthrs approvals approve`, a gateway, a second CLI.
 
 So the intent is recorded durably rather than published in process:
 

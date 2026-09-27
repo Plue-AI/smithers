@@ -45,17 +45,17 @@ Scaffold a flow, plan it, approve the plan, and run it:
 
 ```bash
 smthrs init hello
-smthrs ls
-approval="$(smthrs --json plan hello | jq -c '.approval')"
-smthrs --json approve "$approval" --scope run
-smthrs --json run "$approval"
-smthrs ps
+smthrs flow list
+approval="$(smthrs flow plan hello --json | jq -c '.approval')"
+smthrs approvals approve "$approval" --scope run --json
+smthrs flow execute "$approval" --json
+smthrs runs list
 ```
 
-`smthrs plan` creates no run. It prints a plan card whose `approval` member is
-the payload `approve`, `deny`, and `run` accept unchanged, which is why the
-same string appears twice above. `smthrs up hello` collapses all three steps
-into one verb. [Quickstart](/quickstart/) walks the loop to a settled run
+`smthrs flow plan` creates no run. It prints a plan card whose `approval`
+member is the payload `approvals approve`, `approvals deny`, and `flow execute`
+accept unchanged, which is why the same string appears twice above.
+`smthrs flow start hello` collapses all three steps into one command. [Quickstart](/quickstart/) walks the loop to a settled run
 and reads its events back.
 
 ## The binary at a glance
@@ -69,17 +69,17 @@ anything:
 | `smthrs --mcp` | Serves the Smithers MCP server on stdio over the same control plane the verbs use. |
 | `smthrs <verb> ...` | Runs one command handler against the control plane. |
 
-The verbs group by the job they do:
+The commands group by the job they do:
 
-| Job | Verbs |
+| Job | Commands |
 | --- | --- |
-| Plan and launch | `plan`, `run` (alias `resume`), `up` |
-| Decide an approval | `approve`, `deny` |
-| Steer a live run | `signal`, `steer` |
-| End a run | `cancel`, `down` |
-| Read what happened | `ls`, `ps`, `status` (aliases `inspect`, `why`), `logs` (alias `events`), `output` |
+| Plan and launch | `flow list`, `flow plan`, `flow start`, `flow execute`, `runs resume` |
+| Decide an approval | `approvals list`, `approvals approve`, `approvals deny` |
+| Steer a live run | `runs signal`, `runs steer` |
+| End a run | `runs cancel`, `runs cancel-all` |
+| Read what happened | `runs list`, `runs show`, `runs logs`, `runs output` |
 | Set a project up | `init`, `suggest`, `doctor`, `migrate` |
-| Host and integrate | `serve` (alias `gateway`), `mcp`, `claude` |
+| Host and integrate | `serve`, `mcp` |
 | Maintain | `gc`, `memory`, `update`, `bug`, `completions` |
 
 Smithers 0.x spellings that were removed refuse with one sentence and a
@@ -106,7 +106,7 @@ namespace, and each is also importable from `@smthrs/cli/<Module>`:
 | `CliError` | The four failures the command line adds, and the status each exits on. |
 | `Verb`, `Unsupported` | The shipped verb catalog, and the removed verbs, flags, and reserved flow ids. |
 | `Project`, `Environment` | Where an invocation decides it is running, and the closed set of variables it reads. |
-| `Detached` | The `up -d` launch, and the admission line its child prints. |
+| `Detached` | The `flow start -d` launch, and the admission line its child prints. |
 | `Doctor`, `Forensics`, `NodeOutput`, `Legacy` | Readiness, run diagnosis, node outputs, and the 0.x database guard. |
 | `McpServer`, `Agents` | The stdio MCP server, and the agent configurations `mcp add` writes it into. |
 | `Serve` | The gateway bind rule, the mount list, and the banner rendered from it. |
@@ -133,7 +133,7 @@ line.
 | [`@smthrs/agent`](https://agent.smithers.sh/reference/api/) | The agent loop the executor runs, with the adapters for control-plane runs and typed workflow steps. |
 | [`@smthrs/model`](https://model.smithers.sh/reference/api/) | Model protocols, routes, and streaming events: the seats a flow names. |
 | [`@smthrs/memory`](https://memory.smithers.sh/reference/api/) | The durable cross-run facts behind `smthrs memory`. |
-| [`@smthrs/journal`](https://journal.smithers.sh/reference/api/) | The immutable run history behind `smthrs logs`, including the redaction every write passes through. |
+| [`@smthrs/journal`](https://journal.smithers.sh/reference/api/) | The immutable run history behind `smthrs runs logs`, including the redaction every write passes through. |
 | [`@smthrs/plan`](https://plan.smithers.sh/reference/api/) | The persisted plan a plan card renders: a keyed action graph, its store, and its diff. |
 | [`@smthrs/kernel`](https://kernel.smithers.sh/reference/api/) | The capability kernel that confines what a run may touch on the filesystem and the shell. |
 | [`@smthrs/gateway`](https://gateway.smithers.sh/reference/api/) | The server `smthrs serve` hosts, and the projections a client subscribes to. |

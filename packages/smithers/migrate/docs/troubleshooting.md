@@ -232,7 +232,7 @@ rerun it.
 
 ## Nothing failed, but a migrated flow does not appear
 
-Run `smthrs ls`. A flow that discovery will not list is a flow nobody can run.
+Run `smthrs flow list`. A flow that discovery will not list is a flow nobody can run.
 The report's Verification section names the discovery warning: usually a
 default export that is not a `Flow.make` call, or a declaration
 with no `description` string literal. `Checks.discovery` runs the registry's

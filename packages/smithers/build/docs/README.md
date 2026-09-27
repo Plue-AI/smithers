@@ -77,7 +77,7 @@ Three packages make up smithers build, and each has its own documentation:
 
 All three sit under [`@smthrs/cli`](/api/cli), the `smthrs` command line and the
 package everything in Smithers hangs off. That CLI runs durable flows:
-`smthrs plan`, `smthrs run`, `smthrs ps`. The `install` flow this package
+`smthrs flow plan`, `smthrs flow start`, `smthrs runs list`. The `install` flow this package
 declares is one of those flows, built with the same `Flow.make` and executed by
 the same engine, which is why an install has a content key at all. If you
 arrived here from a search result and want the whole product rather than its

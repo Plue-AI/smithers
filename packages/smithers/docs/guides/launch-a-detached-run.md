@@ -1,9 +1,9 @@
 ---
 title: "Launch a detached run"
-description: "Start a run that outlives the shell with smthrs up -d, learn its run id from the admission line, find its log, and end it."
+description: "Start a run that outlives the shell with smthrs flow start -d, learn its run id from the admission line, find its log, and end it."
 ---
 
-`smthrs up -d` launches a flow in a process of its own and returns as soon as
+`smthrs flow start -d` launches a flow in a process of its own and returns as soon as
 that child proves the run row is durable. Use it when the shell that starts a
 run is not the shell that waits for it: a terminal you are about to close, a
 CI step that only needs the run to exist, a supervisor that will poll.
@@ -11,7 +11,7 @@ CI step that only needs the run to exist, a supervisor that will poll.
 ## Launch it
 
 ```bash
-smthrs up deploy/status --data '{"branch":"main"}' -d --json
+smthrs flow start deploy/status --data '{"branch":"main"}' -d --json
 ```
 
 ```text
@@ -22,7 +22,7 @@ Three members, and that document is the only place a caller learns which run
 started: there is no `--run-id` flag. Capture it:
 
 ```bash
-launch="$(smthrs --json up deploy/status -d)"
+launch="$(smthrs flow start deploy/status -d --json)"
 run_id="$(printf '%s' "$launch" | jq -r '.runId')"
 log="$(printf '%s' "$launch" | jq -r '.logFile')"
 ```
@@ -74,22 +74,22 @@ for a run that no executor takes:
 
 ```bash
 tail -f "$log"
-smthrs logs "$run_id" --follow
-smthrs status "$run_id"
+smthrs runs logs "$run_id" --follow
+smthrs runs show "$run_id"
 ```
 
-`tail` reads what the child process printed. `smthrs logs` reads the run's
+`tail` reads what the child process printed. `smthrs runs logs` reads the run's
 durable control events through the control plane, which is the same view any
 other process gets.
 
 ## End it
 
 ```bash
-smthrs cancel "$run_id"
+smthrs runs cancel "$run_id"
 ```
 
-`cancel` is durable and cross-process: the child sees the cancellation through
-the control plane, not through a signal. `smthrs down` cancels every
+`runs cancel` is durable and cross-process: the child sees the cancellation through
+the control plane, not through a signal. `smthrs runs cancel-all` cancels every
 non-terminal run in the project, which is the right thing in an
 always-run cleanup step.
 
@@ -114,15 +114,13 @@ drives prompt flows and a flow whose body is a module (`flow.ts`) is driven by
 the host program that registers its delegates. That is a real wait for a real
 external executor, so the run is not a bug and does not time out.
 
-`smthrs ps` labels it, `smthrs status` opens with `pending: accepted, and no
-executor took the run; nothing is driving it` and prints the
-`smthrs cancel <run-id>` line that ends it, and the detached child writes the
+`smthrs runs list` labels it, `smthrs runs show` diagnoses it as `pending`,
+`smthrs runs cancel <run-id>` ends it, and the detached child writes the
 same explanation to its log at launch time.
 
 ## See also
 
-- [`smthrs up`](/cli/up): the full reference for the verb, including every
-  removed 0.x flag it refuses.
+- [`smthrs flow`](/cli/flow): the full reference for `flow start`.
 - [Script the CLI](./script-the-cli.md): exit codes and idempotency keys.
 - [The project and its state](../concepts/project-and-state.md): where the log
   files live.

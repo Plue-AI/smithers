@@ -18,13 +18,13 @@ link into `https://smithers.sh/migration/1.0`.
 spelling deliberately rather than answering with a parser error, so a script
 learns what replaced it.
 
-**Fix.** Follow the link. The sentence names the replacement: `steer`,
-`signal`, `approve`, `deny`, `cancel`, and `run --resume` replace the control
-verbs; `ps --status waiting-approval` replaces the human-request verbs;
-`output` and `logs --json` replace the node-detail verbs; `smthrs migrate`
+**Fix.** Follow the link. `runs steer`, `runs signal`, `approvals approve`,
+`approvals deny`, `runs cancel`, and `runs resume` replace the control verbs;
+`approvals list` replaces the human-request verbs; `runs output` and
+`runs logs --json` replace the node-detail verbs; `smthrs migrate`
 replaces `upgrade`.
 
-### `smthrs up --serve` and the other removed flags
+### `--serve` and the other removed flags
 
 **Symptom.** A flag exits 1 rather than producing a usage error.
 
@@ -32,7 +32,7 @@ replaces `upgrade`.
 the command that used to carry it, so the parser accepts the spelling and the
 handler refuses it with the migration link.
 
-**Fix.** The `up` UI-hosting flags (`--serve`, `--interactive`, `--supervise`,
+**Fix.** The 0.x `up` UI-hosting flags (`--serve`, `--interactive`, `--supervise`,
 `--herdr`, `--monitor`, `--report`) are replaced by `smthrs serve`. The
 recovery flags (`--force`, `--steal-ownership`, and the four `--resume-*`
 flags) are gone because the run driver's heartbeat sweep owns recovery.
@@ -41,13 +41,13 @@ bounded by plan admission.
 
 ### `system/<name> is not an rc.0 verb`
 
-**Symptom.** `smthrs plan system/plan` or `smthrs up system/serve` exits 1.
+**Symptom.** `smthrs flow plan system/plan` or `smthrs flow start system/serve` exits 1.
 
 **Cause.** `Unsupported.isReservedFlow`. The control catalog reserves
 `system/*` ids for command-line verbs, and rc.0 ships a body for none of them,
 so a launch would park with nothing to run.
 
-**Fix.** Use the verb. `smthrs ls` never lists a reserved id.
+**Fix.** Use the verb. `smthrs flow list` never lists a reserved id.
 
 ### `unsupported_database: choose sqlite or postgres`
 
@@ -79,7 +79,7 @@ that phrase in the CLI's own sentence.
 
 ### A command wrote to a `.flows/` you did not expect
 
-**Symptom.** `smthrs ls` finds nothing, or two commands in one repository
+**Symptom.** `smthrs flow list` finds nothing, or two commands in one repository
 disagree about which runs exist.
 
 **Cause.** The upward root walk anchored somewhere else. `.flows/` anchors on
@@ -109,10 +109,9 @@ question survives the notice.
 
 ### `Run <id> was accepted but no executor took it`
 
-**Symptom.** `smthrs ps` shows the run at `accepted` with
-`waitingReason: "executor"`, and it stays there. `smthrs status` opens with
-`pending: accepted, and no executor took the run; nothing is driving it`, and a
-detached launch wrote the same sentence to its log.
+**Symptom.** `smthrs runs list` shows the run at `accepted` with
+`waitingReason: "executor"`, and it stays there. `smthrs runs show` diagnoses
+it as `pending`, and a detached launch wrote the same sentence to its log.
 
 **Cause.** The flow is a module flow, or it belongs to another host's registry.
 The CLI's agent host drives prompt flows; a flow whose body is a module
@@ -120,8 +119,7 @@ The CLI's agent host drives prompt flows; a flow whose body is a module
 a real wait for a real external executor, so the run does not time out.
 
 **Fix.** Run the flow from the host program that registers it, or end the run
-with `smthrs cancel <run-id>`. `smthrs status` prints that command on its
-`Unblock` line.
+with `smthrs runs cancel <run-id>`.
 
 ### Exit 3, and the run is at `waiting-approval`
 
@@ -143,19 +141,18 @@ smthrs flow execute "$approval" --json
 For an in-run Node approval, read the `control.approval.requested` event's
 `payload` member and approve that payload. This resumes the existing run;
 do not submit a new plan. If no executor took up the approved run, retry with
-`smthrs runs resume <run-id>`. `smthrs status <run-id>` prints the approval and
-resume commands, already quoted. See [Script the CLI](./guides/script-the-cli.md).
+`smthrs runs resume <run-id>`. See [Script the CLI](./guides/script-the-cli.md).
 
 ### A command against `--remote` prints the receipt and returns immediately
 
-**Symptom.** `smthrs run` exits 0 while the run is still going.
+**Symptom.** `smthrs flow execute` exits 0 while the run is still going.
 
 **Cause.** `ExecutorOwnership` is `false` for a remote composition, because the
 run is another process's to drive. A verb that waited here would hang on work
 this process never performs.
 
-**Fix.** Follow the run explicitly with `smthrs --remote <url> logs <run-id>
---follow`, or run against the local project.
+**Fix.** Follow the run explicitly with `smthrs runs logs <run-id> --follow
+--remote <url>`, or run against the local project.
 
 ### `smthrs memory` refuses under `--remote`
 
@@ -167,7 +164,7 @@ reads, which is worse than a refusal because it looks like it worked.
 
 **Fix.** Run the memory command against the project the control plane serves.
 
-### `up -d` is refused with `--remote`
+### `flow start -d` is refused with `--remote`
 
 **Symptom.** Exit 1 before anything launches.
 
@@ -178,7 +175,7 @@ composition does not have.
 
 ### A detached launch never returns a run id
 
-**Symptom.** `smthrs up -d` exits 1 saying the child never reached admission.
+**Symptom.** `smthrs flow start -d` exits 1 saying the child never reached admission.
 
 **Cause.** The child died before the run row was durable, or it was still
 silent past `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` (30000 by default) and
@@ -208,8 +205,8 @@ the run and outlives the launcher.
 a non-enumerable member.
 
 **Fix.** The bounds are 128 levels, 10,000 members, and 4 MiB. Narrow the read:
-`smthrs output <run-id> <node-id>` instead of every node, or
-`smthrs logs <run-id> --follow` instead of the whole history.
+`smthrs runs output <run-id> <node-id>` instead of every node, or
+`smthrs runs logs <run-id> --follow` instead of the whole history.
 
 ### `... exceeds the 50000-events resource limit`
 

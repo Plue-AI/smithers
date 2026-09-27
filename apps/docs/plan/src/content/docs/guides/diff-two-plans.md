@@ -92,8 +92,8 @@ work that will not come from cache, and `unchanged` is everything a cache hit
 will skip.
 
 The command line prints the same comparison through
-[`smthrs plan`](https://smithers.sh/docs/reference/cli/plan/), and the plan card it renders is what
-[`smthrs approve`](https://smithers.sh/docs/reference/cli/approve/) binds a decision to.
+[`smthrs flow plan`](https://smithers.sh/docs/reference/cli/flow/), and the plan card it renders is what
+[`smthrs approvals approve`](https://smithers.sh/docs/reference/cli/approvals/) binds a decision to.
 
 ## Next
 

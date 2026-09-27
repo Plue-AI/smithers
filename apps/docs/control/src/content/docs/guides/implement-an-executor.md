@@ -49,7 +49,7 @@ cancellation.
 
 `settleCancelledPark` exists because a park has no owner, so nothing is driving
 the run and nothing reads the request `requestCancel` wrote. The engine's
-parked-run sweep does, once per heartbeat, but a short-lived `smthrs cancel`
+parked-run sweep does, once per heartbeat, but a short-lived `smthrs runs cancel`
 process writes the request at the very end of its life and exits first. The
 plane calls this _after_ the cancel mutation commits, never inside it: driving
 a run re-enters the engine, whose writes would wait on the writer the

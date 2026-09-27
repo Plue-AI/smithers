@@ -90,7 +90,7 @@ deterministically when it stitches the site.
   `/pkg/patterns/guides/loops`). Use it whenever you mean a guide or concept
   rather than an API page; a relative `../../other-package/docs/x.md` reaches
   a file on GitHub, not a page, and fails the smithers.sh link gate.
-- **CLI verbs.** `/cli/<verb>`: `[smithers up](/cli/up)`. Sync sends it to
+- **CLI verbs.** `/cli/<verb>`: `[smthrs flow](/cli/flow)`. Sync sends it to
   the CLI reference on smithers.sh.
 - **Guides, concepts, and every other smithers.sh page.** `/docs/<rest>`:
   `[durable execution](/docs/concepts/durable-execution/)`. Sync makes it an

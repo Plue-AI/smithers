@@ -95,7 +95,7 @@ Read the table with two limits, both of which are guaranteed behavior:
   [Reuse a discovered flow's result](/guides/reuse-a-flow-result/).
 - **The priority orders scheduled plans and nothing else.** `PlanScheduler`
   admits ready nodes highest-priority-first under a concurrency limit. The
-  [`smthrs up`](https://smithers.sh/docs/reference/cli/up/) path settles a flow through `@smthrs/flow`
+  [`smthrs flow start`](https://smithers.sh/docs/reference/cli/flow/) path settles a flow through `@smthrs/flow`
   `Interpreter`, which admits every ready node at once, so on that path the
   priority orders nothing.
 

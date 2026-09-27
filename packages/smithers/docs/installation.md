@@ -75,11 +75,11 @@ smthrs tui --approve ask        # ask before consequential calls
 
 Global and one-off installations can initialize a project and operate its flows.
 To load `WORKSPACE.ts` and `PACKAGE.ts`, install the CLI and declaration packages
-in that workspace, then select its local binary. After publication:
+in that workspace ([Install the CLI](/docs/installation/#install-the-cli)), then
+select its local binary:
 
 ```bash
 smthrs init hello
-pnpm add --save-dev @smthrs/cli@1.0.0-rc.0 @smthrs/targets@1.0.0-rc.0
 pnpm exec smthrs targets
 ```
 
