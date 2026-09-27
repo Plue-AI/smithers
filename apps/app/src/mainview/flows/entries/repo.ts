@@ -28,8 +28,10 @@ export const requirements: ReadonlyArray<FlowRequirement> = [
 /** The sidebar repository flows: select, unpin, tree. */
 export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({ name: "repo.overview", summary: "Show the repository update overview", args: "[owner/repo]", input: RepoTarget,
+    requires: ["first-run-target", "repo-source"],
     handler: ({ repo }) => actions.showRepoOverview(repo) }),
   flow({ name: "repo.update", summary: "Read repository activity into context without displaying an overview", args: "[owner/repo]", input: RepoTarget,
+    requires: ["first-run-target", "repo-source"],
     handler: ({ repo }) => actions.updateRepo(repo) }),
   /* The sidebar's pinned repositories (docs/LOCAL-APP.md "Tabs"). */
   flow({

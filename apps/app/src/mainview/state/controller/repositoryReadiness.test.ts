@@ -24,6 +24,37 @@ const setup = async (storage = memoryStorage(), fetchImpl: FetchLike = async () 
   return { store, controller, ready, close }
 }
 
+for (const name of ["repo.overview", "repo.update"] as const) {
+  for (const explicit of [false, true]) test(`${name} acknowledges a pending ${explicit ? "explicit" : "URL"} target before reading activity`, async () => {
+    let reads = 0
+    const activity = Promise.withResolvers<Response>()
+    const h = await setup(undefined, async input => {
+      if (String(input).includes("/issues?state=open")) { reads++; return activity.promise }
+      return json(200, [])
+    })
+    try {
+      const requested = h.controller.commands.run(name, explicit ? repo : undefined)
+      const outcome = await Promise.race([requested, pause(100).then(() => "still waiting")])
+      expect(outcome).toEqual({ status: "executed", value: "Requested" })
+      expect(reads).toBe(0)
+      expect(h.store.session().pendingCommand?.requirement).toBe("repository-ready")
+      expect(await h.controller.commands.run(name, explicit ? repo : undefined)).toEqual({ status: "executed", value: "Requested" })
+      h.controller.changeDraft("Chat stays usable")
+      expect(h.store.session().draft).toBe("Chat stays usable")
+      await h.ready()
+      await until(() => reads === 1)
+      await until(() => h.store.collections.toasts.get("toast-repository.ready")?.status === "running")
+      activity.resolve(json(200, [{ number: 1, title: "Bound activity", state: "open" }]))
+      await until(() => h.store.collections.toasts.get("toast-repository.ready")?.status === "ok")
+      expect(h.store.collections.repositoryContexts.size).toBe(1)
+      const cards = [...h.store.collections.cards.values()].filter(card => card.kind === "repo-update")
+      expect(cards).toHaveLength(name === "repo.overview" ? 1 : 0)
+      if (name === "repo.overview") expect(cards[0]?.payload.items[0]?.title).toBe("Bound activity")
+      expect(reads).toBe(1)
+    } finally { activity.resolve(json(503, {})); await h.close() }
+  })
+}
+
 test("a cold explicit public target from home persists and acknowledges before its catalog or file read finishes", async () => {
   let resolveCatalog!: (response: Response) => void, resolveFile!: (response: Response) => void
   const catalog = new Promise<Response>(resolve => { resolveCatalog = resolve })
