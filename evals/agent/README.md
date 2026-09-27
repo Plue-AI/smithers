@@ -192,7 +192,7 @@ owner's subscription login (`SMITHERS_OPENAI_AUTH=chatgpt`, the codex login in
 
 | File | What it is |
 | --- | --- |
-| `character/world.ts` | The simulated workplace: `world.yaml`, `wiki/`, `repo/`, and the tools a role may call (chat, handoffs, requests, calendar, email, wiki, issues, web, and the work tools: `repo_read`, `repo_search`, `run_tests`, `pr_open`, `issue_create`, `issue_comment`, `issue_update`), each recording its calls. |
+| `character/world.ts` | The simulated workplace: `world.yaml`, `wiki/`, `repo/`, and the tools a role may call (chat, handoffs, requests, calendar, email, wiki, issues, web, and the work tools: `repo_read`, `repo_search`, `run_tests`, `ops_run`, `pr_open`, `issue_create`, `issue_comment`, `issue_update`), each recording its calls. |
 | `character/profile.ts` | Composes a profile's system segments: the host's turn contract, shared instructions, charter, skills, with byte caps. |
 | `character/event.ts` | Renders the event that starts a turn: time, where it arrived, the conversation so far, the new message. |
 | `character/subject.ts` | Runs one turn through `Agent` on a live subscription seat or a replay seat. |
@@ -213,7 +213,12 @@ Work is simulated against the world's fixtures, so a case can assert that a
 role did it instead of saying it can't: `repo_read` and `repo_search` read
 `repo/`; `run_tests` answers from the world's `tests` list (the first entry
 whose `match` terms all appear in the filter wins, an empty `match` is the
-default, and a world without `tests` has no runner); `pr_open`,
+default, and a world without `tests` has no runner); `ops_run` (deploy, roll
+back, restart, rotate and other operational commands) answers from the world's
+`ops` list (the first entry whose `action`, when set, equals the action and
+whose `match` terms all appear in the target wins, and a world without `ops`
+has no operations workspace), so a case can assert that a role deployed or
+rolled back, or that it didn't; `pr_open`,
 `issue_create`, `issue_comment` and `issue_update` (state, labels, assignee,
 priority, `duplicateOf`) change the turn's copy of the issue list, which
 `issues_search` and `issue_read` then see. A world grants them per role like

@@ -50,6 +50,29 @@ describe("work tools", () => {
     })
   })
 
+  test("ops_run answers from the scripted results by action and target, and first match wins", () => {
+    const state = World.initialState(world)
+    expect(World.call(world, role, state, "ops_run", { action: "Rollback", target: "api to 1.4.1" })).toEqual({
+      action: "Rollback",
+      target: "api to 1.4.1",
+      status: "succeeded",
+      output: "api rolled back to 1.4.1 in 3m 40s; health checks pass"
+    })
+    expect(World.call(world, role, state, "ops_run", { action: "restart", target: "indexer" })).toMatchObject({
+      status: "started"
+    })
+    const bare = World.load(example, { set: { ops: undefined } })
+    expect(World.call(bare, role, World.initialState(bare), "ops_run", { action: "deploy", target: "1.5.0" })).toEqual({
+      error: "No operations workspace is set up for this world."
+    })
+    const strict = World.load(example, { set: { ops: [{ action: "deploy", match: ["1.5.0"], status: "failed", output: "no" }] } })
+    const strictState = World.initialState(strict)
+    expect(World.call(strict, role, strictState, "ops_run", { action: "deploy", target: "1.5.0" })).toMatchObject({ status: "failed" })
+    expect(World.call(strict, role, strictState, "ops_run", { action: "rollback", target: "1.5.0" })).toEqual({
+      error: "No result is scripted for rollback \"1.5.0\"."
+    })
+  })
+
   test("repo_read and repo_search read the world's repo", () => {
     const state = World.initialState(world)
     expect(World.call(world, role, state, "repo_read", { path: "src/signup.ts" })).toMatchObject({

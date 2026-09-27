@@ -12,9 +12,10 @@
  * Every call is recorded as an {@link Action} in call order. The scorers read
  * the actions, never the agent's code: a handoff is a `handoff` action, a
  * message to Will is an `owner_message` action, a test run is a `run_tests`
- * action, and so on. Work tools are simulated against the world's fixtures:
- * `repo_read` and `repo_search` read `repo/`, `run_tests` answers from the
- * scripted results under `tests`, and `pr_open`, `issue_create`,
+ * action, a deploy is an `ops_run` action, and so on. Work tools are simulated
+ * against the world's fixtures: `repo_read` and `repo_search` read `repo/`,
+ * `run_tests` answers from the scripted results under `tests`, `ops_run`
+ * answers from the scripted results under `ops`, and `pr_open`, `issue_create`,
  * `issue_comment` and `issue_update` change the turn's copy of the issue list,
  * so a case can assert that the role did the work. A role only gets
  * the tools its grant lists in `world.yaml` (`grants.<role>`, else
@@ -73,6 +74,14 @@ export interface WorldData {
    * default). A world without `tests` has no test runner.
    */
   readonly tests?: ReadonlyArray<TestResult> | undefined
+  /**
+   * Scripted results for `ops_run` (deploy, roll back, restart, rotate...),
+   * first match wins: the entry's `action`, when set, must equal the action
+   * the role asked for, and every `match` term must appear in its target (an
+   * entry with neither is the default). A world without `ops` has no
+   * operations workspace.
+   */
+  readonly ops?: ReadonlyArray<OpsResult> | undefined
   readonly requests: ReadonlyArray<Request>
   readonly answers: Readonly<
     Record<string, ReadonlyArray<{ readonly match: ReadonlyArray<string>; readonly text: string }>>
@@ -126,6 +135,12 @@ interface TestResult {
   readonly status: "passed" | "failed"
   readonly passed?: number | undefined
   readonly failed?: number | undefined
+  readonly output: string
+}
+interface OpsResult {
+  readonly action?: string | undefined
+  readonly match?: ReadonlyArray<string> | undefined
+  readonly status: "succeeded" | "failed" | "started"
   readonly output: string
 }
 interface Request {
@@ -313,6 +328,14 @@ const nextNumber = (issues: ReadonlyArray<Issue>): number =>
 const testsFor = (world: World, filter: string): TestResult | undefined => {
   const lower = filter.toLowerCase()
   return world.data.tests?.find((entry) => entry.match.every((term) => lower.includes(term.toLowerCase())))
+}
+
+const opsFor = (world: World, action: string, target: string): OpsResult | undefined => {
+  const lower = target.toLowerCase()
+  return world.data.ops?.find((entry) =>
+    (entry.action === undefined || entry.action.toLowerCase() === action.toLowerCase()) &&
+    (entry.match ?? []).every((term) => lower.includes(term.toLowerCase()))
+  )
 }
 
 const strings = (value: unknown): Array<string> | undefined =>
@@ -756,6 +779,22 @@ export const tools: ReadonlyArray<ToolSpec> = [
           ...(result.failed === undefined ? {} : { failed: result.failed }),
           output: result.output
         }
+    }
+  },
+  {
+    name: "ops_run",
+    description:
+      "Run an operational command in your operations workspace against production or staging: action is one verb (deploy, rollback, restart, pause, resume, rotate, restore, scale, set) and target names what it acts on (a version, service, job, credential or setting, e.g. \"0.9.6\" or \"indexer\"). Returns whether it succeeded, failed or is still running, and its output.",
+    input: Schema.Struct({ action: S, target: S, reason: opt(S) }),
+    writes: true,
+    handler: (world) => (input) => {
+      const action = text(input.action)
+      const target = text(input.target)
+      if (world.data.ops === undefined) return { error: "No operations workspace is set up for this world." }
+      const result = opsFor(world, action, target)
+      return result === undefined
+        ? { error: `No result is scripted for ${action} "${target}".` }
+        : { action, target, status: result.status, output: result.output }
     }
   },
   {

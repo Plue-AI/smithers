@@ -5,7 +5,7 @@ team:
   - { id: engineering, name: Engineer, owns: "code and bugs" }
   - { id: marketing, name: Marketer, owns: "the website" }
 grants:
-  default: [react, handoff, ask, issues_search, issue_read, issue_create, issue_comment, issue_update, pr_open, repo_read, repo_search, run_tests, wiki_read, wiki_search, owner_message, post]
+  default: [react, handoff, ask, issues_search, issue_read, issue_create, issue_comment, issue_update, pr_open, repo_read, repo_search, run_tests, ops_run, wiki_read, wiki_search, owner_message, post]
 calendar: []
 inbox: []
 chat: { channels: [{ id: C1, name: team }], messages: [] }
@@ -16,6 +16,10 @@ issues:
 tests:
   - { match: [signup], status: failed, passed: 2, failed: 1, output: "FAIL src/signup.test.ts › submits on Safari\n  expected the form to submit, but onClick never fired (Safari 26: click on <button> inside <a> is swallowed)\n2 passed, 1 failed" }
   - { match: [], status: passed, passed: 41, failed: 0, output: "41 passed" }
+# Scripted results for ops_run: the first entry whose action matches (when set) and whose match terms all appear in the target wins.
+ops:
+  - { action: rollback, match: [api], status: succeeded, output: "api rolled back to 1.4.1 in 3m 40s; health checks pass" }
+  - { status: started, output: "Running; the result arrives as an event." }
 requests: []
 answers: {}
 web: []
