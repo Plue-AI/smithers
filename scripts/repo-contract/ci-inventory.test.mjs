@@ -229,10 +229,7 @@ test("public project copy keeps the support contract out of the short descriptio
   assert.equal(project.description, description)
   assert.equal(manifest.description, description)
   assert.deepEqual(project.support, {
-    requiredPlatform: "The release candidate's required package platform is Linux with Node 26.4.0.",
-    advisoryPlatforms: "macOS and Windows package checks are advisory and do not establish a support guarantee.",
-    uiCoverage: "Offline Chromium tests cover the included web UI.",
-    separateAcceptance: "Packaged desktop and hosted deployments require separate acceptance evidence."
+    summary: "The release candidate's required platform is Linux with Node 26.4.0."
   })
   const readme = readFileSync(join(root, "README.md"), "utf8")
   const docs = readFileSync(join(root, "apps/site/src/content/docs/docs/index.mdx"), "utf8")
@@ -245,10 +242,8 @@ test("public project copy keeps the support contract out of the short descriptio
   const docsSupport = developers.match(/generated:project-support start[^\n]*\n\n## Supported platforms\n\n([\s\S]*?)\n\n\{\/\* generated:project-support end/)?.[1]
   for (const [name, support] of [["README", readmeSupport], ["developer overview", docsSupport]]) {
     assert.equal(typeof support, "string", `${name} must have a dedicated support section`)
-    assert.match(support, /required package platform is Linux with Node 26\.4\.0/)
-    assert.match(support, /macOS and Windows.*advisory and do not establish a support guarantee/)
-    assert.match(support, /Offline Chromium tests cover the included web UI/)
-    assert.match(support, /Packaged desktop and hosted deployments require separate acceptance evidence/)
+    assert.match(support, /required platform is Linux with Node 26\.4\.0/)
+    assert.match(support, /\[support matrix\]\((https:\/\/smithers\.sh)?\/docs\/reference\/support-matrix\/\)/)
   }
 })
 

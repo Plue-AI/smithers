@@ -25,9 +25,7 @@ For local execution and authoring, use the CLI and libraries described below.
 
 ## Supported platforms
 
-The release candidate's required package platform is Linux with Node 26.4.0. macOS and Windows package checks are advisory and do not establish a support guarantee.
-
-Offline Chromium tests cover the included web UI. Packaged desktop and hosted deployments require separate acceptance evidence.
+The release candidate's required platform is Linux with Node 26.4.0. See the [support matrix](https://smithers.sh/docs/reference/support-matrix/).
 
 ## Install
 

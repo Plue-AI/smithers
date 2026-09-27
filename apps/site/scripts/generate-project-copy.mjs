@@ -24,17 +24,11 @@ const requiredString = (value, path) => {
 }
 
 const description = requiredString(project.description, "description")
-const support = {
-  requiredPlatform: requiredString(project.support?.requiredPlatform, "support.requiredPlatform"),
-  advisoryPlatforms: requiredString(project.support?.advisoryPlatforms, "support.advisoryPlatforms"),
-  uiCoverage: requiredString(project.support?.uiCoverage, "support.uiCoverage"),
-  separateAcceptance: requiredString(project.support?.separateAcceptance, "support.separateAcceptance")
-}
-const supportSection = `## Supported platforms
+const supportSummary = requiredString(project.support?.summary, "support.summary")
+/** The support policy in one line; the support matrix holds the evidence. `docs` is the docs origin for links. */
+const supportSection = (docs) => `## Supported platforms
 
-${support.requiredPlatform} ${support.advisoryPlatforms}
-
-${support.uiCoverage} ${support.separateAcceptance}`
+${supportSummary} See the [support matrix](${docs}/docs/reference/support-matrix/).`
 const tagline = requiredString(project.tagline, "tagline")
 const animation = {
   dark: requiredString(project.animation?.dark, "animation.dark"),
@@ -76,7 +70,7 @@ availability. Follow the [app quickstart](https://smithers.sh/docs/quickstart/).
 
 For local execution and authoring, use the CLI and libraries described below.
 
-${supportSection}
+${supportSection("https://smithers.sh")}
 
 ## Install
 
@@ -136,7 +130,7 @@ docs = docs.replace(/^description:.*$/m, `description: ${JSON.stringify(descript
 docs = replaceRegion(docs, "project-description", description, docsPath)
 const developersPath = join(site, "src/content/docs/docs/developers.mdx")
 let developers = readFileSync(developersPath, "utf8")
-developers = replaceRegion(developers, "project-support", supportSection, developersPath)
+developers = replaceRegion(developers, "project-support", supportSection(""), developersPath)
 // One image candidate, never two. The animations are megabytes each, so the
 // page offers the browser a single source: `media` picks the light recording
 // for a light reader before any request, and `loading="lazy"` holds even that
