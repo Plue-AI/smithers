@@ -34,7 +34,7 @@ const importRepository = async (
   observed: (status: number, jobId?: string) => void
 ): Promise<{ readonly jobId: string; readonly terminal: Record<string, unknown> }> => {
   const [owner, name] = repo.split("/")
-  const start = await realApi(page, request, "POST", "/api/cloud/api/github/import", { owner, repo: name })
+  const start = await realApi(page, request, "POST", "/api/github/import", { owner, repo: name })
   const body = await start.json().catch(() => undefined) as Record<string, unknown> | undefined
   const jobId = typeof body?.importJobId === "string" && body.importJobId !== "" ? body.importJobId : undefined
   observed(start.status(), jobId)
