@@ -116,6 +116,19 @@ smithers-backend microvm doctor       # read-only: msb, image, owned microVMs an
 
 With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `msb` is missing, is another release, or `msb doctor` is not ready. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.
 
+The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants the host from the `SMITHERS_FLOW_HOST_MANIFEST` bundle into the guest, digest-checked, together with the Linux workspace helper the host uses: put a Linux arm64 `smithers-jj-export` in the bundle and name it with `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`, or the backend refuses to start. On a Mac, cross-build it with [Zig](https://ziglang.org) as the linker:
+
+```sh
+rustup target add aarch64-unknown-linux-gnu --toolchain 1.98.0
+printf '#!/bin/sh\nfor a; do shift; [ "$a" = -Wl,--fix-cortex-a53-843419 ] || set -- "$@" "$a"; done\nexec zig cc -target aarch64-linux-gnu.2.36 "$@"\n' > zigcc; chmod +x zigcc
+CC_aarch64_unknown_linux_gnu=$PWD/zigcc CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$PWD/zigcc \
+  cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export --target aarch64-unknown-linux-gnu
+install -D -m 0755 target/aarch64-unknown-linux-gnu/release/smithers-jj-export "$BUNDLE/linux-arm64/smithers-jj-export"
+export SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$BUNDLE/linux-arm64/smithers-jj-export"
+```
+
+Model calls from the guest go through the backend's model proxy or account pool on the bridged port with the binding's credential; no provider key enters a VM.
+
 A workspace boots from environment layers the backend builds once and caches as APFS-cloned disk snapshots: the repository's declared toolchain (`.node-version`, `packageManager`, `go.mod`, `.smithers/WORKSPACE.ts`, `rust-toolchain.toml`, each download checked against a reviewed SHA-256), then the install nodes of `.smithers/target-index.json` (pnpm store, Go modules, Cargo registry, Playwright browsers, tool downloads). A change to a declared input rebuilds only the layers it feeds. The first workspace of a repository takes a few minutes; later ones boot in about two seconds and link dependencies offline. Layers are garbage collected to `SMITHERS_MICROVM_LAYER_BUDGET_GIB` (default 48) and no build or boot starts below `SMITHERS_MICROVM_MIN_FREE_GIB` of free disk (default 40). Per-VM size: `SMITHERS_MICROVM_CPUS` (4), `SMITHERS_MICROVM_MEMORY_MIB` (8192), `SMITHERS_MICROVM_DISK_MIB` (32768); at most `SMITHERS_MICROVM_MAX_RUNNING` (3) run at once. The Docker image cannot host microVMs.
 
 ## Backup, restore, and upgrade
