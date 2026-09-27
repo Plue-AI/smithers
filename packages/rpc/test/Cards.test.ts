@@ -224,7 +224,10 @@ describe("the agent cards", () => {
       }
     })
     // A built-in reads its facts from the table; a configured profile (smithers-ui-DESIGN.md §3.3) keeps its own.
-    expect(card.payload).toEqual({ native: true, agents: [row, { ...row, id: "custom-reviewer", builtin: false, kind: "specialist" }] })
+    expect(card.payload).toEqual({
+      native: true,
+      agents: [row, { ...row, id: "custom-reviewer", builtin: false, kind: "specialist" }]
+    })
   })
 
   test("the flow-form card holds the flow, who asked, the derived fields, the draft and what was given; a bad kind or provider is rejected", () => {
@@ -890,8 +893,20 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
   connect: {
     minimal: { github: { connected: false, login: null }, nativeAvailable: false },
     full: {
-      provider: "github", github: { connected: true, login: "will" }, nativeAvailable: true,
-      integrations: { repo: "smithersai/smithers", rows: [{ id: "linear", state: "error", detail: "ENG", error: "token revoked", lastSyncAt: "2026-09-26T09:40:00Z", action: { label: "Sync ops", flow: "sync.ops", args: "smithersai/smithers" } }] }
+      provider: "github",
+      github: { connected: true, login: "will" },
+      nativeAvailable: true,
+      integrations: {
+        repo: "smithersai/smithers",
+        rows: [{
+          id: "linear",
+          state: "error",
+          detail: "ENG",
+          error: "token revoked",
+          lastSyncAt: "2026-09-26T09:40:00Z",
+          action: { label: "Sync ops", flow: "sync.ops", args: "smithersai/smithers" }
+        }]
+      }
     }
   },
   world: {
@@ -1212,8 +1227,39 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         source: "github",
         htmlUrl: "https://github.com/smithersai/smithers/issues/1634",
         kind: "chat",
-        task: { owner: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, due: "2026-09-27", priority: 1, parent: { number: 1600, title: "CI" }, fixedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, verifiedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" } },
-        last: { persona: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, text: "Tests pass.", at: "2026-09-26T09:40:00Z" },
+        task: {
+          owner: {
+            id: "assistant",
+            name: "Assistant",
+            iconUrl: "https://example.com/assistant.png",
+            agentId: "assistant"
+          },
+          due: "2026-09-27",
+          priority: 1,
+          parent: { number: 1600, title: "CI" },
+          fixedBy: {
+            id: "assistant",
+            name: "Assistant",
+            iconUrl: "https://example.com/assistant.png",
+            agentId: "assistant"
+          },
+          verifiedBy: {
+            id: "assistant",
+            name: "Assistant",
+            iconUrl: "https://example.com/assistant.png",
+            agentId: "assistant"
+          }
+        },
+        last: {
+          persona: {
+            id: "assistant",
+            name: "Assistant",
+            iconUrl: "https://example.com/assistant.png",
+            agentId: "assistant"
+          },
+          text: "Tests pass.",
+          at: "2026-09-26T09:40:00Z"
+        },
         synced: true
       }],
       github: {
@@ -1242,7 +1288,29 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       title: "rc0 CI green",
       kind: "chat",
       visibility: "private",
-      task: { owner: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, due: "2026-09-27", priority: 0, parent: { number: 1600 }, fixedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, verifiedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" } },
+      task: {
+        owner: {
+          id: "assistant",
+          name: "Assistant",
+          iconUrl: "https://example.com/assistant.png",
+          agentId: "assistant"
+        },
+        due: "2026-09-27",
+        priority: 0,
+        parent: { number: 1600 },
+        fixedBy: {
+          id: "assistant",
+          name: "Assistant",
+          iconUrl: "https://example.com/assistant.png",
+          agentId: "assistant"
+        },
+        verifiedBy: {
+          id: "assistant",
+          name: "Assistant",
+          iconUrl: "https://example.com/assistant.png",
+          agentId: "assistant"
+        }
+      },
       conversation: { branchId: "branch-main", owner: "will", creationKey: "conversation-1" },
       commentDraft: "Reply",
       pendingComments: [{ id: "request-1", text: "Hello", actor: "user", status: "requested" }],
@@ -1253,7 +1321,14 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       source: "github",
       htmlUrl: "https://github.com/smithersai/smithers/issues/1634",
       labels: ["ci", "flaky"],
-      comments: [{ id: 31, author: null, persona: { username: "Reviewer", iconEmoji: ":robot_face:", iconUrl: "https://example.com/avatar.png" }, commentBody: "reproduced", createdAt: "2026-09-05T09:00:00Z", origin: "slack" }],
+      comments: [{
+        id: 31,
+        author: null,
+        persona: { username: "Reviewer", iconEmoji: ":robot_face:", iconUrl: "https://example.com/avatar.png" },
+        commentBody: "reproduced",
+        createdAt: "2026-09-05T09:00:00Z",
+        origin: "slack"
+      }],
       createdAt: "2026-09-04T08:00:00Z",
       assignees: [{ login: "ada", avatar: "https://avatars.githubusercontent.com/u/1" }],
       labelColors: { ci: "0e8a16", flaky: "d93f0b" },
