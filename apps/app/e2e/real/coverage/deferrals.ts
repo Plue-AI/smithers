@@ -64,6 +64,8 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     // Resume reuses the reviewed registration; authenticated host acceptance remains #1939.
     "triggers.approve", "triggers.pause", "triggers.resume", "triggers.run",
     "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop",
-    "box.images", "box.list", "workspace.rename", "box.session.destroy"
+    "box.images", "box.list", "workspace.rename", "box.session.destroy",
+    // Box choice resumes a host-backed act; real-host coverage remains owed in #2327.
+    "box.select"
   ]
 }
