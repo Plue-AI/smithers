@@ -722,7 +722,12 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
 
   const listTriggers = async (repoArg?: string): Promise<string | void | { readonly value: string }> => {
     const target = resolveTargetRepo(ctx.store, repoArg)
-    if ("error" in target) return target.error
+    if ("error" in target) {
+      // Signed out with no repository to read, the door is the sign-in step, never an instruction to type (#2285).
+      if (ctx.promptSignIn === undefined || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-out") return target.error
+      ctx.promptSignIn()
+      return { value: "The sign-in step is rendered in the chat." }
+    }
     const repo = target.repo
     const current = captureCloudOwner(ctx, false)
     const version = pauses.versions.get(repo)

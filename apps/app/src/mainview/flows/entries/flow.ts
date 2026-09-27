@@ -27,6 +27,7 @@ export const flowsSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEn
     summary: "See the flows on your workspace",
     userOnly: true,
     userOnlyReason: "a surface switch; the model lists flows with flow.list, which answers as an embedded card",
+    requires: ["signed-in"],
     input: NoPayload,
     handler: () => actions.showFlows()
   })

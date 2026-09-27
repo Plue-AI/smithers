@@ -136,7 +136,7 @@ export function ChromeDock() {
           </button>
         ) :
         null}
-      {/* Flows: the button door of the `flows` surface switch; signed out the pane states that flows run on your own workspace. */}
+      {/* Flows: the button door of the `flows` surface switch; signed out, the flow parks behind sign-in. */}
       {canFlows ?
         (
           <button

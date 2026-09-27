@@ -67,10 +67,10 @@ test("signed-out notifications commands fail closed through the real requirement
   await boot(page)
   await command(page, "/notifications.list")
   await closeComposer(page)
-  await expect(page.getByText(/Sign in with GitHub to show your notifications/i).last()).toBeVisible()
+  await expect(page.getByText("Sign in with GitHub to continue.").last()).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="notifications"]')).toHaveCount(0)
   await command(page, "/notifications.read")
   await closeComposer(page)
-  await expect(page.getByText(/Sign in with GitHub to mark every notification read/i).last()).toBeVisible()
+  await expect(page.getByText("Sign in with GitHub to continue.").last()).toBeVisible()
 
 })

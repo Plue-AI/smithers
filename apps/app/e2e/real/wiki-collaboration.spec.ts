@@ -111,7 +111,7 @@ test(
     await expect(pane.getByText("No Wiki yet.", { exact: true })).toBeVisible()
     await pane.getByRole("button", { name: "Create Wiki", exact: true }).click()
     await closeComposer(page)
-    await expect(page.getByText("Sign in with GitHub to refresh the repository Wiki in the background.", { exact: true })).toBeVisible()
+    await expect(page.getByText("Sign in with GitHub to continue.", { exact: true })).toBeVisible()
     await expect(pane.locator('.world-card-sidebar button')).toHaveCount(0)
     await expect(pane.getByText("No Wiki yet.", { exact: true })).toBeVisible()
   }

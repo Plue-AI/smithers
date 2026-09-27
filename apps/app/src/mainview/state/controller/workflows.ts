@@ -840,6 +840,9 @@ export const createWorkflowController = (
       store.dispatch({ type: "surface.changed", actor: "user", surface: "chat" })
       return
     }
+    // A refusal never opens an empty pane (#2285).
+    const guard = workflowIdentityGuard()
+    if (guard !== undefined) return guard
     store.dispatch({ type: "surface.changed", actor: "user", surface: "flows" })
     return listWorkspaceWorkflows()
   }

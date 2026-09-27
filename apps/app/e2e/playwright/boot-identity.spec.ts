@@ -50,8 +50,7 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
     await slash(page, command)
     const prompt = page.getByRole("article").filter({ has: page.getByRole("button", { name: "Sign in with GitHub", exact: true }) }).last()
     await expect(prompt).toContainText(command === "/flow.run review smithersai/smithers" ? "Sign in with GitHub to run review on smithersai/smithers."
-      : command === "/secrets.list" ? "Sign in with GitHub to show the secrets"
-      : command === "/account.show" ? "Sign in with GitHub to show account"
+      : command === "/secrets.list" || command === "/account.show" ? "Sign in with GitHub to continue."
       : command.startsWith("/issues") ? "Sign in with GitHub to read issues on smithersai/smithers."
       : "Sign in with GitHub to read pull requests on smithersai/smithers.")
     await expect(prompt.getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible()

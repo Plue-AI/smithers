@@ -25,7 +25,7 @@ import type { ApplicationIdentityClient, LocalIdentityClient } from "../runtime/
 import type { FrameHistoryPort } from "../runtime/FrameHistory"
 import { localSocketProtocols } from "../runtime/LocalSession"
 import { createActorBindings } from "./ActorBindings"
-import type { AppTransition } from "./AppState"
+import type { AppTransition, Message } from "./AppState"
 import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, MAIN_TAB_ID, rootFrameId } from "./AppState"
 import type { AppStore } from "./AppStore"
 import { createCloudLspClient,pageCloudLspSocketUrl } from "./CloudLspClient"
@@ -1389,16 +1389,25 @@ export const createAppController = (
       const repo = explicit ?? activeRepositoryId(store)
       const declared = repo ? store.collections.repositoryFlows.get(repo)?.flows.find(row => row.id === flow)?.summary : undefined
       summary = declared ? `${declared.replace(/[.!?]$/, "")} on ${repo}`
-        : flow ? `run ${flow}${repo ? ` on ${repo}` : ""}` : commands.find(asked.name)?.metadata.summary
-    } else if (!summary && asked?.name) summary = commands.find(asked.name)?.metadata.summary
+        : flow ? `run ${flow}${repo ? ` on ${repo}` : ""}` : undefined
+    }
+    // A registry summary is the flow's internal description, not product copy (#2285): without a named purpose the step says "continue".
     const purpose = summary?.trim().replace(/[.!?]$/, "")
     const label = identityProviderFor(services) === "github" ? "Sign in with GitHub" : "Sign in"
+    const text = purpose ? `${label} to ${purpose[0]!.toLowerCase()}${purpose.slice(1)}.` : `${label} to continue.`
+    const signInRequirement = request?.signInRequirement
+    // Repeated doors do not pile up: the same unanswered step already closing the transcript stands.
+    let tail: { readonly ordinal: number; readonly message?: Message } = { ordinal: -1 }
+    for (const message of store.collections.messages.values()) if (message.ordinal > tail.ordinal) tail = { ordinal: message.ordinal, message }
+    for (const card of store.collections.cards.values()) if (card.ordinal > tail.ordinal) tail = { ordinal: card.ordinal }
+    const last = tail.message
+    if (last?.action?.flow === "auth.sign-in" && last.answeredAction === undefined && last.text === text &&
+        last.action.signInRequirement === signInRequirement) return
     store.dispatch({
       type: "message.appended",
       actor: "system",
-      text: purpose ? `${label} to ${purpose[0]!.toLowerCase()}${purpose.slice(1)}.` : `${label} to continue.`,
-      action: { flow: "auth.sign-in", label,
-        ...(request?.signInRequirement === undefined ? {} : { signInRequirement: request.signInRequirement }) }
+      text,
+      action: { flow: "auth.sign-in", label, ...(signInRequirement === undefined ? {} : { signInRequirement }) }
     })
   }
 

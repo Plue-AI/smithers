@@ -54,8 +54,8 @@ test(
     })
 
     await bootLocal(page)
-    await runSignedOutCommand(page, "/flow.create s15 must not start smithersai/smithers", "Sign in with GitHub to create a Smithers flow from a description.")
-    await runSignedOutCommand(page, "/flow.list smithersai/smithers", "Sign in with GitHub to list the flows on your workspace.")
+    await runSignedOutCommand(page, "/flow.create s15 must not start smithersai/smithers", "Sign in with GitHub to continue.")
+    await runSignedOutCommand(page, "/flow.list smithersai/smithers", "Sign in with GitHub to continue.")
     await runSignedOutCommand(page, "/flow.run create-flow smithersai/smithers", "Sign in with GitHub to run create-flow on smithersai/smithers.")
     await closeComposer(page)
 
