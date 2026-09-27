@@ -56,6 +56,10 @@ func newStatusRecorder(w http.ResponseWriter) (http.ResponseWriter, *statusRecor
 	return rec, rec
 }
 
+// Unwrap lets http.ResponseController reach the connection underneath, so a
+// handler can move its own deadlines (the git receive-pack route does).
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 	// Informational responses do not commit the final status. Ignore later

@@ -17,6 +17,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 type GitSmartRouteService interface {
@@ -251,7 +252,24 @@ func (h *GitSmartHandler) UploadPack(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// pushResultWriteSlack is how long past its duration limit a started push
+// may take to write its result.
+const pushResultWriteSlack = 5 * time.Minute
+
 func (h *GitSmartHandler) ReceivePack(w http.ResponseWriter, r *http.Request) {
+	// A large push is read for as long as repo-host may take one, not the
+	// server's ReadTimeout, which stays for every other route: the limit
+	// covers the wait for the repository, and again the push from its start.
+	limit := repohost.ReceivePackMaxDuration()
+	rc := http.NewResponseController(w)
+	if err := rc.SetReadDeadline(time.Now().Add(limit)); err != nil {
+		middleware.LoggerFromContext(r.Context()).Warn("receive-pack keeps the server read timeout", "error", err)
+	}
+	ctx := repohost.WithPushStarted(r.Context(), func() {
+		_ = rc.SetReadDeadline(time.Now().Add(limit + repohost.PushStartedSlack))
+		// The result follows the push's jj import and hooks.
+		_ = rc.SetWriteDeadline(time.Now().Add(limit + pushResultWriteSlack))
+	})
 	start := time.Now()
 	result := "success"
 	defer func() {
@@ -289,7 +307,7 @@ func (h *GitSmartHandler) ReceivePack(w http.ResponseWriter, r *http.Request) {
 	// Wrap the writer so we can detect whether body bytes have been sent.
 	tracked := &bodyTrackingWriter{ResponseWriter: w}
 	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
-	if err := h.Service.ProxyReceivePack(r.Context(), owner, repo, token, requestBody, tracked); err != nil {
+	if err := h.Service.ProxyReceivePack(ctx, owner, repo, token, requestBody, tracked); err != nil {
 		result = "error"
 		if tracked.headersCommitted() {
 			// Headers are already committed; writing an error response would
