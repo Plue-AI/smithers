@@ -59,7 +59,7 @@ export const ConnectCardBody = ({
         Import
       </Button>
     </li>
-    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack, Linear, Notion for threads, tasks and the wiki, read by integrations.list. */}
+    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack, Linear, Notion for conversations, issues and the wiki, read by integrations.list. */}
     {card.payload.integrations?.rows.map((row) => (
       <li key={row.id} className="connect-store-row" data-integration={row.id} data-state={row.state}>
         <span className="connect-store-icon">
@@ -86,7 +86,7 @@ export const ConnectCardBody = ({
 )
 
 const INTEGRATION_NAMES = { slack: "Slack", linear: "Linear", notion: "Notion" } as const
-const INTEGRATION_SYNCS = { slack: "threads", linear: "tasks", notion: "wiki" } as const
+const INTEGRATION_SYNCS = { slack: "conversations", linear: "issues", notion: "wiki" } as const
 
 /*
  * The world query's embedded answer card (§2c″) — the answer rides in the chat

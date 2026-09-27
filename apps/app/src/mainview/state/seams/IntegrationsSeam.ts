@@ -1,6 +1,6 @@
 /*
  * The integrations seam (DESIGN §3.6): the services that sync with a
- * repository's threads, tasks and wiki, read from what the backend already
+ * repository's conversations, issues and wiki, read from what the backend already
  * serves — Linear's integration list (`GET /api/repos/{o}/{r}/linear`) and,
  * when the chat-sync mapping routes land, Slack's channel admissions
  * (`GET …/issues/slack/channels`). The rows ride the existing connect card
