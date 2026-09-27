@@ -1,4 +1,4 @@
-/** Deterministic host with workers in every status, for the tab strip, worker view and sidebar. */
+/** Deterministic host with workers in every status, for the subagent cards, tab strip, worker view and sidebar. */
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
 import { App } from "../src/app.tsx"
@@ -11,6 +11,27 @@ const workers: Record<string, { title: string; prompt: string; model?: "sol" | "
   frame: { title: "Profile frame budget", prompt: "Profile the frame budget.", model: "astra" },
   docs: { title: "Document which-key", prompt: "Document which-key." },
   lint: { title: "Lint the key registry", prompt: "Lint the key registry." }
+}
+/** The chat's delegating cell: each worker is requested from an `agent.delegate` call, as a model's cell does. */
+const delegate = (input: Host.TurnInput, prose: string, ids: ReadonlyArray<string>) => {
+  input.onEvent(event({ _tag: "model-requested" }))
+  input.onEvent(
+    event({ _tag: "model-delta", delta: { type: "text-delta", text: `${prose}\n\`\`\`js\nawait delegate()\n\`\`\`` } })
+  )
+  input.onEvent(event({ _tag: "cell-produced", cell: { text: "await delegate()" } }))
+  ids.forEach((id, ordinal) => {
+    const identity = { session: "fixture", frame: 1, cell: 1, ordinal }
+    const request = { id, ...workers[id]! }
+    input.onEvent(event({ _tag: "cell-call-started", call: { flowName: "agent.delegate", input: request, identity } }))
+    input.runtime!.delegate!(request)
+    input.onEvent(event({
+      _tag: "cell-call-settled",
+      flowName: "agent.delegate",
+      identity,
+      result: { outcome: "success", value: { id, status: "requested" } }
+    }))
+  })
+  input.onEvent(event({ _tag: "cell-settled", outcome: { _tag: "settled" } }))
 }
 const event = (value: unknown) => value as Parameters<Host.TurnInput["onEvent"]>[0]
 const stream = (input: Host.TurnInput, prose: string, code: string, flow: string, subject: string, settle: boolean) => {
@@ -57,6 +78,10 @@ const host: Host.Host = {
           cancel: () => {}
         }
       }
+      // The audit worker delegates a child of its own, for the overview's tree.
+      if (id === "audit") {
+        input.runtime?.delegate?.({ id: "refresh", title: "Check the refresh path", prompt: "Check it." })
+      }
       if (id === "strip") {
         return {
           done: Promise.resolve({ _tag: "failed", message: "Seat quota exhausted", detail: "" }),
@@ -78,11 +103,11 @@ const host: Host.Host = {
     }
     let answer = "Still here."
     if (input.prompt === "delegate") {
-      for (const id of ["audit", "flaky", "strip"]) input.runtime!.delegate!({ id, ...workers[id]! })
+      delegate(input, "I'll split this into three workers.", ["audit", "flaky", "strip"])
       answer = "Requested three workers."
     }
     if (input.prompt === "more") {
-      for (const id of ["frame", "docs", "lint"]) input.runtime!.delegate!({ id, ...workers[id]! })
+      delegate(input, "Three more.", ["frame", "docs", "lint"])
       answer = "Requested three more."
     }
     queueMicrotask(() =>

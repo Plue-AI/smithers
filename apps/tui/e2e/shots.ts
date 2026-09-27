@@ -1,4 +1,7 @@
-/** Color screenshots of the tab strip, worker view and sidebar: `bun e2e/shots.ts <out dir>`. */
+/**
+ * Color screenshots of the subagent cards, the worker breadcrumb, the Summary overview, the tab
+ * strip, worker view and sidebar: `bun e2e/shots.ts <out dir>`.
+ */
 import { spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -51,6 +54,25 @@ for (const cols of [120, 84]) {
     await tui.press(key.enter)
     await sleep(1500)
     shoot(tui, `${cols}-chat`)
+    // Tab from the empty composer focuses the newest card; arrows move between cards.
+    await tui.press(key.tab)
+    await sleep(300)
+    await tui.press("\x1b[A") // up: the card above
+    await sleep(300)
+    shoot(tui, `${cols}-chat-card`)
+    await tui.press(key.enter) // opens the focused card's worker
+    await sleep(800)
+    shoot(tui, `${cols}-worker-crumb`)
+    await tui.press("\x19") // ctrl+y: back to the chat
+    await sleep(500)
+    await tui.press(key.ctrlS) // Summary: the all-subagents overview
+    await sleep(500)
+    shoot(tui, `${cols}-overview`)
+    await tui.press(key.tab) // the selected branch's cards
+    await sleep(300)
+    shoot(tui, `${cols}-overview-cards`)
+    await tui.press(key.escape)
+    await sleep(300)
     await tui.press("\x1b[1;5C") // ctrl+right: Summary
     await sleep(300)
     await tui.press("\x1b[1;5C") // first worker
