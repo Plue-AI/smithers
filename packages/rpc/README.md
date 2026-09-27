@@ -1,6 +1,6 @@
 # @smthrs/rpc
 
-`LocalApp` defines harness, repository, file, terminal, and target records. `LocalLsp` defines code intelligence. `CloudTunnel` defines the cloud proxy, terminal tunnel, and sign-in contracts.
+`LocalApp` defines harness, repository, file, and target records. `LocalLsp` defines code intelligence. `CloudTunnel` defines the cloud proxy, terminal tunnel, and sign-in contracts.
 
 Shared product contracts for the local host, browser, and server. Import individual modules such as `@smthrs/rpc/LocalApp`, `@smthrs/rpc/AppLinks`, and `@smthrs/rpc/TargetGraph`.
 

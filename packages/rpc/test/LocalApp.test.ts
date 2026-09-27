@@ -1,11 +1,7 @@
 import { describe, expect, test } from "vitest"
 import * as LocalApp from "../src/LocalApp.ts"
 import {
-  HarnessesResponseSchema,
   HarnessSchema,
-  PtyCreateResponseSchema,
-  PtyOutputResponseSchema,
-  PtySessionSchema,
   RepoFilesResponseSchema,
   RepoSchema,
   splitLabel,
@@ -86,7 +82,6 @@ describe("the harness wire model", () => {
 
   test("a row carries the binary, the sign-in state, the account and the model table", () => {
     expect(HarnessSchema.parse(harness)).toEqual(harness)
-    expect(HarnessesResponseSchema.parse({ harnesses: [harness] }).harnesses[0]).toEqual(harness)
   })
 
   test("a harness with no binary, no account and no verified model flag is a row, not a parse failure", () => {
@@ -168,51 +163,6 @@ describe("the repo-files wire model", () => {
     expect(RepoFilesResponseSchema.safeParse({ ...file, size: -1 }).success).toBe(false)
     expect(RepoFilesResponseSchema.safeParse({ ...file, size: 1.5 }).success).toBe(false)
     expect(RepoFilesResponseSchema.safeParse({ ...file, kind: "symlink" }).success).toBe(false)
-  })
-})
-
-/*
- * The pty routes (`POST /api/pty`, `GET /api/pty/:id/output`): a session is a
- * terminal or a harness the app launched, and how it ended is three states,
- * not two. Absent `exitCode` means still running, a number is the code, and
- * null is death by signal. The output answer says when the scrollback was
- * cut, so the renderer never presents a tail as the whole session.
- */
-describe("the pty wire model", () => {
-  const session = {
-    sessionId: "p1",
-    kind: "harness" as const,
-    harnessId: "codex" as const,
-    cwd: "/work/smithers",
-    pid: 4242,
-    alive: true
-  }
-
-  test("a live harness session names the harness it launched and carries no exit code", () => {
-    const parsed = PtySessionSchema.parse(session)
-    expect(parsed).toEqual(session)
-    expect(parsed.exitCode).toBeUndefined()
-  })
-
-  test("a plain terminal names no harness, and a dead session distinguishes an exit code from a signal", () => {
-    const terminal = { sessionId: "p2", kind: "terminal" as const, cwd: "/work", pid: 7, alive: false, exitCode: 0 }
-    expect(PtySessionSchema.parse(terminal)).toEqual(terminal)
-    expect(PtySessionSchema.parse({ ...terminal, exitCode: null }).exitCode).toBeNull()
-    expect(PtySessionSchema.safeParse({ ...session, kind: "editor" }).success).toBe(false)
-    expect(PtySessionSchema.safeParse({ ...session, harnessId: "vim" }).success).toBe(false)
-    const { alive: _alive, ...withoutAlive } = session
-    expect(PtySessionSchema.safeParse(withoutAlive).success).toBe(false)
-  })
-
-  test("creating a session answers with its id, and reading output says whether the scrollback was cut", () => {
-    expect(PtyCreateResponseSchema.parse({ sessionId: "p1" })).toEqual({ sessionId: "p1" })
-    expect(PtyCreateResponseSchema.safeParse({}).success).toBe(false)
-    const output = { sessionId: "p1", alive: true, output: "$ ls\n", truncated: true }
-    expect(PtyOutputResponseSchema.parse(output)).toEqual(output)
-    const { truncated: _truncated, ...withoutTruncated } = output
-    expect(PtyOutputResponseSchema.safeParse(withoutTruncated).success).toBe(false)
-    const { output: _text, ...withoutOutput } = output
-    expect(PtyOutputResponseSchema.safeParse(withoutOutput).success).toBe(false)
   })
 })
 

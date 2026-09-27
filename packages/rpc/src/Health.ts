@@ -62,21 +62,3 @@ export const StatusRollupSchema = z.object({
  * @category models
  */
 export type StatusRollup = z.infer<typeof StatusRollupSchema>
-
-/**
- * A `pty.status` frame pushed to a PTY subscriber. The refinement makes the
- * frame self-describing: its rollup must carry the `session:{sessionId}`
- * subject, so a frame can never report another session's health.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const PtyStatusFrameSchema = z.object({
-  type: z.literal("pty.status"),
-  sessionId: z.string(),
-  status: StatusRollupSchema
-})
-  .refine(
-    (frame) => `session:${frame.sessionId}` === frame.status.subjectId,
-    "Status must describe the subscribed session"
-  )

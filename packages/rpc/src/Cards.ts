@@ -176,12 +176,10 @@ export type CardPlanItem = z.infer<typeof CardPlanItemSchema>
  * @category constants
  */
 export const FORM_OPTION_PROVIDERS = [
-  "harnesses",
   "open-repos",
   "cloud-repos",
   "bookmarks",
   "workspaces",
-  "agents",
   "plugins",
   /* The selected repository's real files, listed by the tutorial's file lesson. */
   "files",

@@ -4,7 +4,6 @@
  * @since 1.0.0
  */
 import { z } from "zod"
-import { StatusRollupSchema } from "./Health.ts"
 
 /*
  * The local-app wire model (apps/app/docs/LOCAL-APP.md "HTTP and WebSocket
@@ -195,33 +194,6 @@ export const RepoFilesResponseSchema = z.discriminatedUnion("kind", [
  */
 export type RepoFilesResponse = z.infer<typeof RepoFilesResponseSchema>
 
-/**
- * Validates pty session values at the RPC boundary.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const PtySessionSchema = z.object({
-  status: StatusRollupSchema.optional(),
-  sessionId: z.string(),
-  kind: z.enum(["terminal", "harness"]),
-  harnessId: z.enum(HARNESS_IDS).optional(),
-  /** Trusted role selected by the owner when composing this session's command. */
-  roleId: z.string().optional(),
-  cwd: z.string(),
-  pid: z.number(),
-  alive: z.boolean(),
-  /** The exit code once the process has exited (null when it died by signal); absent while alive. */
-  exitCode: z.number().nullable().optional()
-})
-/**
- * The decoded value accepted by {@link PtySessionSchema}.
- *
- * @since 1.0.0
- * @category models
- */
-export type PtySession = z.infer<typeof PtySessionSchema>
-
 /*
  * One Smithers target as `smithers-build query '//...' --format json` lists it
  * (LOCAL-APP.md "Targets: load and run"): the loader's `{ label, target,
@@ -278,38 +250,8 @@ export const splitLabel = (label: string): { readonly package: string; readonly 
   return { package: label.slice(0, colon), name: label.slice(colon + 1) }
 }
 
-/** `GET /api/harnesses`
- * @since 1.0.0
- * @category schemas
- */
-export const HarnessesResponseSchema = z.object({ harnesses: z.array(HarnessSchema) })
 /** `GET /api/repos`
  * @since 1.0.0
  * @category schemas
  */
 export const ReposResponseSchema = z.object({ repos: z.array(RepoSchema) })
-/** `POST /api/pty`
- * @since 1.0.0
- * @category schemas
- */
-export const PtyCreateResponseSchema = z.object({ sessionId: z.string() })
-
-/** `GET /api/pty/:id/output`: the session's recent output (the tail of a bounded scrollback).
- * @since 1.0.0
- * @category schemas
- */
-export const PtyOutputResponseSchema = z.object({
-  sessionId: z.string(),
-  alive: z.boolean(),
-  /** Plain text: ANSI escapes stripped, carriage returns dropped. */
-  output: z.string(),
-  /** True when older output fell out of the bounded buffer or was cut by `tail`. */
-  truncated: z.boolean()
-})
-/**
- * The decoded value accepted by {@link PtyOutputResponseSchema}.
- *
- * @since 1.0.0
- * @category models
- */
-export type PtyOutputResponse = z.infer<typeof PtyOutputResponseSchema>

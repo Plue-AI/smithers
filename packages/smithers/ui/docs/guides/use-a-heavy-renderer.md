@@ -110,7 +110,13 @@ transport. Three seams cover a live session:
 ```tsx
 import { Terminal } from "@smthrs/ui/adapters/terminal"
 
-export function SessionTerminal({ session }: { readonly session: PtySession }) {
+interface TerminalSession {
+  readonly input: (data: string) => void
+  readonly resize: (cols: number, rows: number) => void
+  readonly attach: (sink: { readonly onOutput: (bytes: string) => void }) => () => void
+}
+
+export function SessionTerminal({ session }: { readonly session: TerminalSession }) {
   return (
     <Terminal
       onData={(data) => session.input(data)}

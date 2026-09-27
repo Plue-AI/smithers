@@ -53,11 +53,10 @@ export const AgentRuntimeConnectorSchema = z.object({
 export type AgentRuntimeConnector = z.infer<typeof AgentRuntimeConnectorSchema>
 
 /*
- * One open tab of the local app (apps/app/docs/LOCAL-APP.md "Tabs"), as the
- * model sees it: Smithers is the first tab and knows every other one — a
- * terminal, a harness (a subagent), or a card — and can read a tab's output
- * with `tab.read <id>`. Optional on the context so a boundary built before
- * tabs existed still validates the payload.
+ * One open tab of the app (apps/app/docs/LOCAL-APP.md "Cards"), as the model
+ * sees it: Smithers is the first tab and knows every card pinned beside the
+ * conversation. Optional on the context so a boundary built before tabs
+ * existed still validates the payload.
  */
 /**
  * Validates agent runtime tab values at the RPC boundary.
@@ -67,16 +66,8 @@ export type AgentRuntimeConnector = z.infer<typeof AgentRuntimeConnectorSchema>
  */
 export const AgentRuntimeTabSchema = z.object({
   id: runtimeLineSchema,
-  kind: z.enum(["main", "terminal", "harness", "card"]),
+  kind: z.enum(["main", "card"]),
   title: runtimeLineSchema,
-  /** A harness tab's harness id and account, when known. */
-  harnessId: runtimeLineSchema.optional(),
-  account: runtimeLineSchema.optional(),
-  /** A process tab's working directory. */
-  cwd: runtimeLineSchema.optional(),
-  /** "running" / "exited" for process tabs, "open" for the rest. */
-  status: z.enum(["running", "exited", "open"]),
-  exitCode: z.number().nullable().optional(),
   active: z.boolean()
 })
 /**
@@ -505,25 +496,11 @@ export const renderAgentRuntimeContext = (context: AgentRuntimeContext): string 
   }
   if (context.tabs !== undefined) {
     if (context.tabs.length <= 1) {
-      lines.push("- Tabs: only this conversation is open — no terminal, agent, or card tab.")
+      lines.push("- Tabs: only this conversation is open — no card tab.")
     } else {
-      lines.push(
-        "- Tabs (you are the first tab and can see every other one; read a tab's recent output with tab.read <id>):"
-      )
+      lines.push("- Tabs (you are the first tab and can see every card tab beside you):")
       for (const tab of context.tabs) {
-        const detail = [
-          tab.harnessId === undefined ? undefined : `harness ${line(tab.harnessId)}`,
-          tab.account === undefined ? undefined : line(tab.account),
-          tab.cwd === undefined ? undefined : `in ${line(tab.cwd)}`,
-          tab.status === "exited"
-            ? `exited${tab.exitCode == null ? "" : ` with code ${tab.exitCode}`}`
-            : line(tab.status)
-        ].filter((part): part is string => part !== undefined)
-        lines.push(
-          `  - ${line(tab.id)} — ${line(tab.kind)} "${line(tab.title)}"${tab.active ? " (active)" : ""}: ${
-            detail.join(", ")
-          }`
-        )
+        lines.push(`  - ${line(tab.id)} — ${line(tab.kind)} "${line(tab.title)}"${tab.active ? " (active)" : ""}`)
       }
     }
   }

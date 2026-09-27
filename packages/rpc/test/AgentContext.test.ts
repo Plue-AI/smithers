@@ -273,12 +273,12 @@ const metadataCases: Array<[string, (value: string) => AgentRuntimeContext]> = [
         worldState: { documentCount: 1, documents: [{ path: "Note.md", title: "Note", confidence: 1, [key]: value }] }
       })]
   ),
-  ...(["id", "title", "harnessId", "account", "cwd"] as const).map(
+  ...(["id", "title"] as const).map(
     (key): [string, (value: string) => AgentRuntimeContext] => [`tab.${key}`, (value) =>
       contextFixture({
         tabs: [
-          { id: "main", kind: "main", title: "Smithers", status: "open", active: true },
-          { id: "process", kind: "harness", title: "Agent", status: "running", active: false, [key]: value }
+          { id: "main", kind: "main", title: "Smithers", active: true },
+          { id: "pinned", kind: "card", title: "Balance", active: false, [key]: value }
         ]
       })]
   ),
@@ -407,43 +407,24 @@ describe("runtime context branch contracts", () => {
   })
 
   test("collapses zero or one tab and omits an absent tab inventory", () => {
-    const main = { id: "main", kind: "main", title: "Smithers", status: "open", active: true } as const
+    const main = { id: "main", kind: "main", title: "Smithers", active: true } as const
     for (const tabs of [[], [main]]) {
       const lines = renderAgentRuntimeContext(contextFixture({ tabs })).split("\n")
-      expect(lines).toContain("- Tabs: only this conversation is open — no terminal, agent, or card tab.")
+      expect(lines).toContain("- Tabs: only this conversation is open — no card tab.")
       expect(lines.join("\n")).not.toContain("tab.read")
     }
     expect(renderAgentRuntimeContext(contextFixture())).not.toContain("- Tabs")
   })
 
-  test("renders tab details with known, null and omitted exit codes", () => {
+  test("renders the card tabs beside the conversation, the active one marked", () => {
     const lines = renderAgentRuntimeContext(contextFixture({
       tabs: [
-        { id: "main", kind: "main", title: "Smithers", status: "open", active: true },
-        { id: "failed", kind: "terminal", title: "Build", cwd: "/repo", status: "exited", exitCode: 1, active: false },
-        { id: "null", kind: "terminal", title: "Shell", status: "exited", exitCode: null, active: false },
-        { id: "omitted", kind: "terminal", title: "Shell", status: "exited", active: false },
-        {
-          id: "agent",
-          kind: "harness",
-          title: "Fixer",
-          harnessId: "codex",
-          account: "will",
-          cwd: "/repo",
-          status: "running",
-          active: false
-        },
-        { id: "card", kind: "card", title: "Balance", status: "open", active: false }
+        { id: "main", kind: "main", title: "Smithers", active: true },
+        { id: "card", kind: "card", title: "Balance", active: false }
       ]
     })).split("\n")
-    expect(lines).toContain(
-      "- Tabs (you are the first tab and can see every other one; read a tab's recent output with tab.read <id>):"
-    )
-    expect(lines).toContain("  - main — main \"Smithers\" (active): open")
-    expect(lines).toContain("  - failed — terminal \"Build\": in /repo, exited with code 1")
-    expect(lines).toContain("  - null — terminal \"Shell\": exited")
-    expect(lines).toContain("  - omitted — terminal \"Shell\": exited")
-    expect(lines).toContain("  - agent — harness \"Fixer\": harness codex, will, in /repo, running")
-    expect(lines).toContain("  - card — card \"Balance\": open")
+    expect(lines).toContain("- Tabs (you are the first tab and can see every card tab beside you):")
+    expect(lines).toContain("  - main — main \"Smithers\" (active)")
+    expect(lines).toContain("  - card — card \"Balance\"")
   })
 })

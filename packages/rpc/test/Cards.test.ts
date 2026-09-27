@@ -267,7 +267,7 @@ describe("the agent cards", () => {
             label: "Harness",
             kind: "select",
             required: true,
-            optionsFrom: "harnesses",
+            optionsFrom: "open-repos",
             options: [
               { value: "codex", label: "Codex · OPENAI_API_KEY" },
               { value: "opencode", label: "OpenCode", disabled: true, reason: "no credential" }
@@ -2363,7 +2363,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         required: true,
         placeholder: "codex",
         options: [{ value: "opencode", label: "OpenCode", disabled: true, reason: "no credential" }],
-        optionsFrom: "harnesses"
+        optionsFrom: "open-repos"
       }],
       draft: { id: "implement", retries: 2, verbose: true },
       given: { id: "implement" },

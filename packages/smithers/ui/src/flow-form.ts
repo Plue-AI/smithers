@@ -31,8 +31,6 @@ export type FieldKind = "text" | "textarea" | "number" | "boolean" | "select" | 
  * fact a seam reported, never a guess). Resolved by controller/forms.ts.
  */
 export const OPTION_PROVIDERS = [
-  /** Installed harnesses with their credential state (the harness table). */
-  "harnesses",
   /** Repositories open in the local app. */
   "open-repos",
   /** Smithers Cloud repositories the session has loaded. */
@@ -41,8 +39,6 @@ export const OPTION_PROVIDERS = [
   "bookmarks",
   /** Cloud workspaces the session has loaded. */
   "workspaces",
-  /** The agents (built-in) with their availability here. */
-  "agents",
   /** The plugin catalog, with the ones already on this workspace's shelf marked. */
   "plugins",
   /** The selected repository's real files, read from the file seam at render. */
