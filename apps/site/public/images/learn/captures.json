@@ -11,6 +11,18 @@
     "revision": "7490338de8",
     "captured": "2026-09-27"
   },
+  "app-wiki-private.png": {
+    "source": "app",
+    "detail": "The app's Wiki pane, driven by apps/app/e2e/playwright/wiki-spaces.spec.ts against its fixture repository.",
+    "revision": "fd4e78ec6b",
+    "captured": "2026-09-27"
+  },
+  "app-wiki-public.png": {
+    "source": "app",
+    "detail": "The app's Wiki pane, driven by apps/app/e2e/playwright/wiki-spaces.spec.ts against its fixture repository.",
+    "revision": "fd4e78ec6b",
+    "captured": "2026-09-27"
+  },
   "preview-chat.png": {
     "source": "preview",
     "detail": "Design preview: apps/app ui-surfaces probe on main, fixture data (#2111, #2105).",

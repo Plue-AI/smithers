@@ -1762,7 +1762,15 @@ Each repository has one wiki with a public part and a private part. Pages are Ma
 3. Pick a page from the tree, or search it. Folders and tags group the pages.
 4. Select a link in the page to follow it. Embedded images and pages show inline.
 
-The rail beside the page lists what links to it (backlinks) and its outline.
+A generated page shows whether it's current with main, such as **current · main**. The rail beside the page lists what links to it (backlinks) and its outline.
+
+![The Wiki pane in the public part: a tree with Guides, assets, and Home; the generated Home page with its current · main chip, a link, and an embedded image; backlinks and outline on the right.](/images/learn/app-wiki-public.png)
+
+The public part, on a generated page, with example data.
+
+![The Wiki pane in the private part: a hand-written Home page with a link to the roadmap and an embedded image, and its backlinks.](/images/learn/app-wiki-private.png)
+
+The private part, on a hand-written page, with example data.
 
 **TUI**
 
