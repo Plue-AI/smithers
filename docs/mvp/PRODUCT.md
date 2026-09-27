@@ -44,6 +44,10 @@ The following are user decisions, not implementation defaults:
 | D-13 | Existing functionality is cut only when the result is a better product, not to meet an arbitrary MVP feature count. |
 | D-14 | For AI checks, inspect the working Artsy examples and verify compatibility with current breaking Smithers changes. An observability lint is a concrete initial example. |
 | D-15 | Deliver product, design, and engineering documents; implement the complete experience; deploy it; then test, review, and polish the deployed result for friendly alpha users. Deployment is already authorized. |
+| D-16 (Will, 2026-09-26) | User-facing words are product words: conversation, issue, wiki, agent, trigger, flow, run. "Thread", "task", "charter", "grants", "profile" and similar are internal modeling terms (many things share one abstraction) and appear only where a page or screen deliberately discusses implementation. Applies to docs and visible UI copy. |
+| D-17 (Will, 2026-09-26) | One user docs set on smithers.sh: four-surface tutorials (GUI, TUI, CLI, API tabs). The GUI-only `app/*` guides and the separate TUI docs site are folded in and deleted. Docs are reviewed first (docs-driven development); docs lead, implementation follows. |
+| D-18 (Will, 2026-09-26) | The app home is a grid of apps: "What should we work on?", the composer, and picture tiles (Fix an issue, Review a PR, Ask the codebase, Run it every night). An app is only a featured flow with a picture, declared by the factory's homepage blocks (D-11a); no separate app model. Opening an app gives one input, one button, then the real run card. Target: `apps/site/public/images/app/home.png`. |
+| D-19 (Will, 2026-09-26) | Registration replaces the alpha allowlist for repositories: [REGISTRATION.md](REGISTRATION.md). A repository link starts one analysis workflow whose report is valuable on its own; Smithers admin review then starts a separate setup workflow. One registration per user at a time. Accounts stay public (plue#602). |
 
 ### Owner-selected defaults for the alpha
 
