@@ -3139,9 +3139,8 @@ Use these guides when you know what you want to do. For a complete worked projec
 
 ## Operate persistent runs
 
-- [Run flows in CI](/docs/guides/ci/): choose an exit policy and retain useful failure evidence.
-- [Run CI on Smithers Cloud](/docs/guides/cloud-ci/): what runs your `PACKAGE.ts` checks today, and the planned event-driven Cloud CI.
-- [Define triggers](/docs/guides/triggers/): register a cron trigger that starts a flow, host the scheduler, and read the fire ledger; repository-event triggers are planned.
+- [Run CI](/docs/guides/cloud-ci/): run repository workflows on Smithers Cloud, or launch a flow from a CI job.
+- [Define triggers](/docs/guides/triggers/): register a cron trigger that starts a flow and host the scheduler.
 - [Control plane](/docs/guides/control-plane/): host runs beyond a terminal session.
 - [Artifacts and cache](/docs/guides/artifacts-cache/): store output bytes and share sealed results.
 - [Retention](/docs/guides/retention/): back up state and remove data you no longer need.
@@ -3681,7 +3680,7 @@ A detached launch returns the durable run ID and log path after the child acknow
 
 Use `smthrs runs show <run-id>` to read the current status and diagnosis. A local attached launch exits `0` for completion, `1` for failure, `3` for waiting on approval, or `130` for cancellation. A successful read command does not mean the run succeeded; read its `status` field.
 
-Continue with [Inspect runs](/docs/guides/inspecting-runs/) to read events and outputs, or [Run flows in CI](/docs/guides/ci/) to choose how a pipeline handles a parked run.
+Continue with [Inspect runs](/docs/guides/inspecting-runs/) to read events and outputs, or [Run flows in CI](/docs/guides/cloud-ci/#launch-a-flow-from-a-ci-job) to choose how a pipeline handles a parked run.
 
 ---
 
@@ -3834,7 +3833,7 @@ The reserved node `result` names the final assistant output. Other node IDs iden
 | A provider refusal | [Check the model seat and credentials](/docs/troubleshooting/doctor-provider/). |
 | A completed run needs historical inspection | [Inspect or replay a frame](/docs/concepts/time-travel/). |
 
-For agent access to the same run state, see the [MCP tools reference](/docs/reference/mcp-tools/). For pipeline exit handling, see [Run flows in CI](/docs/guides/ci/).
+For agent access to the same run state, see the [MCP tools reference](/docs/reference/mcp-tools/). For pipeline exit handling, see [Run flows in CI](/docs/guides/cloud-ci/#launch-a-flow-from-a-ci-job).
 
 ---
 
@@ -5597,101 +5596,6 @@ Facts live in `.flows/control.db`, so the project backup in [Back up, gc, and re
 
 ---
 
-# Run flows in CI
-https://smithers.sh/docs/guides/ci/
-
-Run a flow from CI with `smthrs flow start`. A local attached invocation stays with the run and gives the job an exit status when it completes, fails, or parks.
-
-This guide covers durable flows. `smthrs ci <pattern>` runs build, test, lint, and docs targets from `PACKAGE.ts`; it does not launch every flow in the repository.
-
-Smithers Cloud does not run checks from repository events yet; [Run CI on Smithers Cloud](/docs/guides/cloud-ci/) lists the shipped paths and the planned service.
-
-## Before you start
-
-Commit your flow sources under `flows/` and configure their model seats. The runner needs Node.js 26.4.0 or later and the Smithers CLI. Store provider credentials in your CI system's secret store and expose only the variables the chosen seat needs.
-
-A fresh checkout has no `.flows/` history. Work that needs to survive the job belongs on a persistent host.
-
-## Add a GitHub Actions job
-
-This job runs the existing `deploy/status` flow after a push to `main`. Replace that ID with your own flow. The example assumes its seat uses `ANTHROPIC_API_KEY`.
-
-```yaml title=".github/workflows/smithers.yml"
-name: Smithers flow
-on:
-  push:
-    branches: [main]
-
-jobs:
-  flow:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm install --global @smthrs/cli@next
-      - name: Run the flow
-        run: smthrs flow start deploy/status --format json
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      - name: Inspect runs after a failure
-        if: failure()
-        run: smthrs runs list --format json
-```
-
-The `@next` tag selects the release-candidate line. Pin a specific tested package version when you need repeatable CI installs. The timeout bounds the job; choose a value appropriate for your flow.
-
-`flow start` approves its launch with run scope and does not prompt. Use it only for work the pipeline is authorized to run.
-
-## Handle the exit status
-
-For a local attached launch, these outcomes matter to the job:
-
-| Code | Meaning | Response |
-| --- | --- | --- |
-| `0` | The run completed. | Continue the pipeline. |
-| `1` | The command or run failed. | Read the diagnosis and events. |
-| `2` | The invocation is invalid. | Fix arguments or malformed input. |
-| `3` | The run is waiting for approval. | Apply the job's approval policy below. |
-| `130` | Cancellation or SIGINT. | Treat the job as interrupted. |
-| `143` | SIGTERM. | Check runner shutdown or timeout. |
-
-A read command such as `runs show` can succeed while reporting a failed run. Its exit status reports the read, not the workflow outcome.
-
-Use `--format json` for structured results and `--format jsonl` for event streams. Keep scripts on the canonical command groups; older flat aliases retain compatibility output contracts.
-
-## Decide how the job handles approvals
-
-Run-scope launch approval does not eliminate every possible in-run request. If the flow parks, choose one of these arrangements:
-
-- **Keep the job unattended.** Treat exit `3` as a failed pipeline requirement and change the flow so it does not need a human response during that job.
-- **Use persistent execution.** Run the work on a persistent control-plane host, submit the exact approval there, and resume the same run after the decision.
-
-A remote launch returns an admission receipt rather than waiting for terminal completion. If your pipeline launches remotely, it must separately inspect that run and enforce its completion policy. A successful remote launch alone is not a successful workflow.
-
-See [Run a control plane](/docs/guides/control-plane/) for remote connections, and [Plan, approve, and run](/docs/guides/plan-approve-run/) for the approval sequence.
-
-## Keep useful failure evidence
-
-Before the runner exits, inspect the run ID returned at launch:
-
-```bash
-smthrs runs show <run-id> --format json
-smthrs runs logs <run-id> --limit 100 --format jsonl
-```
-
-Replace `<run-id>` with the actual ID. Save the output using your CI system's artifact facility if you need it after the job. Log exports help diagnosis; they are not a backup that can resume the execution.
-
-For resumable state, follow [Back up and retain run state](/docs/guides/retention/). A new checkout cannot resume a run merely because the previous job printed its ID.
-
-## Verify the job
-
-Run the launch command locally against the same flow and credentials, then inspect its status. In CI, confirm that a failed or parked flow fails the job and that the diagnostic step still runs. [Inspect runs](/docs/guides/inspecting-runs/) explains how to narrow a failure to its recorded events and outputs.
-
----
-
 # Test your flows
 https://smithers.sh/docs/guides/testing-flows/
 
@@ -5975,64 +5879,68 @@ Comment `@smithers review` on an open pull request. The action posts the narrati
 
 ## See also
 
-- [Run flows in CI](/docs/guides/ci/): the Smithers CLI's own CI contract, with exit codes and secrets.
+- [Run flows in CI](/docs/guides/cloud-ci/#launch-a-flow-from-a-ci-job): the Smithers CLI's own CI contract, with exit codes and secrets.
 - [Model seats](/docs/guides/model-seats/): what a `provider:model` seat string declares.
 
 ---
 
-# Run CI on Smithers Cloud
+# Run CI
 https://smithers.sh/docs/guides/cloud-ci/
 
-Smithers' backend dispatches repository workflows from matching events and executes CI on its sandbox plane. The proposed `S.Automation` API is still unimplemented; it is separate from the workflow service that runs today. Hosted availability depends on the repository connection and deployment's execution services.
+Smithers Cloud dispatches repository workflows from matching events and runs their jobs on its sandbox plane. A job runs the `PACKAGE.ts` target graph with `smthrs ci <pattern>`, which runs build, test, lint, and docs targets with normal cache reuse. To start a durable flow from a job, use `smthrs flow start`.
 
-## What runs checks today
+## Cloud workflows
 
-The target graph runs wherever the CLI is installed; a workflow job can invoke it:
+| Surface | Behavior |
+| --- | --- |
+| Definitions | Repository workflows loaded for the event's source commit. |
+| Admission | Matching events create durable workflow runs and tasks. |
+| Execution plane | Every CI run is created on the sandbox plane. Agent runs use the separate agent plane. |
+| Job environment | NixOS VM jobs use the repository's registered closure image or the platform base closure. A repository does not need its own `.smithers/environment.nix`. |
+| `runs-on` | Workflow metadata; it cannot select another execution plane. |
+| Caches and artifacts | Jobs get credentials scoped to their repository, run, and task. These are separate from the target action cache and the flow engine's step cache. |
+| Completion | The terminal publisher updates the commit status and the `smithers / <workflow name>` GitHub check, emits `workflow_run`, and dispatches eligible downstream workflows. |
 
-| Path | What it does | Where it is documented |
-| --- | --- | --- |
-| Smithers Cloud workflow | Loads repository workflow definitions for an event, queues CI, and runs jobs through the backend sandbox scheduler. Jobs can invoke `smthrs ci`. | [Cloud CI reference](/docs/reference/cloud-ci/) |
-| `smthrs ci <pattern>` | Runs build, test, lint, and docs targets as one graph on the machine you run it on, with normal cache reuse. | [Build targets](/docs/guides/build-targets/) |
-| `Smithers.GithubCiGen` | A target that generates the GitHub Actions workflow files from declared attrs. GitHub Actions then runs `smthrs ci` on push and pull request events. | [`@smthrs/targets`](/docs/reference/api/targets/) |
-| `smthrs flow start` in a CI job | Launches a durable flow from GitHub Actions and gives the job an exit status when the run completes, fails, or parks. | [Run flows in CI](/docs/guides/ci/) |
+This repository's [`.smithers/workflows/ci.tsx`](https://github.com/smithersai/smithers/blob/main/.smithers/workflows/ci.tsx) declares push-to-main and manual triggers; its task groups invoke [`scripts/ci/cloud.sh`](https://github.com/smithersai/smithers/blob/main/scripts/ci/cloud.sh).
 
-This repository's [`.smithers/workflows/ci.tsx`](https://github.com/smithersai/smithers/blob/main/.smithers/workflows/ci.tsx) declares push-to-main and manual triggers. Its task groups invoke [`scripts/ci/cloud.sh`](https://github.com/smithersai/smithers/blob/main/scripts/ci/cloud.sh), including package, app, docs, and drift checks. A checked-in declaration alone does not prove a particular Cloud run succeeded.
+The owning code is in [`packages/backend/internal/services`](https://github.com/smithersai/smithers/tree/main/packages/backend/internal/services): `workflow_nix_ci.go` and `workflow_run_terminal.go`.
 
-For scheduled flows, use the app's [Dispatcher](/docs/app/dispatcher/) to prepare and approve a registration. To host the local scheduler yourself, use `smthrs serve` or `smthrs triggers serve`; see [Define triggers](/docs/guides/triggers/).
+### Verify a Cloud run
 
-## Verify a Cloud run
+Inspect the run ID, tested commit, task results, and terminal status, then the GitHub check when the repository requires one. A queued run, accepted dispatch, or in-progress check is not completion; cancellation is not failure. Publication errors are logged, so confirm the check's completed result before making it required.
 
-Inspect the run's source revision, job results, logs, and final status. Connected GitHub repositories can receive a check named `smithers / <workflow name>` when the deployment supplies the GitHub App services. A queued run or accepted dispatch is not a passing check. Confirm the actual check name and completed result before making it required.
+For scheduled flows, use the app's [Dispatcher](/docs/app/dispatcher/), or host the scheduler yourself with `smthrs serve`; see [Define triggers](/docs/guides/triggers/).
 
-For Smithers' own factory, Cloud owns coding and CI/CD; GitHub retains synchronization and essential checks. See [the contributor workflow](https://github.com/smithersai/smithers/blob/main/CONTRIBUTING.md).
+## Launch a flow from a CI job
 
-## Planned: event-driven Cloud CI
+Commit flow sources under `flows/` and configure their model seats. The job needs Node.js <code>>=26.4.0</code> and the [Smithers CLI](/docs/installation/#install-the-cli). Expose only the provider credentials the flow's seat needs, from the CI system's secret store.
 
-This section describes a declaration API that is not built. `@smthrs/targets` exports no `S.Automation` and `S.Package` accepts no `automations` entry. The type-level proof is [`apps/site/examples/cloud-triggers/contract.d.ts`](https://github.com/smithersai/smithers/blob/main/apps/site/examples/cloud-triggers/contract.d.ts); it does not implement trigger registration, matching, dispatch, or the `S.Automation` runtime.
-
-The intended shape declares a suite and binds it to repository events in `PACKAGE.ts`:
-
-```ts title="PACKAGE.ts (planned; does not compile against the released packages)"
-import { Smithers as S } from "@smthrs/targets"
-import { Trigger as T } from "@smthrs/triggers"
-import { Package as src } from "./src/PACKAGE.js"
-
-const checks = S.Suite({
-  tests: [src.lint, src.typeCheck, src.test],
-})
-
-const ci = S.Automation({
-  on: [T.push({ branches: ["main"] }), T.review({ base: ["main"] })],
-  run: checks,
-})
-
-export const Package = S.Package({
-  targets: { checks },
-  automations: { ci },
-})
+```bash
+smthrs flow start deploy/status --format json
 ```
 
-The proposal would bind target or flow labels directly to typed selectors in `PACKAGE.ts`. Use the existing workflow service or registrar until that API is implemented; the example above does not compile against the current packages.
+Replace `deploy/status` with your flow. `flow start` approves its launch with run scope and does not prompt, so use it only for work the pipeline is authorized to run. On failure, list the runs before the job exits:
+
+```bash
+smthrs runs list --format json
+```
+
+A fresh checkout has no `.flows/` history. Work that must survive the job belongs on a persistent host.
+
+### Handle the exit status
+
+A local attached launch exits `0` when the run completes, `1` when it fails, `3` when it waits for approval, and `130` or `143` when it is interrupted. See [exit codes](/docs/reference/errors/#exit-codes). A read such as `runs show` exits by whether the read succeeded, not by the run's outcome.
+
+If the flow parks on exit `3`, either treat it as a failed requirement and change the flow so the job needs no human answer, or run the work on a persistent [control plane](/docs/guides/control-plane/), approve it there, and resume the same run. A remote launch returns an admission receipt, so the pipeline must inspect that run's completion itself.
+
+### Keep failure evidence
+
+```bash
+smthrs runs show <run-id> --format json
+smthrs runs logs <run-id> --limit 100 --format jsonl
+```
+
+Save the output with the CI system's artifact facility. Log exports help diagnosis but cannot resume a run; for resumable state, see [Back up and retain run state](/docs/guides/retention/).
 
 ---
 
@@ -6041,7 +5949,7 @@ https://smithers.sh/docs/guides/triggers/
 
 A trigger is a durable rule that starts a flow. The rule that ships today is a cron schedule: `smthrs triggers register` stores it in the project's control database, and the scheduler inside `smthrs serve` or `smthrs triggers serve` fires it while that process runs. Every fire goes through Control, so a flow that requires approval still waits for one.
 
-Repository events (`push`, `review`, `tag`), typed manual input, external events, and completion chaining are not available yet. The [Planned](#planned-repository-events-and-packagets-declarations) section at the end of this page describes that design and marks it as unshipped.
+Repository events start Cloud workflows instead; see [Cloud CI](/docs/guides/cloud-ci/).
 
 You need a Smithers project with at least one flow. `smthrs flow list` prints the flow ids the trigger can name.
 
@@ -6083,15 +5991,7 @@ The `id` in the file must match the id on the command line; a mismatch fails and
 
 ## Choose overlap and catch-up policies
 
-Two policies decide what happens when an occurrence is due at an awkward time. Both default to the conservative choice.
-
-| Policy | Values | Behavior |
-| --- | --- | --- |
-| `--overlap` | `skip` (default), `buffer-one`, `supersede` | What to do when an occurrence is due while the previous run is still active. `skip` records the occurrence and starts nothing. `buffer-one` keeps one pending occurrence and fires it when the active run settles; a second due occurrence coalesces into the same buffer. `supersede` cancels the active run and starts the new occurrence. |
-| `--catch-up` | `none` (default), `one`, `all` | What to do with occurrences missed while no scheduler was running. `none` ignores them. `one` fires the most recent missed occurrence. `all` fires every missed occurrence in order. |
-| `--max-catch-up` | `0` (default) to `1000` | The most missed occurrences a catch-up may replay. With the default `0`, `one` and `all` replay nothing. A backlog beyond the bound is abandoned with a warning, and the current occurrence still fires. |
-
-Disabling a trigger never cancels its active run. Only a `supersede` claim cancels a run.
+`--overlap` (`skip`, `buffer-one`, `supersede`) decides what happens when an occurrence is due while the previous run is active; `--catch-up` (`none`, `one`, `all`) and `--max-catch-up` decide what happens to occurrences missed while no scheduler ran. The defaults, `skip` and `none`, start nothing extra. The [declaration reference](/docs/reference/triggers/#declaration) defines each value.
 
 ## Host the scheduler
 
@@ -6141,61 +6041,15 @@ smthrs triggers fire nightly-lint
 
 The command records a pending occurrence stamped with the current time and prints its idempotency key. The scheduler picks it up on its next tick and applies the trigger's overlap policy exactly as it would for a cron boundary. A disabled trigger refuses to queue; enable it first. `--occurrence <unix-ms>` sets the occurrence instant so a retried command reuses the same key instead of queueing a second fire.
 
-## Inspect triggers and the fire ledger
+## Inspect triggers
 
-`smthrs triggers list` prints every registration ordered by id, each with its `revision`, `enabled` flag, and `lastFiredAt` once an occurrence has been recorded. `smthrs triggers show <id>` adds `activeRun`, the run id or launch reservation the trigger holds right now, and `activePlan` when that run is waiting for approval.
+`smthrs triggers list` prints every registration; `smthrs triggers show <id>` adds `activeRun` and, when that run waits for approval, `activePlan`. `smthrs triggers enable <id>` and `disable <id>` flip future occurrences without touching an active run. Each occurrence records one outcome; see the [fire ledger](/docs/reference/triggers/#fire-ledger).
 
-Every occurrence ends with one recorded outcome:
-
-| Outcome | Meaning |
-| --- | --- |
-| `launched` | Control accepted the run and it is still active. |
-| `completed` | The run settled. |
-| `skipped` | The occurrence was due while a run was active and the policy is `skip`. |
-| `buffered` | The occurrence is waiting behind an active run under `buffer-one`. |
-| `superseded` | The occurrence cancelled the active run under `supersede`. |
-| `failed` | The runner could not prepare or launch the flow. |
-
-`lastFiredAt` is the cursor catch-up resumes from. It advances on skipped and buffered occurrences too, so it does not tell you which occurrence an active run owns; `show` does.
-
-`smthrs triggers enable <id>` and `smthrs triggers disable <id>` flip future occurrences without touching an active run. Both increment the revision.
-
-## Read triggers in the app
-
-Signed in to Smithers, run `/triggers.list` or ask "list the triggers on owner/repo". The Dispatcher card prints one row per trigger: the schedule in words, the flow it runs, whether it is enabled, and when it last fired.
-
-The card reads declared factory rules and, when connected, live workspace registrations. **Register a rule** prepares a flow plan for human approval before the repository registrar writes the schedule. Named registrations offer **Run now** and **Pause**. See [Dispatcher](/docs/app/dispatcher/) for inputs, limits, and completion receipts. When the workspace or registrar is unavailable, the app reports that failure.
+The app's [Dispatcher](/docs/app/dispatcher/) card lists the same triggers.
 
 ## Accept a verified webhook
 
-`@smthrs/triggers/Webhook` builds a webhook door in code. `Webhook.make` takes a channel configuration and a required credential reference, verifies the request signature over the raw bytes in constant time, and hands the decoded payload to Control's channel coordinator. It exposes `register` and `ingest` and no direct execution method, so a valid signature and valid JSON never bypass Control.
-
-There is no `smthrs webhooks` verb. Dispatcher can display webhook channels returned by its connected workspace. For the module contract, see [`@smthrs/triggers`](/docs/reference/api/triggers/#webhook). For GitHub webhooks that reconcile against `.smithers/listeners.json`, see `smthrs integrations reconcile` in the [CLI reference](/docs/reference/cli/).
-
-## Planned: repository events and PACKAGE.ts declarations
-
-This section describes work that is not built. Nothing in it is importable today: `@smthrs/targets` exports no `S.Automation`, `S.Package` accepts no `automations` entry, and `@smthrs/triggers` exports no `Trigger.push`, `review`, `tag`, `schedule`, `manual`, `event`, or `succeeded` constructor. The type-level proof of the intended surface lives in [`apps/site/examples/cloud-triggers/contract.d.ts`](https://github.com/smithersai/smithers/blob/main/apps/site/examples/cloud-triggers/contract.d.ts), whose README states that it implements no registration, matching, dispatch, or `S.Automation` runtime.
-
-The intended shape binds typed event selectors to an existing target or flow inside `PACKAGE.ts`:
-
-```ts title="PACKAGE.ts (planned; does not compile against the released packages)"
-import { Smithers as S } from "@smthrs/targets"
-import { Trigger as T } from "@smthrs/triggers"
-
-const ci = S.Automation({
-  on: [T.push({ branches: ["main"] }), T.review({ base: ["main"] })],
-  run: prePush,
-})
-
-export const Package = S.Package({
-  targets: { prePush },
-  automations: { ci },
-})
-```
-
-The planned selectors are `T.push` with branch and path filters, `T.review` for GitHub pull requests and Plue landing requests, `T.tag`, `T.schedule` as the declared form of today's cron trigger, `T.manual` with a typed input schema, `T.event` for authenticated external publishers, and `T.succeeded` to chain one automation after another. Filters combine with AND, list values with OR, and an exclusion always wins. The [Trigger reference](/docs/reference/triggers/) records the planned event fields and matching rules under the same disclaimer.
-
-Repository events can already start backend workflows through [Smithers Cloud CI](/docs/guides/cloud-ci/). Those workflows and the integration listeners use their own declarations; they do not implement the proposed `S.Automation` API. For another CI host, [Run flows in CI](/docs/guides/ci/) shows how to launch a flow from a job.
+There is no `smthrs webhooks` verb. `Webhook.make` builds a verified webhook door in code; see [Webhooks](/docs/reference/triggers/#webhooks).
 
 ---
 
@@ -46554,47 +46408,6 @@ Every command that touches durable state resolves the same project root, in this
 
 ---
 
-# Smithers Cloud CI
-https://smithers.sh/docs/reference/cloud-ci/
-
-The common Go backend owns workflow discovery, event matching, durable run admission, sandbox execution, and result publication. A deployment supplies repository storage, sandbox provisioning, and optional GitHub App services. Source support does not establish that these services are configured for every installation.
-
-For the repository's current workflow example, see [Run CI on Smithers Cloud](/docs/guides/cloud-ci/). The local cron library and scheduler are documented separately in [Triggers](/docs/reference/triggers/).
-
-## Dispatch and execution
-
-| Surface | Current behavior |
-| --- | --- |
-| Definitions | Repository workflows loaded for the event's source commit. |
-| Admission | Matching events create durable workflow runs and tasks. |
-| Execution plane | Every CI run is created on the sandbox plane. Agent runs use the separate agent plane. |
-| Job environment | NixOS VM jobs use the repository's registered closure image or the platform base closure. A repository does not need its own `.smithers/environment.nix` to enter CI. |
-| `runs-on` | Workflow metadata; it cannot select another execution plane. |
-| Graph checks | A job invokes `smthrs ci <pattern>` to run the `PACKAGE.ts` target graph. |
-| GitHub check | `smithers / <workflow name>`, when GitHub App publication is configured. |
-
-The backend's [execution-plane tests](https://github.com/smithersai/smithers/blob/main/packages/backend/internal/services/workflow_run_execution_plane_test.go) cover admission without a repository closure and refusal to select the agent plane through `runs-on`.
-
-## Caches and artifacts
-
-Sandbox jobs receive credentials scoped to their repository, run, and task for workflow cache and artifact operations. Cache restoration and artifact publication belong to the workflow job lifecycle. They are separate from the target graph's action cache and the Flow engine's step cache.
-
-See the [sandbox CI implementation](https://github.com/smithersai/smithers/blob/main/packages/backend/internal/services/workflow_nix_ci.go) and [job credential tests](https://github.com/smithersai/smithers/blob/main/packages/backend/internal/services/workflow_nix_ci_job_credentials_test.go) for the enforced boundaries.
-
-## Completion and GitHub results
-
-The terminal publisher updates the run's commit status and GitHub check run, emits its `workflow_run` event, and dispatches eligible downstream workflows. Publication errors are logged; a successful local run does not prove GitHub received its result.
-
-Inspect the run ID, tested commit, task results, and terminal status, then check the corresponding GitHub result when the repository requires one. Cancellation is distinct from failure. An accepted dispatch, queued task, or in-progress check is not completion.
-
-The owning code is [workflow_run_terminal.go](https://github.com/smithersai/smithers/blob/main/packages/backend/internal/services/workflow_run_terminal.go); its tests cover sandbox-run completion and publication.
-
-## Proposed target automation API
-
-`S.Automation` and `Package.automations` remain a [type-level proposal](https://github.com/smithersai/smithers/blob/main/apps/site/examples/cloud-triggers/contract.d.ts). They are not exported by the current packages. The existing backend workflow service does not make that proposed `PACKAGE.ts` syntax executable.
-
----
-
 # smthrs affected
 https://smithers.sh/docs/reference/cli/affected/
 
@@ -50327,7 +50140,7 @@ for the control-plane configuration.
 # Triggers
 https://smithers.sh/docs/reference/triggers/
 
-A trigger is a durable cron declaration that starts one flow with fixed input. This page records what the released packages do: the declaration schema, the `smthrs triggers` verbs, how the scheduler claims and fires occurrences, and the outcomes it records. The [Planned](#planned-event-selectors-and-automations) section at the end records the repository-event selector design, which is not built. For a walkthrough, see [Define triggers](/docs/guides/triggers/). For every exported symbol, see [`@smthrs/triggers`](/docs/reference/api/triggers/).
+A trigger is a durable cron declaration that starts one flow with fixed input. This page records what the released packages do: the declaration schema, the `smthrs triggers` verbs, how the scheduler claims and fires occurrences, and the outcomes it records. For a walkthrough, see [Define triggers](/docs/guides/triggers/). For every exported symbol, see [`@smthrs/triggers`](/docs/reference/api/triggers/).
 
 ## Declaration
 
@@ -50340,9 +50153,9 @@ A trigger is a durable cron declaration that starts one flow with fixed input. T
 | `input` | Default `{}` | The flow's input as JSON. `undefined`, `NaN`, a `Date`, or a function is refused as `invalid_trigger` with `path: "input"`. |
 | `cron` | Required | A five-field cron expression, minute precision. Refused as `invalid_cron` when malformed and `unsatisfiable_cron` when the calendar never satisfies it. |
 | `timezone` | Optional, default UTC | An IANA timezone name. |
-| `overlap` | Default `"skip"` | `"skip"`, `"buffer-one"`, or `"supersede"`. Applied when an occurrence is due while the trigger's run is active. |
-| `catchUp` | Default `"none"` | `"none"`, `"one"`, or `"all"`. Applied to occurrences missed while no scheduler ran. |
-| `maxCatchUp` | Default `0`, at most `1000` | The most missed occurrences one catch-up replays. |
+| `overlap` | Default `"skip"` | Applied when an occurrence is due while the trigger's run is active. `"skip"` records it and starts nothing; `"buffer-one"` keeps one pending occurrence and fires it when the run settles; `"supersede"` cancels the active run and starts the new one. |
+| `catchUp` | Default `"none"` | Applied to occurrences missed while no scheduler ran. `"none"` ignores them; `"one"` fires the most recent; `"all"` fires each in order. |
+| `maxCatchUp` | Default `0`, at most `1000` | The most missed occurrences one catch-up replays; with `0`, `"one"` and `"all"` replay nothing. |
 | `enabled` | Default `true` | A disabled trigger is listed and never claimed. |
 
 The satisfiability probe searches forward from the current instant for one occurrence, the same search every tick performs, so `0 0 30 2 *` is refused where it is written rather than at the tick that would have fired it. Shape failures name the offending field in `TriggerError.path`.
@@ -50398,37 +50211,13 @@ A catch-up that owes more occurrences than `maxCatchUp` logs a warning annotated
 
 The ledger has no CLI or app listing yet. Rows are readable in `.flows/control.db`.
 
-## Reading triggers in the app
-
-The `triggers.list` flow (slash command `/triggers.list`, or ask the agent to list the triggers on a repository) renders the Dispatcher card: declared factory rules and live rows with the schedule, flow, enabled state, and fire times. `/triggers.register` prepares a plan; human approval registers it through the repository registrar. Named registrations expose **Run now** and **Pause**. See [Dispatcher](/docs/app/dispatcher/).
-
-Live state requires a connected workspace. An unavailable gateway or registrar produces a visible failure. Signed-out visitors can inspect declared rules; writes require sign-in.
+The app's [Dispatcher](/docs/app/dispatcher/) card lists and registers triggers.
 
 ## Webhooks
 
 `Webhook.make` from `@smthrs/triggers/Webhook` builds a verified door in code. It requires a credential reference, verifies the signature header over a private copy of the raw request bytes in constant time, refuses an absent or empty signature before computing anything, and hands the decoded payload to Control's channel coordinator. It exposes `register` and `ingest` and no direct execution method. `ingest` does not register the channel; run `register` first.
 
 There is no `smthrs webhooks` verb. The Dispatcher card displays webhook channels when its workspace returns them. For the library's module contract, see [`@smthrs/triggers`](/docs/reference/api/triggers/#webhook).
-
-## Planned: event selectors and automations
-
-This section describes work that is not built. `@smthrs/targets` exports no `S.Automation` and `S.Package` accepts no `automations` entry. `@smthrs/triggers` exports no `Trigger.push`, `review`, `tag`, `schedule`, `manual`, `event`, or `succeeded`. The type-level proof of the intended surface is [`apps/site/examples/cloud-triggers/contract.d.ts`](https://github.com/smithersai/smithers/blob/main/apps/site/examples/cloud-triggers/contract.d.ts); its README states that it does not implement trigger registration, matching, dispatch, or the `S.Automation` runtime, and that the runtime APIs behind these signatures still need to be built.
-
-The design binds typed event selectors to one target or flow with `S.Automation({ on, run, when?, input? })`, exported through `Package.automations` so a root entry `automations: { ci }` has the label `//:ci`.
-
-| Planned constructor | Options | Event fields beyond `id`, `repository`, `receivedAt` |
-| --- | --- | --- |
-| `T.push(options?)` | `branches?`, `paths?` | `type: "push"`, `branch`, `commit`, `before`. |
-| `T.review(options?)` | `actions?`, `base?`, `head?`, `paths?`, `drafts?` | `type: "review"`, `action`, `review`; labeled events also carry `label`. |
-| `T.tag(options?)` | `names?` | `type: "tag"`, `name`, `commit`. |
-| `T.schedule(options)` | `cron`, `timezone?`, `ref?` | `type: "schedule"`, `scheduledAt`, `timezone`. The declared form of today's cron trigger. |
-| `T.manual(options?)` | `input?` schema | `type: "manual"`, decoded `input`. |
-| `T.event(options)` | literal `name`, `input` schema | `type: "event"`, `name`, decoded `input`. |
-| `T.succeeded(automation)` | an automation reference | `type: "succeeded"`, `runId`, `commit`, `cause`, typed `output`. |
-
-Planned matching rules: entries in `on` combine with OR; fields within one selector combine with AND; values in a filter list combine with OR; an exclusion wins over every inclusion; `when` must return `true` after a selector matches. Planned delivery rules: subscriptions register from the default branch or bookmark, each accepted event records the subscription revision separately from the execution revision, and redelivery returns the first receipt.
-
-None of those rules run anywhere today. When they land, this section moves above the fold and the shipped cron trigger becomes `T.schedule`.
 
 ---
 
@@ -50529,7 +50318,7 @@ The default scope on `approvals approve` is `once`; the command above chooses `r
 
 Check that you selected the same project or remote host, the same run, and the current request. Read the command's refusal before retrying. A stale or already-resolved request must not be treated as a new approval.
 
-For the full admission sequence, see [Plan, approve, and run](/docs/guides/plan-approve-run/). In CI, a parked run needs state that outlives the runner; see [Run flows in CI](/docs/guides/ci/).
+For the full admission sequence, see [Plan, approve, and run](/docs/guides/plan-approve-run/). In CI, a parked run needs state that outlives the runner; see [Run flows in CI](/docs/guides/cloud-ci/#launch-a-flow-from-a-ci-job).
 
 ---
 

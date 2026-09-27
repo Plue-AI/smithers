@@ -1,58 +1,64 @@
 ---
-title: "Run CI on Smithers Cloud"
-description: "Run repository workflows on Smithers Cloud, inspect their results, and distinguish them from the proposed PACKAGE.ts automation API."
+title: "Run CI"
+description: "Run repository workflows on Smithers Cloud, or launch a flow from a CI job and handle its exit status."
 editUrl: "https://github.com/smithersai/smithers/edit/main/apps/site/src/content/docs/docs/guides/cloud-ci.mdx"
 sidebar:
   order: 25
 ---
 
-Smithers' backend dispatches repository workflows from matching events and executes CI on its sandbox plane. The proposed `S.Automation` API is still unimplemented; it is separate from the workflow service that runs today. Hosted availability depends on the repository connection and deployment's execution services.
+import versions from "../../../../data/versions.json"
 
-## What runs checks today
+Smithers Cloud dispatches repository workflows from matching events and runs their jobs on its sandbox plane. A job runs the `PACKAGE.ts` target graph with `smthrs ci <pattern>`, which runs build, test, lint, and docs targets with normal cache reuse. To start a durable flow from a job, use `smthrs flow start`.
 
-The target graph runs wherever the CLI is installed; a workflow job can invoke it:
+## Cloud workflows
 
-| Path | What it does | Where it is documented |
-| --- | --- | --- |
-| Smithers Cloud workflow | Loads repository workflow definitions for an event, queues CI, and runs jobs through the backend sandbox scheduler. Jobs can invoke `smthrs ci`. | [Cloud CI reference](/docs/reference/cloud-ci/) |
-| `smthrs ci <pattern>` | Runs build, test, lint, and docs targets as one graph on the machine you run it on, with normal cache reuse. | [Build targets](/docs/guides/build-targets/) |
-| `Smithers.GithubCiGen` | A target that generates the GitHub Actions workflow files from declared attrs. GitHub Actions then runs `smthrs ci` on push and pull request events. | [`@smthrs/targets`](/docs/reference/api/targets/) |
-| `smthrs flow start` in a CI job | Launches a durable flow from GitHub Actions and gives the job an exit status when the run completes, fails, or parks. | [Run flows in CI](/docs/guides/ci/) |
+| Surface | Behavior |
+| --- | --- |
+| Definitions | Repository workflows loaded for the event's source commit. |
+| Admission | Matching events create durable workflow runs and tasks. |
+| Execution plane | Every CI run is created on the sandbox plane. Agent runs use the separate agent plane. |
+| Job environment | NixOS VM jobs use the repository's registered closure image or the platform base closure. A repository does not need its own `.smithers/environment.nix`. |
+| `runs-on` | Workflow metadata; it cannot select another execution plane. |
+| Caches and artifacts | Jobs get credentials scoped to their repository, run, and task. These are separate from the target action cache and the flow engine's step cache. |
+| Completion | The terminal publisher updates the commit status and the `smithers / <workflow name>` GitHub check, emits `workflow_run`, and dispatches eligible downstream workflows. |
 
-This repository's [`.smithers/workflows/ci.tsx`](https://github.com/smithersai/smithers/blob/main/.smithers/workflows/ci.tsx) declares push-to-main and manual triggers. Its task groups invoke [`scripts/ci/cloud.sh`](https://github.com/smithersai/smithers/blob/main/scripts/ci/cloud.sh), including package, app, docs, and drift checks. A checked-in declaration alone does not prove a particular Cloud run succeeded.
+This repository's [`.smithers/workflows/ci.tsx`](https://github.com/smithersai/smithers/blob/main/.smithers/workflows/ci.tsx) declares push-to-main and manual triggers; its task groups invoke [`scripts/ci/cloud.sh`](https://github.com/smithersai/smithers/blob/main/scripts/ci/cloud.sh).
 
-For scheduled flows, use the app's [Dispatcher](/docs/app/dispatcher/) to prepare and approve a registration. To host the local scheduler yourself, use `smthrs serve` or `smthrs triggers serve`; see [Define triggers](/docs/guides/triggers/).
+The owning code is in [`packages/backend/internal/services`](https://github.com/smithersai/smithers/tree/main/packages/backend/internal/services): `workflow_nix_ci.go` and `workflow_run_terminal.go`.
 
-## Verify a Cloud run
+### Verify a Cloud run
 
-Inspect the run's source revision, job results, logs, and final status. Connected GitHub repositories can receive a check named `smithers / <workflow name>` when the deployment supplies the GitHub App services. A queued run or accepted dispatch is not a passing check. Confirm the actual check name and completed result before making it required.
+Inspect the run ID, tested commit, task results, and terminal status, then the GitHub check when the repository requires one. A queued run, accepted dispatch, or in-progress check is not completion; cancellation is not failure. Publication errors are logged, so confirm the check's completed result before making it required.
 
-For Smithers' own factory, Cloud owns coding and CI/CD; GitHub retains synchronization and essential checks. See [the contributor workflow](https://github.com/smithersai/smithers/blob/main/CONTRIBUTING.md).
+For scheduled flows, use the app's [Dispatcher](/docs/app/dispatcher/), or host the scheduler yourself with `smthrs serve`; see [Define triggers](/docs/guides/triggers/).
 
-## Planned: event-driven Cloud CI
+## Launch a flow from a CI job
 
-This section describes a declaration API that is not built. `@smthrs/targets` exports no `S.Automation` and `S.Package` accepts no `automations` entry. The type-level proof is [`apps/site/examples/cloud-triggers/contract.d.ts`](https://github.com/smithersai/smithers/blob/main/apps/site/examples/cloud-triggers/contract.d.ts); it does not implement trigger registration, matching, dispatch, or the `S.Automation` runtime.
+Commit flow sources under `flows/` and configure their model seats. The job needs Node.js <code>{versions.nodeRange}</code> and the [Smithers CLI](/docs/installation/#install-the-cli). Expose only the provider credentials the flow's seat needs, from the CI system's secret store.
 
-The intended shape declares a suite and binds it to repository events in `PACKAGE.ts`:
-
-```ts title="PACKAGE.ts (planned; does not compile against the released packages)"
-import { Smithers as S } from "@smthrs/targets"
-import { Trigger as T } from "@smthrs/triggers"
-import { Package as src } from "./src/PACKAGE.js"
-
-const checks = S.Suite({
-  tests: [src.lint, src.typeCheck, src.test],
-})
-
-const ci = S.Automation({
-  on: [T.push({ branches: ["main"] }), T.review({ base: ["main"] })],
-  run: checks,
-})
-
-export const Package = S.Package({
-  targets: { checks },
-  automations: { ci },
-})
+```bash
+smthrs flow start deploy/status --format json
 ```
 
-The proposal would bind target or flow labels directly to typed selectors in `PACKAGE.ts`. Use the existing workflow service or registrar until that API is implemented; the example above does not compile against the current packages.
+Replace `deploy/status` with your flow. `flow start` approves its launch with run scope and does not prompt, so use it only for work the pipeline is authorized to run. On failure, list the runs before the job exits:
+
+```bash
+smthrs runs list --format json
+```
+
+A fresh checkout has no `.flows/` history. Work that must survive the job belongs on a persistent host.
+
+### Handle the exit status
+
+A local attached launch exits `0` when the run completes, `1` when it fails, `3` when it waits for approval, and `130` or `143` when it is interrupted. See [exit codes](/docs/reference/errors/#exit-codes). A read such as `runs show` exits by whether the read succeeded, not by the run's outcome.
+
+If the flow parks on exit `3`, either treat it as a failed requirement and change the flow so the job needs no human answer, or run the work on a persistent [control plane](/docs/guides/control-plane/), approve it there, and resume the same run. A remote launch returns an admission receipt, so the pipeline must inspect that run's completion itself.
+
+### Keep failure evidence
+
+```bash
+smthrs runs show <run-id> --format json
+smthrs runs logs <run-id> --limit 100 --format jsonl
+```
+
+Save the output with the CI system's artifact facility. Log exports help diagnosis but cannot resume a run; for resumable state, see [Back up and retain run state](/docs/guides/retention/).

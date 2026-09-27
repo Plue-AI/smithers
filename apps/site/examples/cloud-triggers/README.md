@@ -8,11 +8,8 @@ Status: not shipped. `@smthrs/targets` exports no `S.Automation`, `S.Package`
 accepts no `automations` entry, and `@smthrs/triggers` exports no `push`,
 `review`, `tag`, `schedule`, `manual`, `event`, or `succeeded` constructor. The
 shipped trigger is the cron declaration behind `smthrs triggers` and the
-scheduler in `smthrs serve`; see
-`apps/site/src/content/docs/docs/reference/triggers.mdx`. The site pages that
-describe this design (`guides/triggers.mdx`, `guides/cloud-ci.mdx`,
-`reference/triggers.mdx`, `reference/cloud-ci.mdx`) keep it under a heading
-marked Planned and must keep doing so until the runtime exists.
+scheduler in `smthrs serve`. The site docs do not describe this design; it is
+tracked in [#2150](https://github.com/smithersai/smithers/issues/2150).
 
 `contract.d.ts` models the recommended public surface. `typecheck.ts` uses the
 workspace's real Effect schemas and checks inferred event unions, action and

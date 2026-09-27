@@ -69,11 +69,10 @@
 - [Export traces, logs, and metrics](https://smithers.sh/docs/guides/observability/): Attach the OTLP exporter to a durable run, forward logs into the journal, and read the same run three ways.
 - [Back up, gc, and retain run state](https://smithers.sh/docs/guides/retention/): Back up the .flows directory safely, delete terminal runs with smthrs gc, and sweep unreferenced artifacts.
 - [Operate the memory store](https://smithers.sh/docs/guides/memory-ops/): Inspect, seed, and prune namespaced facts with the smthrs memory command, and run memory maintenance.
-- [Run flows in CI](https://smithers.sh/docs/guides/ci/): Launch a flow from CI, handle its exit status, and keep evidence when the run fails or waits.
 - [Test your flows](https://smithers.sh/docs/guides/testing-flows/): Run flows on the in-memory engine under vitest, assert on recorded results and journal entries, and replay recorded model responses instead of calling a provider.
 - [Review pull requests with the Smithers action](https://smithers.sh/docs/guides/pr-review-action/): Add the Smithers review GitHub Action to a repository, trigger agent reviews with a PR comment, and run the same review from a terminal.
-- [Run CI on Smithers Cloud](https://smithers.sh/docs/guides/cloud-ci/): Run repository workflows on Smithers Cloud, inspect their results, and distinguish them from the proposed PACKAGE.ts automation API.
-- [Define triggers](https://smithers.sh/docs/guides/triggers/): Register a durable cron trigger that starts a flow, host the scheduler, fire an occurrence by hand, and read the fire ledger. Repository-event triggers are planned.
+- [Run CI](https://smithers.sh/docs/guides/cloud-ci/): Run repository workflows on Smithers Cloud, or launch a flow from a CI job and handle its exit status.
+- [Define triggers](https://smithers.sh/docs/guides/triggers/): Register a durable cron trigger that starts a flow, host the scheduler, fire an occurrence by hand, and inspect it.
 
 ## Concepts
 
@@ -160,7 +159,6 @@
 - [llms.txt](https://smithers.sh/docs/reference/llms-txt/): Agent-facing entry points: the curated llms.txt index and the full-prose llms-full.txt, regenerated from the docs tree.
 - [MCP tools](https://smithers.sh/docs/reference/mcp-tools/): Discover and call the Smithers command tree through its stdio MCP server.
 - [Project layout](https://smithers.sh/docs/reference/project-layout/): The files of a Smithers project: flows/ sources, .flows/ run state, and the root resolution rules.
-- [Smithers Cloud CI](https://smithers.sh/docs/reference/cloud-ci/): The backend workflow service's dispatch, sandbox execution, caches, artifacts, and completion results.
 - [smthrs affected](https://smithers.sh/docs/reference/cli/affected/): Execute targets affected by changed files, conservatively including ambient inputs
 - [smthrs bug](https://smithers.sh/docs/reference/cli/bug/): Report a bug with a run digest attached
 - [smthrs build](https://smithers.sh/docs/reference/cli/build/): Execute the build targets selected by a pattern
@@ -203,7 +201,7 @@
 - [smthrs watch](https://smithers.sh/docs/reference/cli/watch/): Replan and rerun a target graph when workspace files change
 - [Subpackages](https://smithers.sh/docs/reference/subpackages/): Smithers ships as many small packages rather than one. What each one is, a minimal example of using it, and where its documentation lives.
 - [The smthrs command](https://smithers.sh/docs/reference/cli/): Target execution, durable flows, run control, and operator commands in one CLI.
-- [Triggers](https://smithers.sh/docs/reference/triggers/): The shipped trigger declaration, its CLI verbs, scheduler behavior, and fire ledger, followed by the planned repository-event selector API marked as unshipped.
+- [Triggers](https://smithers.sh/docs/reference/triggers/): The trigger declaration, its CLI verbs, scheduler behavior, and fire ledger.
 
 ## Troubleshooting
 

@@ -1,6 +1,6 @@
 ---
 title: "Define triggers"
-description: "Register a durable cron trigger that starts a flow, host the scheduler, fire an occurrence by hand, and read the fire ledger. Repository-event triggers are planned."
+description: "Register a durable cron trigger that starts a flow, host the scheduler, fire an occurrence by hand, and inspect it."
 editUrl: "https://github.com/smithersai/smithers/edit/main/apps/site/src/content/docs/docs/guides/triggers.mdx"
 sidebar:
   order: 26
@@ -8,7 +8,7 @@ sidebar:
 
 A trigger is a durable rule that starts a flow. The rule that ships today is a cron schedule: `smthrs triggers register` stores it in the project's control database, and the scheduler inside `smthrs serve` or `smthrs triggers serve` fires it while that process runs. Every fire goes through Control, so a flow that requires approval still waits for one.
 
-Repository events (`push`, `review`, `tag`), typed manual input, external events, and completion chaining are not available yet. The [Planned](#planned-repository-events-and-packagets-declarations) section at the end of this page describes that design and marks it as unshipped.
+Repository events start Cloud workflows instead; see [Cloud CI](/docs/guides/cloud-ci/).
 
 You need a Smithers project with at least one flow. `smthrs flow list` prints the flow ids the trigger can name.
 
@@ -50,15 +50,7 @@ The `id` in the file must match the id on the command line; a mismatch fails and
 
 ## Choose overlap and catch-up policies
 
-Two policies decide what happens when an occurrence is due at an awkward time. Both default to the conservative choice.
-
-| Policy | Values | Behavior |
-| --- | --- | --- |
-| `--overlap` | `skip` (default), `buffer-one`, `supersede` | What to do when an occurrence is due while the previous run is still active. `skip` records the occurrence and starts nothing. `buffer-one` keeps one pending occurrence and fires it when the active run settles; a second due occurrence coalesces into the same buffer. `supersede` cancels the active run and starts the new occurrence. |
-| `--catch-up` | `none` (default), `one`, `all` | What to do with occurrences missed while no scheduler was running. `none` ignores them. `one` fires the most recent missed occurrence. `all` fires every missed occurrence in order. |
-| `--max-catch-up` | `0` (default) to `1000` | The most missed occurrences a catch-up may replay. With the default `0`, `one` and `all` replay nothing. A backlog beyond the bound is abandoned with a warning, and the current occurrence still fires. |
-
-Disabling a trigger never cancels its active run. Only a `supersede` claim cancels a run.
+`--overlap` (`skip`, `buffer-one`, `supersede`) decides what happens when an occurrence is due while the previous run is active; `--catch-up` (`none`, `one`, `all`) and `--max-catch-up` decide what happens to occurrences missed while no scheduler ran. The defaults, `skip` and `none`, start nothing extra. The [declaration reference](/docs/reference/triggers/#declaration) defines each value.
 
 ## Host the scheduler
 
@@ -108,58 +100,12 @@ smthrs triggers fire nightly-lint
 
 The command records a pending occurrence stamped with the current time and prints its idempotency key. The scheduler picks it up on its next tick and applies the trigger's overlap policy exactly as it would for a cron boundary. A disabled trigger refuses to queue; enable it first. `--occurrence <unix-ms>` sets the occurrence instant so a retried command reuses the same key instead of queueing a second fire.
 
-## Inspect triggers and the fire ledger
+## Inspect triggers
 
-`smthrs triggers list` prints every registration ordered by id, each with its `revision`, `enabled` flag, and `lastFiredAt` once an occurrence has been recorded. `smthrs triggers show <id>` adds `activeRun`, the run id or launch reservation the trigger holds right now, and `activePlan` when that run is waiting for approval.
+`smthrs triggers list` prints every registration; `smthrs triggers show <id>` adds `activeRun` and, when that run waits for approval, `activePlan`. `smthrs triggers enable <id>` and `disable <id>` flip future occurrences without touching an active run. Each occurrence records one outcome; see the [fire ledger](/docs/reference/triggers/#fire-ledger).
 
-Every occurrence ends with one recorded outcome:
-
-| Outcome | Meaning |
-| --- | --- |
-| `launched` | Control accepted the run and it is still active. |
-| `completed` | The run settled. |
-| `skipped` | The occurrence was due while a run was active and the policy is `skip`. |
-| `buffered` | The occurrence is waiting behind an active run under `buffer-one`. |
-| `superseded` | The occurrence cancelled the active run under `supersede`. |
-| `failed` | The runner could not prepare or launch the flow. |
-
-`lastFiredAt` is the cursor catch-up resumes from. It advances on skipped and buffered occurrences too, so it does not tell you which occurrence an active run owns; `show` does.
-
-`smthrs triggers enable <id>` and `smthrs triggers disable <id>` flip future occurrences without touching an active run. Both increment the revision.
-
-## Read triggers in the app
-
-Signed in to Smithers, run `/triggers.list` or ask "list the triggers on owner/repo". The Dispatcher card prints one row per trigger: the schedule in words, the flow it runs, whether it is enabled, and when it last fired.
-
-The card reads declared factory rules and, when connected, live workspace registrations. **Register a rule** prepares a flow plan for human approval before the repository registrar writes the schedule. Named registrations offer **Run now** and **Pause**. See [Dispatcher](/docs/app/dispatcher/) for inputs, limits, and completion receipts. When the workspace or registrar is unavailable, the app reports that failure.
+The app's [Dispatcher](/docs/app/dispatcher/) card lists the same triggers.
 
 ## Accept a verified webhook
 
-`@smthrs/triggers/Webhook` builds a webhook door in code. `Webhook.make` takes a channel configuration and a required credential reference, verifies the request signature over the raw bytes in constant time, and hands the decoded payload to Control's channel coordinator. It exposes `register` and `ingest` and no direct execution method, so a valid signature and valid JSON never bypass Control.
-
-There is no `smthrs webhooks` verb. Dispatcher can display webhook channels returned by its connected workspace. For the module contract, see [`@smthrs/triggers`](/docs/reference/api/triggers/#webhook). For GitHub webhooks that reconcile against `.smithers/listeners.json`, see `smthrs integrations reconcile` in the [CLI reference](/docs/reference/cli/).
-
-## Planned: repository events and PACKAGE.ts declarations
-
-This section describes work that is not built. Nothing in it is importable today: `@smthrs/targets` exports no `S.Automation`, `S.Package` accepts no `automations` entry, and `@smthrs/triggers` exports no `Trigger.push`, `review`, `tag`, `schedule`, `manual`, `event`, or `succeeded` constructor. The type-level proof of the intended surface lives in [`apps/site/examples/cloud-triggers/contract.d.ts`](https://github.com/smithersai/smithers/blob/main/apps/site/examples/cloud-triggers/contract.d.ts), whose README states that it implements no registration, matching, dispatch, or `S.Automation` runtime.
-
-The intended shape binds typed event selectors to an existing target or flow inside `PACKAGE.ts`:
-
-```ts title="PACKAGE.ts (planned; does not compile against the released packages)"
-import { Smithers as S } from "@smthrs/targets"
-import { Trigger as T } from "@smthrs/triggers"
-
-const ci = S.Automation({
-  on: [T.push({ branches: ["main"] }), T.review({ base: ["main"] })],
-  run: prePush,
-})
-
-export const Package = S.Package({
-  targets: { prePush },
-  automations: { ci },
-})
-```
-
-The planned selectors are `T.push` with branch and path filters, `T.review` for GitHub pull requests and Plue landing requests, `T.tag`, `T.schedule` as the declared form of today's cron trigger, `T.manual` with a typed input schema, `T.event` for authenticated external publishers, and `T.succeeded` to chain one automation after another. Filters combine with AND, list values with OR, and an exclusion always wins. The [Trigger reference](/docs/reference/triggers/) records the planned event fields and matching rules under the same disclaimer.
-
-Repository events can already start backend workflows through [Smithers Cloud CI](/docs/guides/cloud-ci/). Those workflows and the integration listeners use their own declarations; they do not implement the proposed `S.Automation` API. For another CI host, [Run flows in CI](/docs/guides/ci/) shows how to launch a flow from a job.
+There is no `smthrs webhooks` verb. `Webhook.make` builds a verified webhook door in code; see [Webhooks](/docs/reference/triggers/#webhooks).
