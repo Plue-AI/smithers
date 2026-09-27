@@ -39468,13 +39468,60 @@
         "path": "bun.lock"
       },
       {
+        "kind": "file",
+        "path": "pnpm-workspace.yaml"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/*/package.json",
         "exclude": []
       },
       {
         "kind": "glob",
+        "pattern": "packages/smithers/*/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/*/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/*/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/*/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/ui/*/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "examples/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/package.json"
+      },
+      {
+        "kind": "glob",
         "pattern": "apps/*/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/docs/*/package.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/*/package.json",
         "exclude": []
       }
     ],

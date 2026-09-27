@@ -38,9 +38,10 @@ const workspaces = readLock().workspaces ?? {}
 // The set comes from `pnpm-workspace.yaml` through the shared reader, so a
 // package that moves — a granular package nesting inside the product package
 // it belongs to — is still compared. A glob written here would answer for one
-// directory depth and silently stop covering the moved package.
+// directory depth and silently stop covering the moved package. Every member
+// is compared, not only `packages/` and `apps/`: `evals/agent` runs on Bun, and
+// a filter here once hid its `bun-types` devDependency from this check.
 const packageEntries = workspacePackages(root)
-  .filter((entry) => entry.dir.startsWith("packages/") || entry.dir.startsWith("apps/"))
 const manifests = packageEntries.map((entry) => `${entry.dir}/package.json`)
 const workspaceVersions = new Map(
   packageEntries.map((entry) => {
