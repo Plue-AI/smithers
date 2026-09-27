@@ -16,7 +16,7 @@
  * carries its resolved homepage or a visible read failure. A repository that
  * stops being the target keeps its row, and the leaves follow the target (AppController
  * `repositoryFlows`). Each repository is read once per session, in the
- * background, the first time it becomes the target; `load` re-reads on demand.
+ * background, the first time it becomes the target for an account; `load` re-reads on demand.
  * No flow name is written in this app.
  *
  * The target is re-resolved after every transition rather than after a
@@ -32,6 +32,7 @@ import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import type { RepositoryHome } from "@smthrs/rpc/RepositoryHome"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
+import { captureCloudOwner } from "./SeamContext"
 import { readFactoryProjection } from "./TriggersSeam"
 
 export interface RepositoryFlowsSeam {
@@ -62,14 +63,15 @@ export const createRepositoryFlowsSeam = (
   /** The homepage landed: a block that reads live state (the stack) starts its read. */
   onHome?: (repo: string, home: RepositoryHome | { readonly kind: "error"; readonly message: string }) => void
 ): RepositoryFlowsSeam => {
-  /** Repositories read this session, in flight or landed: one background read each. */
-  const read = new Set<string>()
+  /** The latest read of each repository, current only for the account that started it. */
+  const read = new Map<string, () => boolean>()
   let disposed = false
 
   const load: RepositoryFlowsSeam["load"] = async (repo) => {
-    read.add(repo)
+    const current = captureCloudOwner(ctx, false)
+    read.set(repo, current)
     const [answer, home] = await Promise.all([readFactoryProjection(ctx, repo), readRepositoryHome(ctx, repo)])
-    if (disposed) return
+    if (disposed || !current() || read.get(repo) !== current) return
     const flows = "error" in answer || answer.absent ? [] : repositoryFlowsOf(answer.projection.flows ?? [])
     ctx.dispatch({ type: "repository-flows.loaded", actor: "system", repo, flows, home })
     onHome?.(repo, home)
@@ -79,7 +81,7 @@ export const createRepositoryFlowsSeam = (
     if (disposed) return
     const target = resolveTargetRepo(ctx.store, undefined)
     if ("error" in target) return
-    if (read.has(target.repo)) {
+    if (read.get(target.repo)?.()) {
       // Back on a repository read earlier: its homepage's live blocks resume.
       const home = ctx.store.collections.repositoryFlows.get(target.repo)?.home
       if (home !== undefined) onHome?.(target.repo, home)
