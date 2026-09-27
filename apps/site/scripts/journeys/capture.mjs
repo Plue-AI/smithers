@@ -10,11 +10,10 @@
  * app: the real app server and built SPA (build first with
  * `pnpm --filter smithers-app run build:web`), offline, with a scripted model
  * behind the chat boundary (app-host.mjs). Playwright records each journey;
- * ffmpeg turns the video into a GIF and its last frame into a PNG poster.
+ * ffmpeg turns the video into a GIF.
  *
  * tui: the TUI docs recorder (apps/tui-docs/scripts/record.mjs) drives the
- * production TUI in a PTY with deterministic model replies; its GIFs and
- * posters are copied here.
+ * production TUI in a PTY with deterministic model replies; its GIFs are copied here.
  *
  * previews: copies design previews rendered from fixture data by the app's
  * ui-surfaces probe (`UI_EVIDENCE_DIR=<dir> bun test e2e/probes/ui-surfaces.test.ts`).
@@ -51,15 +50,13 @@ const run = (command, args, options = {}) => {
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} exited ${result.status}`)
 }
 
-/** WebM → small looping GIF (two-pass palette) plus a PNG of the last frame. */
+/** WebM → small looping GIF (two-pass palette). */
 const encode = (video, name) => {
   const gif = join(out, `${name}.gif`)
-  const png = join(out, `${name}.png`)
   const filter = "mpdecimate,fps=8,scale=800:-1:flags=lanczos"
   const palette = "split[a][b];[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle"
   run("ffmpeg", ["-v", "error", "-y", "-i", video, "-vf", `${filter},${palette}`, "-loop", "0", gif])
-  run("ffmpeg", ["-v", "error", "-y", "-sseof", "-0.3", "-i", video, "-frames:v", "1", "-vf", "split[a][b];[a]palettegen=max_colors=64[p];[b][p]paletteuse=dither=none", png])
-  return { gif, png }
+  return gif
 }
 
 async function captureApp() {
@@ -93,7 +90,6 @@ async function captureApp() {
       encode(join(videoDir, video), journey.id)
       rmSync(videoDir, { recursive: true, force: true })
       note(`${journey.id}.gif`, "app", journey.detail)
-      note(`${journey.id}.png`, "app", journey.detail)
       console.log(`captured ${journey.id}`)
     }
   } finally {
@@ -107,10 +103,8 @@ function captureTui() {
   const docs = join(root, "apps/tui-docs")
   run("node", ["scripts/record.mjs", "--only", tuiRecordings.map((entry) => entry.id).join(",")], { cwd: docs })
   for (const entry of tuiRecordings) {
-    for (const extension of ["gif", "png"]) {
-      copyFileSync(join(docs, "public/recordings", `${entry.id}.${extension}`), join(out, `tui-${entry.id}.${extension}`))
-      note(`tui-${entry.id}.${extension}`, "tui", entry.detail)
-    }
+    copyFileSync(join(docs, "public/recordings", `${entry.id}.gif`), join(out, `tui-${entry.id}.gif`))
+    note(`tui-${entry.id}.gif`, "tui", entry.detail)
     console.log(`copied tui-${entry.id}`)
   }
 }

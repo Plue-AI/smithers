@@ -1,0 +1,51 @@
+---
+title: "Configuration"
+description: "Providers, TUI settings, instruction files, and where conversations are stored."
+sidebar:
+  order: 5
+---
+
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+The TUI reads everything from the environment.
+
+## Providers
+
+| Variable or account | Purpose |
+| --- | --- |
+| Signed-in Codex CLI account | ChatGPT subscription; listed first in the model picker. |
+| `SMITHERS_OPENAI_AUTH=chatgpt` | Use the subscription route. |
+| `OPENAI_API_KEY` | OpenAI. |
+| `ANTHROPIC_API_KEY` | Anthropic. |
+| `OPENROUTER_API_KEY` | OpenRouter. |
+| `MOONSHOT_API_KEY` | Moonshot/Kimi. |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini. |
+| `CEREBRAS_API_KEY` | Cerebras; preferred for chat when set. |
+| `SMITHERS_OPENAI_COMPATIBLE_BASE_URL` | An OpenAI-compatible endpoint. |
+| `AI_GATEWAY_API_KEY` | Judging completions and monitors. Without it, monitors are refused. |
+
+## Settings
+
+| Variable | Default |
+| --- | --- |
+| `SMITHERS_TUI_SEAT` | Chat model; `--model` wins. |
+| `SMITHERS_TUI_WORKER_SEAT` | Background worker model. |
+| `SMITHERS_TUI_WORKER_SEATS` | Fallback models for workers, comma-separated. |
+| `SMITHERS_TUI_WORKERS` | Six workers at once; more wait in order. |
+| `SMITHERS_TUI_APPROVE` | `all`; also `ask`, `deny`. `--approve` wins. |
+| `SMITHERS_TUI_SESSION_DIR` | Where conversations are stored. |
+| `VISUAL`, then `EDITOR` | Editor for Ctrl+G; falls back to `nano`. |
+| `SMITHERS_TUI_BIN`, `SMITHERS_BUN` | Which TUI build and Bun the launcher uses. |
+| `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | Native helper for flows. |
+
+The theme is saved in `~/.smithers/tui/theme`.
+
+## Instruction files
+
+Every turn includes `~/.smithers/agent/AGENTS.md`, then, from the repository root down to the working directory, the first of `AGENTS.override.md`, `AGENTS.md`, or `CLAUDE.md` in each directory.
+
+<AppScreenshot src="/images/learn/tui-instruction-context.gif" alt="The TUI shows which instruction files a turn included." caption="The TUI with a scripted test model." width={880} height={480} />
+
+## Stored conversations
+
+Conversations are saved under `~/.smithers/tui/sessions/<directory>--<hash>/` as private JSONL files. Credential-shaped text is redacted; file patches are kept exactly so undo works. A damaged file is renamed `.damaged` and left out of the picker. Treat the folder as private project data.

@@ -1,0 +1,83 @@
+---
+title: "Follow an issue to main"
+description: "See where each issue is on its way to main: planned, being built, checked, in review, or landed."
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+When Smithers works on issues, each one moves through a path: planned, built, checked, opened as a pull request, landed. The stack shows every issue on that path at once.
+
+## Turn it on
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Select **History**, then **Create**. Smithers builds the stack from main in the background; a toast follows it until it's ready. Needs admin permission on the repository.
+
+<AppScreenshot src="/images/app/history.png" alt="The History card with its Create action." caption="History before the stack exists." width={1440} height={1000} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `POST /api/repos/{owner}/{repo}/mythical/bootstrap`, admin only.
+
+</TabItem>
+</Tabs>
+
+## See where each issue is
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Enter `/stack.show`. Each issue shows its step, checks, failures, and pull request. Open its run or pull request for the detail.
+
+- `/stack.backfill` adds the repository's open issues.
+- `/stack.parallel 3` works on up to three issues at once (1 to 8).
+- `/stack.retry` retries a blocked or rejected issue.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.**
+
+| Call | Does |
+| --- | --- |
+| `GET /api/repos/{owner}/{repo}/mythical` | The stack and every issue on it. |
+| `GET .../mythical/events` | A live stream of changes. |
+| `POST .../mythical/backfill` | Add open issues. |
+| `PUT .../mythical/config` | Set `maxParallel` (admin). |
+| `POST .../mythical/items/{id}/retry` | Retry one issue. |
+
+</TabItem>
+</Tabs>
+
+## When is it landed
+
+On a repository that sends work upstream, including Smithers itself, the owner merges the pull request on GitHub. The issue is landed once that commit is on main.
+
+## Next
+
+- [Review a change](/docs/learn/review-a-change/): read what an issue produced.

@@ -34,12 +34,33 @@ export const appJourneys = [
 
 /** Recording ids from apps/tui/docs; each is a tui-script fence there. */
 export const tuiRecordings = [
-  { id: "composer", detail: "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture basic)." },
-  { id: "queue", detail: "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture slow)." },
-  { id: "timeline", detail: "Production TUI in a PTY; deterministic model replies (apps/tui-docs fixture fix-add)." },
-  { id: "flow-approval", detail: "Production TUI in a PTY; fixture flow asking for each capability (apps/tui-docs fixture flow-approval)." },
-  { id: "run-flow", detail: "Production TUI in a PTY; fixture flows (apps/tui-docs fixture flows)." },
-  { id: "custom-agent", detail: "Production TUI in a PTY; fixture review agent (apps/tui-docs fixture agents)." }
+  { id: "composer", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording composer)." },
+  { id: "queue", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording queue)." },
+  { id: "resume-session", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording resume-session)." },
+  { id: "fork-session", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording fork-session)." },
+  { id: "shell-context", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording shell-context)." },
+  { id: "text-search", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording text-search)." },
+  { id: "review-diff", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording review-diff)." },
+  { id: "undo-edit", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording undo-edit)." },
+  { id: "flow-approval", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording flow-approval)." },
+  { id: "deny-edit", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording deny-edit)." },
+  { id: "run-flow", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording run-flow)." },
+  { id: "flow-form", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording flow-form)." },
+  { id: "background-worker", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording background-worker)." },
+  { id: "worker-controls", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording worker-controls)." },
+  { id: "worker-tree", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording worker-tree)." },
+  { id: "model-picker", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording model-picker)." },
+  { id: "custom-agent", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording custom-agent)." },
+  { id: "timeline", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording timeline)." },
+  { id: "fix-add", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording fix-add)." },
+  { id: "print-mode", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording print-mode)." },
+  { id: "instruction-context", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording instruction-context)." },
+  { id: "transcript-filter", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording transcript-filter)." },
+  { id: "estimates", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording estimates)." },
+  { id: "custom-view", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording custom-view)." },
+  { id: "repository-extension", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording repository-extension)." },
+  { id: "monitor", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording monitor)." },
+  { id: "provider-failure", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording provider-failure)." }
 ]
 
 /** Design previews: real app components over fixture data, from an unlanded branch. */

@@ -1,0 +1,103 @@
+---
+title: "Open a repository"
+description: "Open a repository in Smithers, read its guide files, and add another."
+sidebar:
+  order: 11
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+A repository gives your conversation its context: files, flows, issues, and wiki.
+
+## Open one
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** On [smithers.sh](https://smithers.sh), pick a repository and select **Open Smithers**. Its home shows the description and featured flows. With several repositories, switch with the selector beside the message box.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Start it in the checkout: `smthrs tui /path/to/repo`.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.** From a checkout, open it in the app:
+
+```sh
+smthrs open
+```
+
+It opens the desktop app when installed, otherwise prints the `https://smithers.sh/<owner>/<repo>` link.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `GET /api/repos/{owner}/{repo}`; `GET /api/user/repos` lists yours.
+
+</TabItem>
+</Tabs>
+
+## Read its guide files
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Enter `/files.read README.md` or `/files.read CONTRIBUTING.md`. Select **Maximize card** for room.
+
+<AppScreenshot src="/images/app/file.png" alt="The contribution guide open in a maximized file card." caption="A file card, maximized." width={1440} height={1000} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Ask for it, or type `@README.md` to add it to your message.
+
+</TabItem>
+<TabItem label="CLI">
+
+Read the files in your checkout.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `GET /api/repos/{owner}/{repo}/file/{change_id}/{path}`.
+
+</TabItem>
+</Tabs>
+
+## Add another repository
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.**
+
+1. Sign in with GitHub.
+2. Install the [Smithers GitHub App](https://github.com/apps/smitherspreviewrelease/installations/new) on the repository or its organization, or enter `/repos.import owner/repo`.
+
+Only repositories the app is installed on appear.
+
+</TabItem>
+<TabItem label="TUI">
+
+Not applicable: start the TUI in any checkout.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `POST /api/github/import` starts an import; `GET /api/github/import/{id}` follows it.
+
+</TabItem>
+</Tabs>
+
+## Next
+
+- [Chat with an agent](/docs/learn/chat/): ask about it.

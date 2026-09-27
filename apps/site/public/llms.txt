@@ -35,20 +35,20 @@
 ## Use the app
 
 - [The interface](https://smithers.sh/docs/app/): Find your way around the Smithers app: repositories, chat, cards, and the six main areas.
-- [Open a repository](https://smithers.sh/docs/app/repositories/): Open or import a repository, read its guide files, and select the context for your work.
-- [Talk to Smithers](https://smithers.sh/docs/app/chat/): Ask for work, inspect the cards in the conversation, and steer work while it runs.
-- [Search the app](https://smithers.sh/docs/app/search/): Use the command palette to find files, flows, notes, and other project information.
-- [Read and edit the Wiki](https://smithers.sh/docs/app/wiki/): Open project notes, follow their sources, and understand the difference between notes and a generated repository wiki.
-- [Inspect the Dispatcher](https://smithers.sh/docs/app/dispatcher/): Inspect declared rules, register a schedule after reviewing its plan, and follow its runs.
-- [Run a flow](https://smithers.sh/docs/app/flows/): Choose a repository flow in the app, supply its inputs, and inspect the run that starts.
-- [Inspect and steer a run](https://smithers.sh/docs/app/runs/): Follow a flow's status, inspect its execution trace, send a correction, and stop or resume work.
-- [Work in a box](https://smithers.sh/docs/app/boxes/): Open a cloud box, inspect its files and terminal, and use its services and snapshots.
-- [Review an approval](https://smithers.sh/docs/app/approvals/): Inspect a requested action and approve or deny it from the Smithers conversation.
-- [Review a change](https://smithers.sh/docs/app/changes/): Inspect a Change's diff, checks, reviews, and revisions before landing it.
-- [Repository secrets](https://smithers.sh/docs/app/secrets/): Inspect the scope and metadata of secrets available to a repository's sessions.
-- [History and the Stack](https://smithers.sh/docs/app/history/): Read mythical history, inspect live issue lanes, and follow changes to their upstream pull requests.
-- [Account and access](https://smithers.sh/docs/app/account/): Sign in with GitHub, check your alpha access, and understand what the Account card shows.
-- [Troubleshoot the app](https://smithers.sh/docs/app/troubleshooting/): Resolve sign-in, access, box, search, and run problems in the Smithers app.
+- [Open a repository](https://smithers.sh/docs/learn/open-a-repository/): Open or import a repository, read its guide files, and select the context for your work.
+- [Talk to Smithers](https://smithers.sh/docs/learn/chat/): Ask for work, inspect the cards in the conversation, and steer work while it runs.
+- [Search the app](https://smithers.sh/docs/learn/search/): Use the command palette to find files, flows, notes, and other project information.
+- [Read and edit the Wiki](https://smithers.sh/docs/learn/wiki/): Open project notes, follow their sources, and understand the difference between notes and a generated repository wiki.
+- [Inspect the Dispatcher](https://smithers.sh/docs/learn/agent-and-trigger/): Inspect declared rules, register a schedule after reviewing its plan, and follow its runs.
+- [Run a flow](https://smithers.sh/docs/learn/run-a-flow/): Choose a repository flow in the app, supply its inputs, and inspect the run that starts.
+- [Inspect and steer a run](https://smithers.sh/docs/learn/watch-an-agent/): Follow a flow's status, inspect its execution trace, send a correction, and stop or resume work.
+- [Work in a box](https://smithers.sh/docs/learn/boxes/): Open a cloud box, inspect its files and terminal, and use its services and snapshots.
+- [Review an approval](https://smithers.sh/docs/learn/approvals/): Inspect a requested action and approve or deny it from the Smithers conversation.
+- [Review a change](https://smithers.sh/docs/learn/review-a-change/): Inspect a Change's diff, checks, reviews, and revisions before landing it.
+- [Repository secrets](https://smithers.sh/docs/learn/secrets/): Inspect the scope and metadata of secrets available to a repository's sessions.
+- [History and the Stack](https://smithers.sh/docs/learn/issue-to-main/): Read mythical history, inspect live issue lanes, and follow changes to their upstream pull requests.
+- [Account and access](https://smithers.sh/docs/learn/account/): Sign in with GitHub, check your alpha access, and understand what the Account card shows.
+- [Troubleshoot the app](https://smithers.sh/docs/learn/troubleshooting/): Resolve sign-in, access, box, search, and run problems in the Smithers app.
 
 ## Tutorials
 

@@ -1,7 +1,9 @@
 # Maintaining the app docs
 
 The app is the default path at `/docs/` and `/docs/quickstart/`. Task guides
-live in `src/content/docs/docs/app/`. The original terminal quickstart is
+live in `src/content/docs/docs/learn/`, one page per job with GUI, TUI, CLI,
+and API tabs (`<Tabs syncKey="surface">`). `app/index.mdx` is only a short
+tour of the interface. TUI references live in `docs/tui/`. The original terminal quickstart is
 at `/docs/cli-quickstart/`, and `/docs/developers/` holds the generated CLI
 entry point and package support policy.
 

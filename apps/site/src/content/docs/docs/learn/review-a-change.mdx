@@ -1,0 +1,98 @@
+---
+title: "Review a change"
+description: "Read a change's diff, checks, and reviews, answer feedback, and land it."
+sidebar:
+  order: 9
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+A change is the code a run proposes, with the evidence for landing it.
+
+## Read the diff
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Open the change from the run's result, or enter `/change.view <id>`. Start with **Diff**; select **Full diff** for every line. With several revisions, compare them with the revision selectors.
+
+<AppScreenshot src="/images/app/change-example.png" alt="A change card with its revision, changed files, review views, and landing controls." caption="A change card, with example data." width={712} height={310} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now** for edits the TUI made locally. Press Ctrl+S for **Summary**. Pick a row with the arrows, `d` shows its diff, `v` switches split and unified.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `GET /api/repos/{owner}/{repo}/changes/{id}` and `/changes/{id}/diff`.
+
+</TabItem>
+</Tabs>
+
+## Check the evidence
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** **Checks** shows check results, **Findings** shows analyzer findings, and **Review** shows verdicts and discussion. Ask Smithers to fix a specific finding, then read the new diff and checks.
+
+<AppScreenshot src="/images/app/checks-example.png" alt="The Checks view of a change card with a build result." caption="Checks, with example data." width={712} height={306} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Expand a command row in **Summary** to read its output.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `GET /api/repos/{owner}/{repo}/changes/{id}/findings`; reviews and comments live on the landing: `GET /api/repos/{owner}/{repo}/landings/{number}/reviews`.
+
+</TabItem>
+</Tabs>
+
+## Land it, or undo it
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** When checks and required reviews pass, select **Land**. Its label shows the range, such as **Land 1 → 2**; check it before confirming. If landing is blocked, the card says what's missing.
+
+On a repository that sends work upstream, including Smithers itself, landing opens a GitHub pull request for the owner to merge.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** In **Summary**, `u` undoes a captured edit. It refuses if the file changed since.
+
+<AppScreenshot src="/images/learn/tui-review-diff.gif" alt="Reading a captured edit's diff in the TUI Summary." caption="The TUI with a scripted test model." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `PUT /api/repos/{owner}/{repo}/landings/{number}/land`.
+
+</TabItem>
+</Tabs>
+
+## Next
+
+- [Follow an issue to main](/docs/learn/issue-to-main/): where each change is.

@@ -1,0 +1,113 @@
+---
+title: "Run a flow"
+description: "Pick one of the repository's flows, give it what it needs, and follow its run."
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+A flow is a repeatable job the repository defines: review a change, triage an issue, draft release notes. Each time it runs is a run.
+
+## Pick a flow
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Open the repository home and read **Try first**, or type `/` and the flow's name.
+
+<AppScreenshot src="/images/app/slash.png" alt="The slash menu finds the review flow declared by the Smithers repository." caption="Finding a flow from the message box." width={1440} height={1000} />
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** `/flows` lists the project's flows. They also appear in the `/` menu.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs flow list
+smthrs flow show review
+```
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `GET /api/repos/{owner}/{repo}/workflows` lists a repository's flows.
+
+</TabItem>
+</Tabs>
+
+The Smithers repository offers these:
+
+| Flow | Job |
+| --- | --- |
+| `/review` | Review the working-copy change and explain the verdict. |
+| `/lint` | Check named files against the repository's conventions and fix findings. |
+| `/pr-triage` | Triage a GitHub pull request from its diff. |
+| `/issue-triage` | Reproduce and triage a GitHub issue. |
+| `/release-notes` | Draft release notes from the commits since the last tag. |
+
+## Run it
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Select the flow and fill in its form: the issue, files, or change to work on. Approve its permissions when asked. A toast follows the run until it finishes; the run card holds the detail. Keep chatting meanwhile.
+
+Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.**
+
+```text
+/flow review
+/flow echo text=hello
+```
+
+A missing input opens a form. Each run gets its own tab.
+
+<AppScreenshot src="/images/learn/tui-run-flow.gif" alt="Running a flow from the TUI and reading its result in the run tab." caption="The TUI with fixture flows." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs flow start review --data '{"args":"Review the working copy"}'
+```
+
+Add `--detached` to return as soon as the run is admitted.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.**
+
+```sh
+curl -X POST "$SMITHERS_API/api/repos/acme/app/invoke" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"flow":"review","input":{"args":"Review main"}}'
+```
+
+The response carries the `run_id`.
+
+</TabItem>
+</Tabs>
+
+## Make your own
+
+Ask Smithers to write a flow for a job you repeat, then review it like any code change. To write one yourself, see [Configure an agent and a trigger](/docs/learn/agent-and-trigger/) or [Markdown flows](/docs/guides/markdown-flows/).
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): follow the run.
+- [Review a change](/docs/learn/review-a-change/): read what it produced.

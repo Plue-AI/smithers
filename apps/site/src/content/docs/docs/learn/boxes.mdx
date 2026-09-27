@@ -1,0 +1,92 @@
+---
+title: "Work in a box"
+description: "Open a box for a repository, browse its files, use its terminal, and suspend or delete it."
+sidebar:
+  order: 12
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+A box is where Smithers works on a repository in the cloud: the working copy, terminals, agent sessions, and services.
+
+## Open a box
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Select the repository, enter `/workspace.open`, fill in the bookmark if asked, and approve. Opening can reuse the box for that bookmark. Wait for it to report ready.
+
+</TabItem>
+<TabItem label="TUI">
+
+The TUI works in your local checkout; it doesn't use boxes. Hosted boxes in the TUI are **Planned** ([#2119](https://github.com/smithersai/smithers/issues/2119)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `POST /api/repos/{owner}/{repo}/workspaces` creates one; `GET .../workspaces` lists them.
+
+</TabItem>
+</Tabs>
+
+## Files and terminal
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Expand the box under its repository in the sidebar and select a file to open it. Open the box card for its terminal, services, and network activity.
+
+<AppScreenshot src="/images/app/box-example.png" alt="A box card with its views and controls to suspend or delete it." caption="A box card, with example data." width={712} height={174} />
+
+</TabItem>
+<TabItem label="TUI">
+
+Not applicable: the TUI edits your local files and runs commands with `!`.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `GET .../workspaces/{id}/files` and `/files/content`; the terminal is a WebSocket at `.../workspace/sessions/{id}/terminal`.
+
+</TabItem>
+</Tabs>
+
+## Suspend, resume, delete
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** **Suspend** stops a box and keeps it; **Resume** brings it back. Deleting asks you to confirm the box's name.
+
+</TabItem>
+<TabItem label="TUI">
+
+Not applicable.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Planned** ([#1989](https://github.com/smithersai/smithers/issues/1989)).
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `POST .../workspaces/{id}/suspend`, `POST .../workspaces/{id}/resume`, `DELETE .../workspaces/{id}`. `POST .../workspaces/{id}/snapshot` saves a point; `POST .../workspaces/{id}/fork` starts a new box from it.
+
+</TabItem>
+</Tabs>
+
+## Next
+
+- [Repository secrets](/docs/learn/secrets/): what a box's sessions may use.

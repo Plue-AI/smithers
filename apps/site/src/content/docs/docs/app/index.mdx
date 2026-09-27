@@ -1,41 +1,29 @@
 ---
-title: "The interface"
-description: "Find your way around the Smithers app: repositories, chat, cards, and the six main areas."
+title: "The app"
+description: "A short tour of the Smithers app: the conversation, cards, the sidebar, and commands."
 sidebar:
   order: 1
 ---
 
-Smithers keeps your task and its results in one conversation. The repository selector sets the context. Open **Chat** with Command-K / Control-K to ask for work; cards show files, runs, approvals, and changes.
+The app is one conversation. The repository selector sets its context. Press Command-K (Ctrl-K on Windows and Linux) to open **Chat**. Results arrive as cards: files, runs, approvals, changes.
 
-## The six main areas
+## The sidebar
 
-The sidebar keeps these areas available as you work:
-
-| Area | What you use it for |
+| Area | For |
 | --- | --- |
-| [Wiki](/docs/app/wiki/) | Read and edit notes about the project. |
-| [Dispatcher](/docs/app/dispatcher/) | Inspect rules, prepare schedules, and follow registered work. |
-| [Flows](/docs/app/flows/) | Find flows and follow their runs. |
-| [Secrets](/docs/app/secrets/) | Inspect the names and scope of repository secrets. |
-| [History](/docs/app/history/) | Read mythical history and inspect live work with `/stack.show`. |
-| [Account](/docs/app/account/) | Check your GitHub identity and alpha access. |
+| [Wiki](/docs/learn/wiki/) | Notes about the project. |
+| [Dispatcher](/docs/learn/agent-and-trigger/#put-it-on-a-schedule) | Rules and schedules. |
+| [Flows](/docs/learn/run-a-flow/) | The repository's flows and their runs. |
+| [Secrets](/docs/learn/secrets/) | Secret names and where they apply. |
+| [History](/docs/learn/issue-to-main/) | Each issue's path to main. |
+| [Account](/docs/learn/account/) | Your GitHub account. |
 
-Wiki and Flows open panes beside the conversation. Other results appear as cards in chat. Use **Back to the conversation** to close a pane. Use **Maximize card** when you need more room for a file or a run.
+Your [boxes](/docs/learn/boxes/) and their files sit under the repository.
 
-## Ask, select, or type a command
+Wiki and Flows open beside the conversation; **Back to the conversation** closes them. **Maximize card** gives a card more room.
 
-You can ask Smithers to do something, select an action on a card, or enter its slash command. For example, **Dispatcher** and `/triggers.list` open the same information.
+## Ask, click, or type
 
-Type `/` to browse commands. A command such as `/review` runs a featured repository flow. A dotted command such as `/runs.list` names a specific action. A trailing dot, such as `/review.`, browses that command group. The menu shows the commands available in your session.
+Every action works three ways: ask for it, select it on a card, or type its command. Type `/` to browse commands; a trailing dot, such as `/review.`, lists a group. A command that needs input opens a form.
 
-For a command that needs more information, fill in the form Smithers presents in chat. You do not need to learn its argument syntax first.
-
-## Boxes and sessions
-
-A [box](/docs/app/boxes/) is the environment where the repository's code runs. Its files and sessions appear under the repository in the sidebar. Select a file to inspect it, or return to an existing terminal or agent session.
-
-## Public browsing and signed-in work
-
-The public repository home, guide files, and declared Dispatcher rules are available signed out. Flows, boxes, account details, and repository secrets need sign-in. A sign-in prompt is a step to complete before the requested action can run.
-
-For the access states and what they mean, see [Account and access](/docs/app/account/).
+Signed out, you can read a public repository's home, guide files, and rules. Everything else asks you to [sign in](/docs/learn/account/).

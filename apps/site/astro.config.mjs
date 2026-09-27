@@ -151,13 +151,13 @@ export default defineConfig({
           items: [
             { label: "Overview", slug: "docs" },
             { slug: "docs/quickstart" },
+            { slug: "docs/app" },
             { slug: "docs/pricing" },
             { label: "Open Smithers ↗", link: "https://smithers.sh/smithersai/smithers" }
           ]
         },
         { label: "How Smithers works", items: [{ autogenerate: { directory: "docs/how-it-works" } }] },
         { label: "Tutorials", items: [{ autogenerate: { directory: "docs/learn" } }] },
-        { label: "Use the app", items: [{ autogenerate: { directory: "docs/app" } }] },
         { label: "CLI and libraries", collapsed: true, items: [{ slug: "docs/developers" }, { slug: "docs/installation" }, { slug: "docs/cli-quickstart" }] },
         { label: "Developer tutorials", items: [{ autogenerate: { directory: "docs/tutorials" } }], collapsed: true },
         { label: "Developer guides", items: [{ autogenerate: { directory: "docs/guides" } }], collapsed: true },

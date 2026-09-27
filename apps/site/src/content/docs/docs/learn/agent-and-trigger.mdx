@@ -2,7 +2,7 @@
 title: "Configure an agent and a trigger"
 description: "Write an agent as a flow.mdx file, run it once, then put it on a schedule."
 sidebar:
-  order: 4
+  order: 6
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
@@ -34,55 +34,23 @@ Allow only what the job needs. [flow.mdx frontmatter](/docs/reference/flow-mdx/)
 
 ## Run it once
 
-<Tabs syncKey="surface">
-<TabItem label="GUI">
-
-**Available now.** Type `/` and choose the flow, or enter `/flow.run reviewer`. Fill in the form and follow the run card. See [Run a flow](/docs/app/flows/).
-
-</TabItem>
-<TabItem label="TUI">
-
-**Available now.** `/agent reviewer` starts it as a worker. `/flow reviewer` runs it as a flow.
-
-<AppScreenshot src="/images/learn/tui-custom-agent.gif" alt="Starting a custom review agent from the TUI." caption="The TUI with a fixture agent and a scripted test model." width={880} height={480} />
-
-</TabItem>
-<TabItem label="CLI">
-
-**Available now.**
-
-```sh
-smthrs flow list
-smthrs flow start reviewer --data '{"args":"Review the working copy"}'
-```
-
-`flow list` shows the flows Smithers found, with their input schema. Add `--detached` to return once the run is admitted.
-
-</TabItem>
-<TabItem label="API">
-
-**Available now.**
-
-```sh
-curl -X POST "$SMITHERS_API/api/repos/acme/app/invoke" \
-  -H "Authorization: Bearer $SMITHERS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"flow":"reviewer","input":{"args":"Review main"}}'
-```
-
-The response carries the `run_id`. The API's `Plan` then `Run` procedures do the same.
-
-</TabItem>
-</Tabs>
+Run it like any flow: `/reviewer` in the app, `/agent reviewer` in the TUI, or `smthrs flow start reviewer`. See [Run a flow](/docs/learn/run-a-flow/).
 
 ## Put it on a schedule
 
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** Open **Dispatcher**, select **Register a rule**, and enter the flow, a name, and a cron schedule such as `0 9 * * 1-5`. Approve the plan. The rule then shows as live, with **Run now** and **Pause**. See [Inspect the Dispatcher](/docs/app/dispatcher/).
+**Available now.**
 
-<AppScreenshot src="/images/app/dispatcher.png" alt="The Dispatcher lists declared rules and live registrations for a repository." caption="The public app, signed out." width={1440} height={1000} />
+1. Select **Dispatcher** in the sidebar. It lists the repository's rules and live schedules.
+2. Select **Register a rule**.
+3. Enter the flow, a name, a cron schedule such as `0 9 * * 1-5`, and any input. Select **Prepare**.
+4. Read the plan and approve it. A toast follows the registration until it is live.
+
+Each live schedule has **Run now** and **Pause**. A scheduled run needs a token and time budget; the form uses the flow's `budget`.
+
+<AppScreenshot src="/images/app/dispatcher.png" alt="The Dispatcher lists a repository's rules and the flows they start, with a Register a rule button." caption="Dispatcher." width={1440} height={1000} />
 
 </TabItem>
 <TabItem label="TUI">
@@ -100,17 +68,17 @@ smthrs triggers list
 smthrs triggers fire weekday-review
 ```
 
-`smthrs serve` runs the scheduler. A fired occurrence still asks for approval.
+Keep `smthrs serve` running for schedules to fire. A fired run still asks for approval. See [Define triggers](/docs/guides/triggers/).
 
 </TabItem>
 <TabItem label="API">
 
-**Partly available.** `GET /api/repos/{owner}/{repo}/repository-jobs` lists registrations, and `POST /api/repos/{owner}/{repo}/repository-jobs/{job}/pause` pauses one. Registering goes through the repository's workspace host, not a public route.
+**Partly available.** `GET /api/repos/{owner}/{repo}/repository-jobs` lists registrations, and `POST /api/repos/{owner}/{repo}/repository-jobs/{job}/pause` pauses one. Registering one over the API is planned.
 
 </TabItem>
 </Tabs>
 
-## Declare it in the repository
+## Keep the rule with the code
 
 **Partly available.** To keep rules with the code, add them to `.smithers/FACTORY.ts`. When main moves, rules for `flow.mdx` agents go live; rules for `flow.ts` flows stay declared only. See [Triggers and flows](/docs/how-it-works/triggers-and-flows/#rules).
 

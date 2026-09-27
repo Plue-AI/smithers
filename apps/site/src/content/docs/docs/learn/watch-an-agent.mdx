@@ -2,7 +2,7 @@
 title: "Watch an agent work"
 description: "Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you."
 sidebar:
-  order: 5
+  order: 7
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
@@ -58,9 +58,9 @@ smthrs runs list --status waiting-approval
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** The run card shows the trace as a tree and a timeline, with the flags above. Select a row for its inputs, output, and token use. **Steer** and **Stop** sit under it.
+**Available now.** The run card shows the trace as a tree and a timeline, with the flags above. Select a row for its inputs, output, and token use. Filter the trace, or select **Maximize card** for room.
 
-<AppScreenshot src="/images/app/run-example.png" alt="Example run card with status, trace filters, a call tree, and controls to stop or steer the run." caption="Example data in the local app." width={712} height={592} />
+<AppScreenshot src="/images/app/run-example.png" alt="A run card with status, trace filters, a call tree, and controls to stop or steer the run." caption="A run card, with example data." width={712} height={592} />
 
 **Planned.** A **Steps** view: the trigger first, then time, type, description, duration, and tokens for each step ([#2115](https://github.com/smithersai/smithers/issues/2115)).
 
@@ -93,7 +93,44 @@ smthrs runs logs <run> --follow
 </TabItem>
 </Tabs>
 
+## Steer or stop
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Type a correction in the run's steering box and select **Steer**. Use **Stop** to cancel it. For a paused run, enter `/runs.resume`. Starting it again creates a second run.
+
+```text
+Keep the existing public API. Fix the parser and add a regression test.
+```
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** In a flow run's tab, `x` stops it and `r` resumes it. `/stop <id>` and `/retry <id>` do the same by ID.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs runs steer <run> --message "Keep the existing public API."
+smthrs runs cancel <run>
+smthrs runs resume <run>
+```
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** API procedures `Steer { runId, message, idempotencyKey }`, `Cancel`, and `Resume`. Over HTTP, `POST /api/repos/{owner}/{repo}/runs/{id}/cancel` and `/resume`.
+
+</TabItem>
+</Tabs>
+
+If the run waits on a decision, [answer the approval](/docs/learn/approvals/). If it failed, read its error before retrying. If it produced a change, [review it](/docs/learn/review-a-change/).
+
 ## Next
 
 - [Answer an approval](/docs/learn/approvals/): unblock a waiting run.
-- [Inspect and steer a run](/docs/app/runs/): more on run cards.
+- [Review a change](/docs/learn/review-a-change/): read the result.

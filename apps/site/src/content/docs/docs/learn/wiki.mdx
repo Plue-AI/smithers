@@ -2,7 +2,7 @@
 title: "Use the wiki"
 description: "Read and edit notes, generate pages from the code, and keep them current."
 sidebar:
-  order: 7
+  order: 10
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
@@ -15,9 +15,15 @@ The wiki holds what people and agents know about the project. Every edit is a re
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** Select **Wiki** in the sidebar. Choose a note to read it; edit it in place. See [Read and edit the Wiki](/docs/app/wiki/).
+**Available now.**
 
-<AppScreenshot src="/images/app/wiki.png" alt="The Wiki pane open beside the conversation, showing the World note." caption="The public app, signed out." width={1440} height={1000} />
+1. Select **Wiki** in the sidebar and choose a note. Its source and confidence are shown above it.
+2. Edit it in place, or select **New note**. Keep each fact with its source.
+3. Select **Back to the conversation** to close the pane.
+
+**Factory** in the pane lists the repository's wiki and environment files.
+
+<AppScreenshot src="/images/app/wiki.png" alt="The Wiki pane open beside the conversation, showing the World note." caption="The Wiki pane." width={1440} height={1000} />
 
 :::note[Capture needed]
 An edit to a note saved as a new revision. Needs a signed-in session on a repository with the Wiki service on.
@@ -57,7 +63,7 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/wiki/getting-started" \
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** Enter `/wiki.create owner/repo`. Generation runs in the background; follow its run to the end before reading the pages.
+**Available now.** Enter `/wiki.create owner/repo`. Smithers writes the pages declared in `.smithers/coding-project.json`, in the background. `/wiki.cloud owner/repo` browses the published pages. The repository needs its [stack](/docs/learn/issue-to-main/) turned on.
 
 </TabItem>
 <TabItem label="TUI">
@@ -72,14 +78,14 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/wiki/getting-started" \
 </TabItem>
 <TabItem label="API">
 
-**Available now.** `POST /api/repos/{owner}/{repo}/mythical/wiki` requests a refresh. It answers `202` once the refresh is queued.
+**Available now.** `POST /api/repos/{owner}/{repo}/mythical/wiki` requests a refresh and answers `202`. It answers `409` if the stack is off or the repository declares no wiki.
 
 </TabItem>
 </Tabs>
 
 ## Kept current
 
-**Partly available.** When a change lands, the pages it affects are regenerated and reviewed; pages a person edited are kept ([#1923](https://github.com/smithersai/smithers/issues/1923)).
+**Partly available.** When main moves, Smithers regenerates the declared pages, reviews them against the code, and keeps pages a person edited. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
 
 **Planned.** A private wiki beside the public one, and two-way sync with Notion or a Markdown folder.
 

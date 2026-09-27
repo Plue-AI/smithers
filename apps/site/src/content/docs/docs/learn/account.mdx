@@ -1,0 +1,67 @@
+---
+title: "Sign in"
+description: "Sign in with GitHub, check your account, and sign out."
+sidebar:
+  order: 15
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+You can browse a public repository signed out. Sign in with GitHub to chat about your work, run flows, and use a box. If your account needs approval, the app offers **Request access**.
+
+## Sign in
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Select **Sign in with GitHub**, review the permissions, and return to Smithers.
+
+<AppScreenshot src="/images/app/account.png" alt="The Account action adds a GitHub sign-in prompt to the conversation." caption="Signing in from the conversation." width={1440} height={1000} />
+
+</TabItem>
+<TabItem label="TUI">
+
+The TUI uses your local model provider keys, not a Smithers account. See [Configuration](/docs/tui/configuration/).
+
+</TabItem>
+<TabItem label="CLI">
+
+Local commands need no account. Commands that reach a remote Smithers take `--remote` and `--credential`, or `SMITHERS_REMOTE` and `SMITHERS_API_KEY`.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** Send a personal access token: `Authorization: Bearer <token>`. `GET /api/user` returns the signed-in account.
+
+</TabItem>
+</Tabs>
+
+## Check your account
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Select **Account**. It shows your GitHub account, its access, its scopes, and your boxes. `/billing.plans` shows your plan; see [Pricing](/docs/pricing/).
+
+</TabItem>
+<TabItem label="TUI">
+
+Not applicable.
+
+</TabItem>
+<TabItem label="CLI">
+
+Not applicable.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `GET /api/user`.
+
+</TabItem>
+</Tabs>
+
+## Sign out
+
+Select **Sign out** on the Account card.
