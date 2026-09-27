@@ -240,7 +240,7 @@ describe("smithers mvp worker", () => {
         ...(bearer ? { BILLING_AUTH_TOKEN: "test-bearer" } : {})
       })
       const body = AppBootstrapSchema.parse(await response.json())
-      expect(body.capabilities.includes("billing.balance")).toBe(upstream && (identity ? service : bearer))
+      expect(body.capabilities.includes("billing.balance")).toBe(upstream && identity && service)
       expect(body.capabilities).not.toContain("billing.checkout")
     }
   })
@@ -1675,20 +1675,6 @@ describe("billing seam", () => {
     expect(body.message).toContain("BILLING_UPSTREAM_URL")
   })
 
-  /**
-   * `workers/billing` authenticates the account with a Smithers Cloud user
-   * bearer and reads no `x-user-*` claim, so forwarding without one could only
-   * ever come back 401 — the seam says so instead of pretending.
-   */
-  test("501s honestly when billing has an upstream but no account bearer", async () => {
-    const response = await worker.fetch(new Request("https://mvp.test/api/billing/balance"), {
-      ...assetsEnv(),
-      BILLING_UPSTREAM_URL: "https://billing.test"
-    })
-    expect(response.status).toBe(501)
-    const body = (await response.json()) as { message: string }
-    expect(body.message).toContain("BILLING_AUTH_TOKEN")
-  })
 
   test("validates the session and bills AS THE USER through the trusted-caller path", async () => {
     const calls: Array<{ host: string; path: string; headers: Headers }> = []
@@ -1788,38 +1774,47 @@ describe("billing seam", () => {
     expect(billingCalls).toBe(0)
   })
 
-  test("a client-supplied bearer never reaches billing — only the deployment's does", async () => {
-    let seen: Headers | undefined
+  /**
+   * Fail closed (#2179): with no identity seam there is no session to vouch
+   * for, so no request reaches billing — not with the client's credentials and
+   * never with the deployment-wide bearer.
+   */
+  test("with no identity seam, billing refuses every request and never spends the deployment bearer", async () => {
+    let billingCalls = 0
     const env: WorkerEnv = {
       ...assetsEnv(),
       BILLING_UPSTREAM_URL: "https://billing.test",
-      BILLING_AUTH_TOKEN: "cloud-bearer-123"
+      BILLING_AUTH_TOKEN: "cloud-bearer-123",
+      BILLING_PRODUCT_SERVICE_TOKEN: "product-service-token-123"
     }
     await withMockedFetch(
       (request) => {
         if (new URL(request.url).hostname !== "billing.test") return undefined
-        seen = request.headers
+        billingCalls += 1
         return new Response("{}", { status: 200 })
       },
       async () => {
-        const response = await worker.fetch(
-          new Request("https://mvp.test/api/billing/balance", {
-            headers: {
-              authorization: "Bearer someone-elses-account",
-              "x-user-id": "evil",
-              "x-user-login": "evil",
-              "x-smithers-service-token": "evil"
-            }
-          }),
-          env
-        )
-        expect(response.status).toBe(200)
-        expect(seen?.get("authorization")).toBe("Bearer cloud-bearer-123")
-        expect(seen?.get("x-user-id")).toBeNull()
-        expect(seen?.get("x-user-login")).toBeNull()
-        expect(seen?.get("x-smithers-service-token")).toBeNull()
+        for (const method of ["GET", "POST"]) {
+          const response = await worker.fetch(
+            new Request("https://mvp.test/api/billing/balance", {
+              method,
+              headers: {
+                authorization: "Bearer someone-elses-account",
+                "x-user-id": "evil",
+                "x-user-login": "evil",
+                "x-smithers-service-token": "evil"
+              }
+            }),
+            env
+          )
+          expect(response.status).toBe(501)
+          const body = (await response.json()) as { message: string }
+          expect(body.message).toContain("IDENTITY_UPSTREAM_URL")
+          expect(JSON.stringify(body)).not.toContain("cloud-bearer-123")
+        }
       }
     )
+    expect(billingCalls).toBe(0)
   })
 
   test("401s honestly when the identity seam validates no session", async () => {

@@ -249,7 +249,7 @@ refusing every user:
 | `IDENTITY_SERVICE_TOKEN` | `/api/identity/validate` |
 | `PLUE_WORKER_EXCHANGE_TOKEN` | `/api/telemetry/errors`; matches API `SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN` |
 | `IDENTITY_ADMIN_TOKEN` | `POST /api/admin/allowlist`, `GET /api/admin/requests` |
-| `BILLING_AUTH_TOKEN` | the signed-out billing fallback |
+| `BILLING_AUTH_TOKEN` | the admin charge summary |
 | `BILLING_PRODUCT_SERVICE_TOKEN` | billing reads as the user |
 | `BILLING_ADMIN_TOKEN` | `POST /api/admin/grant` |
 | `ANONYMOUS_TURN_SALT` | the anonymous turn buckets |
