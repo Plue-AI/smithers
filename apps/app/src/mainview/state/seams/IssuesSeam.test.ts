@@ -1103,6 +1103,48 @@ test("chat sends persist and acknowledge before an unresolved POST, dedupe repea
   } finally { finish?.(); await controller.dispose(); await store.dispose?.() }
 })
 
+test("a Smithers reply with trailing whitespace posts once and never PATCHes the stored, trimmed comment", async () => {
+  // The backend stores strings.TrimSpace(body) (issue.go). The reply guard must compare what the server keeps.
+  const comments: Array<Record<string, unknown>> = [{ ...wireComment(41, "hello"), idempotency_key: "message-t1-user" }]
+  const posts: string[] = []
+  const patches: string[] = []
+  const { store, controller } = await issuesController(backend({
+    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
+    "GET /api/repos/will/flows/issues/8/comments": () => json(200, comments),
+    "POST /api/repos/will/flows/issues/8/comments": async request => {
+      const body = await request.json() as { body: string; idempotency_key: string }
+      posts.push(body.body)
+      const row = { ...wireComment(42, body.body.trim()), idempotency_key: body.idempotency_key }
+      comments.push(row)
+      return json(201, row)
+    },
+    "PATCH /api/repos/will/flows/issues/comments/42": async request => {
+      const body = await request.json() as { body: string }
+      patches.push(body.body)
+      comments[1]!.body = body.body.trim()
+      return json(200, comments[1])
+    }
+  }))
+  try {
+    await controller.commands.run("issues.view", "8 will/flows")
+    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
+    if (card.kind !== "issue") throw Error("Wrong card")
+    await store.dispatch({ type: "card.view.loaded", actor: "system", card: { ...card, payload: { ...card.payload,
+      conversation: { branchId: store.session().activeBranchId!, owner: "will", creationKey: "reply-binding" }
+    } } }).isPersisted.promise
+    await store.dispatch({ type: "message.submitted", actor: "user", turnId: "t1", text: "hello" }).isPersisted.promise
+    await store.dispatch({ type: "message.response.delta", actor: "smithers", turnId: "t1", channel: "text", delta: "On it.\n" }).isPersisted.promise
+    await store.dispatch({ type: "message.response.completed", actor: "smithers", turnId: "t1" }).isPersisted.promise
+    for (let i = 0; i < 50 && posts.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 10))
+    await new Promise(resolve => setTimeout(resolve, 400))
+    expect(posts).toEqual(["On it."])
+    expect(patches).toEqual([])
+    const saved = (store.collections.cards.get(card.id) as typeof card).payload
+    expect(saved.pendingComments).toEqual([])
+    expect(saved.comments.map(row => row.commentBody)).toEqual(["hello", "On it."])
+  } finally { await controller.dispose(); await store.dispose?.() }
+})
+
 test("failed chat messages remain retryable with the same durable idempotency key", async () => {
   const requests: string[] = []
   const { store, controller } = await issuesController(backend({
