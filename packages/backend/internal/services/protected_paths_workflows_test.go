@@ -227,6 +227,150 @@ func TestWorkflowTrustPathsProtectTheReviewAction(t *testing.T) {
 		"the review command the action runs is in the action's package")
 }
 
+// The review command imports workspace packages by name after an install,
+// so an outsider's change to one of them, or to the root install files, is
+// refused like a change to the action.
+func TestProtectedPathsFollowTheReviewActionsWorkspaceDependencies(t *testing.T) {
+	entries, err := protectedPathsAt(context.Background(), repositoryRoot(t))
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"package.json", "packages/smithers/agent/src/index.ts", "packages/smithers/flows/engine/src/x.ts", "patches/p.patch", "pnpm-lock.yaml",
+	}, protectedPathsTouched([]string{
+		"packages/smithers/agent/src/index.ts", "packages/smithers/flows/engine/src/x.ts", "apps/site/README.md",
+		"package.json", "pnpm-lock.yaml", "patches/p.patch", "apps/site/package.json",
+	}, entries), "apps/review depends on @smthrs/agent and @smthrs/engine through the workspace")
+}
+
+var workspaceFixture = mapRevisionTree{
+	".github/workflows/ci.yml":    "on: push\njobs:\n  a:\n    steps:\n      - uses: ./tools/act/action\n      - uses: ./tools/own\n",
+	"tools/own/action.yml":        "runs:\n  using: node24\n  main: index.js\n",
+	"tools/own/index.js":          "",
+	"tools/own/package.json":      `{"dependencies":{"lib-c":"file:../../packages/lib-c"}}`,
+	"tools/act/package.json":      `{"dependencies":{"lib-a":"workspace:*"}}`,
+	"tools/act/action/action.yml": "runs:\n  using: node24\n  main: index.js\n",
+	"tools/act/action/index.js":   "",
+	"pnpm-lock.yaml": `lockfileVersion: '9.0'
+importers:
+  .:
+    devDependencies:
+      root-only:
+        specifier: workspace:*
+        version: link:packages/root-only
+  tools/act:
+    dependencies:
+      lib-a:
+        specifier: workspace:*
+        version: link:../../packages/lib-a
+      left-pad:
+        specifier: ^1.0.0
+        version: 1.3.0
+  packages/lib-a:
+    publishDirectory: dist
+    devDependencies:
+      lib-b:
+        specifier: ^2.0.0
+        version: link:../lib-b
+    optionalDependencies:
+      lib-a-self:
+        specifier: workspace:*
+        version: link:.
+  packages/lib-b:
+    dependencies:
+      lib-a:
+        specifier: workspace:*
+        version: link:../lib-a
+      outside:
+        specifier: link:../../../elsewhere
+        version: link:../../../elsewhere
+  packages/root-only: {}
+  tools/own:
+    dependencies:
+      lib-c:
+        specifier: file:../../packages/lib-c
+        version: file:packages/lib-c
+      archive:
+        specifier: file:vendor/a.tgz
+        version: file:vendor/a.tgz
+  packages/lib-c: {}
+`,
+}
+
+// A protected package's workspace dependencies, as the lockfile resolves
+// them (a workspace-resolved range too), are protected transitively; a
+// registry package, the root package, a path outside the repository and a
+// package only the root depends on are not.
+func TestWorkflowTrustPathsFollowWorkspaceDependencies(t *testing.T) {
+	derived, err := workflowTrustPaths(context.Background(), workspaceFixture)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"/packages/lib-a", "/packages/lib-b", "/packages/lib-c", "/tools/act", "/tools/act/action", "/tools/act/action/index.js",
+		"/tools/own", "/tools/own/index.js",
+	}, derived, "an action's own package is followed; an injected file: directory is, an archive is not")
+
+	unresolved := mapRevisionTree{}
+	for file, content := range workspaceFixture {
+		unresolved[file] = content
+	}
+	delete(unresolved, "pnpm-lock.yaml")
+	_, err = workflowTrustPaths(context.Background(), unresolved)
+	require.ErrorContains(t, err, "tools/act/package.json depends on lib-a through the workspace, and no pnpm-lock.yaml importer resolves it")
+
+	unresolved["tools/act/package.json"] = `{"dependencies":{"left-pad":"^1.0.0"}}`
+	_, err = workflowTrustPaths(context.Background(), unresolved)
+	require.ErrorContains(t, err, "tools/own/package.json depends on lib-c through the workspace", "a file: dependency fails closed too")
+
+	unresolved["tools/own/package.json"] = `{}`
+	derived, err = workflowTrustPaths(context.Background(), unresolved)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/tools/act", "/tools/act/action", "/tools/act/action/index.js", "/tools/own", "/tools/own/index.js"}, derived,
+		"no lockfile and no workspace dependency is complete")
+
+	unresolved["pnpm-lock.yaml"] = "importers: [\n"
+	_, err = workflowTrustPaths(context.Background(), unresolved)
+	require.ErrorContains(t, err, "pnpm-lock.yaml does not parse")
+}
+
+// A repository's list is derived once per main commit: an unchanged main is
+// a hit that reads nothing, a moved main is a miss that replaces the entry,
+// and a failed derivation is never kept.
+func TestProtectedPathCacheKeepsOneListPerRepositoryCommit(t *testing.T) {
+	ctx := context.Background()
+	cache := newProtectedPathCache(2)
+	derivations := 0
+	derive := func(list ...string) func(context.Context) ([]string, error) {
+		return func(context.Context) ([]string, error) {
+			derivations++
+			return list, nil
+		}
+	}
+	got, err := cache.at(ctx, "Octo/Repo", "c1", derive("a"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, got)
+	got, err = cache.at(ctx, "octo/repo", "c1", derive("changed"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, got, "same repository and main commit: a hit")
+	assert.Equal(t, 1, derivations)
+	got[0] = "mutated"
+	got, _ = cache.at(ctx, "octo/repo", "c1", derive("changed"))
+	assert.Equal(t, []string{"a"}, got, "a caller cannot change the cached list")
+
+	got, err = cache.at(ctx, "octo/repo", "c2", derive("b"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b"}, got, "main moved: a miss")
+	_, _ = cache.at(ctx, "octo/repo", "c1", derive("a"))
+	assert.Equal(t, 3, derivations, "the moved main replaced the old entry")
+
+	_, err = cache.at(ctx, "octo/other", "c1", func(context.Context) ([]string, error) { return nil, assert.AnError })
+	require.ErrorIs(t, err, assert.AnError)
+	_, _ = cache.at(ctx, "octo/other", "c1", derive("o"))
+	assert.Equal(t, 4, derivations, "a failure is not cached")
+
+	_, _ = cache.at(ctx, "octo/third", "c1", derive("t"))
+	assert.Len(t, cache.entries, 2, "the cache keeps at most its limit of repositories")
+	_, err = cache.at(ctx, "octo/repo", "", derive("x"))
+	require.ErrorContains(t, err, "commit id")
+}
+
 // pullRequestLocalActionJobs names the jobs that pull requests start with
 // elevated trust and that run a local action from the pull request's checkout,
 // directly or in a reusable workflow the job calls.

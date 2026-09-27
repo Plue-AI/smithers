@@ -49,14 +49,32 @@ type landingProtectedDirectoryReader interface {
 	ListDirectory(ctx context.Context, owner, repo, changeID, prefix, after string, limit int) ([]repohost.TreeEntry, error)
 }
 
+// landingProtectedChangeReader resolves a target revision to its commit.
+type landingProtectedChangeReader interface {
+	GetChange(ctx context.Context, owner, repo, changeID string) (repohost.Change, error)
+}
+
 // refuseProtectedPaths refuses touched paths that the list on the target
 // revision protects (protectedPathsAt). A maintainer makes such a change.
+// The list is read at the revision's commit and kept per repository for
+// that commit (protectedPathsCache).
 func refuseProtectedPaths(ctx context.Context, files landingProtectedFileReader, owner, repo, targetRevision string, touched []string) error {
 	directories, ok := files.(landingProtectedDirectoryReader)
 	if !ok {
 		return pkgerrors.Internal("protected path listing unavailable")
 	}
-	entries, err := protectedPathsAt(ctx, landingRevisionTree{reader: files, directories: directories, owner: owner, repo: repo, revision: targetRevision})
+	changes, ok := files.(landingProtectedChangeReader)
+	if !ok {
+		return pkgerrors.Internal("protected path revision resolver unavailable")
+	}
+	target, err := changes.GetChange(ctx, owner, repo, targetRevision)
+	if err != nil {
+		return mapLandingRepoHostError(err, "failed to resolve the target revision")
+	}
+	commit := target.CommitID
+	entries, err := protectedPathsCache.at(ctx, owner+"/"+repo, commit, func(ctx context.Context) ([]string, error) {
+		return protectedPathsAt(ctx, landingRevisionTree{reader: files, directories: directories, owner: owner, repo: repo, revision: commit})
+	})
 	if err != nil {
 		return err
 	}

@@ -1211,7 +1211,9 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 	if !outsider {
 		return nil, nil
 	}
-	entries, err := st.r.g.protectedPaths(ctx, st.r.mainTip)
+	entries, err := protectedPathsCache.at(ctx, st.r.owner+"/"+st.r.repo, st.r.mainTip, func(ctx context.Context) ([]string, error) {
+		return st.r.g.protectedPaths(ctx, st.r.mainTip)
+	})
 	if err != nil {
 		return nil, err
 	}

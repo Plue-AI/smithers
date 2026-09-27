@@ -390,7 +390,13 @@ func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
 			rh := f.service.landings.repoHost.(*mockLandingRepoHostClient)
 			q.outsiderLanding = true
 			parents := map[string]string{"kxyz": "main-tip", "kwxy": "kxyz"}
+			// Each case's main is its own commit, so no case reads another's
+			// cached list.
+			mainCommit := "main-commit-" + name
 			rh.getChangeFn = func(_ context.Context, _, _, changeID string) (repohost.Change, error) {
+				if changeID == "main-tip" {
+					return repohost.Change{ChangeID: changeID, CommitID: mainCommit}, nil
+				}
 				return repohost.Change{ChangeID: changeID, CommitID: f.tip, ParentChangeIDs: []string{parents[changeID]}}, nil
 			}
 			rh.getChangeFilesFn = func(context.Context, string, string, string) ([]repohost.ChangeFile, error) {
@@ -401,7 +407,7 @@ func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
 				return files, nil
 			}
 			rh.getFileAtChangeFn = func(_ context.Context, _, _, revision, path string) (repohost.FileContent, error) {
-				require.Equal(t, "main-tip", revision, "the list comes from the target, never the landing")
+				require.Equal(t, mainCommit, revision, "the list comes from the target's commit, never the landing")
 				if path == factoryProjectionPath {
 					return repohost.FileContent{Content: `{"github":{"protectedPaths":["infra/keys"]}}`}, nil
 				}
@@ -411,7 +417,7 @@ func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
 				return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
 			}
 			rh.listDirectoryFn = func(_ context.Context, _, _, revision, prefix, _ string, _ int) ([]repohost.TreeEntry, error) {
-				require.Equal(t, "main-tip", revision)
+				require.Equal(t, mainCommit, revision)
 				var entries []repohost.TreeEntry
 				seen := map[string]bool{}
 				for file := range workflowTrustFixture {

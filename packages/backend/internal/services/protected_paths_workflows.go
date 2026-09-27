@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -24,12 +25,17 @@ import (
 //   - every script file a `run:` step names in a job that holds a secret or a
 //     write, id-token or default token permission, and in a local action;
 //   - every file those scripts and the actions' scripts import by a relative
-//     specifier, transitively.
+//     specifier, transitively;
+//   - every workspace package such an enclosing package depends on, as
+//     pnpm-lock.yaml resolves it (a `link:` dependency, including every
+//     `workspace:` one, or an injected `file:` directory), transitively: an action's command imports those by
+//     name after an install. The root install files are built-in roots.
 //
 // Limits: code reached any other way is not derived. That is package imports
-// (`@scope/pkg`) and the workspace packages they name, the root manifests and
-// lockfile an install reads, package manager scripts and workspace tools
-// (`pnpm test`, `pnpm exec tool`), scripts named through a shell variable or
+// of a script outside an action's package, package manager scripts and
+// workspace tools (`pnpm test`, `pnpm exec tool`), a workspace dependency no
+// pnpm lockfile at the repository root resolves (a `workspace:`, `link:` or
+// `file:` one without a lockfile importer is an error), scripts named through a shell variable or
 // expression other than the workspace, files a shell script sources, and an
 // action a workflow uses by name from the repository root (`owner/repo@ref`). A workflow that runs on pull
 // requests therefore never runs a local action from the pull request's
@@ -100,18 +106,19 @@ type actionDocument struct {
 
 // workflowTrust walks one revision's workflows.
 type workflowTrust struct {
-	tree    revisionTree
-	reads   int
-	paths   map[string]bool
-	actions map[string]bool
-	scripts map[string]bool
+	tree     revisionTree
+	reads    int
+	paths    map[string]bool
+	actions  map[string]bool
+	scripts  map[string]bool
+	packages map[string]bool
 }
 
 // workflowTrustPaths lists, sorted, the root-relative paths ("/"-prefixed)
 // the revision's workflows execute with elevated trust. A workflow or local
 // action that does not parse is an error, never an empty list.
 func workflowTrustPaths(ctx context.Context, tree revisionTree) ([]string, error) {
-	w := &workflowTrust{tree: tree, paths: map[string]bool{}, actions: map[string]bool{}, scripts: map[string]bool{}}
+	w := &workflowTrust{tree: tree, paths: map[string]bool{}, actions: map[string]bool{}, scripts: map[string]bool{}, packages: map[string]bool{}}
 	workflows, err := readWorkflows(ctx, tree)
 	if err != nil {
 		return nil, err
@@ -136,6 +143,9 @@ func workflowTrustPaths(ctx context.Context, tree revisionTree) ([]string, error
 				}
 			}
 		}
+	}
+	if err := w.workspaceDependencies(ctx); err != nil {
+		return nil, err
 	}
 	out := make([]string, 0, len(w.paths))
 	for entry := range w.paths {
@@ -303,15 +313,118 @@ func (w *workflowTrust) uses(ctx context.Context, uses string) error {
 	return nil
 }
 
-// enclosingPackage protects the nearest directory above an action's that
-// holds a package.json, short of the repository root.
+// enclosingPackage protects the nearest directory, the action's own or one
+// above it, that holds a package.json, short of the repository root.
 func (w *workflowTrust) enclosingPackage(ctx context.Context, dir string) error {
-	for parent := path.Dir(dir); parent != "." && parent != "/"; parent = path.Dir(parent) {
+	for parent := dir; parent != "." && parent != "/"; parent = path.Dir(parent) {
 		if _, found, err := w.readCounted(ctx, path.Join(parent, "package.json")); err != nil || found {
 			if found {
 				w.paths[parent] = true
+				w.packages[parent] = true
 			}
 			return err
+		}
+	}
+	return nil
+}
+
+// pnpmLockfile is the root lockfile an install resolves workspace packages
+// from.
+const pnpmLockfile = "pnpm-lock.yaml"
+
+// workspaceDependencies protects every workspace package a protected package
+// depends on, transitively, as the lockfile resolves it.
+func (w *workflowTrust) workspaceDependencies(ctx context.Context) error {
+	if len(w.packages) == 0 {
+		return nil
+	}
+	lockfile, found, err := w.readCounted(ctx, pnpmLockfile)
+	if err != nil {
+		return err
+	}
+	var lock struct {
+		Importers map[string]map[string]yaml.Node `yaml:"importers"`
+	}
+	if found {
+		if err := yaml.Unmarshal(lockfile, &lock); err != nil {
+			return fmt.Errorf("%s does not parse: %w", pnpmLockfile, err)
+		}
+	}
+	pending := make([]string, 0, len(w.packages))
+	for dir := range w.packages {
+		pending = append(pending, dir)
+	}
+	sort.Strings(pending)
+	for len(pending) > 0 {
+		dir := pending[0]
+		pending = pending[1:]
+		importer, ok := lock.Importers[dir]
+		if !ok {
+			if err := w.unresolvedWorkspaceDependency(ctx, dir); err != nil {
+				return err
+			}
+			continue
+		}
+		for _, section := range []string{"dependencies", "devDependencies", "optionalDependencies"} {
+			deps := importer[section]
+			for i := 1; i < len(deps.Content); i += 2 {
+				version := deps.Content[i]
+				if version.Kind == yaml.MappingNode {
+					var entry struct {
+						Version string `yaml:"version"`
+					}
+					if err := version.Decode(&entry); err != nil {
+						return fmt.Errorf("%s importer %s does not parse: %w", pnpmLockfile, dir, err)
+					}
+					version = &yaml.Node{Kind: yaml.ScalarNode, Value: entry.Version}
+				}
+				// link: is relative to the importer; file: (an injected
+				// workspace package) to the lockfile's directory.
+				var target string
+				if link, ok := strings.CutPrefix(version.Value, "link:"); ok {
+					target = path.Join(dir, link)
+				} else if file, ok := strings.CutPrefix(version.Value, "file:"); ok && !workflowTarball(file) {
+					target = path.Clean(file)
+				} else {
+					continue
+				}
+				if target == "." || target == ".." || strings.HasPrefix(target, "../") || path.IsAbs(target) || w.packages[target] {
+					continue
+				}
+				w.packages[target] = true
+				w.paths[target] = true
+				pending = append(pending, target)
+			}
+		}
+	}
+	return nil
+}
+
+// workflowTarball reports whether a file: dependency names an archive rather
+// than a directory.
+func workflowTarball(file string) bool {
+	return strings.HasSuffix(file, ".tgz") || strings.HasSuffix(file, ".tar.gz") || strings.HasSuffix(file, ".tar")
+}
+
+// unresolvedWorkspaceDependency refuses a package whose manifest names a
+// `workspace:`, `link:` or `file:` dependency that no lockfile importer
+// resolves: the packages
+// it runs cannot be derived, so the list would be incomplete.
+func (w *workflowTrust) unresolvedWorkspaceDependency(ctx context.Context, dir string) error {
+	content, found, err := w.readCounted(ctx, path.Join(dir, "package.json"))
+	if err != nil || !found {
+		return err
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return fmt.Errorf("%s/package.json does not parse: %w", dir, err)
+	}
+	for _, section := range []string{"dependencies", "devDependencies", "optionalDependencies", "peerDependencies"} {
+		deps, _ := manifest[section].(map[string]any)
+		for name, spec := range deps {
+			if text, _ := spec.(string); strings.HasPrefix(text, "workspace:") || strings.HasPrefix(text, "link:") || strings.HasPrefix(text, "file:") {
+				return fmt.Errorf("%s/package.json depends on %s through the workspace, and no %s importer resolves it", dir, name, pnpmLockfile)
+			}
 		}
 	}
 	return nil
