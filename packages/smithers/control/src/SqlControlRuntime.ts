@@ -51,6 +51,7 @@ import * as DurableWrites from "@smthrs/database/DurableWriter"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import { Clock, Crypto, Effect, Fiber, Layer, Option, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import type * as SqlError from "effect/unstable/sql/SqlError"
 import * as ApprovalAuthority from "./ApprovalAuthority.ts"
 import * as Attribution from "./Cancellation.ts"
 import type { PlanInput } from "./Control.ts"
@@ -444,6 +445,22 @@ const makeRuntime = (
     const query = <A>(operation: string) => (effect: Effect.Effect<ReadonlyArray<A>, unknown>) =>
       effect.pipe(Effect.mapError(persistence(operation)))
 
+    /**
+     * Runs a read that may fail on a missing table or column, and is caught.
+     *
+     * Inside an enclosing transaction the read takes a savepoint, because a
+     * failed statement aborts a PostgreSQL transaction and the catch could not
+     * recover it. Outside one it runs bare: on SQLite a top-level transaction
+     * is `BEGIN IMMEDIATE`, which takes the write lock for a read and fails a
+     * contender with `SQLITE_BUSY` while another plane holds the claim.
+     */
+    const probe = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E | SqlError.SqlError, R> =>
+      Effect.flatMap(
+        Effect.serviceOption(sql.transactionService),
+        (enclosing): Effect.Effect<A, E | SqlError.SqlError, R> =>
+          Option.isSome(enclosing) ? sql.withTransaction(effect) : effect
+      )
+
     /** Allocates the next value of a durable counter inside one transaction. */
     const nextSequence = (name: string): Effect.Effect<number, PersistenceError> =>
       writer.write(Effect.gen(function*() {
@@ -697,7 +714,7 @@ const makeRuntime = (
       SELECT child_id AS "childId", parent_id AS "parentId"
       FROM flows_run_parents WHERE ${within("child_id", scope)} ORDER BY seq DESC
     `.pipe(
-        sql.withTransaction,
+        probe,
         // Descending, so the lowest `seq` is written last and wins the key.
         Effect.map((rows) => new Map(rows.map((row) => [row.childId, row.parentId])) as ReadonlyMap<string, string>),
         Effect.catchIf(
@@ -787,7 +804,7 @@ const makeRuntime = (
       WHERE ${within("human_waits.ancestor_id", scope)}
       ORDER BY human_waits.ancestor_id, human_waits.depth, parked.created_at_ms, parked.run_id
     `.pipe(
-        sql.withTransaction,
+        probe,
         Effect.map((rows) => {
           const index = new Map<string, Array<PendingWait>>()
           for (const row of rows) {
@@ -1259,7 +1276,7 @@ const makeRuntime = (
       }
         LIMIT ${request.limit + 1}
       `.pipe(
-        sql.withTransaction,
+        probe,
         Effect.catchIf(
           (error) => includeSpawn && filters?.parentRunId !== undefined && missingTable("flows_run_parents")(error),
           () => runPageKeys(request, false, includeWaitRollup)

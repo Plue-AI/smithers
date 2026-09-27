@@ -815,6 +815,41 @@ describe("SqlControlRuntime", () => {
     }
   })
 
+  it("reads runs while a peer plane holds the SQLite write lock", async () => {
+    // A losing claimant reads the run while the winner's claim holds the
+    // write lock. A read that opened its own transaction took `BEGIN
+    // IMMEDIATE` and failed as `PersistenceError` instead of reaching the
+    // fence that answers `ClaimLost`.
+    const directory = mkdtempSync(join(tmpdir(), "control-read-under-lock-"))
+    try {
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const filename = join(directory, "control.sqlite")
+          const services = yield* Layer.build(durable({ database: fileBundle(filename) }))
+          const runtime = Context.get(services, ControlRuntime)
+          const { runId } = yield* started.pipe(Effect.provide(services))
+          const peer = Context.get(yield* Layer.build(NodeDatabase.layer({ filename })), SqlClient.SqlClient)
+          yield* peer`BEGIN IMMEDIATE`
+          const reads = yield* Effect.all([
+            Effect.exit(Effect.asVoid(runtime.getRun(runId))),
+            Effect.exit(Effect.asVoid(runtime.listRuns)),
+            Effect.exit(Effect.asVoid(
+              runtime.queryRuns({ limit: 10, order: "newest", filters: { parentRunId: runId } })
+            ))
+          ])
+          yield* peer`ROLLBACK`
+          expect(reads.map((read) => read._tag === "Success" ? "read" : String(read.cause))).toEqual([
+            "read",
+            "read",
+            "read"
+          ])
+        }).pipe(Effect.scoped, Effect.orDie)
+      )
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     { spelling: "resume", launched: true },
     { spelling: "run", launched: true },
