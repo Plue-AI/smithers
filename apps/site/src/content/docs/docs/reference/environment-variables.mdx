@@ -53,19 +53,18 @@ same policy.
 
 ## Provider keys
 
-Provider keys are read by the seat resolver, not by the CLI itself; `smthrs doctor` reports which are present.
+Flow judgments use a connected ChatGPT or Claude subscription, directly or through the account pool. Gateway and provider keys cannot substitute for a subscription. `smthrs doctor` reports available model connections.
 
 | Name | Read by | Purpose |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | seat resolver | Credentials `anthropic:*` seats. |
-| `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | seat resolver | Claude subscription bearer for `anthropic:*` seats when `ANTHROPIC_API_KEY` is unset. |
-| `OPENAI_API_KEY` | seat resolver | Credentials `openai:*` seats when `SMITHERS_OPENAI_AUTH` is unset or `api-key`. |
+| `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | seat resolver | Claude subscription bearer for `anthropic:*` seats. |
+| `CODEX_HOME` | seat resolver | Codex account directory for the ChatGPT subscription. |
+| `SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY` | seat resolver | Account-pool connection and host credential. |
 | `OPENROUTER_API_KEY` | seat resolver | Credentials `openrouter:*` seats. |
 | `CEREBRAS_API_KEY` | seat resolver | Credentials for `cerebras:*` seats. |
 | `MOONSHOT_API_KEY` | seat resolver | Credentials for `moonshot:*` seats. |
 | `GEMINI_API_KEY` | seat resolver | First credential source for `gemini:*` seats. |
 | `GOOGLE_API_KEY` | seat resolver | Fallback for `gemini:*` seats when `GEMINI_API_KEY` is unset or empty. |
-| `AI_GATEWAY_API_KEY` | evaluator | Vercel AI Gateway key for Jev, which judges every completion. `smthrs flow start` and `smthrs serve` refuse to run without it. |
 
 ## Removed in 1.0
 

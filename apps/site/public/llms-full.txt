@@ -230,7 +230,7 @@ https://smithers.sh/docs/installation/
 
 - Node.js <code>>=26.4.0</code>, or Bun 1.4 or later. See the [support matrix](/docs/reference/support-matrix/).
 - pnpm 11.25.0, Git, and the Rust toolchain `rust-toolchain.toml` pins (`rustup toolchain install`).
-- A model provider key, and `AI_GATEWAY_API_KEY` (Vercel AI Gateway) to run flows. See [environment variables](/docs/reference/environment-variables/#provider-keys).
+- A connected ChatGPT or Claude subscription, directly or through the account pool, to run and judge flows. See [environment variables](/docs/reference/environment-variables/#provider-keys).
 - No database server. Run state is local SQLite in the project's `.flows/` directory.
 
 See the [RC support matrix](/docs/reference/support-matrix/) for engine ranges, platforms, and hosting limits.
@@ -304,7 +304,7 @@ Create a flow that lives with your code, give it a small prompt, and inspect the
 
 ## 1. Install the CLI
 
-Use Node.js 26.4.0 or later. You also need a provider credential for the model that will run the flow, and `AI_GATEWAY_API_KEY` (a Vercel AI Gateway key): Smithers asks Jev to judge every completion, and `smthrs flow start` refuses to run without it.
+Use Node.js 26.4.0 or later and connect a ChatGPT or Claude subscription, directly or through the account pool. Flow completions use the same subscription judge as the native host. Missing subscriptions and invalid judgments fail closed.
 
 The 1.0 release candidate is not published to npm yet. Follow the [source-checkout installation](/docs/installation/#install-the-cli), including its PATH setting, then verify:
 
@@ -2273,7 +2273,7 @@ Start with the error on the card, row, or output. It names what failed and what 
 | Flow runs old code | Restart the TUI after changing a `flow.ts`. |
 | Input form gone | Open the flow's tab and press `a`. |
 | `y` types a letter | Empty the editor and wait for the approval keys. |
-| Monitor refused | Set `AI_GATEWAY_API_KEY`. |
+| Monitor refused | Connect a subscription. |
 
 ![A provider refusal in the TUI with its error expanded.](/images/learn/tui-provider-failure.gif)
 
@@ -2421,7 +2421,8 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `ctrl+k` | Search. |
 | `ctrl+s` | Summary. |
 | `ctrl+]` / `ctrl+right` | Next tab. |
-| `ctrl+\` / `ctrl+left` | Previous tab. |
+| `ctrl+[` / `ctrl+left` | Previous tab. |
+| `ctrl+\` | Chat. |
 | `ctrl+y` | Back. |
 | `pageup` / `pagedown` | Scroll. |
 | `shift+up` / `shift+down` | Scroll a line. |
@@ -2622,7 +2623,8 @@ The TUI reads everything from the environment.
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini. |
 | `CEREBRAS_API_KEY` | Cerebras; preferred for chat when set. |
 | `SMITHERS_OPENAI_COMPATIBLE_BASE_URL` | An OpenAI-compatible endpoint. |
-| `AI_GATEWAY_API_KEY` | Judging completions and monitors. Without it, monitors are refused. |
+
+Worker completions and monitors require a connected ChatGPT or Claude subscription, directly or through the account pool. They need no separate judge key.
 
 ## Settings
 
@@ -2743,7 +2745,7 @@ await ctx.call("monitor.create", {
 })
 ```
 
-Intervals run from 10 seconds to 24 hours; up to eight monitors at once. Monitors need `AI_GATEWAY_API_KEY`.
+Intervals run from 10 seconds to 24 hours; up to eight monitors at once. Monitors need a connected subscription.
 
 ![Creating and stopping a shell monitor in the TUI.](/images/learn/tui-monitor.gif)
 
@@ -47976,19 +47978,18 @@ same policy.
 
 ## Provider keys
 
-Provider keys are read by the seat resolver, not by the CLI itself; `smthrs doctor` reports which are present.
+Flow judgments use a connected ChatGPT or Claude subscription, directly or through the account pool. Gateway and provider keys cannot substitute for a subscription. `smthrs doctor` reports available model connections.
 
 | Name | Read by | Purpose |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | seat resolver | Credentials `anthropic:*` seats. |
-| `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | seat resolver | Claude subscription bearer for `anthropic:*` seats when `ANTHROPIC_API_KEY` is unset. |
-| `OPENAI_API_KEY` | seat resolver | Credentials `openai:*` seats when `SMITHERS_OPENAI_AUTH` is unset or `api-key`. |
+| `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | seat resolver | Claude subscription bearer for `anthropic:*` seats. |
+| `CODEX_HOME` | seat resolver | Codex account directory for the ChatGPT subscription. |
+| `SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY` | seat resolver | Account-pool connection and host credential. |
 | `OPENROUTER_API_KEY` | seat resolver | Credentials `openrouter:*` seats. |
 | `CEREBRAS_API_KEY` | seat resolver | Credentials for `cerebras:*` seats. |
 | `MOONSHOT_API_KEY` | seat resolver | Credentials for `moonshot:*` seats. |
 | `GEMINI_API_KEY` | seat resolver | First credential source for `gemini:*` seats. |
 | `GOOGLE_API_KEY` | seat resolver | Fallback for `gemini:*` seats when `GEMINI_API_KEY` is unset or empty. |
-| `AI_GATEWAY_API_KEY` | evaluator | Vercel AI Gateway key for Jev, which judges every completion. `smthrs flow start` and `smthrs serve` refuse to run without it. |
 
 ## Removed in 1.0
 

@@ -9,7 +9,7 @@ Create a flow that lives with your code, give it a small prompt, and inspect the
 
 ## 1. Install the CLI
 
-Use Node.js 26.4.0 or later. You also need a provider credential for the model that will run the flow, and `AI_GATEWAY_API_KEY` (a Vercel AI Gateway key): Smithers asks Jev to judge every completion, and `smthrs flow start` refuses to run without it.
+Use Node.js 26.4.0 or later and connect a ChatGPT or Claude subscription, directly or through the account pool. Flow completions use the same subscription judge as the native host. Missing subscriptions and invalid judgments fail closed.
 
 The 1.0 release candidate is not published to npm yet. Follow the [source-checkout installation](/docs/installation/#install-the-cli), including its PATH setting, then verify:
 

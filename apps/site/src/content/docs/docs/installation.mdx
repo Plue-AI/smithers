@@ -12,7 +12,7 @@ import versions from "../../../data/versions.json"
 
 - Node.js <code>{versions.nodeRange}</code>, or Bun 1.4 or later. See the [support matrix](/docs/reference/support-matrix/).
 - pnpm 11.25.0, Git, and the Rust toolchain `rust-toolchain.toml` pins (`rustup toolchain install`).
-- A model provider key, and `AI_GATEWAY_API_KEY` (Vercel AI Gateway) to run flows. See [environment variables](/docs/reference/environment-variables/#provider-keys).
+- A connected ChatGPT or Claude subscription, directly or through the account pool, to run and judge flows. See [environment variables](/docs/reference/environment-variables/#provider-keys).
 - No database server. Run state is local SQLite in the project's `.flows/` directory.
 
 See the [RC support matrix](/docs/reference/support-matrix/) for engine ranges, platforms, and hosting limits.

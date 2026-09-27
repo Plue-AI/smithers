@@ -3,15 +3,21 @@ import { once } from "node:events"
 import { createServer } from "node:http"
 export async function providerFixture({ judge = false } = {}) {
   const server = createServer(async (request, response) => {
+    if (request.url === "/routes") {
+      response.setHeader("Content-Type", "application/json")
+      response.end(JSON.stringify({ routes: ["chatgpt"] }))
+      return
+    }
     const chunks = []
     for await (const chunk of request) chunks.push(chunk)
     const body = JSON.parse(Buffer.concat(chunks).toString() || "{}")
-    if (body.questions) {
+    let content
+    if (judge && body.instructions?.startsWith("Judge the supplied evidence")) {
+      const { questions } = JSON.parse(body.input.find((item) => item.role === "user").content[0].text)
       const passing = new Set(["on_target", "complete", "notable"])
-      response.setHeader("Content-Type", "application/json")
-      response.end(JSON.stringify({
+      content = JSON.stringify({
         answers: Object.fromEntries(
-          Object.entries(body.questions).map(([id, q]) => [
+          Object.entries(questions).map(([id, q]) => [
             id,
             q.type === "boolean"
               ? { type: "boolean", probability: passing.has(id) ? 0.99 : 0.01 }
@@ -20,36 +26,28 @@ export async function providerFixture({ judge = false } = {}) {
               : { type: "score", score: 0 }
           ])
         )
-      }))
+      })
     } else {
-      response.setHeader("Content-Type", "text/event-stream")
-      const content = JSON.stringify(body.messages).includes("You estimate how long")
+      content = JSON.stringify(body).includes("You estimate how long")
         ? JSON.stringify({ minutes: 0.1, tokens: 800, low_minutes: 0.05, high_minutes: 0.3 })
         : "Addition checks passed."
-      for (const [delta, finish] of [[{ role: "assistant", content }, null], [{}, "stop"]]) {
-        response.write(
-          `data: ${
-            JSON.stringify({
-              id: "docs",
-              object: "chat.completion.chunk",
-              created: 0,
-              model: "fixture",
-              choices: [{ index: 0, delta, finish_reason: finish }]
-            })
-          }\n\n`
-        )
-      }
-      response.end("data: [DONE]\n\n")
     }
+    response.setHeader("Content-Type", "text/event-stream")
+    response.end([
+      { type: "response.output_text.delta", item_id: "answer", output_index: 0, content_index: 0, delta: content },
+      { type: "response.completed", response: { id: "response", status: "completed", usage: {} } }
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""))
   })
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   const url = `http://127.0.0.1:${server.address().port}`
   return {
     env: {
-      OPENAI_API_KEY: "docs-fixture",
-      SMITHERS_OPENAI_COMPATIBLE_BASE_URL: url,
-      ...(judge ? { AI_GATEWAY_API_KEY: "docs-fixture", SMITHERS_EVALUATOR_BASE_URL: url } : {})
+      SMITHERS_ACCOUNT_POOL_URL: url,
+      SMITHERS_ACCOUNT_POOL_KEY: "docs-fixture",
+      SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+      CODEX_HOME: "/nonexistent",
+      NO_PROXY: "*"
     },
     close: () =>
       new Promise((resolve) => {
