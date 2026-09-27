@@ -348,4 +348,66 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
       })),
     budget
   )
+
+  it.live(
+    "captures a prepared machine without its credentials and refuses one that still holds a secret",
+    () =>
+      Effect.gen(function*() {
+        const token = `ghp_${session.replaceAll("-", "")}`
+        const armor = "-----BEGIN OPENSSH PRIVATE KEY-----"
+        const key = `${armor}\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n` +
+          "-----END OPENSSH PRIVATE KEY-----\n"
+        const setup = "echo installed > deps.txt && mkdir -p /root/.config/gh /etc/ssh .git && " +
+          `printf '%s\\n' '${armor}' > /etc/ssh/armor && ` +
+          `printf 'https://x:%s@github.com\\n' "$GITHUB_TOKEN" > /root/.git-credentials && ` +
+          `printf 'github.com:\\n  oauth_token: %s\\n' "$GITHUB_TOKEN" > /root/.config/gh/hosts.yml`
+        const prepare = (key: string, extra: string) =>
+          Effect.scoped(Effect.gen(function*() {
+            const live = yield* machine({ persistence: "sticky", env: { GITHUB_TOKEN: token } }).acquire(key)
+            const code = yield* Effect.scoped(Effect.flatMap(live.spawn(`${setup}${extra}`, {}), (run) => run.exitCode))
+            expect(code).toBe(0)
+            return live.remoteId
+          }))
+        const capture = (machine: string, member: string) =>
+          MicrosandboxSandbox.captureSnapshot({
+            sdk: Microsandbox,
+            machine,
+            family: `smthrs-test-${process.pid}`,
+            member,
+            secrets: [token, key]
+          })
+
+        // A clone whose remote URL carries the token is refused, naming the file.
+        const leaky = yield* prepare(
+          `${session}-leaky`,
+          ` && printf '[remote "origin"]\\n  url = https://x:%s@github.com/o/r\\n' "$GITHUB_TOKEN" > .git/config`
+        )
+        const refused = yield* Effect.flip(capture(leaky, "leaky"))
+        expect(refused.message).toBe(
+          `microsandbox: the microVM ${leaky} was not captured as smthrs-test-${process.pid}.leaky: ` +
+            "a secret is still on its disk at /workspace/.git/config"
+        )
+
+        // Without the clone, the credential files are scrubbed and the capture succeeds.
+        const clean = yield* prepare(`${session}-clean`, "")
+        const name = yield* capture(clean, "clean")
+        yield* Effect.scoped(Effect.gen(function*() {
+          const restored = yield* machine({ image: undefined, snapshot: name }).acquire(`${session}-restored`)
+          const seen = yield* Effect.scoped(Effect.flatMap(
+            restored.spawn(
+              `cat deps.txt /etc/ssh/armor; ls /root/.git-credentials /root/.config/gh/hosts.yml 2>&1; ` +
+                `grep -rlF '${token}' /root /etc /workspace; echo "grep $?"`,
+              {}
+            ),
+            (run) => Stream.mkString(Stream.decodeText(run.stdout))
+          ))
+          expect(seen).toBe(
+            `installed\n${armor}\n` +
+              "ls: cannot access '/root/.git-credentials': No such file or directory\n" +
+              "ls: cannot access '/root/.config/gh/hosts.yml': No such file or directory\ngrep 1\n"
+          )
+        })).pipe(Effect.ensuring(Effect.ignore(MicrosandboxSandbox.removeSnapshot(Microsandbox, name))))
+      }),
+    budget
+  )
 })

@@ -13,6 +13,12 @@
   `captureSnapshot` takes `family` and `member` in place of `name` and returns the name it wrote;
   `pruneSnapshots` takes the family and matches it exactly, so one family's prune can no longer remove
   another family's snapshots whose names merely started with the same text.
+- `captureSnapshot` takes `secrets`, every credential value preparation was handed (empty for credential-free
+  preparation). Before capture it removes the credential-only files of `/root` and every `/home/*` (git's store,
+  `.netrc`, `.pypirc`, GitHub CLI, Cargo, and the Claude, Codex, and OpenCode sign-ins) and refuses a disk that still
+  holds any secret's longest line, naming the files. `.npmrc` and Docker's `config.json` are searched, not removed. A
+  secret whose longest line is under 8 bytes is refused before any guest call. A stopped machine is started for this.
+  No snapshot restores a credential into later machines.
 
 ### Changed
 

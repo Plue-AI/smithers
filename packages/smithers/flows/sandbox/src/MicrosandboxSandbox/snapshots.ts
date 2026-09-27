@@ -5,7 +5,8 @@
  * A snapshot is the machine's whole root disk. A machine booted from it with
  * the provider's `snapshot` option starts with everything the captured
  * machine had installed, so an expensive preparation runs once per snapshot
- * rather than once per machine.
+ * rather than once per machine. Capture scrubs credential files and refuses a
+ * disk that still holds a registered secret, so no credential is restored.
  *
  * Every snapshot this module captures is named `<family>.<member>` by
  * {@link snapshotName}: the family is the preparation the snapshot repeats
@@ -17,6 +18,7 @@
  */
 import * as Effect from "effect/Effect"
 import { attemptIn } from "../internal/attempt.ts"
+import { runGuest } from "../internal/microsandboxProcess.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import type { Sdk } from "./Sdk.ts"
 
@@ -63,6 +65,103 @@ export const snapshotFamily = (name: string): string | undefined => {
 }
 
 /**
+ * Files that hold nothing but credentials, relative to a home directory:
+ * git's store, netrc, PyPI, GitHub CLI, Cargo, and the agent CLIs' sign-ins.
+ * {@link captureSnapshot} removes these from every home before it captures.
+ * Files that mix credentials with configuration, such as `.npmrc` or Docker's
+ * `config.json`, stay; the secret search refuses one that holds a token.
+ */
+const credentialFiles: ReadonlyArray<string> = [
+  ".git-credentials",
+  ".netrc",
+  ".pypirc",
+  ".config/gh/hosts.yml",
+  ".cargo/credentials.toml",
+  ".claude/.credentials.json",
+  ".codex/auth.json",
+  ".local/share/opencode/auth.json"
+]
+
+/**
+ * Removes {@link credentialFiles} from `/root` and every `/home/*`, then,
+ * with patterns on standard input, lists every file under `/` outside the
+ * kernel's own trees whose bytes hold one: grep exits 0 with a list, 1 with
+ * none, 2 when it could not search. Paths are relative because the command
+ * runs at `/`.
+ */
+const scrubScript = (search: boolean): string =>
+  [
+    `for home in root home/*; do rm -f -- ${
+      credentialFiles.map((file) => `"$home/${file}"`).join(" ")
+    } || exit 2; done`,
+    ...search
+      ? [
+        "set --",
+        `for entry in * .[!.]*; do case "$entry" in proc|sys|dev|run) ;; *) if [ -e "$entry" ]; then set -- "$@" "$entry"; fi ;; esac; done`,
+        `grep -rlF -f - -- "$@"`
+      ]
+      : []
+  ].join("\n")
+
+/** The fewest bytes a secret's searched line may hold; a shorter one would match unrelated files. */
+const minimumPatternBytes = 8
+
+/**
+ * What the disk is searched for: each secret's longest line. A multi-line
+ * secret such as a PEM key is found by its body, not by an armor or brace
+ * line any file might hold. `tooShort` names the first secret whose longest
+ * line is too short to search for.
+ */
+const secretPatterns = (
+  secrets: ReadonlyArray<string>
+): { readonly patterns: ReadonlyArray<string> } | { readonly tooShort: number } => {
+  const patterns: Array<string> = []
+  for (const [index, secret] of secrets.entries()) {
+    const longest = secret.split(/\r?\n/).reduce((best, line) => line.length > best.length ? line : best, "")
+    if (new TextEncoder().encode(longest).length < minimumPatternBytes) return { tooShort: index }
+    patterns.push(longest)
+  }
+  return { patterns: [...new Set(patterns)] }
+}
+
+/**
+ * Scrubs the machine's credential files, then refuses when any secret's
+ * pattern is still anywhere on its disk, naming the files that hold one.
+ */
+const scrubbed = (
+  sandbox: Awaited<ReturnType<Awaited<ReturnType<Sdk["Sandbox"]["get"]>>["connect"]>>,
+  patterns: ReadonlyArray<string>,
+  machine: string,
+  name: string
+): Effect.Effect<void, ProviderError> => {
+  const searched = `the disk of ${machine} could not be scrubbed of credentials`
+  return Effect.flatMap(
+    runGuest(sandbox, {
+      program: "/bin/sh",
+      args: ["-c", scrubScript(patterns.length > 0)],
+      cwd: "/",
+      env: {},
+      stdin: patterns.length > 0 ? new TextEncoder().encode(`${patterns.join("\n")}\n`) : undefined
+    }, searched),
+    ({ code, stderr, stdout }) => {
+      // grep lists what it found even when it could not read every file.
+      const found = new TextDecoder().decode(stdout).split("\n").filter((line) => line.length > 0)
+      if (found.length === 0 && code === (patterns.length > 0 ? 1 : 0)) return Effect.void
+      return Effect.fail(
+        new ProviderError({
+          code: "unavailable",
+          message: found.length > 0
+            ? `microsandbox: the microVM ${machine} was not captured as ${name}: a secret is still on its disk at ${
+              found.map((path) => `/${path}`).join(", ")
+            }`
+            : `microsandbox: ${searched} (exit ${code}): ${stderr.trim()}`
+        })
+      )
+    }
+  )
+}
+
+/**
  * What {@link captureSnapshot} captures and names.
  *
  * @category models
@@ -77,13 +176,31 @@ export interface CaptureOptions {
   readonly family: string
   /** What tells this capture from the family's others; never contains {@link snapshotSeparator}. */
   readonly member: string
+  /**
+   * Every credential value the machine was handed while it was prepared. The
+   * capture is refused while any of them is still on its disk. Empty states
+   * that preparation ran without credentials. Each value's longest line is
+   * what is searched for and must hold at least 8 bytes.
+   */
+  readonly secrets: ReadonlyArray<string>
   /** How long the machine's graceful stop may take. Default 30000. */
   readonly stopTimeoutMs?: number | undefined
 }
 
 /**
- * Stops a machine, captures its root disk as the snapshot
+ * Captures a prepared machine's root disk as the snapshot
  * {@link snapshotName} names, removes the machine, and returns that name.
+ *
+ * A snapshot is restored into every later machine, so a credential left on
+ * the disk would reach all of them. Before the capture the machine is started
+ * if stopped, the credential files of `/root` and every `/home/*` are removed
+ * (git's store, `.netrc`, `.pypirc`, GitHub CLI, Cargo, and the Claude,
+ * Codex, and OpenCode sign-ins), and the whole disk is searched for the
+ * longest line of every value in `secrets`; a value still found anywhere
+ * refuses the capture and names the files, never the value. A secret whose
+ * longest line is under 8 bytes is refused before any guest call. Hand credentials
+ * to later machines at run time, after the restore.
+ *
  * The machine is removed whether or not the capture succeeded. A family and
  * member that cannot name a snapshot fail with `unavailable` before any
  * vendor call, and the machine stays.
@@ -103,21 +220,48 @@ export const captureSnapshot = (options: CaptureOptions): Effect.Effect<string, 
       })
     )
   }
-  return attempt(
-    async () => {
-      const handle = await options.sdk.Sandbox.get(options.machine)
-      try {
-        if (handle.status === "running") {
-          await handle.stop()
-        }
-        await handle.snapshot(name)
-      } finally {
-        await handle.destroy({ timeoutMs: options.stopTimeoutMs ?? defaultStopTimeoutMs, force: true })
-      }
-      return name
-    },
-    "unavailable",
-    `the microVM ${options.machine} could not be captured as ${name}`
+  const searched = secretPatterns(options.secrets)
+  if ("tooShort" in searched) {
+    return Effect.fail(
+      new ProviderError({
+        code: "unavailable",
+        message: `microsandbox: secret ${searched.tooShort} has no line of ${minimumPatternBytes} or more bytes ` +
+          `to search ${options.machine}'s disk for`
+      })
+    )
+  }
+  const failed = `the microVM ${options.machine} could not be captured as ${name}`
+  return Effect.flatMap(
+    attempt(() => options.sdk.Sandbox.get(options.machine), "unavailable", failed),
+    (handle) =>
+      Effect.flatMap(
+        Effect.exit(Effect.gen(function*() {
+          const sandbox = yield* attempt(
+            () => handle.status === "running" ? handle.connect() : handle.start(),
+            "unavailable",
+            failed
+          )
+          yield* scrubbed(sandbox, searched.patterns, options.machine, name)
+          yield* attempt(
+            async () => {
+              await handle.stop()
+              await handle.snapshot(name)
+            },
+            "unavailable",
+            failed
+          )
+          return name
+        })),
+        (exit) =>
+          Effect.andThen(
+            attempt(
+              () => handle.destroy({ timeoutMs: options.stopTimeoutMs ?? defaultStopTimeoutMs, force: true }),
+              "unavailable",
+              failed
+            ),
+            exit
+          )
+      )
   )
 }
 

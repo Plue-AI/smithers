@@ -8392,7 +8392,7 @@
         "MicrosandboxSandbox/labels.d.ts": "d6c3ebed4c9ebb2a4b88d6e3cfaa51ec34240dcdc81c19f4ee292c80cf1290af",
         "MicrosandboxSandbox/make.d.ts": "de54a01734cc9864f2bef8cf29000cfb9f7bda515351fc7dd2c92211a3b25a0f",
         "MicrosandboxSandbox/reap.d.ts": "db9aa014148789e81fcd4ac5afe529f128bbe78ea7c824865f95c9276ae94bdb",
-        "MicrosandboxSandbox/snapshots.d.ts": "9818a30aa5c66975c5014ebf4604cda8f1dcca413ec38d1c0f7d4503bcc719ac",
+        "MicrosandboxSandbox/snapshots.d.ts": "1d7335678b4b41fc11d48eef772ec5216558c1f67831dc3455f785d4cf492933",
         "ProviderConformance/Commands.d.ts": "d003538299304924e40722144c7e0afd23192e56dcd1b37fe894021f808797fd",
         "ProviderConformance/Violation.d.ts": "2b88a70bcead90b2cb96e40c8f1337aa0c1a5fa8815f77e1fc27a2147147186c",
         "ProviderConformance/check.d.ts": "cb30b7bdbcd2b92f1f0ca5ce02a6b7e33ec981a849501eb29910016978e6f367",

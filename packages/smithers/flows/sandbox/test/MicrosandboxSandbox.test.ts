@@ -3,9 +3,11 @@ import { Effect, Fiber, Logger, References, Stream } from "effect"
 import { type ChildProcess as NodeChild, spawn } from "node:child_process"
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -191,7 +193,10 @@ const signalGroup = (child: NodeChild, signal: number): void => {
 
 const fakeSdk = (controls: Controls = {}) => {
   const machines = new Map<string, Machine>()
-  const snapshots = new Map<string, { readonly name: string; readonly createdAt: Date; readonly source: string }>()
+  const snapshots = new Map<
+    string,
+    { readonly name: string; readonly createdAt: Date; readonly source: string; readonly disk?: string }
+  >()
   const recorded: Recorded = {
     stops: [],
     builds: [],
@@ -434,7 +439,10 @@ const fakeSdk = (controls: Controls = {}) => {
     snapshot: async (name) => {
       const failed = controls.snapshotFailure?.(name)
       if (failed !== undefined) throw failed
-      snapshots.set(name, { name, createdAt: new Date(Date.now() + snapshots.size), source: machine.name })
+      // The snapshot is the machine's whole disk: a real copy of its directory.
+      const disk = join(root, "snapshots", name)
+      cpSync(machine.root, disk, { recursive: true })
+      snapshots.set(name, { name, createdAt: new Date(Date.now() + snapshots.size), source: machine.name, disk })
     },
     destroy: (options) => destroy(machine, options)
   })
@@ -550,6 +558,9 @@ const fakeSdk = (controls: Controls = {}) => {
               status: "running",
               live: new Set()
             }
+            // A machine booted from a snapshot starts with the captured disk.
+            const disk = snapshots.get(String(settings["snapshot"]))?.disk
+            if (disk !== undefined) cpSync(disk, machine.root, { recursive: true })
             // The image ships a hostname; the fake machine really holds one.
             mkdirSync(join(machine.root, "etc"), { recursive: true })
             writeFileSync(join(machine.root, "etc", "hostname"), name)
@@ -1973,6 +1984,178 @@ describe("MicrosandboxSandbox.reap", () => {
 })
 
 describe("MicrosandboxSandbox snapshots", () => {
+  const token = "ghp_prepareTimeToken0123456789"
+  /** Every file under `dir` whose bytes hold `needle`. */
+  const holding = (dir: string, needle: string): Array<string> =>
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name))
+      .filter((path) => readFileSync(path).includes(needle))
+
+  /** Prepares a sticky machine with `token` in its environment, runs `setup` in it, and names the machine. */
+  const prepared = (fake: ReturnType<typeof fakeSdk>, setup: string): Effect.Effect<string, ProviderError> =>
+    inSession(
+      MicrosandboxSandbox.make({ sdk: fake.sdk, persistence: "sticky", env: { GITHUB_TOKEN: token } }),
+      "prepare",
+      (session) =>
+        Effect.scoped(Effect.map(Effect.flatMap(session.spawn(setup, {}), output), ([, stderr, code]) => {
+          expect({ stderr, code }).toEqual({ stderr: "", code: 0 })
+          return session.remoteId
+        }))
+    )
+
+  it.effect("scrubs a token preparation stored in a credential file, so a restored machine holds none", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      // The workspace is /workspace, so ../root is the guest's /root.
+      const machine = yield* prepared(
+        fake,
+        `echo installed > deps.txt && mkdir -p ../root/.config/gh ../home/dev ../root/.codex && ` +
+          `printf 'https://x:%s@github.com\\n' "$GITHUB_TOKEN" > ../root/.git-credentials && ` +
+          `printf 'github.com:\\n  oauth_token: %s\\n' "$GITHUB_TOKEN" > ../root/.config/gh/hosts.yml && ` +
+          `printf 'machine github.com password %s\\n' "$GITHUB_TOKEN" > ../home/dev/.netrc && ` +
+          `printf '{"tokens":"%s"}' "$GITHUB_TOKEN" > ../root/.codex/auth.json`
+      )
+      expect(holding(fake.machineRoot(machine), token)).toHaveLength(4)
+
+      const name = yield* MicrosandboxSandbox.captureSnapshot({
+        sdk: fake.sdk,
+        machine,
+        family: "env",
+        member: "1",
+        secrets: [token]
+      })
+      expect(fake.machines.has(machine)).toBe(false)
+      // The secret reaches the guest's scan on standard input, never a command line.
+      expect(fake.recorded.execs.some((exec) => exec.args.join(" ").includes(token))).toBe(false)
+
+      const restored = yield* inSession(
+        MicrosandboxSandbox.make({ sdk: fake.sdk, snapshot: name }),
+        "restored",
+        (session) =>
+          Effect.gen(function*() {
+            expect(new TextDecoder().decode(yield* session.readFile("/workspace/deps.txt"))).toBe("installed\n")
+            const missing = yield* Effect.flip(session.readFile("/root/.git-credentials"))
+            expect(missing.code).toBe("not_found")
+            return holding(fake.machineRoot(session.remoteId), token)
+          })
+      )
+      expect(restored).toEqual([])
+      expect(holding(fake.snapshots.get(name)!.disk!, token)).toEqual([])
+    }))
+
+  it.effect("refuses to capture a disk that still holds a secret, names where, and removes the machine", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const machine = yield* prepared(fake, `mkdir -p cache && printf 'key=%s' "$GITHUB_TOKEN" > cache/config`)
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine,
+          family: "env",
+          member: "1",
+          secrets: [`short\n${token}\n`]
+        })
+      )
+      expect(refused).toMatchObject({
+        code: "unavailable",
+        message: `microsandbox: the microVM ${machine} was not captured as env.1: ` +
+          "a secret is still on its disk at /workspace/cache/config"
+      })
+      expect(refused.message).not.toContain(token)
+      expect(fake.snapshots.size).toBe(0)
+      expect(fake.recorded.stops).toEqual([])
+      expect(fake.machines.has(machine)).toBe(false)
+    }))
+
+  it.effect("searches for a multi-line secret's longest line, so an armor line elsewhere does not refuse", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      const armor = "-----BEGIN OPENSSH PRIVATE KEY-----"
+      const body = "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW"
+      const key = `${armor}\n${body}\nQyNTUxOQAAACD=\n-----END OPENSSH PRIVATE KEY-----\n`
+      mkdirSync(join(fake.machineRoot("prepared"), "etc", "ssh"), { recursive: true })
+      writeFileSync(join(fake.machineRoot("prepared"), "etc", "ssh", "known"), `${armor}\n{\n}\n`)
+      expect(
+        yield* MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: [key, key]
+        })
+      ).toBe("base.1")
+    }))
+
+  it.effect("refuses a secret too short to search for before any guest call, and keeps the machine", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: ["long enough secret", "abc\nde"]
+        })
+      )
+      expect(refused).toMatchObject({
+        code: "unavailable",
+        message: "microsandbox: secret 1 has no line of 8 or more bytes to search prepared's disk for"
+      })
+      expect(refused.message).not.toContain("abc")
+      expect(fake.recorded.execs).toEqual([])
+      expect(fake.machines.has("prepared")).toBe(true)
+    }))
+
+  it.effect("names the files holding a secret even when the search could not read every file", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      const disk = fake.machineRoot("prepared")
+      writeFileSync(join(disk, "etc", "leak"), `token=${token}`)
+      writeFileSync(join(disk, "etc", "locked"), "unreadable")
+      chmodSync(join(disk, "etc", "locked"), 0)
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: [token]
+        })
+      )
+      expect(refused.message).toBe(
+        "microsandbox: the microVM prepared was not captured as base.1: a secret is still on its disk at /etc/leak"
+      )
+      expect(fake.snapshots.size).toBe(0)
+    }))
+
+  it.effect("refuses to capture a disk it could not scrub, with the guest's words", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("prepared", ownership("installation-a", "host"))
+      // A directory where a credential file belongs: `rm -f` cannot remove it.
+      mkdirSync(join(fake.machineRoot("prepared"), "root", ".netrc"), { recursive: true })
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: []
+        })
+      )
+      expect(refused.code).toBe("unavailable")
+      expect(refused.message).toMatch(
+        /^microsandbox: the disk of prepared could not be scrubbed of credentials \(exit 2\): rm: .*\.netrc/
+      )
+      expect(fake.snapshots.size).toBe(0)
+      expect(fake.machines.has("prepared")).toBe(false)
+    }))
+
   it.effect("captures a running or stopped machine, removes it, and reports what exists", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
@@ -1980,7 +2163,13 @@ describe("MicrosandboxSandbox snapshots", () => {
       fake.plant("parked", ownership("installation-a", "host"), "stopped")
       expect(yield* MicrosandboxSandbox.hasSnapshot(fake.sdk, "base.1")).toBe(false)
       expect(
-        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", family: "base", member: "1" })
+        yield* MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: []
+        })
       )
         .toBe("base.1")
       expect(
@@ -1989,11 +2178,13 @@ describe("MicrosandboxSandbox snapshots", () => {
           machine: "parked",
           family: "base",
           member: "2",
+          secrets: [],
           stopTimeoutMs: 1_000
         })
       ).toBe("base.2")
       expect(yield* MicrosandboxSandbox.hasSnapshot(fake.sdk, "base.1")).toBe(true)
-      expect(fake.recorded.stops).toEqual(["prepared"])
+      expect(fake.recorded.stops).toEqual(["prepared", "parked"])
+      expect(fake.recorded.starts).toEqual([{ name: "parked", detached: false }])
       expect(fake.snapshots.get("base.1")?.source).toBe("prepared")
       expect([...fake.machines.keys()]).toEqual([])
       expect(fake.recorded.destroys).toEqual([
@@ -2010,7 +2201,13 @@ describe("MicrosandboxSandbox snapshots", () => {
       })
       fake.plant("prepared", ownership("installation-a", "host"))
       const captured = yield* Effect.flip(
-        MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", family: "base", member: "1" })
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: []
+        })
       )
       expect(captured.message).toBe("microsandbox: the microVM prepared could not be captured as base.1")
       expect(fake.machines.has("prepared")).toBe(false)
@@ -2024,7 +2221,7 @@ describe("MicrosandboxSandbox snapshots", () => {
       fake.plant("prepared", ownership("installation-a", "host"))
       for (const [family, member] of [["base", "1.2"], ["", "1"], ["base", ""]] as const) {
         const refused = yield* Effect.flip(
-          MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", family, member })
+          MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "prepared", family, member, secrets: [] })
         )
         expect(refused.code).toBe("unavailable")
         expect(refused.message).toContain(
@@ -2045,7 +2242,13 @@ describe("MicrosandboxSandbox snapshots", () => {
     Effect.gen(function*() {
       const fake = fakeSdk()
       fake.plant("base", ownership("installation-a", "host"))
-      yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "base", family: "base", member: "1" })
+      yield* MicrosandboxSandbox.captureSnapshot({
+        sdk: fake.sdk,
+        machine: "base",
+        family: "base",
+        member: "1",
+        secrets: []
+      })
       yield* MicrosandboxSandbox.removeSnapshot(fake.sdk, "base.1")
       expect(fake.snapshots.has("base.1")).toBe(false)
       yield* MicrosandboxSandbox.removeSnapshot(fake.sdk, "base.1")
@@ -2065,7 +2268,7 @@ describe("MicrosandboxSandbox snapshots", () => {
       const fake = fakeSdk()
       for (const [family, member] of [["fam", "a"], ["fam", "b"], ["fam", "c"], ["other", "a"]] as const) {
         fake.plant(member, ownership("installation-a", "host"))
-        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: member, family, member })
+        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: member, family, member, secrets: [] })
       }
       fake.snapshots.set("fam", { name: "fam", createdAt: new Date(0), source: "bare" })
       expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "fam", 1)).toEqual(["fam.b", "fam.a"])
@@ -2091,7 +2294,7 @@ describe("MicrosandboxSandbox snapshots", () => {
         ] as const
       ) {
         fake.plant(member, ownership("installation-a", "host"))
-        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: member, family, member })
+        yield* MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: member, family, member, secrets: [] })
       }
       expect(yield* MicrosandboxSandbox.pruneSnapshots(fake.sdk, "smthrs-env-aaaa-repo", 1)).toEqual([
         "smthrs-env-aaaa-repo.old"
