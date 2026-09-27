@@ -113,8 +113,8 @@
   },
   {
     "file": "register.png",
-    "source": "Design mockup for /repository.register; replace with the app capture when registration lands",
-    "capturedAt": "2026-09-26T18:45:00.000Z",
+    "source": "Design mockup (docs/mvp/mockups/register.html); replace with the app capture when registration lands",
+    "capturedAt": "2026-09-26T19:05:00.000Z",
     "width": 2880,
     "height": 1800,
     "data": "Illustrative example repository acme/widgets"

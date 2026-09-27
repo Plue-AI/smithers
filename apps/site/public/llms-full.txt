@@ -14,13 +14,13 @@ Smithers home.
 
 ## Register your repository
 
-Add an open-source repository and answer a few questions. We review it and set Smithers up for it. The registration run shows where it is.
+Paste a link to an open-source repository. Smithers analyzes it while you watch: license, checks, commits, contributors, agent readiness, and how much faster its CI could run. Then we review it and set Smithers up for it.
 
 [Register a repository](https://smithers.sh/?register=1)
 
-![The Register a repository app asks which repository, how it runs checks, and what to take on first; a card shows Questions done and In review, and the sidebar shows acme/widgets In review.](/images/app/register.png)
+![Registering github.com/acme/widgets: Smithers has chosen the license, checks, and contribution style; cards show a commit graph with agent-assisted commits, contributors, agent readiness 72, a CI estimate of 14 to 3 minutes, a slop score of 18, and lint rules found in PRs.](/images/app/register.png)
 
-Registering acme/widgets.
+Smithers analyzing acme/widgets.
 
 You can register one repository at a time.
 

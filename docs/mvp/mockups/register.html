@@ -1,0 +1,116 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1b1b1a; --muted:#77736b; --line:#e8e6e0; --soft:#f6f5f2;
+  --gold:#b08a2e; --gold-soft:#f5ecd6; --gold-ink:#8d6a1d;
+  --green:#2f8a5b; --green-soft:#e2f2e9; --red:#b8453a; --red-soft:#f8e3e0;
+  --blue:#3b64c4; --blue-soft:#e4ebfa;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{width:1440px;height:900px;font:14px/1.5 Inter,sans-serif;color:var(--ink);background:#fff;display:flex;overflow:hidden}
+*,*:before,*:after{animation-play-state:paused!important}
+
+/* shell (matches register.png) */
+aside{flex:none;width:200px;border-right:1px solid #eee;padding:10px 8px;display:flex;flex-direction:column}
+.ws{background:#f4f4f3;border-radius:6px;padding:8px 10px;font-size:12px;font-weight:600;letter-spacing:.06em;color:#444}
+.repo{margin:8px 0 10px;border:1px solid #eee;border-radius:8px;padding:8px 10px;font-size:12.5px;color:#333;display:flex;gap:8px;align-items:center;background:#fff}
+.repo svg{width:14px;height:14px;stroke:#555;fill:none;stroke-width:1.6}
+.nav{margin-top:auto;display:flex;flex-direction:column;gap:2px}
+.nav div{padding:7px 10px;color:#333;font-size:13.5px;display:flex;gap:10px;align-items:center}
+.nav svg{width:15px;height:15px;stroke:#555;fill:none;stroke-width:1.6}
+
+
+.status{margin:0 0 10px;border:1px solid #eee;border-radius:8px;padding:8px 10px;font-size:12.5px;color:#555;display:flex;gap:8px;align-items:center}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px var(--gold-soft);flex:none}
+main{flex:1;display:flex;flex-direction:column;align-items:center;padding:40px 40px 32px;min-width:0}
+.col{width:712px;display:flex;flex-direction:column;gap:18px;flex:1}
+.apphead{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.appicon{width:40px;height:40px;border-radius:11px;background:var(--gold-soft);border:1px solid #e2cf9f;display:grid;place-items:center}
+.appicon svg{width:20px;height:20px;stroke:var(--gold-ink);fill:none;stroke-width:1.8}
+.apphead b{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.me{align-self:flex-end;background:#f3f2ef;border-radius:14px;padding:9px 14px;font-size:15px}
+.bot{font-size:15px}
+.chips{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.opt{border:1px solid #e3e1db;border-radius:999px;padding:6px 14px;font-size:14px;color:#333;background:#fff}
+.opt.sel{border-color:#d9bf7f;background:#f7efdc;color:var(--gold-ink);font-weight:500}
+.prog{border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 10px 30px -22px rgb(0 0 0/25%)}
+.prog .hd{display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:15px}
+.steps{display:flex;gap:8px}
+.st{flex:1;border-radius:9px;padding:9px 12px;font-size:13.5px;background:var(--soft);color:#a3a09a}
+.st.done{background:var(--green-soft);color:var(--green);font-weight:500}
+.st.now{background:var(--gold-soft);color:var(--gold-ink);font-weight:600}
+.composer{width:712px;border:1px solid #e3e1db;border-radius:14px;padding:16px 16px 16px 20px;display:flex;align-items:center;gap:12px;font-size:16px}
+.composer .ph{flex:1;color:#9a978f}
+.send{width:32px;height:32px;border-radius:50%;background:#c9b27a;display:grid;place-items:center}
+.send svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:2.2}
+.chip{font-size:12.5px;font-weight:600;border-radius:999px;padding:3px 10px;white-space:nowrap}.run{background:var(--gold-soft);color:var(--gold-ink)}
+.status .n{flex:1}.status .chip{font-size:11px;padding:1px 7px}
+
+main{padding:28px 40px 24px}
+.col{width:880px;gap:14px}
+.link{display:flex;align-items:center;gap:10px;border:1px solid #e3e1db;border-radius:12px;padding:12px 16px;font-size:15px}
+.link .u{flex:1;font-family:var(--mono);font-size:14px}
+.link .go{font-size:13px;font-weight:600;color:#fff;background:var(--ink);border-radius:8px;padding:5px 12px}
+.qs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.q{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.q .l{font-size:13px;color:var(--muted);margin-bottom:8px}
+.q .chips{margin:0;gap:6px}
+.q .opt{font-size:13px;padding:4px 11px}
+.q .opt.ai{border-color:#8a7cf0;background:#efedff;color:#4d3fc2;font-weight:600;position:relative;box-shadow:0 0 0 3px #e4e0ff}
+.q .opt.dim{opacity:.45}
+.spark{font-size:11px;color:#6a5ce0;font-weight:600;margin-left:6px}
+.q.live .opt{background:linear-gradient(90deg,#f6f5f2 0%,#ecebff 50%,#f6f5f2 100%);border-color:#e6e3ff;color:#8a86a8}
+.cards{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:12px}
+.c{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.c .l{font-size:13px;color:var(--muted);margin-bottom:8px;display:flex;justify-content:space-between}
+.big{font-size:28px;font-weight:600;letter-spacing:-.02em}
+.sub{font-size:12.5px;color:var(--muted)}
+.bars{display:flex;align-items:flex-end;gap:4px;height:78px}
+.bars i{flex:1;background:#d9d6ce;border-radius:3px 3px 0 0;position:relative;display:block}
+.bars i b{position:absolute;left:0;right:0;bottom:0;background:#8a7cf0;border-radius:3px 3px 0 0}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--muted);margin-top:6px}
+.legend span:before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;background:#d9d6ce}
+.legend span.a:before{background:#8a7cf0}
+.donut{width:78px;height:78px;border-radius:50%;background:conic-gradient(#b08a2e 0 38%,#3b64c4 38% 60%,#2f8a5b 60% 74%,#d9d6ce 74% 100%);position:relative;flex:none}
+.donut:after{content:"";position:absolute;inset:18px;border-radius:50%;background:#fff}
+.row{display:flex;gap:14px;align-items:center}
+.meter{height:8px;border-radius:4px;background:var(--soft);overflow:hidden;margin-top:8px}.meter i{display:block;height:100%;background:var(--green)}
+.ci{display:flex;align-items:baseline;gap:8px}
+.ci s{color:#a3a09a;font-size:18px}
+.wf{display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.wf div{display:flex;gap:8px;align-items:center}
+.wf .n{font-family:var(--mono);font-size:12px;color:var(--muted)}
+</style></head><body><aside>
+  <div class="ws">WORKSPACE</div>
+  <div class="status"><span class="pulse"></span><span class="n">acme/widgets</span><span class="chip run">Analyzing</span></div><div class="repo" style="display:none"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11"/></svg>acme/widgets</div>
+  <div class="nav">
+    <div><svg viewBox="0 0 24 24"><path d="M4 5h7v14H4zM13 5h7v14h-7z"/></svg>Wiki</div>
+    <div><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h6a4 4 0 0 1 0 8h-4a4 4 0 0 0 0 8"/></svg>Flows</div>
+    <div><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg>History</div>
+    <div><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Account</div>
+  </div>
+</aside><main><div class="col">
+  <div class="apphead"><span class="appicon"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><b>Register a repository</b></div>
+  <div class="link"><span class="u">github.com/acme/widgets</span><span class="go">Analyzing</span></div>
+  <div class="qs">
+    <div class="q"><div class="l">License</div><div class="chips"><span class="opt ai">MIT</span><span class="opt dim">Apache-2.0</span><span class="opt dim">GPL-3.0</span><span class="spark">✦ Smithers chose</span></div></div>
+    <div class="q"><div class="l">Checks run on</div><div class="chips"><span class="opt ai">GitHub Actions</span><span class="opt dim">Makefile</span><span class="opt dim">Scripts</span><span class="spark">✦ Smithers chose</span></div></div>
+    <div class="q"><div class="l">Contributions</div><div class="chips"><span class="opt ai">Open, reviewed</span><span class="opt dim">Maintainers only</span><span class="spark">✦ Smithers chose</span></div></div>
+    <div class="q live"><div class="l">Workflows to build</div><div class="chips"><span class="opt">·····</span><span class="opt">········</span><span class="opt">······</span></div></div>
+  </div>
+  <div class="cards">
+    <div class="c"><div class="l"><span>Commits · 12 weeks</span></div>
+      <div class="bars"><i style="height:30%"><b style="height:0%"></b></i><i style="height:42%"><b style="height:5%"></b></i><i style="height:38%"><b style="height:8%"></b></i><i style="height:55%"><b style="height:15%"></b></i><i style="height:48%"><b style="height:18%"></b></i><i style="height:62%"><b style="height:28%"></b></i><i style="height:58%"><b style="height:30%"></b></i><i style="height:75%"><b style="height:42%"></b></i><i style="height:70%"><b style="height:45%"></b></i><i style="height:88%"><b style="height:58%"></b></i><i style="height:82%"><b style="height:55%"></b></i><i style="height:100%"><b style="height:66%"></b></i></div>
+      <div class="legend"><span>People</span><span class="a">With agents</span></div></div>
+    <div class="c"><div class="l"><span>Contributors</span><span>24</span></div>
+      <div class="row"><div class="donut"></div><div class="sub">4 people write<br>74% of commits</div></div></div>
+    <div class="c"><div class="l"><span>Agent readiness</span></div><div class="big">72</div><div class="meter"><i style="width:72%"></i></div></div>
+    <div class="c"><div class="l"><span>CI on PR #812</span><span class="sub">estimate</span></div><div class="ci"><s>14 min</s><span class="big">3 min</span></div></div>
+    <div class="c"><div class="l"><span>Slop score</span></div><div class="big">18<span class="sub"> / 100</span></div><div class="sub">low · 3 cleanups found</div></div>
+    <div class="c"><div class="l"><span>Lint rules in PRs</span></div><div class="wf"><div><span class="n">#790</span>No default exports</div><div><span class="n">#744</span>Await in loops</div></div></div>
+  </div>
+</div></main></body></html>
