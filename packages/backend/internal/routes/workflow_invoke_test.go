@@ -29,7 +29,7 @@ func TestWorkflowHandler_InvokeWorkflow_Created(t *testing.T) {
 					RepositoryID:         input.RepositoryID,
 					WorkflowDefinitionID: 11,
 					Status:               "queued",
-					TriggerEvent:         input.TriggerEvent,
+					TriggerEvent:         services.InvokeTriggerEvent,
 					TriggerRef:           input.TriggerRef,
 				},
 				Definition: db.WorkflowDefinition{
@@ -51,7 +51,6 @@ func TestWorkflowHandler_InvokeWorkflow_Created(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, int64(101), captured.RepositoryID)
 	assert.Equal(t, "echo", captured.Identifier)
-	assert.Equal(t, "webhook", captured.TriggerEvent)
 	assert.Equal(t, "main", captured.TriggerRef)
 	assert.Equal(t, map[string]interface{}{"goal": "hi"}, captured.Input)
 

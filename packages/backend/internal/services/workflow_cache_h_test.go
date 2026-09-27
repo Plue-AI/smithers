@@ -667,7 +667,7 @@ func TestWorkflowCache_OnlyMaintainerRunsSave(t *testing.T) {
 			return db.WorkflowCache{}, errors.New("reserved")
 		},
 	}, &mockBlobStore{}, WorkflowCacheConfig{})
-	for _, event := range []string{"agent_message", "landing_request", "issues", "issue_comment", "invoke", "webhook", "monitoring_alert", "workflow_run", ""} {
+	for _, event := range []string{"agent_message", "landing_request", "issues", "issue_comment", "invoke", "manual", "webhook", "monitoring_alert", "workflow_run", ""} {
 		for _, ref := range []string{"", "main", "refs/heads/main", "refs/tags/v1", "feature"} {
 			_, err := service.BeginSave(context.Background(), db.WorkflowRun{ID: 5, RepositoryID: 7, TriggerEvent: event, TriggerRef: ref}, "npm", "", 10)
 			require.Error(t, err, "%s on %q", event, ref)
@@ -675,8 +675,8 @@ func TestWorkflowCache_OnlyMaintainerRunsSave(t *testing.T) {
 		}
 	}
 	require.Zero(t, reserved, "a refused run reserved a cache entry")
-	for _, event := range []string{"push", "schedule", "workflow_dispatch", "manual_dispatch", "manual"} {
+	for _, event := range []string{"push", "schedule", "workflow_dispatch", "manual_dispatch"} {
 		_, _ = service.BeginSave(context.Background(), db.WorkflowRun{ID: 5, RepositoryID: 7, TriggerEvent: event, TriggerRef: "main"}, "npm", "", 10)
 	}
-	require.Equal(t, 5, reserved)
+	require.Equal(t, 4, reserved)
 }

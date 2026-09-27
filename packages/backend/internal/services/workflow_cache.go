@@ -1052,13 +1052,19 @@ func containsControlRune(s string) bool {
 // saved archive is restored by later runs of its bookmark and of every other
 // bookmark (the default bookmark is their fallback), so only a run executing
 // that bookmark's own tree at a maintainer's request saves: a push, a
-// schedule, or a dispatch. An agent message, a landing request, issue or
-// comment text, an alert and every other event run unreviewed code or act on
-// someone else's input; they restore and never save. Unknown events save
-// nothing.
+// schedule, or a person's dispatch. An invocation, an agent message, a
+// landing request, issue or comment text, an alert and every other event run
+// unreviewed code or act on someone else's input; they restore and never
+// save. Unknown events save nothing.
+//
+// The trigger is provenance the server recorded, never a caller's label: the
+// push hook records push, the scheduler schedule, and the dispatch routes
+// workflow_dispatch only for a person, since they refuse run credentials
+// (middleware.RefuseRunCredentials). Invoke records invoke whatever its body
+// says.
 func workflowCachePublisher(triggerEvent string) bool {
 	switch NormalizeTriggerName(triggerEvent) {
-	case "push", "schedule", "workflow_dispatch", "manual":
+	case "push", "schedule", "workflow_dispatch":
 		return true
 	}
 	return false

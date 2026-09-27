@@ -18,9 +18,6 @@ type invokeWorkflowRequest struct {
 	Flow string `json:"flow"`
 	// Input becomes the run's dispatch_inputs (the workflow's ctx.input).
 	Input map[string]interface{} `json:"input,omitempty"`
-	// Trigger records who started the run ("invoke" default; "webhook" and
-	// "schedule" for the automation workers).
-	Trigger string `json:"trigger,omitempty"`
 }
 
 // invokeWorkflowResponse is the durable-run handle invocation returns.
@@ -34,10 +31,10 @@ type invokeWorkflowResponse struct {
 }
 
 // InvokeWorkflow handles POST /api/repos/{owner}/{repo}/invoke — the
-// server-credentialed invocation seam (smithersai/ui#7). Any bearer token
-// with write scope starts the run (browser session, PAT, or an automation
-// worker acting with its stored credential), so webhook deliveries and cron
-// ticks invoke through exactly the same endpoint the UI does. The run is
+// server-credentialed invocation seam (smithersai/ui#7). A person's write
+// credential (browser session or personal access token) starts the run; a
+// run credential is refused by the route. The run records the "invoke"
+// trigger whatever the body says. The run is
 // created on the sandbox plane: the in-API scheduler claims it and executes
 // the flow file with `smithers up` in a one-shot VM, recording logs and the
 // terminal status durably. The response is the honest queued state.
@@ -62,7 +59,6 @@ func (h *WorkflowHandler) InvokeWorkflow(w http.ResponseWriter, r *http.Request)
 		RepositoryID: repoCtx.Repository.ID,
 		Identifier:   req.Flow,
 		Input:        req.Input,
-		TriggerEvent: req.Trigger,
 		TriggerRef:   repoCtx.Repository.DefaultBookmark,
 	})
 	if err != nil {

@@ -109,21 +109,6 @@ func TestInvokeWorkflowMatchesPathAndBasename(t *testing.T) {
 	}
 }
 
-func TestInvokeWorkflowRecordsWorkerTriggers(t *testing.T) {
-	defs := []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", true)}
-	for _, trigger := range []string{"webhook", "schedule"} {
-		var captured db.CreateWorkflowRunParams
-		svc := invokeTestService(defs, &captured)
-		_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
-			RepositoryID: 7,
-			Identifier:   "echo",
-			TriggerEvent: trigger,
-		})
-		require.NoError(t, err)
-		assert.Equal(t, trigger, captured.TriggerEvent)
-	}
-}
-
 func TestInvokeWorkflowRejectsUnknownFlow(t *testing.T) {
 	defs := []db.WorkflowDefinition{invokeTestDefinition(11, "echo", ".smithers/workflows/echo.tsx", true)}
 	var captured db.CreateWorkflowRunParams
@@ -163,15 +148,6 @@ func TestInvokeWorkflowValidatesInput(t *testing.T) {
 	_, err := svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{RepositoryID: 7, Identifier: "  "})
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 400, apiErr.Status)
-
-	_, err = svc.InvokeWorkflow(context.Background(), InvokeWorkflowInput{
-		RepositoryID: 7,
-		Identifier:   "echo",
-		TriggerEvent: "push",
-	})
-	require.Error(t, err)
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, 400, apiErr.Status)
 }

@@ -68,7 +68,7 @@ func gitHubLabelApplied(action string, payload []byte) gitHubLabelApplication {
 // run's agent is not that person: like a GitHub App on GitHub, it applies a
 // label with no sender, so the application approves no outsider's text.
 func nativeLabelSender(ctx context.Context, actorID int64) pgtype.Int8 {
-	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.IsTokenAuth && info.TokenSystemIssued {
+	if middleware.AuthInfoFromContext(ctx).IsRunCredential() {
 		return pgtype.Int8{}
 	}
 	return pgtype.Int8{Int64: actorID, Valid: actorID > 0}

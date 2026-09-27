@@ -22,9 +22,6 @@ type InvokeWorkflowInput struct {
 	Identifier string
 	// Input is the workflow's input payload, persisted as dispatch_inputs.
 	Input map[string]interface{}
-	// TriggerEvent records who started the run ("invoke", "webhook",
-	// "schedule"); empty defaults to "invoke".
-	TriggerEvent string
 	// TriggerRef is the bookmark the sandbox clones (the repo default).
 	TriggerRef string
 }
@@ -35,14 +32,11 @@ type InvokeWorkflowResult struct {
 	Definition db.WorkflowDefinition
 }
 
-// invokeTriggerEvents bounds the caller-supplied trigger label so run history
-// stays a closed, honest vocabulary.
-var invokeTriggerEvents = map[string]bool{
-	"invoke":   true,
-	"webhook":  true,
-	"schedule": true,
-	"manual":   true,
-}
+// InvokeTriggerEvent is the trigger every invoked run records. A run's
+// trigger is provenance the server establishes, never a label the caller
+// picks: the scheduler records "schedule" and the push hook "push", and an
+// invocation is only ever an invocation (see workflowCachePublisher).
+const InvokeTriggerEvent = "invoke"
 
 // invokeDefinitionMatches mirrors the dispatch route's identifier matching:
 // exact name, full path, or path basename without extension.
@@ -80,13 +74,6 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 		return nil, pkgerrors.NotFound("workflow definition not found")
 	}
 
-	triggerEvent := strings.TrimSpace(input.TriggerEvent)
-	if triggerEvent == "" {
-		triggerEvent = "invoke"
-	}
-	if !invokeTriggerEvents[triggerEvent] {
-		return nil, pkgerrors.BadRequest("unsupported trigger event")
-	}
 	triggerRef := strings.TrimSpace(input.TriggerRef)
 	if triggerRef == "" {
 		triggerRef = "main"
@@ -110,7 +97,7 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 		RepositoryID:         input.RepositoryID,
 		WorkflowDefinitionID: matched.ID,
 		Status:               "queued",
-		TriggerEvent:         triggerEvent,
+		TriggerEvent:         InvokeTriggerEvent,
 		TriggerRef:           triggerRef,
 		TriggerCommitSha:     "",
 		DispatchInputs:       dispatchInputs,

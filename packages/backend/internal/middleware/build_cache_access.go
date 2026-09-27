@@ -107,7 +107,7 @@ func BuildCacheAccess(queries RepoContextQuerier, tokens BuildCacheReadTokenReso
 				restriction := authInfo.RepositoryRestriction()
 				return restriction == 0 || restriction == repository.ID
 			}
-			runCredential := authInfo != nil && authInfo.IsTokenAuth && authInfo.TokenSystemIssued
+			runCredential := authInfo.IsRunCredential()
 			switch {
 			case permission.Satisfies(PermissionWrite) && scopeOK(ScopeWriteRepository) && !runCredential:
 				credential = BuildCacheCredentialWrite
@@ -182,19 +182,6 @@ func RequireBuildCacheWrite(next http.Handler) http.Handler {
 		if (r.Method == http.MethodPut || r.Method == http.MethodDelete) &&
 			BuildCacheCredentialFromContext(r.Context()) != BuildCacheCredentialWrite {
 			writeBuildCacheForbidden(w)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// RefuseRunCredentials refuses a system-issued run credential. Read token
-// management belongs to a person: a run could otherwise revoke the committed
-// read token and switch every clone's cache off, or mint one for itself.
-func RefuseRunCredentials(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if info := AuthInfoFromContext(r.Context()); info != nil && info.IsTokenAuth && info.TokenSystemIssued {
-			apierrors.WriteError(w, apierrors.Forbidden("a run credential cannot manage build cache tokens"))
 			return
 		}
 		next.ServeHTTP(w, r)
