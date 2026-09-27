@@ -329,7 +329,7 @@ exactly the one `Control.approve` and `Control.deny` declare. See
 What happened to a run, computed from that run's own control events. This is
 the one fold both surfaces read: `@smthrs/cli` `Forensics` calls `digest` and
 adds what a terminal card needs on top of it, so the served row and
-[`smthrs status`](/cli/status) cannot disagree about a run's counts, refusals,
+[`smthrs runs show`](/cli/runs) cannot disagree about a run's counts, refusals,
 or clipping.
 
 | Export           | Signature                                                                           | Answers                                                                                                                            |

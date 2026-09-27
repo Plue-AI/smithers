@@ -20,7 +20,7 @@ import rewindHelp from "../../../../../data/help/runs/rewind.txt?raw"
 | `runs output <run> [node]` | Recorded node outputs; `result` selects the final assistant output. |
 | `runs logs <run>` | Recorded events, optionally followed live. |
 
-A successful read does not imply that the run succeeded. Read its status field. Use `--format json` for structured state and `--format jsonl` for event streams.
+A successful read does not imply that the run succeeded. Read its status field. `runs show` prints a diagnosis card: `Verdict`, `Run`, `Activity`, `Tokens`, up to three `Refusals`, then `Cause`, `Output`, and `Unblock` when they apply, and a `Next` line. Use `--format json` for structured state and `--format jsonl` for event streams.
 
 <Code lang="text" code={logsHelp} />
 

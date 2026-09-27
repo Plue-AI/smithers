@@ -203,39 +203,9 @@ scripts. The Claude mirror protocol is hidden as `internal claude`.
 
 ## Compatibility verb pages
 
-The older flat command pages live at `/cli/<verb>` on smithers.sh. Their
-payload and receipt descriptions remain useful for compatibility scripts;
-the canonical groups above and the installed command's help define new usage.
-
-Start at [the CLI reference index](/cli), or go straight to a verb:
-[`plan`](/cli/plan), [`run`](/cli/run), [`up`](/cli/up),
-[`approve`](/cli/approve), [`deny`](/cli/deny), [`cancel`](/cli/cancel),
-[`signal`](/cli/signal), [`steer`](/cli/steer), [`ls`](/cli/ls),
-[`ps`](/cli/ps), [`status`](/cli/status), [`logs`](/cli/logs),
-[`output`](/cli/output), [`down`](/cli/down), [`serve`](/cli/serve),
-[`init`](/cli/init), [`suggest`](/cli/suggest), [`doctor`](/cli/doctor),
-[`migrate`](/cli/migrate), [`gc`](/cli/gc), [`memory`](/cli/memory),
-[`claude`](/cli/claude), [`mcp`](/cli/mcp), [`update`](/cli/update), and
-[`bug`](/cli/bug).
-
-## Three compatibility verbs in depth
-
-This site carries longer pages for the three verbs that start a run:
-[`smthrs plan`](./plan.md), [`smthrs run`](./run.md), and
-[`smthrs up`](./up.md). They spell out every exit code with the condition that
-produces it, and every member of the document each verb prints, which is what a
-script branches on.
-
-Two of their statements go further than `--help` does, because the parser does
-and the help text does not say so:
-
-`plan` requires a flow id. Omitting it with terminal stdin opens the flow
-picker; with piped stdin it exits 2 and names `flow-id` and `--wizard`.
-`--remote` is a shared global flag, listed under "Global flags" on these pages.
-
-They are not ingested into smithers.sh. When one of these pages and the
-smithers.sh page for the same verb disagree, the smithers.sh page is the one to
-follow, because it is the one the binary generates.
+Every canonical command has a page generated from its `--help` at
+[smithers.sh/docs/reference/cli](https://smithers.sh/docs/reference/cli/), with
+the hidden-alias table.
 
 ## Other reference
 

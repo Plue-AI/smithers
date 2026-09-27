@@ -7255,6 +7255,8 @@ Global Options:
   --token-offset <n>                  Skip first n tokens of output
 ```
 
+The plan card carries `planId`, `flowId`, `digest` (what every later approval binds to), `inputSummary`, `envelope` (capabilities, flow, and budget), `deployClass`, one `nodes` entry per keyed node with status `cached` or `run`, and `approval`, the serialized payload the decision commands take.
+
 ## start
 
 Plans, approves with run scope, and launches a flow. A local attached invocation waits for settlement or a parked state. `--detached` returns after the local child confirms durable admission; a remote launch has no local child and refuses detachment.
@@ -7292,6 +7294,8 @@ Global Options:
   --token-limit <n>                   Limit output to n tokens
   --token-offset <n>                  Skip first n tokens of output
 ```
+
+Detached, it prints `{"detached":true,"logFile":"<project>/.flows/logs/<runId>.log","runId":"<runId>"}` once the child is admitted. `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` (default 30000) bounds the wait for admission.
 
 A start is a launch path. To continue an existing execution, use `runs resume`.
 
@@ -7355,7 +7359,7 @@ https://smithers.sh/docs/reference/cli/runs/
 | `runs output <run> [node]` | Recorded node outputs; `result` selects the final assistant output. |
 | `runs logs <run>` | Recorded events, optionally followed live. |
 
-A successful read does not imply that the run succeeded. Read its status field. Use `--format json` for structured state and `--format jsonl` for event streams.
+A successful read does not imply that the run succeeded. Read its status field. `runs show` prints a diagnosis card: `Verdict`, `Run`, `Activity`, `Tokens`, up to three `Refusals`, then `Cause`, `Output`, and `Unblock` when they apply, and a `Next` line. Use `--format json` for structured state and `--format jsonl` for event streams.
 
 ```text
 smthrs runs logs — Read run events or follow new events as they commit
@@ -17808,9 +17812,8 @@ manifest declares both under `sideEffects` so a bundler keeps them.
 
 ## Command documentation
 
-The per-verb reference, with arguments, flags, output, and exit codes, is
-generated from the real parser and the release policy and lives on smithers.sh:
-[`smthrs plan`](/docs/reference/cli/plan/), [`smthrs run`](/docs/reference/cli/run/), [`smthrs up`](/docs/reference/cli/up/),
+The per-command reference is generated from `--help` and lives on smithers.sh:
+[`smthrs flow`](/docs/reference/cli/flow/), [`smthrs runs`](/docs/reference/cli/runs/), [`smthrs run`](/docs/reference/cli/run/),
 and the rest. This page documents the library surface used to compose or embed
 that executable.
 
@@ -24477,7 +24480,7 @@ exactly the one `Control.approve` and `Control.deny` declare. See
 What happened to a run, computed from that run's own control events. This is
 the one fold both surfaces read: `@smthrs/cli` `Forensics` calls `digest` and
 adds what a terminal card needs on top of it, so the served row and
-[`smthrs status`](/docs/reference/cli/status/) cannot disagree about a run's counts, refusals,
+[`smthrs runs show`](/docs/reference/cli/runs/) cannot disagree about a run's counts, refusals,
 or clipping.
 
 | Export           | Signature                                                                           | Answers                                                                                                                            |
@@ -46589,94 +46592,48 @@ The owning code is [workflow_run_terminal.go](https://github.com/smithersai/smit
 
 ---
 
-# smthrs approve
-https://smithers.sh/docs/reference/cli/approve/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs approvals approve`](/docs/reference/cli/approvals/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs affected
+https://smithers.sh/docs/reference/cli/affected/
 
 ```text
-smthrs approve <approval> [--scope once|run|remembered]
+smthrs affected — Execute targets affected by changed files, conservatively including ambient inputs
+
+Usage: smthrs affected <build|test|lint|docs|review|run|ci> <patterns...> [options]
+
+Arguments:
+  verb      Target verb to execute
+  patterns  Target labels or recursive patterns; their union
+
+Options:
+  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose             Show plain progress for agent and pipe consumers
+  --plan                Print the inert plan instead of executing
+  --jobs <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive   Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache               Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>  JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --base <string>       Git base revision (default: HEAD)
+  --head <string>       Git head revision; defaults to the working tree including untracked files
+  --files <array>       Explicit changed paths instead of Git discovery
+  --list                List selected roots and reasons without executing
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-## Description
-
-`smthrs approve` records an approval decision for one complete serialized payload: the `approval` field of a `smthrs plan` card, or the `payload` of a parked run's `control.approval.requested` event. Submit the payload unchanged; the digest inside it is what the grant binds to, so an edited payload is a different ask, not an approved one. When the payload answers an in-run ask, the decision restarts the parked run in this same call, and `approve` waits for that run to settle when this process owns the executor, exiting with the run's terminal status. It never plans, never launches a run of its own, and never widens a grant past the `--scope` you pass.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| --- | --- | --- | --- |
-| `approval` | JSON string | yes | The complete serialized approval payload, submitted unchanged. |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--scope <scope>` | `once` \| `run` \| `remembered` | `run` | How far the grant reaches: this ask only, the whole run, or every later run. |
-| `--remote <url>` | URL | none | Act on a remote control plane. A remote invocation owns no executor, so there is no settlement wait: the printed receipt is the whole answer. |
-
-The interactive default is `run` because an operator affirming a launch matches what `smthrs up` grants; the MCP `resolve_approval` tool defaults to `once` instead, because an argument a client never sent must not widen what it may do.
-
-## Output
-
-Prints the decision receipt. A plan-level decision answers `Accepted` with no `runId`; a decision on an in-run ask answers `Accepted` with the `runId` it restarted. The human rendering indents the receipt; `--json` prints it compact:
-
-```json
-{"_tag":"Accepted","receiptId":"<receipt-id>"}
-```
-
-## Exit codes
-
-| Code | When |
-| --- | --- |
-| `0` | The decision was accepted, or the run it restarted settled `completed`. |
-| `1` | The run the decision restarted settled `failed`. |
-| `2` | The payload was not valid JSON or did not match the approval schema. |
-| `3` | The run the decision restarted parked again at `waiting-approval`. |
-| `130` | The run the decision restarted settled `cancelled`. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
-
-```text
-DESCRIPTION
-  Approve the complete serialized approval payload
-
-USAGE
-  smthrs approve [flags] <approval>
-
-ARGUMENTS
-  approval string
-
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-  --scope choice         How far the grant reaches: this ask only, the whole run (the default, matching `up`), or every later run. The MCP resolve_approval tool defaults to `once` instead, because an argument a client never sent must not widen what it may do (choices: once, run, remembered)
-
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
-```
-
-## See also
-
-- [smthrs deny](/docs/reference/cli/deny/) records the opposite decision.
-- [smthrs plan](/docs/reference/cli/plan/) renders the payload this verb approves.
-- [smthrs run](/docs/reference/cli/run/) launches the payload once it is approved.
-- [Plan, approve, run](/docs/guides/plan-approve-run/) walks the decision flow.
-- The [`resolve_approval`](/docs/reference/mcp-tools/) MCP tool is this verb's equivalent, with `decision` set to `"approve"`.
 
 ---
 
@@ -46763,259 +46720,481 @@ Global Options:
 
 ---
 
-# smthrs cancel
-https://smithers.sh/docs/reference/cli/cancel/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs cancel`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs build
+https://smithers.sh/docs/reference/cli/build/
 
 ```text
-smthrs cancel <run-id>
+smthrs build — Execute the build targets selected by a pattern
+
+Usage: smthrs build <patterns...> [options]
+
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-## Description
-
-`smthrs cancel` makes cancellation durable on the run row and interrupts the run through the control plane. Cancellation reaches everything the run spawned: child flows and in-flight work settle as cancelled with it rather than orphaning. Reach for it to end a run that is still live, including one parked at `waiting-approval`; a run that already settled answers with its own `Terminal` receipt instead of an error, so repeating a cancel is safe. `cancel` never deletes the run row or its journal (`smthrs gc` does that), and it never fails a run: it reports the interruption status, which is why a successful cancel exits 130 rather than 0.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| --- | --- | --- | --- |
-| `run-id` | string | yes | The durable run to cancel, as printed by the launch receipt or `smthrs ps`. |
-
-## Output
-
-Prints the run's `Terminal` receipt. A live run this call cancelled reports status `cancelled`; a run that was already terminal reports the status it settled with. The human rendering indents the receipt; `--json` prints it compact:
-
-```json
-{"_tag":"Terminal","runId":"<run-id>","status":"cancelled"}
-```
-
-## Exit codes
-
-The exit code follows the run's terminal status, because a cancel is an interruption rather than a failure of the command:
-
-| Code | When |
-| --- | --- |
-| `0` | The run had already settled `completed`. |
-| `1` | The run had already settled `failed`. |
-| `130` | The run is `cancelled`, whether this call cancelled it or an earlier one did. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
-
-```text
-DESCRIPTION
-  Cancel a durable run
-
-USAGE
-  smthrs cancel [flags] <run-id>
-
-ARGUMENTS
-  run-id string
-
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
-```
-
-## See also
-
-- [smthrs down](/docs/reference/cli/down/) cancels every non-terminal run at once.
-- [smthrs ps](/docs/reference/cli/ps/) lists runs and their statuses.
-- [smthrs status](/docs/reference/cli/status/) shows what one run is doing.
-- [smthrs run](/docs/reference/cli/run/) resumes a parked run instead of ending it.
-- [Child flows](/docs/guides/child-flows/) covers what a cancellation reaches.
 
 ---
 
-# smthrs claude
-https://smithers.sh/docs/reference/cli/claude/
-
-## Synopsis
+# smthrs cache
+https://smithers.sh/docs/reference/cli/cache/
 
 ```text
-smthrs claude tick <run-id> [--session <id>] [--after-seq <n>]
-smthrs claude node-wait <run-id> <node-id> [--timeout-ms <ms>]
-smthrs claude monitor [--session <id>] [--all-runs] [--limit <n>]
-smthrs claude subscribe <run-id> [--session <id>]
-smthrs claude unsubscribe <run-id> [--session <id>]
+smthrs cache — Inspect and maintain local action-result caches
+
+Usage: smthrs cache <command>
+
+Commands:
+  clear   Remove all local action results; durable runs and artifacts are preserved
+  prune   Remove local action results older than the retention window
+  status  Report cache size and configured remote without exposing credentials
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## Description
-
-`claude` is the wire protocol the Claude Code plugin's `/workflows` mirror speaks: the plugin runs these subcommands and relays the JSON, so it never reads a database and never talks to the control plane itself. Reach for these commands when you debug the mirror or script against it; day to day, the plugin calls them for you. None of them changes run state: the only writes are this session's subscription entries in `.flows/claude-mirror-subscriptions.json`.
-
-The session id comes from `--session`, then the `CLAUDE_CODE_SESSION_ID` environment variable, then the literal `unknown`.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| --- | --- | --- | --- |
-| `run-id` (`tick`, `node-wait`, `subscribe`, `unsubscribe`) | string | yes | The run to read or follow. |
-| `node-id` (`node-wait`) | string | yes | The node to wait on, as `smthrs output <run-id>` lists it (for example `bash#2`). |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--session <id>` | string | `CLAUDE_CODE_SESSION_ID`, else `unknown` | The Claude session a subscription belongs to. Accepted by every subcommand except `node-wait`. |
-| `--after-seq <n>` (`tick`) | integer | `0` | Report nodes whose state moved after this journal sequence. |
-| `--timeout-ms <ms>` (`node-wait`) | integer | `30000` | How long to wait for the node before reporting `timedOut`. |
-| `--all-runs` (`monitor`) | boolean | `false` | Report transitions for every run, not only the ones this session follows. |
-| `--limit <n>` (`monitor`) | integer | `200` | How many recent transitions to print. Must be a positive integer; anything else exits 2. |
-
-## Output
-
-- `tick` prints one mirror frame for the run and re-asserts this session's subscription to it. A frame carries `contract` (2), `runId`, `status`, `seq`, `phases`, `nodes` (each with `nodeId`, `label`, `phase`, `kind`, and `state`), `changed` (the nodes that moved after `--after-seq`), `outputs` (settled values of changed nodes, truncated at 2,000 characters), `approvals` (the parked question and approval payload while the run waits on one), and `timedOut`. A run the project does not know still gets a frame, with `status` set to `unknown`.
-- `node-wait` polls every 250 ms until the node settles, the run settles, or the timeout lapses. It prints the settled node with `timedOut: false`; `{ "nodeId": "...", "outcome": "vanished", "status": "...", "timedOut": false }` when the run reaches a terminal status first; or `{ "nodeId": "...", "outcome": "pending", "timedOut": true }` when time runs out. An unknown run id exits 2.
-- `monitor` prints notable run transitions as NDJSON, one object per line with `runId`, `at`, `kind`, and, for run-status kinds, `status`. It reports up to `--limit` of the most recent notable events, oldest first: run acceptance, starts, parks, approval requests, terminal statuses, and settled agent calls. Without `--all-runs` it reports only the runs this session follows.
-- `subscribe` and `unsubscribe` print `{ "subscriptions": <count> }`, the live entries after the change. An entry expires 24 hours after its last re-assertion.
-
-Every subcommand renders JSON (or NDJSON) as its only output form; the global `--json` flag changes nothing here.
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
+## cache clear
 
 ```text
-DESCRIPTION
-  Claude Code plugin mirror protocol
+smthrs cache clear — Remove all local action results; durable runs and artifacts are preserved
 
-USAGE
-  smthrs claude <subcommand> [flags]
+Usage: smthrs cache clear [options]
 
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
+Options:
+  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --dry-run
+  --yes
 
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
 
-SUBCOMMANDS
-  tick           Print one mirror frame for a run
-  node-wait      Block until one node settles
-  monitor        Print notable run transitions as NDJSON
-  subscribe      Follow a run in this session's mirror
-  unsubscribe    Stop following a run in this session's mirror
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## See also
+## cache prune
 
-- [`smthrs status`](/docs/reference/cli/status/): the diagnosis card for one run.
-- [`smthrs logs`](/docs/reference/cli/logs/): the event stream a frame is computed from.
-- [Drive Smithers from your agent](/docs/guides/mcp-setup/): the plugin that consumes this protocol.
-- [MCP tools](/docs/reference/mcp-tools/): `watch_run` reads the same events over MCP.
+```text
+smthrs cache prune — Remove local action results older than the retention window
+
+Usage: smthrs cache prune [options]
+
+Options:
+  --workspace <string>        Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>        Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --older-than-days <number>   (default: 30)
+  --dry-run
+  --yes
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## cache status
+
+```text
+smthrs cache status — Report cache size and configured remote without exposing credentials
+
+Usage: smthrs cache status [options]
+
+Options:
+  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
 
 ---
 
-# smthrs deny
-https://smithers.sh/docs/reference/cli/deny/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs approvals deny`](/docs/reference/cli/approvals/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs ci
+https://smithers.sh/docs/reference/cli/ci/
 
 ```text
-smthrs deny <approval>
+smthrs ci — Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set
+
+Usage: smthrs ci <patterns...> [options]
+
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## Description
+---
 
-`smthrs deny` records a denial for one complete serialized payload: the `approval` field of a `smthrs plan` card, or the `payload` of a parked run's `control.approval.requested` event. Submit the payload unchanged; the digest inside it names the ask being refused. A denied plan stays unapproved, so a later `smthrs run` of the same payload still parks at `waiting-approval`. When the payload answers an in-run ask, the denial restarts the parked run in this same call, and `deny` waits for that run to settle when this process owns the executor, exiting with the run's terminal status. It never plans, never launches a run of its own, and never approves anything.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| --- | --- | --- | --- |
-| `approval` | JSON string | yes | The complete serialized approval payload, submitted unchanged. |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--remote <url>` | URL | none | Act on a remote control plane. A remote invocation owns no executor, so there is no settlement wait: the printed receipt is the whole answer. |
-
-## Output
-
-Prints the decision receipt. A plan-level decision answers `Accepted` with no `runId`; a decision on an in-run ask answers `Accepted` with the `runId` it restarted. The human rendering indents the receipt; `--json` prints it compact:
-
-```json
-{"_tag":"Accepted","receiptId":"<receipt-id>"}
-```
-
-## Exit codes
-
-| Code | When |
-| --- | --- |
-| `0` | The decision was accepted, or the run it restarted settled `completed`. |
-| `1` | The run the decision restarted settled `failed`. |
-| `2` | The payload was not valid JSON or did not match the approval schema. |
-| `3` | The run the decision restarted parked again at `waiting-approval`. |
-| `130` | The run the decision restarted settled `cancelled`. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
+# smthrs clean
+https://smithers.sh/docs/reference/cli/clean/
 
 ```text
-DESCRIPTION
-  Deny the complete serialized approval payload
+smthrs clean — Execute only declared Clean targets selected by the patterns
 
-USAGE
-  smthrs deny [flags] <approval>
+Usage: smthrs clean <patterns...> [options]
 
-ARGUMENTS
-  approval string
+Arguments:
+  patterns  Target labels or recursive patterns; their union
 
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
+Options:
+  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose             Show plain progress for agent and pipe consumers
+  --plan                Print the inert plan instead of executing
+  --jobs <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive   Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache               Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>  JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
 
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## See also
+---
 
-- [smthrs approve](/docs/reference/cli/approve/) records the opposite decision, with a `--scope` for the grant.
-- [smthrs plan](/docs/reference/cli/plan/) renders the payload this verb refuses.
-- [smthrs run](/docs/reference/cli/run/) reports the park a denial leaves in place.
-- [Plan, approve, run](/docs/guides/plan-approve-run/) walks the decision flow.
-- The [`resolve_approval`](/docs/reference/mcp-tools/) MCP tool is this verb's equivalent, with `decision` set to `"deny"`.
+# smthrs create-app
+https://smithers.sh/docs/reference/cli/create-app/
+
+```text
+smthrs create-app — Scaffold a Smithers app from a @smthrs/create-app template
+
+Usage: smthrs create-app <dir> [options]
+
+Arguments:
+  dir  Directory to create; its name becomes the app name
+
+Options:
+  --template, -t <string>  Template name (default: default)
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs credentials
+https://smithers.sh/docs/reference/cli/credentials/
+
+```text
+smthrs credentials — Manage encrypted local credentials without printing secret values
+
+Usage: smthrs credentials <command>
+
+Commands:
+  add     Encrypt a credential using SMITHERS_CREDENTIAL_KEY
+  list    List credential IDs and connection names
+  revoke  Remove a stored credential reference and its encrypted secret
+  rotate  Replace an encrypted credential secret using a compare-and-set write
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## credentials add
+
+```text
+smthrs credentials add — Encrypt a credential using SMITHERS_CREDENTIAL_KEY
+
+Usage: smthrs credentials add <id> [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>         Project root (defaults to the nearest Smithers project)
+  --remote <string>       Remote control server; local operator commands refuse this option
+  --credential <string>   Remote control credential
+  --secret-env <string>   Environment variable containing the secret
+  --secret-file <string>  File containing the secret; one trailing newline is removed
+  --name <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## credentials list
+
+```text
+smthrs credentials list — List credential IDs and connection names
+
+Usage: smthrs credentials list [options]
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## credentials revoke
+
+```text
+smthrs credentials revoke — Remove a stored credential reference and its encrypted secret
+
+Usage: smthrs credentials revoke <id> [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## credentials rotate
+
+```text
+smthrs credentials rotate — Replace an encrypted credential secret using a compare-and-set write
+
+Usage: smthrs credentials rotate <id> [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>         Project root (defaults to the nearest Smithers project)
+  --remote <string>       Remote control server; local operator commands refuse this option
+  --credential <string>   Remote control credential
+  --secret-env <string>   Environment variable containing the secret
+  --secret-file <string>  File containing the secret; one trailing newline is removed
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs docs
+https://smithers.sh/docs/reference/cli/docs/
+
+```text
+smthrs docs — Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
+
+Usage: smthrs docs <patterns...> [options]
+
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --write                   Refresh the Docs.Check stamps of the selected pages instead of checking them
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
 
 ---
 
@@ -47106,64 +47285,201 @@ Global Options:
 
 ---
 
-# smthrs down
-https://smithers.sh/docs/reference/cli/down/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs cancel-all`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs eval
+https://smithers.sh/docs/reference/cli/eval/
 
 ```text
-smthrs down
+smthrs eval — Run fixed evaluation suites and compare committed score baselines
+
+Usage: smthrs eval <command>
+
+Commands:
+  baseline  Write a committed baseline from a saved evaluation run
+  compare   Compare a saved run with a baseline; exit 1 for regressions and 5 for inconclusive results
+  list      List evals/**/*.eval.ts modules without executing them
+  run       Execute a suite's CaseExecutor and bound scorers, then persist its results
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## Description
-
-`smthrs down` cancels every run in the project that has not reached a terminal status: `accepted`, `running`, `parked`, and `waiting-approval` runs each get one cancel, while `completed`, `failed`, and `cancelled` runs are left as they are. Reach for it to stop all live work in a project at once, where `smthrs cancel` stops a single run. It never deletes run state; deleting terminal history is what `smthrs gc` does.
-
-## Output
-
-Prints an object with one `cancelled` entry per run it cancelled, pairing the run id with that run's cancel receipt. A project with no non-terminal runs prints an empty `cancelled` list and exits 0. `--json` prints the same document as JSON.
-
-## Exit codes
-
-This verb adds no codes beyond the generic set.
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
+## eval baseline
 
 ```text
-DESCRIPTION
-  Cancel every non-terminal run
+smthrs eval baseline — Write a committed baseline from a saved evaluation run
 
-USAGE
-  smthrs down [flags]
+Usage: smthrs eval baseline <run> [options]
 
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
+Arguments:
+  run  Evaluation run ID or saved run JSON file
 
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+Options:
+  --root <string>    Smithers project directory
+  --remote <string>  Not supported: evaluations execute local modules
+  --output <string>  Baseline file; defaults to evals/<suite>.baseline.json
+  --force            Replace an existing baseline
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## See also
+## eval compare
 
-- [smthrs cancel](/docs/reference/cli/cancel/): cancel one run by id.
-- [smthrs ps](/docs/reference/cli/ps/): list runs and their statuses.
-- [smthrs gc](/docs/reference/cli/gc/): delete terminal runs older than a threshold, with the rows they own.
-- [Plan, approve, run](/docs/guides/plan-approve-run/): the run lifecycle `down` cuts short.
+```text
+smthrs eval compare — Compare a saved run with a baseline; exit 1 for regressions and 5 for inconclusive results
+
+Usage: smthrs eval compare <run> [options]
+
+Arguments:
+  run  Evaluation run ID or saved run JSON file
+
+Options:
+  --root <string>      Smithers project directory
+  --remote <string>    Not supported: evaluations execute local modules
+  --baseline <string>  Committed baseline file
+  --mean <number>      Required mean score
+  --min <number>       Required minimum score
+  --output <string>    Save the complete comparison JSON to a new file
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## eval list
+
+```text
+smthrs eval list — List evals/**/*.eval.ts modules without executing them
+
+Usage: smthrs eval list [options]
+
+Options:
+  --root <string>    Smithers project directory
+  --remote <string>  Not supported: evaluations execute local modules
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## eval run
+
+```text
+smthrs eval run — Execute a suite's CaseExecutor and bound scorers, then persist its results
+
+Usage: smthrs eval run <suite> [options]
+
+Arguments:
+  suite  Discovered suite name or module file
+
+Options:
+  --root <string>    Smithers project directory
+  --remote <string>  Not supported: evaluations execute local modules
+  --run-id <string>  Explicit run identity; defaults to a UUID
+  --at <string>      Explicit observation timestamp for reproducible runs
+  --output <string>  Additional output JSON path; refuses overwriting existing files
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs explain
+https://smithers.sh/docs/reference/cli/explain/
+
+```text
+smthrs explain — Explain a target's actual planned cache key and local cache state
+
+Usage: smthrs explain <label> [options]
+
+Arguments:
+  label
+
+Options:
+  --workspace <string>                      Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>                      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verb <build|test|lint|docs|review|run>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
 
 ---
 
@@ -47233,6 +47549,293 @@ Global Options:
 - [`smthrs runs list`](/docs/reference/cli/runs/): list the runs a sweep considers.
 - [`smthrs runs cancel-all`](/docs/reference/cli/runs/): cancel runs that are still live.
 - [Manage retention](/docs/guides/retention/): retention end to end.
+
+---
+
+# smthrs generate
+https://smithers.sh/docs/reference/cli/generate/
+
+```text
+smthrs generate — Scaffold apps, flows, packages, and CI configuration
+
+Usage: smthrs generate <command>
+
+Commands:
+  app      Create an application from a bundled template
+  ci       Generate CI files using the workspace's declared GitHub workflow target
+  flow     Create a durable Markdown flow without replacing an existing flow
+  package  Run the workspace's declared package scaffold with its configured defaults
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## generate app
+
+```text
+smthrs generate app — Create an application from a bundled template
+
+Usage: smthrs generate app <directory> [options]
+
+Arguments:
+  directory
+
+Options:
+  --template <string>   (default: default)
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## generate ci
+
+```text
+smthrs generate ci — Generate CI files using the workspace's declared GitHub workflow target
+
+Usage: smthrs generate ci [options]
+
+Options:
+  --workspace <string>   (default: <cwd>)
+  --target <string>     Declared generator label; required when more than one matches
+  --plan                Show the generator plan without writing files
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## generate flow
+
+```text
+smthrs generate flow — Create a durable Markdown flow without replacing an existing flow
+
+Usage: smthrs generate flow <name> [options]
+
+Arguments:
+  name
+
+Options:
+  --root <string>  Project directory
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## generate package
+
+```text
+smthrs generate package — Run the workspace's declared package scaffold with its configured defaults
+
+Usage: smthrs generate package <name> [options]
+
+Arguments:
+  name
+
+Options:
+  --workspace <string>   (default: <cwd>)
+  --target <string>     Declared generator label; required when more than one matches
+  --plan                Show the generator plan without writing files
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs git-hooks
+https://smithers.sh/docs/reference/cli/git-hooks/
+
+```text
+smthrs git-hooks — Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
+
+Usage: smthrs git-hooks [options]
+Aliases: gitHooks
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --write                   Install the rendered hook scripts into .git/hooks
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs graph
+https://smithers.sh/docs/reference/cli/graph/
+
+```text
+smthrs graph — Print the target graph without executing it
+
+Usage: smthrs graph <pattern> [options]
+
+Arguments:
+  pattern  Bazel label or recursive pattern
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --mermaid, -m             Render Mermaid instead of a text tree
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs index
+https://smithers.sh/docs/reference/cli/index-command/
+
+```text
+smthrs index — List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
+
+Usage: smthrs index <pattern> [options]
+
+Arguments:
+  pattern  Bazel label or recursive pattern
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs info
+https://smithers.sh/docs/reference/cli/info/
+
+```text
+smthrs info — Report workspace and host configuration for diagnosis
+
+Usage: smthrs info [options]
+
+Options:
+  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
 
 ---
 
@@ -47322,151 +47925,207 @@ Global Options:
 
 ---
 
-# smthrs logs
-https://smithers.sh/docs/reference/cli/logs/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs logs`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs install
+https://smithers.sh/docs/reference/cli/install/
 
 ```text
-smthrs logs [run-id] [--follow]
+smthrs install — Plan and execute the install Flow under the toolchain the workspace declares
+
+Usage: smthrs install [options]
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-## Description
-
-`smthrs logs` reads a run's journaled events. Without `--follow` it prints the recorded history once as a turn-by-turn transcript; with `--follow` it stays attached and prints one line per event as the event lands. Omitting the run id reads the events of every run in the project. Reach for it to watch a live run or to replay a settled one turn by turn. It never prints anything but the journal: the transcript is a projection of events, and `--json` is the raw event stream, byte-stable for scripts.
-
-`smthrs events` is a hidden alias of `smthrs logs --json`.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| ---- | ---- | -------- | ----------- |
-| `run-id` | string | No | The run to read. Omit it to read every run in the project. |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| ---- | ---- | ------- | ----------- |
-| `--follow` | boolean | `false` | Stream events as they are journaled instead of reading the recorded history once. |
-| `--json` | boolean | `false` | Print the raw events instead of the transcript projection. |
-
-## Output
-
-Human output is the transcript: a summary header (run id, status, duration, turns, calls, tokens), one `=== turn N ===` header per model turn, and one offset-stamped line per event under it. A run with no events prints `No events.`
-
-`--json` prints the recorded events as one compact JSON array.
-
-In follow mode, human output is one line per event as it lands, because a transcript needs the whole run, and `--json` prints one compact JSON document per event. Follow mode keeps printing until you interrupt it.
-
-An unknown run id fails with `Run not found: "<run-id>"` on stderr and nothing on stdout.
-
-## Exit codes
-
-| Code | When |
-| ---- | ---- |
-| `0` | The read succeeded, whatever state the run is in. |
-| `1` | The read or the follow failed. |
-| `2` | The named run does not exist. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
-
-```text
-DESCRIPTION
-  Read run events; --follow streams future events
-
-USAGE
-  smthrs logs [flags] [<run-id>]
-
-ARGUMENTS
-  run-id string     (optional)
-
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-  --follow               Keep streaming new run events after the recorded history
-
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
-```
-
-## See also
-
-- [`smthrs status`](/docs/reference/cli/status/): the diagnosis card computed from the same events.
-- [`smthrs output`](/docs/reference/cli/output/): one node's recorded output instead of the whole transcript.
-- [The inspecting runs guide](/docs/guides/inspecting-runs/): the read path across `ps`, `status`, and `logs`.
-- [The `get_run_events` and `watch_run` MCP tools](/docs/reference/mcp-tools/): the recorded history and a polling follow for an agent.
 
 ---
 
-# smthrs ls
-https://smithers.sh/docs/reference/cli/ls/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs flow list`](/docs/reference/cli/flow/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs integrations
+https://smithers.sh/docs/reference/cli/integrations/
 
 ```text
-smthrs ls
+smthrs integrations — Inspect configured provider adapters and reconcile declared GitHub webhooks
+
+Usage: smthrs integrations <command>
+
+Commands:
+  doctor     Check configured credentials and probe provider authentication
+  list       List configured integrations and credential references without making requests
+  reconcile  Plan GitHub webhooks from .smithers/listeners.json; --apply writes owned hooks
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## Description
-
-`smthrs ls` prints the flow ids this project offers, one entry per discovered flow with its description. Reach for it to answer "what can I run here" before `smthrs plan` or `smthrs up`. Discovery scans the directories under the project's `flows/` directory for a `flow.mdx`, `flow.ts`, or `SKILL.md` source; [the flow discovery guide](/docs/guides/flow-discovery/) covers what makes a source a flow. The listing never includes the reserved `system/*` flows, and it never reports discovery problems; `smthrs doctor` owns those warnings.
-
-`smthrs workflow list` is a hidden alias that prints the same listing. Every other `workflow` form was removed in 1.0 and refuses with a removal notice.
-
-## Output
-
-Prints the flows document as indented JSON with keys in code-unit order: one item per discovered flow with its `flowId` and `description`. A project with no discovered flows prints an empty `items` array. `--json` prints the same document in compact form.
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
+## integrations doctor
 
 ```text
-DESCRIPTION
-  List the flows discovered under this project
+smthrs integrations doctor — Check configured credentials and probe provider authentication
 
-USAGE
-  smthrs ls [flags]
+Usage: smthrs integrations doctor [id] [options]
 
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
+Arguments:
+  id
 
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+  --config <string>       (default: .smithers/integrations.json)
+  --offline
+  --timeout-ms <number>   (default: 10000)
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## See also
+## integrations list
 
-- [`smthrs up`](/docs/reference/cli/up/): plan, approve, and run one listed flow.
-- [`smthrs ps`](/docs/reference/cli/ps/): list durable runs instead of flows.
-- [The `list_flows` MCP tool](/docs/reference/mcp-tools/): the same listing for an agent.
+```text
+smthrs integrations list — List configured integrations and credential references without making requests
+
+Usage: smthrs integrations list [options]
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+  --config <string>       (default: .smithers/integrations.json)
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## integrations reconcile
+
+```text
+smthrs integrations reconcile — Plan GitHub webhooks from .smithers/listeners.json; --apply writes owned hooks
+
+Usage: smthrs integrations reconcile [id] [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+  --config <string>       (default: .smithers/integrations.json)
+  --apply
+  --allow-delete
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs lint
+https://smithers.sh/docs/reference/cli/lint/
+
+```text
+smthrs lint — Execute the lint targets selected by a pattern
+
+Usage: smthrs lint <patterns...> [options]
+
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --fix                     Apply agent lint fixes inside the declared fixes write-set
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
 
 ---
 
@@ -47726,304 +48385,186 @@ Global Options:
 
 ---
 
-# smthrs output
-https://smithers.sh/docs/reference/cli/output/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs output`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs open
+https://smithers.sh/docs/reference/cli/open/
 
 ```text
-smthrs output <run-id> [node-id]
+smthrs open — Open this checkout's repository in the Smithers app; `smthrs .` is the same
+
+Usage: smthrs open [directory]
+
+Arguments:
+  directory  Checkout directory; defaults to cwd
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-## Description
-
-`smthrs output` prints what one step of a run produced, projected from the run's journaled events. Node ids are `<flowName>#<ordinal>`, the ordinal counting that flow's calls within the run from 1, and the reserved id `result` names the run's final assistant output. Reach for it after a run settles, when you want one step's value rather than the whole transcript `smthrs logs` prints. It is read-only: it never reruns, resumes, or edits the run, and a `--remote` read projects the same events as a local one.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| --- | --- | --- | --- |
-| `run-id` | string | yes | The run to read. |
-| `node-id` | string | no | The node to print. Omit it to print every node the run recorded. |
-
-## Output
-
-With no node id, prints every recorded node in the order the calls started: one entry per flow call the agent made, plus `result` when the run produced a final output. A call that started and never settled is listed with outcome `pending`, which is what a run that died mid-call leaves behind.
-
-With a node id, the human rendering is the node's outcome line, `<node-id> <outcome>`, followed by its recorded message when it has one, then its value: the string itself, or pretty-printed JSON for a structured value.
-
-`--json` prints the node object instead (or, with no node id, the array of node objects): `nodeId`, `flowName`, `outcome` (`success`, `failure`, or `pending`), plus the recorded `input`, `value`, `message`, and event timing and sequence fields when present.
-
-A node id that names nothing prints one of two messages and exits 2:
-
-```text
-Run <run-id> has no node <node-id>. It has: <id>, <id>, ...
-Run <run-id> recorded no node output.
-```
-
-A run id that names no run prints `Run not found: "<run-id>"` and exits 2.
-
-## Exit codes
-
-This verb adds no codes beyond the generic set. An unknown run id or node id is a usage error and exits 2.
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
-
-```text
-DESCRIPTION
-  Print one registered node output
-
-USAGE
-  smthrs output [flags] <run-id> [<node-id>]
-
-ARGUMENTS
-  run-id string
-  node-id string     (optional)
-
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
-```
-
-## See also
-
-- [smthrs logs](/docs/reference/cli/logs/): the full event transcript of a run.
-- [smthrs status](/docs/reference/cli/status/): the diagnosis card for one run.
-- [Inspecting runs](/docs/guides/inspecting-runs/): the operator routine around `ps`, `status`, `logs`, and `output`.
-- [MCP tools](/docs/reference/mcp-tools/): the `get_node_detail` tool reads the same node-output projection for an agent.
 
 ---
 
-# smthrs plan
-https://smithers.sh/docs/reference/cli/plan/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs flow plan`](/docs/reference/cli/flow/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs owners
+https://smithers.sh/docs/reference/cli/owners/
 
 ```text
-smthrs plan <flow> [key=value...] [--data <json>]
+smthrs owners — Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches
+
+Usage: smthrs owners [paths...] [options]
+
+Arguments:
+  paths  Workspace-relative paths; omit them and pass --diff instead
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --diff, -d <string>       Also resolve every path changed since this git base, like S.gitDiff(base)
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-## Description
-
-`smthrs plan` resolves `<flow>` from the project registry, compiles its keyed plan, and prints the plan card: the node graph with each node's cache status, the plan digest, and the complete `approval` payload. Reach for it when you want to review exactly what a launch would do before anything runs; the card is what `smthrs approve`, `smthrs deny`, and `smthrs run` all consume. It never starts a run, never approves anything, and never writes flow events: the payload it prints is inert until you submit it.
-
-Flow ids that start with `system/` are reserved for the control plane and carry no body in 1.0. Naming one exits 1:
-
-```text
-smthrs plan system/replay: system/replay is a reserved system flow id and carries no body in 1.0.0-rc.0, so a launch would park with nothing to run. Name a flow from `smthrs ls`. See https://smithers.sh/migration/1.0#flows
-```
-
-Omitting the flow with terminal stdin opens the discovered flow picker. With piped stdin, the command exits 2 and names the missing argument and `--wizard`.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| --- | --- | --- | --- |
-| `flow` | string | yes | Flow id from the project registry, as listed by `smthrs ls`. |
-| `key=value` | string | no | One input field, repeatable. A pair with no `=` sets the key to `true`. |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--data <json>` | JSON string | none | Flow input as one JSON document. A JSON object merges over any `key=value` pairs; any other JSON value is passed as the `data` field. |
-
-## Output
-
-Prints the plan card as one JSON document. The human rendering indents it; `--json` prints it compact for pipelines:
-
-| Field | Contents |
-| --- | --- |
-| `planId` | The persisted plan's id. |
-| `flowId` | The flow that was planned. |
-| `digest` | The digest every later approval binds to. |
-| `inputSummary` | The canonical form of the decoded input. |
-| `envelope` | The capability, flow, and budget envelope the launch runs under. |
-| `deployClass` | The flow's deploy-class flag. |
-| `nodes` | One entry per keyed node, with status `cached` (step cache hit) or `run`. |
-| `approval` | The complete serialized approval payload: `target`, `scope`, and `idempotencyKey`. |
-
-The `approval` field is the exact argument the decision verbs take:
-
-```bash
-approval="$(smthrs --json plan deploy/status | jq -c '.approval')"
-```
-
-## Exit codes
-
-| Code | When |
-| --- | --- |
-| `0` | The plan card rendered. |
-| `1` | The flow id is reserved (`system/*`). |
-| `2` | The invocation was wrong, for example malformed `--data` JSON. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
-
-```text
-DESCRIPTION
-  Render a flow plan and its complete approval payload
-
-USAGE
-  smthrs plan [flags] <flow-id> [<key=value...>]
-
-ARGUMENTS
-  flow-id string
-  key=value... string     (optional)
-
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-  --data string          Flow input as JSON; object members override key=value entries
-
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
-```
-
-## See also
-
-- [smthrs run](/docs/reference/cli/run/) launches the payload this verb prints.
-- [smthrs up](/docs/reference/cli/up/) plans, approves, and launches in one command.
-- [smthrs approve](/docs/reference/cli/approve/) records the decision the payload asks for.
-- [smthrs deny](/docs/reference/cli/deny/) records the opposite decision.
-- [Plan, approve, run](/docs/guides/plan-approve-run/) walks the three-step flow.
-- The [MCP server](/docs/reference/mcp-tools/) has no launch tool: plan with `flow_plan`, approve with `smthrs approvals approve` in a shell, then `flow_execute`.
 
 ---
 
-# smthrs ps
-https://smithers.sh/docs/reference/cli/ps/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs list`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs query
+https://smithers.sh/docs/reference/cli/query/
 
 ```text
-smthrs ps [--flow <id>] [--status <status>]
+smthrs query — List labels or evaluate deps(label), rdeps(label), or owners(label)
+
+Usage: smthrs query <expr> [options]
+
+Arguments:
+  expr  Label, pattern, deps(label), rdeps(label), or owners(label)
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## Description
+---
 
-`smthrs ps` prints the durable runs of this project, optionally narrowed to one flow or one status. Reach for it to see what is running, what is parked, and what settled, and to find the run id a `smthrs status` or `smthrs logs` read needs. A run that has sat at `accepted` with no owner process past the launch handoff is labelled as waiting on an `executor`, which distinguishes it from a run a live process owns. It never reads run events; `smthrs status` and `smthrs logs` do that.
-
-## Flags
-
-| Flag | Type | Default | Description |
-| ---- | ---- | ------- | ----------- |
-| `--flow` | string | All flows | Only list runs of this flow id. |
-| `--status` | choice | All statuses | Only list runs in this state: `accepted`, `running`, `parked`, `waiting-approval`, `cancelled`, `completed`, or `failed`. An unrecognized value is a usage error (exit 2), not an empty list. |
-
-## Output
-
-Prints the runs listing as indented JSON with keys in code-unit order: one item per durable run with its run id, flow id, status, waiting reason, and timestamps. `--json` prints the same document in compact form.
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
+# smthrs review
+https://smithers.sh/docs/reference/cli/review/
 
 ```text
-DESCRIPTION
-  List durable runs
+smthrs review — Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)
 
-USAGE
-  smthrs ps [flags]
+Usage: smthrs review <patterns...> [options]
 
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-  --flow string          Only list runs of this flow id
-  --status choice        Only list runs with this lifecycle status (choices: accepted, running, parked, waiting-approval, cancelled, completed, failed)
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-## See also
-
-- [`smthrs status`](/docs/reference/cli/status/): the diagnosis card for one listed run.
-- [`smthrs logs`](/docs/reference/cli/logs/): the event transcript behind a listed run.
-- [The inspecting runs guide](/docs/guides/inspecting-runs/): the read path across `ps`, `status`, and `logs`.
-- [The `list_runs` MCP tool](/docs/reference/mcp-tools/): the same listing for an agent.
 
 ---
 
 # smthrs run
 https://smithers.sh/docs/reference/cli/run/
 
-`smthrs run <pattern>` executes run-kind `PACKAGE.ts` targets, such as agent
-tasks, development servers, generators, or explicitly declared publishing
-work. Run-kind targets are excluded from `smthrs ci`.
+```text
+smthrs run — Execute run targets selected by a pattern
 
-```sh
-smthrs run //apps/site:dev --plan
-smthrs run //apps/site:dev
+Usage: smthrs run <patterns...> [options]
+
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --name, -n <string>       Package name supplied to scaffold targets
+  --message, -m <string>    Commit message for a Git.Commit target; wins over the declared message
+  --sweep                   Let a Git.Commit target with no declared path scope commit the whole working tree
+  --input, -i <array>       Payload input for agent targets as name=value; repeatable
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-Use a target declared by your workspace. Patterns include `//...`,
-`//package/...`, and `//package:target`. `smthrs target <label>` or a bare
-`smthrs //package:target` executes one exact declaration using its own kind.
-
-| Option | Purpose |
-| --- | --- |
-| `--workspace <path>` | Select the workspace. |
-| `--plan` | Print the graph and keys without executing it. |
-| `--jobs <count>` | Bound concurrent target execution. |
-| `--no-cache` | Bypass result reuse. |
-| `--json` | Print the Incur machine-readable result. |
-
-See `smthrs run --help` and `--schema` for the installed argument contract.
-`smthrs explain <label>` shows the planned key and local cache state.
-
-## Durable flows and compatibility
-
-Start a durable flow with `smthrs flow start <flow>`, execute a separately
-approved plan with `smthrs flow execute <payload>`, and resume a parked run
-with `smthrs runs resume <run-id>`.
-
-The older `smthrs run '<JSON approval payload>'` and
-`smthrs run --resume <run-id>` forms remain compatibility paths. They use the
-old control handler and retain its receipt/output contract; they do not
-select targets. New scripts should use the explicit `flow` and `runs` groups.
 
 ---
 
@@ -48138,251 +48679,94 @@ Global Options:
 
 ---
 
-# smthrs signal
-https://smithers.sh/docs/reference/cli/signal/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs signal`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs show
+https://smithers.sh/docs/reference/cli/show/
 
 ```text
-smthrs signal <run-id> <signal-json>
+smthrs show — Inspect targets and workspace configuration
+
+Usage: smthrs show <command>
+
+Commands:
+  target     Show a target's inputs, outputs, dependencies, owners and cache identity
+  workspace  Show the resolved workspace, toolchain, cache and sandbox configuration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## Description
-
-`smthrs signal` delivers one named JSON signal to a durable run and prints the delivery receipt. Reach for it when a run is parked on a named wait and an external system holds the answer it waits for; to send an agent a text message instead, use `smthrs steer`. The delivery key combines the run id with a digest of the canonical payload, so re-sending the identical signal replays the original receipt rather than delivering twice. It never queues a signal the run cannot take: a settled run answers with a Terminal receipt, and a run parked on a differently named wait fails with a `no_matching_wait` error that points at `smthrs status`.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| ---- | ---- | -------- | ----------- |
-| `run-id` | string | Yes | The durable run to deliver to. |
-| `signal-json` | JSON string | Yes | The signal as one JSON argument: an object with a string `name` and any JSON `payload`, for example `{"name":"shipped","payload":{"approved":true}}`. |
-
-## Output
-
-On success, prints the control receipt as an indented JSON document with keys in code-unit order: `Accepted` with the receipt id and run id on first delivery, `AlreadyApplied` when the identical payload was already delivered, or `Terminal` with the run's status when the run had already settled. `--json` prints the same receipt in compact form.
-
-A failure prints one line on stderr and nothing on stdout.
-
-## Exit codes
-
-| Code | When |
-| ---- | ---- |
-| `0` | The receipt is `Accepted` or `AlreadyApplied`, or `Terminal` for a completed run. |
-| `1` | Delivery failed: the run does not exist, the run is parked on a differently named wait, or the receipt is `Terminal` for a failed run. |
-| `2` | `<signal-json>` is not valid JSON (`signal-json must be valid JSON`) or does not match the payload schema (`signal-json must match the expected payload schema:`). |
-| `130` | The receipt is `Terminal` with status `cancelled`. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
+## show target
 
 ```text
-DESCRIPTION
-  Deliver a durable JSON signal to a run
+smthrs show target — Show a target's inputs, outputs, dependencies, owners and cache identity
 
-USAGE
-  smthrs signal [flags] <run-id> <signal-json>
+Usage: smthrs show target <label> [options]
 
-ARGUMENTS
-  run-id string
-  signal-json string
+Arguments:
+  label
 
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
+Options:
+  --workspace <string>                      Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>                      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verb <build|test|lint|docs|review|run>
 
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## See also
-
-- [`smthrs steer`](/docs/reference/cli/steer/): send an attributed text message instead of a named signal.
-- [`smthrs status`](/docs/reference/cli/status/): see what a run is waiting for before you signal it.
-- [The durable waits guide](/docs/guides/durable-waits/): how a flow parks on a named wait and what a signal completes.
-
----
-
-# smthrs status
-https://smithers.sh/docs/reference/cli/status/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs show`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+## show workspace
 
 ```text
-smthrs status [run-id]
+smthrs show workspace — Show the resolved workspace, toolchain, cache and sandbox configuration
+
+Usage: smthrs show workspace [options]
+
+Options:
+  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
-
-## Description
-
-`smthrs status` answers "what is this run doing, and what does it need". With a run id it prints the diagnosis card computed from that run's own journaled events; without one it prints the same run listing as `smthrs ps`. Reach for it when a run is stuck, parked, or failed and you need the cause plus the exact next command. It never changes the run: the card is a read-only projection, and against `--remote` it renders exactly what a local read renders.
-
-`smthrs inspect` and `smthrs why` spell the same command; both aliases are hidden from `--help`.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| ---- | ---- | -------- | ----------- |
-| `run-id` | string | No | The run to diagnose. Omit it to list every durable run. |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| ---- | ---- | ------- | ----------- |
-| `--json` | boolean | `false` | Print the stable runs-listing document, filtered to the named run, instead of the diagnosis card. |
-
-## Output
-
-With a run id, prints the card as plain text: a `Verdict` line (the status plus the reason that best explains it, such as the journaled failure cause or the question a parked run is asking), a `Run` line (run id, flow id, seat, duration), an `Activity` line (turns, calls, refusals, duplicates, edits), a `Tokens` line, and up to three `Refusals` lines. When they apply, a `Cause` line, an `Output` line, and an `Unblock` line follow; a parked run's `Unblock` is the ready-to-paste `smthrs approve` and `smthrs run --resume` pair. Every card ends with a `Next` line pointing at `smthrs logs`.
-
-With `--json`, or with no run id, prints the runs listing in the `smthrs ps` shape: indented or compact JSON, one item per run.
-
-An unknown run id fails with `Run not found: "<run-id>"` on stderr and nothing on stdout.
-
-## Exit codes
-
-| Code | When |
-| ---- | ---- |
-| `0` | The read succeeded, whatever state the run is in. The exit code reports the command, never the run's status. |
-| `1` | The read itself failed. |
-| `2` | The named run does not exist. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
-
-```text
-DESCRIPTION
-  Show the diagnosis card for one run, or the run listing
-
-USAGE
-  smthrs status [flags] [<run-id>]
-
-ARGUMENTS
-  run-id string     (optional)
-
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
-```
-
-## See also
-
-- [`smthrs ps`](/docs/reference/cli/ps/): the run listing `status` prints without a run id.
-- [`smthrs logs`](/docs/reference/cli/logs/): the event transcript the card's `Next` line points at.
-- [`smthrs output`](/docs/reference/cli/output/): one node's recorded output from the same journal.
-- [The inspecting runs guide](/docs/guides/inspecting-runs/): the read path across `ps`, `status`, and `logs`.
-- [The `explain_run` and `get_run` MCP tools](/docs/reference/mcp-tools/): the card and the run summary for an agent.
-
----
-
-# smthrs steer
-https://smithers.sh/docs/reference/cli/steer/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs runs steer`](/docs/reference/cli/runs/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
-
-```text
-smthrs steer <run-id> --message <text>
-```
-
-## Description
-
-`smthrs steer` records one text message against a run and prints the receipt. The message is durable, attributed to the operator principal `cli` with a timestamp, and delivered to the run at its next turn boundary. Reach for it to redirect an agent mid-run: correct its course, add context, or answer a question the run did not park on. It never takes a run over: `steer --takeover` was removed in 1.0 and now exits 1 pointing at [the supervision section of the 1.0 migration guide](/docs/migration/1.0/#supervision).
-
-## Arguments
-
-| Name | Type | Required | Description |
-| ---- | ---- | -------- | ----------- |
-| `run-id` | string | Yes | The durable run to steer. |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| ---- | ---- | ------- | ----------- |
-| `--message` | string | None (required) | The message text delivered to the run. Omitting it fails as a usage error before anything is recorded. |
-
-## Output
-
-On success, prints the control receipt as an indented JSON document with keys in code-unit order: `Accepted` with the message id as the receipt id and the run id, or `Terminal` with the run's status when the run had already settled and nothing was delivered. Each invocation mints a fresh message id (`cli:steer:<run-id>:<uuid>`), so two invocations deliver two messages rather than one replayed receipt. `--json` prints the same receipt in compact form.
-
-A failure prints one line on stderr and nothing on stdout.
-
-## Exit codes
-
-| Code | When |
-| ---- | ---- |
-| `0` | The receipt is `Accepted`, or `Terminal` for a completed run. |
-| `1` | The command failed: the run does not exist, the receipt is `Terminal` for a failed run, or a removed flag such as `--takeover` was passed. |
-| `2` | The invocation was wrong, for example a missing `--message`. |
-| `130` | The receipt is `Terminal` with status `cancelled`. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
-
-```text
-DESCRIPTION
-  Send a durable, attributed steering message to a run
-
-USAGE
-  smthrs steer [flags] <run-id>
-
-ARGUMENTS
-  run-id string
-
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-  --message string       Text to deliver as an attributed steering message to the run
-
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
-```
-
-## See also
-
-- [`smthrs signal`](/docs/reference/cli/signal/): deliver a named JSON signal that completes a wait.
-- [`smthrs status`](/docs/reference/cli/status/): read a run before you steer it.
-- [The steering guide](/docs/guides/steering/): how steering messages reach a running agent.
 
 ---
 
@@ -48496,110 +48880,424 @@ Global Options:
 
 ---
 
-# smthrs up
-https://smithers.sh/docs/reference/cli/up/
-
-:::note[Compatibility command]
-For new scripts, use [`smthrs flow start`](/docs/reference/cli/flow/). This page documents the retained flat command and its output format.
-:::
-
-## Synopsis
+# smthrs target
+https://smithers.sh/docs/reference/cli/target/
 
 ```text
-smthrs up <flow> [--data <json>] [-d]
+smthrs target — Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)
+
+Usage: smthrs target <patterns...> [options]
+
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
+
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --write                   Apply Diff/Generate/CiGen targets instead of checking drift
+  --fix                     Apply agent lint fixes inside the declared fixes write-set
+  --message, -m <string>    Commit message for a Git.Commit target; wins over the declared message
+  --sweep                   Let a Git.Commit target with no declared path scope commit the whole working tree
+  --input, -i <array>       Payload input for agent targets as name=value; repeatable
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## Description
+---
 
-`smthrs up` is the one-command path around the plan, approve, run sequence: it plans `<flow>`, approves the plan with scope `run`, and launches it in one invocation. Reach for it when a flow needs no human review of its plan; reach for `smthrs plan` when it does. Attached, `up` behaves like `smthrs run`: it stays until the run settles and exits with the run's terminal status. With `-d`, it spawns a child process that outlives the launcher and returns as soon as the child proves the run row is durable. `up` never resumes an existing run and never prompts: the approval it grants covers this launch and its whole run.
-
-Flow ids that start with `system/` are reserved and refused with exit 1, exactly as `smthrs plan` refuses them. The 0.x flags are removed rather than ignored: `--serve`, `--interactive`, `--supervise`, `--herdr`, `--monitor`, `--report`, `--force`, `--steal-ownership`, `--resume-claim-owner`, `--resume-claim-heartbeat`, `--resume-restore-owner`, `--resume-restore-heartbeat`, and `--max-concurrency` each exit 1 with a migration link.
-
-Omitting the flow with terminal stdin opens the discovered flow picker. With piped stdin, the command exits 2 and names the missing argument and `--wizard`.
-
-## Arguments
-
-| Name | Type | Required | Description |
-| --- | --- | --- | --- |
-| `flow` | string | yes | Flow id from the project registry, as listed by `smthrs ls`. |
-
-## Flags
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--data <json>` | JSON string | none | Flow input as one JSON document. A JSON object becomes the input fields; any other JSON value is passed as the `data` field. |
-| `-d`, `--detached` | boolean | `false` | Launch in a detached child process and return after admission instead of waiting for the run to settle. |
-| `--remote <url>` | URL | none | Act on a remote control plane. `-d` is refused here, because a detached launch spawns a local executor: `up -d` against `--remote` exits 1. |
-
-## Output
-
-Attached, `up` prints the same launch receipt as [`smthrs run`](/docs/reference/cli/run/): an `Accepted` document whose `runId` names the run, or a `Parked` document when the run stops at `waiting-approval` on an in-run ask.
-
-Detached, the child announces admission by writing one line to its own log the moment the control plane accepts the run:
+# smthrs targets
+https://smithers.sh/docs/reference/cli/targets/
 
 ```text
-SMITHERS_DETACHED_ADMISSION=run:<nonce> runId=<run-id>
+smthrs targets — List available targets with their kinds and summaries
+
+Usage: smthrs targets <pattern> [options]
+
+Arguments:
+  pattern  Target label or recursive pattern
+
+Options:
+  --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-The launcher accepts that nonce's line only when the ID matches
-`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Unsafe IDs count as missing admission. Once
-admitted, it renames the log to `.flows/logs/<runId>.log` and prints:
+---
 
-```json
-{"detached":true,"logFile":"<project>/.flows/logs/<runId>.log","runId":"<runId>"}
-```
-
-`runId` is the receipt's own field; there is no `--run-id`, so this document is the only place a caller learns which run started. A child that exits before writing the line fails the launch with exit 1 and the log's tail attached. `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` sets how long the launcher waits for admission (default 30000 ms); a child still alive at the deadline is reported as booting on stderr and granted up to four times that window before it is terminated and the launch fails. See [Environment variables](/docs/reference/environment-variables/).
-
-## Exit codes
-
-| Code | When |
-| --- | --- |
-| `0` | Attached: the launch was accepted or the run settled `completed`. Detached: the child proved admission. |
-| `1` | The run settled `failed`, the executor declined the launch, a detached child never reached admission, or the invocation was refused (a reserved `system/*` flow id, a removed 0.x flag, or `-d` against `--remote`). |
-| `2` | The invocation was wrong, for example malformed `--data` JSON. |
-| `3` | The attached run parked at `waiting-approval` on an in-run ask. Answer with `smthrs approve`. |
-| `130` | The attached run settled `cancelled`. |
-
-## Help output
-
-The flag list above is curated. This is what the binary prints, captured by `apps/site/scripts/gen-cli-data.mjs`.
+# smthrs test
+https://smithers.sh/docs/reference/cli/test/
 
 ```text
-DESCRIPTION
-  Plan, approve, and run one flow; -d launches it detached
+smthrs test — Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set
 
-USAGE
-  smthrs up [flags] <flow>
+Usage: smthrs test <patterns...> [options]
 
-ARGUMENTS
-  flow string
+Arguments:
+  patterns  Bazel labels or recursive patterns; the verb runs their union
 
-FLAGS
-  --credential string    Bearer token for the remote control plane; prefer SMITHERS_API_KEY to avoid exposing argv
-  --json                 Print the machine-readable document instead of the human rendering
-  --remote string        http(s) URL of the control plane to act on; falls back to SMITHERS_REMOTE
-  --quiet                Suppress banners and progress on stderr; stdout documents still print
-  --mcp-config string    Path to the JSON array of MCP servers the local executor projects into a run's flow catalog
-  --root string          Project root to act on, instead of walking up from the working directory
-  --data string          Flow input as JSON; object members override key=value entries
-  --detached, -d         Launch a local executor in the background and print its run id and log path
+Options:
+  --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show plain progress for agent and pipe consumers
+  --plan                    Print the inert plan instead of executing
+  --jobs, -j <number>       Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
 
-GLOBAL FLAGS
-  --help, -h                                                          Show help information
-  --version, -v                                                       Show version information
-  --wizard                                                            Start wizard mode for a command
-  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
 ```
 
-## See also
+---
 
-- [smthrs plan](/docs/reference/cli/plan/) renders the plan without launching.
-- [smthrs run](/docs/reference/cli/run/) launches an approved payload or resumes a parked run.
-- [smthrs cancel](/docs/reference/cli/cancel/) ends the run durably.
-- [Plan, approve, run](/docs/guides/plan-approve-run/) shows the three-step path this verb compresses.
-- The [MCP server](/docs/reference/mcp-tools/) has no launch tool: plan with `flow_plan`, approve with `smthrs approvals approve` in a shell, then `flow_execute`.
+# smthrs triggers
+https://smithers.sh/docs/reference/cli/triggers/
+
+```text
+smthrs triggers — Manage durable schedules and manually queued occurrences
+
+Usage: smthrs triggers <command>
+
+Commands:
+  disable   Disable future occurrences without cancelling an active run
+  enable    Enable future occurrences without cancelling an active run
+  fire      Queue one manual occurrence for triggers serve or smthrs serve; approvals remain required
+  list      List all durable trigger registrations
+  register  Register or update a validated cron trigger from flags or a JSON file
+  serve     Run the durable scheduler until interrupted, preserving Control approvals
+  show      Show a trigger, its active run and the exact approval payload awaiting a decision
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## triggers disable
+
+```text
+smthrs triggers disable — Disable future occurrences without cancelling an active run
+
+Usage: smthrs triggers disable <id> [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## triggers enable
+
+```text
+smthrs triggers enable — Enable future occurrences without cancelling an active run
+
+Usage: smthrs triggers enable <id> [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## triggers fire
+
+```text
+smthrs triggers fire — Queue one manual occurrence for triggers serve or smthrs serve; approvals remain required
+
+Usage: smthrs triggers fire <id> [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+  --occurrence <number>  Unix milliseconds used as the retry identity; defaults to now
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## triggers list
+
+```text
+smthrs triggers list — List all durable trigger registrations
+
+Usage: smthrs triggers list [options]
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## triggers register
+
+```text
+smthrs triggers register — Register or update a validated cron trigger from flags or a JSON file
+
+Usage: smthrs triggers register [id] [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>                        Project root (defaults to the nearest Smithers project)
+  --remote <string>                      Remote control server; local operator commands refuse this option
+  --credential <string>                  Remote control credential
+  --file <string>                        JSON trigger declaration relative to the project root
+  --flow <string>
+  --cron <string>
+  --input <string>                        (default: {})
+  --timezone <string>
+  --overlap <skip|buffer-one|supersede>   (default: skip)
+  --catch-up <none|one|all>               (default: none)
+  --max-catch-up <number>                 (default: 0)
+  --enabled                               (default: true)
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## triggers serve
+
+```text
+smthrs triggers serve — Run the durable scheduler until interrupted, preserving Control approvals
+
+Usage: smthrs triggers serve [options]
+
+Options:
+  --root <string>              Project root (defaults to the nearest Smithers project)
+  --remote <string>            Remote control server; local operator commands refuse this option
+  --credential <string>        Remote control credential
+  --poll-interval-ms <number>   (default: 1000)
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## triggers show
+
+```text
+smthrs triggers show — Show a trigger, its active run and the exact approval payload awaiting a decision
+
+Usage: smthrs triggers show <id> [options]
+
+Arguments:
+  id
+
+Options:
+  --root <string>        Project root (defaults to the nearest Smithers project)
+  --remote <string>      Remote control server; local operator commands refuse this option
+  --credential <string>  Remote control credential
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs tui
+https://smithers.sh/docs/reference/cli/tui/
+
+```text
+smthrs tui — Open the terminal coding agent
+
+Usage: smthrs tui [directory] [options]
+
+Arguments:
+  directory  Working directory; defaults to cwd
+
+Options:
+  --model, -m <string>      Chat seat as provider:model
+  --continue, -c            Continue the latest session in the directory
+  --resume, -r              Pick a session to continue
+  --print, -p <string>      Answer one prompt, print it, and exit
+  --approve <all|ask|deny>  Consequential calls: all, ask, or deny
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
 
 ---
 
@@ -48670,6 +49368,49 @@ Global Options:
 
 - [`smthrs doctor`](/docs/reference/cli/doctor/): report registry, database, runtime, and provider readiness.
 - [`smthrs bug`](/docs/reference/cli/bug/): report a problem with a run digest attached.
+
+---
+
+# smthrs watch
+https://smithers.sh/docs/reference/cli/watch/
+
+```text
+smthrs watch — Replan and rerun a target graph when workspace files change
+
+Usage: smthrs watch <build|test|lint|docs|review|run|ci> <patterns...> [options]
+
+Arguments:
+  verb      Target verb to execute
+  patterns  Target labels or recursive patterns; their union
+
+Options:
+  --workspace <string>    Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
+  --cache-dir <string>    Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose               Show plain progress for agent and pipe consumers
+  --plan                  Print the inert plan instead of executing
+  --jobs <number>         Maximum concurrent targets; defaults to host parallelism. Exclusive targets run alone after ready ordinary work
+  --include-exclusive     Include exclusive targets in wildcard ci/test selections; explicit labels already include them
+  --cache                 Consult the result cache before running; --no-cache bypasses reads (default: true)
+  --known-red <string>    JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+  --debounce-ms <number>   (default: 200)
+  --once                  Run one cycle and exit
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
 
 ---
 
@@ -49409,49 +50150,49 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 
 | Command | Purpose |
 | --- | --- |
-| `affected` | Execute targets affected by changed files, conservatively including ambient inputs |
-| `approvals` | Find and resolve pending approval requests |
-| `bug` | Submit a redacted bug report to the configured endpoint |
-| `build` | Execute the build targets selected by a pattern |
-| `cache` | Inspect and maintain local action-result caches |
-| `ci` | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
-| `clean` | Execute only declared Clean targets selected by the patterns |
-| `create-app` | Scaffold a Smithers app from a @smthrs/create-app template |
-| `credentials` | Manage encrypted local credentials without printing secret values |
-| `docs` | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
-| `doctor` | Check project discovery, providers, tools, and durable-state compatibility |
-| `eval` | Run fixed evaluation suites and compare committed score baselines |
-| `explain` | Explain a target's actual planned cache key and local cache state |
-| `flow` | Discover, plan, and start durable flows |
-| `gc` | Collect old terminal runs and compact their journals; separate from target caches |
-| `generate` | Scaffold apps, flows, packages, and CI configuration |
-| `git-hooks` | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
-| `graph` | Print the target graph without executing it |
-| `index` | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
-| `info` | Report workspace and host configuration for diagnosis |
-| `init` | Initialize workspace and target declarations plus a starter flow, preserving existing files |
-| `install` | Plan and execute the install Flow under the toolchain the workspace declares |
-| `integrations` | Inspect configured provider adapters and reconcile declared GitHub webhooks |
-| `lint` | Execute the lint targets selected by a pattern |
-| `mcp` | Register the Smithers MCP server with an agent |
-| `memory` | Durable facts, notes, recall, and conversation history |
-| `migrate` | Inventory, plan, or apply the 0.x-to-1.x source migration |
-| `open` | Open this checkout's repository in the Smithers app; `smthrs .` is the same |
-| `owners` | Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches |
-| `query` | List labels or evaluate deps(label), rdeps(label), or owners(label) |
-| `review` | Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent) |
-| `run` | Execute run targets selected by a pattern |
-| `runs` | Inspect and control durable execution records |
-| `serve` | Host the control gateway and durable trigger scheduler |
-| `show` | Inspect targets and workspace configuration |
-| `suggest` | Discover ways Smithers can help; interactively choose one to implement |
-| `target` | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
-| `targets` | List available targets with their kinds and summaries |
-| `test` | Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set |
-| `triggers` | Manage durable schedules and manually queued occurrences |
-| `tui` | Open the terminal coding agent |
-| `update` | Check the registry for newer CLI versions; does not install them |
-| `watch` | Replan and rerun a target graph when workspace files change |
+| [`affected`](/docs/reference/cli/affected/) | Execute targets affected by changed files, conservatively including ambient inputs |
+| [`approvals`](/docs/reference/cli/approvals/) | Find and resolve pending approval requests |
+| [`bug`](/docs/reference/cli/bug/) | Submit a redacted bug report to the configured endpoint |
+| [`build`](/docs/reference/cli/build/) | Execute the build targets selected by a pattern |
+| [`cache`](/docs/reference/cli/cache/) | Inspect and maintain local action-result caches |
+| [`ci`](/docs/reference/cli/ci/) | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
+| [`clean`](/docs/reference/cli/clean/) | Execute only declared Clean targets selected by the patterns |
+| [`create-app`](/docs/reference/cli/create-app/) | Scaffold a Smithers app from a @smthrs/create-app template |
+| [`credentials`](/docs/reference/cli/credentials/) | Manage encrypted local credentials without printing secret values |
+| [`docs`](/docs/reference/cli/docs/) | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
+| [`doctor`](/docs/reference/cli/doctor/) | Check project discovery, providers, tools, and durable-state compatibility |
+| [`eval`](/docs/reference/cli/eval/) | Run fixed evaluation suites and compare committed score baselines |
+| [`explain`](/docs/reference/cli/explain/) | Explain a target's actual planned cache key and local cache state |
+| [`flow`](/docs/reference/cli/flow/) | Discover, plan, and start durable flows |
+| [`gc`](/docs/reference/cli/gc/) | Collect old terminal runs and compact their journals; separate from target caches |
+| [`generate`](/docs/reference/cli/generate/) | Scaffold apps, flows, packages, and CI configuration |
+| [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
+| [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
+| [`index`](/docs/reference/cli/index-command/) | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
+| [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
+| [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |
+| [`install`](/docs/reference/cli/install/) | Plan and execute the install Flow under the toolchain the workspace declares |
+| [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters and reconcile declared GitHub webhooks |
+| [`lint`](/docs/reference/cli/lint/) | Execute the lint targets selected by a pattern |
+| [`mcp`](/docs/reference/cli/mcp/) | Register the Smithers MCP server with an agent |
+| [`memory`](/docs/reference/cli/memory/) | Durable facts, notes, recall, and conversation history |
+| [`migrate`](/docs/reference/cli/migrate/) | Inventory, plan, or apply the 0.x-to-1.x source migration |
+| [`open`](/docs/reference/cli/open/) | Open this checkout's repository in the Smithers app; `smthrs .` is the same |
+| [`owners`](/docs/reference/cli/owners/) | Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches |
+| [`query`](/docs/reference/cli/query/) | List labels or evaluate deps(label), rdeps(label), or owners(label) |
+| [`review`](/docs/reference/cli/review/) | Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent) |
+| [`run`](/docs/reference/cli/run/) | Execute run targets selected by a pattern |
+| [`runs`](/docs/reference/cli/runs/) | Inspect and control durable execution records |
+| [`serve`](/docs/reference/cli/serve/) | Host the control gateway and durable trigger scheduler |
+| [`show`](/docs/reference/cli/show/) | Inspect targets and workspace configuration |
+| [`suggest`](/docs/reference/cli/suggest/) | Discover ways Smithers can help; interactively choose one to implement |
+| [`target`](/docs/reference/cli/target/) | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
+| [`targets`](/docs/reference/cli/targets/) | List available targets with their kinds and summaries |
+| [`test`](/docs/reference/cli/test/) | Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set |
+| [`triggers`](/docs/reference/cli/triggers/) | Manage durable schedules and manually queued occurrences |
+| [`tui`](/docs/reference/cli/tui/) | Open the terminal coding agent |
+| [`update`](/docs/reference/cli/update/) | Check the registry for newer CLI versions; does not install them |
+| [`watch`](/docs/reference/cli/watch/) | Replan and rerun a target graph when workspace files change |
 
 Target patterns include `//...`, `//package/...`, and `//package:target`.
 Use `--plan` to preview execution, `--jobs` to bound concurrency, and
@@ -49460,7 +50201,7 @@ against the working tree, including untracked files; `--base`, `--head`, and
 `--files` select other inputs. Ambient configuration changes conservatively
 select more work.
 
-Top-level [`run`](/docs/reference/cli/run/) executes run-kind targets.
+Top-level [`run`](/docs/reference/cli/run/) executes run-kind targets, not flows.
 `flow start` plans, approves, and starts a durable flow; `flow execute`
 submits a previously approved plan. `runs resume` re-drives a parked run.
 
@@ -49469,10 +50210,10 @@ submits a previously approved plan. `runs resume` re-drives a parked run.
 | Group | Available commands |
 | --- | --- |
 | [`memory`](/docs/reference/cli/memory/) | `list/get/set/rm`, `recall`, `notes list/get/add/status/supersede`, `threads list/create/show/rm`, `messages list/add`, `compact`. |
-| `credentials` | `list/add/rotate/revoke`; only references appear in output. |
-| `triggers` | `list/show/register/enable/disable/fire/serve`; `fire` queues an occurrence for a running scheduler. |
-| `integrations` | `list`, `doctor [--offline]`, and GitHub webhook `reconcile`. |
-| `eval` | `list/run/baseline/compare` for modules under `evals/**/*.eval.ts`. |
+| [`credentials`](/docs/reference/cli/credentials/) | `list/add/rotate/revoke`; only references appear in output. |
+| [`triggers`](/docs/reference/cli/triggers/) | `list/show/register/enable/disable/fire/serve`; `fire` queues an occurrence for a running scheduler. |
+| [`integrations`](/docs/reference/cli/integrations/) | `list`, `doctor [--offline]`, and GitHub webhook `reconcile`. |
+| [`eval`](/docs/reference/cli/eval/) | `list/run/baseline/compare` for modules under `evals/**/*.eval.ts`. |
 
 Credentials use `SMITHERS_CREDENTIAL_KEY`, a base64-encoded 32-byte host key.
 Supply secrets through `--secret-env` or `--secret-file`; keep the host key
@@ -49502,9 +50243,8 @@ maintenance require the machine that owns the selected workspace.
 
 Incur parses the public CLI using Zod schemas; Effect supplies the execution
 runtime, and Clack supplies live human progress and interactive prompts. `--help` and `--schema`
-describe the installed command. Canonical commands use Incur's `--json` and
-`--format` output; `--format jsonl` is useful for event streams. Compatibility
-aliases retain their earlier output shapes.
+describe the installed command. Canonical commands use Incur's `--format`
+output; `--format jsonl` is useful for event streams.
 
 ### Human and agent output
 
@@ -49516,8 +50256,8 @@ Override with `--audience auto|human|agent` or `SMITHERS_AUDIENCE`.
 where previously supported; use `--silent` across groups. Agents can use
 `--verbose` for plain progress or request
 stored logs with `smthrs runs logs <run-id> --follow --format jsonl`.
-`--json` preserves machine-readable standard output while human progress stays
-on standard error. MCP always remains machine-clean.
+`--format json` keeps standard output machine-readable while human progress
+stays on standard error. MCP always remains machine-clean.
 
 Agent log pulls without `--follow` default to 100 events and incremental JSONL.
 Set `--limit 1..10000` to adjust the page size, then use the returned next command
@@ -49551,18 +50291,30 @@ previews individual local result files; deletion requires `--yes` and leaves
 run databases, remote entries, and artifact blobs alone. `clean` runs
 declared `Clean` targets. `gc --dry-run` previews old terminal-run retention.
 
-## Compatibility
+## Hidden aliases
 
-Flat commands such as `up`, `ls`, `ps`, `status`, `logs`, `output`, `plan`,
-`approve`, `deny`, `cancel`, `signal`, `steer`, and `down` remain hidden
-transition aliases. Approved JSON payloads passed to `run`, and `run --resume`,
-also retain their old handler. Use the canonical groups for new scripts.
-The Claude mirror protocol is hidden as `internal claude`.
+These flat spellings still run but are hidden from help. Use the canonical command.
 
-[`up`](/docs/reference/cli/up/) · [`ls`](/docs/reference/cli/ls/) · [`plan`](/docs/reference/cli/plan/) · [`ps`](/docs/reference/cli/ps/) · [`status`](/docs/reference/cli/status/) · [`logs`](/docs/reference/cli/logs/) · [`output`](/docs/reference/cli/output/) · [`cancel`](/docs/reference/cli/cancel/) · [`down`](/docs/reference/cli/down/) · [`signal`](/docs/reference/cli/signal/) · [`steer`](/docs/reference/cli/steer/) · [`approve`](/docs/reference/cli/approve/) · [`deny`](/docs/reference/cli/deny/).
+| Alias | Canonical command |
+| --- | --- |
+| `up` | `flow start` |
+| `plan` | `flow plan` |
+| `ls` | `flow list` |
+| `run '<approval payload>'` | `flow execute` |
+| `ps` | `runs list` |
+| `status`, `inspect`, `why` | `runs show` |
+| `logs`, `events` | `runs logs` |
+| `output` | `runs output` |
+| `resume`, `run --resume` | `runs resume` |
+| `cancel` | `runs cancel` |
+| `down` | `runs cancel-all` |
+| `signal` | `runs signal` |
+| `steer` | `runs steer` |
+| `approve` | `approvals approve` |
+| `deny` | `approvals deny` |
 
-Ordinary success exits 0; failures and Incur argument errors exit 1. Legacy
-usage errors and explicit confirmation refusals use 2; flows awaiting
+Ordinary success exits 0; failures and Incur argument errors exit 1. Usage
+errors and explicit confirmation refusals use 2; flows awaiting
 approval use 3. Inconclusive evaluations exit 5. Interruption
 and termination use 130 and 143. See [environment variables](/docs/reference/environment-variables/)
 for the control-plane configuration.

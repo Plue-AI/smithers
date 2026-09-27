@@ -479,8 +479,7 @@ manifest declares both under `sideEffects` so a bundler keeps them.
 
 ## Command documentation
 
-The per-verb reference, with arguments, flags, output, and exit codes, is
-generated from the real parser and the release policy and lives on smithers.sh:
-[`smthrs plan`](/cli/plan), [`smthrs run`](/cli/run), [`smthrs up`](/cli/up),
+The per-command reference is generated from `--help` and lives on smithers.sh:
+[`smthrs flow`](/cli/flow), [`smthrs runs`](/cli/runs), [`smthrs run`](/cli/run),
 and the rest. This page documents the library surface used to compose or embed
 that executable.

@@ -39,17 +39,11 @@ const outRoot = join(site, "src", "content", "docs", "docs", "reference")
 
 /**
  * The packages whose `docs/reference/*.md` pages are ingested.
- *
- * `ingest: false` keeps a package's pages colocated only. The CLI verb pages
- * are hand-authored under `reference/cli/` today, so the generated copies
- * stay in `packages/smithers/docs/reference/cli/` until the two are
- * compared (see apps/site/prompts/CLI-DIFF.md).
  */
 const sources = [
-  { package: "packages/smithers/flows/flow", ingest: true },
-  { package: "packages/smithers/flows/engine", ingest: true },
-  { package: "packages/smithers/build/targets", ingest: true },
-  { package: "packages/smithers", ingest: false }
+  { package: "packages/smithers/flows/flow" },
+  { package: "packages/smithers/flows/engine" },
+  { package: "packages/smithers/build/targets" }
 ]
 
 /** The areas this script owns under `reference/`, in sidebar order. */
@@ -253,7 +247,6 @@ const indexEntry = async (directory, file) => {
 const main = async () => {
   const pages = []
   for (const source of sources) {
-    if (!source.ingest) continue
     const directory = join(root, source.package, "docs", "reference")
     if (!(await exists(directory))) continue
     const files = (await readdir(directory)).filter((file) => file.endsWith(".md")).sort()

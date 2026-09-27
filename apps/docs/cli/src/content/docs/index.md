@@ -84,11 +84,8 @@ The verbs group by the job they do:
 
 Smithers 0.x spellings that were removed refuse with one sentence and a
 migration link rather than a parser error, so a script written against 0.x is
-told what replaced each one. The per-verb reference, with arguments, flags,
-output, and exit codes, starts at [`smthrs plan`](https://smithers.sh/docs/reference/cli/plan/). This site carries
-longer pages for the three verbs that start a run, spelling out every exit code
-and every member of the document each one prints: [`smthrs plan`](/reference/cli/plan/),
-[`smthrs run`](/reference/cli/run/), and [`smthrs up`](/reference/cli/up/).
+told what replaced each one. The per-command reference, generated from
+`--help`, is at [smithers.sh/docs/reference/cli](https://smithers.sh/docs/reference/cli/).
 See [the command surface](/concepts/command-surface/) for how the shipped
 list and the removed list are both kept closed.
 

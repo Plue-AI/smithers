@@ -204,39 +204,9 @@ scripts. The Claude mirror protocol is hidden as `internal claude`.
 
 ## Compatibility verb pages
 
-The older flat command pages live at `/cli/<verb>` on smithers.sh. Their
-payload and receipt descriptions remain useful for compatibility scripts;
-the canonical groups above and the installed command's help define new usage.
-
-Start at [the CLI reference index](https://smithers.sh/docs/reference/cli/), or go straight to a verb:
-[`plan`](https://smithers.sh/docs/reference/cli/plan/), [`run`](https://smithers.sh/docs/reference/cli/run/), [`up`](https://smithers.sh/docs/reference/cli/up/),
-[`approve`](https://smithers.sh/docs/reference/cli/approve/), [`deny`](https://smithers.sh/docs/reference/cli/deny/), [`cancel`](https://smithers.sh/docs/reference/cli/cancel/),
-[`signal`](https://smithers.sh/docs/reference/cli/signal/), [`steer`](https://smithers.sh/docs/reference/cli/steer/), [`ls`](https://smithers.sh/docs/reference/cli/ls/),
-[`ps`](https://smithers.sh/docs/reference/cli/ps/), [`status`](https://smithers.sh/docs/reference/cli/status/), [`logs`](https://smithers.sh/docs/reference/cli/logs/),
-[`output`](https://smithers.sh/docs/reference/cli/output/), [`down`](https://smithers.sh/docs/reference/cli/down/), [`serve`](https://smithers.sh/docs/reference/cli/serve/),
-[`init`](https://smithers.sh/docs/reference/cli/init/), [`suggest`](https://smithers.sh/docs/reference/cli/suggest/), [`doctor`](https://smithers.sh/docs/reference/cli/doctor/),
-[`migrate`](https://smithers.sh/docs/reference/cli/migrate/), [`gc`](https://smithers.sh/docs/reference/cli/gc/), [`memory`](https://smithers.sh/docs/reference/cli/memory/),
-[`claude`](https://smithers.sh/docs/reference/cli/claude/), [`mcp`](https://smithers.sh/docs/reference/cli/mcp/), [`update`](https://smithers.sh/docs/reference/cli/update/), and
-[`bug`](https://smithers.sh/docs/reference/cli/bug/).
-
-## Three compatibility verbs in depth
-
-This site carries longer pages for the three verbs that start a run:
-[`smthrs plan`](/reference/cli/plan/), [`smthrs run`](/reference/cli/run/), and
-[`smthrs up`](/reference/cli/up/). They spell out every exit code with the condition that
-produces it, and every member of the document each verb prints, which is what a
-script branches on.
-
-Two of their statements go further than `--help` does, because the parser does
-and the help text does not say so:
-
-`plan` requires a flow id. Omitting it with terminal stdin opens the flow
-picker; with piped stdin it exits 2 and names `flow-id` and `--wizard`.
-`--remote` is a shared global flag, listed under "Global flags" on these pages.
-
-They are not ingested into smithers.sh. When one of these pages and the
-smithers.sh page for the same verb disagree, the smithers.sh page is the one to
-follow, because it is the one the binary generates.
+Every canonical command has a page generated from its `--help` at
+[smithers.sh/docs/reference/cli](https://smithers.sh/docs/reference/cli/), with
+the hidden-alias table.
 
 ## Other reference
 

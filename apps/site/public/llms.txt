@@ -161,31 +161,46 @@
 - [MCP tools](https://smithers.sh/docs/reference/mcp-tools/): Discover and call the Smithers command tree through its stdio MCP server.
 - [Project layout](https://smithers.sh/docs/reference/project-layout/): The files of a Smithers project: flows/ sources, .flows/ run state, and the root resolution rules.
 - [Smithers Cloud CI](https://smithers.sh/docs/reference/cloud-ci/): The backend workflow service's dispatch, sandbox execution, caches, artifacts, and completion results.
-- [smthrs approve](https://smithers.sh/docs/reference/cli/approve/): Approve the complete serialized approval payload
+- [smthrs affected](https://smithers.sh/docs/reference/cli/affected/): Execute targets affected by changed files, conservatively including ambient inputs
 - [smthrs bug](https://smithers.sh/docs/reference/cli/bug/): Report a bug with a run digest attached
-- [smthrs cancel](https://smithers.sh/docs/reference/cli/cancel/): Cancel a durable run
-- [smthrs claude](https://smithers.sh/docs/reference/cli/claude/): Claude Code plugin mirror protocol
-- [smthrs deny](https://smithers.sh/docs/reference/cli/deny/): Deny the complete serialized approval payload
+- [smthrs build](https://smithers.sh/docs/reference/cli/build/): Execute the build targets selected by a pattern
+- [smthrs cache](https://smithers.sh/docs/reference/cli/cache/): Inspect and maintain local action-result caches
+- [smthrs ci](https://smithers.sh/docs/reference/cli/ci/): Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set
+- [smthrs clean](https://smithers.sh/docs/reference/cli/clean/): Execute only declared Clean targets selected by the patterns
+- [smthrs create-app](https://smithers.sh/docs/reference/cli/create-app/): Scaffold a Smithers app from a @smthrs/create-app template
+- [smthrs credentials](https://smithers.sh/docs/reference/cli/credentials/): Manage encrypted local credentials without printing secret values
+- [smthrs docs](https://smithers.sh/docs/reference/cli/docs/): Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
 - [smthrs doctor](https://smithers.sh/docs/reference/cli/doctor/): Report registry, database, runtime, and provider readiness
-- [smthrs down](https://smithers.sh/docs/reference/cli/down/): Cancel every non-terminal run
+- [smthrs eval](https://smithers.sh/docs/reference/cli/eval/): Run fixed evaluation suites and compare committed score baselines
+- [smthrs explain](https://smithers.sh/docs/reference/cli/explain/): Explain a target's actual planned cache key and local cache state
 - [smthrs gc](https://smithers.sh/docs/reference/cli/gc/): Delete terminal runs older than a threshold, with the rows they own
+- [smthrs generate](https://smithers.sh/docs/reference/cli/generate/): Scaffold apps, flows, packages, and CI configuration
+- [smthrs git-hooks](https://smithers.sh/docs/reference/cli/git-hooks/): Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
+- [smthrs graph](https://smithers.sh/docs/reference/cli/graph/): Print the target graph without executing it
+- [smthrs index](https://smithers.sh/docs/reference/cli/index-command/): List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
+- [smthrs info](https://smithers.sh/docs/reference/cli/info/): Report workspace and host configuration for diagnosis
 - [smthrs init](https://smithers.sh/docs/reference/cli/init/): Initialize target declarations and a starter durable flow while preserving existing files.
-- [smthrs logs](https://smithers.sh/docs/reference/cli/logs/): Read run events; --follow streams future events
-- [smthrs ls](https://smithers.sh/docs/reference/cli/ls/): List the flows discovered under this project
+- [smthrs install](https://smithers.sh/docs/reference/cli/install/): Plan and execute the install Flow under the toolchain the workspace declares
+- [smthrs integrations](https://smithers.sh/docs/reference/cli/integrations/): Inspect configured provider adapters and reconcile declared GitHub webhooks
+- [smthrs lint](https://smithers.sh/docs/reference/cli/lint/): Execute the lint targets selected by a pattern
 - [smthrs mcp](https://smithers.sh/docs/reference/cli/mcp/): Register the generated Smithers command surface with an MCP client.
 - [smthrs memory](https://smithers.sh/docs/reference/cli/memory/): Persistent facts, notes, recall, and conversation history in the control database.
 - [smthrs migrate](https://smithers.sh/docs/reference/cli/migrate/): Convert a Smithers 0.x project to the 1.0 authoring model
-- [smthrs output](https://smithers.sh/docs/reference/cli/output/): Print one registered node output
-- [smthrs plan](https://smithers.sh/docs/reference/cli/plan/): Render a flow plan and its complete approval payload
-- [smthrs ps](https://smithers.sh/docs/reference/cli/ps/): List durable runs
-- [smthrs run](https://smithers.sh/docs/reference/cli/run/): Execute run-kind targets from the workspace graph.
+- [smthrs open](https://smithers.sh/docs/reference/cli/open/): Open this checkout's repository in the Smithers app; `smthrs .` is the same
+- [smthrs owners](https://smithers.sh/docs/reference/cli/owners/): Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches
+- [smthrs query](https://smithers.sh/docs/reference/cli/query/): List labels or evaluate deps(label), rdeps(label), or owners(label)
+- [smthrs review](https://smithers.sh/docs/reference/cli/review/): Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent)
+- [smthrs run](https://smithers.sh/docs/reference/cli/run/): Execute run targets selected by a pattern
 - [smthrs serve](https://smithers.sh/docs/reference/cli/serve/): Host the control server and durable trigger scheduler for this project.
-- [smthrs signal](https://smithers.sh/docs/reference/cli/signal/): Deliver a durable JSON signal to a run
-- [smthrs status](https://smithers.sh/docs/reference/cli/status/): Show the diagnosis card for one run, or the run listing
-- [smthrs steer](https://smithers.sh/docs/reference/cli/steer/): Send a durable, attributed steering message to a run
+- [smthrs show](https://smithers.sh/docs/reference/cli/show/): Inspect targets and workspace configuration
 - [smthrs suggest](https://smithers.sh/docs/reference/cli/suggest/): Read the project, stream the ways Smithers can help, and implement the one you pick
-- [smthrs up](https://smithers.sh/docs/reference/cli/up/): Plan, approve, and run one flow; -d launches it detached
+- [smthrs target](https://smithers.sh/docs/reference/cli/target/): Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)
+- [smthrs targets](https://smithers.sh/docs/reference/cli/targets/): List available targets with their kinds and summaries
+- [smthrs test](https://smithers.sh/docs/reference/cli/test/): Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set
+- [smthrs triggers](https://smithers.sh/docs/reference/cli/triggers/): Manage durable schedules and manually queued occurrences
+- [smthrs tui](https://smithers.sh/docs/reference/cli/tui/): Open the terminal coding agent
 - [smthrs update](https://smithers.sh/docs/reference/cli/update/): Check npm for a newer @smthrs/cli
+- [smthrs watch](https://smithers.sh/docs/reference/cli/watch/): Replan and rerun a target graph when workspace files change
 - [Subpackages](https://smithers.sh/docs/reference/subpackages/): Smithers ships as many small packages rather than one. What each one is, a minimal example of using it, and where its documentation lives.
 - [The smthrs command](https://smithers.sh/docs/reference/cli/): Target execution, durable flows, run control, and operator commands in one CLI.
 - [Triggers](https://smithers.sh/docs/reference/triggers/): The shipped trigger declaration, its CLI verbs, scheduler behavior, and fire ledger, followed by the planned repository-event selector API marked as unshipped.

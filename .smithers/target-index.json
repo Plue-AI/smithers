@@ -7946,7 +7946,7 @@
     ],
     "outputs": [
       "apps/site/src/content/docs/docs/migration/1.0.mdx",
-      "apps/site/src/content/docs/docs/reference/cli/index.mdx",
+      "apps/site/src/content/docs/docs/reference/cli/*.mdx",
       "apps/site/src/data/cli-commands.json",
       "apps/site/src/data/help/**",
       "apps/site/src/data/removed-commands.json",
@@ -9850,6 +9850,14 @@
       {
         "kind": "file",
         "path": "apps/tui/src/replay.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/run.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/runtime-version.ts"
       },
       {
         "kind": "file",
@@ -37312,116 +37320,6 @@
       {
         "kind": "file",
         "path": "eslint.jsdoc.js"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "packages/smithers/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers:referenceCliPlan",
-    "package": "packages/smithers",
-    "name": "referenceCliPlan",
-    "rule": "Agent.Diff",
-    "kinds": [
-      "run"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "apps/site/prompts/reference-cli-verb.md"
-      },
-      {
-        "kind": "file",
-        "path": "apps/site/prompts/reference-style.md"
-      }
-    ],
-    "outputs": [
-      "packages/smithers/docs/reference/cli/plan.md"
-    ],
-    "dependencies": [
-      "//packages/smithers:check",
-      "//packages/smithers:docsSources"
-    ],
-    "source": {
-      "file": "packages/smithers/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers:referenceCliRun",
-    "package": "packages/smithers",
-    "name": "referenceCliRun",
-    "rule": "Agent.Diff",
-    "kinds": [
-      "run"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "apps/site/prompts/reference-cli-verb.md"
-      },
-      {
-        "kind": "file",
-        "path": "apps/site/prompts/reference-style.md"
-      }
-    ],
-    "outputs": [
-      "packages/smithers/docs/reference/cli/run.md"
-    ],
-    "dependencies": [
-      "//packages/smithers:check",
-      "//packages/smithers:docsSources"
-    ],
-    "source": {
-      "file": "packages/smithers/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers:referenceCliUp",
-    "package": "packages/smithers",
-    "name": "referenceCliUp",
-    "rule": "Agent.Diff",
-    "kinds": [
-      "run"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "apps/site/prompts/reference-cli-verb.md"
-      },
-      {
-        "kind": "file",
-        "path": "apps/site/prompts/reference-style.md"
-      }
-    ],
-    "outputs": [
-      "packages/smithers/docs/reference/cli/up.md"
-    ],
-    "dependencies": [
-      "//packages/smithers:check",
-      "//packages/smithers:docsSources"
-    ],
-    "source": {
-      "file": "packages/smithers/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//packages/smithers:referencePages",
-    "package": "packages/smithers",
-    "name": "referencePages",
-    "rule": "Filegroup",
-    "kinds": [],
-    "cacheable": true,
-    "inputs": [
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/docs/reference/cli/*.md",
-        "exclude": []
       }
     ],
     "outputs": [],

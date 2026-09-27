@@ -15,49 +15,49 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 
 | Command | Purpose |
 | --- | --- |
-| `affected` | Execute targets affected by changed files, conservatively including ambient inputs |
-| `approvals` | Find and resolve pending approval requests |
-| `bug` | Submit a redacted bug report to the configured endpoint |
-| `build` | Execute the build targets selected by a pattern |
-| `cache` | Inspect and maintain local action-result caches |
-| `ci` | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
-| `clean` | Execute only declared Clean targets selected by the patterns |
-| `create-app` | Scaffold a Smithers app from a @smthrs/create-app template |
-| `credentials` | Manage encrypted local credentials without printing secret values |
-| `docs` | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
-| `doctor` | Check project discovery, providers, tools, and durable-state compatibility |
-| `eval` | Run fixed evaluation suites and compare committed score baselines |
-| `explain` | Explain a target's actual planned cache key and local cache state |
-| `flow` | Discover, plan, and start durable flows |
-| `gc` | Collect old terminal runs and compact their journals; separate from target caches |
-| `generate` | Scaffold apps, flows, packages, and CI configuration |
-| `git-hooks` | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
-| `graph` | Print the target graph without executing it |
-| `index` | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
-| `info` | Report workspace and host configuration for diagnosis |
-| `init` | Initialize workspace and target declarations plus a starter flow, preserving existing files |
-| `install` | Plan and execute the install Flow under the toolchain the workspace declares |
-| `integrations` | Inspect configured provider adapters and reconcile declared GitHub webhooks |
-| `lint` | Execute the lint targets selected by a pattern |
-| `mcp` | Register the Smithers MCP server with an agent |
-| `memory` | Durable facts, notes, recall, and conversation history |
-| `migrate` | Inventory, plan, or apply the 0.x-to-1.x source migration |
-| `open` | Open this checkout's repository in the Smithers app; `smthrs .` is the same |
-| `owners` | Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches |
-| `query` | List labels or evaluate deps(label), rdeps(label), or owners(label) |
-| `review` | Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent) |
-| `run` | Execute run targets selected by a pattern |
-| `runs` | Inspect and control durable execution records |
-| `serve` | Host the control gateway and durable trigger scheduler |
-| `show` | Inspect targets and workspace configuration |
-| `suggest` | Discover ways Smithers can help; interactively choose one to implement |
-| `target` | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
-| `targets` | List available targets with their kinds and summaries |
-| `test` | Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set |
-| `triggers` | Manage durable schedules and manually queued occurrences |
-| `tui` | Open the terminal coding agent |
-| `update` | Check the registry for newer CLI versions; does not install them |
-| `watch` | Replan and rerun a target graph when workspace files change |
+| [`affected`](/docs/reference/cli/affected/) | Execute targets affected by changed files, conservatively including ambient inputs |
+| [`approvals`](/docs/reference/cli/approvals/) | Find and resolve pending approval requests |
+| [`bug`](/docs/reference/cli/bug/) | Submit a redacted bug report to the configured endpoint |
+| [`build`](/docs/reference/cli/build/) | Execute the build targets selected by a pattern |
+| [`cache`](/docs/reference/cli/cache/) | Inspect and maintain local action-result caches |
+| [`ci`](/docs/reference/cli/ci/) | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
+| [`clean`](/docs/reference/cli/clean/) | Execute only declared Clean targets selected by the patterns |
+| [`create-app`](/docs/reference/cli/create-app/) | Scaffold a Smithers app from a @smthrs/create-app template |
+| [`credentials`](/docs/reference/cli/credentials/) | Manage encrypted local credentials without printing secret values |
+| [`docs`](/docs/reference/cli/docs/) | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
+| [`doctor`](/docs/reference/cli/doctor/) | Check project discovery, providers, tools, and durable-state compatibility |
+| [`eval`](/docs/reference/cli/eval/) | Run fixed evaluation suites and compare committed score baselines |
+| [`explain`](/docs/reference/cli/explain/) | Explain a target's actual planned cache key and local cache state |
+| [`flow`](/docs/reference/cli/flow/) | Discover, plan, and start durable flows |
+| [`gc`](/docs/reference/cli/gc/) | Collect old terminal runs and compact their journals; separate from target caches |
+| [`generate`](/docs/reference/cli/generate/) | Scaffold apps, flows, packages, and CI configuration |
+| [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
+| [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
+| [`index`](/docs/reference/cli/index-command/) | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
+| [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
+| [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |
+| [`install`](/docs/reference/cli/install/) | Plan and execute the install Flow under the toolchain the workspace declares |
+| [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters and reconcile declared GitHub webhooks |
+| [`lint`](/docs/reference/cli/lint/) | Execute the lint targets selected by a pattern |
+| [`mcp`](/docs/reference/cli/mcp/) | Register the Smithers MCP server with an agent |
+| [`memory`](/docs/reference/cli/memory/) | Durable facts, notes, recall, and conversation history |
+| [`migrate`](/docs/reference/cli/migrate/) | Inventory, plan, or apply the 0.x-to-1.x source migration |
+| [`open`](/docs/reference/cli/open/) | Open this checkout's repository in the Smithers app; `smthrs .` is the same |
+| [`owners`](/docs/reference/cli/owners/) | Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches |
+| [`query`](/docs/reference/cli/query/) | List labels or evaluate deps(label), rdeps(label), or owners(label) |
+| [`review`](/docs/reference/cli/review/) | Execute the model-review targets selected by a pattern (needs the engine CLI; skips where it is absent) |
+| [`run`](/docs/reference/cli/run/) | Execute run targets selected by a pattern |
+| [`runs`](/docs/reference/cli/runs/) | Inspect and control durable execution records |
+| [`serve`](/docs/reference/cli/serve/) | Host the control gateway and durable trigger scheduler |
+| [`show`](/docs/reference/cli/show/) | Inspect targets and workspace configuration |
+| [`suggest`](/docs/reference/cli/suggest/) | Discover ways Smithers can help; interactively choose one to implement |
+| [`target`](/docs/reference/cli/target/) | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
+| [`targets`](/docs/reference/cli/targets/) | List available targets with their kinds and summaries |
+| [`test`](/docs/reference/cli/test/) | Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set |
+| [`triggers`](/docs/reference/cli/triggers/) | Manage durable schedules and manually queued occurrences |
+| [`tui`](/docs/reference/cli/tui/) | Open the terminal coding agent |
+| [`update`](/docs/reference/cli/update/) | Check the registry for newer CLI versions; does not install them |
+| [`watch`](/docs/reference/cli/watch/) | Replan and rerun a target graph when workspace files change |
 
 {/* generated:cli-commands end */}
 
@@ -68,7 +68,7 @@ against the working tree, including untracked files; `--base`, `--head`, and
 `--files` select other inputs. Ambient configuration changes conservatively
 select more work.
 
-Top-level [`run`](/docs/reference/cli/run/) executes run-kind targets.
+Top-level [`run`](/docs/reference/cli/run/) executes run-kind targets, not flows.
 `flow start` plans, approves, and starts a durable flow; `flow execute`
 submits a previously approved plan. `runs resume` re-drives a parked run.
 
@@ -77,10 +77,10 @@ submits a previously approved plan. `runs resume` re-drives a parked run.
 | Group | Available commands |
 | --- | --- |
 | [`memory`](/docs/reference/cli/memory/) | `list/get/set/rm`, `recall`, `notes list/get/add/status/supersede`, `threads list/create/show/rm`, `messages list/add`, `compact`. |
-| `credentials` | `list/add/rotate/revoke`; only references appear in output. |
-| `triggers` | `list/show/register/enable/disable/fire/serve`; `fire` queues an occurrence for a running scheduler. |
-| `integrations` | `list`, `doctor [--offline]`, and GitHub webhook `reconcile`. |
-| `eval` | `list/run/baseline/compare` for modules under `evals/**/*.eval.ts`. |
+| [`credentials`](/docs/reference/cli/credentials/) | `list/add/rotate/revoke`; only references appear in output. |
+| [`triggers`](/docs/reference/cli/triggers/) | `list/show/register/enable/disable/fire/serve`; `fire` queues an occurrence for a running scheduler. |
+| [`integrations`](/docs/reference/cli/integrations/) | `list`, `doctor [--offline]`, and GitHub webhook `reconcile`. |
+| [`eval`](/docs/reference/cli/eval/) | `list/run/baseline/compare` for modules under `evals/**/*.eval.ts`. |
 
 Credentials use `SMITHERS_CREDENTIAL_KEY`, a base64-encoded 32-byte host key.
 Supply secrets through `--secret-env` or `--secret-file`; keep the host key
@@ -110,9 +110,8 @@ maintenance require the machine that owns the selected workspace.
 
 Incur parses the public CLI using Zod schemas; Effect supplies the execution
 runtime, and Clack supplies live human progress and interactive prompts. `--help` and `--schema`
-describe the installed command. Canonical commands use Incur's `--json` and
-`--format` output; `--format jsonl` is useful for event streams. Compatibility
-aliases retain their earlier output shapes.
+describe the installed command. Canonical commands use Incur's `--format`
+output; `--format jsonl` is useful for event streams.
 
 ### Human and agent output
 
@@ -124,8 +123,8 @@ Override with `--audience auto|human|agent` or `SMITHERS_AUDIENCE`.
 where previously supported; use `--silent` across groups. Agents can use
 `--verbose` for plain progress or request
 stored logs with `smthrs runs logs <run-id> --follow --format jsonl`.
-`--json` preserves machine-readable standard output while human progress stays
-on standard error. MCP always remains machine-clean.
+`--format json` keeps standard output machine-readable while human progress
+stays on standard error. MCP always remains machine-clean.
 
 Agent log pulls without `--follow` default to 100 events and incremental JSONL.
 Set `--limit 1..10000` to adjust the page size, then use the returned next command
@@ -159,18 +158,30 @@ previews individual local result files; deletion requires `--yes` and leaves
 run databases, remote entries, and artifact blobs alone. `clean` runs
 declared `Clean` targets. `gc --dry-run` previews old terminal-run retention.
 
-## Compatibility
+## Hidden aliases
 
-Flat commands such as `up`, `ls`, `ps`, `status`, `logs`, `output`, `plan`,
-`approve`, `deny`, `cancel`, `signal`, `steer`, and `down` remain hidden
-transition aliases. Approved JSON payloads passed to `run`, and `run --resume`,
-also retain their old handler. Use the canonical groups for new scripts.
-The Claude mirror protocol is hidden as `internal claude`.
+These flat spellings still run but are hidden from help. Use the canonical command.
 
-[`up`](/docs/reference/cli/up/) · [`ls`](/docs/reference/cli/ls/) · [`plan`](/docs/reference/cli/plan/) · [`ps`](/docs/reference/cli/ps/) · [`status`](/docs/reference/cli/status/) · [`logs`](/docs/reference/cli/logs/) · [`output`](/docs/reference/cli/output/) · [`cancel`](/docs/reference/cli/cancel/) · [`down`](/docs/reference/cli/down/) · [`signal`](/docs/reference/cli/signal/) · [`steer`](/docs/reference/cli/steer/) · [`approve`](/docs/reference/cli/approve/) · [`deny`](/docs/reference/cli/deny/).
+| Alias | Canonical command |
+| --- | --- |
+| `up` | `flow start` |
+| `plan` | `flow plan` |
+| `ls` | `flow list` |
+| `run '<approval payload>'` | `flow execute` |
+| `ps` | `runs list` |
+| `status`, `inspect`, `why` | `runs show` |
+| `logs`, `events` | `runs logs` |
+| `output` | `runs output` |
+| `resume`, `run --resume` | `runs resume` |
+| `cancel` | `runs cancel` |
+| `down` | `runs cancel-all` |
+| `signal` | `runs signal` |
+| `steer` | `runs steer` |
+| `approve` | `approvals approve` |
+| `deny` | `approvals deny` |
 
-Ordinary success exits 0; failures and Incur argument errors exit 1. Legacy
-usage errors and explicit confirmation refusals use 2; flows awaiting
+Ordinary success exits 0; failures and Incur argument errors exit 1. Usage
+errors and explicit confirmation refusals use 2; flows awaiting
 approval use 3. Inconclusive evaluations exit 5. Interruption
 and termination use 130 and 143. See [environment variables](/docs/reference/environment-variables/)
 for the control-plane configuration.

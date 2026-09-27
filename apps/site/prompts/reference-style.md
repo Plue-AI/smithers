@@ -1,7 +1,7 @@
 # Reference page style
 
 This rubric is shared by every reference writer prompt (`reference-package.md`,
-`reference-cli-verb.md`, `reference-target-rule.md`). Those prompts say what a
+`reference-target-rule.md`). Those prompts say what a
 page contains; this file says how every reference page reads and what must be
 true before one ships. A page that breaks a rule here fails its gate.
 

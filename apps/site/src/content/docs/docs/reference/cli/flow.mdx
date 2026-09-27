@@ -29,11 +29,15 @@ Compiles a plan and returns its approval payload without executing the flow. Inp
 
 <Code lang="text" code={planHelp} />
 
+The plan card carries `planId`, `flowId`, `digest` (what every later approval binds to), `inputSummary`, `envelope` (capabilities, flow, and budget), `deployClass`, one `nodes` entry per keyed node with status `cached` or `run`, and `approval`, the serialized payload the decision commands take.
+
 ## start
 
 Plans, approves with run scope, and launches a flow. A local attached invocation waits for settlement or a parked state. `--detached` returns after the local child confirms durable admission; a remote launch has no local child and refuses detachment.
 
 <Code lang="text" code={startHelp} />
+
+Detached, it prints `{"detached":true,"logFile":"<project>/.flows/logs/<runId>.log","runId":"<runId>"}` once the child is admitted. `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` (default 30000) bounds the wait for admission.
 
 A start is a launch path. To continue an existing execution, use `runs resume`.
 
