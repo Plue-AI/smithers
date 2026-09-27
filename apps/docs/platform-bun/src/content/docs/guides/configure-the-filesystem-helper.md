@@ -82,12 +82,12 @@ BunHost.AtomicFileSystem.layerWith({ executable, concurrency, timeoutMs })
 
 `BunFileSystem.Options` is `AtomicFileSystem.Options`:
 
-| Field         | Meaning                                                                                                     |
-| ------------- | ----------------------------------------------------------------------------------------------------------- |
-| `executable`  | The absolute `smithers-jj-export` path. Default: the search above. Re-validated per request.                |
-| `concurrency` | How many helper processes may run at once. A contract, not a tuning knob: every operation is one process.   |
-| `timeoutMs`   | How long one helper may run before it is killed and the operation fails closed.                             |
-| `limits`      | The byte ceilings the helper enforces on the values it moves.                                               |
+| Field         | Meaning                                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------------------------- |
+| `executable`  | The absolute `smithers-jj-export` path. Default: the search above. Re-validated per request.              |
+| `concurrency` | How many helper processes may run at once. A contract, not a tuning knob: every operation is one process. |
+| `timeoutMs`   | How long one helper may run before it is killed and the operation fails closed.                           |
+| `limits`      | The byte ceilings the helper enforces on the values it moves.                                             |
 
 `concurrency` exists because an unbounded `Effect.forEach` over a directory
 would start one helper per entry and pin every core. Raise it deliberately.

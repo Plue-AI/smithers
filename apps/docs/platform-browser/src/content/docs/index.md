@@ -35,8 +35,6 @@ that resolves it.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
-
 [Installation](/installation/) covers which backend each adapter needs,
 and the `effect` version the peer dependency pins.
 

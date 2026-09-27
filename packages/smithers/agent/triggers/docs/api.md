@@ -29,8 +29,13 @@ for how to get it.
 import * as Trigger from "@smthrs/triggers/Trigger"
 
 const nightly = Trigger.make({
-  id: "nightly-report", flowId: "reports/nightly", input: { channel: "#ops" },
-  cron: "0 3 * * *", timezone: "UTC", overlap: "skip", enabled: true
+  id: "nightly-report",
+  flowId: "reports/nightly",
+  input: { channel: "#ops" },
+  cron: "0 3 * * *",
+  timezone: "UTC",
+  overlap: "skip",
+  enabled: true
 })
 ```
 

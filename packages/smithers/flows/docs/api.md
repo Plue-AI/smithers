@@ -34,10 +34,24 @@ import { Action, Flow, Interpreter } from "@smthrs/flows"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import { Effect, Layer, Schema } from "effect"
 const Greet = Action.make("demo/Greet", { payload: { name: Schema.String }, success: Schema.String })
-const Hello = Flow.make("demo/Hello", { payload: { name: Schema.String }, success: Schema.String, body: (payload) => Greet.call(payload) })
-const code = Interpreter.layer(Hello).pipe(Layer.provideMerge(Greet.toLayer(({ name }) => Effect.succeed(`hi ${name}`))), Layer.provideMerge(Action.layerImplementations))
-const host = NodeRuntime.layerHost({ filename: ".flows/engine.db", workspaceRoot: ".", owner: { hostId: "demo" } }, code)
-console.log(await Effect.runPromise(Hello.execute({ name: "ada" }, { executionId: "demo-1" }).pipe(Effect.provide(host), Effect.scoped)))
+const Hello = Flow.make("demo/Hello", {
+  payload: { name: Schema.String },
+  success: Schema.String,
+  body: (payload) => Greet.call(payload)
+})
+const code = Interpreter.layer(Hello).pipe(
+  Layer.provideMerge(Greet.toLayer(({ name }) => Effect.succeed(`hi ${name}`))),
+  Layer.provideMerge(Action.layerImplementations)
+)
+const host = NodeRuntime.layerHost(
+  { filename: ".flows/engine.db", workspaceRoot: ".", owner: { hostId: "demo" } },
+  code
+)
+console.log(
+  await Effect.runPromise(
+    Hello.execute({ name: "ada" }, { executionId: "demo-1" }).pipe(Effect.provide(host), Effect.scoped)
+  )
+)
 ```
 
 ## The barrel

@@ -16,7 +16,14 @@ import * as CacheStore from "@smthrs/step-cache/CacheStore"
 import * as TestCacheStore from "@smthrs/step-cache/test/TestCacheStore"
 const cached = Effect.gen(function*() {
   const cache = yield* CacheStore.CacheStore
-  yield* cache.put({ keyDigest: "compile-v1", result: { bytes: 41_022 }, meta: {}, createdAtMs: Date.now(), recordedRunId: "run-a", recordedEventSeq: 7 })
+  yield* cache.put({
+    keyDigest: "compile-v1",
+    result: { bytes: 41_022 },
+    meta: {},
+    createdAtMs: Date.now(),
+    recordedRunId: "run-a",
+    recordedEventSeq: 7
+  })
   return yield* cache.get("compile-v1")
 }).pipe(Effect.provide(TestCacheStore.layer))
 ```

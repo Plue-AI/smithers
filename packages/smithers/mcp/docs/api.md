@@ -31,7 +31,11 @@ import * as McpFlows from "@smthrs/mcp/McpFlows"
 import { Effect } from "effect"
 
 const program = Effect.scoped(Effect.gen(function*() {
-  const source = yield* McpFlows.connected({ server: "github", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] })
+  const source = yield* McpFlows.connected({
+    server: "github",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-github"]
+  })
   return yield* source.bindings()
 }))
 ```

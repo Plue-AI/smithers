@@ -12,8 +12,8 @@ what happened to it?".
 
 | Receipt          | Meaning                                                                                 |
 | ---------------- | --------------------------------------------------------------------------------------- |
-| `Accepted`       | This call admitted the mutation. Carries `receiptId`, and `runId` when a run exists.             |
-| `AlreadyApplied` | An earlier call under this key admitted the mutation. Carries the same `runId`.      |
+| `Accepted`       | This call admitted the mutation. Carries `receiptId`, and `runId` when a run exists.    |
+| `AlreadyApplied` | An earlier call under this key admitted the mutation. Carries the same `runId`.         |
 | `Parked`         | The plan is waiting for an approval. Carries `planId` and `status: "waiting-approval"`. |
 | `Conflict`       | The key names a different intent than the one it was first used for. Carries a message. |
 | `Terminal`       | The run had already settled. Carries `runId` and the status it settled with.            |

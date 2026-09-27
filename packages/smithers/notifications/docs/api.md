@@ -21,7 +21,12 @@ import { NotificationQueue } from "@smthrs/notifications"
 
 const deliver = Effect.gen(function*() {
   const queue = yield* NotificationQueue.NotificationQueue
-  const receipt = yield* queue.drain({ runId: "run-1", targetLineageId: "run-1/root", boundary: "turn-1", wouldIdle: true })
+  const receipt = yield* queue.drain({
+    runId: "run-1",
+    targetLineageId: "run-1/root",
+    boundary: "turn-1",
+    wouldIdle: true
+  })
   return receipt.notifications
 }).pipe(Effect.provide(NotificationQueue.layer))
 ```

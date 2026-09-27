@@ -34,8 +34,6 @@ that resolves it.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
-
 [Installation](./installation.md) covers which backend each adapter needs,
 and the `effect` version the peer dependency pins.
 

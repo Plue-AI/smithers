@@ -112,7 +112,7 @@ The root entry point exports these namespaces, and each is also importable from
 | `Overlap`         | The pure decision for an occurrence that arrives while a run is in flight.                   |
 | `CatchUp`         | The pure computation of what a trigger owes after downtime, bounded by its declaration.      |
 | `TriggerStore`    | The durable state contract: registration, listing, the claim protocol, and results.          |
-| `SqlTriggerStore` | The SQLite and PostgreSQL implementation of that contract, with its own migrations.                         |
+| `SqlTriggerStore` | The SQLite and PostgreSQL implementation of that contract, with its own migrations.          |
 | `Scheduler`       | The Clock-driven poller, and the `Runner` port it launches through.                          |
 | `DispatchReader`  | The `@smthrs/control` read port served from a store: trigger summaries and the fire ledger.  |
 | `Channel`         | The authority-free inbound channel declaration: verify, then map to a start or a signal.     |

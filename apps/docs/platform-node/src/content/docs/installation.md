@@ -52,12 +52,12 @@ The package ships ESM, CommonJS, and TypeScript declarations.
 
 ## Host requirements
 
-| Requirement                                        | Why it is needed                                                                                          |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Node.js 26.4.0 or later                            | the minimum this package's `engines` field declares                                                       |
-| a POSIX host                                       | Windows has none of the primitives below and is unsupported                                               |
-| the `smithers-jj-export` helper                    | `AtomicFileSystem` runs every guarded filesystem operation through it                                     |
-| `jj` 0.39.0 or newer on `PATH`                     | required at construction by every complete `NodeHost` layer                                               |
+| Requirement                     | Why it is needed                                                      |
+| ------------------------------- | --------------------------------------------------------------------- |
+| Node.js 26.4.0 or later         | the minimum this package's `engines` field declares                   |
+| a POSIX host                    | Windows has none of the primitives below and is unsupported           |
+| the `smithers-jj-export` helper | `AtomicFileSystem` runs every guarded filesystem operation through it |
+| `jj` 0.39.0 or newer on `PATH`  | required at construction by every complete `NodeHost` layer           |
 
 ### jj is checked at construction
 

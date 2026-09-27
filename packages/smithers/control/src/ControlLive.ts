@@ -25,7 +25,7 @@ import {
   type ControlError,
   type EnvelopeMismatch,
   InvalidInput,
-  LaunchFailed,
+  type LaunchFailed,
   NoMatchingWait,
   PersistenceError,
   type PlanDenied,
@@ -1361,23 +1361,32 @@ export const layer: Layer.Layer<
           if (receipt._tag === "Accepted" && admitted !== undefined) {
             const launch = admitted
             const acceptance = Option.isSome(executor)
-              ? yield* executor.value.launch(launch).pipe(Effect.tapError((error) =>
-                settleUnlaunched(error.runId, error.message)
-              ))
+              ? yield* executor.value.launch(launch).pipe(
+                Effect.tapError((error) => settleUnlaunched(error.runId, error.message))
+              )
               : "pending"
-            yield* transact("run.acceptance", Effect.gen(function*() {
-              // A fast executor may already have completed or parked. Never
-              // regress its durable outcome with the launch acknowledgment.
-              const current = yield* runtime.getRun(launch.run.runId)
-              if (current.status !== "accepted") return
-              const fence = yield* runtime.claimFence(current.runId)
-              const run = acceptance === "accepted"
-                ? yield* runtime.writeStatus(current.runId, fence, "running")
-                : yield* runtime.releasePending(current.runId, fence)
-              yield* emit(run.runId, acceptance === "accepted" ? "control.run.running" : "control.run.pending", {
-                runId: run.runId, status: run.status, ...ControlFacts.runFact(run)
-              } as ControlEvent["payload"])
-            }))
+            yield* transact(
+              "run.acceptance",
+              Effect.gen(function*() {
+                // A fast executor may already have completed or parked. Never
+                // regress its durable outcome with the launch acknowledgment.
+                const current = yield* runtime.getRun(launch.run.runId)
+                if (current.status !== "accepted") return
+                const fence = yield* runtime.claimFence(current.runId)
+                const run = acceptance === "accepted"
+                  ? yield* runtime.writeStatus(current.runId, fence, "running")
+                  : yield* runtime.releasePending(current.runId, fence)
+                yield* emit(
+                  run.runId,
+                  acceptance === "accepted" ? "control.run.running" : "control.run.pending",
+                  {
+                    runId: run.runId,
+                    status: run.status,
+                    ...ControlFacts.runFact(run)
+                  } as ControlEvent["payload"]
+                )
+              })
+            )
           }
           return receipt
         })

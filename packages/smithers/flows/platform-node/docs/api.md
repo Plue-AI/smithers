@@ -42,11 +42,11 @@ use the selected process runner.
 
 ## Requirements
 
-| Requirement                                        | Why                                                                                                       |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Node.js >=26.4.0                                   | the minimum this package's `engines` field declares                                                       |
-| the `smithers-jj-export` helper                    | `AtomicFileSystem` runs every guarded filesystem operation through it                                     |
-| a POSIX host                                       | Windows has none of those primitives and is unsupported                                                   |
+| Requirement                     | Why                                                                   |
+| ------------------------------- | --------------------------------------------------------------------- |
+| Node.js >=26.4.0                | the minimum this package's `engines` field declares                   |
+| the `smithers-jj-export` helper | `AtomicFileSystem` runs every guarded filesystem operation through it |
+| a POSIX host                    | Windows has none of those primitives and is unsupported               |
 
 The helper is a real prerequisite, not a soft one, and it fails LATE by
 design. `NodeHost.layer` builds cleanly on a host without it, because the

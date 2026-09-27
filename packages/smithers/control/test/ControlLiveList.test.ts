@@ -898,24 +898,42 @@ describe("ControlLive executor acceptance", () => {
 
   it("keeps the executor refusal and admission when failure settlement cannot be saved", async () => {
     let refused = false
-    const runtime = Layer.effect(ControlRuntime, Effect.map(ControlRuntime, service => ({
-      ...service,
-      claimFence: (id: string) => refused
-        ? Effect.fail(new PersistenceError({ operation: "settle refusal", message: "storage refused" }))
-        : service.claimFence(id)
-    }))).pipe(Layer.provide(memoryRuntime({ flows })))
-    const observed = await run(Effect.gen(function*() {
-      const control = yield* Control
-      const card = yield* control.plan({ flowId: "system/test", input: {} })
-      yield* control.approve({ ...card.approval, idempotencyKey: "approve:refused-settlement" })
-      const input = { _tag: "Plan" as const, planId: card.planId, digest: card.digest,
-        envelope: card.envelope, idempotencyKey: "run:refused-settlement" }
-      const failure = yield* Effect.flip(control.run(input))
-      return { failure, replay: yield* control.run(input) }
-    }), live({ runtime, executor: ControlExecutor.makeNoop({ launch: ({ run }) => Effect.suspend(() => {
-      refused = true
-      return Effect.fail(new LaunchFailed({ runId: run.runId, message: "no capacity" }))
-    }) }) }))
+    const runtime = Layer.effect(
+      ControlRuntime,
+      Effect.map(ControlRuntime, (service) => ({
+        ...service,
+        claimFence: (id: string) =>
+          refused
+            ? Effect.fail(new PersistenceError({ operation: "settle refusal", message: "storage refused" }))
+            : service.claimFence(id)
+      }))
+    ).pipe(Layer.provide(memoryRuntime({ flows })))
+    const observed = await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const card = yield* control.plan({ flowId: "system/test", input: {} })
+        yield* control.approve({ ...card.approval, idempotencyKey: "approve:refused-settlement" })
+        const input = {
+          _tag: "Plan" as const,
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: "run:refused-settlement"
+        }
+        const failure = yield* Effect.flip(control.run(input))
+        return { failure, replay: yield* control.run(input) }
+      }),
+      live({
+        runtime,
+        executor: ControlExecutor.makeNoop({
+          launch: ({ run }) =>
+            Effect.suspend(() => {
+              refused = true
+              return Effect.fail(new LaunchFailed({ runId: run.runId, message: "no capacity" }))
+            })
+        })
+      })
+    )
     expect(observed.failure).toMatchObject({ _tag: "/control/LaunchFailed", message: "no capacity" })
     expect(observed.replay._tag).toBe("AlreadyApplied")
   })
@@ -924,70 +942,114 @@ describe("ControlLive executor acceptance", () => {
     const reached = Deferred.makeUnsafe<void>()
     const release = Deferred.makeUnsafe<void>()
     let launches = 0
-    await run(Effect.gen(function*() {
-      const control = yield* Control
-      const card = yield* control.plan({ flowId: "system/test", input: {} })
-      yield* control.approve({ ...card.approval, idempotencyKey: "approve:held" })
-      const input = { _tag: "Plan" as const, planId: card.planId, digest: card.digest,
-        envelope: card.envelope, idempotencyKey: "run:held" }
-      const first = yield* Effect.forkChild(control.run(input))
-      yield* Deferred.await(reached)
-      const replay = yield* control.run(input)
-      expect(replay._tag).toBe("AlreadyApplied")
-      expect(launches).toBe(1)
-      yield* Deferred.succeed(release, undefined)
-      expect((yield* Fiber.join(first))._tag).toBe("Accepted")
-    }), live({ runtime: memoryRuntime({ flows }), executor: ControlExecutor.makeNoop({
-      launch: () => Effect.gen(function*() {
-        launches++
-        yield* Deferred.succeed(reached, undefined)
-        yield* Deferred.await(release)
-        return "accepted" as const
+    await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const card = yield* control.plan({ flowId: "system/test", input: {} })
+        yield* control.approve({ ...card.approval, idempotencyKey: "approve:held" })
+        const input = {
+          _tag: "Plan" as const,
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: "run:held"
+        }
+        const first = yield* Effect.forkChild(control.run(input))
+        yield* Deferred.await(reached)
+        const replay = yield* control.run(input)
+        expect(replay._tag).toBe("AlreadyApplied")
+        expect(launches).toBe(1)
+        yield* Deferred.succeed(release, undefined)
+        expect((yield* Fiber.join(first))._tag).toBe("Accepted")
+      }),
+      live({
+        runtime: memoryRuntime({ flows }),
+        executor: ControlExecutor.makeNoop({
+          launch: () =>
+            Effect.gen(function*() {
+              launches++
+              yield* Deferred.succeed(reached, undefined)
+              yield* Deferred.await(release)
+              return "accepted" as const
+            })
+        })
       })
-    }) }))
+    )
   })
 
   it("does not launch when the admission receipt cannot be saved", async () => {
     let launches = 0
-    const runtime = Layer.effect(ControlRuntime, Effect.map(ControlRuntime, service => ({
-      ...service,
-      recordMutation: () => Effect.fail(new PersistenceError({ operation: "record admission", message: "storage refused" }))
-    }))).pipe(Layer.provide(memoryRuntime({ flows })))
-    const observed = await run(Effect.gen(function*() {
-      const control = yield* Control
-      const base = yield* ControlRuntime
-      const card = yield* control.plan({ flowId: "system/test", input: {} })
-      // Approve directly so only the run admission meets the refused receipt.
-      const token = yield* base.lookupApproval(card.approval.target)
-      const actor = yield* base.stampPrincipal(undefined)
-      yield* base.resolveApproval(token, "approved", actor)
-      return yield* Effect.flip(control.run({ _tag: "Plan", planId: card.planId, digest: card.digest,
-        envelope: card.envelope, idempotencyKey: "run:refused-write" }))
-    }), live({ runtime, executor: ControlExecutor.makeNoop({ launch: () => Effect.sync(() => {
-      launches++
-      return "accepted" as const
-    }) }) }))
+    const runtime = Layer.effect(
+      ControlRuntime,
+      Effect.map(ControlRuntime, (service) => ({
+        ...service,
+        recordMutation: () =>
+          Effect.fail(new PersistenceError({ operation: "record admission", message: "storage refused" }))
+      }))
+    ).pipe(Layer.provide(memoryRuntime({ flows })))
+    const observed = await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const base = yield* ControlRuntime
+        const card = yield* control.plan({ flowId: "system/test", input: {} })
+        // Approve directly so only the run admission meets the refused receipt.
+        const token = yield* base.lookupApproval(card.approval.target)
+        const actor = yield* base.stampPrincipal(undefined)
+        yield* base.resolveApproval(token, "approved", actor)
+        return yield* Effect.flip(
+          control.run({
+            _tag: "Plan",
+            planId: card.planId,
+            digest: card.digest,
+            envelope: card.envelope,
+            idempotencyKey: "run:refused-write"
+          })
+        )
+      }),
+      live({
+        runtime,
+        executor: ControlExecutor.makeNoop({
+          launch: () =>
+            Effect.sync(() => {
+              launches++
+              return "accepted" as const
+            })
+        })
+      })
+    )
     expect(observed).toBeInstanceOf(PersistenceError)
     expect(launches).toBe(0)
   })
 
-  it.each(["completed", "parked"] as const)("preserves an executor's immediate %s outcome", async status => {
+  it.each(["completed", "parked"] as const)("preserves an executor's immediate %s outcome", async (status) => {
     let runtime!: import("../src/ControlRuntime.ts").Service
-    const observed = await run(Effect.gen(function*() {
-      runtime = yield* ControlRuntime
-      const control = yield* Control
-      const card = yield* control.plan({ flowId: "system/test", input: {} })
-      yield* control.approve({ ...card.approval, idempotencyKey: "approve:fast" })
-      const receipt = yield* control.run({ _tag: "Plan", planId: card.planId, digest: card.digest,
-        envelope: card.envelope, idempotencyKey: "run:fast" })
-      if (receipt._tag !== "Accepted" || !receipt.runId) return yield* Effect.die("missing admission")
-      return yield* runtime.getRun(receipt.runId)
-    }), live({ runtime: memoryRuntime({ flows }), executor: ControlExecutor.makeNoop({
-      launch: ({ run }) => Effect.gen(function*() {
-        yield* runtime.writeStatus(run.runId, yield* runtime.claimFence(run.runId), status)
-        return "accepted" as const
+    const observed = await run(
+      Effect.gen(function*() {
+        runtime = yield* ControlRuntime
+        const control = yield* Control
+        const card = yield* control.plan({ flowId: "system/test", input: {} })
+        yield* control.approve({ ...card.approval, idempotencyKey: "approve:fast" })
+        const receipt = yield* control.run({
+          _tag: "Plan",
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: "run:fast"
+        })
+        if (receipt._tag !== "Accepted" || !receipt.runId) return yield* Effect.die("missing admission")
+        return yield* runtime.getRun(receipt.runId)
+      }),
+      live({
+        runtime: memoryRuntime({ flows }),
+        executor: ControlExecutor.makeNoop({
+          launch: ({ run }) =>
+            Effect.gen(function*() {
+              yield* runtime.writeStatus(run.runId, yield* runtime.claimFence(run.runId), status)
+              return "accepted" as const
+            })
+        })
       })
-    }) }))
+    )
     expect(observed.status).toBe(status)
   })
 
