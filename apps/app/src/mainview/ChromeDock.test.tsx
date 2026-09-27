@@ -173,6 +173,24 @@ describe("the dock", () => {
     expect(host.querySelector("[data-testid=chrome-sign-in]")).toBeNull()
   })
 
+  test("every dock icon carries a tooltip that is its accessible name, on the cloud and local hosts (#2168)", async () => {
+    for (const harness of [cloudHarness, localHarness]) {
+      const { store, controller } = await harness()
+      if (harness === cloudHarness) await signedOut(store)
+      const { host } = mount(controller)
+      const icons = [...host.querySelectorAll<HTMLButtonElement>("[data-testid=chrome-actions] button")]
+      expect(icons.length).toBeGreaterThan(1)
+      for (const icon of icons) {
+        const name = icon.getAttribute("aria-label") ?? ""
+        // An icon is a picture: its name is spoken, its tooltip is the same name, and no word is printed beside it.
+        expect(name.trim().length).toBeGreaterThan(0)
+        expect(icon.getAttribute("title")).toBe(name)
+        expect(icon.textContent?.trim()).toBe("")
+        expect(icon.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true")
+      }
+    }
+  })
+
   test("host local: the row is the canonical list filtered by the registry, so only Wiki and Flows render, in that order", async () => {
     const { controller } = await localHarness()
     const registered = CHROME.filter((row) => controller.commands.find(row.flow) !== undefined)
