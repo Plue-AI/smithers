@@ -27,11 +27,23 @@ const card: Extract<Card, { kind: "repo-update" }> = {
     ]
   }
 }
-const render = () => {
+const render = (value = card) => {
   const host = document.createElement("div")
-  host.innerHTML = renderToStaticMarkup(<CardView card={card} {...handlers} />)
+  host.innerHTML = renderToStaticMarkup(<CardView card={value} {...handlers} />)
   return host
 }
+
+for (const [label, items, problems] of [
+  ["complete empty read", [], []],
+  ["partial empty read", [], ["Could not load repository activity (401)."]],
+  ["partial populated read", card.payload.items, ["Could not load notifications (503)."]]
+] as const) test(`${label} shows only supported activity claims`, () => {
+  const host = render({ ...card, payload: { ...card.payload, items: [...items], problems: [...problems] } })
+  expect(host.querySelector(".ghc-empty") !== null).toBe(items.length === 0 && problems.length === 0)
+  expect(host.querySelector('[role="status"]') !== null).toBe(problems.length > 0)
+  expect(host.querySelectorAll(".repo-update-item")).toHaveLength(items.length)
+  expect(host.querySelector('button[data-flow="repo.overview"]')?.textContent).toContain("Refresh")
+})
 
 test("activity header is just a short title and expand, including restored cards", () => {
   const host = render()

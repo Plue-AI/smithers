@@ -56,7 +56,7 @@ export const repositoryUpdateCardFamily: CardFamily<"repo-update"> = {
           <AlertTriangle size={14} aria-hidden="true" /> Partial update: {problems.join(" ")} Counts cover the activity received.
         </p>}
         {items.length === 0 ?
-          <p className="ghc-empty"><Octicon name="check" size={24} /><span>Nothing new since the last check.</span></p> :
+          problems.length === 0 && <p className="ghc-empty"><Octicon name="check" size={24} /><span>Nothing new since the last check.</span></p> :
           <ul className="ghc-rows repo-update-items">
             {items.map(item => {
               const display = displayOf(item)
