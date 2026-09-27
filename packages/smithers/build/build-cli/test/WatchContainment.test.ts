@@ -142,6 +142,39 @@ describe.skipIf(process.platform === "win32")("watch process-group containment",
     expect(cleaned).toBe(2)
   })
 
+  it("folds changes seen during a stale cycle's cleanup into one replacement", async () => {
+    const root = await fixture("")
+    const controller = new AbortController()
+    let started = 0
+    vi.spyOn(ContainedProcess, "runEffect").mockReturnValue(
+      Effect.sync(() => {
+        started++
+        if (started === 1) setImmediate(() => fixtureEntry.watcher!.emit("change", "rename", "changed.txt"))
+        else setTimeout(() => controller.abort(), 50)
+      }).pipe(
+        Effect.andThen(Effect.never),
+        Effect.ensuring(Effect.suspend(() => {
+          if (started !== 1) return Effect.void
+          fixtureEntry.watcher!.emit("change", "change", "changed.txt")
+          return Effect.sleep(50)
+        }))
+      )
+    )
+    expect(
+      await Watch.run({
+        root,
+        args: [],
+        ignored: [],
+        debounceMs: 1,
+        once: false,
+        signal: controller.signal,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).toEqual({ cycles: 2, exitCode: 1, stopped: true })
+    expect(started).toBe(2)
+  })
+
   it.each(["default", "ignores TERM", "exits zero"])(
     "awaits the resistant descendant before reporting cancellation (leader %s)",
     async (leader) => {

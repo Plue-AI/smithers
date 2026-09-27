@@ -42,6 +42,10 @@ export const run = async (options: {
   // switchMap discards a replaced stream's error. Retain process cleanup
   // failures so a replacement cannot start after containment failed.
   let failure: unknown
+  // A replacement starts after its stale cycle's cleanup, so it already sees
+  // every change observed until then. Those changes must not replace it again.
+  let observed = 0
+  let covered = 0
   const cycle = Effect.suspend(() => {
     if (failure !== undefined) return Effect.fail(failure)
     const number = ++cycles
@@ -59,12 +63,15 @@ export const run = async (options: {
     }).pipe(Effect.onExit((exit) =>
       Effect.sync(() => {
         exitCode = Exit.isSuccess(exit) ? exit.value : 1
-        if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) failure = Cause.squash(exit.cause)
+        if (Exit.isFailure(exit)) {
+          if (Cause.hasInterruptsOnly(exit.cause)) covered = observed
+          else failure = Cause.squash(exit.cause)
+        }
         options.cycleCompleted?.({ number, exitCode, output })
       })
     ))
   })
-  const changes = Stream.callback<string, Error>((queue) =>
+  const changes = Stream.callback<number, Error>((queue) =>
     Effect.acquireRelease(
       Effect.try({
         try: () =>
@@ -75,7 +82,7 @@ export const run = async (options: {
               path.split("/").includes("node_modules") ||
               ignored.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
             ) return
-            Queue.offerUnsafe(queue, path)
+            Queue.offerUnsafe(queue, ++observed)
           }).on("error", (error) => {
             Queue.failCauseUnsafe(queue, Cause.fail(error))
           }),
@@ -84,10 +91,11 @@ export const run = async (options: {
       (watcher) => Effect.sync(() => watcher.close())
     ), { bufferSize: 1, strategy: "sliding" }).pipe(
       Stream.debounce(options.debounceMs),
-      Stream.prepend([""])
+      Stream.filter((change) => change > covered),
+      Stream.prepend([0])
     )
   const result = await Effect.runPromiseExit(
-    (options.once ? Stream.make("") : changes).pipe(
+    (options.once ? Stream.make(0) : changes).pipe(
       Stream.switchMap(() => Stream.fromEffect(cycle), { bufferSize: 1 }),
       Stream.runDrain,
       Effect.scoped
