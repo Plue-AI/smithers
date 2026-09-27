@@ -68,9 +68,10 @@ start the same packaged TypeScript artifact with the same protocol, credential,
 source revision, owner generation, and durable-state contract. No runtime
 bundle is fetched from GCS.
 
-The trusted product host registers bundled declarations only. Repository code
-is loaded only by the workspace execution host behind the deployment adapter;
-the trusted product process never dynamically imports it.
+Repository code is loaded only by a box's coding host behind the deployment
+adapter; the trusted product process never dynamically imports it. Every
+browser flow call names a box and reaches that box's coding host; there is no
+repository-level product host.
 
 ## Product integration
 

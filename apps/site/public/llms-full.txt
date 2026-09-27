@@ -48409,9 +48409,10 @@ same-origin guard.
 the proxy. The Worker's `/health` is retired too.
 
 Product clients use `/api/workflow/provision` and `/api/workflow/rpc` with a
-validated, allowlisted session. These routes resolve the user's Cloud gateway
-by login and repository, enforce a procedure/path allowlist, and keep gateway
-tokens server-side in `GATEWAY_SESSIONS`. Native RPC or WebSocket clients must
+validated, allowlisted session. Every body names the repository and a box
+(`workspaceId`); a call without a box is refused. These routes resolve that
+box's coding host by login, repository and box, enforce a procedure/path
+allowlist, and keep gateway tokens server-side in `GATEWAY_SESSIONS`. Native RPC or WebSocket clients must
 connect to a separately authenticated gateway.
 
 ## The RPC surface
