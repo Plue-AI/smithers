@@ -59,7 +59,6 @@ func TestRefCaseCollisionRepair_PostgresNative(t *testing.T) {
 	empty := git("mktree")
 	commit := func(message string) string { return git("commit-tree", empty, "-m", message) }
 	oids := map[string]string{
-		"refs/heads/Mythical":  commit("legacy mythical"),
 		"refs/notes/Mythical":  commit("legacy notes"),
 		"refs/heads/MAIN":      commit("legacy main"),
 		"refs/heads/Release/1": commit("legacy release"),
@@ -75,6 +74,9 @@ func TestRefCaseCollisionRepair_PostgresNative(t *testing.T) {
 		packed.WriteString(oids[ref] + " " + ref + "\n")
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "packed-refs"), packed.Bytes(), 0o644))
+	// A symbolic variant: the repair removes it, never the branch it names.
+	git("symbolic-ref", "refs/heads/Mythical", "refs/heads/feature")
+	oids["refs/heads/Mythical"] = oids["refs/heads/feature"]
 	require.NoError(t, native.ImportGitRefs(repoPath))
 
 	backend, err := repohostserver.NewWithFFI(cfg, native)

@@ -57,7 +57,12 @@ func RepairRefCaseCollisions(ctx context.Context, q RefCaseCollisionRepairQuerie
 			counts.Repositories++
 			rules, err := q.ListAllProtectedBookmarksByRepo(ctx, row.ID)
 			if err != nil {
-				return counts, fmt.Errorf("list protected bookmarks: %w", err)
+				if ctx.Err() != nil {
+					return counts, ctx.Err()
+				}
+				counts.Failed++
+				logger.Warn("ref case collision repair failed", "repository_id", row.ID, "owner", row.Owner, "repo", row.Name, "error", err)
+				continue
 			}
 			patterns := make([]string, 0, len(rules))
 			for _, rule := range rules {

@@ -32,5 +32,8 @@ func TestPlanRefCaseCollisions(t *testing.T) {
 	// Canonical names alone, and a repository without a default, are clean.
 	require.Empty(t, PlanRefCaseCollisions([]string{"refs/heads/main", "refs/heads/mythical", "refs/notes/mythical", "refs/heads/mythical-x"}, "main", nil))
 	require.Equal(t, RefCaseCollisionRemoved, PlanRefCaseCollisions([]string{"refs/heads/Mythical"}, "", nil)[0].Action)
+	// A directory variant beside the existing reserved ref blocks nothing.
+	require.Equal(t, []RefCaseCollision{{Refs: []string{"refs/heads/Main/x"}, Canonical: "refs/heads/main", Action: RefCaseCollisionReported}},
+		PlanRefCaseCollisions([]string{"refs/heads/main", "refs/heads/Main/x"}, "main", nil))
 	require.Equal(t, "refs/smithers/case-collision/20260927T000000Z/heads/MAIN", RefCaseCollisionBackup("20260927T000000Z", "refs/heads/MAIN"))
 }

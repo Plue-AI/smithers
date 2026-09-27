@@ -50,7 +50,10 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 		return internalError("failed to inspect repository", err)
 	}
 	// jj bookmarks reach git only on export; count the unexported ones too.
-	s.warmGitRefs(repoPath)
+	// A failed export would leave the plan to stale refs.
+	if err := s.ffi.ExportGitRefs(repoPath); err != nil {
+		return internalError("failed to export bookmarks", err)
+	}
 	refs, err := listGitRefs(r.Context(), gitDir)
 	if err != nil {
 		return internalError("failed to list refs", err)
@@ -73,6 +76,20 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 	report := repohost.RefCaseCollisionReport{Collisions: repohost.PlanRefCaseCollisions(names, defaultBookmark, req.ProtectedPatterns)}
 	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
 	changed := false
+	// jj drops the removed bookmarks and adopts a renamed one, also after a
+	// later variant fails.
+	defer func() {
+		if !changed {
+			return
+		}
+		if err := s.ffi.ImportGitRefs(repoPath); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("failed to import repaired refs", "repo_path", repoPath, "error", err)
+			}
+			return
+		}
+		s.warmGitRefs(repoPath)
+	}()
 	for i := range report.Collisions {
 		collision := &report.Collisions[i]
 		if collision.Action == repohost.RefCaseCollisionReported {
@@ -90,13 +107,6 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 			collision.Backups = append(collision.Backups, backup)
 			changed = true
 		}
-	}
-	if changed {
-		// jj drops the removed bookmarks and adopts a renamed one.
-		if err := s.ffi.ImportGitRefs(repoPath); err != nil {
-			return internalError("failed to import repaired refs", err)
-		}
-		s.warmGitRefs(repoPath)
 	}
 	return writeJSON(w, http.StatusOK, report)
 }
@@ -129,7 +139,9 @@ func moveCaseVariantRef(ctx context.Context, gitDir, variant, oid, backup, renam
 }
 
 func updateRefs(ctx context.Context, gitDir string, commands []byte) error {
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "update-ref", "--stdin", "-z")
+	// --no-deref: a symbolic variant is removed itself, never the branch it
+	// names.
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "update-ref", "--no-deref", "--stdin", "-z")
 	cmd.Stdin = bytes.NewReader(commands)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return errors.Join(err, errors.New(strings.TrimSpace(string(out))))

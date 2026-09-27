@@ -60,7 +60,9 @@ func PlanRefCaseCollisions(refs []string, defaultBookmark string, protectedPatte
 		renamable[RefKey(ref)] = true
 	}
 	groups := map[string][]string{}
+	present := map[string]bool{}
 	for _, ref := range refs {
+		present[ref] = true
 		key := RefKey(ref)
 		groups[key] = append(groups[key], ref)
 	}
@@ -95,9 +97,14 @@ func PlanRefCaseCollisions(refs []string, defaultBookmark string, protectedPatte
 		canonical, isReserved := reserved[key]
 		if !isReserved {
 			// A ref inside a variant of a reserved name, like
-			// refs/heads/Mythical/x, blocks the reserved ref too.
+			// refs/heads/Mythical/x, blocks the missing reserved ref; beside
+			// an existing one it is only reported.
 			if prefix := reservedDirectoryVariant(spellings[0], reserved); prefix != "" {
-				out = append(out, RefCaseCollision{Refs: spellings, Canonical: prefix, Action: RefCaseCollisionRemoved, Variants: spellings})
+				collision := RefCaseCollision{Refs: spellings, Canonical: prefix, Action: RefCaseCollisionRemoved, Variants: spellings}
+				if present[prefix] {
+					collision.Action, collision.Variants = RefCaseCollisionReported, nil
+				}
+				out = append(out, collision)
 				continue
 			}
 			if len(spellings) > 1 {
@@ -106,11 +113,8 @@ func PlanRefCaseCollisions(refs []string, defaultBookmark string, protectedPatte
 			continue
 		}
 		var variants []string
-		present := false
 		for _, ref := range spellings {
-			if ref == canonical {
-				present = true
-			} else {
+			if ref != canonical {
 				variants = append(variants, ref)
 			}
 		}
@@ -118,7 +122,7 @@ func PlanRefCaseCollisions(refs []string, defaultBookmark string, protectedPatte
 			continue
 		}
 		collision := RefCaseCollision{Refs: spellings, Canonical: canonical, Action: RefCaseCollisionRemoved, Variants: variants}
-		if !present && renamable[key] {
+		if !present[canonical] && renamable[key] {
 			if len(variants) == 1 {
 				collision.Action = RefCaseCollisionRenamed
 			} else {
