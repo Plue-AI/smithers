@@ -220,6 +220,9 @@ Compose intake and repeated drains with the host's existing lifecycle.
 acknowledges. Its host admission must durably deduplicate `event.dedupeKey`.
 This callback wakes the agent conversation without another agent loop.
 
+Events the backend refuses, such as an unmapped channel or a disallowed user,
+are acknowledged and return `"ignored"`.
+
 Outgoing changes have PostgreSQL claims and random reconcile keys. Lost answers
 remain `outcome_unknown`; restart searches metadata and never blindly reposts.
 An absent lookup cannot prove a crashed request is no longer in flight, so it

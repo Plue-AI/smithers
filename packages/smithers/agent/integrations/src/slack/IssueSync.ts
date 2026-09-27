@@ -167,7 +167,7 @@ export const make = (options: Options) => {
     if (event["type"] === "reaction_added" || event["type"] === "reaction_removed") {
       const item = event["item"]
       if (!isRecord(item) || item["type"] !== "message") return "ignored"
-      await bridge.ingest({
+      return bridge.ingest({
         ...common,
         kind: event["type"] === "reaction_added" ? "reaction_add" : "reaction_remove",
         message_id: item["ts"],
@@ -175,7 +175,6 @@ export const make = (options: Options) => {
         user_id: event["user"],
         reaction: event["reaction"]
       })
-      return "applied"
     }
     const record = Sync.eventRecord(
       event["type"] === "app_mention" ? { ...raw, event: { ...event, type: "message" } } : raw,
@@ -188,7 +187,7 @@ export const make = (options: Options) => {
       ? event["message"]
       : event
     if (!isRecord(subject)) return "ignored"
-    await bridge.ingest({
+    return bridge.ingest({
       ...common,
       kind: record.deleted ? "delete" : event["subtype"] === "message_changed" ? "edit" : "message",
       message_id: subject["ts"],
@@ -197,7 +196,6 @@ export const make = (options: Options) => {
       user_id: subject["user"],
       body: record.text
     }, Payload.toExternalEvent(raw, { policy }))
-    return "applied"
   }
   return {
     ingest,

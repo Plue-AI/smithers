@@ -78,4 +78,15 @@ func TestIssueSyncHTTPMappingsAndCommentLookup(t *testing.T) {
 	require.Equal(t, 200, status, out)
 	require.Equal(t, "telegram", out["provider"])
 	require.Equal(t, "-100", out["conversation_id"])
+	// Routine per-event refusals are acknowledged so one event cannot stop intake.
+	status, out = call("POST", "/sync/events", `{"provider":"telegram","connection_id":"bot","scope_id":"123","conversation_id":"-999","delivery_key":"update:2","message_id":"8","version":"100.0000000002","user_id":"42","kind":"message","body":"elsewhere"}`)
+	require.Equal(t, 200, status, out)
+	require.Equal(t, map[string]any{"ignored": "sync conversation not mapped"}, out)
+	status, out = call("POST", "/sync/events", `{"provider":"telegram","connection_id":"bot","scope_id":"123","conversation_id":"-100","delivery_key":"update:3","message_id":"999","version":"100.0000000003","user_id":"42","kind":"reaction_add","reaction":"thumbsup"}`)
+	require.Equal(t, 200, status, out)
+	require.Equal(t, map[string]any{"ignored": "external message not mapped"}, out)
+	status, out = call("POST", "/sync/events", `{"provider":"telegram","connection_id":"bot","scope_id":"123","conversation_id":"-100","delivery_key":"update:4","message_id":"9","version":"100.0000000004","user_id":"42","kind":"shout"}`)
+	require.Equal(t, 400, status, "a malformed event is a connector defect and stays an error")
+	status, _ = call("POST", "/sync/events", `{"provider":"telegram","connection_id":"","scope_id":"123","conversation_id":"-100","delivery_key":"update:5","message_id":"9","version":"100.0000000005","user_id":"42","kind":"message","body":"x"}`)
+	require.Equal(t, 400, status, "an invalid connection stays an error")
 }

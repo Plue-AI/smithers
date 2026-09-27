@@ -95,8 +95,10 @@ export const make = (options: Options) => {
     if (!response.ok) throw new Error(`Issue sync ${method} ${path}: HTTP ${response.status}`)
     return response.json()
   }
-  const ingest = async (body: unknown, event?: ExternalEvent): Promise<"applied"> => {
+  const ingest = async (body: unknown, event?: ExternalEvent): Promise<"ignored" | "applied"> => {
     const receipt = await request("/events", "POST", body)
+    // A routine refusal (unmapped conversation, disallowed user) is acknowledged, not retried.
+    if (isRecord(receipt) && typeof receipt["ignored"] === "string") return "ignored"
     if (
       event !== undefined && options.onMessage !== undefined && isRecord(receipt) &&
       typeof receipt["issue_id"] === "number"

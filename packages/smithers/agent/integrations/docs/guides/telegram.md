@@ -278,6 +278,8 @@ await sync.drain()
 with the supplied identity. The runtime must be durable: a claim held for over
 10 minutes is re-executed under that identity, which replays the journaled
 result instead of sending again. `request` is authenticated as the issue owner.
+Events the backend refuses, such as an unmapped chat, are acknowledged and
+return `"ignored"`.
 Use the existing Source with its SQL cursor store. Admission is checked again
 at the connector; bot messages never become comments. Chat and topic variants
 of one update share a canonical key. The backend atomically deduplicates updates

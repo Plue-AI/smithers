@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"errors"
 	api "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"net/http"
@@ -100,6 +101,11 @@ func (h *IssueHandler) IssueSyncEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, err := svc.IngestIssueSync(r.Context(), actor, owner, repo, in)
+	var ignored services.IssueSyncIgnored
+	if errors.As(err, &ignored) {
+		api.WriteJSON(w, 200, map[string]any{"ignored": ignored.Reason})
+		return
+	}
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

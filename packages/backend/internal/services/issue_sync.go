@@ -172,6 +172,13 @@ func (s *IssueService) ConfigureIssueSyncChannel(ctx context.Context, actor *db.
 	return tx.Commit(ctx)
 }
 
+// IssueSyncIgnored is a routine refusal of one provider event (unmapped
+// conversation or message, disallowed user, unknown reaction name). The event
+// can never apply, so the connection acknowledges it instead of redelivering it.
+type IssueSyncIgnored struct{ Reason string }
+
+func (e IssueSyncIgnored) Error() string { return e.Reason }
+
 type IssueSyncEvent struct {
 	Reaction string `json:"reaction"`
 	IssueSyncInput
@@ -238,13 +245,13 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 		var allowed string
 		err = tx.QueryRow(ctx, `SELECT external_user_id FROM issue_sync_channels WHERE owner_id=$1 AND repository_id=$2 AND connection_id=$3 AND scope_id=$4 AND (conversation_id=$5 OR (conversation_id='direct' AND left($5,1)='D' AND external_user_id=$6)) AND provider=$7 AND (thread_id='' OR thread_id=$8) ORDER BY (thread_id=$8) DESC,(conversation_id=$5) DESC LIMIT 1`, actor.ID, r.ID, in.ConnectionID, in.ScopeID, in.ConversationID, in.UserID, in.Provider, root).Scan(&allowed)
 		if err != nil {
-			return 0, api.NotFound("sync conversation not mapped")
+			return 0, IssueSyncIgnored{"sync conversation not mapped"}
 		}
 		if allowed != "" && allowed != in.UserID {
-			return 0, api.Forbidden("Slack user not allowed")
+			return 0, IssueSyncIgnored{"user not allowed"}
 		}
 		if in.Kind == "reaction_add" || in.Kind == "reaction_remove" {
-			return 0, api.NotFound("external message not mapped")
+			return 0, IssueSyncIgnored{"external message not mapped"}
 		}
 		title := []rune(strings.TrimSpace(in.Body))
 		if len(title) > 80 {
@@ -269,18 +276,18 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 	var allowed string
 	err = tx.QueryRow(ctx, `SELECT external_user_id FROM issue_sync_channels WHERE owner_id=$1 AND repository_id=$2 AND connection_id=$3 AND scope_id=$4 AND (conversation_id=$5 OR (conversation_id='direct' AND left($5,1)='D' AND external_user_id=$6)) AND provider=$7 AND (thread_id='' OR thread_id=$8) ORDER BY (thread_id=$8) DESC,(conversation_id=$5) DESC LIMIT 1`, actor.ID, r.ID, in.ConnectionID, in.ScopeID, in.ConversationID, in.UserID, in.Provider, root).Scan(&allowed)
 	if err == nil && allowed != "" && allowed != in.UserID {
-		return 0, api.Forbidden("Slack user not allowed")
+		return 0, IssueSyncIgnored{"user not allowed"}
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
 	if in.Kind == "reaction_add" || in.Kind == "reaction_remove" {
 		if !reactionName.MatchString(in.Reaction) {
-			return 0, api.BadRequest("invalid reaction")
+			return 0, IssueSyncIgnored{"invalid reaction"}
 		}
 		var cid int64
 		if err = tx.QueryRow(ctx, `SELECT comment_id FROM issue_external_messages WHERE issue_id=$1 AND message_id=$2 AND NOT deleted`, issueID, in.MessageID).Scan(&cid); err != nil {
-			return 0, api.NotFound("message not found")
+			return 0, IssueSyncIgnored{"external message not mapped"}
 		}
 		who := in.Provider + ":" + in.ScopeID + ":" + in.UserID
 		active := in.Kind == "reaction_add"

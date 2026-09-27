@@ -395,3 +395,14 @@ it.each(["comment.created", "comment.edited", "comment.deleted"])(
     }
   }
 )
+it("acknowledges a refused event without waking the host", async () => {
+  const wakes: string[] = []
+  const { sync } = fixture([], executor(), {
+    request: async () => Response.json({ ignored: "sync conversation not mapped" }),
+    onMessage: async (r: any) => {
+      wakes.push(r.event.dedupeKey)
+    }
+  })
+  expect(await sync.ingest(events()[0]!)).toBe("ignored")
+  expect(wakes).toEqual([])
+})

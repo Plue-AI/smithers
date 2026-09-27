@@ -504,3 +504,30 @@ it("rejects a backend cursor that does not advance", async () => {
   })
   await expect(sync.drain()).rejects.toThrow("cursor did not advance")
 })
+it("acknowledges refused messages and reactions without waking the host", async () => {
+  const wakes: string[] = []
+  const bridge = IssueSync.make({
+    ...options,
+    execute: executor(),
+    request: async () => Response.json({ ignored: "external message not mapped" }),
+    onMessage: async (r) => {
+      wakes.push(r.event.dedupeKey)
+    }
+  })
+  expect(
+    await bridge.ingest(callback({ type: "message", channel: "C001", user: "U001", ts: "100.000001", text: "hi" }))
+  )
+    .toBe("ignored")
+  expect(
+    await bridge.ingest(
+      callback({
+        type: "reaction_added",
+        user: "U001",
+        event_ts: "101.000001",
+        reaction: "eyes",
+        item: { type: "message", channel: "C001", ts: "99.000001" }
+      }, "E002")
+    )
+  ).toBe("ignored")
+  expect(wakes).toEqual([])
+})
