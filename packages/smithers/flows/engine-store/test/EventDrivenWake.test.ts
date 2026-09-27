@@ -9,6 +9,7 @@ import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
  * poll interval elapses.
  */
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { DurableDeferred, Flow, FlowRuntime, RetryPolicy } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import * as Clock from "effect/Clock"
@@ -199,11 +200,26 @@ describe("event-driven wake", () => {
           // into its park: a caller that resumed on a wake would announce
           // another wake, and the two callers would re-drive the run back to
           // back for as long as the scheduler kept turning.
+          //
+          // The tick is settled once it has driven the run and both callers
+          // are parked on the bus again. Each caller parks only after the
+          // drive its own `execute` joined has finished, and each drive waits
+          // on real database I/O, so no count of scheduler turns can stand in
+          // for this: on a loaded runner the woken caller's drive can land
+          // after any fixed number of turns.
+          const beforeTick = drives
           yield* TestClock.adjust("3 seconds")
-          const turns = (count: number) => Effect.repeat(Effect.yieldNow, { times: count })
-          yield* turns(1_000)
+          yield* TestDatabase.until(
+            Effect.map(bus.waiters("wake-followed"), (waiters) => drives > beforeTick && waiters === 2)
+          )
           const settled = drives
-          yield* turns(5_000)
+          // With the clock stopped, nothing but a wake loop can drive the run
+          // again. Give such a loop scheduler turns and real time for its
+          // database round trips, both of which it needs to make progress.
+          for (let window = 0; window < 100; window++) {
+            yield* Effect.repeat(Effect.yieldNow, { times: 50 })
+            yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
+          }
           const later = drives
 
           yield* engine.deferredDone(gate as never, {
