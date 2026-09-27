@@ -35,9 +35,10 @@ const installHome = async (page: Page) => {
   await page.route(url => url.pathname === `/api/repos/${repo}/landings/70`, route => route.fulfill({ json: landing }))
 }
 
+/** Chat from anywhere: the chord the home's composer names. */
 const openChat = async (page: Page) => {
   const input = page.getByTestId("composer-input")
-  if (!await input.isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).click()
+  if (!await input.isVisible()) await page.keyboard.press("Control+k")
   await expect(input).toBeVisible()
   return input
 }
@@ -92,17 +93,29 @@ test("the home is the question, the composer and the apps; opening one gives one
   await expect(page.getByTestId("setup-checklist")).toHaveCount(0)
   await expect(page.getByTestId("first-run-actions")).toHaveCount(0)
   await expect(page.getByText("Smithers initialized successfully")).toHaveCount(0)
+  // The home alone carries no chat controls strip: no Chat button, no Filter, no Mode, and no tip over them. ⌘K still summons Chat.
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Mode: Normal", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Filter" })).toHaveCount(0)
+  await expect(page.getByRole("note", { name: "Help" })).toHaveCount(0)
+  await page.keyboard.press("Control+k")
+  await expect(page.getByTestId("composer-input")).toBeVisible()
+  await page.keyboard.press("Escape")
   // Words on the home: the question, the placeholder and the four names, the pictures aside.
   const words = await page.locator(".factory-home").evaluate(node => [...node.querySelectorAll("h1, .app-tile-title")].map(each => each.textContent).join(" ").split(/\s+/).length)
   expect(words).toBeLessThanOrEqual(20)
   if (process.env.SMITHERS_HOME_CAPTURE) {
-    // The first-sight tip leaves through its own door (app.hint.dismiss); the capture is the home alone.
-    const tip = page.getByRole("button", { name: "Dismiss help" })
-    if (await tip.isVisible()) await tip.click()
-    await expect(page.getByRole("note", { name: "Help" })).toHaveCount(0)
     await page.evaluate(() => document.fonts.ready)
     await page.screenshot({ path: process.env.SMITHERS_HOME_CAPTURE })
   }
+  // Run it every night: one input, the flow, and one button, Schedule.
+  await page.getByTestId("app-tile").filter({ hasText: "Run it every night" }).click()
+  const nightly = page.locator('form.flow-form[data-flow-name="triggers.register"]')
+  await expect(nightly).toBeVisible()
+  await expect(nightly.locator("label")).toHaveCount(1)
+  await expect(nightly.getByTestId("flow-form-flow")).toBeVisible()
+  await expect(nightly.getByTestId("flow-form-submit")).toHaveText("Schedule")
+  await nightly.getByTestId("flow-form-cancel").click()
   // Keyboard-only: Tab reaches a tile and Enter opens it.
   await page.getByTestId("app-tile").filter({ hasText: "Fix an issue" }).focus()
   await page.keyboard.press("Enter")
@@ -118,6 +131,8 @@ test("the home is the question, the composer and the apps; opening one gives one
   await expect(card).toContainText("Requested")
   const toast = page.locator('[data-toast-status="running"]').filter({ hasText: "pr-triage" })
   await expect(toast).toBeVisible()
+  // A conversation exists now: the chat controls are back.
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   // Chat stays usable while the launch is unresolved.
   const input = await openChat(page)
   await input.fill("Chat stays usable")
