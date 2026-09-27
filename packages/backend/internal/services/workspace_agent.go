@@ -173,7 +173,7 @@ func (s *WorkspaceService) CreateAgentWorkspace(ctx context.Context, input Creat
 
 func (s *WorkspaceService) provisionAgentWorkspace(ctx context.Context, workspace db.Workspace, input CreateAgentWorkspaceInput, bookmark string) (AgentWorkspaceResult, error) {
 	s = s.withWorkspaceIdleTimeout(workspace)
-	egress, err := s.workspaceEgressProxy(ctx, workspace.RepositoryID)
+	egress, err := s.workspaceEgressProxy(ctx, workspace.RepositoryID, workspace.ID)
 	if err != nil {
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return AgentWorkspaceResult{}, err
@@ -224,7 +224,8 @@ func (s *WorkspaceService) agentForkSource(ctx context.Context, workspace db.Wor
 				// vm/desktop source yields a container-booted child that no
 				// agent run can use. Skip it and provision fresh instead.
 				if candidate.ID != workspace.ID && strings.TrimSpace(candidate.VmID) != "" &&
-					workspaceKindForksCleanly(candidate.Kind) && s.refuseRebuildRequired(candidate) == nil {
+					workspaceKindForksCleanly(candidate.Kind) && s.refuseRebuildRequired(candidate) == nil &&
+					!s.outsiderFork(ctx, workspace, candidate) {
 					return candidate, true, true
 				}
 			}
@@ -235,7 +236,7 @@ func (s *WorkspaceService) agentForkSource(ctx context.Context, workspace db.Wor
 		UserID:       workspace.UserID,
 	})
 	if err != nil || primary.ID == workspace.ID || strings.TrimSpace(primary.VmID) == "" ||
-		!workspaceKindForksCleanly(primary.Kind) {
+		!workspaceKindForksCleanly(primary.Kind) || s.outsiderFork(ctx, workspace, primary) {
 		return db.Workspace{}, false, false
 	}
 	primary, err = s.ensureExistingWorkspaceRunning(ctx, primary)
@@ -302,7 +303,7 @@ func (s *WorkspaceService) provisionFreshAgentWorkspace(ctx context.Context, wor
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return AgentWorkspaceResult{}, pkgerrors.Internal("build repo clone url: " + err.Error())
 	}
-	req, err := s.freshWorkspaceVMRequest(ctx, workspace.RepositoryID, workspace.Kind)
+	req, err := s.freshWorkspaceVMRequest(ctx, workspace.RepositoryID, workspace.ID, workspace.Kind)
 	if err != nil {
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return AgentWorkspaceResult{}, err

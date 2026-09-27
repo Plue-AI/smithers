@@ -26,7 +26,7 @@ func TestWorkspaceCodingHostPreservesGeneralCLI(t *testing.T) {
 	}
 	t.Setenv(workspaceCLIBinaryEnv, filepath.Join(dir, "cli"))
 	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(dir, "host"))
-	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "container")
+	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 	for path, expected := range map[string][]byte{workspaceSmithersCLIB64Path: cli, workspaceCodingHostB64Path: host} {
 		data, err := base64.StdEncoding.DecodeString(req.Files[path].Content)
@@ -108,7 +108,7 @@ func TestWorkspaceJJExportStagedAlongsideCodingHost(t *testing.T) {
 	t.Setenv(workspaceCLIBinaryEnv, filepath.Join(dir, "cli"))
 	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(dir, "host"))
 	t.Setenv(workspaceJJExportBinaryEnv, filepath.Join(dir, "export"))
-	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "container")
+	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 	for path, expected := range map[string][]byte{
 		workspaceSmithersCLIB64Path: cli,

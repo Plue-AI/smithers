@@ -178,6 +178,49 @@ func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo,
 	return maintainer, nil
 }
 
+// forget drops the cached answers for owner's repositories, or every answer
+// when owner is empty.
+func (g *gitHubIssueTextAPI) forget(owner string) {
+	prefix := strings.ToLower(strings.TrimSpace(owner)) + "/"
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for key := range g.maintainers {
+		if prefix == "/" || strings.HasPrefix(key, prefix) {
+			delete(g.maintainers, key)
+		}
+	}
+}
+
+// gitHubPermissionEvents change who may write a repository: a collaborator,
+// a team's repository or members, an organization's members, or the
+// repository itself (transferred, made private).
+var gitHubPermissionEvents = map[string]bool{"member": true, "membership": true, "team": true, "team_add": true,
+	"organization": true, "repository": true}
+
+// forgetMaintainers drops the permission answers an event may have changed:
+// the repository owner's, or the organization's.
+func (s *GitHubTextStamper) forgetMaintainers(eventType string, payload []byte) {
+	if s == nil || s.api == nil || !gitHubPermissionEvents[NormalizeTriggerName(eventType)] {
+		return
+	}
+	var event struct {
+		Repository struct {
+			Owner struct {
+				Login string `json:"login"`
+			} `json:"owner"`
+		} `json:"repository"`
+		Organization struct {
+			Login string `json:"login"`
+		} `json:"organization"`
+	}
+	_ = json.Unmarshal(payload, &event)
+	owner := event.Repository.Owner.Login
+	if owner == "" {
+		owner = event.Organization.Login
+	}
+	s.api.forget(owner)
+}
+
 // LabelAppliedByPerson reports whether this application of label to an
 // issue by login (the event GitHub lists at appliedAt, give or take a few
 // seconds) was the person's own, not a GitHub App acting for them

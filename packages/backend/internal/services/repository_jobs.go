@@ -78,6 +78,21 @@ type RepositoryJobService struct {
 	now            func() time.Time
 	transactions   RepositoryJobTransactions
 	githubRead     RepositoryJobGitHubReadAccess
+	outsiderEgress RepositoryJobOutsiderEgress
+}
+
+// RepositoryJobOutsiderEgress narrows a marked workspace's box before
+// outsider-started work runs on it (*WorkspaceService).
+type RepositoryJobOutsiderEgress interface {
+	NarrowOutsiderEgress(ctx context.Context, workspaceID string) error
+}
+
+// SetOutsiderEgress wires the box narrowing outsider-started runs need.
+// Without it those runs fail closed.
+func (s *RepositoryJobService) SetOutsiderEgress(egress RepositoryJobOutsiderEgress) {
+	if s != nil {
+		s.outsiderEgress = egress
+	}
 }
 
 // RepositoryJobGitHubReadAccess proves that the user's own GitHub credential

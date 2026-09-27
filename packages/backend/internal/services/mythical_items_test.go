@@ -152,12 +152,17 @@ type fakeMythicalLanes struct {
 	created []string
 	deleted []string
 	owned   map[string]bool
+	// provision observes a bound lane where the real lanes start its box.
+	provision func(id string)
 }
 
 func (l *fakeMythicalLanes) Create(_ context.Context, _ db.Repository, _ string, _ int64, name string, bind func(string) error) (string, error) {
 	id := uuid.NewString()
 	if err := bind(id); err != nil {
 		return "", err
+	}
+	if l.provision != nil {
+		l.provision(id)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()

@@ -20,7 +20,7 @@ func TestBuildWorkspaceVMRequest_DeclaresReadySignalEmitter(t *testing.T) {
 
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
 
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "container")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 
 	require.NotNil(t, req.WaitForReady)

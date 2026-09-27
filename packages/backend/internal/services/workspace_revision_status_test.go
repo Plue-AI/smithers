@@ -43,10 +43,10 @@ func TestWorkspaceVMRequestCarriesSelectedKind(t *testing.T) {
 	// workspace_nix_test.go); without a registry they are refused.
 	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
 	WithWorkspaceEnvironmentImages(&stubEnvironmentImageResolver{image: nixTestImage("vm")})(service)
-	vmReq, err := service.buildWorkspaceVMRequest(context.Background(), "", nil, 101, "vm")
+	vmReq, err := service.buildWorkspaceVMRequest(context.Background(), "", nil, 101, "", "vm")
 	require.NoError(t, err)
 	assert.Equal(t, "vm", vmReq.Kind)
-	desktopReq, err := service.buildWorkspaceVMRequest(context.Background(), "", nil, 101, "desktop")
+	desktopReq, err := service.buildWorkspaceVMRequest(context.Background(), "", nil, 101, "", "desktop")
 	require.NoError(t, err)
 	assert.Equal(t, "desktop", desktopReq.Kind)
 }

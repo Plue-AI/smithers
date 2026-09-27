@@ -24,7 +24,7 @@ func (r *failingEnvironmentImageResolver) Resolve(_ context.Context, _ int64, ki
 func TestAgentWorkspaceKindNeverResolvesANixImage(t *testing.T) {
 	t.Parallel()
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(&failingEnvironmentImageResolver{t: t}))
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 1, "agent")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 1, "", "agent")
 	require.NoError(t, err)
 	assert.Equal(t, "container", req.Kind, "the sandbox request boots the ordinary container guest")
 	assert.Empty(t, req.Image)
@@ -32,7 +32,7 @@ func TestAgentWorkspaceKindNeverResolvesANixImage(t *testing.T) {
 
 	// No registry at all: an agent workspace must still provision.
 	bare := NewWorkspaceService(&mockWorkspaceQuerier{})
-	_, err = bare.buildWorkspaceVMRequest(context.Background(), "", nil, 1, "agent")
+	_, err = bare.buildWorkspaceVMRequest(context.Background(), "", nil, 1, "", "agent")
 	require.NoError(t, err)
 }
 

@@ -17,6 +17,21 @@ func (q *Queries) IsOutsiderWorkspace(ctx context.Context, workspaceID string) (
 	return found, err
 }
 
+// IsOutsiderWorkspaceEgressSealed reports whether a marked workspace's box
+// is known to run only the narrowed egress proxy.
+func (q *Queries) IsOutsiderWorkspaceEgressSealed(ctx context.Context, workspaceID string) (bool, error) {
+	var found bool
+	err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM outsider_workspaces WHERE workspace_id = lower($1) AND egress_sealed_at IS NOT NULL)`, workspaceID).Scan(&found)
+	return found, err
+}
+
+// SealOutsiderWorkspaceEgress records that a marked workspace's box runs
+// only the narrowed egress proxy.
+func (q *Queries) SealOutsiderWorkspaceEgress(ctx context.Context, workspaceID string) error {
+	_, err := q.db.Exec(ctx, `UPDATE outsider_workspaces SET egress_sealed_at = now() WHERE workspace_id = lower($1) AND egress_sealed_at IS NULL`, workspaceID)
+	return err
+}
+
 // RecordLandingSourceWorkspace records the workspace whose landing
 // credential opened a landing.
 func (q *Queries) RecordLandingSourceWorkspace(ctx context.Context, landingRequestID int64, workspaceID string) error {

@@ -586,6 +586,12 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 	var egress *sandbox.EgressProxyPolicy
 	if binding != nil {
 		egress = binding.egress
+	} else if outsider, err := s.outsiderWorkspace(resumeCtx, workspace.ID); err != nil || outsider {
+		// Without provider bindings a resume keeps the box's proxy; a box
+		// that ran outsider-started work gets its narrowed one instead.
+		if egress, err = s.workspaceEgressProxy(resumeCtx, workspace.RepositoryID, workspace.ID); err != nil {
+			return workspace, err
+		}
 	}
 	resumeStartedAt := time.Now()
 	// Readiness is a first-boot contract. Resume returns when the controller
@@ -626,6 +632,9 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 			if loadErr != nil {
 				return workspace, pkgerrors.Internal("load workspace after resume: " + loadErr.Error())
 			}
+			if err := s.refuseUnnarrowedOutsiderBox(ctx, current, egress); err != nil {
+				return current, err
+			}
 			_ = s.q.TouchWorkspaceActivity(ctx, current.ID)
 			return current, nil
 		}
@@ -643,6 +652,9 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 	updated.ResumedAt = pgtype.Timestamptz{Time: resumedAt, Valid: true}
 	if s.sandboxMetrics != nil {
 		s.sandboxMetrics.AddSandboxActiveVMs("workspace", 1)
+	}
+	if err := s.refuseUnnarrowedOutsiderBox(ctx, updated, egress); err != nil {
+		return updated, err
 	}
 	_ = s.q.TouchWorkspaceActivity(ctx, updated.ID)
 	updated = s.installWorkspaceHeadReporterBestEffort(ctx, updated, workspace.VmID)
@@ -741,6 +753,61 @@ func (s *WorkspaceService) resetWorkspaceForReprovision(ctx context.Context, wor
 	}
 	reset.ProvisioningGeneration = workspace.ProvisioningGeneration + 1
 	return reset, nil
+}
+
+// refuseUnnarrowedOutsiderBox suspends a box that is running with an egress
+// policy computed before its workspace was marked as having run
+// outsider-started work (a resume racing the mark). It runs once the box is
+// visibly running, so a mark committed earlier is seen here and a mark
+// committed later sees the box running (NarrowOutsiderEgress suspends it).
+func (s *WorkspaceService) refuseUnnarrowedOutsiderBox(ctx context.Context, workspace db.Workspace, egress *sandbox.EgressProxyPolicy) error {
+	if egress != nil && len(egress.HostRules) > 0 {
+		return nil
+	}
+	outsider, err := s.outsiderWorkspace(ctx, workspace.ID)
+	if err == nil && !outsider {
+		return nil
+	}
+	if suspendErr := s.suspendWorkspace(ctx, workspace); suspendErr != nil {
+		slog.Warn("suspend a box that booted before its outsider mark", "workspace_id", workspace.ID, "error", suspendErr)
+	}
+	failure := pkgerrors.New(pkgerrors.CodeServiceUnavailable, "the workspace restarts with the egress of a box that ran outsider-started work; retry")
+	failure.RetryAfter = 5
+	return failure
+}
+
+// NarrowOutsiderEgress makes sure every proxy a marked workspace runs is
+// narrowed before outsider-started work runs on it: a box that booted before
+// the mark is suspended once (its next start computes the narrowed policy),
+// then the workspace is sealed so later runs skip the check.
+func (s *WorkspaceService) NarrowOutsiderEgress(ctx context.Context, workspaceID string) error {
+	sealer, ok := s.q.(outsiderEgressSealer)
+	if !ok {
+		return pkgerrors.Internal("workspace store cannot seal outsider egress")
+	}
+	sealed, err := sealer.IsOutsiderWorkspaceEgressSealed(ctx, workspaceID)
+	if err != nil || sealed {
+		return err
+	}
+	workspace, err := s.q.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	switch workspace.Status {
+	case "running":
+		if err := s.suspendWorkspace(ctx, workspace); err != nil {
+			return err
+		}
+	case "pending", "starting":
+		// A boot in flight may have computed its policy before the mark.
+		return pkgerrors.Conflict("the workspace is starting; outsider-started work waits for it")
+	}
+	return sealer.SealOutsiderWorkspaceEgress(ctx, workspaceID)
+}
+
+type outsiderEgressSealer interface {
+	IsOutsiderWorkspaceEgressSealed(ctx context.Context, workspaceID string) (bool, error)
+	SealOutsiderWorkspaceEgress(ctx context.Context, workspaceID string) error
 }
 
 func (s *WorkspaceService) suspendWorkspace(ctx context.Context, workspace db.Workspace) (retErr error) {

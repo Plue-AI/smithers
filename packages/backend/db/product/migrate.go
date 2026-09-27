@@ -90,6 +90,7 @@ var migrationRegistry = []migrationSpec{
 	{54, "migrations/0054_issue_text_editor.sql"},
 	{55, "migrations/0055_comment_text_editor.sql"},
 	{56, "migrations/0056_native_maintainer.sql"},
+	{57, "migrations/0057_outsider_egress.sql"},
 }
 
 type migration struct {

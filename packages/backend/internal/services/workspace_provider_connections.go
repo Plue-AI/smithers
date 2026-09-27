@@ -24,7 +24,7 @@ type workspaceProviderBinding struct {
 func (s *WorkspaceService) resolveWorkspaceProviderBindings(ctx context.Context, workspace db.Workspace) (*workspaceProviderBinding, error) {
 	binding := &workspaceProviderBinding{}
 	var err error
-	binding.egress, err = s.workspaceEgressProxy(ctx, workspace.RepositoryID)
+	binding.egress, err = s.workspaceEgressProxy(ctx, workspace.RepositoryID, workspace.ID)
 	if err != nil {
 		return nil, err
 	}

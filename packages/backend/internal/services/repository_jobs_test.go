@@ -333,6 +333,7 @@ func repositoryJobFixture(t *testing.T) (*pgxpool.Pool, *db.Queries, *Repository
 	service := NewRepositoryJobService(q, gateway, pool)
 	gateway.service = service
 	service.SetFlowDispatcher(gateway)
+	service.SetOutsiderEgress(&recordingOutsiderEgress{})
 	return pool, q, service, gateway, input
 }
 

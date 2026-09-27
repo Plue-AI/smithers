@@ -49,7 +49,7 @@ func TestBuildWorkspaceVMRequestContainerKindIsUnchanged(t *testing.T) {
 	resolver := &stubEnvironmentImageResolver{image: nixTestImage("vm")}
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(resolver))
 
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "container")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 	assert.Equal(t, "container", req.Kind)
 	assert.Empty(t, req.Image, "container workspaces keep the deployment default image")
@@ -62,7 +62,7 @@ func TestBuildWorkspaceVMRequestVMKindBootsClosureImage(t *testing.T) {
 	resolver := &stubEnvironmentImageResolver{image: nixTestImage("vm")}
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(resolver))
 
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "vm")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "", "vm")
 	require.NoError(t, err)
 	assert.Equal(t, "vm", req.Kind)
 	assert.Equal(t, resolver.image.Image, req.Image)
@@ -95,7 +95,7 @@ func TestBuildWorkspaceVMRequestDesktopKindAddsDesktopBoot(t *testing.T) {
 	resolver := &stubEnvironmentImageResolver{image: nixTestImage("desktop")}
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(resolver))
 
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "desktop")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "", "desktop")
 	require.NoError(t, err)
 	assert.Equal(t, "desktop", req.Kind)
 	password := req.Files[workspaceDesktopPasswordPath]
@@ -125,7 +125,7 @@ func TestBuildWorkspaceVMRequestDesktopKindIsSized(t *testing.T) {
 	resolver := &stubEnvironmentImageResolver{image: nixTestImage("desktop")}
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(resolver))
 
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "desktop")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "", "desktop")
 	require.NoError(t, err)
 	require.NotNil(t, req.MemSizeMB, "a desktop must not fall back to the worker's 512 MiB default: XFCE alone leaves ~180 MB free and one browser tab exhausts it")
 	assert.Equal(t, int32(defaultWorkspaceDesktopMemoryMB), *req.MemSizeMB)
@@ -140,7 +140,7 @@ func TestWorkspaceDesktopResourcesOptionOverridesAndRejectsNonPositive(t *testin
 		WithWorkspaceEnvironmentImages(resolver),
 		WithWorkspaceDesktopResources(4096, 2),
 	)
-	req, err := sized.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "desktop")
+	req, err := sized.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "", "desktop")
 	require.NoError(t, err)
 	require.NotNil(t, req.MemSizeMB)
 	assert.Equal(t, int32(4096), *req.MemSizeMB)
@@ -152,7 +152,7 @@ func TestWorkspaceDesktopResourcesOptionOverridesAndRejectsNonPositive(t *testin
 		WithWorkspaceEnvironmentImages(resolver),
 		WithWorkspaceDesktopResources(0, -1),
 	)
-	req, err = fallback.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "desktop")
+	req, err = fallback.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "", "desktop")
 	require.NoError(t, err)
 	require.NotNil(t, req.MemSizeMB)
 	assert.Equal(t, int32(defaultWorkspaceDesktopMemoryMB), *req.MemSizeMB)
@@ -180,7 +180,7 @@ func TestBuildWorkspaceVMRequestResources(t *testing.T) {
 						WithWorkspaceAgentResources(12288, 6),
 					}, resources.options...)
 					svc := NewWorkspaceService(&mockWorkspaceQuerier{}, options...)
-					req, err := svc.buildWorkspaceVMRequest(context.Background(), snapshotID, nil, 7, kind)
+					req, err := svc.buildWorkspaceVMRequest(context.Background(), snapshotID, nil, 7, "", kind)
 					require.NoError(t, err)
 					memoryMB, vcpuCount := resources.memoryMB, resources.vcpuCount
 					switch kind {
@@ -201,7 +201,7 @@ func TestBuildWorkspaceVMRequestResources(t *testing.T) {
 
 func TestBuildWorkspaceVMRequestVMKindWithoutRegistryIsConflict(t *testing.T) {
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{})
-	_, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "vm")
+	_, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "", "vm")
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.True(t, errors.As(err, &apiErr))
@@ -211,7 +211,7 @@ func TestBuildWorkspaceVMRequestVMKindWithoutRegistryIsConflict(t *testing.T) {
 func TestBuildWorkspaceVMRequestVMKindPropagatesResolverError(t *testing.T) {
 	resolver := &stubEnvironmentImageResolver{err: pkgerrors.Conflict("no image")}
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(resolver))
-	_, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "vm")
+	_, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 7, "", "vm")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no image")
 }
@@ -629,7 +629,7 @@ func TestSandboxEnvironmentImageRegisterBaseRetiresPriorKindOnly(t *testing.T) {
 func TestDevelopmentWorkspaceHasDependencyAndCheckDiskSpace(t *testing.T) {
 	resolver := &stubEnvironmentImageResolver{image: nixTestImage("vm")}
 	svc := NewWorkspaceService(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(resolver))
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "closure", nil, 7, "vm")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "closure", nil, 7, "", "vm")
 	require.NoError(t, err)
 	require.NotNil(t, req.RootfsSizeMB)
 	assert.EqualValues(t, 32*1024, *req.RootfsSizeMB)

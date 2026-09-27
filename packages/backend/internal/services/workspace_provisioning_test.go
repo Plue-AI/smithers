@@ -87,7 +87,7 @@ func TestBuildWorkspaceVMRequest_DoesNotPersistRepositorySecrets(t *testing.T) {
 	t.Parallel()
 
 	req, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).
-		buildWorkspaceVMRequest(context.Background(), "", nil, 123, "container")
+		buildWorkspaceVMRequest(context.Background(), "", nil, 123, "", "container")
 	require.NoError(t, err)
 
 	assert.NotContains(t, req.Files, "/etc/profile.d/00-smithers-secrets.sh")
@@ -113,7 +113,7 @@ func TestWorkspaceService_BuildWorkspaceVMRequestIncludesSmithersCLIWhenAvailabl
 	t.Setenv(workspaceCLIBinaryEnv, cliPath)
 
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "container")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	require.NoError(t, err)
 
 	file, ok := req.Files[workspaceSmithersCLIB64Path]
@@ -1064,7 +1064,7 @@ func TestBuildWorkspaceVMRequest_BindsRepositorySecretsToTheEgressProxy(t *testi
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
 	svc.agentEnvironment = provider
 
-	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 123, "container")
+	req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 123, "", "container")
 	require.NoError(t, err)
 	require.NotNil(t, req.EgressProxy)
 	assert.True(t, req.EgressProxy.Enabled)
@@ -1093,12 +1093,12 @@ func TestBuildWorkspaceVMRequest_BindsRepositorySecretsToTheEgressProxy(t *testi
 	// A loader failure fails the create closed rather than booting with
 	// fewer bindings than the repository declared.
 	provider.err = errors.New("db down")
-	_, err = svc.buildWorkspaceVMRequest(context.Background(), "", nil, 123, "container")
+	_, err = svc.buildWorkspaceVMRequest(context.Background(), "", nil, 123, "", "container")
 	require.Error(t, err)
 	// A provider without the loader (test fakes, disabled environments)
 	// still gets the proxy boundary.
 	svc.agentEnvironment = staticAgentEnvironmentProvider{}
-	req, err = svc.buildWorkspaceVMRequest(context.Background(), "", nil, 123, "container")
+	req, err = svc.buildWorkspaceVMRequest(context.Background(), "", nil, 123, "", "container")
 	require.NoError(t, err)
 	assert.True(t, req.EgressProxy.Enabled)
 	assert.Empty(t, req.EgressProxy.Secrets)

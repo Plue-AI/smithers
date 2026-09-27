@@ -197,14 +197,14 @@ func addWorkspaceExecutable(files map[string]sandbox.SandboxFile, cliPath, targe
 // image otherwise, exactly the old behavior). On snapshot boots the apt deps
 // are skipped — they are baked into the image, and re-running sandbox provider's
 // post-boot apt would only slow the boot back down.
-func (s *WorkspaceService) freshWorkspaceVMRequest(ctx context.Context, repositoryID int64, kind string) (sandbox.CreateRequest, error) {
+func (s *WorkspaceService) freshWorkspaceVMRequest(ctx context.Context, repositoryID int64, workspaceID, kind string) (sandbox.CreateRequest, error) {
 	snapshotID := s.goldenSnapshots.Current(ctx)
 	if sandboxKindForWorkspace(kind) != "container" {
 		// Non-empty means "use the closure's golden snapshot if ready"; the
 		// container toolchain snapshot never boots a NixOS image.
 		snapshotID = "closure"
 	}
-	req, err := s.buildWorkspaceVMRequest(ctx, snapshotID, nil, repositoryID, kind)
+	req, err := s.buildWorkspaceVMRequest(ctx, snapshotID, nil, repositoryID, workspaceID, kind)
 	if err != nil {
 		return sandbox.CreateRequest{}, err
 	}
@@ -309,7 +309,7 @@ func workspaceProvisionAttempt(generation int32, attempt string) string {
 // create failure, the snapshot is implicated and invalidated.
 func (s *WorkspaceService) createFreshWorkspaceVM(ctx context.Context, repositoryID int64, workspaceID string, generation int32, kind string, bindings ...*workspaceProviderBinding) (sandbox.CreateResult, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
-	req, err := s.freshWorkspaceVMRequest(ctx, repositoryID, kind)
+	req, err := s.freshWorkspaceVMRequest(ctx, repositoryID, workspaceID, kind)
 	if err != nil {
 		return sandbox.CreateResult{}, err
 	}
@@ -334,7 +334,7 @@ func (s *WorkspaceService) createFreshWorkspaceVM(ctx context.Context, repositor
 	// Rebuild the bare request from scratch (keeps Packages) rather than clearing
 	// SnapshotID on req, which had them stripped for the snapshot boot.
 	bareCtx := sandboxProvisionContext(ctx, "create", "workspace", workspaceID, workspaceProvisionAttempt(generation, "bare"))
-	bareReq, bareReqErr := s.buildWorkspaceVMRequest(ctx, "", nil, repositoryID, kind)
+	bareReq, bareReqErr := s.buildWorkspaceVMRequest(ctx, "", nil, repositoryID, workspaceID, kind)
 	if bareReqErr != nil {
 		return sandbox.CreateResult{}, bareReqErr
 	}
@@ -418,7 +418,7 @@ func (s *WorkspaceService) GoldenBakeVMRequest() sandbox.CreateRequest {
 	// repositoryID 0: the baked golden disk is repo-agnostic and must NEVER carry
 	// any repository's secrets.
 	// repositoryID 0 binds no secret, so the request cannot fail.
-	req, _ := s.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "container")
+	req, _ := s.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", "container")
 	return req
 }
 
@@ -429,14 +429,50 @@ type workspaceProxyBoundSecretsLoader interface {
 	LoadProxyBoundSecrets(ctx context.Context, repositoryID int64) ([]sandbox.EgressProxySecret, error)
 }
 
+// outsiderWorkspaceReader reads the permanent outsider_workspaces mark.
+type outsiderWorkspaceReader interface {
+	IsOutsiderWorkspace(ctx context.Context, workspaceID string) (bool, error)
+}
+
+// outsiderWorkspace reports whether a workspace ran work started from an
+// outsider's text. A store that cannot hold the mark has no marked workspace.
+func (s *WorkspaceService) outsiderWorkspace(ctx context.Context, workspaceID string) (bool, error) {
+	reader, ok := s.q.(outsiderWorkspaceReader)
+	if !ok || strings.TrimSpace(workspaceID) == "" {
+		return false, nil
+	}
+	return reader.IsOutsiderWorkspace(ctx, workspaceID)
+}
+
+// outsiderFork reports whether either side of a fork ran, or is to run,
+// outsider-started work (or its mark cannot be read). Such a workspace boots
+// cold: a fork would carry the other box's disk, and any person's credential
+// stored there, across that line.
+func (s *WorkspaceService) outsiderFork(ctx context.Context, child, source db.Workspace) bool {
+	for _, id := range []string{child.ID, source.ID} {
+		if outsider, err := s.outsiderWorkspace(ctx, id); err != nil || outsider {
+			return true
+		}
+	}
+	return false
+}
+
 // workspaceEgressProxy builds the egress-proxy policy for a workspace VM.
 // Every workspace gets the per-sandbox proxy as its only egress path, with or
 // without bound secrets, exactly like agent sandboxes. Bound repository
 // secrets travel once, inside the create request, to the worker that seeds
 // the proxy process; the guest sees NAME=NAME. repositoryID 0 (the golden
 // bake) binds nothing so the baked disk never carries a repository's secrets.
-func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryID int64) (*sandbox.EgressProxyPolicy, error) {
+func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryID int64, workspaceID string) (*sandbox.EgressProxyPolicy, error) {
 	policy := &sandbox.EgressProxyPolicy{Enabled: true}
+	// A workspace that ran work started from an outsider's text reaches
+	// GitHub only for code: that work reads its approved copy, never the
+	// live issue or conversation.
+	if outsider, err := s.outsiderWorkspace(ctx, workspaceID); err != nil {
+		return nil, pkgerrors.Internal("read the workspace's outsider mark").WithCause(err)
+	} else if outsider {
+		policy.HostRules = sandbox.ConversationWithheldHostRules()
+	}
 	loader, ok := s.agentEnvironment.(workspaceProxyBoundSecretsLoader)
 	if !ok || repositoryID <= 0 {
 		return policy, nil
@@ -455,8 +491,8 @@ func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryI
 	return policy, nil
 }
 
-func (s *WorkspaceService) buildWorkspaceVMRequest(ctx context.Context, snapshotID string, gitRepos []sandbox.GitRepositorySpec, repositoryID int64, kind string) (sandbox.CreateRequest, error) {
-	return s.buildWorkspaceVMRequestWithImage(ctx, snapshotID, gitRepos, repositoryID, kind, nil)
+func (s *WorkspaceService) buildWorkspaceVMRequest(ctx context.Context, snapshotID string, gitRepos []sandbox.GitRepositorySpec, repositoryID int64, workspaceID, kind string) (sandbox.CreateRequest, error) {
+	return s.buildWorkspaceVMRequestWithImage(ctx, snapshotID, gitRepos, repositoryID, workspaceID, kind, nil)
 }
 
 // buildWorkspaceVMRequestWithImage is buildWorkspaceVMRequest with the NixOS
@@ -464,8 +500,8 @@ func (s *WorkspaceService) buildWorkspaceVMRequest(ctx context.Context, snapshot
 // registry. For kind=vm/desktop the request boots the closure image via the
 // worker's init handoff; snapshotID non-empty means "boot the closure's
 // golden snapshot when one is ready" (the container-kind id is never reused).
-func (s *WorkspaceService) buildWorkspaceVMRequestWithImage(ctx context.Context, snapshotID string, gitRepos []sandbox.GitRepositorySpec, repositoryID int64, kind string, fixedImage *runtimeports.SandboxEnvironmentImage) (sandbox.CreateRequest, error) {
-	req, err := s.buildContainerWorkspaceVMRequest(ctx, snapshotID, gitRepos, repositoryID, kind)
+func (s *WorkspaceService) buildWorkspaceVMRequestWithImage(ctx context.Context, snapshotID string, gitRepos []sandbox.GitRepositorySpec, repositoryID int64, workspaceID, kind string, fixedImage *runtimeports.SandboxEnvironmentImage) (sandbox.CreateRequest, error) {
+	req, err := s.buildContainerWorkspaceVMRequest(ctx, snapshotID, gitRepos, repositoryID, workspaceID, kind)
 	if err != nil {
 		return sandbox.CreateRequest{}, err
 	}
@@ -498,8 +534,8 @@ func (s *WorkspaceService) buildWorkspaceVMRequestWithImage(ctx context.Context,
 
 // buildContainerWorkspaceVMRequest is the legacy OCI workspace request every
 // kind starts from; vm/desktop then swap the image, packages, and bootstrap.
-func (s *WorkspaceService) buildContainerWorkspaceVMRequest(ctx context.Context, snapshotID string, gitRepos []sandbox.GitRepositorySpec, repositoryID int64, kind string) (sandbox.CreateRequest, error) {
-	egress, err := s.workspaceEgressProxy(ctx, repositoryID)
+func (s *WorkspaceService) buildContainerWorkspaceVMRequest(ctx context.Context, snapshotID string, gitRepos []sandbox.GitRepositorySpec, repositoryID int64, workspaceID, kind string) (sandbox.CreateRequest, error) {
+	egress, err := s.workspaceEgressProxy(ctx, repositoryID, workspaceID)
 	if err != nil {
 		return sandbox.CreateRequest{}, err
 	}
@@ -1738,7 +1774,7 @@ func (s *WorkspaceService) tryForkDerivedFromPrimary(ctx context.Context, worksp
 		Kind:         workspace.Kind,
 	})
 	if err != nil || strings.TrimSpace(source.VmID) == "" || source.ID == workspace.ID ||
-		!workspaceKindForksCleanly(source.Kind) {
+		!workspaceKindForksCleanly(source.Kind) || s.outsiderFork(ctx, workspace, source) {
 		return workspace, false // no forkable primary → cold path
 	}
 
@@ -1976,7 +2012,7 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 	defer func() { s.observeWorkspaceLifecycle("start", retErr) }()
 	startedAt := time.Now()
 	createCtx := sandboxProvisionContext(ctx, "create", "workspace", workspace.ID, workspaceProvisionAttempt(workspace.ProvisioningGeneration, "resume-snapshot-"+snapshot.ID))
-	req, err := s.buildWorkspaceVMRequest(ctx, snapshot.SnapshotID, nil, workspace.RepositoryID, workspace.Kind)
+	req, err := s.buildWorkspaceVMRequest(ctx, snapshot.SnapshotID, nil, workspace.RepositoryID, workspace.ID, workspace.Kind)
 	if err != nil {
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return workspace, workspaceProvisioningError("", err)
@@ -2059,6 +2095,9 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 		// provisioned, so there is nothing to fork from. Rather than 409, bind
 		// a fresh VM to the fork workspace — forking nothing yields a new
 		// sandbox for the session. The source row is never mutated.
+		return s.provisionForkVMOnEmptySource(ctx, workspace)
+	}
+	if s.outsiderFork(ctx, workspace, source) {
 		return s.provisionForkVMOnEmptySource(ctx, workspace)
 	}
 	if !workspaceKindForksCleanly(source.Kind) || !workspaceKindForksCleanly(workspace.Kind) {

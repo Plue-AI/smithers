@@ -167,7 +167,7 @@ func (s *WorkspaceService) nixGoldenSnapshotFor(ctx context.Context, image runti
 // snapshot: the exact kind=vm/desktop workspace request booting that image,
 // repository-agnostic (repositoryID 0 binds no secret), bare (no snapshot).
 func (s *WorkspaceService) NixBakeVMRequest(image runtimeports.SandboxEnvironmentImage) sandbox.CreateRequest {
-	req, _ := s.buildWorkspaceVMRequestWithImage(context.Background(), "", nil, 0, image.Kind, &image)
+	req, _ := s.buildWorkspaceVMRequestWithImage(context.Background(), "", nil, 0, "", image.Kind, &image)
 	return req
 }
 
@@ -213,5 +213,5 @@ func (s *WorkspaceService) recordResolvedWorkspaceEnvironment(ctx context.Contex
 func (s *WorkspaceService) CIGuestVMRequest(ctx context.Context, repositoryID int64, gitRepos []sandbox.GitRepositorySpec) (sandbox.CreateRequest, error) {
 	// "closure" is the sentinel freshWorkspaceVMRequest uses: boot the
 	// closure's golden snapshot when one is ready, the bare image otherwise.
-	return s.buildWorkspaceVMRequestWithImage(ctx, "closure", gitRepos, repositoryID, "vm", nil)
+	return s.buildWorkspaceVMRequestWithImage(ctx, "closure", gitRepos, repositoryID, "", "vm", nil)
 }

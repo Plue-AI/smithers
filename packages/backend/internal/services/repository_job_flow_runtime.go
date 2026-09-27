@@ -132,9 +132,17 @@ func (s *RepositoryJobService) admitRepositoryJobLaunch(ctx context.Context, reg
 		return jobs.RequestReceipt{}, err
 	}
 	// A run started from an outsider's text marks its workspace before it
-	// starts, so no landing that workspace opens changes a protected path.
+	// starts, so no landing that workspace opens changes a protected path,
+	// its box's credentials read no live conversation, and its box runs only
+	// the egress that withholds GitHub conversation.
 	if repositoryJobDispatchEvent(registration, dispatch)["trial"] != true && dispatch.Source != "schedule" && dispatch.EventType != "manual" && gitHubEventByOutsider(dispatch.Payload) {
 		if err := s.q.MarkOutsiderWorkspace(ctx, registration.RepositoryID, registration.WorkspaceID); err != nil {
+			return jobs.RequestReceipt{}, err
+		}
+		if s.outsiderEgress == nil {
+			return jobs.RequestReceipt{}, errors.New("outsider-started runs need the workspace egress narrowing")
+		}
+		if err := s.outsiderEgress.NarrowOutsiderEgress(ctx, registration.WorkspaceID); err != nil {
 			return jobs.RequestReceipt{}, err
 		}
 	}

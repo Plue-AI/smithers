@@ -219,6 +219,9 @@ func gitHubWebhookJobRetryBackoff(attempts int32) time.Duration {
 }
 
 func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.GithubWebhookJob) error {
+	// A change of who may write the repository takes effect at once, not
+	// after the cached permission answers expire.
+	w.issueText.forgetMaintainers(job.EventType, job.Payload)
 	// GitHub names an author's association, not the writer's standing:
 	// record whether maintainers wrote the event's text before any consumer
 	// reads it. The stack reads every issue event; other events are read

@@ -358,13 +358,13 @@ func TestWorkspaceService_FreshVMRequestUsesGoldenSnapshot(t *testing.T) {
 	golden := NewGoldenSnapshotService(db, &fakeGoldenVMClient{}, nil)
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceGoldenSnapshots(golden))
 
-	req, err := svc.freshWorkspaceVMRequest(context.Background(), 0, "container")
+	req, err := svc.freshWorkspaceVMRequest(context.Background(), 0, "", "container")
 	require.NoError(t, err)
 	assert.Equal(t, "snap-golden-2", req.SnapshotID)
 	assert.Empty(t, req.Packages, "snapshot boots must not re-run apt post-boot config")
 
 	bare := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
-	bareReq, err := bare.freshWorkspaceVMRequest(context.Background(), 0, "container")
+	bareReq, err := bare.freshWorkspaceVMRequest(context.Background(), 0, "", "container")
 	require.NoError(t, err)
 	assert.Empty(t, bareReq.SnapshotID)
 	assert.NotEmpty(t, bareReq.Packages, "bare-image boots keep the apt bootstrap")

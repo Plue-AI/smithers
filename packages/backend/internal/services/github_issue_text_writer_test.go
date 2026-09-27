@@ -525,3 +525,30 @@ func TestGitHubAppActingForAMaintainerIsTheApp(t *testing.T) {
 	_, err = stamper.stampGitHubText(context.Background(), "issues", "labeled", later)
 	require.ErrorIs(t, err, errGitHubIssueTextUnavailable, "retried until GitHub lists this application")
 }
+
+// A collaborator or membership change forgets the cached permission answers
+// of the repository owner's repositories at once: a demoted maintainer's next
+// text is read live, not trusted for the rest of the minute.
+func TestGitHubPermissionEventsForgetCachedMaintainers(t *testing.T) {
+	t.Parallel()
+	fake, stamper := newFakeIssueTextGitHub(t)
+	now := time.Unix(1_800_000_000, 0)
+	stamper.api.now = func() time.Time { return now }
+	fake.permissions["contributor"] = "write"
+	granted := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", granted, ""))
+
+	fake.permissions["contributor"] = "read"
+	stamper.forgetMaintainers("issues", []byte(`{"repository":{"name":"demo","owner":{"login":"Acme"}}}`))
+	cached := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", cached, ""), "an issue event changes no permission")
+
+	stamper.forgetMaintainers("member", []byte(`{"action":"edited","repository":{"name":"other","owner":{"login":"acme"}}}`))
+	demoted := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", demoted, ""), "the demotion is read at once")
+
+	fake.permissions["contributor"] = "write"
+	stamper.forgetMaintainers("organization", []byte(`{"action":"member_removed","organization":{"login":"Acme"}}`))
+	restored := stampIssueText(t, stamper, "opened", issueTextEvent(t, "opened", issueAuthor))
+	assert.True(t, gitHubIssueEventApproves("issues", "opened", restored, ""))
+}

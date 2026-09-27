@@ -998,6 +998,9 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 		switch {
 		case err == nil && bound.RetiredAt.Valid:
 			continue
+		case err == nil && item.Outsider:
+			// A lane bound before its item was known to be an outsider's.
+			return bound.WorkspaceID, q.MarkOutsiderWorkspace(ctx, r.row.RepositoryID, bound.WorkspaceID)
 		case err == nil:
 			return bound.WorkspaceID, nil
 		case !errors.Is(err, pgx.ErrNoRows):
@@ -1009,6 +1012,14 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 		}
 		var winner db.MythicalLane
 		workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, candidate, func(workspaceID string) error {
+			// An outsider's lane is marked before it is provisioned: its box
+			// boots with GitHub conversation withheld, and its credentials
+			// read no issue or conversation (middleware.ConversationWithheld).
+			if item.Outsider {
+				if err := q.MarkOutsiderWorkspace(ctx, r.row.RepositoryID, workspaceID); err != nil {
+					return err
+				}
+			}
 			lane, inserted, err := q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: workspaceID, RepositoryID: r.row.RepositoryID,
 				ItemID: item.ID, Name: candidate})
 			if err != nil {

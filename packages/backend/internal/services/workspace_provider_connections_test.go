@@ -195,7 +195,7 @@ func TestWorkspaceProviderPoolKeepsPlatformSeats(t *testing.T) {
 
 func TestWorkspaceProviderPoolNoConnectionPreservesRequest(t *testing.T) {
 	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceGitBaseURL(poolTestBaseURL), WithWorkspaceProviderConnections(&workspaceProviderPool{closed: true}))
-	req, err := service.buildWorkspaceVMRequest(context.Background(), "", nil, 101, "container")
+	req, err := service.buildWorkspaceVMRequest(context.Background(), "", nil, 101, "", "container")
 	require.NoError(t, err)
 	before, err := json.Marshal(req)
 	require.NoError(t, err)
