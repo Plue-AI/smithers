@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -28,7 +29,27 @@ type RepositoryJobRouteService interface {
 	Approvals(context.Context, int64, int64, string) ([]services.RepositoryJobApproval, error)
 }
 
-func (h *RepoGatewayHandler) PutRepositoryJob(w http.ResponseWriter, r *http.Request) {
+// RepositoryJobHandler serves repository jobs: the repository's own routes,
+// and the callbacks a box's coding host makes under
+// /api/gateways/{hostID}/repository-jobs/... with its flowhost binding ID
+// (SMITHERS_GATEWAY_ID) and control credential (SMITHERS_API_KEY).
+type RepositoryJobHandler struct {
+	RepositoryJobs  RepositoryJobRouteService
+	SourceRetention interface {
+		Retain(context.Context, int64, int64, services.RepositorySourceRetentionInput) (services.RepositorySourceRetentionResult, error)
+	}
+}
+
+// bearerToken is the credential of an Authorization: Bearer header, or "".
+func bearerToken(header string) string {
+	parts := strings.Fields(header)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return parts[1]
+}
+
+func (h *RepositoryJobHandler) PutRepositoryJob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if h.RepositoryJobs == nil {
 		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "repository job registration unavailable"))
@@ -45,7 +66,7 @@ func (h *RepoGatewayHandler) PutRepositoryJob(w http.ResponseWriter, r *http.Req
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("registration must contain one JSON object"))
 		return
 	}
-	result, err := h.RepositoryJobs.Register(r.Context(), chi.URLParam(r, "gatewayID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), input)
+	result, err := h.RepositoryJobs.Register(r.Context(), chi.URLParam(r, "hostID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), input)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -57,7 +78,7 @@ func (h *RepoGatewayHandler) PutRepositoryJob(w http.ResponseWriter, r *http.Req
 	})
 }
 
-func (h *RepoGatewayHandler) PutRepositoryJobTrial(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) PutRepositoryJobTrial(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if h.RepositoryJobs == nil {
 		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "repository trials unavailable"))
@@ -74,7 +95,7 @@ func (h *RepoGatewayHandler) PutRepositoryJobTrial(w http.ResponseWriter, r *htt
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("trial must contain one JSON object"))
 		return
 	}
-	result, err := h.RepositoryJobs.CreateTrial(r.Context(), chi.URLParam(r, "gatewayID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), chi.URLParam(r, "requestID"), input)
+	result, err := h.RepositoryJobs.CreateTrial(r.Context(), chi.URLParam(r, "hostID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), chi.URLParam(r, "requestID"), input)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -82,7 +103,7 @@ func (h *RepoGatewayHandler) PutRepositoryJobTrial(w http.ResponseWriter, r *htt
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) PutRepositoryJobComment(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) PutRepositoryJobComment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if h.RepositoryJobs == nil {
 		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "repository replies unavailable"))
@@ -99,7 +120,7 @@ func (h *RepoGatewayHandler) PutRepositoryJobComment(w http.ResponseWriter, r *h
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("reply must contain one JSON object"))
 		return
 	}
-	result, err := h.RepositoryJobs.CreateComment(r.Context(), chi.URLParam(r, "gatewayID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), chi.URLParam(r, "step"), input)
+	result, err := h.RepositoryJobs.CreateComment(r.Context(), chi.URLParam(r, "hostID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), chi.URLParam(r, "step"), input)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -107,7 +128,7 @@ func (h *RepoGatewayHandler) PutRepositoryJobComment(w http.ResponseWriter, r *h
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) PutRepositoryJobManual(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) PutRepositoryJobManual(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if h.RepositoryJobs == nil {
 		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "manual repository jobs unavailable"))
@@ -124,7 +145,7 @@ func (h *RepoGatewayHandler) PutRepositoryJobManual(w http.ResponseWriter, r *ht
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("manual request must contain one JSON object"))
 		return
 	}
-	result, err := h.RepositoryJobs.RunManual(r.Context(), chi.URLParam(r, "gatewayID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), chi.URLParam(r, "requestID"), input)
+	result, err := h.RepositoryJobs.RunManual(r.Context(), chi.URLParam(r, "hostID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "job"), chi.URLParam(r, "requestID"), input)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -132,7 +153,7 @@ func (h *RepoGatewayHandler) PutRepositoryJobManual(w http.ResponseWriter, r *ht
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) repositoryJobScope(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
+func (h *RepositoryJobHandler) repositoryJobScope(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
 	w.Header().Set("Cache-Control", "no-store")
 	user, err := requireRouteUser(r)
 	if err != nil {
@@ -151,7 +172,7 @@ func (h *RepoGatewayHandler) repositoryJobScope(w http.ResponseWriter, r *http.R
 	return repoCtx.Repository.ID, user.ID, true
 }
 
-func (h *RepoGatewayHandler) GetRepositoryJobs(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) GetRepositoryJobs(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.repositoryJobScope(w, r)
 	if !ok {
 		return
@@ -164,7 +185,7 @@ func (h *RepoGatewayHandler) GetRepositoryJobs(w http.ResponseWriter, r *http.Re
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) GetRepositorySource(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) GetRepositorySource(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.repositoryJobScope(w, r)
 	if !ok {
 		return
@@ -177,7 +198,7 @@ func (h *RepoGatewayHandler) GetRepositorySource(w http.ResponseWriter, r *http.
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) PauseRepositoryJob(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) PauseRepositoryJob(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.repositoryJobScope(w, r)
 	if !ok {
 		return
@@ -190,7 +211,7 @@ func (h *RepoGatewayHandler) PauseRepositoryJob(w http.ResponseWriter, r *http.R
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) PostRepositoryJobApproval(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) PostRepositoryJobApproval(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.repositoryJobScope(w, r)
 	if !ok {
 		return
@@ -214,7 +235,7 @@ func (h *RepoGatewayHandler) PostRepositoryJobApproval(w http.ResponseWriter, r 
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) GetRepositoryJobApprovals(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) GetRepositoryJobApprovals(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.repositoryJobScope(w, r)
 	if !ok {
 		return
@@ -227,7 +248,7 @@ func (h *RepoGatewayHandler) GetRepositoryJobApprovals(w http.ResponseWriter, r 
 	pkgerrors.WriteJSON(w, http.StatusOK, result)
 }
 
-func (h *RepoGatewayHandler) GetRepositoryJobDispatches(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) GetRepositoryJobDispatches(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.repositoryJobScope(w, r)
 	if !ok {
 		return

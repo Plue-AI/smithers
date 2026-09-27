@@ -20,7 +20,7 @@ import (
 
 const (
 	// modelProxyTokenPrefix names every platform-minted model credential; the
-	// full name is prefix + holder ("workspace-<id>", "gateway-<id>").
+	// full name is prefix + holder ("workspace-<id>").
 	modelProxyTokenPrefix = "model-proxy-"
 	modelProxyTokenTTL    = 7 * 24 * time.Hour
 )
@@ -37,7 +37,7 @@ func modelProxyURL(baseURL string) string {
 
 // modelProxyTokenScopes confines a model credential off the /api surface:
 // the workspace restriction admits no /api route but a workspace's own head
-// report, and a gateway holder names no workspace at all.
+// report.
 func modelProxyTokenScopes(repositoryID int64, holder string) string {
 	return string(middleware.ScopeReadWorkspace) + "," +
 		middleware.RepositoryRestrictionScope(repositoryID) + "," +
@@ -78,8 +78,7 @@ type modelProxyCallerQuerier interface {
 
 // ModelProxyCallers resolves who pays for a proxy call. Agent runs and
 // managed Flow hosts are repository automation and charge the repository's
-// owner; a workspace, a repo gateway, and a signed-in app call charge the
-// user.
+// owner; a workspace and a signed-in app call charge the user.
 type ModelProxyCallers struct {
 	q     modelProxyCallerQuerier
 	pool  *pgxpool.Pool
@@ -154,9 +153,6 @@ func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Call
 			return modelproxy.Caller{}, modelproxy.ErrForbidden
 		}
 		user.Source, user.WorkspaceID = modelproxy.SourceWorkspace, workspace.ID
-		return user, nil
-	case strings.HasPrefix(holder, "gateway-") && restriction == holder && repositoryID > 0:
-		user.Source, user.Reference = modelproxy.SourceRepoGateway, strings.TrimPrefix(holder, "gateway-")
 		return user, nil
 	}
 	return modelproxy.Caller{}, modelproxy.ErrForbidden

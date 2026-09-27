@@ -14,7 +14,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/productstore"
-	"github.com/smithersai/smithers/packages/backend/runtimeports"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -33,8 +32,6 @@ type DeleteAccessTokenParams = db.DeleteAccessTokenParams
 type WorkspaceSession = db.WorkspaceSession
 type ReceivePackMetadata = repohost.ReceivePackMetadata
 type APIError = apierrors.APIError
-type GatewayPushTokenInput = services.GatewayPushTokenInput
-type RepoGatewayConnectionInput = services.RepoGatewayConnectionInput
 
 // Product exposes only canonical operations used to seed and verify integration
 // fixtures. Its constructor preserves the exact supplied transaction.
@@ -55,37 +52,10 @@ func Workspace(t testing.TB, q services.WorkspaceQuerier, provider sandbox.Provi
 	service := services.NewWorkspaceService(q, append(base, opts...)...)
 	return service, services.ObserveWorkspaceFixtureCleanup(t, service)
 }
-func RepoGateway(t testing.TB, q services.RepoGatewayQuerier, provider services.RepoGatewayVMClient, opts ...services.RepoGatewayServiceOption) *services.RepoGatewayService {
-	t.Helper()
-	base := []services.RepoGatewayServiceOption{services.WithRepoGatewayGitBaseURL("https://repository.test"), services.WithRepoGatewaySandboxClient(provider)}
-	return services.NewRepoGatewayService(q, append(base, opts...)...)
-}
-func GatewayPushTokens(t testing.TB, conn productstore.DBTX, q services.RepoGatewayQuerier) *services.GatewayPushTokenService {
-	t.Helper()
-	product := db.New(conn)
-	return services.NewGatewayPushTokenService(services.NewRepoGatewayService(q), product, services.NewAuditService(product))
-}
 func GitHTTPProxy(t testing.TB, conn productstore.DBTX, host services.GitHTTPRepoHostClient) *services.GitHTTPProxyService {
 	t.Helper()
 	product := db.New(conn)
 	return services.NewGitHTTPProxyService(product, services.NewSSHAuthorizationService(product), host)
-}
-
-var WithRepoGatewayWorkspaces = services.WithRepoGatewayWorkspaces
-var WithRepoGatewaySecretCodec = services.WithRepoGatewaySecretCodec
-var WithRepoGatewayHealthProbe = services.WithRepoGatewayHealthProbe
-
-func RevokeGatewayLandingToken(t testing.TB, service *services.RepoGatewayService, ctx context.Context, gateway runtimeports.RepoGateway) {
-	t.Helper()
-	services.RevokeGatewayLandingTokenForTesting(t, service, ctx, gateway)
-}
-func DiscardGateway(t testing.TB, service *services.RepoGatewayService, ctx context.Context, gateway runtimeports.RepoGateway) {
-	t.Helper()
-	services.DiscardGatewayForTesting(t, service, ctx, gateway)
-}
-func ReuseWorkspaceGateway(t testing.TB, service *services.RepoGatewayService, ctx context.Context, gateway runtimeports.RepoGateway) (services.RepoGatewayConnectionInfo, error) {
-	t.Helper()
-	return services.ReuseWorkspaceGatewayForTesting(t, service, ctx, gateway)
 }
 
 // These helpers construct the actual product collaborator used by runner tests.

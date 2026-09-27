@@ -4,7 +4,7 @@
 // The gap it closes: a revoked token, a disabled user, a removed collaborator
 // or workspace share, a cancelled agent session, or a removed organization
 // member used to take effect only on the next fresh request. Established SSE
-// streams, terminal WebSockets, SSH sessions, gateway relays, and sandbox
+// streams, terminal WebSockets, SSH sessions, desktop relays, and sandbox
 // egress proxies kept working until they ended on their own.
 //
 // The model copies the property Centaur gets from re-validating a sandbox's
@@ -27,8 +27,9 @@ import (
 // Channel is the PostgreSQL NOTIFY channel every Bus listens on.
 const Channel = "revocations"
 
-// Kind names what was revoked. The set mirrors the CHECK constraint on
-// revocation_events.kind.
+// Kind names what was revoked. The CHECK constraint on revocation_events.kind
+// also admits "gateway_revoked", which the retired box gateway relay (#2198)
+// recorded; nothing produces it and no principal matches it.
 type Kind string
 
 const (
@@ -54,9 +55,6 @@ const (
 	KindAgentSessionCancelled Kind = "agent_session_cancelled"
 	// KindOrgMemberRemoved: UserID left OrganizationID.
 	KindOrgMemberRemoved Kind = "org_member_removed"
-	// KindGatewayRevoked: the repository gateway GatewayID was torn down, so
-	// every relay authorized with its operator token must end.
-	KindGatewayRevoked Kind = "gateway_revoked"
 	// KindSSHKeyRevoked: an SSH public-key credential (user key or deploy key)
 	// was deleted, so every SSH session it authenticated must end.
 	// KeyFingerprint identifies it (SHA256:<base64>); UserID is its owner for
@@ -76,7 +74,6 @@ type Event struct {
 	OrganizationID int64     `json:"organization_id,omitempty"`
 	WorkspaceID    string    `json:"workspace_id,omitempty"`
 	SessionID      string    `json:"session_id,omitempty"`
-	GatewayID      string    `json:"gateway_id,omitempty"`
 	KeyFingerprint string    `json:"key_fingerprint,omitempty"`
 	SandboxIDs     []string  `json:"sandbox_ids,omitempty"`
 	Reason         string    `json:"reason,omitempty"`
@@ -94,7 +91,6 @@ type Principal struct {
 	WorkspaceID    string
 	SandboxID      string
 	SessionID      string
-	GatewayID      string
 	// KeyFingerprint is the SHA256:<base64> fingerprint of the SSH public key
 	// that authenticated the session.
 	KeyFingerprint string
@@ -127,8 +123,6 @@ func (e Event) Affects(p Principal) bool {
 			return true
 		}
 		return e.namesSandbox(p.SandboxID)
-	case KindGatewayRevoked:
-		return e.GatewayID != "" && p.GatewayID == e.GatewayID
 	case KindSSHKeyRevoked:
 		return e.KeyFingerprint != "" && p.KeyFingerprint == e.KeyFingerprint
 	}
@@ -159,7 +153,6 @@ func FromRow(row db.RevocationEvent) Event {
 		OrganizationID: int8Value(row.OrganizationID),
 		WorkspaceID:    row.WorkspaceID,
 		SessionID:      row.SessionID,
-		GatewayID:      row.GatewayID,
 		KeyFingerprint: row.KeyFingerprint,
 		SandboxIDs:     append([]string(nil), row.SandboxIds...),
 		Reason:         row.Reason,
@@ -183,7 +176,6 @@ func (e Event) ToParams() db.InsertRevocationEventParams {
 		OrganizationID: int8Param(e.OrganizationID),
 		WorkspaceID:    e.WorkspaceID,
 		SessionID:      e.SessionID,
-		GatewayID:      e.GatewayID,
 		KeyFingerprint: e.KeyFingerprint,
 		SandboxIds:     sandboxIDs,
 		Reason:         e.Reason,

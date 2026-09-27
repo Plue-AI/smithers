@@ -44,7 +44,7 @@ type RepositoryJobManualResult struct {
 // RunManual admits a deliberate user request against the exact applied policy.
 // It never takes configuration, event payloads or an actor identity from the
 // request. The ordinary worker supplies durable Plan/Run and human node gates.
-func (s *RepositoryJobService) RunManual(ctx context.Context, gatewayID, bearer, job, requestID string, input RepositoryJobManualInput) (RepositoryJobManualResult, error) {
+func (s *RepositoryJobService) RunManual(ctx context.Context, hostID, bearer, job, requestID string, input RepositoryJobManualInput) (RepositoryJobManualResult, error) {
 	var empty RepositoryJobManualResult
 	if !isRepositoryJobName(job) || strings.TrimSpace(requestID) == "" || len(requestID) > 200 ||
 		strings.ContainsAny(requestID, "\r\n\x00/") || input.Revision <= 0 || !repositoryJobDigest.MatchString(input.Digest) ||
@@ -58,7 +58,7 @@ func (s *RepositoryJobService) RunManual(ctx context.Context, gatewayID, bearer,
 	if err := validateSafeText("RepositoryJob", "prompt", input.Prompt); err != nil {
 		return empty, err
 	}
-	repo, target, err := s.authorizeJobGateway(ctx, gatewayID, bearer, input.Repo, input.WorkspaceID)
+	repo, target, err := s.authorizeHostCallback(ctx, hostID, bearer, input.Repo, input.WorkspaceID)
 	if err != nil {
 		return empty, err
 	}

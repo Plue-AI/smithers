@@ -32,7 +32,7 @@ func (s repositoryJobApprovalRouteStub) Approvals(ctx context.Context, repoID, u
 func TestRepositoryJobApprovalRoutesUseAuthenticatedRepositoryScope(t *testing.T) {
 	t.Parallel()
 	calls := 0
-	h := &RepoGatewayHandler{RepositoryJobs: repositoryJobApprovalRouteStub{
+	h := &RepositoryJobHandler{RepositoryJobs: repositoryJobApprovalRouteStub{
 		record: func(_ context.Context, repoID, userID int64, job string, input services.RepositoryJobApprovalInput) (services.RepositoryJobApproval, error) {
 			calls++
 			require.Equal(t, int64(42), repoID)

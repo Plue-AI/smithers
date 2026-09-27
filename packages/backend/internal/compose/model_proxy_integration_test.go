@@ -114,9 +114,8 @@ func TestModelProxyChargesTheRightPayerPostgres(t *testing.T) {
 	require.Equal(t, http.StatusOK, call(proxied, agentToken, "X-Api-Key"))
 	require.Equal(t, http.StatusOK, call(proxied, hostCredential, "Authorization"))
 	require.Equal(t, http.StatusOK, call(proxied, workspaceCredential, "X-Api-Key"))
-	require.Equal(t, http.StatusOK, call(proxied, gatewayCredential, "Authorization"))
 	require.Equal(t, http.StatusOK, call("/api/model/anthropic/v1/messages", userToken, "Authorization"))
-	for name, refused := range map[string]string{"pool": poolToken, "forged": forgedName, "scopeless": scopeless,
+	for name, refused := range map[string]string{"pool": poolToken, "retired box gateway": gatewayCredential, "forged": forgedName, "scopeless": scopeless,
 		"host with a rotated credential": flowhost.ModelCredential(bindingID, "rotated"), "none": ""} {
 		code := call(proxied, refused, "Authorization")
 		require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, code, name)
@@ -152,7 +151,6 @@ func TestModelProxyChargesTheRightPayerPostgres(t *testing.T) {
 		{"agent_run", "org", org.ID, runID, "", ""},
 		{"flow_host", "org", org.ID, 0, workspaceID, bindingID},
 		{"workspace", "user", alice.ID, 0, workspaceID, ""},
-		{"repo_gateway", "user", alice.ID, 0, "", "gw1"},
 		{"app", "user", alice.ID, 0, "", ""},
 	}, got)
 }

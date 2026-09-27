@@ -54,10 +54,11 @@ type RepositoryJobStore interface {
 	MarkOutsiderWorkspace(context.Context, int64, string) error
 }
 
-// The gateway authenticates a registration and executes through the existing
-// Control protocol. It never routes a current Flow.make module into legacy CI.
-type RepositoryJobGateway interface {
-	AuthorizeRelay(context.Context, string, string) (RepoGatewayRelayTarget, error)
+// RepositoryJobHostCallbacks authorizes a box's coding host calling
+// repository jobs back (registrations, trials, replies, manual runs, check
+// receipts) with its flowhost binding ID and control credential.
+type RepositoryJobHostCallbacks interface {
+	AuthorizeHostCallback(context.Context, string, string) (BoxHostTarget, error)
 }
 
 // RepositoryJobFlowDispatcher is the common durable Flow boundary. Both
@@ -72,7 +73,7 @@ type RepositoryJobFlowDispatcher interface {
 
 type RepositoryJobService struct {
 	q              RepositoryJobStore
-	gateway        RepositoryJobGateway
+	hosts          RepositoryJobHostCallbacks
 	flowDispatcher RepositoryJobFlowDispatcher
 	now            func() time.Time
 	transactions   RepositoryJobTransactions
@@ -108,8 +109,8 @@ type RepositoryJobTransactions interface {
 	Begin(context.Context) (pgx.Tx, error)
 }
 
-func NewRepositoryJobService(q RepositoryJobStore, gateway RepositoryJobGateway, transactions ...RepositoryJobTransactions) *RepositoryJobService {
-	s := &RepositoryJobService{q: q, gateway: gateway, now: func() time.Time { return time.Now().UTC() }}
+func NewRepositoryJobService(q RepositoryJobStore, hosts RepositoryJobHostCallbacks, transactions ...RepositoryJobTransactions) *RepositoryJobService {
+	s := &RepositoryJobService{q: q, hosts: hosts, now: func() time.Time { return time.Now().UTC() }}
 	if len(transactions) > 0 {
 		s.transactions = transactions[0]
 	}
@@ -121,7 +122,7 @@ type RepositoryJobEventRule struct {
 	Actions []string `json:"actions"`
 }
 
-// Registration is called by the tested setup host, using its gateway bearer.
+// Registration is called by the box's coding host, using its control credential.
 // The browser cannot supply a claimed test result or another actor's identity.
 // The input is repository policy, not another executable workflow format.
 type RegisterRepositoryJobInput struct {
@@ -277,13 +278,13 @@ func (s *RepositoryJobService) authorizedRepo(ctx context.Context, repoID, userI
 	return repo, nil
 }
 
-func (s *RepositoryJobService) authorizeJobGateway(ctx context.Context, gatewayID, bearer, repoName, workspaceID string) (db.Repository, RepoGatewayRelayTarget, error) {
-	target, err := s.gateway.AuthorizeRelay(ctx, gatewayID, bearer)
+func (s *RepositoryJobService) authorizeHostCallback(ctx context.Context, hostID, bearer, repoName, workspaceID string) (db.Repository, BoxHostTarget, error) {
+	target, err := s.hosts.AuthorizeHostCallback(ctx, hostID, bearer)
 	if err != nil {
 		return db.Repository{}, target, err
 	}
 	if target.WorkspaceID == "" || !strings.EqualFold(target.WorkspaceID, workspaceID) {
-		return db.Repository{}, target, pkgerrors.Forbidden("registration must use its owning workspace gateway")
+		return db.Repository{}, target, pkgerrors.Forbidden("registration must come from its own box's coding host")
 	}
 	owner, name, found := strings.Cut(repoName, "/")
 	if !found || owner == "" || name == "" || strings.Contains(name, "/") {
@@ -291,7 +292,7 @@ func (s *RepositoryJobService) authorizeJobGateway(ctx context.Context, gatewayI
 	}
 	repo, err := s.q.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(owner), LowerName: strings.ToLower(name)})
 	if err != nil || repo.ID != target.RepositoryID {
-		return db.Repository{}, target, pkgerrors.Forbidden("gateway cannot configure another repository")
+		return db.Repository{}, target, pkgerrors.Forbidden("a coding host cannot configure another repository")
 	}
 	if _, err := s.authorizedRepo(ctx, repo.ID, target.UserID, true); err != nil {
 		return db.Repository{}, target, err
@@ -299,12 +300,12 @@ func (s *RepositoryJobService) authorizeJobGateway(ctx context.Context, gatewayI
 	return repo, target, nil
 }
 
-func (s *RepositoryJobService) Register(ctx context.Context, gatewayID, bearer, job string, input RegisterRepositoryJobInput) (db.RegisterRepositoryJobRow, error) {
+func (s *RepositoryJobService) Register(ctx context.Context, hostID, bearer, job string, input RegisterRepositoryJobInput) (db.RegisterRepositoryJobRow, error) {
 	var empty db.RegisterRepositoryJobRow
 	if input.FactoryRevision != "" {
 		return empty, pkgerrors.Forbidden("factory registrations are reconciled from owner main only")
 	}
-	repo, target, err := s.authorizeJobGateway(ctx, gatewayID, bearer, input.Repo, input.WorkspaceID)
+	repo, target, err := s.authorizeHostCallback(ctx, hostID, bearer, input.Repo, input.WorkspaceID)
 	if err != nil {
 		return empty, err
 	}

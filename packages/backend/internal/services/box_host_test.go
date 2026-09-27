@@ -68,7 +68,7 @@ func TestPrepareBoxHostMintsTheLandingCredentialPerStart(t *testing.T) {
 	require.Equal(t, []int64{7}, q.deleted, "the previous start's credential is revoked")
 	minted := q.tokens[len(q.tokens)-1]
 	require.Equal(t, "flow-host-landing-host-1", minted.Name)
-	require.Equal(t, workspaceGatewayLandingTokenScopes(77, workspace.ID), minted.Scopes)
+	require.Equal(t, boxHostLandingTokenScopes(77, workspace.ID), minted.Scopes)
 	require.Equal(t, 2, probes, "the source publisher and landing binding are checked first")
 
 	svc.RetireBoxHostCredential(context.Background(), "host-1", 9)
@@ -76,7 +76,7 @@ func TestPrepareBoxHostMintsTheLandingCredentialPerStart(t *testing.T) {
 
 	// Stopping or suspending the box revokes every host credential minted for it.
 	q.deleted = nil
-	q.tokens = append(q.tokens, db.AccessToken{ID: 50, UserID: 9, Name: "flow-host-landing-other-box", Scopes: workspaceGatewayLandingTokenScopes(77, "another")})
+	q.tokens = append(q.tokens, db.AccessToken{ID: 50, UserID: 9, Name: "flow-host-landing-other-box", Scopes: boxHostLandingTokenScopes(77, "another")})
 	svc.retireBoxHostCredentials(context.Background(), workspace)
 	require.Contains(t, q.deleted, minted.ID)
 	require.NotContains(t, q.deleted, int64(50))

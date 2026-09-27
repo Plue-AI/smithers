@@ -22,11 +22,11 @@ import (
 const RoutePrefix = "/__preview/"
 
 // RelayTokenHeader carries the shared relay credential on requests for
-// platform domains (smithers-gw-*, smithers-desk-*). The gateway is reachable
-// from the public internet for user previews, so those two classes, whose only
-// authorized callers are the API relay (which has already checked the
-// operator or desktop session token) and the in-cluster health probes, are
-// refused without it. The header is stripped before the box sees the request.
+// platform domains (isPlatformDomain). The gateway is reachable from the
+// public internet for user previews, so those domains, whose only authorized
+// caller is the API relay (which has already checked the desktop session
+// token), are refused without it. The header is stripped before the box sees
+// the request.
 const RelayTokenHeader = "X-Plue-Preview-Relay-Token"
 
 type PortDialer interface {
@@ -80,8 +80,8 @@ type Handler struct {
 func (h *Handler) SetMetrics(metrics *Metrics) { h.metrics = metrics }
 
 // SetRelayToken installs the credential platform domains must present. An
-// empty token fails closed: every smithers-gw-* and smithers-desk-* request is
-// refused, never served to an unauthenticated caller.
+// empty token fails closed: every platform-domain request is refused, never
+// served to an unauthenticated caller.
 func (h *Handler) SetRelayToken(token string) { h.relayToken = strings.TrimSpace(token) }
 
 func NewHandler(dialer PortDialer, allowedSuffixes []string, logger *slog.Logger) *Handler {
@@ -161,12 +161,6 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			proxyRequest.Out.Header.Del(RelayTokenHeader)
 			proxyRequest.Out.Header.Del("X-Plue-Placement-Generation")
 			proxyRequest.SetXForwarded()
-			if isRepoGatewayDomain(domain) {
-				// The product host accepts loopback Host names. Preserve the
-				// routed domain even when the health probe uses an internal Host.
-				proxyRequest.Out.Host = "localhost"
-				proxyRequest.Out.Header.Set("X-Forwarded-Host", domain)
-			}
 		},
 		ErrorHandler: func(response http.ResponseWriter, _ *http.Request, err error) {
 			outcome = outcomeUpstreamError
@@ -188,19 +182,16 @@ func (h *Handler) relayAuthorized(request *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(presented), []byte(h.relayToken)) == 1
 }
 
-// isPlatformDomain matches the two classes only the API relay may reach:
-// repository gateways (services.repoGatewayDomain) and desktop streams
-// (services.workspaceDesktopDomain). Both are derivable from vm_id, which every
+// isPlatformDomain matches the domains only the API relay may reach: desktop
+// streams (services.workspaceDesktopDomain), derivable from vm_id, which every
 // workspace response carries, so the domain itself is no secret. Any suffix
 // counts: an operator allowlisting another suffix does not reopen the door.
+//
+// smithers-gw-* are the retired box gateways' domains (#2198). Nothing relays
+// to them any more; they stay refused until the one-release convergence
+// (services.RepoGatewayRetirement) has revoked every one, and go with it.
 func isPlatformDomain(domain string) bool {
 	return strings.HasPrefix(domain, "smithers-gw-") || strings.HasPrefix(domain, "smithers-desk-")
-}
-
-// Mirrors services.repoGatewayDomain without importing the service layer.
-// TestRepoGatewayHealthProbe_RealDomainRoutesToLoopbackHost pins both together.
-func isRepoGatewayDomain(domain string) bool {
-	return strings.HasPrefix(domain, "smithers-gw-") && strings.HasSuffix(domain, ".preview.jjhub.tech")
 }
 
 func (h *Handler) route(requestPath string) (string, string, bool) {

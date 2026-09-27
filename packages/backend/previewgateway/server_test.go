@@ -66,24 +66,14 @@ func TestHandlerUpstreamHost(t *testing.T) {
 		forwardedHost string
 	}{
 		{
-			name: "repository gateway health probe", domain: "smithers-gw-vm-123.preview.jjhub.tech",
-			incomingHost: "preview-gateway.internal:3000", path: "/health",
-			upstreamHost: "localhost", forwardedHost: "smithers-gw-vm-123.preview.jjhub.tech",
-		},
-		{
-			name: "repository gateway RPC relay", domain: "smithers-gw-vm-123.preview.jjhub.tech",
-			incomingHost: "smithers-gw-vm-123.preview.jjhub.tech", path: "/rpc",
-			upstreamHost: "localhost", forwardedHost: "smithers-gw-vm-123.preview.jjhub.tech",
-		},
-		{
 			name: "user preview", domain: "demo.preview.jjhub.tech",
 			incomingHost: "preview-gateway.internal:3000", path: "/hello",
 			upstreamHost: "demo.preview.jjhub.tech", forwardedHost: "preview-gateway.internal:3000",
 		},
 		{
-			name: "gateway prefix on another suffix", domain: "smithers-gw-vm-123.example.test",
-			incomingHost: "smithers-gw-vm-123.example.test", path: "/health",
-			upstreamHost: "smithers-gw-vm-123.example.test", forwardedHost: "smithers-gw-vm-123.example.test",
+			name: "desktop stream keeps its routed Host", domain: "smithers-desk-vm-123.preview.jjhub.tech",
+			incomingHost: "smithers-desk-vm-123.preview.jjhub.tech", path: "/websockify",
+			upstreamHost: "smithers-desk-vm-123.preview.jjhub.tech", forwardedHost: "smithers-desk-vm-123.preview.jjhub.tech",
 		},
 		{
 			name: "gateway prefix inside user preview", domain: "demo-smithers-gw-vm-123.preview.jjhub.tech",
@@ -159,9 +149,9 @@ func TestHandlerRoutesPreviewHostWithoutPathPrefix(t *testing.T) {
 
 // TestHandlerRequiresRelayTokenForPlatformDomains pins the door: the gateway is
 // reachable from the public internet (api.jjhub.tech/__preview and the
-// wildcard Ingress), so smithers-gw-* and smithers-desk-* domains, whose only
-// authorized callers are the API relay and the in-cluster health probes, must
-// carry the relay credential or be refused before the box is ever dialed.
+// wildcard Ingress), so platform domains (smithers-desk-*, and the retired
+// smithers-gw-*), whose only authorized caller is the API relay, must carry
+// the relay credential or be refused before the box is ever dialed.
 func TestHandlerRequiresRelayTokenForPlatformDomains(t *testing.T) {
 	for _, domain := range []string{
 		"smithers-desk-vm-1.preview.jjhub.tech",

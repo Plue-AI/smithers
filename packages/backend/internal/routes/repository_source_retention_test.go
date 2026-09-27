@@ -27,7 +27,7 @@ func (s *retentionRouteStub) Retain(_ context.Context, repoID, userID int64, inp
 
 func TestSourceRetentionRouteStrictInputAndAuthenticatedScope(t *testing.T) {
 	service := &retentionRouteStub{}
-	h := &RepoGatewayHandler{RepositoryJobs: repositoryJobRoutesStub{}, SourceRetention: service}
+	h := &RepositoryJobHandler{RepositoryJobs: repositoryJobRoutesStub{}, SourceRetention: service}
 	request := func(body string) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/api/repos/owner/repo/repository-source/retain", strings.NewReader(body))
 		ctx := middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: &db.User{ID: 9}})

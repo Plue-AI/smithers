@@ -11,7 +11,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-func (h *RepoGatewayHandler) PutRepositoryCheckReceipt(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) PutRepositoryCheckReceipt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if h.RepositoryJobs == nil {
 		pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "repository check receipts unavailable"))
@@ -28,7 +28,7 @@ func (h *RepoGatewayHandler) PutRepositoryCheckReceipt(w http.ResponseWriter, r 
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("check receipt must contain one JSON object"))
 		return
 	}
-	result, created, err := h.RepositoryJobs.CreateCheckReceipt(r.Context(), chi.URLParam(r, "gatewayID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "requestID"), input)
+	result, created, err := h.RepositoryJobs.CreateCheckReceipt(r.Context(), chi.URLParam(r, "hostID"), bearerToken(r.Header.Get("Authorization")), chi.URLParam(r, "requestID"), input)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

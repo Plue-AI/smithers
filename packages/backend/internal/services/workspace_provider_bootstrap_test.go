@@ -137,7 +137,7 @@ func TestWorkspaceProviderBootstrapDefaultsAndExplicitChoice(t *testing.T) {
 			require.Equal(t, tc.want, bootstrapModel(binding.environment))
 			profile, err := renderWorkspaceAgentEnvironmentProfile(binding.environment.Env, binding.environment.ProxyBound)
 			require.NoError(t, err)
-			command := exec.Command("/bin/sh", "-c", profile+"\n"+workspaceCodingModelFallbackScript()+"\nprintf '%s' \"${SMITHERS_CODING_IMPLEMENT_MODEL-}\"")
+			command := exec.Command("/bin/sh", "-c", profile+"\nprintf '%s' \"${SMITHERS_CODING_IMPLEMENT_MODEL-}\"")
 			command.Env = []string{}
 			output, err := command.CombinedOutput()
 			require.NoError(t, err, string(output))
@@ -178,29 +178,4 @@ func TestWorkspaceProviderBootstrapPreservesSetupOnlySecret(t *testing.T) {
 	require.Empty(t, binding.egress.Secrets)
 	require.Empty(t, bootstrapModel(binding.environment))
 	require.NotContains(t, resolver.calls, ProviderConnectionProviderCodex)
-}
-
-func TestWorkspaceCodingModelFallbackOnlyChangesPublicModel(t *testing.T) {
-	for _, tc := range []struct {
-		env  []string
-		want string
-	}{
-		{nil, ""},
-		{[]string{"OPENAI_API_KEY=" + sandbox.EgressProxyPlaceholder("OPENAI_API_KEY")}, "openai:gpt-6-luna"},
-		{[]string{"CEREBRAS_API_KEY=placeholder-pending-seed"}, ""},
-		{[]string{"OPENAI_API_KEY=private-owner-value", "SMITHERS_CODING_IMPLEMENT_MODEL=owner:chosen"}, "owner:chosen"},
-		{[]string{"OPENAI_API_KEY=private-owner-value", "SMITHERS_CODING_IMPLEMENT_MODEL="}, ""},
-	} {
-		command := exec.Command("/bin/sh", "-c", workspaceCodingModelFallbackScript()+"\nprintf '%s' \"${SMITHERS_CODING_IMPLEMENT_MODEL-}\"")
-		command.Env = tc.env
-		if command.Env == nil {
-			command.Env = []string{}
-		}
-		output, err := command.CombinedOutput()
-		require.NoError(t, err, string(output))
-		require.Equal(t, tc.want, string(output))
-		require.NotContains(t, string(output), "private")
-	}
-	require.NotContains(t, workspaceCodingModelFallbackScript(), "StartSandbox")
-	require.NotContains(t, strings.ToLower(workspaceCodingModelFallbackScript()), "curl")
 }

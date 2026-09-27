@@ -18,8 +18,10 @@ import (
 
 // Usage sources recorded in model_usage.
 const (
-	SourceAgentRun       = "agent_run"
-	SourceWorkspace      = "workspace"
+	SourceAgentRun  = "agent_run"
+	SourceWorkspace = "workspace"
+	// SourceRepoGateway names historical rows from the retired box gateway
+	// (#2198); nothing records it any more.
 	SourceRepoGateway    = "repo_gateway"
 	SourceFlowHost       = "flow_host"
 	SourceRecommendation = "recommendation"
@@ -44,7 +46,7 @@ type Caller struct {
 	RepositoryID  int64
 	WorkspaceID   string
 	WorkflowRunID int64
-	// Reference names the calling holder (gateway or Flow host binding).
+	// Reference names the calling Flow host binding.
 	Reference string
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -79,4 +80,8 @@ func buildWorkspaceCodingRuntimeCommand(workspace db.Workspace, user string) str
 		asDev + shellQuote(workspaceJJExportPath) + " --check-config " + shellQuote(defaultWorkspaceClonePath) +
 			" " + shellQuote(workspace.ID) + " " + shellQuote(fmt.Sprint(workspace.UserID)),
 	}, "\n")
+}
+
+func codingHostUnavailable(message string) *pkgerrors.APIError {
+	return &pkgerrors.APIError{Status: 409, Code: pkgerrors.CodeCodingHostUnavailable, Message: message}
 }

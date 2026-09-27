@@ -43,7 +43,6 @@ func (q *orphanReaperQuerier) ListOrphanedSandboxInstances(_ context.Context, ar
 
 type orphanReaperVM struct {
 	deleted  []string
-	revoked  []string
 	deleteFn func(string) error
 }
 
@@ -52,11 +51,6 @@ func (v *orphanReaperVM) DeleteSandbox(_ context.Context, vmID string) error {
 	if v.deleteFn != nil {
 		return v.deleteFn(vmID)
 	}
-	return nil
-}
-
-func (v *orphanReaperVM) RevokeIngress(_ context.Context, domain string) error {
-	v.revoked = append(v.revoked, domain)
 	return nil
 }
 
@@ -71,13 +65,13 @@ func orphanRow(id, kind, resourceID, observed string) runtimeports.ListOrphanedS
 }
 
 // The leak this exists for: `DELETE /api/repos/{owner}/{repo}` hard-deletes the
-// repository, repo_gateways and workspaces cascade away with it, and both
-// existing sweeps iterate those very rows — so the micro-VM survives with its
+// repository, its workspaces cascade away with it, and the existing sweeps
+// iterate those very rows — so the micro-VM survives with its
 // worker reservation held, invisible to every other reaper. Two such orphans
 // had to be reclaimed by hand through the controller API on 2026-08-06.
-func TestSandboxOrphanReaperDiscardsGatewayAndWorkspaceOrphans(t *testing.T) {
+func TestSandboxOrphanReaperDiscardsOrphans(t *testing.T) {
 	q := &orphanReaperQuerier{rows: []runtimeports.ListOrphanedSandboxInstancesRow{
-		orphanRow("msb_gateway", "repo_gateway", "11111111-1111-1111-1111-111111111111", "running"),
+		orphanRow("msb_running", "workspace", "11111111-1111-1111-1111-111111111111", "running"),
 		orphanRow("msb_workspace", "workspace", "22222222-2222-2222-2222-222222222222", "stopped"),
 	}}
 	vm := &orphanReaperVM{}
@@ -86,12 +80,9 @@ func TestSandboxOrphanReaperDiscardsGatewayAndWorkspaceOrphans(t *testing.T) {
 	discarded := NewSandboxOrphanReaper(q, vm, metrics).Sweep(context.Background())
 
 	assert.Equal(t, 2, discarded)
-	assert.Equal(t, []string{"msb_gateway", "msb_workspace"}, vm.deleted)
-	// Only gateways publish a preview hostname; leaving the mapping would keep
-	// routing at a deleted VM.
-	assert.Equal(t, []string{repoGatewayDomain("msb_gateway")}, vm.revoked)
+	assert.Equal(t, []string{"msb_running", "msb_workspace"}, vm.deleted)
 	// Only the VM that had reached 'running' was ever counted in the gauge.
-	assert.Equal(t, []activeVMDelta{{vmType: "gateway", delta: -1}}, metrics.activeVMs)
+	assert.Equal(t, []activeVMDelta{{vmType: "workspace", delta: -1}}, metrics.activeVMs)
 
 	require.Len(t, q.params, 1)
 	assert.Zero(t, q.params[0].MinAgeSeconds,
@@ -103,7 +94,7 @@ func TestSandboxOrphanReaperDiscardsGatewayAndWorkspaceOrphans(t *testing.T) {
 // way, so that is success, not a reason to retry forever.
 func TestSandboxOrphanReaperTreatsAnAlreadyGoneVMAsReclaimed(t *testing.T) {
 	q := &orphanReaperQuerier{rows: []runtimeports.ListOrphanedSandboxInstancesRow{
-		orphanRow("msb_gone", "repo_gateway", "33333333-3333-3333-3333-333333333333", "running"),
+		orphanRow("msb_gone", "workspace", "33333333-3333-3333-3333-333333333333", "running"),
 	}}
 	vm := &orphanReaperVM{deleteFn: func(string) error {
 		return &sandbox.StatusError{StatusCode: 404}
@@ -116,7 +107,7 @@ func TestSandboxOrphanReaperTreatsAnAlreadyGoneVMAsReclaimed(t *testing.T) {
 // of the batch: one wedged VM cannot block the pool from being cleaned up.
 func TestSandboxOrphanReaperKeepsSweepingPastAFailedDelete(t *testing.T) {
 	q := &orphanReaperQuerier{rows: []runtimeports.ListOrphanedSandboxInstancesRow{
-		orphanRow("msb_wedged", "repo_gateway", "44444444-4444-4444-4444-444444444444", "running"),
+		orphanRow("msb_wedged", "workspace", "44444444-4444-4444-4444-444444444444", "running"),
 		orphanRow("msb_ok", "workspace", "55555555-5555-5555-5555-555555555555", "running"),
 	}}
 	vm := &orphanReaperVM{deleteFn: func(id string) error {
@@ -134,7 +125,7 @@ func TestSandboxOrphanReaperKeepsSweepingPastAFailedDelete(t *testing.T) {
 
 func TestSandboxOrphanReaperDegradesWithoutASandboxProvider(t *testing.T) {
 	q := &orphanReaperQuerier{rows: []runtimeports.ListOrphanedSandboxInstancesRow{
-		orphanRow("msb_gateway", "repo_gateway", "66666666-6666-6666-6666-666666666666", "running"),
+		orphanRow("msb_running", "workspace", "66666666-6666-6666-6666-666666666666", "running"),
 	}}
 
 	assert.Zero(t, NewSandboxOrphanReaper(q, nil, nil).Sweep(context.Background()))

@@ -39,7 +39,7 @@ type RepositoryJobCommentResult struct {
 // CreateComment atomically publishes a native comment, source outbox event and
 // immutable replay receipt. A lost response or even later deletion never causes
 // the comment to be posted again. Source events cannot grant posting authority.
-func (s *RepositoryJobService) CreateComment(ctx context.Context, gatewayID, bearer, job, step string, input RepositoryJobCommentInput) (RepositoryJobCommentResult, error) {
+func (s *RepositoryJobService) CreateComment(ctx context.Context, hostID, bearer, job, step string, input RepositoryJobCommentInput) (RepositoryJobCommentResult, error) {
 	var empty RepositoryJobCommentResult
 	if input.Source != "smithers-cloud" {
 		return empty, pkgerrors.BadRequest("idempotent job replies currently require a native Smithers issue")
@@ -52,7 +52,7 @@ func (s *RepositoryJobService) CreateComment(ctx context.Context, gatewayID, bea
 	if err := validateSafeText("IssueComment", "body", input.Body); err != nil {
 		return empty, err
 	}
-	repo, target, err := s.authorizeJobGateway(ctx, gatewayID, bearer, input.Repo, input.WorkspaceID)
+	repo, target, err := s.authorizeHostCallback(ctx, hostID, bearer, input.Repo, input.WorkspaceID)
 	if err != nil {
 		return empty, err
 	}

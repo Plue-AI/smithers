@@ -618,7 +618,7 @@ func (h *WorkspaceHandler) GetWorkspaceSSHConnectionInfo(w http.ResponseWriter, 
 	}
 
 	// The response carries a freshly minted plaintext SSH access token — never
-	// let a browser or intermediary cache store it (mirrors PostRepoGateway).
+	// let a browser or intermediary cache store it.
 	w.Header().Set("Cache-Control", "no-store")
 	pkgerrors.WriteJSON(w, http.StatusOK, info)
 }
@@ -1043,7 +1043,7 @@ func (h *WorkspaceHandler) GetSSHConnectionInfo(w http.ResponseWriter, r *http.R
 	}
 
 	// The response carries a freshly minted plaintext SSH access token — never
-	// let a browser or intermediary cache store it (mirrors PostRepoGateway).
+	// let a browser or intermediary cache store it.
 	w.Header().Set("Cache-Control", "no-store")
 	pkgerrors.WriteJSON(w, http.StatusOK, info)
 }

@@ -215,30 +215,31 @@ func repositoryJobDispatchEvent(reg db.RepositoryJobRegistration, claim db.Repos
 	return event
 }
 
-func (s *RepositoryJobService) connectionInput(ctx context.Context, reg db.RepositoryJobRegistration) (RepoGatewayConnectionInput, error) {
+// repositoryName authorizes the registration's user to write its repository
+// and answers the repository's owner/name.
+func (s *RepositoryJobService) repositoryName(ctx context.Context, reg db.RepositoryJobRegistration) (string, error) {
 	repo, err := s.authorizedRepo(ctx, reg.RepositoryID, reg.UserID, true)
 	if err != nil {
-		return RepoGatewayConnectionInput{}, err
+		return "", err
 	}
 	var owner string
 	if repo.UserID.Valid {
 		user, err := s.q.GetUserByID(ctx, repo.UserID.Int64)
 		if err != nil {
-			return RepoGatewayConnectionInput{}, err
+			return "", err
 		}
 		owner = user.Username
 	} else if repo.OrgID.Valid {
 		org, err := s.q.GetOrgByID(ctx, repo.OrgID.Int64)
 		if err != nil {
-			return RepoGatewayConnectionInput{}, err
+			return "", err
 		}
 		owner = org.Name
 	}
 	if owner == "" {
-		return RepoGatewayConnectionInput{}, pkgerrors.NotFound("repository owner is unavailable")
+		return "", pkgerrors.NotFound("repository owner is unavailable")
 	}
-	return RepoGatewayConnectionInput{RepositoryID: repo.ID, WorkspaceID: reg.WorkspaceID, UserID: reg.UserID,
-		RepoOwner: owner, RepoName: repo.Name, RepoDefaultBookmark: repo.DefaultBookmark}, nil
+	return owner + "/" + repo.Name, nil
 }
 
 func (s *RepositoryJobService) dispatch(ctx context.Context, claim db.RepositoryJobDispatch) error {
@@ -266,7 +267,7 @@ func (s *RepositoryJobService) dispatch(ctx context.Context, claim db.Repository
 	// Revalidate repository writer and workspace authority before admitting a
 	// common Flow operation. Admission persists first and returns without
 	// resolving or contacting the canonical host.
-	if _, err := s.connectionInput(ctx, reg); err != nil {
+	if _, err := s.repositoryName(ctx, reg); err != nil {
 		return err
 	}
 	if claim.EventType == "issue_comment" && claim.IssueNumber > 0 {

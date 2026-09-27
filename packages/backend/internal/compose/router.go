@@ -100,7 +100,7 @@ func buildRouter(
 	issueEventHandler *routes.IssueEventHandler,
 	workspaceHandler *routes.WorkspaceHandler,
 	workspaceInternalHandler *routes.WorkspaceInternalHandler,
-	repoGatewayHandler *routes.RepoGatewayHandler,
+	repositoryJobHandler *routes.RepositoryJobHandler,
 	gitHubProxyHandler *routes.GitHubProxyHandler,
 	gitHubRepoListHandler *routes.GitHubRepoListHandler,
 	gitHubUserReposHandler *routes.GitHubUserReposHandler,
@@ -535,49 +535,30 @@ func buildRouter(
 			// Microsandbox VM. Disk snapshot export can legitimately exceed the
 			// ordinary 30-second JSON API deadline, just like provisioning.
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspace/sessions/{id}/destroy", workspaceHandler.DestroySession)
-			// Per-repo smithers gateway resolver: POST provisions (or resumes) the
-			// durable gateway VM on first call, so it shares the VM-provision
-			// timeout group rather than the 30s /api JSONTimeout and remains covered
-			// by CSRF for browser session auth.
-			// Deliberately NOT vmProvisionSandbox: the same route both provisions
-			// AND resumes, so the per-user concurrency middleware (userSandboxesQuota)
-			// would wrongly 429 a resume of an existing gateway (which consumes no new
-			// capacity). The provision-only cap is enforced inside RepoGatewayService;
-			// the feature gate still applies here, and the service meters plan
-			// sandbox-hours through BillingService.AuthorizeSandboxStart.
-			if repoGatewayHandler != nil {
-				gatewayProvision := append([]func(http.Handler) http.Handler{}, vmProvision...)
-				gatewayProvision = append(gatewayProvision, gateSandboxes)
-				r.With(gatewayProvision...).Post("/api/repos/{owner}/{repo}/gateway", repoGatewayHandler.PostRepoGateway)
-			}
 		})
 	}
 	if workspaceHandler != nil && workspaceHandler.Desktop != nil {
 		// Desktop-session-token authenticated relay for kind=desktop workspaces.
-		// Outside repository auth for the same reason as the gateway relay: the
-		// viewer runs in an iframe and a WebSocket, neither of which can carry
-		// headers, so the path token is the credential.
+		// Outside repository auth: the viewer runs in an iframe and a
+		// WebSocket, neither of which can carry headers, so the path token is
+		// the credential.
 		r.Group(func(r chi.Router) {
 			r.Use(cors.Handler(apiCORS))
 			r.Handle("/api/workspaces/{workspaceID}/desktop/{token}", http.HandlerFunc(workspaceHandler.Desktop.Relay))
 			r.Handle("/api/workspaces/{workspaceID}/desktop/{token}/*", http.HandlerFunc(workspaceHandler.Desktop.Relay))
 		})
 	}
-	if repoGatewayHandler != nil {
-		// Gateway-token authenticated relay. Keep it outside repository auth: the
-		// opaque gateway id + operator token are the gateway protocol's auth, and
-		// this path must also accept WebSocket upgrades without JSON timeouts. CORS
-		// still has to terminate browser preflights before gateway-token auth.
+	if repositoryJobHandler != nil {
+		// A box's coding host calls repository jobs back with its flowhost
+		// binding ID (SMITHERS_GATEWAY_ID) and control credential. Keep these
+		// outside repository auth: the binding ID and credential are the auth.
 		r.Group(func(r chi.Router) {
 			r.Use(cors.Handler(apiCORS))
-			r.Post("/api/gateways/{gatewayID}/push-token", repoGatewayHandler.MintPushToken)
-			r.With(gateWorkflows).Put("/api/gateways/{gatewayID}/repository-jobs/{job}", repoGatewayHandler.PutRepositoryJob)
-			r.With(gateWorkflows).Put("/api/gateways/{gatewayID}/repository-jobs/{job}/trials/{requestID}", repoGatewayHandler.PutRepositoryJobTrial)
-			r.With(gateWorkflows).Put("/api/gateways/{gatewayID}/repository-jobs/{job}/comments/{step}", repoGatewayHandler.PutRepositoryJobComment)
-			r.With(gateWorkflows).Put("/api/gateways/{gatewayID}/repository-jobs/{job}/manual/{requestID}", repoGatewayHandler.PutRepositoryJobManual)
-			r.With(gateWorkflows).Put("/api/gateways/{gatewayID}/repository-jobs/ci/check-receipts/{requestID}", repoGatewayHandler.PutRepositoryCheckReceipt)
-			r.Handle("/api/gateways/{gatewayID}", http.HandlerFunc(repoGatewayHandler.Relay))
-			r.Handle("/api/gateways/{gatewayID}/*", http.HandlerFunc(repoGatewayHandler.Relay))
+			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}", repositoryJobHandler.PutRepositoryJob)
+			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}", repositoryJobHandler.PutRepositoryJobTrial)
+			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}", repositoryJobHandler.PutRepositoryJobComment)
+			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}", repositoryJobHandler.PutRepositoryJobManual)
+			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}", repositoryJobHandler.PutRepositoryCheckReceipt)
 		})
 	}
 
@@ -1377,16 +1358,16 @@ func buildRouter(
 				}
 
 				// Workflow dispatch (manual trigger) — requires write access.
-				if repoGatewayHandler != nil {
-					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs", repoGatewayHandler.GetRepositoryJobs)
-					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-source", repoGatewayHandler.GetRepositorySource)
-					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-source/retain", repoGatewayHandler.RetainRepositorySource)
-					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs/{job}/dispatches", repoGatewayHandler.GetRepositoryJobDispatches)
-					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-jobs/{job}/pause", repoGatewayHandler.PauseRepositoryJob)
-					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), middleware.RequireMatchingRepositoryRestriction, gateWorkflows)...).Get("/repository-jobs/{job}/approvals", repoGatewayHandler.GetRepositoryJobApprovals)
+				if repositoryJobHandler != nil {
+					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs", repositoryJobHandler.GetRepositoryJobs)
+					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-source", repositoryJobHandler.GetRepositorySource)
+					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-source/retain", repositoryJobHandler.RetainRepositorySource)
+					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), gateWorkflows)...).Get("/repository-jobs/{job}/dispatches", repositoryJobHandler.GetRepositoryJobDispatches)
+					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), gateWorkflows)...).Post("/repository-jobs/{job}/pause", repositoryJobHandler.PauseRepositoryJob)
+					r.With(append(append([]func(http.Handler) http.Handler{}, readRepo...), middleware.RequireMatchingRepositoryRestriction, gateWorkflows)...).Get("/repository-jobs/{job}/approvals", repositoryJobHandler.GetRepositoryJobApprovals)
 					// A repository-bound workspace or agent credential must not stamp
 					// the human approval whose authority it later consumes.
-					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RejectRepositoryRestrictedToken, gateWorkflows)...).Post("/repository-jobs/{job}/approvals", repoGatewayHandler.PostRepositoryJobApproval)
+					r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RejectRepositoryRestrictedToken, gateWorkflows)...).Post("/repository-jobs/{job}/approvals", repositoryJobHandler.PostRepositoryJobApproval)
 				}
 				workflowWriteRepo := append([]func(http.Handler) http.Handler{}, writeRepo...)
 				workflowWriteRepo = append(workflowWriteRepo, gateWorkflows)

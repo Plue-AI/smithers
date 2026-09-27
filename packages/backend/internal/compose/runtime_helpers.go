@@ -47,20 +47,14 @@ var apiCSRFBypassPaths = []string{
 // design. The route coverage contract accepts them; they are not a runtime
 // bypass, because ExcludePaths matches literal paths only.
 var apiCSRFExemptRoutes = []string{
-	// Gateway relay requests authenticate with the opaque gateway id plus the
-	// gateway operator token. They never accept browser session credentials and
-	// include WebSocket/non-JSON traffic, so CSRF does not apply.
-	"/api/gateways/{gatewayID}",
-	"/api/gateways/{gatewayID}/*",
-	// Push-token minting and repository-job reports are separately registered
-	// writes under the same gateway bearer authority; they read no session
+	// A box coding host's repository-job callbacks authenticate with its
+	// flowhost binding ID and control credential. They read no session
 	// cookie. Name them for the route coverage contract.
-	"/api/gateways/{gatewayID}/push-token",
-	"/api/gateways/{gatewayID}/repository-jobs/{job}",
-	"/api/gateways/{gatewayID}/repository-jobs/{job}/trials/{requestID}",
-	"/api/gateways/{gatewayID}/repository-jobs/{job}/comments/{step}",
-	"/api/gateways/{gatewayID}/repository-jobs/{job}/manual/{requestID}",
-	"/api/gateways/{gatewayID}/repository-jobs/ci/check-receipts/{requestID}",
+	"/api/gateways/{hostID}/repository-jobs/{job}",
+	"/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}",
+	"/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}",
+	"/api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}",
+	"/api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}",
 }
 
 func apiCSRFMiddleware(next http.Handler) http.Handler {
@@ -251,17 +245,15 @@ func (t *inFlightRequestTracker) Snapshot() (drained, killed, activeRemaining in
 	return drained, killed, activeRemaining
 }
 
-// perUserConcurrentSandboxCap bounds how many active sandbox VMs (workspaces +
-// gateways combined) a single user may hold at once. Enforced by the
-// PerUserConcurrentSandboxes middleware on workspace routes and by the gateway
-// service on its provision path.
+// perUserConcurrentSandboxCap bounds how many active sandbox VMs a single
+// user may hold at once. Enforced by the PerUserConcurrentSandboxes
+// middleware on workspace routes.
 //
-// Sizing: a durable per-repo gateway VM holds a slot for as long as it runs,
-// so a single opened repo already consumes 2 slots (workspace + gateway). The
-// original cap of 3 therefore self-DoSed terminals the moment a second repo
-// was open (2026-07-08 prod outage: every workspace/sessions create 429'd).
-// 10 keeps a real bound on Microsandbox spend while leaving headroom for a
-// handful of concurrently open repos.
+// Sizing: the original cap of 3 self-DoSed terminals the moment a second repo
+// was open (2026-07-08 prod outage: every workspace/sessions create 429'd,
+// when each opened repo also held a gateway VM). 10 keeps a real bound on
+// Microsandbox spend while leaving headroom for a handful of concurrently
+// open repos.
 const perUserConcurrentSandboxCap = 10
 
 // appTimelineMaxRequestBodySize bounds app-timeline write bodies. Rewrites

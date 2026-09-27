@@ -101,7 +101,7 @@ func githubUserReposSecurityRouter(service routes.GitHubUserReposRouteService) h
 		nil,                          // issueEventHandler
 		&routes.WorkspaceHandler{},
 		nil, // workspaceInternalHandler
-		nil, // repoGatewayHandler
+		nil, // repositoryJobHandler
 		nil, // gitHubProxyHandler
 		nil, // gitHubRepoListHandler
 		&routes.GitHubUserReposHandler{Service: service},

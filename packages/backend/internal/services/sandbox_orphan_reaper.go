@@ -21,12 +21,10 @@ type SandboxOrphanQuerier interface {
 // operator ran by hand on 2026-08-06 to unwedge the pool.
 type SandboxOrphanVMClient interface {
 	DeleteSandbox(ctx context.Context, vmID string) error
-	RevokeIngress(ctx context.Context, domain string) error
 }
 
 const (
-	// sandboxOrphanSweepInterval is the sweep cadence. It matches the repo
-	// gateway reaper so an operator reasons about one number.
+	// sandboxOrphanSweepInterval is the sweep cadence.
 	sandboxOrphanSweepInterval = 5 * time.Minute
 	// Product owner rows are committed before their attributed VM is allocated,
 	// so a missing owner is conclusive as soon as it is visible. Keeping this at
@@ -40,13 +38,13 @@ const (
 // SandboxOrphanReaper discards micro-VMs whose owning product row is gone.
 //
 // It is the backstop for a whole class of leak, not one bug: `DELETE
-// /api/repos/{owner}/{repo}` hard-deletes the repository, both repo_gateways
-// and workspaces cascade away with it, and the gateway/workspace reapers both
-// iterate those very rows — so the VM survives, unreachable by every existing
-// sweep, holding its worker reservation forever. Deliberately NOT fixed inside
-// the repository-delete transaction: that flow can still roll back after
-// tx.DeleteRepo (it restores the repo-host tombstone and aborts), and
-// destroying a user's live gateway VM inside a transaction that may be undone
+// /api/repos/{owner}/{repo}` hard-deletes the repository, its workspaces
+// cascade away with it, and the workspace reapers iterate those very rows —
+// so the VM survives, unreachable by every existing sweep, holding its worker
+// reservation forever. Deliberately NOT fixed inside the repository-delete
+// transaction: that flow can still roll back after tx.DeleteRepo (it restores
+// the repo-host tombstone and aborts), and destroying a user's live VM inside
+// a transaction that may be undone
 // is not recoverable. Attribution-driven cleanup after the fact is, and it also
 // catches orphans from crashes, historical rows, and causes nobody has found
 // yet.
@@ -107,14 +105,6 @@ func (s *SandboxOrphanReaper) Sweep(ctx context.Context) int {
 			continue
 		}
 		kind := strings.TrimSpace(row.ResourceKind.String)
-		// Only repo gateways publish a preview domain; leaving a mapping behind
-		// would keep routing a hostname at a deleted VM.
-		if kind == "repo_gateway" {
-			if err := s.sandbox.RevokeIngress(ctx, repoGatewayDomain(vmID)); err != nil && !vmAlreadyGone(err) {
-				slog.Warn("sandbox orphan sweep: unmap domain failed",
-					"vm_id", vmID, "resource_kind", kind, "error", err)
-			}
-		}
 		// A 404 means the provider already reclaimed it; the controller still
 		// releases the reservation on its side, so treat it as success.
 		if err := s.sandbox.DeleteSandbox(ctx, vmID); err != nil && !vmAlreadyGone(err) {
@@ -125,21 +115,12 @@ func (s *SandboxOrphanReaper) Sweep(ctx context.Context) int {
 		slog.Info("sandbox orphan reclaimed",
 			"vm_id", vmID, "resource_kind", kind, "resource_id", row.ResourceID.String,
 			"observed_state", row.ObservedState, "created_at", row.CreatedAt)
-		// Mirror discardGateway: only a VM that had reached 'running' was ever
-		// counted in the active-VM gauge, so only that case gives the -1 back.
+		// Only a VM that had reached 'running' was ever counted in the
+		// active-VM gauge, so only that case gives the -1 back.
 		if s.metrics != nil && row.ObservedState == "running" {
-			s.metrics.AddSandboxActiveVMs(orphanVMType(kind), -1)
+			s.metrics.AddSandboxActiveVMs("workspace", -1)
 		}
 		discarded++
 	}
 	return discarded
-}
-
-// orphanVMType maps the control-plane resource kind onto the vm_type label the
-// active-VM gauge is published with by the gateway and workspace services.
-func orphanVMType(kind string) string {
-	if kind == "repo_gateway" {
-		return "gateway"
-	}
-	return "workspace"
 }

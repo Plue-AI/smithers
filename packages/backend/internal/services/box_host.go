@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -16,6 +19,28 @@ import (
 // boxHostLandingTokenName names the landing credential of one box coding
 // host (a flowhost binding), so every start revokes the one before it.
 func boxHostLandingTokenName(hostID string) string { return "flow-host-landing-" + hostID }
+
+// boxHostLandingTokenTTL bounds the coding host's landing credential. Every
+// stop revokes it, so the TTL is only a leak backstop for a host whose box
+// disappears without a verified stop. It matches the workspace head token.
+const boxHostLandingTokenTTL = 7 * 24 * time.Hour
+
+// boxHostLandingTokenScopes is the minimum the coding/vibe landing flow
+// needs: it lists bookmarks, prepares an append, creates the landing request
+// and queues the append, all under write:repository (which implies
+// read:repository). repo:<id> narrows the credential to the box's repository,
+// so a leaked token cannot act on the owner's other repositories. Unlike the
+// head-reporter token it carries NO workspace:<id> restriction: a
+// workspace-bound token may only push and report that workspace's head ref and
+// is refused on every landing route. The existing agent-authorship contract
+// is a path-bound repository token: the host can edit the whole repository,
+// ** preserves that boundary while distinguishing its submissions from a
+// human PAT, and the inert workspace entry records which box opens each
+// landing.
+func boxHostLandingTokenScopes(repositoryID int64, workspaceID string) string {
+	return strings.Join(append([]string{string(middleware.ScopeWriteRepository), middleware.RepositoryRestrictionScope(repositoryID),
+		middleware.LandingWorkspaceScope(workspaceID)}, middleware.PathRestrictionScopes([]string{"**"})...), ",")
+}
 
 type boxHostQuerier interface {
 	accessTokenStore
@@ -60,7 +85,7 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	}
 	s.RetireBoxHostCredential(ctx, hostID, userID)
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, q, userID, boxHostLandingTokenName(hostID),
-		workspaceGatewayLandingTokenScopes(repositoryID, workspace.ID), workspaceGatewayLandingTokenTTL)
+		boxHostLandingTokenScopes(repositoryID, workspace.ID), boxHostLandingTokenTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -158,4 +183,12 @@ func (s *WorkspaceService) retireBoxHostCredentials(ctx context.Context, workspa
 			revokeTemporaryRepoCloneToken(ctx, q, workspace.UserID, token.ID)
 		}
 	}
+}
+
+// workspaceGatewaySharingConflict reports the refusal of a write share on a
+// box whose coding host is starting or running (product migration 0049), or
+// whose retired gateway still holds its credential (the deployment's fence).
+func workspaceGatewaySharingConflict(err error) bool {
+	var constraint *pgconn.PgError
+	return errors.As(err, &constraint) && constraint.Code == "23514" && constraint.ConstraintName == "workspace_gateway_private_execution"
 }

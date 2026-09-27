@@ -6,8 +6,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/smithersai/smithers/packages/backend/runtimeports"
-
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -221,27 +219,6 @@ func TestSandboxUsageAgentWorkspaceHandoff(t *testing.T) {
 	svc.meterWorkspaceUsage(context.Background(), w, "running")
 	q.requireClose(t, "agent", UUIDString(w.AgentSessionID))
 	q.requireOpen(t, w.UserID, "workspace", w.ID)
-}
-
-// No gateway opens a "gateway" interval any more: every gateway is a service
-// inside a box's VM, which the box meters (#2194). Teardown still closes the
-// kind so an interval a retired repository-level gateway left open ends.
-func TestSandboxUsageGatewayTeardownClosesInterval(t *testing.T) {
-	ctx := context.Background()
-	gateway := runtimeports.RepoGateway{ID: "gw-legacy", UserID: 1, VmID: "vm-legacy", Status: "running"}
-	q := &fakeRepoGatewayQuerier{}
-	q.err = errors.New("meter unavailable")
-	svc := newTestRepoGatewayService(q, &fakeRepoGatewayVMClient{})
-	svc.discardGateway(ctx, gateway)
-	q.requireClose(t, "gateway", gateway.ID)
-	q.closes = nil
-	svc.markGatewayFailed(ctx, gateway.ID)
-	q.requireClose(t, "gateway", gateway.ID)
-	q.closes = nil
-	q.staleRows = []runtimeports.RepoGateway{gateway}
-	svc.sweepStaleGateways(ctx)
-	q.requireClose(t, "gateway", gateway.ID)
-	require.Empty(t, q.opens)
 }
 
 func TestSandboxUsageFailedAgentDispatchClosesReservation(t *testing.T) {

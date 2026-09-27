@@ -121,11 +121,11 @@ func TestRelayConnRegistry_ClosesConnectionsTheEventRevokes(t *testing.T) {
 	upstreamB, clientB := net.Pipe()
 	defer clientA.Close()
 	defer clientB.Close()
-	trackedA := registry.track(upstreamA, revocation.Principal{GatewayID: "g1", UserID: 1, RepositoryID: 9})
-	trackedB := registry.track(upstreamB, revocation.Principal{GatewayID: "g2", UserID: 2, RepositoryID: 9})
+	trackedA := registry.track(upstreamA, revocation.Principal{WorkspaceID: "w1", UserID: 1, RepositoryID: 9})
+	trackedB := registry.track(upstreamB, revocation.Principal{WorkspaceID: "w2", UserID: 2, RepositoryID: 9})
 	require.Equal(t, 2, registry.count())
 
-	registry.handle(revocation.Event{Kind: revocation.KindGatewayRevoked, GatewayID: "g1"})
+	registry.handle(revocation.Event{Kind: revocation.KindWorkspaceShareRemoved, WorkspaceID: "w1"})
 	require.Equal(t, 1, registry.count())
 	readErr := make(chan error, 1)
 	go func() {

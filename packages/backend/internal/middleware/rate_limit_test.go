@@ -960,7 +960,7 @@ func TestExcludePaths_RejectsRoutePatterns(t *testing.T) {
 	t.Parallel()
 
 	noop := func(next http.Handler) http.Handler { return next }
-	for _, pattern := range []string{"/api/gateways/{gatewayID}", "/api/gateways/{gatewayID}/*", "/api/*"} {
+	for _, pattern := range []string{"/api/gateways/{hostID}/repository-jobs/{job}", "/api/workspaces/{workspaceID}/desktop/{token}/*", "/api/*"} {
 		assert.Panics(t, func() { ExcludePaths(noop, "/api/ok", pattern) }, pattern)
 	}
 	assert.NotPanics(t, func() { ExcludePaths(noop, "/api/oauth2/token", "/api/search/") })

@@ -34,8 +34,8 @@ import (
 
 const repositoryJobApprovalBearer = "gateway-bearer"
 
-type repositoryJobApprovalGateway struct {
-	target services.RepoGatewayRelayTarget
+type repositoryJobApprovalHost struct {
+	target services.BoxHostTarget
 }
 
 func repositoryJobsCollaborator(t *testing.T, pool *pgxpool.Pool, repo routesIntegrationRepo, user routesIntegrationUser, permission string) {
@@ -65,9 +65,9 @@ func repositoryJobsToken(t *testing.T, pool *pgxpool.Pool, user routesIntegratio
 	return raw
 }
 
-func (g repositoryJobApprovalGateway) AuthorizeRelay(_ context.Context, gatewayID, bearer string) (services.RepoGatewayRelayTarget, error) {
+func (g repositoryJobApprovalHost) AuthorizeHostCallback(_ context.Context, gatewayID, bearer string) (services.BoxHostTarget, error) {
 	if gatewayID != "gateway" || bearer != repositoryJobApprovalBearer {
-		return services.RepoGatewayRelayTarget{}, pkgerrors.Unauthorized("invalid gateway token")
+		return services.BoxHostTarget{}, pkgerrors.Unauthorized("invalid gateway token")
 	}
 	return g.target, nil
 }
@@ -125,10 +125,10 @@ func repositoryJobApprovalChain(t *testing.T, mount string) []func(http.Handler)
 
 func repositoryJobApprovalServer(t *testing.T, queries *db.Queries, service *services.RepositoryJobService) *httptest.Server {
 	t.Helper()
-	handler := &RepoGatewayHandler{RepositoryJobs: service}
+	handler := &RepositoryJobHandler{RepositoryJobs: service}
 	r := chi.NewRouter()
 	r.Use(middleware.AuthLoader(queries, config.AuthConfig{}))
-	r.Put("/api/gateways/{gatewayID}/repository-jobs/{job}", handler.PutRepositoryJob)
+	r.Put("/api/gateways/{hostID}/repository-jobs/{job}", handler.PutRepositoryJob)
 	r.Route("/api/repos/{owner}/{repo}", func(r chi.Router) {
 		r.Use(middleware.LoadRepoContext(queries))
 		r.With(repositoryJobApprovalChain(t, `Post("/repository-jobs/{job}/approvals"`)...).
@@ -182,7 +182,7 @@ func TestRepositoryJobApprovalRefusesNonHumanCredentials(t *testing.T) {
 	repositoryJobsCollaborator(t, pool, repo, reader, "read")
 	workspace := routesIntegrationCreateWorkspace(t, queries, pool, repo, owner, "gateway", time.Now())
 
-	service := services.NewRepositoryJobService(queries, repositoryJobApprovalGateway{target: services.RepoGatewayRelayTarget{
+	service := services.NewRepositoryJobService(queries, repositoryJobApprovalHost{target: services.BoxHostTarget{
 		GatewayID: "gateway", RepositoryID: repo.ID, UserID: owner.ID, WorkspaceID: workspace.ID}}, pool)
 	server := repositoryJobApprovalServer(t, queries, service)
 

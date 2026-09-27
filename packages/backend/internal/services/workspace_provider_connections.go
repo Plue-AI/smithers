@@ -153,19 +153,6 @@ func workspaceCodingModel(available map[string]bool, preferred string) string {
 	return ""
 }
 
-// A pre-existing box may already have authorized proxy placeholders but no
-// model. Deriving just that public model is safe during host start: it neither
-// replaces the live egress proxy nor restarts an existing coding host.
-func workspaceCodingModelFallbackScript() string {
-	lines := []string{"if [ -z \"${SMITHERS_CODING_IMPLEMENT_MODEL+x}\" ]; then"}
-	for _, choice := range workspaceCodingModels {
-		for _, key := range choice.Keys {
-			lines = append(lines, "if [ -z \"${SMITHERS_CODING_IMPLEMENT_MODEL+x}\" ]; then case \"${"+key+"-}\" in ''|placeholder*|changeme*|change-me*|replace-me*|todo*|unset*|example*|'<'*'>') ;; *) export SMITHERS_CODING_IMPLEMENT_MODEL="+shellQuote(choice.Provider+":"+choice.Model)+";; esac; fi")
-		}
-	}
-	return strings.Join(append(lines, "fi"), "\n")
-}
-
 func (b *workspaceProviderBinding) setEnv(name, value string) {
 	b.environment.Env = slices.DeleteFunc(b.environment.Env, func(v AgentEnvironmentVariable) bool { return v.Name == name })
 	b.environment.Env = append(b.environment.Env, AgentEnvironmentVariable{Name: name, Value: value})

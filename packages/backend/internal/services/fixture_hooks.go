@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"github.com/smithersai/smithers/packages/backend/runtimeports"
 	"sync"
 )
 
@@ -34,17 +33,4 @@ func ObserveWorkspaceFixtureCleanup(t FixtureHelper, service *WorkspaceService) 
 			return ctx.Err()
 		}
 	}
-}
-
-func RevokeGatewayLandingTokenForTesting(t FixtureHelper, service *RepoGatewayService, ctx context.Context, gateway runtimeports.RepoGateway) {
-	t.Helper()
-	service.revokeWorkspaceGatewayLandingToken(ctx, gateway)
-}
-func DiscardGatewayForTesting(t FixtureHelper, service *RepoGatewayService, ctx context.Context, gateway runtimeports.RepoGateway) {
-	t.Helper()
-	service.discardGateway(ctx, gateway)
-}
-func ReuseWorkspaceGatewayForTesting(t FixtureHelper, service *RepoGatewayService, ctx context.Context, gateway runtimeports.RepoGateway) (RepoGatewayConnectionInfo, error) {
-	t.Helper()
-	return service.reuseWorkspaceGateway(ctx, gateway)
 }

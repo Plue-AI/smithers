@@ -182,17 +182,17 @@ func repositoryCiCoversRequiredChecks(policies map[string]string, reported []Rep
 	return nil
 }
 
-// CreateCheckReceipt records the gateway's proof that the reviewed required
+// CreateCheckReceipt records the coding host's proof that the reviewed required
 // checks ran on one exact commit, and writes the reserved commit status that
 // the landing worker requires. The status row and its receipt are written in
 // one transaction, so a landing can never see a status with no retained
 // identity behind it.
-func (s *RepositoryJobService) CreateCheckReceipt(ctx context.Context, gatewayID, bearer, requestID string, input RepositoryCheckReceiptInput) (RepositoryCheckReceiptResponse, bool, error) {
+func (s *RepositoryJobService) CreateCheckReceipt(ctx context.Context, hostID, bearer, requestID string, input RepositoryCheckReceiptInput) (RepositoryCheckReceiptResponse, bool, error) {
 	var empty RepositoryCheckReceiptResponse
 	if err := validateRepositoryCheckReceipt(requestID, input); err != nil {
 		return empty, false, err
 	}
-	repo, target, err := s.authorizeJobGateway(ctx, gatewayID, bearer, input.Repo, input.WorkspaceID)
+	repo, target, err := s.authorizeHostCallback(ctx, hostID, bearer, input.Repo, input.WorkspaceID)
 	if err != nil {
 		return empty, false, err
 	}

@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smithersai/smithers/packages/backend/runtimeports"
-
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/sandbox"
@@ -40,11 +38,6 @@ func TestWorkspaceCodingHostPreservesGeneralCLI(t *testing.T) {
 		require.NoError(t, decoder.Close())
 		require.Equal(t, expected, actual)
 	}
-	command := workspaceGatewayCommand(runtimeports.RepoGateway{})
-	require.Contains(t, command, "flock --nonblock --no-fork --conflict-exit-code 75")
-	require.Contains(t, command, workspaceCodingHostPath+" serve")
-	require.NotContains(t, command, workspaceSmithersCLIPath+" serve")
-	require.Contains(t, command, "/home/developer/.local/bin:")
 	require.Contains(t, buildWorkspaceClaudeBootstrapScript(), workspaceSmithersCLIPath+`\" init --global --no-skill`)
 }
 

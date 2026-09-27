@@ -34,19 +34,6 @@ type ClearPurgedStorageDeletionByExactKeyParams struct {
 	ObjectKey     string `json:"object_key"`
 }
 
-type CreateRepoGatewayParams struct {
-	RepositoryID int64       `json:"repository_id"`
-	UserID       int64       `json:"user_id"`
-	WorkspaceID  pgtype.UUID `json:"workspace_id"`
-	Status       string      `json:"status"`
-}
-
-type GetActiveRepoGatewayForUserRepoParams struct {
-	RepositoryID int64       `json:"repository_id"`
-	UserID       int64       `json:"user_id"`
-	WorkspaceID  pgtype.UUID `json:"workspace_id"`
-}
-
 type GetLatestReadySandboxEnvironmentImageParams struct {
 	RepositoryID pgtype.Int8 `json:"repository_id"`
 	Kind         string      `json:"kind"`
@@ -55,11 +42,6 @@ type GetLatestReadySandboxEnvironmentImageParams struct {
 type HasStorageDeletionAllocationParams struct {
 	RepositoryID  int64  `json:"repository_id"`
 	AllocationKey string `json:"allocation_key"`
-}
-
-type ListDiscardedWorkspaceGatewaysParams struct {
-	WorkspaceID string `json:"workspace_id"`
-	VmID        string `json:"vm_id"`
 }
 
 type ListOrphanedSandboxInstancesParams struct {
@@ -103,6 +85,8 @@ type RenewWorkflowSandboxClaimParams struct {
 	ClaimGeneration int64  `json:"claim_generation"`
 }
 
+// RepoGateway is a retired box gateway's row (#2198), read only by the
+// one-release convergence that discards it.
 type RepoGateway struct {
 	ID                  string             `json:"id"`
 	RepositoryID        int64              `json:"repository_id"`
@@ -154,25 +138,6 @@ type SandboxEnvironmentImage struct {
 	CreatedBy      pgtype.Int8 `json:"created_by"`
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
-}
-
-type SetRepoGatewayLandingTokenIDParams struct {
-	ID             string      `json:"id"`
-	LandingTokenID pgtype.Int8 `json:"landing_token_id"`
-}
-
-type UpdateRepoGatewayExecutionInfoParams struct {
-	ID                  string `json:"id"`
-	VmID                string `json:"vm_id"`
-	BaseUrl             string `json:"base_url"`
-	AuthTokenHash       string `json:"auth_token_hash"`
-	AuthTokenCiphertext string `json:"auth_token_ciphertext"`
-	Status              string `json:"status"`
-}
-
-type UpdateRepoGatewayStatusParams struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
 }
 
 type UpsertSandboxEnvironmentImageParams struct {

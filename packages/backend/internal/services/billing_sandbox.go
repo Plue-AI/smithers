@@ -49,8 +49,8 @@ func (s *BillingService) SandboxEntitlement(ctx context.Context, userID int64) (
 // runtime per user from sandbox_usage_intervals against the plan's
 // sandbox_hours_per_day, and plan concurrency. Every VM start reaches it:
 // workspace provisioning (create, fork, session create), workspace resume,
-// repo gateway provision and resume, and agent dispatch. Request middleware
-// must not add a second hours bucket; it cannot see runtime.
+// and agent dispatch. Request middleware must not add a second hours bucket;
+// it cannot see runtime.
 func (s *BillingService) AuthorizeSandboxStart(ctx context.Context, userID int64) error {
 	if s == nil {
 		return nil

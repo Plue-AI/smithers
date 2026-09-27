@@ -7,8 +7,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
-	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 // Admission is rechecked by the worker immediately before a managed host start.
@@ -116,20 +114,4 @@ func (l *boxHostLauncher) StopFlowHost(ctx context.Context, binding flowhost.Bin
 // after the launcher succeeded (identity or checkpoint failure).
 func (l *boxHostLauncher) AbandonFlowHostStart(ctx context.Context, binding flowhost.Binding) {
 	l.boxes.RetireBoxHostCredential(ctx, binding.ID, binding.UserID)
-}
-
-// boxHostCallbacks authorizes a repository-job callback from the box's coding
-// host, then from a box gateway started before it.
-type boxHostCallbacks struct {
-	hosts    *services.FlowHostCallbacks
-	gateways services.RepositoryJobGateway
-}
-
-func (callbacks boxHostCallbacks) AuthorizeRelay(ctx context.Context, id, token string) (services.RepoGatewayRelayTarget, error) {
-	target, err := callbacks.hosts.AuthorizeRelay(ctx, id, token)
-	var refusal *pkgerrors.APIError
-	if err == nil || callbacks.gateways == nil || !errors.As(err, &refusal) || refusal.Code != pkgerrors.CodeUnauthorized {
-		return target, err
-	}
-	return callbacks.gateways.AuthorizeRelay(ctx, id, token)
 }

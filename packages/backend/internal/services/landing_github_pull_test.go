@@ -429,7 +429,7 @@ func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
 func TestLandingRecordsTheWorkspaceItsCredentialServes(t *testing.T) {
 	q := &mockLandingQuerier{}
 	s := NewLandingService(q, &mockLandingRepoHostClient{})
-	scopes := workspaceGatewayLandingTokenScopes(7, "3F2B6C1E-0000-4000-8000-000000000001")
+	scopes := boxHostLandingTokenScopes(7, "3F2B6C1E-0000-4000-8000-000000000001")
 	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{IsTokenAuth: true, RawScopes: scopes})
 	require.NoError(t, s.recordLandingSource(ctx, 12))
 	require.NoError(t, s.recordLandingSource(context.Background(), 13))

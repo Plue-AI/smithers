@@ -74,29 +74,25 @@ func (externalEnvironmentImages) RetireSandboxEnvironmentImage(context.Context, 
 	return runtimeports.SandboxEnvironmentImage{}, nil
 }
 
-type externalRepoGateways struct{ productstore.Product }
+type externalRepoGateways struct{}
 
-func (externalRepoGateways) CreateRepoGateway(context.Context, runtimeports.CreateRepoGatewayParams) (runtimeports.RepoGateway, error) {
-	return runtimeports.RepoGateway{}, nil
-}
-func (externalRepoGateways) GetActiveRepoGatewayForUserRepo(context.Context, runtimeports.GetActiveRepoGatewayForUserRepoParams) (runtimeports.RepoGateway, error) {
-	return runtimeports.RepoGateway{}, nil
-}
-func (externalRepoGateways) UpdateRepoGatewayExecutionInfo(context.Context, runtimeports.UpdateRepoGatewayExecutionInfoParams) (runtimeports.RepoGateway, error) {
-	return runtimeports.RepoGateway{}, nil
-}
-func (externalRepoGateways) UpdateRepoGatewayStatus(context.Context, runtimeports.UpdateRepoGatewayStatusParams) (runtimeports.RepoGateway, error) {
-	return runtimeports.RepoGateway{}, nil
-}
-func (externalRepoGateways) TouchRepoGatewayActivity(context.Context, string) error { return nil }
-func (externalRepoGateways) SoftDeleteRepoGateway(context.Context, string) (runtimeports.RepoGateway, error) {
-	return runtimeports.RepoGateway{}, nil
+func (externalRepoGateways) ListActiveRepoGateways(context.Context) ([]runtimeports.RepoGateway, error) {
+	return nil, nil
 }
 func (externalRepoGateways) ListStaleRepoGateways(context.Context, int64) ([]runtimeports.RepoGateway, error) {
 	return nil, nil
 }
-func (externalRepoGateways) ListActiveRepoGateways(context.Context) ([]runtimeports.RepoGateway, error) {
+func (externalRepoGateways) SoftDeleteRepoGateway(context.Context, string) (runtimeports.RepoGateway, error) {
+	return runtimeports.RepoGateway{}, nil
+}
+func (externalRepoGateways) ListPendingWorkspaceGatewayCleanup(context.Context) ([]runtimeports.RepoGateway, error) {
 	return nil, nil
+}
+func (externalRepoGateways) TouchDiscardedWorkspaceGatewayCleanup(context.Context, string) error {
+	return nil
+}
+func (externalRepoGateways) ClearDiscardedWorkspaceGatewayCredential(context.Context, string) error {
+	return nil
 }
 
 type externalOrphans struct{}

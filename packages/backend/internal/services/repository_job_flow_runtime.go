@@ -98,7 +98,7 @@ func repositoryJobProjection(mode string, registration db.RepositoryJobRegistrat
 	return encoded
 }
 
-func repositoryJobLaunchPayload(registration db.RepositoryJobRegistration, dispatch db.RepositoryJobDispatch, config RegisterRepositoryJobInput, connection RepoGatewayConnectionInput) (json.RawMessage, error) {
+func repositoryJobLaunchPayload(registration db.RepositoryJobRegistration, dispatch db.RepositoryJobDispatch, config RegisterRepositoryJobInput, repositoryName string) (json.RawMessage, error) {
 	var input any
 	if config.FactoryRevision != "" {
 		input = map[string]any{"args": string(dispatch.Payload), "event": repositoryJobDispatchEvent(registration, dispatch)}
@@ -106,7 +106,7 @@ func repositoryJobLaunchPayload(registration db.RepositoryJobRegistration, dispa
 		input = json.RawMessage(config.Input)
 	} else {
 		input = map[string]any{
-			"repo": connection.RepoOwner + "/" + connection.RepoName,
+			"repo": repositoryName,
 			"job":  registration.Job, "revision": registration.Revision,
 			"digest": registration.Digest, "sourceRevision": registration.SourceRevision,
 			"configuration": config.Input, "event": repositoryJobDispatchEvent(registration, dispatch),
@@ -123,11 +123,11 @@ func (s *RepositoryJobService) admitRepositoryJobLaunch(ctx context.Context, reg
 	if json.Unmarshal(registration.Configuration, &config) != nil {
 		return jobs.RequestReceipt{}, fmt.Errorf("invalid repository job registration %s", registration.ID)
 	}
-	connection, err := s.connectionInput(ctx, registration)
+	repositoryName, err := s.repositoryName(ctx, registration)
 	if err != nil {
 		return jobs.RequestReceipt{}, err
 	}
-	payload, err := repositoryJobLaunchPayload(registration, dispatch, config, connection)
+	payload, err := repositoryJobLaunchPayload(registration, dispatch, config, repositoryName)
 	if err != nil {
 		return jobs.RequestReceipt{}, err
 	}

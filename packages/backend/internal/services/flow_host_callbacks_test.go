@@ -52,13 +52,13 @@ func TestFlowHostCallbacksAuthorizeTheBoxHost(t *testing.T) {
 	require.NoError(t, lease.Close())
 
 	callbacks := NewFlowHostCallbacks(pool, db.New(pool))
-	target, err := callbacks.AuthorizeRelay(ctx, id, credential)
+	target, err := callbacks.AuthorizeHostCallback(ctx, id, credential)
 	require.NoError(t, err)
-	require.Equal(t, RepoGatewayRelayTarget{GatewayID: id, UserID: user, RepositoryID: repo, WorkspaceID: workspace, SandboxID: "vm-1"}, target)
+	require.Equal(t, BoxHostTarget{HostID: id, UserID: user, RepositoryID: repo, WorkspaceID: workspace, SandboxID: "vm-1"}, target)
 
 	refusedAs := func(code pkgerrors.Code, id, credential string) {
 		t.Helper()
-		_, err := callbacks.AuthorizeRelay(ctx, id, credential)
+		_, err := callbacks.AuthorizeHostCallback(ctx, id, credential)
 		var api *pkgerrors.APIError
 		require.ErrorAs(t, err, &api)
 		require.Equal(t, code, api.Code)

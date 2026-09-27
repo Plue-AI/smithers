@@ -630,7 +630,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	var sandboxClient services.SandboxVMClient
 	var workflowSandboxClient services.WorkflowSandboxVMClient
-	var repoGatewaySandbox services.RepoGatewayVMClient
+	var retiredGatewaySandbox services.RepoGatewayRetirementVMClient
 	var goldenSnapshotSandbox services.GoldenSnapshotVMClient
 	var orphanSandbox services.SandboxOrphanVMClient
 	provider := options.ComputeProvider
@@ -638,7 +638,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		bindComputeProviderTelemetry(provider, smithersMetrics)
 		sandboxClient = provider
 		workflowSandboxClient = provider
-		repoGatewaySandbox = provider
+		retiredGatewaySandbox = provider
 		goldenSnapshotSandbox = provider
 		orphanSandbox = provider
 		if accessRevoker, ok := provider.(sandbox.AccessGrantRevoker); ok {
@@ -646,7 +646,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			defer unsubscribeAccessRevocations()
 		}
 	}
-	// Backstop for micro-VMs whose owning gateway/workspace row was cascade-
+	// Backstop for micro-VMs whose owning workspace row was cascade-
 	// deleted with its repository: nothing else can see them, because every
 	// other sweep starts from the row that is gone.
 	var sandboxOrphanReaper *services.SandboxOrphanReaper
@@ -796,25 +796,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	)
 	pairSessionHandler := routes.NewPairSessionHandler(pairSessionService)
 
-	// Repo gateway: durable per-user+repo `smithers gateway` control plane in a
-	// Microsandbox VM (the 4th sandbox archetype). Degrades honestly (409) when
-	// Microsandbox is not configured.
-	var repoGatewayService *services.RepoGatewayService
-	if runtimeStores.RepoGateways != nil && repoGatewaySandbox != nil {
-		repoGatewayService = services.NewRepoGatewayService(runtimeStores.RepoGateways,
-			services.WithRepoGatewayWorkspaces(workspaceService),
-			services.WithRepoGatewaySandboxClient(repoGatewaySandbox),
-			services.WithRepoGatewaySecretCodec(webhookSecretCodec),
-			services.WithRepoGatewayGitBaseURL(publicBaseURL),
-			// Reaper-driven authorization sweep: tear down gateways whose user lost
-			// write access, since the VM-local operator token is never re-checked
-			// against Smithers permissions on use.
-			services.WithRepoGatewayAccessRevocation(runtimeStores.RepoGateways),
-			// Resume-time liveness probe through the preview ingress (the relay's
-			// own upstream). Empty in local dev: no preview gateway exists there.
-			services.WithRepoGatewayHealthProbe(cfg.Sandbox.GatewayHealthProbeBaseURL, nil),
-			services.WithPreviewRelayToken(cfg.Sandbox.PreviewRelayToken),
-		)
+	// One-release convergence (#2198): discard the retired box gateways still
+	// running from before. Delete with services.RepoGatewayRetirement.
+	var repoGatewayRetirement *services.RepoGatewayRetirement
+	if runtimeStores.RepoGateways != nil && retiredGatewaySandbox != nil {
+		repoGatewayRetirement = services.NewRepoGatewayRetirement(runtimeStores.RepoGateways, queries, retiredGatewaySandbox)
 	}
 	gitHubImportService := services.NewGitHubImportService(
 		pool,
@@ -1146,13 +1132,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		deploymentAdminRoutes = options.AdminRoutes(services.NewAdminOperationLog(queries))
 	}
 	// The box's coding host calls repository jobs back with its flowhost
-	// binding (#2198); a box gateway still running from before is accepted
-	// until the gateways are retired.
-	var repositoryJobGateway services.RepositoryJobGateway = boxHostCallbacks{hosts: services.NewFlowHostCallbacks(pool, queries)}
-	if repoGatewayService != nil {
-		repositoryJobGateway = boxHostCallbacks{hosts: services.NewFlowHostCallbacks(pool, queries), gateways: repoGatewayService}
-	}
-	repositoryJobService := services.NewRepositoryJobService(queries, repositoryJobGateway, pool)
+	// binding ID and control credential (#2198).
+	repositoryJobService := services.NewRepositoryJobService(queries, services.NewFlowHostCallbacks(pool, queries), pool)
 	gitHubMainPullService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
 	repositoryJobService.SetGitHubReadAccess(gitHubUserReposService)
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
@@ -1203,17 +1184,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Service: workspaceService,
 	}
 	gitHubWebhookEventWorker.SetRepositoryJobs(repositoryJobService)
-	var repoGatewayHandler *routes.RepoGatewayHandler
-	if repoGatewayService != nil {
-		repoGatewayHandler = &routes.RepoGatewayHandler{
-			RepositoryJobs:  repositoryJobService,
-			SourceRetention: services.NewRepositorySourceRetentionService(queries, repositoryJobService, gitHubImportService),
-			Service:         repoGatewayService,
-			RelayService:    repoGatewayService,
-			RelayToken:      cfg.Sandbox.PreviewRelayToken,
-			PushTokens:      services.NewGatewayPushTokenService(repoGatewayService, queries, auditService),
-		}
-
+	repositoryJobHandler := &routes.RepositoryJobHandler{
+		RepositoryJobs:  repositoryJobService,
+		SourceRetention: services.NewRepositorySourceRetentionService(queries, repositoryJobService, gitHubImportService),
 	}
 
 	gitHubProxyHandler := &routes.GitHubProxyHandler{
@@ -1331,9 +1304,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	adminUserService.SetRevocationPublisher(revocationPublisher)
 	orgService.SetRevocationPublisher(revocationPublisher)
 	pairSessionService.SetRevocationPublisher(revocationPublisher)
-	if repoGatewayService != nil {
-		repoGatewayService.SetRevocationPublisher(revocationPublisher)
-	}
 	agentService.SetRevocationPublisher(revocationPublisher)
 	repoService.SetRevocationPublisher(revocationPublisher)
 	sshKeyService.SetRevocationPublisher(revocationPublisher)
@@ -1435,7 +1405,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		issueEventHandler,
 		workspaceHandler,
 		workspaceInternalHandler,
-		repoGatewayHandler,
+		repositoryJobHandler,
 		gitHubProxyHandler,
 		gitHubRepoListHandler,
 		gitHubUserReposHandler,
@@ -1673,8 +1643,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		launchWorker(func() { repositoryProvisioningReconciler.Start(workerCtx) })
 	}
 	if options.topology.workers() {
-		if repoGatewayService != nil {
-			launchWorker(func() { repoGatewayService.StartReaper(workerCtx) })
+		if repoGatewayRetirement != nil {
+			launchWorker(func() { repoGatewayRetirement.Run(workerCtx) })
 		}
 		if sandboxOrphanReaper != nil {
 			launchWorker(func() { sandboxOrphanReaper.Start(workerCtx) })

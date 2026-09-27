@@ -280,7 +280,6 @@ func TestEvent_Affects(t *testing.T) {
 		{"session cancelled", Event{Kind: KindAgentSessionCancelled, SessionID: "s"}, Principal{SessionID: "s"}, true},
 		{"session by sandbox", Event{Kind: KindAgentSessionCancelled, SessionID: "s", SandboxIDs: []string{"vm"}}, Principal{SandboxID: "vm"}, true},
 		{"org member", Event{Kind: KindOrgMemberRemoved, UserID: 3, OrganizationID: 5}, Principal{UserID: 3, OrganizationID: 5}, true},
-		{"gateway", Event{Kind: KindGatewayRevoked, GatewayID: "g"}, Principal{GatewayID: "g"}, true},
 		{"ssh key fingerprint match", Event{Kind: KindSSHKeyRevoked, UserID: 3, KeyFingerprint: "SHA256:f"}, Principal{UserID: 3, KeyFingerprint: "SHA256:f"}, true},
 		{"ssh key same user other key keeps access", Event{Kind: KindSSHKeyRevoked, UserID: 3, KeyFingerprint: "SHA256:f"}, Principal{UserID: 3, KeyFingerprint: "SHA256:g"}, false},
 		{"ssh key empty never matches", Event{Kind: KindSSHKeyRevoked, UserID: 3}, Principal{UserID: 3}, false},

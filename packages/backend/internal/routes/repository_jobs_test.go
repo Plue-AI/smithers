@@ -40,7 +40,7 @@ func (s repositoryJobRoutesStub) RunManual(ctx context.Context, id, bearer, job,
 func TestRepositoryJobRoutes(t *testing.T) {
 	t.Parallel()
 	called := 0
-	h := &RepoGatewayHandler{RepositoryJobs: repositoryJobRoutesStub{register: func(_ context.Context, id, bearer, job string, input services.RegisterRepositoryJobInput) (db.RegisterRepositoryJobRow, error) {
+	h := &RepositoryJobHandler{RepositoryJobs: repositoryJobRoutesStub{register: func(_ context.Context, id, bearer, job string, input services.RegisterRepositoryJobInput) (db.RegisterRepositoryJobRow, error) {
 		called++
 		require.Equal(t, "gateway", id)
 		require.Equal(t, "host-token", bearer)
@@ -67,10 +67,10 @@ func TestRepositoryJobRoutes(t *testing.T) {
 		return services.RepositoryJobManualResult{DispatchID: "dispatch", Status: "queued"}, nil
 	}}}
 	r := chi.NewRouter()
-	r.Put("/gateways/{gatewayID}/repository-jobs/{job}", h.PutRepositoryJob)
-	r.Put("/gateways/{gatewayID}/repository-jobs/{job}/trials/{requestID}", h.PutRepositoryJobTrial)
-	r.Put("/gateways/{gatewayID}/repository-jobs/{job}/comments/{step}", h.PutRepositoryJobComment)
-	r.Put("/gateways/{gatewayID}/repository-jobs/{job}/manual/{requestID}", h.PutRepositoryJobManual)
+	r.Put("/gateways/{hostID}/repository-jobs/{job}", h.PutRepositoryJob)
+	r.Put("/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}", h.PutRepositoryJobTrial)
+	r.Put("/gateways/{hostID}/repository-jobs/{job}/comments/{step}", h.PutRepositoryJobComment)
+	r.Put("/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}", h.PutRepositoryJobManual)
 	for _, body := range []string{`{"repo":"owner/repo","client_passed":true}`, `{} {}`, `{`, strings.Repeat("a", (1<<20)+1)} {
 		response := httptest.NewRecorder()
 		r.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/gateways/gateway/repository-jobs/issues", strings.NewReader(body)))

@@ -317,17 +317,10 @@ type SandboxConfig struct {
 	// model settings and authorized personal subscriptions keep precedence.
 	WorkspaceCodingDefaultModel string `mapstructure:"workspace_coding_default_model"`
 
-	// GatewayHealthProbeBaseURL enables the resume-time liveness probe: the
-	// reuse path GETs {base}/__preview/{gateway-domain}/health through the
-	// preview gateway (the relay's own upstream) before answering
-	// status:"running". Empty disables the probe (local dev).
-	// Env: SMITHERS_GATEWAY_HEALTH_PROBE_BASE_URL.
-	GatewayHealthProbeBaseURL string `mapstructure:"gateway_health_probe_base_url"`
-
 	// PreviewRelayToken is the shared credential the preview gateway demands
-	// for smithers-gw-* and smithers-desk-* domains (its
-	// SMITHERS_PREVIEW_RELAY_TOKEN). The gateway is public for user previews,
-	// so the relay and the health probes present this on every request.
+	// for platform domains (its SMITHERS_PREVIEW_RELAY_TOKEN). The gateway is
+	// public for user previews, so the desktop relay presents this on every
+	// request.
 	// Empty means every such request is refused with 401.
 	// Env: SMITHERS_PREVIEW_RELAY_TOKEN.
 	PreviewRelayToken string `mapstructure:"preview_relay_token"`
@@ -825,7 +818,6 @@ func Load(configFile string) (*Config, error) {
 		{"sandbox.workspace_ssh_dial_host", "SMITHERS_SANDBOX_WORKSPACE_SSH_DIAL_HOST"},
 		{"sandbox.agent_snapshot_id", "SMITHERS_SANDBOX_AGENT_SNAPSHOT_ID"},
 		{"sandbox.workspace_coding_default_model", "SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL"},
-		{"sandbox.gateway_health_probe_base_url", "SMITHERS_GATEWAY_HEALTH_PROBE_BASE_URL"},
 		{"sandbox.preview_relay_token", "SMITHERS_PREVIEW_RELAY_TOKEN"},
 	} {
 		_ = v.BindEnv(b[0], b[1])

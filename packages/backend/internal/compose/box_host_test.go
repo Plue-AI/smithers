@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
-	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
-	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 type recordingBoxes struct {
@@ -88,33 +86,6 @@ type liveHostTransport struct{ refusingHostTransport }
 
 func (liveHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
 	return flowhost.Connection{Endpoint: "http://127.0.0.1:1"}, nil
-}
-
-type fixedCallbacks struct {
-	target services.RepoGatewayRelayTarget
-	err    error
-	calls  int
-}
-
-func (f *fixedCallbacks) AuthorizeRelay(context.Context, string, string) (services.RepoGatewayRelayTarget, error) {
-	f.calls++
-	return f.target, f.err
-}
-
-// A callback the box host's binding does not know is still accepted from a box
-// gateway started before it; any other refusal is final.
-func TestBoxHostCallbacksFallBackOnlyForAnUnknownHost(t *testing.T) {
-	gateways := &fixedCallbacks{target: services.RepoGatewayRelayTarget{GatewayID: "gateway"}}
-	callbacks := boxHostCallbacks{hosts: services.NewFlowHostCallbacks(nil, nil), gateways: gateways}
-	target, err := callbacks.AuthorizeRelay(context.Background(), "not-a-binding", "token")
-	require.NoError(t, err)
-	require.Equal(t, "gateway", target.GatewayID)
-	require.Equal(t, 1, gateways.calls)
-
-	_, err = boxHostCallbacks{hosts: services.NewFlowHostCallbacks(nil, nil)}.AuthorizeRelay(context.Background(), "not-a-binding", "token")
-	var refusal *pkgerrors.APIError
-	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, pkgerrors.CodeUnauthorized, refusal.Code)
 }
 
 type stopFailingTransport struct{ refusingHostTransport }

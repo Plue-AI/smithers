@@ -33,7 +33,7 @@ type RepositoryJobTrialResult struct {
 
 // CreateTrial makes the real native issue, outbox event and immutable request
 // record atomic. A lost HTTP acknowledgement can never create a second issue.
-func (s *RepositoryJobService) CreateTrial(ctx context.Context, gatewayID, bearer, job, requestID string, input RepositoryJobTrialInput) (RepositoryJobTrialResult, error) {
+func (s *RepositoryJobService) CreateTrial(ctx context.Context, hostID, bearer, job, requestID string, input RepositoryJobTrialInput) (RepositoryJobTrialResult, error) {
 	var empty RepositoryJobTrialResult
 	if !repositoryJobNames[job] || strings.TrimSpace(requestID) == "" || len(requestID) > 200 ||
 		input.Revision <= 0 || !repositoryJobDigest.MatchString(input.Digest) || strings.TrimSpace(input.Title) == "" || utf8.RuneCountInString(input.Title) > maxIssueTitleLen || len(input.Body) > 500000 {
@@ -45,7 +45,7 @@ func (s *RepositoryJobService) CreateTrial(ctx context.Context, gatewayID, beare
 	if err := validateSafeText("Issue", "body", input.Body); err != nil {
 		return empty, err
 	}
-	repo, target, err := s.authorizeJobGateway(ctx, gatewayID, bearer, input.Repo, input.WorkspaceID)
+	repo, target, err := s.authorizeHostCallback(ctx, hostID, bearer, input.Repo, input.WorkspaceID)
 	if err != nil {
 		return empty, err
 	}

@@ -96,11 +96,11 @@ func (s *RepositorySetupService) Request(ctx context.Context, repoID, userID int
 	if err := s.authorize(ctx, repoID, userID, true); err != nil {
 		return SetupRecord{}, err
 	}
-	connection, err := s.repositoryJobs.connectionInput(ctx, db.RepositoryJobRegistration{RepositoryID: repoID, UserID: userID})
+	repositoryName, err := s.repositoryJobs.repositoryName(ctx, db.RepositoryJobRegistration{RepositoryID: repoID, UserID: userID})
 	if err != nil {
 		return SetupRecord{}, err
 	}
-	if input.Repo != connection.RepoOwner+"/"+connection.RepoName {
+	if input.Repo != repositoryName {
 		return SetupRecord{}, pkgerrors.BadRequest("Setup repository identity differs")
 	}
 	if s.dispatcher == nil {
@@ -189,8 +189,8 @@ func (s *RepositorySetupService) ResolveFlowHostTarget(ctx context.Context, targ
 	if err = s.authorize(ctx, repoID, userID, true); err != nil {
 		return refuse("runtime_target_forbidden", false)
 	}
-	connection, err := s.repositoryJobs.connectionInput(ctx, db.RepositoryJobRegistration{RepositoryID: repoID, UserID: userID})
-	if err != nil || record.Input.Repo != connection.RepoOwner+"/"+connection.RepoName {
+	repositoryName, err := s.repositoryJobs.repositoryName(ctx, db.RepositoryJobRegistration{RepositoryID: repoID, UserID: userID})
+	if err != nil || record.Input.Repo != repositoryName {
 		return refuse("runtime_repository_changed", false)
 	}
 	workspaceID := record.WorkspaceID

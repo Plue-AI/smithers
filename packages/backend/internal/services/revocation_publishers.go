@@ -12,7 +12,7 @@ import (
 
 // Revocation publishing. Every service that ends an authorization announces
 // it here so live consumers (SSE streams, terminal WebSockets, SSH sessions,
-// gateway relays, sandbox egress proxies) terminate within seconds instead of
+// desktop relays, sandbox egress proxies) terminate within seconds instead of
 // at their own end of life. Publishing is best effort after the revocation
 // itself succeeded: the durable change is the authority, the announcement is
 // latency.
@@ -42,11 +42,6 @@ func (s *DeployKeyService) SetRevocationPublisher(p revocation.Publisher) { s.re
 
 // SetRevocationPublisher announces workspace share removals.
 func (s *PairSessionService) SetRevocationPublisher(p revocation.Publisher) { s.revocations = p }
-
-// WithRepoGatewayRevocationPublisher announces gateway teardowns.
-func WithRepoGatewayRevocationPublisher(p revocation.Publisher) RepoGatewayServiceOption {
-	return func(s *RepoGatewayService) { s.revocations = p }
-}
 
 // WithAgentRevocationPublisher announces cancelled agent sessions.
 func WithAgentRevocationPublisher(p revocation.Publisher) AgentServiceOption {
@@ -196,9 +191,6 @@ func (s *AuthService) SetRevocationPublisher(p revocation.Publisher) { s.revocat
 
 // SetRevocationPublisher announces admin token revocations and user suspensions.
 func (s *AdminUserService) SetRevocationPublisher(p revocation.Publisher) { s.revocations = p }
-
-// SetRevocationPublisher announces gateway teardowns.
-func (s *RepoGatewayService) SetRevocationPublisher(p revocation.Publisher) { s.revocations = p }
 
 // SetRevocationPublisher announces cancelled agent sessions.
 func (s *AgentService) SetRevocationPublisher(p revocation.Publisher) { s.revocations = p }

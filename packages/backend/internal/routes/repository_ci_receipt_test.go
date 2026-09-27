@@ -28,7 +28,7 @@ func TestRepositoryCheckReceiptRoute(t *testing.T) {
 	const body = `{"repo":"owner/repo","workspace_id":"w","registration_id":"r","revision":1,"digest":"d","execution_digest":"e","run_id":"run-1","execution_id":"exec-1","commit_id":"c","change_id":"ch","base_commit_id":"b","checks":[{"id":"unit","outcome":"passed"}],"gate":"passed"}`
 	created := true
 	calls := 0
-	h := &RepoGatewayHandler{RepositoryJobs: repositoryCheckReceiptStub{receipt: func(_ context.Context, id, bearer, requestID string, input services.RepositoryCheckReceiptInput) (services.RepositoryCheckReceiptResponse, bool, error) {
+	h := &RepositoryJobHandler{RepositoryJobs: repositoryCheckReceiptStub{receipt: func(_ context.Context, id, bearer, requestID string, input services.RepositoryCheckReceiptInput) (services.RepositoryCheckReceiptResponse, bool, error) {
 		calls++
 		require.Equal(t, "gateway", id)
 		require.Equal(t, "host-token", bearer)
@@ -38,7 +38,7 @@ func TestRepositoryCheckReceiptRoute(t *testing.T) {
 		return services.RepositoryCheckReceiptResponse{RequestID: requestID, Context: "repository-ci/r@1.d", CommitID: "c", Status: "success", StatusID: 4}, created, nil
 	}}}
 	r := chi.NewRouter()
-	r.Put("/gateways/{gatewayID}/repository-jobs/ci/check-receipts/{requestID}", h.PutRepositoryCheckReceipt)
+	r.Put("/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}", h.PutRepositoryCheckReceipt)
 	put := func(payload string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(http.MethodPut, "/gateways/gateway/repository-jobs/ci/check-receipts/receipt-request", strings.NewReader(payload))
 		request.Header.Set("Authorization", "Bearer host-token")
@@ -61,7 +61,7 @@ func TestRepositoryCheckReceiptRoute(t *testing.T) {
 	}
 	require.Equal(t, 2, calls)
 
-	empty := &RepoGatewayHandler{}
+	empty := &RepositoryJobHandler{}
 	response = httptest.NewRecorder()
 	empty.PutRepositoryCheckReceipt(response, httptest.NewRequest(http.MethodPut, "/receipt", strings.NewReader(body)))
 	require.Equal(t, http.StatusServiceUnavailable, response.Code)

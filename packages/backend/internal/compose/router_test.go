@@ -45,9 +45,6 @@ type mockRouterRepoService struct {
 	getRepoCalls  int
 	forkRepoCalls int
 }
-type mockRouterRepoGatewayService struct {
-	calls int
-}
 type mockRouterCommitStatusService struct {
 	listCommitStatusesFn func(ctx context.Context, repositoryID int64, ref string, page, perPage int) ([]db.CommitStatus, int64, error)
 	createCommitStatusFn func(ctx context.Context, repositoryID int64, sha string, input services.CreateCommitStatusInput) (db.CommitStatus, error)
@@ -140,18 +137,6 @@ func (m *mockRouterSearchService) SearchCode(ctx context.Context, viewer *db.Use
 
 func (m *mockRouterRepoService) ListRepoContents(ctx context.Context, viewer *db.User, owner, repo, ref, dirPath string) ([]services.RepoContent, error) {
 	return nil, nil
-}
-
-func (m *mockRouterRepoGatewayService) GetRepoGatewayConnectionInfo(ctx context.Context, input services.RepoGatewayConnectionInput) (services.RepoGatewayConnectionInfo, error) {
-	m.calls++
-	return services.RepoGatewayConnectionInfo{
-		BaseURL:   "https://gateway.example",
-		Token:     "smithers_gateway_test",
-		ExpiresAt: time.Now().UTC().Add(time.Hour),
-		GatewayID: "gateway-1",
-		VMID:      "vm-1",
-		Status:    "running",
-	}, nil
 }
 
 func (m *mockRouterGitService) ProxyInfoRefs(ctx context.Context, owner, repo, service, token string, stdout io.Writer) (string, error) {
@@ -503,13 +488,7 @@ func defaultRouter(gitHandler *routes.GitSmartHandler, lfsHandlers ...*routes.LF
 	)
 }
 
-func longTimeoutJSONCSRFCoverageRouter(repoGatewayServices ...routes.RepoGatewayRouteService) http.Handler {
-	repoGatewayService := routes.RepoGatewayRouteService(&mockRouterRepoGatewayService{})
-	if len(repoGatewayServices) > 0 {
-		repoGatewayService = repoGatewayServices[0]
-	}
-	repoGatewayHandler := &routes.RepoGatewayHandler{Service: repoGatewayService}
-
+func longTimeoutJSONCSRFCoverageRouter() http.Handler {
 	return buildRouter(
 		testConfigAllFlagsOn(),
 		nil,
@@ -559,7 +538,7 @@ func longTimeoutJSONCSRFCoverageRouter(repoGatewayServices ...routes.RepoGateway
 		nil,                          // issueEventHandler
 		&routes.WorkspaceHandler{},
 		nil, // workspaceInternalHandler
-		repoGatewayHandler,
+		&routes.RepositoryJobHandler{},
 		nil, // gitHubProxyHandler
 		nil, // gitHubRepoListHandler
 		nil, // gitHubUserReposHandler
@@ -579,8 +558,6 @@ func longTimeoutJSONCSRFCoverageRouter(repoGatewayServices ...routes.RepoGateway
 // registers when both a handler and queries are present, so the CSRF contract
 // walk sees its session-capable write routes.
 func buildCacheCSRFCoverageRouter() http.Handler {
-	repoGatewayHandler := &routes.RepoGatewayHandler{Service: &mockRouterRepoGatewayService{}}
-
 	return buildRouter(
 		testConfigAllFlagsOn(),
 		db.New(nil),
@@ -630,7 +607,7 @@ func buildCacheCSRFCoverageRouter() http.Handler {
 		nil,                          // issueEventHandler
 		&routes.WorkspaceHandler{},
 		nil, // workspaceInternalHandler
-		repoGatewayHandler,
+		&routes.RepositoryJobHandler{},
 		nil, // gitHubProxyHandler
 		nil, // gitHubRepoListHandler
 		nil, // gitHubUserReposHandler
@@ -1087,12 +1064,6 @@ func TestServerRouter_LongTimeoutJSONGroupsCSRFBehavior(t *testing.T) {
 			body:   `{"cols":80,"rows":24}`,
 		},
 		{
-			name:   "repo gateway provision/resume",
-			method: http.MethodPost,
-			path:   "/api/repos/alice/demo/gateway",
-			body:   `{}`,
-		},
-		{
 			name:   "pair session create",
 			method: http.MethodPost,
 			path:   "/api/pair-sessions",
@@ -1134,13 +1105,6 @@ func TestServerRouter_LongTimeoutJSONGroupsCSRFBehavior(t *testing.T) {
 			name:   "workspace provision",
 			method: http.MethodPost,
 			path:   "/api/repos/alice/demo/workspaces",
-			body:   `{}`,
-			scope:  middleware.ScopeWriteRepository,
-		},
-		{
-			name:   "repo gateway provision/resume",
-			method: http.MethodPost,
-			path:   "/api/repos/alice/demo/gateway",
 			body:   `{}`,
 			scope:  middleware.ScopeWriteRepository,
 		},
@@ -1209,23 +1173,6 @@ func TestServerRouter_LongTimeoutJSONGroupsCSRFBehavior(t *testing.T) {
 			assert.NotEqual(t, http.StatusForbidden, rec.Code)
 		})
 	}
-}
-
-func TestServerRouter_RepoGatewayGETDoesNotProvisionOrResume(t *testing.T) {
-	t.Parallel()
-
-	repoGatewayService := &mockRouterRepoGatewayService{}
-	router := longTimeoutJSONCSRFCoverageRouter(repoGatewayService)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/gateway", nil)
-	req = sessionContext(req)
-	req = routerRepoContext(req, "alice", "demo")
-	rec := httptest.NewRecorder()
-
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-	assert.Equal(t, 0, repoGatewayService.calls)
 }
 
 func TestServerRouter_FeatureFlagGatesWorkspaceRoutes(t *testing.T) {

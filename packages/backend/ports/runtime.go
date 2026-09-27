@@ -24,9 +24,9 @@ type RuntimeStores struct {
 	EgressAudit       services.SandboxEgressAuditQuerier
 }
 
-// RepoGatewayStore keeps authorization sweeps attached to the same gateway
-// inventory used for provisioning and cleanup.
+// RepoGatewayStore is the retired box gateways' inventory, read and cleared
+// by the one-release convergence (services.RepoGatewayRetirement, #2198).
+// Delete it with that reaper.
 type RepoGatewayStore interface {
-	services.RepoGatewayQuerier
-	services.RepoGatewayAccessQuerier
+	services.RepoGatewayRetirementStore
 }

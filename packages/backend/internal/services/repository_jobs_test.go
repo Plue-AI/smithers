@@ -155,7 +155,7 @@ func TestRepositoryJobTrialAuthorityComesFromRegistration(t *testing.T) {
 
 type repositoryJobTestGateway struct {
 	t                  *testing.T
-	target             RepoGatewayRelayTarget
+	target             BoxHostTarget
 	config             RegisterRepositoryJobInput
 	service            *RepositoryJobService
 	calls              []string
@@ -173,9 +173,9 @@ type repositoryJobTestGateway struct {
 	cancelled          map[string]bool
 }
 
-func (g *repositoryJobTestGateway) AuthorizeRelay(_ context.Context, id, bearer string) (RepoGatewayRelayTarget, error) {
+func (g *repositoryJobTestGateway) AuthorizeHostCallback(_ context.Context, id, bearer string) (BoxHostTarget, error) {
 	if id != "gateway" || bearer != "token" {
-		return RepoGatewayRelayTarget{}, fmt.Errorf("unauthorized fixture")
+		return BoxHostTarget{}, fmt.Errorf("unauthorized fixture")
 	}
 	return g.target, nil
 }
@@ -326,7 +326,7 @@ func repositoryJobFixture(t *testing.T) (*pgxpool.Pool, *db.Queries, *Repository
 	input.Repo = owner + "/" + name
 	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, input.WorkspaceID, rid, uid)
 	require.NoError(t, err)
-	gateway := &repositoryJobTestGateway{t: t, config: input, target: RepoGatewayRelayTarget{RepositoryID: rid, UserID: uid, WorkspaceID: input.WorkspaceID}}
+	gateway := &repositoryJobTestGateway{t: t, config: input, target: BoxHostTarget{RepositoryID: rid, UserID: uid, WorkspaceID: input.WorkspaceID}}
 	service := NewRepositoryJobService(q, gateway, pool)
 	gateway.service = service
 	service.SetFlowDispatcher(gateway)
@@ -448,7 +448,7 @@ func TestRepositoryJobFlowDispatchProductPostgres(t *testing.T) {
 	require.NoError(t, err)
 	dispatcher := &repositoryJobTestGateway{
 		t: t, config: input,
-		target: RepoGatewayRelayTarget{RepositoryID: repositoryID, UserID: userID, WorkspaceID: input.WorkspaceID},
+		target: BoxHostTarget{RepositoryID: repositoryID, UserID: userID, WorkspaceID: input.WorkspaceID},
 	}
 	service := NewRepositoryJobService(q, dispatcher, pool)
 	dispatcher.service = service
@@ -787,7 +787,7 @@ func TestRepositoryJobsIntegrationTrialCreationIsAtomicAndIdempotent(t *testing.
 	bad := request
 	bad.WorkspaceID = uuid.NewString()
 	_, err = s.CreateTrial(ctx, "gateway", "token", "issues", "new-request", bad)
-	require.ErrorContains(t, err, "owning workspace")
+	require.ErrorContains(t, err, "its own box's coding host")
 }
 
 func TestRepositoryJobsIntegrationGitHubWorkerAdmitsWithoutLegacyDefinition(t *testing.T) {

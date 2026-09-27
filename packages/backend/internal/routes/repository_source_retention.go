@@ -9,7 +9,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-func (h *RepoGatewayHandler) RetainRepositorySource(w http.ResponseWriter, r *http.Request) {
+func (h *RepositoryJobHandler) RetainRepositorySource(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.repositoryJobScope(w, r)
 	if !ok {
 		return
