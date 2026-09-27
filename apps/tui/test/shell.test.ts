@@ -8,7 +8,9 @@ describe("shell output", () => {
   it("uses a POSIX shell when SHELL is unset and Bash is absent from PATH", async () => {
     const result = await Shell.run({
       command: "printf '%s 中文 🦉' \"$0\"",
-      cwd: tmpdir(), env: { PATH: "" }, onOutput: () => {}
+      cwd: tmpdir(),
+      env: { PATH: "" },
+      onOutput: () => {}
     }).done
     expect(result.exitCode).toBe(0)
     expect(result.output).toBe("/bin/sh 中文 🦉")
@@ -17,7 +19,9 @@ describe("shell output", () => {
   it("preserves an explicitly configured shell's startup failure", async () => {
     const result = await Shell.run({
       command: "printf unexpected",
-      cwd: tmpdir(), env: { SHELL: "/missing-tui-shell", PATH: process.env.PATH }, onOutput: () => {}
+      cwd: tmpdir(),
+      env: { SHELL: "/missing-tui-shell", PATH: process.env.PATH },
+      onOutput: () => {}
     }).done
     expect(result.exitCode).toBe(127)
     expect(result.output).toContain("missing-tui-shell")
