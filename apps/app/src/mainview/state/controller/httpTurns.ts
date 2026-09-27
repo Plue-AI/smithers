@@ -261,10 +261,10 @@ export const createHttpTurnDriver = (ctx: ControllerContext, dependencies: Depen
       void drive(saved.id)
     }
   }
-  const start = (turnId: string, text: string, retry: boolean, actor: "user" | "smithers"): Promise<boolean> => {
+  const start = (turnId: string, text: string, retry: boolean, actor: "user" | "smithers", preserveDraft = false): Promise<boolean> => {
     if (!journal || ctx.disposed || store.session().phase !== "idle") return Promise.resolve(false)
     const attemptId = crypto.randomUUID(), access = capability()
-    const receipt = store.dispatch({ type: "http.turn.started", actor, turnId, attemptId, text, retry, journal: access })
+    const receipt = store.dispatch({ type: "http.turn.started", actor, turnId, attemptId, text, retry, journal: access, preserveDraft })
     const turn = store.collections.httpTurns.get(attemptId)
     if (turn === undefined) return Promise.resolve(false)
     const pendingTurn = mirror(turn)

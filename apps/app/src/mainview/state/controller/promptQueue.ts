@@ -41,12 +41,13 @@ export const createPromptQueueController = (ctx: ControllerContext, send: TurnCo
     scheduled = true
     queueMicrotask(() => { scheduled = false; void drain() })
   }
-  const enqueuePrompt = (text: string): void => {
+  const enqueuePrompt = (text: string, capturedDraft?: () => boolean): void => {
+    const draftCurrent = capturedDraft ?? store.captureComposerDraft(text)
     const parsed = parseSubmit(text, ctx.commands.all())
     // Commands keep their normal immediate door, as in the terminal composer.
-    if (parsed.kind !== "prompt") { void send(text); return }
+    if (parsed.kind !== "prompt") { void send(text, undefined, draftCurrent); return }
     const prompt = { id: crypto.randomUUID(), text: parsed.text, scope: promptQueueScope(store.session()) }
-    void store.dispatch({ type: "prompt.queued", actor: "user", prompt }).isPersisted.promise.then(schedule)
+    void store.dispatch({ type: "prompt.queued", actor: "user", prompt, preserveDraft: !draftCurrent() }).isPersisted.promise.then(schedule)
       .catch(error => ctx.failures.report("prompt.queue", error))
   }
   const removeQueuedPrompt = (id: string, edit = false): void => {

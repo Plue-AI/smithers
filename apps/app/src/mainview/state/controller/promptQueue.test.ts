@@ -13,6 +13,7 @@ const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 
 const fixture = async (options: {
+  steer?: () => Promise<boolean>
   storage?: ReturnType<typeof memoryStorage>
   start?: (request: StartAgentTurnRequest) => Promise<StartAgentTurnResult>
 } = {}) => {
@@ -25,7 +26,7 @@ const fixture = async (options: {
     startTurn: async request => { launches.push(request); return options.start?.(request) ?? { status: "started" } },
     cancelTurn: async () => {},
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
-    steer: async (_id, text) => { steers.push(text); return true }
+    steer: async (_id, text) => { steers.push(text); return options.steer?.() ?? true }
   }
   const ctx = createControllerContext(store, agent, {})
   ctx.commands = { all: () => [], callable: () => [], find: () => undefined, toolSpecs: () => [],
@@ -132,3 +133,40 @@ test("a queued turn cannot clear an unrelated draft", async () => {
   await waitFor(() => f.launches.length === 2)
   expect(f.store.session().draft).toBe("still composing")
 })
+
+for (const next of [undefined, "steer now", "the next draft"]) {
+  test(`a delayed successful steer consumes only its original input (${next ?? "unchanged"})`, async () => {
+    const held = Promise.withResolvers<boolean>()
+    const f = await fixture({ steer: () => held.promise })
+    await f.turns.send("first")
+    f.store.dispatch({ type: "composer.changed", actor: "user", draft: "steer now" })
+    f.turns.send("steer now")
+    await waitFor(() => f.steers.length === 1)
+    if (next !== undefined) {
+      f.store.dispatch({ type: "composer.changed", actor: "user", draft: "" })
+      f.store.dispatch({ type: "composer.changed", actor: "user", draft: next })
+    }
+    held.resolve(true)
+    await waitFor(() => [...f.store.collections.messages.values()].some(row => row.role === "user" && row.text === "steer now"))
+    expect(f.steers).toEqual(["steer now"])
+    expect(f.store.session().draft).toBe(next ?? "")
+    await f.store.settled?.()
+    expect((await f.store.verifyState()).valid).toBe(true)
+  })
+}
+
+for (const rejection of ["refused", "failed"] as const) {
+  test(`a ${rejection} steer keeps its input retryable`, async () => {
+    const held = Promise.withResolvers<boolean>()
+    const f = await fixture({ steer: () => held.promise })
+    await f.turns.send("first")
+    f.store.dispatch({ type: "composer.changed", actor: "user", draft: "steer now" })
+    f.turns.send("steer now")
+    await waitFor(() => f.steers.length === 1)
+    if (rejection === "refused") held.resolve(false)
+    else held.reject(new Error("offline"))
+    await settle()
+    expect(f.store.session().draft).toBe("steer now")
+    expect([...f.store.collections.messages.values()].filter(row => row.role === "user" && row.text === "steer now")).toHaveLength(0)
+  })
+}

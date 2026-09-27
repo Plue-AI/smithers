@@ -1294,7 +1294,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           if (current.phase !== "idle" || collections.httpTurns.has(transition.attemptId) || collections.httpTurnLegs.has(transition.journal.legId)) return
           if (transition.text.trim() === "" || (transition.retry && collections.messages.get(`message-${transition.turnId}-user`)?.text !== transition.text.trim())) return
           reduce(transition.retry ? { type: "message.retried", actor: "user", turnId: transition.turnId }
-            : { type: "message.submitted", actor: transition.actor, turnId: transition.turnId, text: transition.text }, 0)
+            : { type: "message.submitted", actor: transition.actor, turnId: transition.turnId, text: transition.text, ...(transition.preserveDraft === undefined ? {} : { preserveDraft: transition.preserveDraft }) }, 0)
           const owner = accountOwnerOf(collections.identitySessions.get("identity"))
           collections.httpTurns.insert({ id: transition.attemptId, turnId: transition.turnId, owner, legId: transition.journal.legId,
             status: "active", receivedText: false, askClass: impossibleAskOf(transition.text), claimBuffer: "", createdAt, revision })
@@ -1389,7 +1389,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         case "prompt.queued":
           collections.sessions.update(SESSION_ID, draft => {
             draft.queuedPrompts = [...PromptQueue.enqueue(draft.queuedPrompts ?? [], transition.prompt)]
-            if (draft.draft.trim() === transition.prompt.text.trim()) draft.draft = ""
+            if (!transition.preserveDraft && draft.draft.trim() === transition.prompt.text.trim()) draft.draft = ""
           })
           break
         case "prompt.removed": {
@@ -1451,7 +1451,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, (draft) => {
             const queued = draft.queuedPrompts?.some(item => item.id === transition.turnId)
             if (queued) draft.queuedPrompts = [...PromptQueue.remove(draft.queuedPrompts ?? [], transition.turnId)]
-            else draft.draft = ""
+            else if (!transition.preserveDraft) draft.draft = ""
             draft.phase = "responding"
             // The turn belongs to the conversation it was asked in, whatever tab is active later.
             draft.turnTabId = conversationTabId ?? null
@@ -2779,7 +2779,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             })
           }
           collections.sessions.update(SESSION_ID, (draft) => {
-            draft.draft = ""
+            if (!transition.preserveDraft) draft.draft = ""
           })
           break
         }

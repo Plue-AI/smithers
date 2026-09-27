@@ -166,6 +166,41 @@ const journalAgent = () => {
 }
 const controllerFor = (store: AppStore, agent: AgentPort) => { const controller = createAppController(store, agent); controllers.push(controller); return controller }
 
+for (const next of [undefined, "Hello", "Still composing"]) {
+  test(`HTTP submission preserves and replays the next draft (${next ?? "unchanged"})`, async () => {
+    const storage = memoryStorage(), store = await open(storage), remote = journalAgent()
+    const held = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
+    const gated: AppStore = { ...store, dispatch: transition => {
+      const transaction = store.dispatch(transition)
+      if (transition.type !== "command.intent.accepted") return transaction
+      entered.resolve()
+      return new Proxy(transaction, { get: (target, key, receiver) => key === "isPersisted"
+        ? { ...target.isPersisted, promise: target.isPersisted.promise.then(() => held.promise) } : Reflect.get(target, key, receiver) })
+    } }
+    const controller = controllerFor(gated, remote.agent)
+    controller.changeDraft("Hello")
+    const pending = controller.commands.run("chat.send", "Hello")
+    await entered.promise
+    expect(remote.starts).toHaveLength(0)
+    if (next !== undefined) {
+      controller.changeDraft("")
+      controller.changeDraft(next)
+    }
+    held.resolve()
+    await pending
+    await until(() => remote.starts.length === 1)
+    expect(store.collections.messages.get(`message-${remote.starts[0]!.runId}-user`)?.text).toBe("Hello")
+    expect(store.session().draft).toBe(next ?? "")
+    await controller.dispose()
+    await store.settled?.()
+    expect((await store.verifyState()).valid).toBe(true)
+    await store.dispose?.()
+    const restored = await open(storage)
+    expect(restored.session().draft).toBe(next ?? "")
+    expect((await restored.verifyState()).valid).toBe(true)
+  })
+}
+
 test("the active AppController persists capability and prompt before POST, then resumes a disconnected leg after a real reopen", async () => {
   const storage = memoryStorage(), store = await open(storage), remote = journalAgent()
   let release!: () => void

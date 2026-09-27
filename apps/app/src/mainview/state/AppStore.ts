@@ -742,6 +742,8 @@ export interface AppStore {
    * pause in typing, the next other dispatch, page hide or `dispose`.
    */
   readonly dispatch: (transition: AppTransition) => Transaction
+  /** Runtime ownership of the current input; later edits or a reopened composer revoke it. */
+  readonly captureComposerDraft: (text: string) => () => boolean
   /** Private preparation of validated human form input; never changes accepted projections. */
   readonly stagePendingApprovalAnswer: (input: ApprovalAnswerInput, intentId: string) => { clear(): void } | undefined
   readonly stagePendingSignupInput: (field: string, value: string, intentId: string) => { clear(): void } | undefined
@@ -1556,6 +1558,26 @@ const initializeAppStore = async (
         ...(history === undefined ? {} : { history }) } })
   }
 
+  // This is a capability for in-flight work, not another draft store. Only
+  // authoritative dispatcher writes revoke it, including identical edits in
+  // one batched typing transaction. Draft content remains in the collection.
+  let composerInput = {}
+  const advanceComposerInput = (transition: AppTransition, before: AppStreamState, after: AppStreamState): void => {
+    const previous = before.snapshot.sessions.find(row => row.id === SESSION_ID)!
+    const next = after.snapshot.sessions.find(row => row.id === SESSION_ID)!
+    if (transition.type === "composer.changed" || before.head.streamId !== after.head.streamId ||
+      previous.draft !== next.draft || previous.activeWorkspaceId !== next.activeWorkspaceId ||
+      previous.activeBranchId !== next.activeBranchId || previous.activeRepoKey !== next.activeRepoKey ||
+      previous.composerOwner !== next.composerOwner ||
+      (!previous.paletteOpen && next.paletteOpen)) composerInput = {}
+  }
+  const captureComposerDraft = (text: string): (() => boolean) => {
+    const input = composerInput, acceptedGeneration = generation
+    const matched = session().draft.trim() === text.trim()
+    return () => !disposed && matched && generation === acceptedGeneration && composerInput === input &&
+      session().draft.trim() === text.trim()
+  }
+
   const dispatch = (transition: AppTransition): Transaction => {
     if (disposed) throw new Error("The app state owner is closed. Open the current store before dispatching.")
     assertReadable()
@@ -1570,6 +1592,7 @@ const initializeAppStore = async (
       if (next === undefined) return pending.transaction
       if (!recoveringInputs && transition.actor === "user") pending.recoveryRaw = writeDraftRecovery(draftRecoveryStorage, next.head.revision, transition.draft,
         recoveryAuthority(pending.previous, transition.actor, pending.eventId)) ?? pending.recoveryRaw
+      advanceComposerInput(transition, optimistic, next)
       pending.write = { state: next, event: next.event }
       optimistic = next
       pending.transaction.mutate(() => writeStream(pending.write))
@@ -1627,6 +1650,7 @@ const initializeAppStore = async (
       mutationFn: ({ transaction }) => persistStream(transaction, draft.write, acceptedGeneration)
     })
     if (transition.type === "app.reset") resetTransaction = transaction
+    advanceComposerInput(transition, previous, write.state)
     optimistic = write.state
     try { mutateTracked(transaction, () => writeStream(draft.write)) } catch (error) {
       optimistic = previous
@@ -1926,6 +1950,7 @@ const initializeAppStore = async (
     collections: Object.fromEntries(Object.entries({ ...publicCollections, ...views })
       .map(([name, collection]) => [name, readOnlyCollection(collection, assertReadable)])) as AppCollections,
     dispatch,
+    captureComposerDraft,
     approvalRequest,
     committedCard: id => { assertReadable(); return committed.snapshot.cards.find(row => row.id === id) },
     committedWorkspace: id => { assertReadable(); return committed.snapshot.cloudWorkspaces.find(row => row.id === id) },

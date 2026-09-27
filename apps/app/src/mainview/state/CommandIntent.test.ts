@@ -52,17 +52,68 @@ const invocation = (lineage = "lineage", ordinal = 1): AgentInvocation => ({
 })
 
 describe("durable command intent at the active shared door", () => {
-  test.each(["/appearance.theme nord", "/missing-command"])("a delayed submission of %s preserves the next draft", async line => {
+  for (const line of ["/appearance.theme paper", "/missing-command", "the original prompt"]) {
+    for (const next of [line, "a different next draft"]) {
+      test(`a delayed submission of ${line} preserves a newly entered draft: ${next}`, async () => {
+        const store = await open()
+        const held = deferred(), entered = deferred()
+        const controller = controllerFor(hold(store, "command.intent.accepted", held, entered))
+        controller.changeDraft(line)
+        const pending = controller.commands.run("chat.send", line)
+        await entered.promise
+        controller.changeDraft("")
+        controller.changeDraft(next)
+        expect(store.session().draft).toBe(next)
+        held.resolve()
+        await pending
+        if (line === "the original prompt") {
+          expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === line)).toHaveLength(1)
+        }
+        expect(store.session().draft).toBe(next)
+      })
+    }
+  }
+
+  test("a delayed queue submission preserves a freshly retyped identical draft", async () => {
     const store = await open()
     const held = deferred(), entered = deferred()
     const controller = controllerFor(hold(store, "command.intent.accepted", held, entered))
-    controller.changeDraft(line)
-    const pending = controller.commands.run("chat.send", line)
+    store.dispatch({ type: "prompt.queue.paused", actor: "user", paused: true })
+    controller.changeDraft("queued prompt")
+    const pending = controller.commands.run("chat.queue", "queued prompt")
     await entered.promise
-    controller.changeDraft("/appearance.dark-mode")
+    controller.changeDraft("")
+    controller.changeDraft("queued prompt")
     held.resolve()
     await pending
-    expect(store.session().draft).toBe("/appearance.dark-mode")
+    expect(store.session().queuedPrompts?.map(row => row.text)).toEqual(["queued prompt"])
+    expect(store.session().draft).toBe("queued prompt")
+  })
+
+  test("a failed Chat admission leaves its original draft retryable", async () => {
+    const bytes = memoryStorage()
+    let fail = false
+    const storage: StorageApi = { ...bytes, setItem: (key, value) => { if (fail) throw new Error("disk failed"); bytes.setItem(key, value) } }
+    const store = await open(storage), controller = controllerFor(store)
+    controller.changeDraft("My prompt")
+    await store.settled?.()
+    fail = true
+    expect(await controller.commands.run("chat.send", "My prompt")).toMatchObject({ status: "failed", persistenceFailed: true })
+    expect(store.session().draft).toBe("My prompt")
+    expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === "My prompt")).toHaveLength(0)
+    fail = false
+    expect((await controller.commands.run("chat.send", "My prompt")).status).toBe("executed")
+    expect(store.session().draft).toBe("")
+    expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === "My prompt")).toHaveLength(1)
+  })
+
+  test("submitting a Chat form leaves an identical composer draft alone", async () => {
+    const store = await open(), controller = controllerFor(store)
+    controller.changeDraft("My prompt")
+    controller.renderFlowForm({ name: "chat.send", args: "My prompt", via: "user" })
+    expect((await controller.commands.run("form.submit", "form-chat.send")).status).toBe("executed")
+    expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === "My prompt")).toHaveLength(1)
+    expect(store.session().draft).toBe("My prompt")
   })
 
   test("pure replay refuses duplicate accepts and mismatched settlements", () => {

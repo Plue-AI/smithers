@@ -39,6 +39,11 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
       if (ctx.services.openExternal !== undefined || (ctx.services.bootstrap?.host !== "local" && ctx.services.bootstrap?.authFlow !== "native-handoff") || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-out") return undefined
     }
     if (name === "app.download" && (ctx.services.openExternal !== undefined || ctx.services.downloadUrl === null)) return undefined
+    if (name === "chat.send" || name === "chat.queue") {
+      if (request.name === "form.submit") return { name, composerDraftCurrent: () => false, release: () => {} }
+      const text = named === undefined ? args : named.text
+      if (typeof text === "string") return { name, composerDraftCurrent: ctx.store.captureComposerDraft(text), release: () => {} }
+    }
     if (name === "chat.open") {
       // Prepare the local input during the gesture so immediate typing has a
       // destination. The flow (including microphone capture) still waits for

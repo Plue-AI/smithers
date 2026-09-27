@@ -194,7 +194,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly debugReset: () => Promise<string | void>
   readonly stop: () => void
   readonly send: TurnController["send"]
-  readonly enqueuePrompt: (text: string) => void
+  readonly enqueuePrompt: (text: string, draftCurrent?: () => boolean) => void
   readonly removeQueuedPrompt: (id: string, edit?: boolean) => void
   readonly restoreQueuedPrompts: () => void
   readonly resumePromptQueue: () => void

@@ -85,7 +85,7 @@ export interface TurnControllerDependencies {
 
 export interface TurnController {
   readonly subscribeToAgent: () => void
-  readonly send: (text: string, admission?: { readonly turnId: string; readonly owner: string | null | undefined }) => Promise<boolean> | void
+  readonly send: (text: string, admission?: { readonly turnId: string; readonly owner: string | null | undefined }, draftCurrent?: () => boolean) => Promise<boolean> | void
   readonly reset: () => void
   readonly stop: () => void
   readonly decideApproval: (id: string, decision: "approved" | "denied", answer?: unknown, question?: string) => void
@@ -1069,12 +1069,13 @@ export const createTurnController = (
       ? { status: "failed", error: outcome.reason }
       : outcome
 
-  const send: TurnController["send"] = (text, admission) => {
+  const send: TurnController["send"] = (text, admission, capturedDraft) => {
     if (ctx.disposed) return
     const generation = ctx.accountEpoch
     if (admission && ctx.accountOwner() !== admission.owner) return
     // This lookup excludes optimistic rows, including a prior failed attempt.
     if (admission && typeof admission.owner === "string" && store.committedHttpTurn(admission.turnId, admission.owner)) return Promise.resolve(true)
+    const draftCurrent = capturedDraft ?? store.captureComposerDraft(text)
     const parsed = parseSubmit(text, ctx.commands.all())
     if (parsed.kind === "empty") return
     if (parsed.kind === "unknown-command") {
@@ -1087,7 +1088,7 @@ export const createTurnController = (
        * the download card when the native app is the answer, the sentence
        * otherwise), and only a name no host has is "no such flow".
        */
-      if (store.session().draft.trim() === text.trim()) store.dispatch({ type: "composer.changed", actor: "user", draft: "" })
+      if (draftCurrent()) store.dispatch({ type: "composer.changed", actor: "user", draft: "" })
       /* Everything the door says from here on belongs to this line (controller/spokenLines.ts). */
       const saidBefore = latestOrdinal(store.collections)
       void ctx.commands.run(parsed.name).then((outcome) => {
@@ -1103,7 +1104,7 @@ export const createTurnController = (
        * outcome here is what made `/name <args>` silent while bare `/name`
        * (which the slash menu routes through the pointer path) was honest.
        */
-      if (store.session().draft.trim() === text.trim()) store.dispatch({ type: "composer.changed", actor: "user", draft: "" })
+      if (draftCurrent()) store.dispatch({ type: "composer.changed", actor: "user", draft: "" })
       /* Everything the door says from here on belongs to this line (controller/spokenLines.ts). */
       const saidBefore = latestOrdinal(store.collections)
       void ctx.commands
@@ -1133,7 +1134,7 @@ export const createTurnController = (
           .steer(turn.id, prompt)
           .then((admitted) => {
             if (admitted && isCurrentTurn(turn)) {
-              store.dispatch({ type: "message.steered", actor: "user", turnId: turn.id, text: prompt })
+              store.dispatch({ type: "message.steered", actor: "user", turnId: turn.id, text: prompt, preserveDraft: !draftCurrent() })
             }
           })
           .catch(() => {
@@ -1149,7 +1150,7 @@ export const createTurnController = (
     }
     const turnId = admission?.turnId ?? crypto.randomUUID()
     if (agent.journal !== undefined) {
-      return httpTurns.start(turnId, prompt, false, ctx.commandActor)
+      return httpTurns.start(turnId, prompt, false, ctx.commandActor, !draftCurrent())
     }
     ctx.activeTurn = ownTurn({
       id: turnId,
@@ -1164,7 +1165,7 @@ export const createTurnController = (
       claimBuffer: ""
     })
     const pendingTurn = ctx.activeTurn
-    const receipt = store.dispatch({ type: "message.submitted", actor: ctx.commandActor, turnId, text: prompt })
+    const receipt = store.dispatch({ type: "message.submitted", actor: ctx.commandActor, turnId, text: prompt, preserveDraft: !draftCurrent() })
     if (!admission) launchLeg(turnId, contextMessages())
     const admitted = receipt.isPersisted.promise.then(() => {
       if (admission && isCurrentTurn(pendingTurn)) launchLeg(turnId, contextMessages())

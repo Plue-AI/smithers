@@ -33,8 +33,8 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     userOnlyReason: "the composer is the human's; the model is already the turn, and sending would nest one",
     args: "<text>",
     input: Schema.Struct({ text: Schema.String }),
-    handler: ({ text }: { readonly text: string }) => {
-      actions.send(text)
+    handler: ({ text }: { readonly text: string }, _signal: AbortSignal, _call: unknown, gesture?: CommandGesture) => {
+      actions.send(text, undefined, gesture?.composerDraftCurrent)
     }
   }
   /*
@@ -83,7 +83,7 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow(SEND),
   flow({ name: "chat.queue", summary: "Queue a follow-up", args: "<text>",
     userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
-    input: Schema.Struct({ text: Schema.String }), handler: ({ text }) => actions.enqueuePrompt(text) }),
+    input: Schema.Struct({ text: Schema.String }), handler: ({ text }, _signal, _call, gesture) => actions.enqueuePrompt(text, gesture?.composerDraftCurrent) }),
   flow({ name: "chat.queue.edit", summary: "Edit a queued prompt", args: "<id>", hidden: true,
     userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
     input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.removeQueuedPrompt(id, true) }),

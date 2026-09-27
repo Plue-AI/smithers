@@ -1153,7 +1153,7 @@ export type AppTransition =
   | { type: "gateway.approvals.observed"; actor: "system"; scope: RuntimeScope; rows: ReadonlyArray<ApprovalRow> }
   | { type: "gateway.approval.submission.changed"; actor: "user" | "system"; submission: RuntimeApprovalSubmission }
   | { type: "approval.answer.changed"; actor: "user"; id: string; question: string; text: string }
-  | { type: "http.turn.started"; actor: "user" | "smithers"; attemptId: string; turnId: string; text: string; retry: boolean; journal: import("@smthrs/rpc/AgentTurnJournal").AgentTurnJournalRequest }
+  | { type: "http.turn.started"; actor: "user" | "smithers"; attemptId: string; turnId: string; text: string; retry: boolean; preserveDraft?: boolean; journal: import("@smthrs/rpc/AgentTurnJournal").AgentTurnJournalRequest }
   | { type: "http.leg.prepared"; actor: "system"; attemptId: string; journal: import("@smthrs/rpc/AgentTurnJournal").AgentTurnJournalRequest }
   | { type: "http.leg.accepted"; actor: "system"; attemptId: string; legId: string; cursor: import("@smthrs/rpc/AgentTurnJournal").AgentTurnCursor }
   | { type: "http.turn.batch.received"; actor: "system"; attemptId: string; legId: string; batch: import("@smthrs/rpc/AgentTurnJournal").AgentTurnBatch }
@@ -1173,12 +1173,12 @@ export type AppTransition =
   | { type: "card.recovered"; actor: Actor; workspaceId: string; branchId: string; id: string; card: Card | null; history?: CardHistory }
   | { type: "input.mode.changed"; actor: Actor; mode: InputMode }
   | { type: "dictation.changed"; actor: Actor; listening: boolean }
-  | { type: "prompt.queued"; actor: "user"; prompt: z.infer<typeof QueuedPromptSchema> }
+  | { type: "prompt.queued"; actor: "user"; prompt: z.infer<typeof QueuedPromptSchema>; preserveDraft?: boolean }
   | { type: "prompt.removed"; actor: "user"; id: string; edit?: boolean }
   | { type: "prompt.queue.paused"; actor: Actor; paused: boolean }
   | { type: "composer.changed"; actor: Actor; draft: string; recoveryScope?: PendingRecoveryScope }
   | { type: "chat.sign-in.required"; actor: "system"; draft: string; provider: "github" | "local"; turnId?: string; attemptId?: string }
-  | { type: "message.submitted"; actor: "user" | "smithers"; turnId: string; text: string }
+  | { type: "message.submitted"; actor: "user" | "smithers"; turnId: string; text: string; preserveDraft?: boolean }
   | {
     type: "message.response.delta"
     actor: "smithers"
@@ -1601,6 +1601,7 @@ export type AppTransition =
     actor: "user"
     turnId: string
     text: string
+    preserveDraft?: boolean
   }
   | {
     /*
