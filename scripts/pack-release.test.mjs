@@ -599,7 +599,11 @@ test("the CLI install line needs no dependency workaround", () => {
       .split("\n")
       .filter((line) => /^(pnpm add|npm install|npm i|bun add|yarn add) /.test(line))
       .filter((line) => /@smthrs\/cli@/.test(line))
-    assert.ok(installLines.length > 0, `${relative} must show an install command naming @smthrs/cli`)
+    // Until publication the README installs from the source checkout and says
+    // so (e312ca0cf); once it drops that sentence it must name @smthrs/cli again.
+    if (!/release candidate is not on npm/.test(source)) {
+      assert.ok(installLines.length > 0, `${relative} must show an install command naming @smthrs/cli`)
+    }
     assert.ok(installLines.every((line) => !line.includes("@effect/platform-node")))
     assert.ok(installLines.every((line) => !line.includes("@effect/platform-node-shared")))
     assert.doesNotMatch(source, /\boverrides\b/, `${relative} must not require dependency overrides`)
