@@ -359,7 +359,7 @@ const resume = Command.make("resume", { runId: requiredArgument("run-id") }, (co
   Effect.gen(function*() {
     yield* guardGlobals
     yield* runResume(config.runId)
-  })).pipe(Command.withDescription("Alias of `run --resume`"), Command.unlisted)
+  })).pipe(Command.withDescription("Alias of `runs resume`"), Command.unlisted)
 
 const upFlags = {
   flow: requiredArgument("flow", true),
@@ -621,7 +621,7 @@ const listFlows = Effect.gen(function*() {
 const ls = Command.make("ls", {}, () => listFlows).pipe(Command.withDescription(Verb.find("ls")!.help))
 
 const workflowList = Command.make("list", {}, () => listFlows).pipe(
-  Command.withDescription("Alias of `ls`"),
+  Command.withDescription("Alias of `flow list`"),
   Command.unlisted
 )
 
@@ -757,7 +757,7 @@ const status = Command.make("status", {
 
 const why = Command.make("why", {
   runId: Argument.String("run-id").pipe(Argument.optional)
-}, (config) => statusOf(config.runId)).pipe(Command.withDescription("Alias of `status`"), Command.unlisted)
+}, (config) => statusOf(config.runId)).pipe(Command.withDescription("Alias of `runs show`"), Command.unlisted)
 
 const readLogs = (runId: Option.Option<string>, follow: boolean, forceJson: boolean) =>
   Effect.gen(function*() {
@@ -822,7 +822,7 @@ const events = Command.make("events", {
     Flag.withDescription("Keep streaming new run events after the recorded history")
   )
 }, (config) => readLogs(config.runId, config.follow, true)).pipe(
-  Command.withDescription("Alias of `logs --json`"),
+  Command.withDescription("Alias of `runs logs --format jsonl`"),
   Command.unlisted
 )
 

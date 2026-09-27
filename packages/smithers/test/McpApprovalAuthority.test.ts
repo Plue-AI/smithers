@@ -16,19 +16,17 @@ const resolve = (options: McpServer.Options = { approvalTools: true }) =>
 
 describe("MCP approval authority", () => {
   it("excludes approval-bearing tools from both discovery and dispatch by default, even on an allowlist", async () => {
-    for (const surface of ["semantic", "both", "raw"] as const) {
-      for (const allowedTools of [undefined, ["run_flow", "resolve_approval"]]) {
-        const session = McpServer.tools({ surface, allowedTools })
-        for (const name of ["run_flow", "resolve_approval"]) {
-          expect(session.map((tool) => tool.name)).not.toContain(name)
-          const reply = await Effect.runPromise(
-            McpServer.respond({ id: 1, method: "tools/call", params: { name, arguments: {} } }, session, "test")
-              .pipe(Effect.provide(TestControl.layer()))
-          )
-          expect(reply).toMatchObject({
-            result: { isError: true, structuredContent: { ok: false, error: { code: "unknown_tool" } } }
-          })
-        }
+    for (const allowedTools of [undefined, ["run_flow", "resolve_approval"]]) {
+      const session = McpServer.tools({ allowedTools })
+      for (const name of ["run_flow", "resolve_approval"]) {
+        expect(session.map((tool) => tool.name)).not.toContain(name)
+        const reply = await Effect.runPromise(
+          McpServer.respond({ id: 1, method: "tools/call", params: { name, arguments: {} } }, session, "test")
+            .pipe(Effect.provide(TestControl.layer()))
+        )
+        expect(reply).toMatchObject({
+          result: { isError: true, structuredContent: { ok: false, error: { code: "unknown_tool" } } }
+        })
       }
     }
   })

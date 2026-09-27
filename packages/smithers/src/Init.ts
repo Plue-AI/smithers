@@ -182,7 +182,7 @@ const seatNote = (seat: Seat): string =>
  *
  * Markdown, not TypeScript: `flow.mdx` needs no build step, no import
  * resolution, and no dependency on the package layout of the project it lands
- * in, so `smthrs up <name>` works in the directory `init` just created.
+ * in, so `smthrs flow start <name>` works in the directory `init` just created.
  *
  * The seat is a frontmatter comment rather than prose, because every line of
  * the markdown body below the frontmatter is an instruction the agent is

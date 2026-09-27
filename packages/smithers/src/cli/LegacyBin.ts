@@ -174,13 +174,12 @@ const main = Effect.gen(function*() {
   // command, so the flag has to be readable before the command tree parses
   // anything. The server then talks to the same Control layer the verbs do.
   //
-  // Every shipped verb is a tool on that server, `up` and `approve` included,
-  // so its host can start a run and needs its completion judge before it opens
-  // anything. That is the default `applicationConfig` already carries.
+  // `run_flow` and `resolve_approval` can start a run, so its host needs its
+  // completion judge before it opens anything. That is the default
+  // `applicationConfig` already carries.
   if (McpServer.requested(parsed)) {
     return yield* McpServer.serve({
       ...McpServer.optionsFromArguments(parsed),
-      verbs: Verb.shipped,
       version: packageVersion
     }).pipe(Effect.provide(NodeControl.layer(applicationConfig)))
   }

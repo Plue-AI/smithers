@@ -11,8 +11,17 @@
   are gone. Nothing of the verb shipped in a release, so no released spelling
   changes. The evaluator and classifier types, the completion brake and the
   `flows/` judges that use them are unaffected.
+- **Breaking for MCP clients:** the retained `--mcp` server no longer serves
+  the `cli_*` directory tools (`cli_up`, `cli_ls`, `cli_status`, ...) or reads
+  `--surface raw|both`, and `McpServer.rawTools` and `McpServer.Surface` are
+  gone (#2225). Those tools mirrored the shipped verb table, hidden transition
+  spellings included; `smthrs --mcp` serves the canonical command tree itself.
 
 ### Fixed
+
+- An unknown command's suggestion names a canonical command
+  (`Did you mean: smthrs runs show?`) read from the command tree, never a
+  hidden alias or the `smithers` program name (#2225).
 
 - `smthrs tui` accepts and forwards `--approve all|ask|deny` (#2020).
 - TUI shell output preserves split Unicode, redacts split credential values,

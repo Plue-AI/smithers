@@ -69,17 +69,6 @@ export const maximumHistoryEvents = 10_000
 export const maximumHistoryBytes = 1024 * 1024
 
 /**
- * Which tool families a session exposes.
- *
- * `semantic` is the named control surface below, `raw` mirrors the shipped CLI
- * verbs one tool per verb, and `both` is the union.
- *
- * @category models
- * @since 1.0.0
- */
-export type Surface = "raw" | "semantic" | "both"
-
-/**
  * The `{ ok, data?, error? }` envelope every tool answers with.
  *
  * @category models
@@ -595,38 +584,6 @@ export const unsupportedTools: ReadonlyArray<Tool> = unsupportedReasons.map(([na
 )
 
 /**
- * The raw surface: one tool per shipped CLI verb, describing how to reach it.
- *
- * The raw tools are a directory, not a second execution path. 0.x mirrored
- * every CLI command as an MCP tool by reflecting its argument parser, which
- * made the MCP surface a second, undocumented copy of the command line.
- * Naming the verbs and pointing at the semantic tool that performs each one
- * keeps exactly one execution path.
- *
- * @category constructors
- * @since 1.0.0
- */
-export const rawTools = (
-  verbs: ReadonlyArray<{ readonly name: string; readonly help: string }>
-): ReadonlyArray<Tool> =>
-  verbs.map((verb) =>
-    makeTool({
-      name: `cli_${verb.name.replaceAll("-", "_")}`,
-      description: `${verb.help}. Run it as \`smthrs ${verb.name}\`.`,
-      readOnly: true,
-      schema: emptyArguments,
-      call: () =>
-        Effect.succeed(
-          succeeded({
-            command: `smthrs ${verb.name}`,
-            description: verb.help,
-            note: "Run this from a shell; the semantic tools perform the control-plane operations directly."
-          })
-        )
-    })
-  )
-
-/**
  * How one session's tool list is scoped.
  *
  * @category models
@@ -641,24 +598,18 @@ export interface Options {
   readonly approvalTools?: boolean | undefined
   /** Host-authenticated session identity, never read from tool arguments. */
   readonly principal?: Omit<ControlSchema.Principal, "stampedAt"> | undefined
-  readonly surface?: Surface | undefined
   readonly allowedTools?: ReadonlyArray<string> | undefined
   readonly readOnly?: boolean | undefined
-  readonly verbs?: ReadonlyArray<{ readonly name: string; readonly help: string }> | undefined
 }
 
 /**
- * The tools one session exposes, after the surface, allowlist, and read-only
- * filters.
+ * The tools one session exposes, after the allowlist and read-only filters.
  *
  * @category constructors
  * @since 1.0.0
  */
 export const tools = (options: Options = {}): ReadonlyArray<Tool> => {
-  const surface = options.surface ?? "semantic"
-  const semantic = surface === "raw" ? [] : [...supportedTools, ...unsupportedTools]
-  const raw = surface === "semantic" ? [] : rawTools(options.verbs ?? [])
-  const all = [...semantic, ...raw]
+  const all = [...supportedTools, ...unsupportedTools]
   const allowed = options.allowedTools === undefined ? undefined : new Set(options.allowedTools)
   const principal = options.principal === undefined
     ? { id: "mcp", kind: "agent" }
@@ -690,10 +641,8 @@ export const requested = (args: ReadonlyArray<string> | Argv.Globals): boolean =
  */
 export const optionsFromArguments = (args: ReadonlyArray<string> | Argv.Globals): Options => {
   const parsed = Argv.parse(args)
-  const surface = parsed.options.get("--surface")
   const allowed = parsed.options.get("--allowed-tools")
   return {
-    surface: surface === "raw" || surface === "both" ? surface : "semantic",
     ...(typeof allowed !== "string"
       ? {}
       : { allowedTools: allowed.split(",").map((name) => name.trim()).filter((name) => name !== "") }),

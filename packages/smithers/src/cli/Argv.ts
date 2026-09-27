@@ -65,7 +65,6 @@ const localValues = new Set([
   "--ui",
   "--filter",
   "--fields",
-  "--surface",
   "--allowed-tools",
   "--message",
   "--scope"

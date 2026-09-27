@@ -29,7 +29,7 @@ import * as MigrateCmd from "./commands/Migrate.ts"
 import * as OpenCmd from "./commands/Open.ts"
 import * as TuiCmd from "./commands/Tui.ts"
 import * as UpdateCmd from "./commands/Update.ts"
-import { didYouMean } from "./DidYouMean.ts"
+import * as DidYouMean from "./DidYouMean.ts"
 import * as Doctor from "./Doctor.ts"
 import { createEvalCli } from "./evaluation/EvalCli.ts"
 import * as Init from "./Init.ts"
@@ -414,7 +414,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     })
     if (!refused) return
     const suggestion = await Effect.runPromise(
-      didYouMean(typed, parsed.rest.slice(offset + 1)).pipe(
+      DidYouMean.didYouMean(typed, parsed.rest.slice(offset + 1), DidYouMean.commands(cli)).pipe(
         Effect.provide(evaluator(config.environment ?? process.env))
       )
     )

@@ -67,7 +67,7 @@ const rpcCallWith = async <E>(
 const rpcCall = (name: string, args: Record<string, unknown> = {}) => rpcCallWith(control, name, args)
 
 const find = (name: string) =>
-  McpServer.tools({ surface: "both", verbs: Verb.shipped, approvalTools: true })
+  McpServer.tools({ approvalTools: true })
     .find((tool) => tool.name === name)!
 
 describe("the tool surface", () => {
@@ -124,13 +124,19 @@ describe("the tool surface", () => {
     expect(McpServer.tools().map((tool) => tool.name)).toHaveLength(21)
   })
 
-  it("mirrors the shipped verbs on the raw surface", () => {
-    const raw = McpServer.tools({ surface: "raw", verbs: Verb.shipped })
+  it("serves no CLI directory tools, so no tool names a verb spelling", () => {
+    // `smthrs --mcp` serves the canonical command tree itself; a second
+    // directory of `cli_*` entries taught transition aliases (`cli_ps`).
+    const verbSpellings = Verb.shipped.flatMap((verb) => [verb.name, ...verb.aliases])
+    for (const argv of [["--mcp"], ["--mcp", "--surface", "raw"], ["--mcp", "--surface=both"]]) {
+      const session = McpServer.tools({ ...McpServer.optionsFromArguments(argv), approvalTools: true })
 
-    expect(raw).toHaveLength(Verb.shipped.length)
-    expect(raw.map((tool) => tool.name)).toContain("cli_ps")
-    expect(raw.find((tool) => tool.name === "cli_ps")?.description).toContain("smthrs ps")
-    expect(McpServer.tools({ surface: "both", verbs: Verb.shipped })).toHaveLength(21 + Verb.shipped.length)
+      expect(session.map((tool) => tool.name)).toEqual(
+        McpServer.tools({ approvalTools: true }).map((tool) => tool.name)
+      )
+      expect(session.filter((tool) => tool.name.startsWith("cli_") || verbSpellings.includes(tool.name))).toEqual([])
+    }
+    expect(McpServer).not.toHaveProperty("rawTools")
   })
 
   it("scopes a session to an allowlist and to read-only tools", () => {
@@ -144,7 +150,7 @@ describe("the tool surface", () => {
   })
 
   it("advertises closed object schemas for every tool", () => {
-    for (const tool of McpServer.tools({ surface: "both", verbs: Verb.shipped })) {
+    for (const tool of McpServer.tools({ approvalTools: true })) {
       expect([tool.name, tool.inputSchema]).toEqual([
         tool.name,
         expect.objectContaining({ type: "object", additionalProperties: false })
@@ -501,10 +507,6 @@ describe("the envelope", () => {
       .toMatchObject({ ok: false, error: { code: "RESOURCE_LIMIT" } })
   })
 
-  it("answers the raw surface with the command to run", async () => {
-    expect(await call(find("cli_ps"))).toMatchObject({ ok: true, data: { command: "smthrs ps" } })
-  })
-
   it("builds both envelope shapes", () => {
     expect(McpServer.succeeded(1)).toEqual({ ok: true, data: 1 })
     expect(McpServer.failed("code", "why")).toEqual({ ok: false, error: { code: "code", message: "why" } })
@@ -687,23 +689,16 @@ describe("the mode flags read straight off argv", () => {
     expect(McpServer.requested(["ps", "--json"])).toBe(false)
   })
 
-  it("reads the surface, the allowlist, and read-only from either flag spelling", () => {
-    expect(McpServer.optionsFromArguments(["--mcp", "--surface", "raw", "--read-only"]))
-      .toEqual({ surface: "raw", readOnly: true })
-    expect(McpServer.optionsFromArguments(["--mcp", "--surface=both", "--allowed-tools=get_run, list_runs ,"]))
-      .toEqual({ surface: "both", allowedTools: ["get_run", "list_runs"], readOnly: false })
-  })
-
-  it("falls back to the semantic surface for a value it does not know", () => {
-    // An unreadable surface is not a reason to widen one: the default is the
-    // narrowest of the three, which is what a client that sent nothing gets.
-    expect(McpServer.optionsFromArguments(["--mcp", "--surface", "everything"]))
-      .toEqual({ surface: "semantic", readOnly: false })
-    expect(McpServer.optionsFromArguments(["--root", "--surface=both", "--", "--read-only"]))
-      .toEqual({ surface: "semantic", readOnly: false })
+  it("reads the allowlist and read-only from either flag spelling", () => {
+    expect(McpServer.optionsFromArguments(["--mcp", "--read-only"])).toEqual({ readOnly: true })
+    expect(McpServer.optionsFromArguments(["--mcp", "--allowed-tools=get_run, list_runs ,"]))
+      .toEqual({ allowedTools: ["get_run", "list_runs"], readOnly: false })
+    // `--root` takes the next token as its value, and nothing after `--` is a flag.
+    expect(McpServer.optionsFromArguments(["--root", "--allowed-tools=get_run", "--", "--read-only"]))
+      .toEqual({ readOnly: false })
     expect(McpServer.optionsFromArguments(["--allowed-tools", "--read-only"]))
-      .toEqual({ surface: "semantic", readOnly: false, allowedTools: ["--read-only"] })
-    expect(McpServer.optionsFromArguments([])).toEqual({ surface: "semantic", readOnly: false })
+      .toEqual({ readOnly: false, allowedTools: ["--read-only"] })
+    expect(McpServer.optionsFromArguments([])).toEqual({ readOnly: false })
   })
 })
 

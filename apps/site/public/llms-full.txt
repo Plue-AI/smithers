@@ -19441,14 +19441,12 @@ The stdio MCP server.
 | `protocolVersion` | `"2025-06-18"` | The MCP version advertised. |
 | `maximumFrameBytes` | `4 MiB` | One request or response frame. |
 | `maximumHistoryEvents`, `maximumHistoryBytes` | `10_000`, `1 MiB` | One history result. |
-| `Surface` | `"raw" \| "semantic" \| "both"` | Which tool list a session sees. |
 | `Envelope` | `{ ok: true, data } \| { ok: false, error: { code, message } }` | The answer every tool gives. |
 | `succeeded`, `failed` | constructors | The two envelopes. |
 | `Tool` | interface | `name`, `description`, `readOnly`, `schema`, `inputSchema`, `call`. |
 | `supportedTools` | `ReadonlyArray<Tool>` | The eleven control-backed tools. |
 | `unsupportedReasons`, `unsupportedTools` | | The twelve retired names that answer `unsupported`, and why. |
-| `rawTools` | `(verbs) => ReadonlyArray<Tool>` | One directory entry per shipped verb, naming the shell command. Not a second execution path. |
-| `Options`, `tools` | `{ surface?, allowedTools?, readOnly?, verbs? }` | The session's scope, and the tools it leaves. |
+| `Options`, `tools` | `{ approvalTools?, principal?, allowedTools?, readOnly? }` | The session's scope, and the tools it leaves. |
 | `requested` | `(args) => boolean` | Whether `--mcp` was passed. |
 | `optionsFromArguments` | `(args) => Options` | The session scope read from raw argv, because MCP clients configure a launch command. |
 | `respond` | `(request, session, version) => ...` | Answers one request, or `undefined` for a notification. |

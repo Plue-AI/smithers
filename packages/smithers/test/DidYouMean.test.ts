@@ -1,5 +1,5 @@
 /**
- * The suggestion an unknown verb earns, the cases that withhold it, and the
+ * The suggestion an unknown command earns, the cases that withhold it, and the
  * line a Jev failure leaves in its place.
  *
  * The decision runs on `Evaluator.layerScripted`, so no case needs a gateway
@@ -10,11 +10,17 @@
  */
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, type Layer } from "effect"
+import { Cli as Incur } from "incur"
 import { describe, expect, it } from "vitest"
 import { makeCli } from "../src/Cli.ts"
-import { didYouMean } from "../src/DidYouMean.ts"
+import { cli as compatibility } from "../src/Command.ts"
+import { commands, didYouMean } from "../src/DidYouMean.ts"
 import * as Unsupported from "../src/Unsupported.ts"
 import * as Verb from "../src/Verb.ts"
+
+const tree = makeCli({ environment: {} })
+await Promise.all(Incur.toPending.get(tree as never) ?? [])
+const candidates = commands(tree)
 
 const asked: Array<Evaluator.Request> = []
 
@@ -30,31 +36,59 @@ const ask = (
   evaluator: Layer.Layer<Evaluator.Evaluator>
 ): Promise<string | undefined> => {
   asked.length = 0
-  return Effect.runPromise(didYouMean(typed, args).pipe(Effect.provide(evaluator)))
+  return Effect.runPromise(didYouMean(typed, args, candidates).pipe(Effect.provide(evaluator)))
 }
 
 describe("didYouMean", () => {
   it("suggests the verb Jev names when it is sure enough", async () => {
-    const line = await ask("stauts", ["run-42"], scripted({ choice: "status", probabilities: { status: 0.93 } }))
+    const line = await ask(
+      "stauts",
+      ["run-42"],
+      scripted({ choice: "runs show", probabilities: { "runs show": 0.93 } })
+    )
 
-    expect(line).toBe("Did you mean: smithers status?")
+    expect(line).toBe("Did you mean: smthrs runs show?")
   })
 
   it("sends the typed verb and the rest of the command line as the state", async () => {
-    await ask("stauts", ["run-42", "--json"], scripted({ choice: "status", probabilities: { status: 0.93 } }))
+    await ask("stauts", ["run-42", "--json"], scripted({ choice: "none" }))
 
     expect(asked).toHaveLength(1)
     expect(asked[0]!.state).toEqual({ typed: "stauts", args: "run-42 --json" })
   })
 
-  it("offers every shipped verb, described by its own help line, plus none", async () => {
+  it("offers every canonical command, described by its own help line, plus none", async () => {
     await ask("stauts", [], scripted({ choice: "none" }))
 
     const question = asked[0]!.questions["meant"]!
     expect(question.type).toBe("choice")
     const criteria = question.criteria as Readonly<Record<string, string>>
-    expect(Object.keys(criteria)).toEqual([...Verb.names, "none"])
-    expect(criteria["status"]).toBe(Verb.find("status")!.help)
+    expect(Object.keys(criteria)).toEqual([...candidates.map((command) => command.name), "none"])
+    expect(criteria["runs show"]).toBe(candidates.find((command) => command.name === "runs show")!.description)
+  })
+
+  it("offers exactly the canonical manifest's commands and no hidden spelling", async () => {
+    let manifest = ""
+    await makeCli({ environment: {} }).serve(["--llms-full", "--format", "json"], {
+      env: {},
+      stdout: (text) => {
+        manifest += text
+      },
+      exit: () => {}
+    })
+    const canonical = (JSON.parse(manifest) as { commands: ReadonlyArray<{ name: string }> }).commands
+      .map((command) => command.name)
+    const topLevel = new Set(canonical.map((name) => name.split(" ")[0]!))
+    const hidden = [
+      ...Verb.shipped.flatMap((verb) => [verb.name, ...verb.aliases]),
+      ...compatibility.subcommands.flatMap((group) => group.commands.map((command) => command.name)),
+      ...Unsupported.removedVerbs.map((verb) => verb.name)
+    ].filter((name) => !topLevel.has(name))
+
+    expect(hidden).toEqual(expect.arrayContaining(["ls", "ps", "up", "approve", "status", "logs"]))
+    const names = candidates.map((command) => command.name)
+    expect(new Set(names)).toEqual(new Set(canonical))
+    expect(names.filter((name) => hidden.includes(name.split(" ")[0]!))).toEqual([])
   })
 
   it("says nothing when Jev answers none", async () => {
@@ -62,7 +96,7 @@ describe("didYouMean", () => {
   })
 
   it("says nothing below the confidence floor", async () => {
-    const unsure = scripted({ choice: "status", probabilities: { status: 0.5, ls: 0.5 } })
+    const unsure = scripted({ choice: "doctor", probabilities: { doctor: 0.5, gc: 0.5 } })
 
     expect(await ask("stauts", [], unsure)).toBeUndefined()
   })
@@ -78,15 +112,14 @@ describe("didYouMean", () => {
     const refused = Unsupported.refusal(["rewind"])!
 
     expect(refused.message).toContain("smthrs rewind was removed in 1.0.0-rc.0")
-    expect(await ask("rewind", [], scripted({ choice: "status", probabilities: { status: 0.99 } }))).toBeUndefined()
+    expect(await ask("rewind", [], scripted({ choice: "doctor", probabilities: { doctor: 0.99 } }))).toBeUndefined()
     expect(asked).toHaveLength(0)
   })
 
-  it("never asks about a shipped verb or one of its aliases", async () => {
-    const confident = scripted({ choice: "ls", probabilities: { ls: 0.99 } })
+  it("never asks about a command the tree serves", async () => {
+    const confident = scripted({ choice: "doctor", probabilities: { doctor: 0.99 } })
 
-    expect(await ask("status", [], confident)).toBeUndefined()
-    expect(await ask("why", [], confident)).toBeUndefined()
+    expect(await ask("doctor", [], confident)).toBeUndefined()
     expect(asked).toHaveLength(0)
   })
 })
