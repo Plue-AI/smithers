@@ -166,7 +166,7 @@ A workspace contains packages and their build targets. Select a file to inspect 
 
 <HeroStage />
 
-![Monorepo tasks materialize into a planned dependency graph, then execute: each finished step caches its outputs. Agent 1 edits ui/src/button.tsx: only the ui build and test go stale and re-run, the rest comes back from cache. When a docs:api step joins the graph, fed by core/src/parse.ts, an edit to parse.ts re-runs build, test, and docs together. The illustration places the wiki and AGENTS.md downstream of docs, then shows a second agent consuming the wiki. This is the intended refresh pipeline; the app wiki still requires separate generation and publication evidence. A CI scene shows an issue flowing through reproduction, fix, checks, and a human approval gate into a pull request. Finally, a remote cache serves every runner: CI reads and writes it, humans and agents read it.](/images/how-smithers-works.gif)
+![Build targets form a dependency graph, and an edit re-runs only the steps it makes stale while the rest comes from cache.](/images/build-graph.gif)
 
 ## Supported platforms
 

@@ -47,8 +47,8 @@ A workspace contains packages and their build targets. Select a file to inspect 
 {/* generated:project-animation start. Edit apps/site/src/data/project.json; do not edit. */}
 
 <picture>
-<source srcset="/images/how-smithers-works-light.gif" media="(prefers-color-scheme: light)" />
-<img src="/images/how-smithers-works.gif" class="hero-anim" alt="Monorepo tasks materialize into a planned dependency graph, then execute: each finished step caches its outputs. Agent 1 edits ui/src/button.tsx: only the ui build and test go stale and re-run, the rest comes back from cache. When a docs:api step joins the graph, fed by core/src/parse.ts, an edit to parse.ts re-runs build, test, and docs together. The illustration places the wiki and AGENTS.md downstream of docs, then shows a second agent consuming the wiki. This is the intended refresh pipeline; the app wiki still requires separate generation and publication evidence. A CI scene shows an issue flowing through reproduction, fix, checks, and a human approval gate into a pull request. Finally, a remote cache serves every runner: CI reads and writes it, humans and agents read it." loading="lazy" decoding="async" />
+<source srcset="/images/build-graph-light.gif" media="(prefers-color-scheme: light)" />
+<img src="/images/build-graph.gif" class="hero-anim" alt="Build targets form a dependency graph, and an edit re-runs only the steps it makes stale while the rest comes from cache." loading="lazy" decoding="async" />
 </picture>
 
 {/* generated:project-animation end */}

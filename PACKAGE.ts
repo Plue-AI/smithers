@@ -107,8 +107,8 @@ const projectCopy = Smithers.Generate({
   data: [
     projectCopySource,
     Smithers.file("//apps/site/public/images/app/home.png"),
-    Smithers.file("//apps/site/public/images/how-smithers-works.gif"),
-    Smithers.file("//apps/site/public/images/how-smithers-works-light.gif")
+    Smithers.file("//apps/site/public/images/build-graph.gif"),
+    Smithers.file("//apps/site/public/images/build-graph-light.gif")
   ],
   changes: ["README.md", "package.json", "apps/site/src/content/docs/docs/index.mdx", "apps/site/src/content/docs/docs/developers.mdx"]
 })

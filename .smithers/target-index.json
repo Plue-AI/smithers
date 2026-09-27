@@ -475,11 +475,11 @@
       },
       {
         "kind": "file",
-        "path": "apps/site/public/images/how-smithers-works.gif"
+        "path": "apps/site/public/images/build-graph.gif"
       },
       {
         "kind": "file",
-        "path": "apps/site/public/images/how-smithers-works-light.gif"
+        "path": "apps/site/public/images/build-graph-light.gif"
       }
     ],
     "outputs": [
