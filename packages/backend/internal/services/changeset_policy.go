@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -53,6 +56,21 @@ func (s *ChangesetService) checkLandingPolicy(ctx context.Context, repo db.Repos
 		}
 		protected = protected || match
 	}
+	// Unresolved review comments block a member's landing whatever the
+	// target, as they block the member's own landing request.
+	if s.landingPolicy != nil {
+		if lr, err := s.queries.GetLatestLandingRequestForChange(ctx, db.GetLatestLandingRequestForChangeParams{RepositoryID: repo.ID, ChangeID: changeID}); err == nil {
+			unresolved, err := s.landingPolicy.queries.CountUnresolvedLandingRequestThreads(ctx, lr.ID)
+			if err != nil {
+				return pkgerrors.Internal("failed to count unresolved review comments").WithCause(err)
+			}
+			if unresolved > 0 {
+				return pkgerrors.Conflict("changeset member has unresolved review comments")
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return pkgerrors.Internal("failed to load member landing request").WithCause(err)
+		}
+	}
 	if !protected {
 		return nil
 	}
@@ -83,13 +101,6 @@ func (s *ChangesetService) checkLandingPolicy(ctx context.Context, repo db.Repos
 	blocks, err := s.landingPolicy.landingBlockers(ctx, repo, owner, repo.Name, row)
 	if err != nil {
 		return err
-	}
-	unresolved, err := s.landingPolicy.queries.CountUnresolvedLandingRequestThreads(ctx, row.ID)
-	if err != nil {
-		return pkgerrors.Internal("failed to count unresolved review comments").WithCause(err)
-	}
-	if unresolved > 0 {
-		return pkgerrors.Conflict("changeset member has unresolved review comments")
 	}
 	current, err = s.repoHost.GetChange(ctx, owner, repo.Name, changeID)
 	if err != nil || current.CommitID != commitID {

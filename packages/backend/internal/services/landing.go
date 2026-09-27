@@ -974,7 +974,9 @@ func (s *LandingService) UpdateLandingRequest(ctx context.Context, actor *db.Use
 	}
 	// Reopening someone else's landing re-arms its auto-land, and retargeting
 	// it sends it where its author did not choose.
-	if req.State != nil || req.TargetBookmark != nil || req.SourceBookmark != nil {
+	if (req.State != nil && !strings.EqualFold(strings.TrimSpace(*req.State), current.State)) ||
+		(req.TargetBookmark != nil && strings.TrimSpace(*req.TargetBookmark) != current.TargetBookmark) ||
+		(req.SourceBookmark != nil && strings.TrimSpace(*req.SourceBookmark) != current.SourceBookmark) {
 		if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
 			return LandingRequestResponse{}, err
 		}

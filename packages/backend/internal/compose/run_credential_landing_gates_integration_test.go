@@ -64,8 +64,8 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	repoID := ciTestRepo(t, pool, owner.ID, "app")
 
 	commits := map[string]string{
-		"othrchangeaaaaaa": "1111111111111111111111111111111111111111",
-		"ownchangebbbbbbb": "2222222222222222222222222222222222222222",
+		"othrchangeaaaaaa":  "1111111111111111111111111111111111111111",
+		"ownchangebbbbbbb":  "2222222222222222222222222222222222222222",
 		"newchangecccccccc": "3333333333333333333333333333333333333333",
 	}
 	for changeID, commitID := range commits {
@@ -211,6 +211,8 @@ func TestRunCredentialCannotClearHumanLandingGatesPostgres(t *testing.T) {
 	// The repository CI receipt's context is the server's to record.
 	rec = serve(person, http.MethodPost, "/statuses/1111111111111111111111111111111111111111", `{"context":"Repository-CI/any@1.abc","status":"success"}`)
 	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM commit_statuses WHERE repository_id = $1`, repoID).Scan(&statuses))
+	assert.Equal(t, 1, statuses, "the reserved context was recorded")
 
 	// An agent's work stays open to a run: it comments on its own landing,
 	// marks the comment done, reopens it, and lands its own change.
