@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -63,6 +64,34 @@ describe("repository edge contracts", () => {
     expect(await repositories["repo push"]!(c, {}, { ...options, list: true })).toEqual([])
     expect(exec).not.toHaveBeenCalled()
     expect(request).toHaveBeenCalledWith("GET", "/api/repos/owner/repo/user-refs")
+  })
+  it("infers the repository from a GitHub origin without --repo, in git and non-colocated jj checkouts", async () => {
+    const { c, home } = await fixture()
+    const run = (command: string, args: Array<string>, dir: string) => {
+      const result = spawnSync(command, args, { cwd: dir, encoding: "utf8", env: { ...process.env, HOME: home } })
+      if (result.status !== 0) throw new Error(`${command} ${args.join(" ")}: ${result.stderr}`)
+    }
+    const request = vi.spyOn(c, "request").mockResolvedValue([])
+    const git = join(home, "git")
+    await mkdir(git)
+    run("git", ["init", "-q"], git)
+    run("git", ["remote", "add", "upstream", "https://github.com/other/fork.git"], git)
+    run("git", ["remote", "add", "origin", "git@github.com:acme/widgets.git"], git)
+    process.chdir(git)
+    expect(await repositories["repo push"]!(c, {}, { list: true })).toEqual([])
+    expect(request).toHaveBeenLastCalledWith("GET", "/api/repos/acme/widgets/user-refs")
+
+    // Only origin names the repository; another GitHub remote never does.
+    run("git", ["remote", "remove", "origin"], git)
+    await expect(repositories["repo push"]!(c, {}, { list: true })).rejects.toThrow("--repo")
+
+    const jj = join(home, "jj")
+    await mkdir(jj)
+    run("jj", ["git", "init", "--no-colocate"], jj)
+    run("jj", ["git", "remote", "add", "origin", "https://github.com/acme/gadgets.git"], jj)
+    process.chdir(jj)
+    expect(await repositories["repo push"]!(c, {}, { list: true })).toEqual([])
+    expect(request).toHaveBeenLastCalledWith("GET", "/api/repos/acme/gadgets/user-refs")
   })
   it.each(["", "00000", "a\nb"])("rejects invalid jj push revisions %j", async (revision) => {
     const { c } = await fixture()

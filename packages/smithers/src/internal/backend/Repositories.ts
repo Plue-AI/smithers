@@ -84,6 +84,8 @@ repositories["repo clone"] = async (c, a, o) => {
   }
   return { cloned: isSlug ? slug : directory, directory, protocol, tool: backend }
 }
+// A checkout of a GitHub-mirrored repository pushes under the name its origin names.
+const githubOrigin: ReadonlySet<string> = new Set(["github.com", "ssh.github.com"])
 repositories["repo push"] = async (c, _a, o) => {
   const name = str(o.name) || "head"
   if (
@@ -92,7 +94,7 @@ repositories["repo push"] = async (c, _a, o) => {
       [".", ".."].includes(part) || part.startsWith(".") || part.endsWith(".") || part.endsWith(".lock")
     ) || name.includes("..")
   ) throw new Error("Invalid ref name")
-  const repository = c.repo(o.repo), path = `/api/repos/${repository}`
+  const repository = c.repo(o.repo, githubOrigin), path = `/api/repos/${repository}`
   if (o.list) return c.request("GET", path + "/user-refs")
   const auth = c.session.require(), env = gitAuth(auth.api_url, auth.token)
   let gitDir = "", commit = "", uncommitted = false, jj = false

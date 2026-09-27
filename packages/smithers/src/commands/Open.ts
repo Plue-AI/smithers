@@ -168,18 +168,26 @@ const firstRemote = (host: Host, directory: string): string | null => {
 }
 
 /**
- * The repository a checkout's remote names.
+ * The repository a checkout's remote names. With `allowedHosts`, only remotes
+ * on those hosts count, origin first; `remoteName` further limits them to one
+ * remote.
  *
  * @category constructors
  * @since 1.0.0
  */
-export const resolveRepo = (host: Host, directory: string, allowedHosts?: ReadonlySet<string>): string => {
+export const resolveRepo = (
+  host: Host,
+  directory: string,
+  allowedHosts?: ReadonlySet<string>,
+  remoteName?: string
+): string => {
   if (allowedHosts) {
     const remotes = [
       host.read("jj", ["git", "remote", "list"], directory),
       host.read("git", ["remote", "-v"], directory)
     ]
       .flatMap((output) => (output ?? "").split("\n").map((line) => line.trim().split(/\s+/)))
+      .filter(([name]) => remoteName === undefined || name === remoteName)
       .sort(([a], [b]) => Number(b === "origin") - Number(a === "origin"))
     for (const [, remote] of remotes) {
       const repo = remote && repoFromRemote(remote, allowedHosts)

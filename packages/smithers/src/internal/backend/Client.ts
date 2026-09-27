@@ -152,7 +152,11 @@ export class Client {
     }
     return result.stdout.trim()
   }
-  repo(value?: unknown): string {
+  /**
+   * The repository from `value`, else the checkout's remote on this backend,
+   * else — with `fallback` — the repository its origin names on those hosts.
+   */
+  repo(value?: unknown, fallback?: ReadonlySet<string>): string {
     const host = this.session.target().host.toLowerCase()
     const hosts = new Set([
       host,
@@ -168,7 +172,15 @@ export class Client {
       }
       return parsed.split("/").map(esc).join("/")
     }
-    return resolveRepo(processHost(this.env), process.cwd(), hosts).split("/").map(esc).join("/")
+    const local = processHost(this.env)
+    let inferred: string
+    try {
+      inferred = resolveRepo(local, process.cwd(), hosts)
+    } catch (error) {
+      if (!fallback) throw error
+      inferred = resolveRepo(local, process.cwd(), fallback, "origin")
+    }
+    return inferred.split("/").map(esc).join("/")
   }
   repoPath(value?: unknown) {
     return `/api/repos/${this.repo(value)}`
