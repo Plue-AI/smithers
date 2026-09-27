@@ -16,7 +16,8 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
 	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
 		ArtifactDigest: strings.Repeat("a", 64),
-		ServiceName:    "smithers-flow-coding", ImplementationModel: "openai:gpt-5"}
+		ServiceName:    "smithers-flow-coding", ImplementationModel: "openai:gpt-5",
+		Environment: map[string]string{"SMITHERS_POSTGRES_URL": "postgres://user:secret@db/smithers"}}
 	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID,
 		PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID,
 		RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding,
@@ -32,6 +33,9 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	assert.Equal(t, "7", spec.Environment["SMITHERS_OWNER_GENERATION"])
 	assert.Equal(t, "openai:gpt-5", spec.Environment["SMITHERS_CODING_IMPLEMENT_MODEL"])
 	assert.NotContains(t, spec.Identity, "bearer")
+	assert.NotContains(t, spec.Identity, "secret")
+	assert.Equal(t, "postgres://user:secret@db/smithers", spec.Environment["SMITHERS_POSTGRES_URL"])
+	assert.Equal(t, "flows_workspace1_coding", spec.Environment["SMITHERS_POSTGRES_SCHEMA"])
 	otherPort, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4318)
 	require.NoError(t, err)
 	assert.Equal(t, spec.Identity, otherPort.Identity)

@@ -806,6 +806,7 @@ func Load(configFile string) (*Config, error) {
 		_ = v.BindEnv(b[0], b[1])
 	}
 	// Prefer the canonical SMITHERS_ prefix, but keep the legacy name as a temporary fallback.
+	_ = v.BindEnv("database.url", "SMITHERS_DATABASE_URL", "DATABASE_URL")
 	_ = v.BindEnv("repo_host.auth_token", "SMITHERS_REPO_HOST_AUTH_TOKEN", "REPO_HOST_AUTH_TOKEN")
 	// These credentials intentionally have no fallback to repo_host.auth_token:
 	// each crosses a narrower trust boundary than the repo-host control token.

@@ -30,6 +30,7 @@ var allEnvKeys = []string{
 	"SMITHERS_SERVER_TRUSTED_PROXY_HOPS",
 	// Database
 	"SMITHERS_DATABASE_URL",
+	"DATABASE_URL",
 	"SMITHERS_DATABASE_MAX_CONNS",
 	"SMITHERS_DATABASE_MIN_CONNS",
 	"SMITHERS_DATABASE_MAX_CONN_LIFETIME_SECS",
@@ -903,8 +904,8 @@ func TestLoad_EnvPrefixIsolation(t *testing.T) {
 
 	// These should NOT affect the config — only SMITHERS_-prefixed vars should
 	assert.Equal(t, ":4000", cfg.Server.Addr, "non-SMITHERS_ prefix SERVER_ADDR should not affect config")
-	assert.Equal(t, "", cfg.Database.URL,
-		"non-SMITHERS_ prefix DATABASE_URL should not affect config (and there is no insecure default)")
+	assert.Equal(t, "postgres://other:other@other:5432/other", cfg.Database.URL,
+		"DATABASE_URL is the explicit PostgreSQL alias")
 }
 
 // TestLoad_IntegerCoercionFromEnv verifies that integer config values
@@ -1580,7 +1581,7 @@ func TestLoad_AllEnvKeysMatchBindEnvCalls(t *testing.T) {
 	// Verify all env keys carry the SMITHERS_ prefix. REPO_HOST_AUTH_TOKEN
 	// is the only grandfathered fallback (legacy unprefixed env var).
 	for _, key := range allEnvKeys {
-		ok := strings.HasPrefix(key, "SMITHERS_") || key == "REPO_HOST_AUTH_TOKEN"
+		ok := strings.HasPrefix(key, "SMITHERS_") || (key == "REPO_HOST_AUTH_TOKEN" || key == "DATABASE_URL")
 		assert.True(
 			t,
 			ok,
@@ -1619,7 +1620,7 @@ func configEnvKeyLiterals(t *testing.T) []string {
 }
 
 func isConfigEnvKeyLiteral(value string) bool {
-	if value == "REPO_HOST_AUTH_TOKEN" {
+	if value == "REPO_HOST_AUTH_TOKEN" || value == "DATABASE_URL" {
 		return true
 	}
 	if !strings.HasPrefix(value, "SMITHERS_") {
@@ -1816,4 +1817,13 @@ func TestLoad_OrgsIsNotAFeatureFlag(t *testing.T) {
 		assert.NotEqual(t, "orgs", flags.Field(i).Tag.Get("mapstructure"),
 			"FeatureFlagsConfig must not map feature_flags.orgs")
 	}
+}
+
+func TestLoadDatabaseURLPrecedence(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("DATABASE_URL", "postgres://fallback/db")
+	t.Setenv("SMITHERS_DATABASE_URL", "postgres://explicit/db")
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, "postgres://explicit/db", cfg.Database.URL)
 }
