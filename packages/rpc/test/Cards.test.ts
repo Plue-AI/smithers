@@ -1228,7 +1228,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
             iconUrl: "https://example.com/assistant.png",
             agentId: "assistant"
           }
-        },
+        }
       }],
       github: {
         source: "synced",
@@ -1558,8 +1558,26 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     }
   },
   registration: {
-    minimal: { link: "acme/widgets", repo: "acme/widgets", phase: "importing", startedAt: 0, error: null, cloudRepo: null, replay: 0, accountOwner: null },
-    full: { link: "https://github.com/acme/widgets", repo: "acme/widgets", phase: "failed", startedAt: 1_790_000_000_000, error: "The import failed.", cloudRepo: "acme/widgets", replay: 2, accountOwner: "acme" }
+    minimal: {
+      link: "acme/widgets",
+      repo: "acme/widgets",
+      phase: "importing",
+      startedAt: 0,
+      error: null,
+      cloudRepo: null,
+      replay: 0,
+      accountOwner: null
+    },
+    full: {
+      link: "https://github.com/acme/widgets",
+      repo: "acme/widgets",
+      phase: "failed",
+      startedAt: 1_790_000_000_000,
+      error: "The import failed.",
+      cloudRepo: "acme/widgets",
+      replay: 2,
+      accountOwner: "acme"
+    }
   },
   "connector-setup": {
     minimal: { connector: "github", repo: "smithersai/smithers", phase: "setup", steps: [] },
@@ -2839,7 +2857,12 @@ describe("removed presentation compatibility", () => {
     ...["factory", "repo-onboarding", "repo-home", "agent-models", "agent-form"].map((kind) =>
       saved(kind, { draft: "old data" })
     ),
-    saved("history", { repo: "smithersai/smithers", defaultBookmark: "main", mainCommits: null, mythical: { state: "absent" } }),
+    saved("history", {
+      repo: "smithersai/smithers",
+      defaultBookmark: "main",
+      mainCommits: null,
+      mythical: { state: "absent" }
+    }),
     saved("connector-setup", { connector: "linear" }),
     saved("sync-ops", { source: "linear" }),
     ...[
