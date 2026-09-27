@@ -194,15 +194,18 @@ func (q *Queries) SetMythicalPendingOp(ctx context.Context, repositoryID, claim 
 // A prepared write survives every finish except the one that confirmed it
 // (ClearPendingOp), so a crash or a transient failure never loses evidence.
 type FinishMythicalStackParams struct {
-	RepositoryID   int64
-	Claim          int64
-	State          string
-	Reason         string
-	TipCommit      string
-	TipChange      string
-	NotesCommit    string
-	LandedMain     string
-	Failed         bool
+	RepositoryID int64
+	Claim        int64
+	State        string
+	Reason       string
+	TipCommit    string
+	TipChange    string
+	NotesCommit  string
+	LandedMain   string
+	Failed       bool
+	// Held marks a Failed pass that met a held repository: it spends no
+	// attempt.
+	Held           bool
 	Error          string
 	BackoffSeconds float64
 	Changed        bool
@@ -221,7 +224,7 @@ SET processed_generation = CASE WHEN $9 THEN processed_generation ELSE GREATEST(
     tip_change = CASE WHEN $6 = '' THEN tip_change ELSE $6 END,
     notes_commit = CASE WHEN $7 = '' THEN notes_commit ELSE $7 END,
     landed_main = CASE WHEN $8 = '' THEN landed_main ELSE $8 END,
-    attempts = CASE WHEN $9 THEN attempts ELSE 0 END,
+    attempts = CASE WHEN $15 THEN GREATEST(attempts - 1, 0) WHEN $9 THEN attempts ELSE 0 END,
     next_attempt_at = CASE WHEN $9 THEN NOW() + make_interval(secs => $11) ELSE NOW() END,
     -- A pass claimed before a newer request does not answer it: its error waits for the next pass.
     last_error = CASE WHEN claimed_generation >= requested_generation OR $10 = '' THEN $10 ELSE last_error END,
@@ -241,7 +244,7 @@ func (q *Queries) FinishMythicalStack(ctx context.Context, arg FinishMythicalSta
 	var generation int64
 	err := q.db.QueryRow(ctx, finishMythicalStack, arg.RepositoryID, arg.Claim, arg.State, strings.TrimSpace(arg.Reason), arg.TipCommit,
 		arg.TipChange, arg.NotesCommit, arg.LandedMain, arg.Failed, strings.TrimSpace(arg.Error), arg.BackoffSeconds, arg.Changed,
-		arg.ClearPendingOp, arg.ResetGeneration).Scan(&generation)
+		arg.ClearPendingOp, arg.ResetGeneration, arg.Held).Scan(&generation)
 	return generation, err
 }
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,7 @@ type recordingRepoHost struct {
 	metas         []repohost.ReceivePackMetadata
 	failBookmarks int
 	dropImports   int
+	heldPushes    int
 	imports       int
 	jj            []repohost.Bookmark
 }
@@ -47,6 +49,11 @@ func (h *recordingRepoHost) ProxyReceivePack(ctx context.Context, owner, repo st
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.metas = append(h.metas, meta...)
+	if h.heldPushes > 0 {
+		h.heldPushes--
+		_, _ = io.Copy(io.Discard, stdin)
+		return &repohost.StatusError{StatusCode: 503, Code: repohost.RepositoryHeldCode, RetryAfter: 5}
+	}
 	if err := h.gitBackedRepoHost.ProxyReceivePack(ctx, owner, repo, stdin, stdout, meta...); err != nil {
 		return err
 	}
@@ -333,4 +340,27 @@ func TestMythicalServiceRefusesToOverwriteAnExistingBookmark(t *testing.T) {
 	assert.Equal(t, "frozen", row.State)
 	assert.Contains(t, row.Reason, "already exists")
 	assert.Equal(t, main, f.hostRef(repohost.MythicalBookmarkRef))
+}
+
+// A stack push the repository's host refuses while holding the repository
+// is not a failure: the pass is due again after the hold's Retry-After with
+// no attempt spent and no error, and then it lands.
+func TestMythicalServiceWaitsOutAHeldRepository(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	ctx := context.Background()
+	f.commit("✨ feat: one", "a.txt", "a")
+	f.publish()
+	_, err := f.service.RequestBootstrap(ctx, f.repoID, f.userID, 100, false)
+	require.NoError(t, err)
+	f.host.heldPushes = 1
+	row := f.poll()
+	require.NotEqual(t, "active", row.State)
+	assert.Empty(t, row.LastError)
+	assert.Zero(t, row.Attempts, "a held repository spent an attempt")
+	assert.WithinDuration(t, time.Now().Add(5*time.Second), row.NextAttemptAt.Time, 3*time.Second)
+
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET next_attempt_at = NOW() WHERE repository_id = $1`, f.repoID)
+	require.NoError(t, err)
+	row = f.poll()
+	require.Equal(t, "active", row.State, row.LastError)
 }

@@ -608,6 +608,31 @@ SET status = 'failed',
 WHERE id = $1
 RETURNING *;
 
+-- A repository its host holds refuses the landing for now: the task goes back
+-- to the queue until available_at without spending an attempt, and its
+-- landing request is queued again.
+-- name: DeferHeldLanding :one
+WITH deferred AS (
+    UPDATE landing_tasks
+    SET status = CASE WHEN append_request IS NULL THEN 'pending' ELSE 'append_pending' END,
+        attempt = GREATEST(attempt - 1, 0),
+        last_error = sqlc.arg(last_error)::text,
+        available_at = NOW() + make_interval(secs => sqlc.arg(delay_seconds)::float8),
+        started_at = NULL,
+        updated_at = NOW()
+    WHERE landing_tasks.id = sqlc.arg(task_id) AND landing_tasks.status = 'running'
+    RETURNING *
+), requeued AS (
+    UPDATE landing_requests lr
+    SET state = 'queued',
+        landing_started_at = NULL,
+        updated_at = NOW()
+    FROM deferred
+    WHERE lr.id = deferred.landing_request_id AND lr.state = 'landing'
+    RETURNING lr.id
+)
+SELECT * FROM deferred;
+
 -- name: RevertLandingRequestToOpen :one
 UPDATE landing_requests
 SET state = 'open',

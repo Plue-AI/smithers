@@ -173,6 +173,10 @@ func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, or
 		}
 		if merged {
 			composed, err := s.repoHost.ComposeSuperproject(ctx, org.Name, super.Name, repohost.ComposeSuperprojectRequest{Members: pins, ParentChangeID: cs.CommitID, Description: "land changeset " + cs.ChangeID})
+			if _, held := repohost.HeldRetryAfter(err); held {
+				// A held repository refused it for now; nothing is rolled back.
+				return ChangesetResponse{}, pkgerrors.Internal("superproject is busy; retry resumes the landing").WithCause(err)
+			}
 			if err != nil {
 				return ChangesetResponse{}, s.failChangesetLanding(ctx, org, cs.ID, &plan, err)
 			}
@@ -296,6 +300,9 @@ func (s *ChangesetService) saveChangesetPlan(ctx context.Context, id int64, stat
 	return nil
 }
 
+// definiteLandingFailure reports whether repo-host refused a landing for
+// good. A held repository's refusal (repohost.HeldRetryAfter) is not one: it
+// is retried like an unconfirmed outcome.
 func definiteLandingFailure(err error) bool {
 	var status *repohost.StatusError
 	return errors.As(err, &status) && status.StatusCode >= 400 && status.StatusCode < 500

@@ -42,6 +42,28 @@ type mythicalBridge struct {
 	secret   string
 	listener net.Listener
 	server   *http.Server
+	// heldFor is repo-host's Retry-After when it refused a write because it
+	// holds the repository (repohost.HeldRetryAfter).
+	heldFor time.Duration
+}
+
+// refused notes err's hold, if it is one, and answers the git client.
+func (b *mythicalBridge) refused(w http.ResponseWriter, err error) {
+	if delay, held := repohost.HeldRetryAfter(err); held {
+		b.mu.Lock()
+		b.heldFor = delay
+		b.mu.Unlock()
+		http.Error(w, "repository is busy", http.StatusServiceUnavailable)
+		return
+	}
+	http.Error(w, "repository unavailable", http.StatusBadGateway)
+}
+
+// held reports the hold a write through the bridge met, if any.
+func (b *mythicalBridge) held() (time.Duration, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.heldFor, b.heldFor > 0
 }
 
 const mythicalBridgePath = "/repository.git"
@@ -135,7 +157,7 @@ func (b *mythicalBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body bytes.Buffer
 		contentType, err := b.host.InfoRefs(ctx, b.owner, b.repo, service, &body)
 		if err != nil {
-			http.Error(w, "repository unavailable", http.StatusBadGateway)
+			b.refused(w, err)
 			return
 		}
 		if contentType == "" {
@@ -168,7 +190,7 @@ func (b *mythicalBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		var body bytes.Buffer
 		if err := b.host.ProxyReceivePack(ctx, b.owner, b.repo, rebuilt, &body, meta); err != nil {
-			http.Error(w, "repository unavailable", http.StatusBadGateway)
+			b.refused(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-git-receive-pack-result")

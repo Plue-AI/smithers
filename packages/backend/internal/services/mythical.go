@@ -192,8 +192,9 @@ type mythicalAdoption struct {
 type mythicalOutcome struct {
 	state, reason, err string
 	failed             bool
-	clearPending       bool        // the prepared write is settled or discarded
-	op                 *mythicalOp // a confirmed write to finalize
+	heldFor            time.Duration // the repository was held: try again then
+	clearPending       bool          // the prepared write is settled or discarded
+	op                 *mythicalOp   // a confirmed write to finalize
 }
 
 func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStack) {
@@ -231,7 +232,9 @@ func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStac
 	if outcome.op != nil {
 		attrs = append(attrs, "kind", outcome.op.Kind, "tip", outcome.op.NewTip, "landed_main", outcome.op.LandedMain)
 	}
-	if outcome.failed {
+	if outcome.heldFor > 0 {
+		s.logger.Info("mythical.held", append(attrs, "retry_in", outcome.heldFor.String())...)
+	} else if outcome.failed {
 		s.logger.Warn("mythical.failed", append(attrs, "attempts", row.Attempts, "error", outcome.err)...)
 	} else {
 		s.logger.Info("mythical.run", attrs...)
@@ -248,6 +251,10 @@ func (s *MythicalService) finish(ctx context.Context, row db.MythicalStack, outc
 	params := db.FinishMythicalStackParams{RepositoryID: row.RepositoryID, Claim: row.Claim, State: outcome.state,
 		Reason: outcome.reason, Failed: outcome.failed, Error: outcome.err, BackoffSeconds: gitHubMainPullBackoff(row.Attempts).Seconds(),
 		ClearPendingOp: outcome.clearPending, Changed: outcome.state != "" && outcome.state != row.State}
+	if outcome.heldFor > 0 {
+		// Still due, after the hold's delay, with no attempt spent and no error.
+		params.Failed, params.Held, params.BackoffSeconds = true, true, outcome.heldFor.Seconds()
+	}
 	if op := outcome.op; op != nil {
 		if err := q.ReplaceMythicalChanges(ctx, row.RepositoryID, op.From, op.Changes); err != nil {
 			return err
@@ -264,7 +271,7 @@ func (s *MythicalService) finish(ctx context.Context, row db.MythicalStack, outc
 		return err
 	}
 	// A failed pass changes nothing but lastError; the hint still lets a watcher show it.
-	if params.Changed || params.Failed {
+	if params.Changed || (params.Failed && !params.Held) {
 		s.notify(ctx, q, row.RepositoryID, generation, "stack", "")
 	}
 	return tx.Commit(ctx)
@@ -276,6 +283,17 @@ func mythicalFrozen(format string, args ...any) mythicalOutcome {
 
 func mythicalFailed(format string, args ...any) mythicalOutcome {
 	return mythicalOutcome{failed: true, err: fmt.Sprintf(format, args...)}
+}
+
+// mythicalHeldMaxDelay bounds how long a stack write waits on a held
+// repository before it is tried again.
+const mythicalHeldMaxDelay = time.Minute
+
+// mythicalHeld is a pass whose write the repository's host refused while
+// holding the repository: nothing failed, and the same work is due again
+// after delay (bounded), without spending an attempt.
+func mythicalHeld(delay time.Duration) mythicalOutcome {
+	return mythicalOutcome{heldFor: min(max(delay, time.Second), mythicalHeldMaxDelay)}
 }
 
 // mythicalRun is one claim's view of the repository.
@@ -781,6 +799,9 @@ func (s *MythicalService) push(ctx context.Context, r *mythicalRun, op mythicalO
 	remote := r.bridge.URL()
 	if _, err := r.g.git(ctx, "push", "--atomic", "--porcelain", "--no-verify", remote,
 		"+"+op.NewTip+":"+repohost.MythicalBookmarkRef, "+"+op.NewNotes+":"+repohost.MythicalNotesRef); err != nil {
+		if delay, held := r.bridge.held(); held {
+			return mythicalHeld(delay)
+		}
 		// Whether it landed is settled from the refs on the next claim.
 		return mythicalFailed("push the stack: %s", sanitizeMirrorError(err, remote))
 	}
@@ -794,6 +815,9 @@ func (s *MythicalService) confirm(ctx context.Context, r *mythicalRun, op mythic
 	target, err := s.bookmarkCommit(ctx, r.owner, r.repo, MythicalBookmark)
 	if err == nil && target != op.NewTip && recovering {
 		if importErr := s.host.ImportRefs(ctx, r.owner, r.repo); importErr != nil {
+			if delay, held := repohost.HeldRetryAfter(importErr); held {
+				return mythicalHeld(delay)
+			}
 			return mythicalFailed("import the stack into the repository: %v", importErr)
 		}
 		target, err = s.bookmarkCommit(ctx, r.owner, r.repo, MythicalBookmark)

@@ -260,6 +260,8 @@ type fakeChangesetRepoHost struct {
 	changes     map[string]repohost.Change   // key owner/repo/changeID
 	bookmarks   map[string]repohost.Bookmark // key owner/repo/name
 	landFail    map[string]error             // key owner/repo -> error to return from LandChanges
+	composeFail error
+	mergeOnLand bool // a land merges, so its commit differs from the member's
 	composed    []repohost.ComposeSuperprojectRequest
 	landCalls   []string
 	bookmarkOps []string
@@ -321,8 +323,12 @@ func (f *fakeChangesetRepoHost) LandChanges(ctx context.Context, owner, repo str
 	if req.ExpectedCommitID != nil && f.bookmarks[f.key(owner, repo, req.TargetBookmark)].TargetCommitID != *req.ExpectedCommitID {
 		return repohost.LandResult{}, &repohost.StatusError{StatusCode: 409, Message: "bookmark changed"}
 	}
-	f.bookmarks[f.key(owner, repo, req.TargetBookmark)] = repohost.Bookmark{Name: req.TargetBookmark, TargetChangeID: change.ChangeID, TargetCommitID: change.CommitID}
-	result := repohost.LandResult{LandedCount: 1, TargetBookmark: req.TargetBookmark, TargetCommitID: change.CommitID}
+	landed := change.CommitID
+	if f.mergeOnLand {
+		landed = strings.Repeat("9", 40)
+	}
+	f.bookmarks[f.key(owner, repo, req.TargetBookmark)] = repohost.Bookmark{Name: req.TargetBookmark, TargetChangeID: change.ChangeID, TargetCommitID: landed}
+	result := repohost.LandResult{LandedCount: 1, TargetBookmark: req.TargetBookmark, TargetCommitID: landed}
 	if f.receipts == nil {
 		f.receipts = map[string]repohost.LandResult{}
 	}
@@ -355,6 +361,9 @@ func (f *fakeChangesetRepoHost) DeleteBookmark(_ context.Context, owner, repo, n
 }
 
 func (f *fakeChangesetRepoHost) ComposeSuperproject(_ context.Context, owner, repo string, req repohost.ComposeSuperprojectRequest) (repohost.SuperprojectCommit, error) {
+	if f.composeFail != nil {
+		return repohost.SuperprojectCommit{}, f.composeFail
+	}
 	f.composed = append(f.composed, req)
 	f.composeSeq++
 	changeID := fmt.Sprintf("spchange%024d", f.composeSeq)
@@ -600,4 +609,36 @@ func TestChangesetService_ResponseParentsAndStacking(t *testing.T) {
 	got, err := svc.GetChangeset(context.Background(), actor, "acme", second.ID)
 	require.NoError(t, err)
 	assert.Equal(t, raw, got.ParentChangeIDs)
+}
+
+// A member repository held by its host refuses the landing for now: nothing
+// is rolled back or failed, and a retry once the hold clears lands it.
+func TestChangesetService_HeldMemberWaitsInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	q, rh, svc := seedChangesetFixture(t)
+	actor := &db.User{ID: 1, Username: "alice"}
+	created, err := svc.CreateChangeset(context.Background(), actor, "acme", CreateChangesetInput{
+		Members: []ChangesetMemberInput{{Repo: "api", ChangeID: "aaaa"}, {Repo: "web", ChangeID: "bbbb"}},
+	})
+	require.NoError(t, err)
+
+	heldErr := &repohost.StatusError{StatusCode: 503, Code: repohost.RepositoryHeldCode, RetryAfter: 5}
+	rh.landFail["acme/web"] = heldErr
+	_, err = svc.LandChangeset(context.Background(), actor, "acme", created.ID)
+	require.Error(t, err)
+	assert.NotEqual(t, "failed", q.changesets[created.ID].State)
+	assert.Empty(t, rh.bookmarkOps, "a held member rolled the changeset back")
+
+	// The superproject held while its merged commit is composed: the same.
+	delete(rh.landFail, "acme/web")
+	rh.mergeOnLand, rh.composeFail = true, heldErr
+	_, err = svc.LandChangeset(context.Background(), actor, "acme", created.ID)
+	require.Error(t, err)
+	assert.NotEqual(t, "failed", q.changesets[created.ID].State)
+	assert.Empty(t, rh.bookmarkOps, "a held superproject rolled the changeset back")
+
+	rh.composeFail = nil
+	landed, err := svc.LandChangeset(context.Background(), actor, "acme", created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "landed", landed.State)
 }

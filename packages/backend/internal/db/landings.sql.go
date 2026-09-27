@@ -751,6 +751,75 @@ func (q *Queries) CreateLandingTask(ctx context.Context, arg CreateLandingTaskPa
 	return i, err
 }
 
+const deferHeldLanding = `-- name: DeferHeldLanding :one
+WITH deferred AS (
+    UPDATE landing_tasks
+    SET status = CASE WHEN append_request IS NULL THEN 'pending' ELSE 'append_pending' END,
+        attempt = GREATEST(attempt - 1, 0),
+        last_error = $1::text,
+        available_at = NOW() + make_interval(secs => $2::float8),
+        started_at = NULL,
+        updated_at = NOW()
+    WHERE landing_tasks.id = $3 AND landing_tasks.status = 'running'
+    RETURNING id, landing_request_id, repository_id, status, priority, attempt, last_error, available_at, started_at, finished_at, created_at, updated_at, append_request
+), requeued AS (
+    UPDATE landing_requests lr
+    SET state = 'queued',
+        landing_started_at = NULL,
+        updated_at = NOW()
+    FROM deferred
+    WHERE lr.id = deferred.landing_request_id AND lr.state = 'landing'
+    RETURNING lr.id
+)
+SELECT id, landing_request_id, repository_id, status, priority, attempt, last_error, available_at, started_at, finished_at, created_at, updated_at, append_request FROM deferred
+`
+
+type DeferHeldLandingParams struct {
+	LastError    string  `json:"last_error"`
+	DelaySeconds float64 `json:"delay_seconds"`
+	TaskID       int64   `json:"task_id"`
+}
+
+type DeferHeldLandingRow struct {
+	ID               int64              `json:"id"`
+	LandingRequestID int64              `json:"landing_request_id"`
+	RepositoryID     int64              `json:"repository_id"`
+	Status           string             `json:"status"`
+	Priority         int16              `json:"priority"`
+	Attempt          int32              `json:"attempt"`
+	LastError        pgtype.Text        `json:"last_error"`
+	AvailableAt      time.Time          `json:"available_at"`
+	StartedAt        pgtype.Timestamptz `json:"started_at"`
+	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+	AppendRequest    []byte             `json:"append_request"`
+}
+
+// A repository its host holds refuses the landing for now: the task goes back
+// to the queue until available_at without spending an attempt, and its
+// landing request is queued again.
+func (q *Queries) DeferHeldLanding(ctx context.Context, arg DeferHeldLandingParams) (DeferHeldLandingRow, error) {
+	row := q.db.QueryRow(ctx, deferHeldLanding, arg.LastError, arg.DelaySeconds, arg.TaskID)
+	var i DeferHeldLandingRow
+	err := row.Scan(
+		&i.ID,
+		&i.LandingRequestID,
+		&i.RepositoryID,
+		&i.Status,
+		&i.Priority,
+		&i.Attempt,
+		&i.LastError,
+		&i.AvailableAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AppendRequest,
+	)
+	return i, err
+}
+
 const deleteLandingRequestChanges = `-- name: DeleteLandingRequestChanges :exec
 DELETE FROM landing_request_changes
 WHERE landing_request_id = $1

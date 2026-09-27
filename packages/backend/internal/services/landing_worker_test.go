@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -44,6 +45,7 @@ type mockLandingWorkerQuerier struct {
 	markLandingRequestFailedCalled bool
 	failTaskCalled                 bool
 	lastFailTaskArg                db.FailLandingTaskParams
+	deferHeldArgs                  []db.DeferHeldLandingParams
 }
 
 type issueFixingLandingWorkerQuerier struct {
@@ -184,6 +186,11 @@ func (m *mockLandingWorkerQuerier) FailLandingTask(ctx context.Context, arg db.F
 		return m.failLandingTaskFn(ctx, arg)
 	}
 	return db.LandingTask{ID: arg.ID, Status: "failed"}, nil
+}
+
+func (m *mockLandingWorkerQuerier) DeferHeldLanding(ctx context.Context, arg db.DeferHeldLandingParams) (db.DeferHeldLandingRow, error) {
+	m.deferHeldArgs = append(m.deferHeldArgs, arg)
+	return db.DeferHeldLandingRow{ID: arg.TaskID, Status: "pending"}, nil
 }
 
 // mockWorkerRepoHostClient implements LandingWorkerRepoHostClient for unit tests.
@@ -834,4 +841,51 @@ func (m *mockLandingWorkerQuerier) RecordLandingSourceWorkspace(context.Context,
 
 func (m *mockLandingWorkerQuerier) IsOutsiderLanding(context.Context, int64) (bool, error) {
 	return false, nil
+}
+
+// A landing into a repository its host holds is queued again after the
+// hold's Retry-After instead of failing, and lands once the hold clears.
+func TestLandingWorker_HeldRepositoryQueuesTheLandingAgain(t *testing.T) {
+	t.Parallel()
+	taskID, lrID, repoID := int64(100), int64(88), int64(77)
+	q := &mockLandingWorkerQuerier{
+		claimPendingLandingTaskFn: func(ctx context.Context) (db.LandingTask, error) {
+			return workerTask(taskID, lrID, repoID), nil
+		},
+		getLandingRequestByIDFn: func(ctx context.Context, id int64) (db.LandingRequest, error) {
+			return workerLandingRequest(lrID, repoID), nil
+		},
+		listLandingRequestChangesFn: func(ctx context.Context, arg db.ListLandingRequestChangesParams) ([]db.LandingRequestChange, error) {
+			return []db.LandingRequestChange{{ID: 1, LandingRequestID: lrID, ChangeID: "k-a", PositionInStack: 1}}, nil
+		},
+		getRepoByIDFn: func(ctx context.Context, id int64) (db.Repository, error) { return workerRepo(repoID), nil },
+		getUserByIDFn: func(ctx context.Context, id int64) (db.User, error) {
+			return db.User{ID: id, Username: "alice", LowerUsername: "alice"}, nil
+		},
+	}
+	held := true
+	rh := &mockWorkerRepoHostClient{
+		landChangesFn: func(ctx context.Context, owner, repo string, req repohost.LandRequest) (repohost.LandResult, error) {
+			if held {
+				return repohost.LandResult{}, fmt.Errorf("land: %w", &repohost.StatusError{
+					StatusCode: http.StatusServiceUnavailable, Code: repohost.RepositoryHeldCode, RetryAfter: 5})
+			}
+			return repohost.LandResult{}, nil
+		},
+	}
+	w := NewLandingWorker(q, rh)
+
+	require.NoError(t, w.PollOnce(context.Background()))
+	require.Len(t, q.deferHeldArgs, 1)
+	assert.Equal(t, taskID, q.deferHeldArgs[0].TaskID)
+	assert.Equal(t, 5.0, q.deferHeldArgs[0].DelaySeconds)
+	assert.False(t, q.markLandingRequestFailedCalled, "a held repository failed the landing")
+	assert.False(t, q.failTaskCalled)
+	assert.False(t, q.mergeCalled)
+
+	held = false
+	require.NoError(t, w.PollOnce(context.Background()))
+	assert.True(t, q.mergeCalled)
+	assert.True(t, q.markTaskDoneCalled)
+	assert.False(t, q.markLandingRequestFailedCalled)
 }

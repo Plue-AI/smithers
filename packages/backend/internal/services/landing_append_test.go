@@ -296,3 +296,48 @@ func TestLandingAppendCannotBeDowngradedByOrdinaryOrAutoLand(t *testing.T) {
 		})
 	}
 }
+
+// An append into a held repository is queued again whether the hold meets
+// its receipt lookup or its landing, and lands once the hold clears.
+func TestLandingAppendIntoAHeldRepositoryIsQueuedAgain(t *testing.T) {
+	request := appendFixture()
+	raw, err := json.Marshal(request)
+	require.NoError(t, err)
+	q := &appendWorkerQueries{mockLandingWorkerQuerier: &mockLandingWorkerQuerier{
+		claimPendingLandingTaskFn: func(context.Context) (db.LandingTask, error) {
+			task := workerTask(100, 88, 77)
+			task.AppendRequest = raw
+			return task, nil
+		},
+		getLandingRequestByIDFn: func(context.Context, int64) (db.LandingRequest, error) { return workerLandingRequest(88, 77), nil },
+		getRepoByIDFn:           func(context.Context, int64) (db.Repository, error) { return workerRepo(77), nil },
+		getUserByIDFn:           func(context.Context, int64) (db.User, error) { return db.User{ID: 1, Username: "alice"}, nil },
+		listLandingRequestChangesFn: func(context.Context, db.ListLandingRequestChangesParams) ([]db.LandingRequestChange, error) {
+			return []db.LandingRequestChange{{ChangeID: "stable-change"}}, nil
+		},
+	}}
+	held := &repohost.StatusError{StatusCode: 503, Code: repohost.RepositoryHeldCode, RetryAfter: 5}
+	heldAt := "lookup"
+	rh := &appendWorkerHost{mockWorkerRepoHostClient: &mockWorkerRepoHostClient{landChangesFn: func(_ context.Context, _, _ string, got repohost.LandRequest) (repohost.LandResult, error) {
+		switch {
+		case got.LookupOnly && heldAt == "lookup", !got.LookupOnly && heldAt == "land":
+			return repohost.LandResult{}, held
+		case got.LookupOnly:
+			return repohost.LandResult{}, &repohost.StatusError{StatusCode: 404, Code: "landing_receipt_missing"}
+		}
+		return repohost.LandResult{LandedCount: 1, TargetBookmark: "main", TargetCommitID: strings.Repeat("d", 40)}, nil
+	}}, tip: request.Append.SourceCommitID}
+	worker := NewLandingWorker(q, rh)
+
+	for i, at := range []string{"lookup", "land"} {
+		heldAt = at
+		require.NoError(t, worker.PollOnce(context.Background()))
+		require.Len(t, q.deferHeldArgs, i+1, "held %s was not queued again", at)
+		require.False(t, q.markLandingRequestFailedCalled)
+		require.False(t, q.mergeCalled)
+	}
+	heldAt = ""
+	require.NoError(t, worker.PollOnce(context.Background()))
+	require.True(t, q.mergeCalled)
+	require.False(t, q.markLandingRequestFailedCalled)
+}

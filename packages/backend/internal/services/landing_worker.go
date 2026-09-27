@@ -73,6 +73,7 @@ type LandingWorkerQuerier interface {
 	MarkLandingTaskDone(ctx context.Context, id int64) (db.LandingTask, error)
 	MarkLandingRequestFailed(ctx context.Context, id int64) (db.LandingRequest, error)
 	FailLandingTask(ctx context.Context, arg db.FailLandingTaskParams) (db.LandingTask, error)
+	DeferHeldLanding(ctx context.Context, arg db.DeferHeldLandingParams) (db.DeferHeldLandingRow, error)
 }
 
 type landingIssueFixer interface {
@@ -334,6 +335,10 @@ func (w *LandingWorker) PollOnce(ctx context.Context) error {
 			)
 			return nil
 		}
+		if delay, held := repohost.HeldRetryAfter(err); held {
+			w.deferHeldTask(ctx, task, delay, err)
+			return nil
+		}
 		w.logger.Error("landing task failed",
 			"task_id", task.ID,
 			"landing_request_id", task.LandingRequestID,
@@ -446,6 +451,10 @@ func (w *LandingWorker) executeTask(ctx context.Context, task db.LandingTask) er
 	}
 	if appendRequest != nil {
 		recovered, err := lookupLandingAppend(ctx, w.repoHost, ownerName, repo.Name, *appendRequest)
+		if _, held := repohost.HeldRetryAfter(err); held {
+			// The held repository answered nothing; the next attempt looks again.
+			return fmt.Errorf("look up append receipt: %w", err)
+		}
 		if err != nil {
 			return fmt.Errorf("%w: append receipt is unconfirmed: %v", errPostLandFinalize, err)
 		}
@@ -546,6 +555,10 @@ func (w *LandingWorker) executeTask(ctx context.Context, task db.LandingTask) er
 	_, err = w.repoHost.LandChanges(landCtx, ownerName, repo.Name, landRequest)
 	cancelLand()
 	if err != nil {
+		if _, held := repohost.HeldRetryAfter(err); held {
+			// repo-host refused before landing anything: queue it again.
+			return fmt.Errorf("land changes: %w", err)
+		}
 		if appendRequest != nil {
 			var status *repohost.StatusError
 			if !errors.As(err, &status) || (status.StatusCode != 400 && status.StatusCode != 409 && status.StatusCode != 422) {
@@ -821,6 +834,37 @@ func retryLandingFinalize[T any](ctx context.Context, delay time.Duration, op fu
 
 // handleFailure marks the landing request as failed, marks the task as failed,
 // and dispatches a "failed" webhook event.
+// heldLandingMaxDelay bounds how long a landing into a held repository waits
+// before it is tried again, whatever repo-host's Retry-After says.
+const heldLandingMaxDelay = time.Minute
+
+// deferHeldTask queues a landing its repository's host refused while holding
+// the repository: the task is tried again after delay (at least a second, at
+// most heldLandingMaxDelay) without spending an attempt, and the landing
+// request is queued again rather than failed.
+func (w *LandingWorker) deferHeldTask(ctx context.Context, task db.LandingTask, delay time.Duration, taskErr error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	delay = min(max(delay, time.Second), heldLandingMaxDelay)
+	_, err := w.queries.DeferHeldLanding(ctx, db.DeferHeldLandingParams{
+		TaskID: task.ID, LastError: taskErr.Error(), DelaySeconds: delay.Seconds(),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No longer running (the reaper took it back): it is queued already.
+		w.logger.Warn("landing into a held repository was already queued again", "task_id", task.ID)
+		return
+	}
+	if err != nil {
+		w.logger.Error("failed to queue a landing into a held repository again; failing it",
+			"task_id", task.ID, "landing_request_id", task.LandingRequestID, "error", err)
+		w.handleFailure(ctx, task, taskErr)
+		return
+	}
+	w.observeLanding("held")
+	w.logger.Warn("repository is held; landing queued again",
+		"task_id", task.ID, "landing_request_id", task.LandingRequestID, "retry_in", delay.String())
+}
+
 func (w *LandingWorker) handleFailure(ctx context.Context, task db.LandingTask, taskErr error) {
 	// Record the failure even when ctx was cancelled by graceful shutdown:
 	// writing with the dead context would silently fail, leaving the task

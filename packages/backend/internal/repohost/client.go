@@ -445,6 +445,22 @@ type StatusError struct {
 // RetryAfter.
 const RepositoryHeldCode = "repository_held"
 
+// HeldRetryAfter reports whether err, anywhere in its chain, is repo-host
+// refusing a write to a held repository, and when to try again: repo-host's
+// Retry-After, or the hold's re-check interval when it sent none. It is how
+// background writers (landings, the stack, changesets) tell "wait" from
+// "failed".
+func HeldRetryAfter(err error) (time.Duration, bool) {
+	status, ok := IsStatusError(err)
+	if !ok || !status.Held() {
+		return 0, false
+	}
+	if status.RetryAfter > 0 {
+		return time.Duration(status.RetryAfter) * time.Second, true
+	}
+	return 5 * time.Second, true
+}
+
 // Held reports whether e refuses a write to a held repository.
 func (e *StatusError) Held() bool {
 	return e.StatusCode == http.StatusServiceUnavailable && e.Code == RepositoryHeldCode
