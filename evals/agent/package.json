@@ -7,7 +7,8 @@
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "bun run.ts",
-    "character": "bun character/run.ts"
+    "character": "bun character/run.ts",
+    "test:character": "bun test character"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.115",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@smthrs/targets": "workspace:*",
     "@types/node": "26.4.1",
+    "bun-types": "^1.4.0",
     "typescript": "5.9.3"
   }
 }

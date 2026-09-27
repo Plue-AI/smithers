@@ -17075,6 +17075,33 @@
     }
   },
   {
+    "label": "//evals/agent:characterUnit",
+    "package": "evals/agent",
+    "name": "characterUnit",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/agent/character/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/agent/character/example/**",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "evals/agent/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//evals/agent:check",
     "package": "evals/agent",
     "name": "check",

@@ -1856,6 +1856,9 @@ importers:
       '@types/node':
         specifier: 26.4.1
         version: 26.4.1
+      bun-types:
+        specifier: ^1.4.0
+        version: 1.4.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3

@@ -7,7 +7,8 @@
     "declarationMap": false,
     "inlineSources": false,
     "sourceMap": false,
-    "types": ["node"]
+    // `character/*.test.ts` are `bun:test` suites, so the checked set needs Bun's globals as well as Node's.
+    "types": ["bun-types", "node"]
   },
   "include": ["*.ts", "character/*.ts"],
   "exclude": ["PACKAGE.ts"]

@@ -134,10 +134,12 @@ const walk = (dir: string): Array<string> =>
     : []
 
 /**
- * A case's changes to the world. `set` replaces top-level keys; `add` appends
- * to top-level arrays (or merges into top-level objects); `remove` drops
- * entries of top-level arrays by their `id` or `number`; `pages` adds or
- * replaces wiki pages by slug.
+ * A case's changes to the world, applied in this order: `set` replaces
+ * top-level keys; `remove` drops entries of top-level arrays by their `id` or
+ * `number`; `add` appends to top-level arrays (or merges into top-level
+ * objects); `pages` adds or replaces wiki pages by slug. Removing before
+ * adding lets a case replace one entry (an issue in a new state) by removing
+ * and re-adding it, without repeating the whole list.
  */
 export interface Patch {
   readonly now?: string | undefined
@@ -166,9 +168,6 @@ const merge = (base: unknown, extra: unknown): unknown => {
 export const load = (dir: string, patch: Patch = {}): World => {
   let data = parseYaml(readFileSync(join(dir, "world.yaml"), "utf8")) as Record<string, unknown>
   if (patch.set !== undefined) data = { ...data, ...patch.set }
-  if (patch.add !== undefined) {
-    for (const [key, value] of Object.entries(patch.add)) data[key] = merge(data[key], value)
-  }
   if (patch.remove !== undefined) {
     for (const [key, ids] of Object.entries(patch.remove)) {
       const list = data[key]
@@ -178,6 +177,9 @@ export const load = (dir: string, patch: Patch = {}): World => {
         )
       }
     }
+  }
+  if (patch.add !== undefined) {
+    for (const [key, value] of Object.entries(patch.add)) data[key] = merge(data[key], value)
   }
   if (patch.now !== undefined) data.now = patch.now
   const pages = new Map<string, Page>()

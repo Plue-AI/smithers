@@ -60,6 +60,22 @@ const character = Smithers.NodeTest({
 })
 
 /**
+ * The character runner's own `bun:test` suites: the world's patching and
+ * tools, the deterministic checks, and what the judge sees and re-judges.
+ * Pure and fast; no model, no network.
+ *
+ * @since 0.1.0
+ * @category test
+ */
+const characterUnit = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.testSuite(["character/world.test.ts"]),
+  srcs: characterSources,
+  deps: [],
+  cwd
+})
+
+/**
  * Checks the suite's own sources against its tsconfig.
  *
  * @since 0.1.0
@@ -75,5 +91,5 @@ const check = Smithers.Typecheck({
 })
 
 export const Package = Smithers.Package({
-  targets: { character, check, test }
+  targets: { character, characterUnit, check, test }
 })
