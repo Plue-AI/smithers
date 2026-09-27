@@ -129,7 +129,7 @@ test("CI planning cancels the hard deadline after cooperative SIGTERM completion
 test("release smoke retains packing, fresh execution and its measured Exec deadline", async () => {
   const index = await openPackageIndex({ workspace: root })
   const plan = await PackageExec.plan({
-    index, verb: "test", pattern: "//scripts:releaseSmoke", cacheDirectory: index.workspace.cache.directory
+    index, verb: "test", patterns: ["//scripts:releaseSmoke"], cacheDirectory: index.workspace.cache.directory
   })
   const smoke = plan.nodes.get("//scripts:releaseSmoke")
   assert.ok(smoke)

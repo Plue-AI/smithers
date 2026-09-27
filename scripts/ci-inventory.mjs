@@ -131,7 +131,7 @@ export async function resolveInventory() {
             const needsMetadata = plan.targets.some((target) =>
               target.attrs === undefined && !metadata.has(metadataIdentity(target)))
             const native = needsMetadata
-              ? await PackageExec.plan({ index, verb, pattern, cacheDirectory: index.workspace.cache.directory })
+              ? await PackageExec.plan({ index, verb, patterns: [pattern], cacheDirectory: index.workspace.cache.directory })
               : undefined
             const targets = plan.targets.map((target) => {
               if (target.attrs !== undefined) return target
