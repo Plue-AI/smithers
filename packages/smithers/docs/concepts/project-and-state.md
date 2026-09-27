@@ -125,7 +125,7 @@ Anything outside it is not read, including the 0.x `SMITHERS_HOME`,
 | `SMITHERS_SUPERVISOR_STANCE` | `careful` or `paranoid`, the stance a judged run is taught. Unset is `careful`; any other value refuses to start. |
 | `SMITHERS_BUG_ENDPOINT` | Where `smthrs bug` posts its report. |
 | `SMITHERS_JJ_PATH` | Explicit path to the `jj` binary. |
-| `SMITHERS_PYTHON3` | Absolute CPython 3 path for the Node and Bun control hosts' filesystem helper. Unset or empty uses `/usr/bin/python3`; relative paths fail startup. `PATH` is never searched. |
+| `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | Absolute `smithers-jj-export` path for the Node and Bun hosts' filesystem helper. Unset uses the packaged or source-checkout build. `PATH` is never searched. |
 | `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | How long `flow start -d` waits for its child's admission line. |
 | `SMITHERS_INSIDE_RUN`, `SMITHERS_RUN_ID` | Set on an agent process by the engine. Both keep their 0.x meaning. |
 

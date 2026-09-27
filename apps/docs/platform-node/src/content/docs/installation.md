@@ -56,8 +56,7 @@ The package ships ESM, CommonJS, and TypeScript declarations.
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Node.js 26.4.0 or later                            | the minimum this package's `engines` field declares                                                       |
 | a POSIX host                                       | Windows has none of the primitives below and is unsupported                                               |
-| CPython 3 at `/usr/bin/python3`                    | `AtomicFileSystem` runs every filesystem syscall through it                                               |
-| that interpreter's `os` module supporting `dir_fd` | with `O_NOFOLLOW` and `O_DIRECTORY`, for `open`, `mkdir`, `readlink`, `rename`, `rmdir`, `stat`, `unlink` |
+| the `smithers-jj-export` helper                    | `AtomicFileSystem` runs every guarded filesystem operation through it                                     |
 | `jj` 0.39.0 or newer on `PATH`                     | required at construction by every complete `NodeHost` layer                                               |
 
 ### jj is checked at construction
@@ -73,25 +72,26 @@ whose code is `not_installed`. An older version fails with
 `unsupported_version`. The version probe runs outside the host process ledger;
 repository commands use the selected process runner.
 
-### The interpreter fails late, on purpose
+### The filesystem helper
 
-`NodeHost.layer` builds cleanly on a host with no CPython 3. The executable is
+From a source checkout, build it with:
+
+```sh
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+```
+
+The host finds `target/release/smithers-jj-export` automatically. Elsewhere,
+set `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to its absolute path.
+
+`NodeHost.layer` builds cleanly on a host with no helper. The executable is
 re-validated on every request rather than once at construction, because the
 file a path names can be replaced while a host runs, and a check that happened
 only at boot would be a check about a file that is no longer there.
 
 The consequence is that on `node:22-slim`, `node:22-alpine`, or a distroless
 image the layer builds, the run starts, and the first guarded filesystem call
-inside a flow body fails with `PermissionDenied`. Install `python3`, or point
-the adapter at the interpreter you do have:
-
-```ts
-import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
-
-const filesystem = AtomicFileSystem.layerWith({ executable: "/usr/local/bin/python3" })
-```
-
-For the rest of what `layerWith` configures, see
+inside a flow body fails with `PermissionDenied`. For the search order and
+`layerWith`, see
 [Configure the filesystem helper](/guides/configure-the-filesystem-helper/).
 
 ## Individual services without jj
@@ -119,7 +119,7 @@ pool when they name none. The complete bundles above already use it.
 Provide `hostWithoutJj` to a program that needs these services, or provide only
 the individual layer it needs. The spawner requires both filesystem and path
 services, supplied by `platform` above. The filesystem still requires the
-CPython interpreter described above. This composition does not provide `Jj`
+helper described above. This composition does not provide `Jj`
 and cannot satisfy consumers that require the complete five-tag host.
 
 ## Import forms

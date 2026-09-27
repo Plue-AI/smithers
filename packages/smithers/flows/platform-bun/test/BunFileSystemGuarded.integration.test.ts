@@ -3,7 +3,7 @@
  *
  * `BunFileSystem.layer` is `@smthrs/platform-node`'s `AtomicFileSystem.layer`,
  * and its no-follow extension does not run in-process: every guarded operation
- * is executed by a CPython 3 helper the adapter spawns. The extension being
+ * is executed by the `smithers-jj-export` helper the adapter spawns. The extension being
  * *present* is all the barrel suite asserts, and nothing in this package had
  * ever run it, so this suite executes it once against the adapter the Bun
  * bundle actually installs: a guarded read, write, and rename, plus one

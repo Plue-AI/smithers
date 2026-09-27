@@ -1,18 +1,18 @@
 ---
 title: "Configure the filesystem helper"
-description: "Point AtomicFileSystem at a different CPython interpreter and set the byte ceilings, process ceiling, and timeout that bound what one filesystem call may cost."
+description: "Point AtomicFileSystem at a smithers-jj-export helper and set the byte ceilings, process ceiling, and timeout that bound what one filesystem call may cost."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/platform-node/docs/guides/configure-the-filesystem-helper.md"
 ---
 
-Use this when the host installs CPython somewhere other than
-`/usr/bin/python3`, or when the default ceilings do not fit the workload.
+Use this when the host keeps the `smithers-jj-export` helper somewhere the
+adapter does not look, or when the default ceilings do not fit the workload.
 `AtomicFileSystem.layerWith` takes all of it in one options object.
 
 ```ts
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 
 const filesystem = AtomicFileSystem.layerWith({
-  executable: "/usr/local/bin/python3",
+  executable: "/opt/smithers/bin/smithers-jj-export",
   concurrency: 4,
   timeoutMs: 60_000,
   limits: { content: 4 * 1024 * 1024 }
@@ -23,37 +23,37 @@ const filesystem = AtomicFileSystem.layerWith({
 same shape as `AtomicFileSystem.layer`. Substitute it wherever the bundle would
 have used the default.
 
-## Point at a different interpreter
+## Choose the helper
 
-Smithers' Node and Bun control hosts (including the coding host and product
-gateway host) read `SMITHERS_PYTHON3` at startup. Set it to the absolute path of
-a CPython 3 interpreter; for example, on NixOS:
+The adapter runs `smithers-jj-export --atomic-fs` and uses the first of:
+
+1. `executable` from `layerWith`.
+2. `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`.
+3. The package's `bin/<platform>-<arch>/smithers-jj-export`.
+4. In a source checkout, `target/release/smithers-jj-export`, then
+   `target/debug/smithers-jj-export`.
+5. `/usr/local/bin/smithers-jj-export`.
+
+Build it in a source checkout:
 
 ```sh
-export SMITHERS_PYTHON3=/run/current-system/sw/bin/python3
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
-An unset or empty value keeps `/usr/bin/python3`. A relative path fails startup
-with an error naming `SMITHERS_PYTHON3`. The hosts never search `PATH`.
-This variable configures the control hosts; custom library compositions still
-select the interpreter explicitly with `layerWith`:
+Or name an installed helper:
 
-```ts
-const filesystem = AtomicFileSystem.layerWith({ executable: "/usr/local/bin/python3" })
+```sh
+export SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/opt/smithers/bin/smithers-jj-export
 ```
 
-The path must be absolute. It is configuration, never discovery: the adapter
-does not search `PATH`, because Python's `-I` isolates an interpreter only
-after one has been chosen, and a `python3` planted on an injected `PATH` would
-already have executed arbitrary code inside the process that holds the pinned
-root descriptor.
+A configured path must be absolute. The adapter never searches `PATH` or the
+working directory.
 
-The executable is the one field re-validated on every request, as an absolute,
-executable regular file outside the confined workspace. That is deliberate: the
-file a path names can be replaced while a host runs, so a check that happened
-only at construction would be a check about a file that is no longer there. It
-is also why a host with no interpreter builds cleanly and then fails every
-guarded filesystem call with `PermissionDenied`.
+The executable is re-validated on every request, as an absolute, executable
+regular file outside the confined workspace. The file a path names can be
+replaced while a host runs, so a check made only at construction would describe
+a file that is no longer there. A host with no helper builds cleanly and then
+fails every guarded filesystem call with `PermissionDenied`.
 
 ## Set the byte ceilings
 
@@ -62,7 +62,7 @@ guarded filesystem call with `PermissionDenied`.
 | Field        | Default | What it bounds                                                                           |
 | ------------ | ------- | ---------------------------------------------------------------------------------------- |
 | `content`    | 16 MiB  | the bytes one `readFile` or `writeFile` may carry                                        |
-| `request`    | 24 MiB  | the framed request, refused before an interpreter is even started                        |
+| `request`    | 24 MiB  | the framed request, refused before a helper is even started                              |
 | `response`   | 24 MiB  | the framed response, which is what a directory listing is charged against as it is built |
 | `stderr`     | 64 KiB  | the diagnostic text retained from a failing helper                                       |
 | `batchEntry` | 24 MiB  | one batch member's encoded result envelope, in UTF-8 JSON bytes                          |
@@ -100,12 +100,12 @@ byte ceilings.
 
 | Field         | Default                     | What it bounds                                  |
 | ------------- | --------------------------- | ----------------------------------------------- |
-| `concurrency` | `os.availableParallelism()` | how many helper interpreters may run at once    |
+| `concurrency` | `os.availableParallelism()` | how many helpers may run at once                |
 | `timeoutMs`   | 300000                      | how long one helper may run before it is killed |
 
-Each ordinary call or bounded batch starts one CPython helper. Without a process ceiling,
+Each ordinary call or bounded batch starts one helper. Without a process ceiling,
 an `Effect.forEach(files, read, { concurrency: "unbounded" })` over fifty paths
-would start fifty interpreters at once. The same permit covers request JSON
+would start fifty helpers at once. The same permit covers request JSON
 serialization and framing, so queued calls retain their input rather than an
 additional encoded request buffer. Invalid settings and batch counts are
 rejected before admission; serialized request sizes are checked after admission
@@ -134,7 +134,7 @@ not have to restate them:
 ```ts
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 
-AtomicFileSystem.defaultExecutable // "/usr/bin/python3"
+AtomicFileSystem.defaultExecutable // "/usr/local/bin/smithers-jj-export"
 AtomicFileSystem.defaultLimits // { content, request, response, stderr, batchSize, batchEntry }
 AtomicFileSystem.defaultConcurrency // os.availableParallelism()
 AtomicFileSystem.defaultTimeoutMs // 300000

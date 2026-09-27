@@ -77,11 +77,11 @@ ask for, and the filesystem in it is the confined one described earlier. The
 [quickstart](/quickstart/) runs a program that reads a file through it and
 watches a symlink escape get refused.
 
-Running this bundle needs a POSIX host with Node.js 26.4.0 or later and
-CPython 3, which `AtomicFileSystem` uses to reach the `dir_fd` syscalls Node
+Running this bundle needs Node.js 26.4.0 or later and the `smithers-jj-export`
+helper, which `AtomicFileSystem` uses for the descriptor-relative syscalls Node
 does not expose. [Installation](/installation/) covers the requirement,
-where it fails when it is missing, how to point at a different interpreter, and
-the Effect peers your project pins.
+where it fails when it is missing, how to point at a different helper, and the
+Effect peers your project pins.
 
 ## How this relates to @smthrs/flows
 

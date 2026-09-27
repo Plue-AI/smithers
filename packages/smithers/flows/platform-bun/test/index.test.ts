@@ -36,8 +36,8 @@ describe("@smthrs/platform-bun barrel", () => {
   })
 
   it("hands the filesystem escape hatch through, unwrapped", () => {
-    // `layerWith` is the only way to name an interpreter other than
-    // `/usr/bin/python3`, and a Bun consumer must be able to reach it without
+    // `layerWith` is the code path for naming a helper outside the default
+    // search, and a Bun consumer must be able to reach it without
     // adding `@smthrs/platform-node` as a second dependency.
     expect(BunFileSystem.layer).toBe(AtomicFileSystem.layer)
     expect(BunFileSystem.layerWith).toBe(AtomicFileSystem.layerWith)

@@ -1,6 +1,6 @@
 ---
 title: "Installation"
-description: "Install @smthrs/platform-bun, its required peers, the CPython 3 interpreter the filesystem slot needs, the jj executable every complete bundle probes at startup, and the import forms for each entry point."
+description: "Install @smthrs/platform-bun, its required peers, the smithers-jj-export helper the filesystem slot needs, the jj executable every complete bundle probes at startup, and the import forms for each entry point."
 sidebar:
   order: 1
 ---
@@ -37,23 +37,20 @@ Bun 1.4.0 or later, and Node.js 26.4.0 or later. Both are declared in
 [Runtime parity with Node](./concepts/runtime-parity.md) for what that does and
 does not buy you.
 
-## Install CPython 3 for the filesystem slot
+## Install the filesystem helper
 
 The filesystem slot is `@smthrs/platform-node`'s `AtomicFileSystem`, which
 carries the kernel's atomic host extension. That extension does not run
-in-process: it executes each guarded path operation through a CPython 3 helper
-so the operation is descriptor-relative and no-follow. The host therefore needs
-an interpreter that supports `O_NOFOLLOW`, `O_DIRECTORY`, and `dir_fd`, at
-`/usr/bin/python3`:
+in-process: it executes each guarded path operation through the
+`smithers-jj-export` helper so the operation is descriptor-relative and
+no-follow. From a source checkout, build it with:
 
 ```bash
-/usr/bin/python3 --version
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
-macOS ships one. Most Linux distributions either ship one or install it with
-the distribution's `python3` package. If your image keeps python3 somewhere
-else, build the layer with `BunFileSystem.layerWith({ executable })`; see
-[Run where python3 is not at /usr/bin/python3](./guides/configure-the-filesystem-helper.md).
+Elsewhere, set `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to its absolute path; see
+[Configure the filesystem helper](./guides/configure-the-filesystem-helper.md).
 
 Windows is unsupported for this slot.
 

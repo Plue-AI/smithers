@@ -6,7 +6,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 Use this when a program needs to select files under the workspace. `glob` is
 one of the thirteen operations the atomic adapter implements, so it costs one
-CPython fork for the whole tree rather than one per entry.
+helper process for the whole tree rather than one per entry.
 
 ```ts
 import * as Effect from "effect/Effect"

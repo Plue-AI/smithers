@@ -45,25 +45,18 @@ use the selected process runner.
 | Requirement                                        | Why                                                                                                       |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Node.js >=26.4.0                                   | the minimum this package's `engines` field declares                                                       |
-| CPython 3 at `/usr/bin/python3`                    | `AtomicFileSystem` runs every filesystem syscall through it                                               |
-| that interpreter's `os` module supporting `dir_fd` | with `O_NOFOLLOW` and `O_DIRECTORY`, for `open`, `mkdir`, `readlink`, `rename`, `rmdir`, `stat`, `unlink` |
+| the `smithers-jj-export` helper                    | `AtomicFileSystem` runs every guarded filesystem operation through it                                     |
 | a POSIX host                                       | Windows has none of those primitives and is unsupported                                                   |
 
-The interpreter is a real prerequisite, not a soft one, and it fails LATE by
+The helper is a real prerequisite, not a soft one, and it fails LATE by
 design. `NodeHost.layer` builds cleanly on a host without it, because the
 executable is re-validated per request rather than once at construction: the
 file a path names can be replaced while a host runs, and a check that happened
 only at boot would be a check about a file that is no longer there. The
 consequence is that on `node:22-slim`, `node:22-alpine`, or a distroless image
 the layer builds, the run starts, and the first guarded filesystem call inside a
-flow body fails `PermissionDenied`. Install `python3`, or point the adapter at
-the interpreter you do have:
-
-```ts
-import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
-
-const filesystem = AtomicFileSystem.layerWith({ executable: "/usr/local/bin/python3" })
-```
+flow body fails `PermissionDenied`. Build or install the helper, or point the
+adapter at it; see [Configure the filesystem helper](./guides/configure-the-filesystem-helper.md).
 
 ## Entry points
 
@@ -258,19 +251,18 @@ and replacement of the pinned root retain the same refusal checks.
 | Constant or constructor               | What it is                                                            |
 | ------------------------------------- | --------------------------------------------------------------------- |
 | `AtomicFileSystem.layer`              | the adapter with every default                                        |
-| `AtomicFileSystem.layerWith(options)` | the same, with the interpreter and the ceilings configured            |
-| `AtomicFileSystem.defaultExecutable`  | `/usr/bin/python3`                                                    |
+| `AtomicFileSystem.layerWith(options)` | the same, with the helper and the ceilings configured                 |
+| `AtomicFileSystem.defaultExecutable`  | `/usr/local/bin/smithers-jj-export`, the last path searched           |
 | `AtomicFileSystem.defaultLimits`      | 16 MiB content, 24 MiB request, 24 MiB response, 64 KiB helper stderr |
 | `AtomicFileSystem.defaultConcurrency` | `os.availableParallelism()`                                           |
 | `AtomicFileSystem.defaultTimeoutMs`   | 300000                                                                |
-| `AtomicFileSystem.program`            | the source text of the POSIX helper the adapter runs                  |
 
-**Cost.** Every operation is one CPython fork, roughly 130 ms on a current host.
+**Cost.** Every operation starts one helper process.
 That is the price of descriptor-relative confinement on a runtime with no
 `openat`, and it is why the adapter carries a process ceiling: without one, an
 `Effect.forEach(files, read, { concurrency: "unbounded" })` over fifty entries
-would start fifty interpreters at once. Batch a wide fan-out, or raise
-`concurrency` deliberately. A directory listing is one fork for the whole tree,
+would start fifty helpers at once. Batch a wide fan-out, or raise
+`concurrency` deliberately. A directory listing is one helper for the whole tree,
 so `readDirectory(root, { recursive: true })` costs far less than a read per
 entry.
 

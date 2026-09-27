@@ -8,8 +8,8 @@
  * very layer the Node bundle puts in its own filesystem slot.
  *
  * Two host prerequisites come with it: `@effect/platform-bun`, which both this
- * barrel and `@smthrs/platform-bun/BunHost` import at module load, and a
- * CPython 3 interpreter for the filesystem slot's descriptor-relative helper.
+ * barrel and `@smthrs/platform-bun/BunHost` import at module load, and the
+ * `smithers-jj-export` native helper for the filesystem slot.
  *
  * @since 1.0.0-rc.0
  */

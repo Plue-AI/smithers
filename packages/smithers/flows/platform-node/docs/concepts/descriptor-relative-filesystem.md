@@ -1,6 +1,6 @@
 ---
 title: "The descriptor-relative filesystem"
-description: "Why AtomicFileSystem runs every filesystem operation through a CPython helper, what confinement that buys, which operations it covers, and what it costs per call."
+description: "Why AtomicFileSystem runs every filesystem operation through the smithers-jj-export helper, what confinement that buys, which operations it covers, and what it costs per call."
 sidebar:
   order: 2
 ---
@@ -21,8 +21,8 @@ family). A descriptor names an inode, not a name, so a swap after the walk
 cannot redirect anything.
 
 Node's JavaScript filesystem API exposes none of that, and no root-handle
-equivalent. So `AtomicFileSystem` delegates each operation to a small CPython 3
-helper that does have it. For ordinary operations and batches, the helper walks
+equivalent. So `AtomicFileSystem` delegates each operation to the native
+`smithers-jj-export` helper, which does have it. For ordinary operations and batches, the helper walks
 from the filesystem root to the canonical workspace root using descriptor-relative
 `O_NOFOLLOW | O_DIRECTORY` opens for every component. It verifies the opened
 root's device/inode against the identity captured when the kernel layer was
@@ -81,24 +81,19 @@ for the raw `NodeHost.NodeFileSystem` outside the capability boundary.
 Wrapping that raw layer directly also fails closed, because it carries no
 atomic extension for the kernel to call.
 
-## Why an interpreter, and why that one
+## How the helper is started
 
-The helper is CPython 3 because it is the shortest path to `dir_fd` on a POSIX
-host that already has one installed. Three properties of how it is started are
-load-bearing:
+The helper is `smithers-jj-export --atomic-fs`, a Rust binary shipped with the
+package. Three properties of how it is started are load-bearing:
 
-- **Absolute path, never a `PATH` lookup.** Python's `-I` isolates the
-  interpreter only after one has been chosen. A `python3` planted in the
-  working directory or on an injected `PATH` would already have executed
-  arbitrary code inside the process that holds the pinned root descriptor.
-- **Isolated mode (`python3 -I`).** The host's working directory,
-  `PYTHONPATH`, and the user site directory stay off the module search path, so
-  a `base64.py` written into the very workspace the adapter is confining cannot
-  be imported. The trade-off is that `PYTHONHOME` is ignored too: an
-  interpreter that needs it fails closed like any other unusable helper.
-- **UTF-8 pinned (`-X utf8`).** The request, the response, and the filesystem
-  encoding are all UTF-8, so a host started under a legacy locale addresses the
-  same file and writes the same bytes as one started under a UTF-8 locale.
+- **Absolute path, never a `PATH` lookup.** A binary planted in the working
+  directory or on an injected `PATH` would run inside the process that holds
+  the pinned root descriptor.
+- **Outside the workspace.** The resolved executable must be an executable
+  regular file outside the confined root. A packaged helper is copied out of
+  the workspace before any flow runs.
+- **Inert process.** It starts with an empty environment and the filesystem
+  root as its working directory.
 
 Both directions of the protocol are length-framed and bounded, so neither a
 large file nor a malfunctioning helper can make the host allocate without
@@ -108,18 +103,18 @@ for the ceilings and how to change them.
 
 ## What it costs
 
-An ordinary operation starts one CPython helper. The guarded filesystem also
+An ordinary operation starts one helper. The guarded filesystem also
 offers `FileSystem.batch(fs)` from `@smthrs/kernel/FileSystem`: one helper
 serves up to 128 read requests against the same root descriptor. Requests may
 stat, list directories, expand host globs, or collect SHA-256 digests, optionally
 with file bytes. The helper exits after that request. There is no persistent
 process.
 
-- Prefer one recursive `readDirectory` (one fork for the whole tree) to a read
+- Prefer one recursive `readDirectory` (one helper for the whole tree) to a read
   per entry.
 - Use bounded batches for a wide fan-out. Without a ceiling, an
   `Effect.forEach(files, read, { concurrency: "unbounded" })` over fifty paths
-  would start fifty interpreters at once, which is why the adapter carries a
+  would start fifty helpers at once, which is why the adapter carries a
   process ceiling at all.
 
 Each batch member keeps its own canonical resource and grant check. Denied

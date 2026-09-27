@@ -351,7 +351,7 @@ const ps = (
     // the deadline for a process that ignores the signal, so a `TERM` the probe
     // can decline is not a deadline at all.
     killSignal: "SIGKILL",
-    // An empty-ish environment for the same reason the interpreter in
+    // An empty-ish environment for the same reason the helper in
     // `AtomicFileSystem` gets one: nothing the caller exported may change what
     // this answers. Pin both the column's spelling and its timezone; the parser
     // supplies UTC explicitly because `lstart` does not print a zone.

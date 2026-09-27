@@ -36,17 +36,16 @@ required peers, exactly as `package.json` declares them. Package managers that
 resolve required peers install all five automatically; all Effect versions are
 exact.
 
-The filesystem slot spawns a CPython 3 helper, so the host also needs a
-`python3` supporting `O_NOFOLLOW`, `O_DIRECTORY`, and `dir_fd` at
-`/usr/bin/python3`. A host that keeps it elsewhere builds the layer with
-`BunFileSystem.layerWith({ executable })`. Windows is unsupported.
+The filesystem slot spawns the `smithers-jj-export` native helper. From a
+source checkout, build it with:
 
-Smithers' Bun and Node control hosts, including the coding and product gateway
-hosts, accept the operator variable `SMITHERS_PYTHON3` at startup. Set it to an
-absolute CPython 3 path, such as `/run/current-system/sw/bin/python3` on NixOS.
-Unset or empty keeps `/usr/bin/python3`; a relative path fails startup with an
-error naming the variable. This is configuration, never a `PATH` search. Custom
-library compositions continue to use `BunFileSystem.layerWith({ executable })`.
+```sh
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+```
+
+Elsewhere, set `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to its absolute path, or
+build the layer with `BunFileSystem.layerWith({ executable })`. `PATH` is never
+searched. Windows is unsupported.
 
 ## Example
 
@@ -80,7 +79,7 @@ path and runner, with a separate cache for each spawner instance.
 | Module          | What it provides                                                                                                                                                                                                                             |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BunHost`       | The closed Host bundle: `layer`, `layerAt`, `layerContained`, `layerContainedAt`, and the `BunHostError` those two root-bound factories throw; re-exports `AtomicFileSystem`, `BunChildProcessSpawner`, `BunFileSystem`, and `BunHttpClient` |
-| `BunFileSystem` | `@smthrs/platform-node`'s atomic `FileSystem`, plus `layerWith` for a host whose python3 lives elsewhere                                                                                                                                     |
+| `BunFileSystem` | `@smthrs/platform-node`'s atomic `FileSystem`, plus `layerWith` for a host whose helper lives elsewhere                                                                                                                                      |
 
 Three variants change one slot each. `BunHost.layerAt(root)` binds version
 control to one absolute repository root instead of the process working

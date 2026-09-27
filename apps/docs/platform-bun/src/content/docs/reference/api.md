@@ -193,7 +193,7 @@ the host has one place to take it from:
 
 `AtomicFileSystem` is in the set for the same reason `NodeHost` re-exports it:
 it owns the only configuration escape hatch the filesystem slot has, and a Bun
-program whose python3 is not at `/usr/bin/python3` must reach
+program whose helper is elsewhere must reach
 `AtomicFileSystem.layerWith` without adding
 [`@smthrs/platform-node`](https://platform-node.smithers.sh/reference/api/) as a second dependency.
 
@@ -207,8 +207,8 @@ The filesystem slot on its own.
 | Export      | Signature                                 | Meaning                                                                                        |
 | ----------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `layer`     | `Layer<FileSystem>`                       | The filesystem slot, carrying the kernel's atomic host extension. Is `AtomicFileSystem.layer`. |
-| `layerWith` | `(options: Options) => Layer<FileSystem>` | The same filesystem against an explicitly configured interpreter and byte limits.              |
-| `Options`   | `AtomicFileSystem.Options`                | The interpreter, concurrency ceiling, timeout, and byte limits `layerWith` accepts.            |
+| `layerWith` | `(options: Options) => Layer<FileSystem>` | The same filesystem against an explicitly configured helper and byte limits.                   |
+| `Options`   | `AtomicFileSystem.Options`                | The helper, concurrency ceiling, timeout, and byte limits `layerWith` accepts.                 |
 
 `layer` is `@smthrs/platform-node`'s `AtomicFileSystem.layer`, the same value
 behind `NodeHost`'s filesystem slot, by identity and not by resemblance. It
@@ -217,12 +217,11 @@ carries the kernel's atomic host extension, so under
 descriptor-relative and no-follow instead of failing closed, and a symlink
 swapped in after authorization cannot redirect it.
 
-That extension executes its syscalls through a CPython 3 helper, which makes an
-interpreter a host prerequisite: a `python3` supporting `O_NOFOLLOW`,
-`O_DIRECTORY`, and `dir_fd` at `/usr/bin/python3`. Windows is unsupported.
+That extension executes its syscalls through the `smithers-jj-export` helper,
+a host prerequisite. Windows is unsupported.
 
-`layerWith` is the escape hatch for a host whose python3 is not at
-`/usr/bin/python3`, such as an alpine or nix image. `BunHost` re-exports the
+`layerWith` is the escape hatch for a host whose helper is outside the default
+search; `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` does the same without code. `BunHost` re-exports the
 same escape hatch as `AtomicFileSystem`, for parity with `NodeHost`.
 `executable` is re-validated per request, because the file it names can be
 replaced while the host runs; everything else is snapshotted when the layer is

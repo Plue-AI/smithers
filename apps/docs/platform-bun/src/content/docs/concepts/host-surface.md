@@ -123,9 +123,9 @@ every guarded path operation is refused with a typed `PermissionDenied` rather
 than falling back to a path-based call, because the fallback is the race the
 extension exists to prevent.
 
-That extension executes its syscalls in a CPython 3 subprocess rather than
-in-process, which is why the host needs an interpreter. See
-[Run where python3 is not at /usr/bin/python3](/guides/configure-the-filesystem-helper/).
+That extension executes its syscalls in a `smithers-jj-export` subprocess
+rather than in-process, which is why the host needs that helper. See
+[Configure the filesystem helper](/guides/configure-the-filesystem-helper/).
 
 ## Taking one service without the other four
 
@@ -143,7 +143,7 @@ BunHost.BunHttpClient
 
 `AtomicFileSystem` is in that set for a specific reason: it owns the only
 configuration escape hatch the filesystem slot has, and a Bun program whose
-python3 is not at `/usr/bin/python3` must be able to reach
+helper is elsewhere must be able to reach
 `AtomicFileSystem.layerWith` without adding
 [`@smthrs/platform-node`](https://platform-node.smithers.sh/reference/api/) as a second dependency.
 

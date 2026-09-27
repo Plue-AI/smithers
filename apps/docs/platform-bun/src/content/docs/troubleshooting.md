@@ -49,31 +49,30 @@ of the root, so a root taken from input cannot flood a log line. See
 
 ## PermissionDenied: descriptor-relative filesystem isolation failed closed
 
-**Symptom.** A guarded filesystem operation fails, naming the interpreter it
-could not use:
+**Symptom.** A guarded filesystem operation fails, naming the helper it
+could not find:
 
 ```text
 PlatformError: PermissionDenied: AtomicFileSystem.writeFileString (/tmp/work/x.txt):
 descriptor-relative filesystem isolation failed closed:
-Error: ENOENT: no such file or directory, realpath '/usr/bin/python3'
+Error: smithers-jj-export is missing; install @smthrs/platform-node with its native helper, ...
 ```
 
 **Cause.** The filesystem slot's no-follow extension executes its syscalls
-through a CPython 3 helper, and the interpreter it was told to spawn is
-missing, is not executable, or does not support `O_NOFOLLOW`, `O_DIRECTORY`,
-and `dir_fd`. The guard fails closed rather than falling back to a path-based
+through the `smithers-jj-export` helper, and no usable helper was found, or
+the one it was told to spawn is missing or not executable. The guard fails closed rather than falling back to a path-based
 operation, because a path-based fallback is exactly the symlink race the
 extension exists to prevent.
 
-**Fix.** Install a CPython 3 at `/usr/bin/python3`, or name the one you have
-with `BunFileSystem.layerWith({ executable })`. See
-[Run where python3 is not at /usr/bin/python3](/guides/configure-the-filesystem-helper/).
+**Fix.** Run `cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export`
+in a source checkout, or set `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to an
+absolute helper path. See
+[Configure the filesystem helper](/guides/configure-the-filesystem-helper/).
 
 This failure is unguarded-path-safe: it appears only under
 [`@smthrs/kernel`](https://kernel.smithers.sh/reference/api/)'s `FileSystem.layer`. A program that uses
 `BunFileSystem.layer` without the kernel's guard never starts the helper, so a
-missing interpreter goes unnoticed until the guard is composed. Check the
-interpreter at startup rather than at the first guarded write.
+missing helper goes unnoticed until the guard is composed.
 
 ## BadResource: Not a directory, on a path that exists
 

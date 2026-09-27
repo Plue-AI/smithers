@@ -93,7 +93,7 @@ const operand = (request: FramedRequest): string | undefined =>
 
 /**
  * A rejection carrying no errno is a transport or host failure — an absent
- * interpreter, a killed child, output that is not a helper result — and stays
+ * helper, a killed child, output that is not a helper result — and stays
  * `PermissionDenied` so the boundary fails closed rather than reporting a
  * benign-looking reason for an operation that never ran.
  * @private
@@ -122,7 +122,7 @@ export const failure = (
     syscall: rejection?.syscall ?? undefined,
     _tag: code === undefined ? "PermissionDenied" : reasons[code] ?? "Unknown",
     // The cause is repeated into the description because a fail-closed refusal
-    // that says only "failed closed" is unactionable: an absent interpreter, a
+    // that says only "failed closed" is unactionable: an absent helper, a
     // response over the limit, and a mangled frame all look alike otherwise.
     description: code === undefined
       ? `descriptor-relative filesystem isolation failed closed: ${String(cause)}`

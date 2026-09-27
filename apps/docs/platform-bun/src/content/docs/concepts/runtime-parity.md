@@ -75,8 +75,7 @@ system you deploy. The contained handle's POSIX
 are described in [Contain and reap child processes](/guides/contain-child-processes/).
 
 The filesystem is the exception worth holding on to. Its no-follow extension
-does not run in-process: it executes each guarded operation in a CPython 3
-subprocess, so the slot depends on an interpreter the host provides rather than
-on anything either runtime ships. Confirm `/usr/bin/python3` at startup rather
-than discovering it at the first guarded write. See
-[Run where python3 is not at /usr/bin/python3](/guides/configure-the-filesystem-helper/).
+does not run in-process: it executes each guarded operation in a
+`smithers-jj-export` subprocess, so the slot depends on that helper rather than
+on anything either runtime ships. See
+[Configure the filesystem helper](/guides/configure-the-filesystem-helper/).

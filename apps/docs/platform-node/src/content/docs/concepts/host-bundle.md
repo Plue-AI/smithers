@@ -107,7 +107,7 @@ call fails closed there. `ProcessReaper` still reaches `taskkill /T /F` through
 reaper that silently discarded records would be worse than one that says what
 it does. Treat it as unsupported best-effort.
 
-**There is no path-based fallback.** A host with no usable CPython 3 fails
+**There is no path-based fallback.** A host with no usable `smithers-jj-export` helper fails
 every guarded filesystem call with `PermissionDenied`. The adapter never
 degrades to a check-then-path operation, because that is exactly the race it
 exists to close.

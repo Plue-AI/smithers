@@ -41,7 +41,7 @@ Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 
 `@effect/platform-bun` is a required peer at exactly `4.0.0-rc.115`. Package
 managers install it with the other required Effect peers. The filesystem slot
-also needs a CPython 3 interpreter on the host, and every complete bundle needs
+also needs the `smithers-jj-export` helper, and every complete bundle needs
 jj 0.39.0 or later because it probes jj while the layer is built.
 [Installation](./installation.md) covers all three and the import forms.
 
@@ -107,8 +107,8 @@ that runs them is yours, and this package when that program runs on Bun.
 
 ## Where to go next
 
-- [Installation](./installation.md): the peer dependency, the CPython 3
-  interpreter, the supported runtimes, and the import forms.
+- [Installation](./installation.md): the peer dependency, the
+  `smithers-jj-export` helper, the supported runtimes, and the import forms.
 - [Quickstart](./quickstart.md): the program above, run twice, the second time
   with containment on and a child visible in the ledger.
 - [The Host surface on Bun](./concepts/host-surface.md): what each of the five

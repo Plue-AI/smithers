@@ -13,9 +13,8 @@ appear in, and disappear from, the process ledger.
 ## Prerequisites
 
 - Bun 1.4.0 or later, or Node.js 26.4.0 or later.
-- A CPython 3 interpreter at `/usr/bin/python3`. Confirm it with
-  `/usr/bin/python3 --version`. See [Installation](./installation.md) if yours
-  lives elsewhere.
+- The `smithers-jj-export` helper. See
+  [Installation](./installation.md#install-the-filesystem-helper).
 - [Jujutsu](https://jj-vcs.github.io) at jj 0.39.0 or later on `PATH`. Confirm
   it with `jj --version`. Neither program below touches `Jj`, but every
   complete bundle probes jj while the layer is built and fails with `JjError`

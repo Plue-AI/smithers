@@ -467,7 +467,7 @@ describe("Node atomic filesystem", () => {
     }))
 
   /**
-   * The interpreter is configuration, not discovery, so every unusable helper
+   * The helper is configuration, not discovery, so every unusable helper
    * is reached through the layer seam rather than by editing `PATH`.
    * The Rust helper tests pin the identity and framing cases; this
    * one only pins that an unusable helper never degrades into a path-based
