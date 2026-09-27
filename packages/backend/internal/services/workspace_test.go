@@ -110,6 +110,20 @@ func (m *mockWorkspaceQuerier) CreateWorkspace(ctx context.Context, arg db.Creat
 	return sampleDBWorkspace("ws-1"), nil
 }
 
+func (m *mockWorkspaceQuerier) IsOutsiderWorkspace(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockWorkspaceQuerier) MarkOutsiderWorkspace(context.Context, int64, string) error {
+	return nil
+}
+
+func (m *mockWorkspaceQuerier) IsOutsiderWorkspaceEgressSealed(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockWorkspaceQuerier) SealOutsiderWorkspaceEgress(context.Context, string) error { return nil }
+
 func (m *mockWorkspaceQuerier) GetWorkspace(ctx context.Context, id string) (db.Workspace, error) {
 	if m.getWorkspaceFn != nil {
 		return m.getWorkspaceFn(ctx, id)

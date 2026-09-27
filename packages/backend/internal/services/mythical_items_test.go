@@ -154,6 +154,7 @@ type fakeMythicalLanes struct {
 	owned   map[string]bool
 	// provision observes a bound lane where the real lanes start its box.
 	provision func(id string)
+	narrowed  []string
 }
 
 func (l *fakeMythicalLanes) Create(_ context.Context, _ db.Repository, _ string, _ int64, name string, bind func(string) error) (string, error) {
@@ -168,6 +169,13 @@ func (l *fakeMythicalLanes) Create(_ context.Context, _ db.Repository, _ string,
 	defer l.mu.Unlock()
 	l.created = append(l.created, id)
 	return id, nil
+}
+
+func (l *fakeMythicalLanes) NarrowOutsiderEgress(_ context.Context, id string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.narrowed = append(l.narrowed, id)
+	return nil
 }
 
 func (l *fakeMythicalLanes) Owned(_ context.Context, _, _ int64, id string) (bool, error) {

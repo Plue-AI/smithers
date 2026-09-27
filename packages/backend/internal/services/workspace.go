@@ -485,6 +485,13 @@ type UpdateWorkspaceHeadInput struct {
 // WorkspaceQuerier defines the minimal DB operations needed by WorkspaceService.
 type WorkspaceQuerier interface {
 	CreateWorkspace(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error)
+	// The permanent outsider mark (outsider_workspaces): a workspace that ran
+	// work started from an outsider's text, and whether its box is known to
+	// run only the egress that withholds GitHub conversation.
+	IsOutsiderWorkspace(ctx context.Context, workspaceID string) (bool, error)
+	MarkOutsiderWorkspace(ctx context.Context, repositoryID int64, workspaceID string) error
+	IsOutsiderWorkspaceEgressSealed(ctx context.Context, workspaceID string) (bool, error)
+	SealOutsiderWorkspaceEgress(ctx context.Context, workspaceID string) error
 	GetWorkspace(ctx context.Context, id string) (db.Workspace, error)
 	GetWorkspaceByRepo(ctx context.Context, arg db.GetWorkspaceByRepoParams) (db.Workspace, error)
 	GetWorkspaceForUserRepo(ctx context.Context, arg db.GetWorkspaceForUserRepoParams) (db.Workspace, error)

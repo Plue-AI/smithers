@@ -110,6 +110,17 @@ type SourceFilesBinder interface {
 	BindSourceFiles(SourceFiles)
 }
 
+// WorkspaceConversationEgress is a facet the product requires before
+// outsider-started work runs in a workspace (a run started from an
+// outsider's approved text works from that copy, never the live issue). From
+// the call on, the runtime runs the workspace's egress with
+// sandbox.ConversationWithheldHostRules: on its running box at once and on
+// every later create or start. It may be called before the workspace exists
+// and is idempotent.
+type WorkspaceConversationEgress interface {
+	WithholdConversationEgress(ctx context.Context, workspaceID string) error
+}
+
 // WorkspaceEnvironmentLinker is an optional facet. After the product
 // checkout, it finishes the workspace's prepared environment offline, for
 // example by linking dependencies from a prepared store.

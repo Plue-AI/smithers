@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // SuspendWorkspace suspends a running workspace.
@@ -777,37 +779,71 @@ func (s *WorkspaceService) refuseUnnarrowedOutsiderBox(ctx context.Context, work
 }
 
 // NarrowOutsiderEgress makes sure every proxy a marked workspace runs is
-// narrowed before outsider-started work runs on it: a box that booted before
-// the mark is suspended once (its next start computes the narrowed policy),
-// then the workspace is sealed so later runs skip the check.
+// narrowed before outsider-started work runs on it, then seals the
+// workspace so later runs skip the check. A workspace runtime narrows the
+// running box itself (WorkspaceConversationEgress). Otherwise a box that
+// booted before the mark is suspended once: its next start computes the
+// narrowed policy. A boot in flight is waited for.
 func (s *WorkspaceService) NarrowOutsiderEgress(ctx context.Context, workspaceID string) error {
-	sealer, ok := s.q.(outsiderEgressSealer)
-	if !ok {
-		return pkgerrors.Internal("workspace store cannot seal outsider egress")
-	}
-	sealed, err := sealer.IsOutsiderWorkspaceEgressSealed(ctx, workspaceID)
+	sealed, err := s.q.IsOutsiderWorkspaceEgressSealed(ctx, workspaceID)
 	if err != nil || sealed {
 		return err
+	}
+	if s.hasWorkspaceRuntime() {
+		// Creates and starts hold the workspace lock: none is in flight here,
+		// and one that was is visible as pending or starting below.
+		unlock := s.lockRuntimeWorkspace(workspaceID)
+		defer unlock()
 	}
 	workspace, err := s.q.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return err
+	}
+	if workspace.Status == "pending" || workspace.Status == "starting" {
+		// A boot in flight may have computed its policy before the mark.
+		return pkgerrors.Conflict("the workspace is starting; outsider-started work waits for it")
+	}
+	if s.hasWorkspaceRuntime() {
+		if err := s.withholdRuntimeConversation(ctx, workspace, workspace.UserID); err != nil {
+			return err
+		}
+		return s.q.SealOutsiderWorkspaceEgress(ctx, workspaceID)
 	}
 	switch workspace.Status {
 	case "running":
 		if err := s.suspendWorkspace(ctx, workspace); err != nil {
 			return err
 		}
-	case "pending", "starting":
-		// A boot in flight may have computed its policy before the mark.
-		return pkgerrors.Conflict("the workspace is starting; outsider-started work waits for it")
 	}
-	return sealer.SealOutsiderWorkspaceEgress(ctx, workspaceID)
+	return s.q.SealOutsiderWorkspaceEgress(ctx, workspaceID)
 }
 
-type outsiderEgressSealer interface {
-	IsOutsiderWorkspaceEgressSealed(ctx context.Context, workspaceID string) (bool, error)
-	SealOutsiderWorkspaceEgress(ctx context.Context, workspaceID string) error
+// withholdRuntimeConversation has the workspace runtime run a marked
+// workspace's egress without GitHub conversation, before it creates or
+// starts the box and before outsider-started work runs on it. A runtime
+// that cannot fails the operation closed.
+func (s *WorkspaceService) withholdRuntimeConversation(ctx context.Context, row db.Workspace, requesterID int64) error {
+	outsider, err := s.outsiderWorkspace(ctx, row.ID)
+	if err != nil {
+		return pkgerrors.Internal("read the workspace's outsider mark").WithCause(err)
+	}
+	if !outsider {
+		return nil
+	}
+	egress, ok := s.runtime.(workspaceapi.WorkspaceConversationEgress)
+	if !ok {
+		return pkgerrors.Conflict("this workspace runtime cannot withhold GitHub conversation from outsider-started work")
+	}
+	// A fresh operation each time: a retry after a failure is not a replay.
+	operationCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID,
+		workspaceLifecycleOperation(row, "withhold-conversation:"+strconv.FormatInt(time.Now().UnixNano(), 10)))
+	if err != nil {
+		return err
+	}
+	if err := egress.WithholdConversationEgress(operationCtx, row.ID); err != nil {
+		return pkgerrors.Internal("withhold GitHub conversation from the workspace's egress").WithCause(err)
+	}
+	return nil
 }
 
 func (s *WorkspaceService) suspendWorkspace(ctx context.Context, workspace db.Workspace) (retErr error) {

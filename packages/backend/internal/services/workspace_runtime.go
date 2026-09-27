@@ -209,6 +209,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		if contextErr != nil {
 			return row, contextErr
 		}
+		if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
+			return row, err
+		}
 		observed, err = s.runtime.CreateWorkspace(createCtx, s.runtimeWorkspaceSpec(ctx, row))
 	} else {
 		observed, err = s.runtime.InspectWorkspace(operationCtx, row.ID)
@@ -239,6 +242,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		startCtx, contextErr := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "start"))
 		if contextErr != nil {
 			return row, contextErr
+		}
+		if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
+			return row, err
 		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
 		if err != nil {
@@ -327,6 +333,9 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	if err != nil {
 		return row, err
 	}
+	if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
+		return row, err
+	}
 	observed, err := snapshots.ForkColdSnapshot(operationCtx, snapshot.SnapshotID, workspaceapi.WorkspaceSpec{ID: row.ID})
 	if err != nil {
 		return row, pkgerrors.Internal("restore workspace snapshot: " + err.Error())
@@ -347,6 +356,9 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 		startCtx, contextErr := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "start-restored-snapshot:"+snapshot.ID))
 		if contextErr != nil {
 			return row, contextErr
+		}
+		if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
+			return row, err
 		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
 		if err != nil {
@@ -462,6 +474,13 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 		s.markWorkspaceProvisionFailed(ctx, created, err)
 		return WorkspaceResponse{}, err
 	}
+	if err = s.inheritOutsiderMark(ctx, created, source); err == nil {
+		err = s.withholdRuntimeConversation(ctx, created, input.UserID)
+	}
+	if err != nil {
+		s.markWorkspaceProvisionFailed(ctx, created, err)
+		return WorkspaceResponse{}, err
+	}
 	observed, err := snapshots.ForkColdSnapshot(forkCtx, temporarySnapshotID, workspaceapi.WorkspaceSpec{ID: created.ID})
 	if err != nil {
 		err = pkgerrors.Internal("fork workspace runtime: " + err.Error())
@@ -488,7 +507,9 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 			s.markWorkspaceProvisionFailed(ctx, created, contextErr)
 			return WorkspaceResponse{}, contextErr
 		}
-		observed, err = s.runtime.StartWorkspace(startCtx, created.ID)
+		if err = s.withholdRuntimeConversation(ctx, created, input.UserID); err == nil {
+			observed, err = s.runtime.StartWorkspace(startCtx, created.ID)
+		}
 		if err != nil {
 			err = pkgerrors.Internal("start forked workspace runtime: " + err.Error())
 			s.markWorkspaceProvisionFailed(ctx, created, err)

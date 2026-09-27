@@ -429,25 +429,20 @@ type workspaceProxyBoundSecretsLoader interface {
 	LoadProxyBoundSecrets(ctx context.Context, repositoryID int64) ([]sandbox.EgressProxySecret, error)
 }
 
-// outsiderWorkspaceReader reads the permanent outsider_workspaces mark.
-type outsiderWorkspaceReader interface {
-	IsOutsiderWorkspace(ctx context.Context, workspaceID string) (bool, error)
-}
-
 // outsiderWorkspace reports whether a workspace ran work started from an
-// outsider's text. A store that cannot hold the mark has no marked workspace.
+// outsider's text.
 func (s *WorkspaceService) outsiderWorkspace(ctx context.Context, workspaceID string) (bool, error) {
-	reader, ok := s.q.(outsiderWorkspaceReader)
-	if !ok || strings.TrimSpace(workspaceID) == "" {
+	if strings.TrimSpace(workspaceID) == "" {
 		return false, nil
 	}
-	return reader.IsOutsiderWorkspace(ctx, workspaceID)
+	return s.q.IsOutsiderWorkspace(ctx, workspaceID)
 }
 
-// outsiderFork reports whether either side of a fork ran, or is to run,
-// outsider-started work (or its mark cannot be read). Such a workspace boots
-// cold: a fork would carry the other box's disk, and any person's credential
-// stored there, across that line.
+// outsiderFork reports whether either side of an implicit fork (a derived
+// or agent workspace from the primary) ran, or is to run, outsider-started
+// work, or its mark cannot be read. Such a workspace boots cold: a fork would
+// carry the other box's disk, and any person's credential stored there,
+// across that line.
 func (s *WorkspaceService) outsiderFork(ctx context.Context, child, source db.Workspace) bool {
 	for _, id := range []string{child.ID, source.ID} {
 		if outsider, err := s.outsiderWorkspace(ctx, id); err != nil || outsider {
@@ -455,6 +450,20 @@ func (s *WorkspaceService) outsiderFork(ctx context.Context, child, source db.Wo
 		}
 	}
 	return false
+}
+
+// inheritOutsiderMark marks a requested fork of a marked workspace: it
+// carries that box's disk. The fork has no box yet, so every boot it gets
+// computes the narrowed egress, and it is sealed at once.
+func (s *WorkspaceService) inheritOutsiderMark(ctx context.Context, child, source db.Workspace) error {
+	outsider, err := s.outsiderWorkspace(ctx, source.ID)
+	if err != nil || !outsider {
+		return err
+	}
+	if err := s.q.MarkOutsiderWorkspace(ctx, child.RepositoryID, child.ID); err != nil {
+		return err
+	}
+	return s.q.SealOutsiderWorkspaceEgress(ctx, child.ID)
 }
 
 // workspaceEgressProxy builds the egress-proxy policy for a workspace VM.
@@ -2097,8 +2106,9 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 		// sandbox for the session. The source row is never mutated.
 		return s.provisionForkVMOnEmptySource(ctx, workspace)
 	}
-	if s.outsiderFork(ctx, workspace, source) {
-		return s.provisionForkVMOnEmptySource(ctx, workspace)
+	if err := s.inheritOutsiderMark(ctx, workspace, source); err != nil {
+		s.markWorkspaceProvisionFailed(ctx, workspace, err)
+		return workspace, err
 	}
 	if !workspaceKindForksCleanly(source.Kind) || !workspaceKindForksCleanly(workspace.Kind) {
 		// A NixOS guest cannot be forked (see workspaceKindForksCleanly): the

@@ -12,6 +12,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 type outsiderMarkedWorkspaceQuerier struct {
@@ -220,4 +221,63 @@ func TestResumeNarrowsAMarkedBoxAndRefusesOneThatPredatesTheMark(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, applied, "the policy was computed before the mark")
 	assert.Equal(t, 1, suspended)
+}
+
+type conversationRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	calls []string
+}
+
+func (r *conversationRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceStopped}, nil
+}
+
+func (r *conversationRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
+	return workspaceapi.WorkspaceCapabilities{}
+}
+
+func (r *conversationRuntime) StartWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	r.calls = append(r.calls, "start "+id)
+	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceRunning}, nil
+}
+
+type withholdingRuntime struct{ conversationRuntime }
+
+func (r *withholdingRuntime) WithholdConversationEgress(_ context.Context, id string) error {
+	r.calls = append(r.calls, "withhold "+id)
+	return nil
+}
+
+// On a workspace runtime the runtime owns the box's proxy: a marked
+// workspace starts only after the runtime withholds GitHub conversation
+// from its egress, and a runtime that cannot refuses the start. A repository
+// job's running box is narrowed by the runtime, then sealed.
+func TestWorkspaceRuntimeWithholdsConversationBeforeAMarkedBoxStarts(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	row := sampleDBWorkspace("ws-box")
+	row.Status, row.VmID = "suspended", "vm-box"
+
+	plain := &conversationRuntime{}
+	q := &outsiderSealQuerier{}
+	service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(plain))
+	_, err := service.ensureRuntimeWorkspaceRunningLocked(ctx, row, row.UserID)
+	require.Error(t, err)
+	assert.Empty(t, plain.calls, "no box starts without the narrowed egress")
+	require.Error(t, service.NarrowOutsiderEgress(ctx, row.ID))
+	assert.False(t, q.sealed)
+
+	withholding := &withholdingRuntime{}
+	q = &outsiderSealQuerier{}
+	service = newWorkspaceServiceForTests(q, WithWorkspaceRuntime(withholding))
+	// The fake runtime starts the box and stops short of a repository.
+	_, _ = service.ensureRuntimeWorkspaceRunningLocked(ctx, row, row.UserID)
+	require.NoError(t, service.NarrowOutsiderEgress(ctx, row.ID))
+	assert.True(t, q.sealed)
+	assert.Equal(t, []string{"withhold ws-box", "start ws-box", "withhold ws-box"}, withholding.calls)
+
+	maintainer := &conversationRuntime{}
+	service = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(maintainer))
+	_, _ = service.ensureRuntimeWorkspaceRunningLocked(ctx, row, row.UserID)
+	assert.Equal(t, []string{"start ws-box"}, maintainer.calls, "an unmarked workspace needs nothing of its runtime")
 }

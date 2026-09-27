@@ -72,6 +72,9 @@ type mythicalLanes interface {
 	Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, bind func(workspaceID string) error) (string, error)
 	Delete(ctx context.Context, repositoryID, actorUserID int64, workspaceID string) error
 	Owned(ctx context.Context, repositoryID, userID int64, workspaceID string) (bool, error)
+	// NarrowOutsiderEgress narrows a marked lane's running box
+	// (WorkspaceService.NarrowOutsiderEgress).
+	NarrowOutsiderEgress(ctx context.Context, workspaceID string) error
 }
 
 // SetOrchestration connects the item machinery: GitHub, Flow launches and
@@ -999,8 +1002,12 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 		case err == nil && bound.RetiredAt.Valid:
 			continue
 		case err == nil && item.Outsider:
-			// A lane bound before its item was known to be an outsider's.
-			return bound.WorkspaceID, q.MarkOutsiderWorkspace(ctx, r.row.RepositoryID, bound.WorkspaceID)
+			// A lane bound before its item was known to be an outsider's:
+			// its box may be running with the full egress.
+			if err := q.MarkOutsiderWorkspace(ctx, r.row.RepositoryID, bound.WorkspaceID); err != nil {
+				return "", err
+			}
+			return bound.WorkspaceID, s.lanes.NarrowOutsiderEgress(ctx, bound.WorkspaceID)
 		case err == nil:
 			return bound.WorkspaceID, nil
 		case !errors.Is(err, pgx.ErrNoRows):
@@ -1017,6 +1024,10 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 			// read no issue or conversation (middleware.ConversationWithheld).
 			if item.Outsider {
 				if err := q.MarkOutsiderWorkspace(ctx, r.row.RepositoryID, workspaceID); err != nil {
+					return err
+				}
+				// No box exists yet: every boot it gets is narrowed.
+				if err := q.SealOutsiderWorkspaceEgress(ctx, workspaceID); err != nil {
 					return err
 				}
 			}
@@ -1674,6 +1685,13 @@ func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repos
 	l.workspaces.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{RepositoryID: repository.ID, UserID: actorUserID,
 		RepoOwner: owner, RepoName: repository.Name, SourceBookmark: MythicalBookmark})
 	return workspace.ID, nil
+}
+
+func (l *workspaceMythicalLanes) NarrowOutsiderEgress(ctx context.Context, workspaceID string) error {
+	if l == nil || l.workspaces == nil || l.workspaces.q == nil {
+		return pkgerrors.Internal("workspaces are unavailable")
+	}
+	return l.workspaces.NarrowOutsiderEgress(ctx, workspaceID)
 }
 
 func (l *workspaceMythicalLanes) Owned(ctx context.Context, repositoryID, userID int64, workspaceID string) (bool, error) {

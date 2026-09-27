@@ -1882,7 +1882,7 @@ func buildRouter(
 				r.Use(middleware.SearchRateLimit(queries))
 
 				r.With(middleware.RequireTokenScope(middleware.ScopeReadRepository)).Get("/repositories", searchHandler.SearchRepositories)
-				r.With(middleware.RequireTokenScope(middleware.ScopeReadRepository)).Get("/issues", searchHandler.SearchIssues)
+				r.With(middleware.RequireTokenScope(middleware.ScopeReadRepository), withholdConversation).Get("/issues", searchHandler.SearchIssues)
 				r.With(middleware.RequireTokenScope(middleware.ScopeReadUser)).Get("/users", searchHandler.SearchUsers)
 				r.With(middleware.RequireTokenScope(middleware.ScopeReadRepository)).Get("/code", searchHandler.SearchCode)
 			})

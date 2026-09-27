@@ -401,6 +401,12 @@ func (r *Runtime) WorkspaceIsolation(ctx context.Context, workspaceID string) (w
 	}, nil
 }
 
+// WithholdConversationEgress holds by construction: a workspace VM reaches
+// only the backend's own host ports, never GitHub.
+func (r *Runtime) WithholdConversationEgress(context.Context, string) error { return nil }
+
+var _ workspaceapi.WorkspaceConversationEgress = (*Runtime)(nil)
+
 func describe(ws *workspace) workspaceapi.Workspace {
 	return workspaceapi.Workspace{ID: ws.ID, Root: guestRoot, Home: guestHome, StateDir: guestStateDir, TempDir: guestTempDir,
 		State: workspaceapi.WorkspaceState(ws.State)}
