@@ -120,6 +120,7 @@ export const IssueListCardBody = ({
   const { repo, filter, issues, github } = card.payload
   const kind = card.payload.kind ?? "all"
   const open = issues.filter((issue) => issue.state !== "closed").length
+  const noun = kind === "conversation" ? "conversations" : "issues"
   /* Conversations and issues (smithers-ui-DESIGN.md §3.1): the kind chips re-invoke issues.list with the same state and repository. */
   const kindArgs = (next: "all" | "conversation" | "issue") => flowArgs("issues.list", { filter, repo, kind: next })
   return (
@@ -152,7 +153,7 @@ export const IssueListCardBody = ({
           <p className="world-card-empty ghc-empty">
             <Octicon name="issue-opened" size={24} />
             <span>
-              {card.body ?? (filter === "all" ? `No issues in ${repoLabel(repo)}.` : `No ${filter} issues in ${repoLabel(repo)}.`)}
+              {card.body ?? (filter === "all" ? `No ${noun} in ${repoLabel(repo)}.` : `No ${filter} ${noun} in ${repoLabel(repo)}.`)}
             </span>
           </p>
         ) :

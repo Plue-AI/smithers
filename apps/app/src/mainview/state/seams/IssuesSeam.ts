@@ -590,7 +590,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         payload: { repo, filter, issues, ...(kind === "all" ? {} : { kind }), ...(github.meta === undefined ? {} : { github: github.meta }) }
       }
       return { card, ...readResult(issues.length === 0
-        ? `No ${filter === "all" ? "" : `${filter} `}issues in ${repo}${github.meta?.refusal ? ` (GitHub: ${github.meta.refusal})` : ""}.`
+        ? `No ${filter === "all" ? "" : `${filter} `}${kind === "conversation" ? "conversations" : "issues"} in ${repo}${github.meta?.refusal ? ` (GitHub: ${github.meta.refusal})` : ""}.`
         : issues.map((issue) => issueRowValue(issue)).join("\n")) }
     } }
   })

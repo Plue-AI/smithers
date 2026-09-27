@@ -17,9 +17,10 @@ repository means:
 2. otherwise the selected working copy, when it is a box of that repository;
 3. otherwise the repository's default box (`RepoContext.repositoryBoxOf`, the
    same selection code intelligence uses): exactly one running box is the
-   answer. Several running boxes answer "Select a box of <repo> first.", a
-   suspended or stopped one "Resume a box of <repo> first: /box.resume <id>",
-   one still starting "A box of <repo> is starting.", and none
+   answer. With none running, the one suspended or stopped box is the answer
+   and the call resumes it. Several running boxes, or several suspended or
+   stopped ones, answer "Select a box of <repo> first.", one still starting
+   "A box of <repo> is starting.", and none
    "Open a box of <repo> first: /box.open <repo>".
 
 Repository jobs and the trigger registrar use the box their setups recorded,

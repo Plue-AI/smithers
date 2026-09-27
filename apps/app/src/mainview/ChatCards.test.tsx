@@ -129,3 +129,14 @@ test("mounted repository updates derive versioned reads and current tags for sav
     else reactEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
   }
 })
+
+test("a conversations list is headed Conversations; every other issue list is headed Issues", () => {
+  const list = (kind?: "conversation" | "issue") => CardSchema.parse({ id: "issues", kind: "issue-list", title: "Issues", status: "active", ordinal: 1, createdAt: 1,
+    payload: { repo: "will/flows", filter: "open", issues: [], ...(kind === undefined ? {} : { kind }) } })
+  const { host, render } = mount({ card: list("conversation") })
+  expect(host.querySelector(".smithers-card-title")?.textContent).toBe("Conversations")
+  for (const kind of [undefined, "issue"] as const) {
+    render({ card: list(kind) })
+    expect(host.querySelector(".smithers-card-title")?.textContent).toBe("Issues")
+  }
+})

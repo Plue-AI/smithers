@@ -88,3 +88,11 @@ test("the assignee section distinguishes an unknown read from known unassigned",
   expect(known.textContent).toContain("Assignees")
   expect(known.textContent).toContain("No one assigned")
 })
+
+test("an empty conversations list says conversations, not issues", () => {
+  const card: Extract<Card, { kind: "issue-list" }> = { ...base, kind: "issue-list", payload: { repo: "will/flows", filter: "open", kind: "conversation", issues: [] } }
+  const host = render(<IssueListCardBody card={card} onRunCommand={() => {}} />)
+  expect(host.querySelector(".ghc-empty")?.textContent).toBe("No open conversations in will/flows.")
+  const issues = render(<IssueListCardBody card={{ ...card, payload: { ...card.payload, kind: "issue" } }} onRunCommand={() => {}} />)
+  expect(issues.querySelector(".ghc-empty")?.textContent).toBe("No open issues in will/flows.")
+})
