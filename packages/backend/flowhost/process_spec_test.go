@@ -101,3 +101,18 @@ func TestCatalogRefusesDatabaseCredentials(t *testing.T) {
 		assert.NotContains(t, err.Error(), "secret")
 	}
 }
+
+// A repository command can read its host's environment; a raw provider key
+// there hands the operator's key to the repository (#2187). Seats reach the
+// host only as the per-binding credential BuildProcessSpec derives.
+func TestCatalogRefusesProviderCredentials(t *testing.T) {
+	for _, name := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_API_KEY", "CEREBRAS_API_KEY",
+		"OPENROUTER_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_CODEX_ACCESS_TOKEN", "HF_API_TOKEN"} {
+		catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+			ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding",
+			Environment: map[string]string{name: "sk-operator-secret"}}
+		_, err := validateCatalog(catalog)
+		require.ErrorContains(t, err, "provider credential "+name)
+		assert.NotContains(t, err.Error(), "sk-operator-secret")
+	}
+}

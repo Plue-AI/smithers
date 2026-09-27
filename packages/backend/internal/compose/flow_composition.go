@@ -125,8 +125,11 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	return &flowComposition{jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
 }
 
+// codingHostEnvironment carries no model credential or provider origin in
+// any topology: a host shares its workspace (and, in microVM mode, its guest
+// user) with repository commands, so its model seats come only from the
+// catalog's metered proxy with a per-binding credential (#2187).
 func codingHostEnvironment(role topology) map[string]string {
-	// A hosted host's model seats come from the catalog's model proxy.
 	environment := make(map[string]string)
 	for _, name := range []string{"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "SMITHERS_JJ_PATH"} {
 		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
@@ -135,11 +138,6 @@ func codingHostEnvironment(role topology) map[string]string {
 	}
 	if !role.hosted() {
 		environment["SMITHERS_CODING_LOCAL_OWNER"] = "1"
-		for _, name := range []string{"OPENAI_API_KEY", "AI_GATEWAY_API_KEY", "SMITHERS_OPENAI_COMPATIBLE_BASE_URL", "SMITHERS_EVALUATOR_BASE_URL"} {
-			if value := strings.TrimSpace(os.Getenv(name)); value != "" {
-				environment[name] = value
-			}
-		}
 	}
 	return environment
 }

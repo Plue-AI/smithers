@@ -17,6 +17,7 @@ restored_data_volume="${prefix}-data-restored"
 postgres_volume="${prefix}-pg"
 restored_postgres_volume="${prefix}-pg-restored"
 backup_volume="${prefix}-backups"
+keys_volume="${prefix}-keys"
 database_user=smithers
 database_name=smithers
 database_password="issue12-${suffix}"
@@ -76,7 +77,7 @@ NODE
   fi
   docker rm -f "$app" "$restored_app" "$refusal_app" "$provider" "$postgres" "$restored_postgres" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
-  docker volume rm "$data_volume" "$restored_data_volume" "$postgres_volume" "$restored_postgres_volume" "$backup_volume" >/dev/null 2>&1 || true
+  docker volume rm "$data_volume" "$restored_data_volume" "$postgres_volume" "$restored_postgres_volume" "$backup_volume" "$keys_volume" >/dev/null 2>&1 || true
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -135,16 +136,17 @@ database_url() {
 
 start_app() {
   local name=$1 volume=$2 database_host=$3
+  # Flow hosts never see a provider key: they reach the fake provider through
+  # the backend's metered model proxy with a per-binding credential (#2187).
   docker run -d --name "$name" --network "$network" \
     --cap-drop ALL --security-opt no-new-privileges \
     -p 127.0.0.1::4000 \
     -e DATABASE_URL="$(database_url "$database_host")" \
     -e SMITHERS_AUTH_BOOTSTRAP_TOKEN="$bootstrap_token" \
-    -e SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL=openai:scripted \
-    -e OPENAI_API_KEY=scripted-provider-key \
-    -e AI_GATEWAY_API_KEY=scripted-evaluator-key \
-    -e "SMITHERS_OPENAI_COMPATIBLE_BASE_URL=http://$provider:8080" \
-    -e "SMITHERS_EVALUATOR_BASE_URL=http://$provider:8080/evaluate" \
+    -e SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL=cerebras:gpt-oss-120b \
+    -e SMITHERS_PLATFORM_MODEL_KEYS_FILE=/etc/smithers-keys/platform-model-keys.json \
+    -v "$keys_volume:/etc/smithers-keys:ro" \
+    -e "SMITHERS_MODEL_PROXY_UPSTREAMS={\"cerebras\":\"http://$provider:8080\",\"vercel\":\"http://$provider:8080\"}" \
     -v "$volume:/var/lib/smithers" \
     "$image" >/dev/null
 }
@@ -160,7 +162,7 @@ if [ "${SMITHERS_DOCKER_SKIP_BUILD:-0}" != 1 ]; then
 fi
 
 docker network create "$network" >/dev/null
-for volume in "$data_volume" "$restored_data_volume" "$postgres_volume" "$restored_postgres_volume" "$backup_volume"; do
+for volume in "$data_volume" "$restored_data_volume" "$postgres_volume" "$restored_postgres_volume" "$backup_volume" "$keys_volume"; do
   docker volume create "$volume" >/dev/null
 done
 docker run -d --name "$provider" --network "$network" --no-healthcheck \
@@ -168,6 +170,9 @@ docker run -d --name "$provider" --network "$network" --no-healthcheck \
   --entrypoint /opt/smithers/bin/node "$image" /provider.mjs >/dev/null
 docker run --rm --user 0 -v "$backup_volume:/backups" \
   --entrypoint /bin/sh "$image" -eu -c 'chown smithers:smithers /backups; chmod 0700 /backups'
+printf '%s' '{"cerebras":"scripted-provider-key","vercel":"scripted-evaluator-key"}' |
+  docker run --rm -i --user 0 -v "$keys_volume:/keys" --entrypoint /bin/sh "$image" -eu -c \
+    'umask 077; cat >/keys/platform-model-keys.json; chown smithers:smithers /keys/platform-model-keys.json'
 
 
 start_postgres "$postgres" "$postgres_volume"
@@ -248,6 +253,7 @@ token_response=$(curl -fsS -X POST "$origin/api/auth/local/token" \
   --data "{\"username\":\"$owner_username\",\"password\":\"$owner_password\",\"name\":\"distribution-acceptance\"}")
 api_token=$(printf '%s' "$token_response" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 test -n "$api_token"
+docker exec "$app" /opt/smithers/bin/smithers-backend credits grant -owner "user:$owner_username" -usd 5 -key distribution-acceptance >/dev/null
 created_repository=$(curl -fsS -X POST "$origin/api/user/repos" \
   -H 'Content-Type: application/json' \
   -H "Authorization: token $api_token" \

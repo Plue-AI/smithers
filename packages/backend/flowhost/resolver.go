@@ -40,6 +40,18 @@ var databaseEnvironment = map[string]struct{}{
 	"SMITHERS_DATABASE_URL": {}, "SMITHERS_BACKEND": {},
 }
 
+// Provider credentials reach a host only as the per-binding model credential
+// BuildProcessSpec derives for the catalog's proxy seats. A raw provider key
+// in the catalog environment would be readable by repository commands (#2187).
+func providerCredentialName(name string) bool {
+	for _, suffix := range []string{"_API_KEY", "_API_TOKEN", "_AUTH_TOKEN", "_OAUTH_TOKEN", "_ACCESS_TOKEN"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 type Resolver struct {
 	store    BindingStore
 	targets  TargetResolver
@@ -105,6 +117,9 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 		}
 		if _, database := databaseEnvironment[name]; database {
 			return Catalog{}, fmt.Errorf("flow host catalog %q environment carries database configuration %s", catalog.Key, name)
+		}
+		if providerCredentialName(name) {
+			return Catalog{}, fmt.Errorf("flow host catalog %q environment carries provider credential %s; use platform model keys", catalog.Key, name)
 		}
 		copyEnvironment[name] = value
 	}

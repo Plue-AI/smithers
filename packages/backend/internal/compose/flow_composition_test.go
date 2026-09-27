@@ -1,40 +1,32 @@
 package compose
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-func TestCodingHostEnvironmentKeepsOwnerProviderInsideLocalRuntime(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "owner-key")
-	t.Setenv("AI_GATEWAY_API_KEY", "judge-key")
-	t.Setenv("SMITHERS_OPENAI_COMPATIBLE_BASE_URL", "http://provider:8080")
-	t.Setenv("SMITHERS_EVALUATOR_BASE_URL", "http://provider:8080/evaluate")
+// A Flow host shares its workspace (and, in microVM mode, its guest user)
+// with repository commands, so its environment must never carry a provider
+// key in any topology: model seats come from the catalog's metered proxy
+// with a per-binding credential (#2187). Only variable names are inspected.
+func TestFlowHostsCarryNoProviderKeyInAnyTopology(t *testing.T) {
+	names := []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
+		"SMITHERS_OPENAI_COMPATIBLE_BASE_URL", "SMITHERS_EVALUATOR_BASE_URL"}
+	for _, name := range names {
+		t.Setenv(name, "set-by-operator")
+	}
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "/opt/smithers/bin/smithers-jj-export")
-	local := codingHostEnvironment(localTopology)
-	if local["OPENAI_API_KEY"] != "owner-key" || local["SMITHERS_OPENAI_COMPATIBLE_BASE_URL"] != "http://provider:8080" || local["SMITHERS_CODING_LOCAL_OWNER"] != "1" {
-		t.Fatalf("local coding host lost owner model configuration: %#v", local)
-	}
-	hosted := codingHostEnvironment(hostedWorkerTopology)
-	if _, ok := hosted["OPENAI_API_KEY"]; ok {
-		t.Fatal("hosted catalog forwarded the owner's model key")
-	}
-	if hosted["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] != "/opt/smithers/bin/smithers-jj-export" {
-		t.Fatal("coding host lost the packaged Rust helper path")
-	}
-}
-
-func TestHostedFlowHostsCarryNoOperatorModelKey(t *testing.T) {
-	t.Setenv("AI_GATEWAY_API_KEY", "operator-secret-must-stay-out-of-guest")
-	t.Setenv("OPENAI_API_KEY", "operator-secret-must-stay-out-of-guest")
-	for _, role := range []topology{hostedAPITopology, hostedWorkerTopology} {
-		for _, environment := range []map[string]string{codingHostEnvironment(role)} {
-			for name, value := range environment {
-				if strings.Contains(value, "operator-secret") || name == "AI_GATEWAY_API_KEY" {
-					t.Fatalf("%+v Flow host environment carries %s; its model seats come from the metered proxy", role, name)
-				}
+	for _, role := range []topology{localTopology, hostedAPITopology, hostedWorkerTopology} {
+		environment := codingHostEnvironment(role)
+		if environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] != "/opt/smithers/bin/smithers-jj-export" {
+			t.Errorf("%+v coding host lost the packaged Rust helper path", role)
+		}
+		for _, name := range names {
+			if _, ok := environment[name]; ok {
+				t.Errorf("%+v coding Flow host environment carries %s", role, name)
 			}
 		}
+	}
+	local := codingHostEnvironment(localTopology)
+	if local["SMITHERS_CODING_LOCAL_OWNER"] != "1" {
+		t.Fatal("local coding host lost its local owner mode")
 	}
 }
 

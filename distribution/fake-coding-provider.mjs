@@ -23,10 +23,12 @@ const server = createServer(async (request, response) => {
     response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
     response.write(`data: ${JSON.stringify({ id: "chatcmpl-coding-proof", choices: [{ index: 0, delta: { role: "assistant", content: cell }, finish_reason: null }] })}\n\n`)
     response.write(`data: ${JSON.stringify({ id: "chatcmpl-coding-proof", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`)
+    // The metered model proxy settles the call from this usage report.
+    response.write(`data: ${JSON.stringify({ id: "chatcmpl-coding-proof", choices: [], usage: { prompt_tokens: 100, completion_tokens: 100, total_tokens: 200 } })}\n\n`)
     response.end("data: [DONE]\n\n")
     return
   }
-  if (request.method === "POST" && request.url === "/evaluate") {
+  if (request.method === "POST" && request.url === "/v4/ai/evaluation-model") {
     const answers = Object.fromEntries(Object.entries(input.questions ?? {}).map(([name, question]) => {
       if (question.type !== "boolean") throw new Error(`unexpected evaluation type: ${question.type}`)
       return [name, { type: "boolean", probability: name === "complete" ? 0.99 : 0.01 }]

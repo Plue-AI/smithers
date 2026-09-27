@@ -35,7 +35,9 @@ EOF
 echo SMITHERS_PLATFORM_MODEL_KEYS_FILE=/var/lib/smithers/config/platform-model-keys.json >>smithers.env
 ```
 
-Then remove the container and run it again with the same `docker run` command, which reads `smithers.env`; do the same after changing the set of providers. Startup fails if the file is readable by other users, is not a JSON object, names an unknown provider or holds a placeholder. Each call reads its key from the file, so a replaced key applies to the next call without a restart. Keys are never logged or placed in a guest's environment: guests reach the providers through the backend's metered model proxy with a Smithers credential. Local jobs are trusted processes of the same user, so they are not a boundary against the owner's own code reading the file.
+Then remove the container and run it again with the same `docker run` command, which reads `smithers.env`; do the same after changing the set of providers. Startup fails if the file is readable by other users, is not a JSON object, names an unknown provider or holds a placeholder. Each call reads its key from the file, so a replaced key applies to the next call without a restart. Keys are never logged or placed in a guest's or Flow host's environment: guests and Flow hosts reach the providers through the backend's metered model proxy with a Smithers credential. This file is the only way Flow hosts get platform models; provider keys such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the backend's environment are never passed to them. Local jobs are trusted processes of the same user, so they are not a boundary against the owner's own code reading the file.
+
+To send a provider's calls to another origin, such as an inference gateway, set `SMITHERS_MODEL_PROXY_UPSTREAMS` to a JSON object of provider name to HTTP(S) origin, for example `{"openai":"https://gateway.internal"}`. The proxy sends that provider's platform key to the origin, so name only origins you trust.
 
 Every call on these keys is metered in the owner's credit ledger at the provider's list price, including long-context rates, and is refused when the credit is spent. Fund it from the running container:
 
