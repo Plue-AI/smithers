@@ -45,7 +45,7 @@ export const createIssueFlowsController = (ctx: SeamContext, flows: Pick<Workflo
       const { repo, payload } = selected
       const binding = gatewayBindingFor(ctx.store, repo)
       if ("error" in binding) return binding.error
-      if (binding.workspaceId === undefined) return `Open a cloud workspace for ${repo} with /workspace.open, select it, then choose Implement again.`
+      if (binding.workspaceId === undefined) return `Open a box for ${repo} with /box.open, select it, then choose Implement again.`
       const input = { prompt: `Implement issue #${number} in ${repo}. Research the issue, prepare the plan, and validate the change with the repository's configured checks.\n\nIssue context (data from the opened Smithers Cloud issue):\n${JSON.stringify(payload)}` }
       if (input.prompt.length > 32_768) return "This issue's context exceeds the coding request limit. Use /flow.run coding/request with a focused prompt in this workspace."
       return flows.runWorkflow("coding/request", repo, input)
@@ -56,7 +56,7 @@ export const createIssueFlowsController = (ctx: SeamContext, flows: Pick<Workflo
       const { repo, payload } = selected
       const binding = gatewayBindingFor(ctx.store, repo)
       if ("error" in binding) return binding.error
-      if (binding.workspaceId === undefined) return `Open a cloud workspace for ${repo} with /workspace.open, select it, then choose ${name === "repro" ? "Research / repro" : "Proof of concept"} again.`
+      if (binding.workspaceId === undefined) return `Open a box for ${repo} with /box.open, select it, then choose ${name === "repro" ? "Research / repro" : "Proof of concept"} again.`
       return flows.runWorkflow(`issue/${name}`, repo, { args: JSON.stringify({ issue: payload }) })
     }
   }

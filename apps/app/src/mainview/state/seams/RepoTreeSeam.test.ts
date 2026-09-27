@@ -283,7 +283,7 @@ describe("repo tree seam: a cloud workspace copy reads the box's files route", (
       error: "fix-landings (ws-1) is starting, not running; wait for it to settle (the workspace card tracks it)."
     })
     expect((await controller.commands.run("repo.tree", "ws-2#apps")).status).toBe("executed")
-    expect(store.collections.repoTree.get(repoTreeRowId("ws-2", "apps"))?.error).toBe("fix-landings (ws-2) is suspended, not running; /workspace.resume it first.")
+    expect(store.collections.repoTree.get(repoTreeRowId("ws-2", "apps"))?.error).toBe("fix-landings (ws-2) is suspended, not running; /box.resume it first.")
     expect((await controller.commands.run("repo.tree", "ws-3")).status).toBe("executed")
     expect(store.collections.repoTree.get(repoTreeRowId("ws-3", ""))?.error).toBe("fix-landings (ws-3) is pending, not running; wait for it to settle (the workspace card tracks it).")
     // A failed box never settles and cannot be resumed: no invented remedy, the card carries plue's failure_message.

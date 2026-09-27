@@ -72,6 +72,7 @@ import * as system from "./entries/system"
 import * as tab from "./entries/tab"
 import * as toast from "./entries/toast"
 import * as wiki from "./entries/wiki"
+import * as box from "./entries/box"
 import * as workspace from "./entries/workspace"
 import type { FormHints } from "@smthrs/ui/flow-form"
 
@@ -473,6 +474,7 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   change.namespace,
   review.namespace,
   findings.namespace,
+  box.namespace,
   workspace.namespace,
   egress.namespace,
   agent.namespace,

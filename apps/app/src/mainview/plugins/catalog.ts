@@ -111,8 +111,8 @@ const box: AppPlugin = {
   },
   activate: (ctx) =>
     Effect.flatMap(
-      availableRail([{ flow: "workspace.list", label: "Boxes", icon: "box" }]),
-      (rail) => contribute(ctx, { rail, flows: ["workspace.list", "workspace.open", "workspace.terminal"] })
+      availableRail([{ flow: "box.list", label: "Boxes", icon: "box" }]),
+      (rail) => contribute(ctx, { rail, flows: ["box.list", "box.open", "box.terminal"] })
     )
 }
 

@@ -195,7 +195,7 @@ describe("per-turn runtime context", () => {
   })
 
   /*
-   * agent-parity.md: the agent tried /workspace.terminal, failed on the
+   * agent-parity.md: the agent tried /box.terminal, failed on the
    * missing cloud session, and ran /auth.prompt — GitHub, already connected —
    * because the context stated GitHub and never the Smithers Cloud session.
    */
@@ -331,7 +331,7 @@ test("browser chat sees a desktop opened outside chat and refreshes its stream s
     const context = AgentRuntimeContextSchema.parse(requests[0]?.context)
     expect(context.recentCards).toContainEqual({ id: "desktop-context", kind: "workspace", title: "My desktop", status: "active", maximized: false,
       workspace: { id: "ws-context", repo: "acme/api", kind: "desktop", status: "running", facet: "desktop", streaming: true } })
-    expect(context.capabilities.join(' ')).toContain('workspace.desktop.open')
+    expect(context.capabilities.join(' ')).toContain('box.desktop.open')
     expect(context.capabilities.join(' ')).toContain('does not require the native app')
     const rendered = renderAgentRuntimeContext(context)
     expect(rendered).toContain('desktop stream=attached')

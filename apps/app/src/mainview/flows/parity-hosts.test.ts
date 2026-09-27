@@ -13,7 +13,7 @@ import * as AgentApiRoutes from "@smthrs/rpc/AgentApiRoutes"
  *      reaches a path the Worker's `PLATFORM_PROXY_RULES` allowlists, with
  *      the method the seam uses, and (b\u2032) every allowlisted family is one
  *      some seam builds;
- *  (c) `workspace.terminal` is present exactly when `cloud.terminal` is.
+ *  (c) `box.terminal` is present exactly when `cloud.terminal` is.
  *
  * Drift fails loudly: a capability the schema does not know, a capability no
  * host emits, a new `local.*` flow leaking onto the web — none needs a test
@@ -479,7 +479,7 @@ describe("host parity — the web and native catalogs against the servers' own c
     expect(proxied("/api/user/provider-connections")).toBe(true)
   })
 
-  test("(c) workspace.terminal is present exactly when cloud.terminal is", async () => {
+  test("(c) box.terminal is present exactly when cloud.terminal is", async () => {
     const withRelay = await controllerFor(
       cloudBootstrap(cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: true }))
     )
@@ -490,7 +490,7 @@ describe("host parity — the web and native catalogs against the servers' own c
     const nativeOffline = await controllerFor(
       localBootstrap(localCapabilities({ agent: true, identity: false, cloud: false }))
     )
-    const has = (controller: AppController): boolean => controller.commands.find("workspace.terminal") !== undefined
+    const has = (controller: AppController): boolean => controller.commands.find("box.terminal") !== undefined
     expect(has(withRelay)).toBe(true)
     expect(has(withoutRelay)).toBe(false)
     expect(has(nativeOnline)).toBe(true)
@@ -626,7 +626,7 @@ describe("host parity — the web and native catalogs against the servers' own c
       // Both cards are on the page: the session act and the file surface are in the sweep.
       expect(host.querySelector('[data-kind="workspace"]')).not.toBeNull()
       expect(host.querySelector('[data-kind="file"]')).not.toBeNull()
-      expect(rendered).toContain("workspace.session.destroy")
+      expect(rendered).toContain("box.session.destroy")
       expect(rendered.filter((name) => !webNames.has(name))).toEqual([])
       // The tunnel is open here, so the code-intel gesture is a live web binding — never developer copy about a missing host.
       const file = host.querySelector('[data-kind="file"]')!

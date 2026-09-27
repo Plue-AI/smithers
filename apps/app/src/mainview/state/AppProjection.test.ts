@@ -274,10 +274,10 @@ describe("pure app event projection", () => {
     let state = apply(boot(), progress, 100)
     expect(state.toasts).toEqual([])
     state = apply(state, { type: "toast.shown", actor: "system", key: "desktop", title: "Desktop",
-      action: { flow: "workspace.view", args: "ws-1", label: "Open details" } }, 200)
+      action: { flow: "box.view", args: "ws-1", label: "Open details" } }, 200)
     state = apply(state, progress, 300)
     expect(state.toasts[0]).toMatchObject({ title: "Starting", detail: progress.detail, updatedAt: 300, createdAt: 200,
-      action: { flow: "workspace.view", args: "ws-1", label: "Open details" } })
+      action: { flow: "box.view", args: "ws-1", label: "Open details" } })
     state = apply(state, { ...progress, title: undefined, detail: "Activating" }, 350)
     expect(state.toasts[0]!.title).toBe("Starting")
     for (const status of ["ok", "failed", "cancelled"] as const) {

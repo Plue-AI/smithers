@@ -243,7 +243,7 @@ test("a Plue bearer target reads its selected identity on a cloud host", async (
 test("a refused Cloud seam on web still offers reauthentication when GitHub is already connected", async () => {
   const h = await setup()
   await h.signIn()
-  await h.controller.commands.run("workspace.list")
+  await h.controller.commands.run("box.list")
   const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "auth.sign-in")
   expect(prompt).toBeDefined()
   await h.cloud("signed-in")

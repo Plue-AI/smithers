@@ -185,7 +185,7 @@ describe("the workspace card", () => {
     )
     const text = host.textContent ?? ""
     expect(text).toContain("container")
-    expect(text).toContain("workspace head @ zzsxlmno deadbeef")
+    expect(text).toContain("box head @ zzsxlmno deadbeef")
     expect(text).toContain("2 ahead")
     expect(text).toContain("1 behind")
     expect(text).toContain(".smithers/environment.nix @ b3f21c9d")
@@ -262,11 +262,11 @@ describe("the workspace card", () => {
       workspaceCard({ sessions: [{ id: "sess-1", status: "running", createdAt: null }], terminalSessionId: "sess-1" })
     )
     expect(host.querySelector('.workspace-terminal-embed [data-testid="terminal-sess-1"]')).not.toBeNull()
-    expect(NATIVE.commands.find("workspace.terminal")).toBeDefined()
+    expect(NATIVE.commands.find("box.terminal")).toBeDefined()
     click(host, "Open terminal")
-    expect(commands[0]).toEqual({ name: "workspace.terminal", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.terminal", args: "ws-1" })
     click(host, "Destroy session sess-1")
-    expect(commands[1]).toEqual({ name: "workspace.session.destroy", args: "sess-1 ws-1" })
+    expect(commands[1]).toEqual({ name: "box.session.destroy", args: "sess-1 ws-1" })
     expect(host.textContent).not.toContain("Terminals are not on the web yet")
     host.remove()
   })
@@ -291,7 +291,7 @@ describe("the workspace card", () => {
     expect(host.textContent).toContain("guest_not_ready — service unavailable")
     expect(host.textContent).toContain("the server asked for 3s")
     click(host, "Try the terminal again")
-    expect(commands[0]).toEqual({ name: "workspace.terminal", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.terminal", args: "ws-1" })
     host.remove()
   })
 
@@ -304,13 +304,13 @@ describe("the workspace card", () => {
     /* No code on the wire, so none is printed — and no separator is invented for one. */
     expect(host.textContent).not.toContain(" — workspace is not running")
     click(host, "Try the terminal again")
-    expect(commands[0]).toEqual({ name: "workspace.terminal", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.terminal", args: "ws-1" })
     host.remove()
   })
 
   /*
    * An origin without `cloud.terminal` has no relay, so
-   * `workspace.terminal` is not in the web registry (parity-hosts (c)) and a
+   * `box.terminal` is not in the web registry (parity-hosts (c)) and a
    * button bound to it would be a dead control: the pointer path drops an
    * unregistered name silently. The card reads the registry and renders the
    * fact instead; the sessions and their destroy act are unaffected.
@@ -324,7 +324,7 @@ describe("the workspace card", () => {
     try {
       expect(host.textContent).not.toContain("Terminals are not on the web yet.")
       click(host, "Open terminal")
-      expect(commands).toEqual([{ name: "workspace.terminal", args: "ws-1" }])
+      expect(commands).toEqual([{ name: "box.terminal", args: "ws-1" }])
     } finally {
       unmount()
       host.remove()
@@ -333,17 +333,17 @@ describe("the workspace card", () => {
   })
 
   test("on an origin without the terminal relay the terminal facet offers no Open terminal control and says so", () => {
-    expect(WEB_WITHOUT_RELAY.commands.find("workspace.terminal")).toBeUndefined()
+    expect(WEB_WITHOUT_RELAY.commands.find("box.terminal")).toBeUndefined()
     const { host, commands } = render(
       workspaceCard({ sessions: [{ id: "sess-1", status: "running", createdAt: null }] }),
       { controller: WEB_WITHOUT_RELAY }
     )
-    expect(host.querySelector('[data-flow="workspace.terminal"]')).toBeNull()
+    expect(host.querySelector('[data-flow="box.terminal"]')).toBeNull()
     expect([...host.querySelectorAll("button")].map((button) => button.textContent)).not.toContain("Open terminal")
     expect(host.textContent).toContain("No terminal attached.")
     expect(host.textContent).toContain("Terminals are not on the web yet.")
     click(host, "Destroy session sess-1")
-    expect(commands).toEqual([{ name: "workspace.session.destroy", args: "sess-1 ws-1" }])
+    expect(commands).toEqual([{ name: "box.session.destroy", args: "sess-1 ws-1" }])
     // Every rendered control still names a flow this registry has.
     const rendered = [...host.querySelectorAll("[data-flow]")].map((el) => el.getAttribute("data-flow") ?? "")
     expect(rendered.filter((name) => WEB_WITHOUT_RELAY.commands.find(name) === undefined)).toEqual([])
@@ -376,7 +376,7 @@ describe("the workspace card", () => {
     const preloads: Array<{ name: string; args?: string }> = []
     const unbind = bindFlowPreloading(document, async (name, args) => { preloads.push({ name, args }) })
     try {
-      for (const [label, name] of [["src", "workspace.files"], ["README.md", "workspace.file"], ["latest", "workspace.file"]] as const) {
+      for (const [label, name] of [["src", "box.files"], ["README.md", "box.file"], ["latest", "box.file"]] as const) {
         const button = Array.from(host.querySelectorAll("button")).find((row) => row.textContent === label)!
         const invocation = { name, args: `${label} ws-1` }
         expect(button.getAttribute("data-flow")).toBe(invocation.name)
@@ -413,7 +413,7 @@ describe("the workspace card", () => {
     expect(host.textContent).toContain("port 5432")
     expect(host.textContent).toContain("https://ws-1.workspaces.smithers-cloud.test")
     click(host, "Terminal")
-    expect(commands[0]).toEqual({ name: "workspace.facet", args: "ws-1 terminal" })
+    expect(commands[0]).toEqual({ name: "box.facet", args: "ws-1 terminal" })
     host.remove()
     const empty = render(workspaceCard({ facet: "services", services: [] }))
     expect(empty.host.textContent).toContain("review declares no services.")
@@ -501,7 +501,7 @@ describe("the workspace card", () => {
     // The row with no swap says nothing about secrets at all.
     expect(text).not.toContain("secrets ,")
     click(host, "Load older")
-    expect(commands[0]).toEqual({ name: "workspace.egress", args: "ws-1 eyJpZCI6MX0" })
+    expect(commands[0]).toEqual({ name: "box.egress", args: "ws-1 eyJpZCI6MX0" })
     host.remove()
   })
 
@@ -515,7 +515,7 @@ describe("the workspace card", () => {
   test("the egress facet is reachable from the facet strip", () => {
     const { host, commands } = render(workspaceCard())
     click(host, "Egress")
-    expect(commands[0]).toEqual({ name: "workspace.facet", args: "ws-1 egress" })
+    expect(commands[0]).toEqual({ name: "box.facet", args: "ws-1 egress" })
     host.remove()
   })
 
@@ -532,11 +532,11 @@ describe("the workspace card", () => {
   test("suspend shows on a running workspace, resume on a suspended one", () => {
     const running = render(workspaceCard())
     click(running.host, "Suspend")
-    expect(running.commands[0]).toEqual({ name: "workspace.suspend", args: "ws-1" })
+    expect(running.commands[0]).toEqual({ name: "box.suspend", args: "ws-1" })
     running.host.remove()
     const suspended = render(workspaceCard({ status: "suspended" }))
     click(suspended.host, "Resume")
-    expect(suspended.commands[0]).toEqual({ name: "workspace.resume", args: "ws-1" })
+    expect(suspended.commands[0]).toEqual({ name: "box.resume", args: "ws-1" })
     suspended.host.remove()
   })
 
@@ -556,7 +556,7 @@ describe("the workspace card", () => {
     expect(confirmNow?.disabled).toBe(false)
     click(host, "Delete permanently")
     // The typed name travels with the act: the flow's payload and the seam's gate both see it.
-    expect(commands[0]).toEqual({ name: "workspace.delete", args: "ws-1 review" })
+    expect(commands[0]).toEqual({ name: "box.delete", args: "ws-1 review" })
     host.remove()
   })
 
@@ -579,21 +579,21 @@ describe("the workspace card", () => {
     expect(text).toContain("legacy OCI image")
     expect(text).toContain("NixOS closure image, systemd PID 1")
     expect(text).toContain("XFCE streamed over VNC")
-    click(host, "Open a container workspace")
-    click(host, "Open a vm workspace")
-    click(host, "Open a desktop workspace")
+    click(host, "Open a container box")
+    click(host, "Open a vm box")
+    click(host, "Open a desktop box")
     expect(commands).toEqual([
-      { name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "container" }) },
-      { name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "vm" }) },
-      { name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) }
+      { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "container" }) },
+      { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "vm" }) },
+      { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) }
     ])
     host.remove()
   })
 
   test("a workspace with no target bookmark re-opens on its repository alone", () => {
     const { host, commands } = render(workspaceCard({ status: "failed", provisioningStage: null, targetBookmark: null }))
-    click(host, "Open a vm workspace")
-    expect(commands[0]).toEqual({ name: "workspace.open", args: JSON.stringify({ repo: "will/smithers", kind: "vm" }) })
+    click(host, "Open a vm box")
+    expect(commands[0]).toEqual({ name: "box.open", args: JSON.stringify({ repo: "will/smithers", kind: "vm" }) })
     host.remove()
   })
 })
@@ -623,7 +623,7 @@ describe("the workspace card's desktop facet", () => {
   const holdStream = (expiresAt: string | null = "2026-09-03T09:12:00Z", url = streamUrl): void =>
     holdDesktopStream({ workspaceId: "ws-1", url, sessionId: "dsess-1", expiresAt })
 
-  test("the Desktop tab is offered only for a desktop workspace, and it mints through workspace.desktop", () => {
+  test("the Desktop tab is offered only for a desktop workspace, and it mints through box.desktop", () => {
     dropDesktopStream()
     const container = render(workspaceCard())
     expect([...container.host.querySelectorAll("[role=tab]")].map((tab) => tab.textContent)).not.toContain("Desktop")
@@ -632,7 +632,7 @@ describe("the workspace card's desktop facet", () => {
     const { host, commands } = render(desktopCard())
     expect([...host.querySelectorAll("[role=tab]")].map((tab) => tab.textContent)).toContain("Desktop")
     click(host, "Desktop")
-    expect(commands[0]).toEqual({ name: "workspace.desktop", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.desktop", args: "ws-1" })
     host.remove()
   })
 
@@ -656,7 +656,7 @@ describe("the workspace card's desktop facet", () => {
     expect(line).toStartWith("session until ")
     expect(host.textContent).toContain(line as string)
     click(host, "Rotate session")
-    expect(commands[0]).toEqual({ name: "workspace.desktop.rotate", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.desktop.rotate", args: "ws-1" })
     host.remove()
     dropDesktopStream()
   })
@@ -794,9 +794,9 @@ describe("the workspace card's desktop facet", () => {
     expect(host.textContent).toContain("desktop_tools_unavailable — this box's image has no desktop tools; open a new box to get them")
     const labels = [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))
     expect(labels).not.toContain("Try the desktop session again")
-    expect(labels).not.toContain("Resume the workspace and open its desktop")
+    expect(labels).not.toContain("Resume the box and open its desktop")
     click(host, "Open a new desktop box with the current image")
-    expect(commands[0]).toEqual({ name: "workspace.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) })
+    expect(commands[0]).toEqual({ name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) })
     host.remove()
   })
 
@@ -810,8 +810,8 @@ describe("the workspace card's desktop facet", () => {
       })
     )
     expect(host.textContent).toContain("workspace is suspended; resume it before opening the desktop")
-    click(host, "Resume the workspace and open its desktop")
-    expect(commands[0]).toEqual({ name: "workspace.resume", args: "ws-1" })
+    click(host, "Resume the box and open its desktop")
+    expect(commands[0]).toEqual({ name: "box.resume", args: "ws-1" })
     host.remove()
   })
 
@@ -823,11 +823,11 @@ describe("the workspace card's desktop facet", () => {
     expect(host.textContent).toContain("workspace kind container has no desktop")
     expect(
       [...host.querySelectorAll("button")].some((button) =>
-        button.getAttribute("aria-label") === "Resume the workspace and open its desktop")
+        button.getAttribute("aria-label") === "Resume the box and open its desktop")
     ).toBe(false)
     /* Every refusal offers the human a way to ask again; only a 409 offers a Resume. */
     click(host, "Try the desktop session again")
-    expect(commands[0]).toEqual({ name: "workspace.desktop", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.desktop", args: "ws-1" })
     host.remove()
   })
 
@@ -848,9 +848,9 @@ describe("the workspace card's desktop facet", () => {
     const labels = (): Array<string | null> => [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))
     expect(labels()).toContain("Stop waiting for the desktop box")
     expect(labels()).not.toContain("Try the desktop session again")
-    expect(labels()).not.toContain("Resume the workspace and open its desktop")
+    expect(labels()).not.toContain("Resume the box and open its desktop")
     click(host, "Stop waiting for the desktop box")
-    expect(commands[0]).toEqual({ name: "workspace.desktop.stop", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.desktop.stop", args: "ws-1" })
     host.remove()
   })
 
@@ -877,7 +877,7 @@ describe("the workspace card's desktop facet", () => {
     expect(labels).toContain("Try the desktop session again")
     expect(labels).not.toContain("Stop waiting for the desktop box")
     /* Only a 409 says the box is not running, so only a 409 offers a Resume. */
-    expect(labels).not.toContain("Resume the workspace and open its desktop")
+    expect(labels).not.toContain("Resume the box and open its desktop")
     host.remove()
   })
 
@@ -905,7 +905,7 @@ describe("the workspace card's desktop facet", () => {
     /* Never a spinner in place of the server's answer. */
     expect(host.querySelector("iframe")).toBeNull()
     click(host, "Try the desktop session again")
-    expect(commands[0]).toEqual({ name: "workspace.desktop", args: "ws-1" })
+    expect(commands[0]).toEqual({ name: "box.desktop", args: "ws-1" })
     host.remove()
   })
 

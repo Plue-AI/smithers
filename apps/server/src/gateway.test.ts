@@ -830,7 +830,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
   })
 
   /*
-   * Canary 0068f10c2b35: /workspace.suspend then /workspace.resume, and the
+   * Canary 0068f10c2b35: /box.suspend then /box.resume, and the
    * seam answered `ready` in 0s for ~3 minutes while the gateway was down. A
    * suspend writes nothing to the Durable Object record, and inside its
    * half-life that record IS the answer — so `ready` was the pre-suspend

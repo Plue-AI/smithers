@@ -34,7 +34,7 @@ flow with three doors, close reasons and refusals verbatim.
 - `CodeIntelSeam` picks the client by the card's repo: local working copy →
   `LspClient` (native host); cloud repo with a running workspace → the cloud
   client; cloud repo without a running workspace → the honest line naming
-  `workspace.open` / `workspace.resume`; unsupported language → the DTO's
+  `box.open` / `box.resume`; unsupported language → the DTO's
   `lsp.languages` list stated.
 - Workspace card: the header's kind line gains `lsp: typescript` from
   `lsp.languages`; no new facet.

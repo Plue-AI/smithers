@@ -88,7 +88,7 @@ completed mechanically, below.
 A concurrent lane edited `WorkspaceSeam.ts` mid-flight (typed-name delete
 gate, paginated list routes, card-from-collection rendering) leaving call
 sites and tests stale. Completed mechanically, no behavior invented:
-`workspace.delete` flow/slash parser/card button pass the typed name; the
+`box.delete` flow/slash parser/card button pass the typed name; the
 list route doubles gained `?limit=100`; the open test's status expectation
 follows the card's freshest row (the watch's first poll).
 

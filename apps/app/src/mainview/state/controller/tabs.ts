@@ -338,7 +338,7 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     /*
      * A workspace terminal's process is a cloud workspace session: closing
      * the tab detaches, never kills. The explicit act is
-     * `workspace.session.destroy` (lane citc).
+     * `box.session.destroy` (lane citc).
      */
     if (tab.kind === "terminal" && tab.workspaceId !== undefined) return
     // An exited session is still listed on the server until deleted, so the

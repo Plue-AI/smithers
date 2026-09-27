@@ -193,7 +193,7 @@ is the existing transition.
 | `ci.logs` | `<changeId> <check> [rev]` | user, agent | |
 | `change.history` | `<changeId>` | user, agent | |
 | `review.*` | as ADR-WORKBENCH §3.3 | | verdicts user-only |
-| `workspace.open --snapshot` | `<snapshotId>` | user, agent | yes (the History row button is the confirm's button) |
+| `box.open --snapshot` | `<snapshotId>` | user, agent | yes (the History row button is the confirm's button) |
 
 ## Backend shapes needed beyond the stated facts
 

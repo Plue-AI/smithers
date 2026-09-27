@@ -10,12 +10,12 @@ configuredGatewayTest.use({ actionTimeout: 30_000 })
 configuredGatewayTest("a UI coding request validates a change and Vibe lands its exact commit", scenario("coding.production-request-vibe-land", {
  capabilities: ["identity", "cloud"],
  description: "On the explicitly configured canary workspace, select its real cloud copy, request a small edit through the UI, wait for validation, click Vibe, and independently prove the resulting main commit and file content.",
- coverage: ["action:flow.run", "action:workspace.view", "action:repo.select", "host:production", "path:success", "door:slash", "door:button", "dimension:provider-run", "dimension:native-landing", "evidence:exact-main-and-file-readback"]
+ coverage: ["action:flow.run", "action:box.view", "action:repo.select", "host:production", "path:success", "door:slash", "door:button", "dimension:provider-run", "dimension:native-landing", "evidence:exact-main-and-file-readback"]
 }), async ({page,request,workflowRepo},testInfo)=>{
  const {repo,workspaceId}=workflowRepo
  expect(workspaceId).toBeDefined()
  await bootProductionRepository(page,repo)
- await command(page,`/workspace.view ${workspaceId}`)
+ await command(page,`/box.view ${workspaceId}`)
  await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
  await closeComposer(page)
  await command(page,`/repo.select ${repo}#workspace:${workspaceId}`)

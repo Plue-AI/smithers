@@ -36,10 +36,10 @@ export interface FlowInput {
   readonly "prs.land": { readonly number: number; readonly repo: string }
   readonly "prs.review": { readonly number: number; readonly verdict: "approve" | "request-changes" | "comment"; readonly repo: string }
 
-  readonly "workspace.open": { readonly bookmark?: string; readonly repo: string; readonly kind: "container" | "vm" | "desktop" }
-  readonly "workspace.egress": { readonly workspaceId: string; readonly cursor?: string }
-  readonly "workspace.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
-  readonly "workspace.delete": { readonly workspaceId: string; readonly confirmName: string }
+  readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind: "container" | "vm" | "desktop" }
+  readonly "box.egress": { readonly workspaceId: string; readonly cursor?: string }
+  readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
+  readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
 
   readonly "change.split": { readonly changeId: string; readonly paths: ReadonlyArray<string> }
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
@@ -48,7 +48,7 @@ export interface FlowInput {
   readonly "runs.thinking": { readonly runId: string; readonly thinking: string }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "commits.list": { readonly branch: string; readonly repo: string }
-  readonly "workspace.facet": { readonly workspaceId: string; readonly facet: string }
+  readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   readonly "secrets.move": { readonly id: string; readonly direction: "up" | "down" }
   readonly "stack.parallel": { readonly value: number; readonly repo: string }
   readonly "stack.retry": { readonly id: string; readonly repo: string }
@@ -87,7 +87,7 @@ export interface FlowInput {
   /** Carried as JSON: `triggers.pause` declares `grammar: carried(...)`, which reads one object and refuses a positional line. */
   readonly "triggers.pause": { readonly slug: string; readonly repo?: string }
   readonly "wiki.heading": { readonly line: string; readonly cardId?: string }
-  readonly "workspace.desktop.open": { readonly bookmark?: string; readonly repo: string }
+  readonly "box.desktop.open": { readonly bookmark?: string; readonly repo: string }
   readonly "billing.upgrade": { readonly plan: string }
   readonly "runs.list": { readonly repo?: string; readonly status?: string; readonly flow?: string; readonly lineage?: string; readonly sourceCard?: string }
   readonly "runs.attention": { readonly repo?: string; readonly sourceCard?: string }
@@ -203,10 +203,10 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "prs.review": payload => JSON.stringify(payload),
   "github.mirror.retry-ref": payload => JSON.stringify(payload),
 
-  "workspace.open": payload => JSON.stringify(payload),
-  "workspace.egress": payload => line(token(payload, "workspaceId"), token(payload, "cursor")),
-  "workspace.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
-  "workspace.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
+  "box.open": payload => JSON.stringify(payload),
+  "box.egress": payload => line(token(payload, "workspaceId"), token(payload, "cursor")),
+  "box.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
+  "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
 
   "change.split": payload => fileArgs(String(payload.changeId), ...(payload.paths as ReadonlyArray<string>)),
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
@@ -219,7 +219,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "stack.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
   "stack.retry": payload => line(token(payload, "id"), token(payload, "repo")),
   "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
-  "workspace.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
+  "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),
   "issues.close": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.fix": payload => line(token(payload, "number"), token(payload, "repo")),
@@ -287,7 +287,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "triggers.run": (payload) => line(token(payload, "slug"), token(payload, "repo")),
   "triggers.pause": (payload) => JSON.stringify(payload),
   "wiki.heading": (payload) => line(token(payload, "line"), token(payload, "cardId")),
-  "workspace.desktop.open": (payload) => JSON.stringify(payload),
+  "box.desktop.open": (payload) => JSON.stringify(payload),
 
 }
 

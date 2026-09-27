@@ -467,7 +467,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 19, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 20, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "harnesses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
@@ -476,6 +476,33 @@ describe("the live store's authoritative event path", () => {
       "runtimeRuns", "seats", "sessions", "starredTargets", "tabs", "toasts", "toolCalls", "transitions", "workingCopies",
       "workspaces", "worldDocuments"
     ] })
+  })
+
+  test("version 19 upgrade drops a saved toast whose action names a renamed workspace.* flow", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "composer.changed", actor: "user", draft: "kept" }).isPersisted.promise
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    const toast = { id: "toast-desktop", key: "box.desktop.open:ws-1", title: "Starting the desktop box", status: "running",
+      detail: "", action: { flow: "workspace.view", args: "ws-1", label: "Open details" }, createdAt: 1, updatedAt: 1 }
+    const snapshot = { ...structuredClone(old.checkpoint.snapshot), toasts: [...old.checkpoint.snapshot.toasts!, toast] }
+    const head = { ...old.head, projectorVersion: 19 }
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 19, snapshot }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    editEnvelope(storage, entries => {
+      for (const [id, data] of [["app-event-heads", head], ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+      const toasts = JSON.parse(entries["smithers-mvp.app-toasts"] ?? "{}")
+      toasts["s:toast-desktop"] = { versionKey: "fixture", data: toast }
+      entries["smithers-mvp.app-toasts"] = JSON.stringify(toasts)
+    })
+    const restored = await open(storage)
+    expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
+    expect((await restored.verifyState()).valid).toBe(true)
+    expect(restored.session().draft).toBe("kept")
+    expect(restored.collections.toasts.has("toast-desktop")).toBe(false)
   })
 
   test("version 18 upgrade retires the untouched World starter note and keeps a person's notes", async () => {

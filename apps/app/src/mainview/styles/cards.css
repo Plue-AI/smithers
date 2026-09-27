@@ -190,7 +190,7 @@
 }
 
 .slash-menu-name {
-	/* Never shrink: a dotted name (/workspace.desktop.open) has no break
+	/* Never shrink: a dotted name (/box.desktop.open) has no break
 	 * opportunities, so a shrunk box paints its text over the description. */
 	flex-shrink: 0;
 	min-width: 64px;

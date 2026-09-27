@@ -51,7 +51,7 @@ the tree are the three pre-existing TargetGraph integration tests plus two
   the header line grow with it.
 - `plue#449` (workspace file/service routes): Files and Services facets
   render the ADR's empty wording; the `service-log` payload already waits
-  in the shared schema, and `workspace.services`/`workspace.logs` register
+  in the shared schema, and `box.services`/`workspace.logs` register
   when the routes exist.
 - The Desktop facet waits on plue Phase B (WORKBENCH-UX §3.1 status note).
 - plue's SSE status route could replace the settle watch's poll when it is
@@ -148,7 +148,7 @@ file (extracted from `HEAD` into a transient copy) and green against the fix.
    rewritten to plue's shapes: `WorkspaceSeam.test.ts` (`USER_ROW`, bare
    arrays, the cursor envelope, a harness that keys on the path and records
    the query) and `e2e/playwright/citc.spec.ts` (bare arrays, regex routes
-   that admit `?limit=100`, the bookmarks envelope). Tests: "workspace.list
+   that admit `?limit=100`, the bookmarks envelope). Tests: "box.list
    parses plue's per-user rows, asks for 100 a page, syncs the tree copies,
    and announces", "a per-user row keeps the bookmark the collection already
    knows; a status that moved on drops its stage", "a non-empty list Smithers

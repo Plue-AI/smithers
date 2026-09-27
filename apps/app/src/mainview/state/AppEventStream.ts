@@ -26,7 +26,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // v14 associates tool acts with their turn; v15 clears dismissed card navigation.
 // v16 removes the unused chain journal projections; v17 narrows signup to the GitHub door.
 // v18 retires signup details with their account; v19 retires the World starter note.
-export const APP_PROJECTOR_VERSION = 19
+// v20 renames the workspace.* commands to box.* (saved toast actions name flows).
+export const APP_PROJECTOR_VERSION = 20
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

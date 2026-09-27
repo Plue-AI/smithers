@@ -216,8 +216,8 @@ adds an `lsp` branch beside the terminal one in `server.ts` (`CloudWsBridge`
 gains `kind`); the Worker relay comes with web-mode W4. **Built (lane L6,
 2026-09-03):** `state/CloudLspClient.ts` speaks the relay's wire through the
 tunnel and `CodeIntelSeam` picks it for a cloud repository with a running
-workspace; a cloud repository without one is told `/workspace.open` or
-`/workspace.resume`, and a file no relayed language handles is told the DTO's
+workspace; a cloud repository without one is told `/box.open` or
+`/box.resume`, and a file no relayed language handles is told the DTO's
 `lsp.languages`. On the web host (no tunnel) the three flows are hidden with
 `local.lsp` and a cloud card is told the native app has the tunnel.
 

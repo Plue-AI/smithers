@@ -164,10 +164,10 @@ describe("§2 actions: every action is a registered flow whose input the ref fil
     expect(names).not.toContain("issues.comment")
   })
 
-  test("a box opens with workspace.view and its primary flow is the terminal; a run resumes on Cmd+Enter", () => {
+  test("a box opens with box.view and its primary flow is the terminal; a run resumes on Cmd+Enter", () => {
     const box = actionsFor({ kind: "box", ref: "ws-1", title: "main" }, entries)
-    expect(box.find((action) => action.role === "open")).toMatchObject({ flow: "workspace.view", args: "ws-1" })
-    expect(box.find((action) => action.role === "primary")).toMatchObject({ flow: "workspace.terminal", args: "ws-1" })
+    expect(box.find((action) => action.role === "open")).toMatchObject({ flow: "box.view", args: "ws-1" })
+    expect(box.find((action) => action.role === "primary")).toMatchObject({ flow: "box.terminal", args: "ws-1" })
     expect(box.map((action) => action.flow)).not.toContain("workspace.rename")
     const run = actionsFor({ kind: "run", ref: "run-9", title: "run-9" }, entries)
     expect(run.find((action) => action.role === "open")).toMatchObject({ flow: "runs.open", args: "run-9" })

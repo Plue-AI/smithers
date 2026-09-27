@@ -8,11 +8,11 @@ import { memoryStorage, unavailableAgent } from "../state/TestFixtures"
 
 const target = "owner/unloaded", ambient = "owner/ambient"
 const cases = [
-  ["workspace.open", { repo: target, kind: "container" }, { repo: target, kind: "container" }],
-  ["workspace.open", { bookmark: "feature/work", repo: target, kind: "vm" }, { bookmark: "feature/work", repo: target, kind: "vm" }],
+  ["box.open", { repo: target, kind: "container" }, { repo: target, kind: "container" }],
+  ["box.open", { bookmark: "feature/work", repo: target, kind: "vm" }, { bookmark: "feature/work", repo: target, kind: "vm" }],
   ["prs.review", { number: 42, verdict: "approve", repo: target }, { number: 42, verdict: "approve", text: "", repo: target }],
-  ["workspace.desktop.open", { repo: target }, { repo: target }],
-  ["workspace.desktop.open", { bookmark: "feature/work", repo: target }, { bookmark: "feature/work", repo: target }],
+  ["box.desktop.open", { repo: target }, { repo: target }],
+  ["box.desktop.open", { bookmark: "feature/work", repo: target }, { bookmark: "feature/work", repo: target }],
   ["issues.list", { filter: "open", repo: target }, { filter: "open", repo: target }],
   ["triggers.run", { slug: "nightly", repo: target }, { slug: "nightly", repo: target }],
   ["runs.open", { runId: "jobs/run-1", repo: target, sourceCard: "source-list" }, { runId: "jobs/run-1", repo: target, sourceCard: "source-list" }],
@@ -31,7 +31,7 @@ test("a mirror ref and its explicit repository need no inventory", () => {
 
 test("structured targets retain slash-bearing ids and the originating run card", () => {
   const known = new Set(["feature/work", ambient])
-  expect(payloadFor("workspace.desktop.open", flowArgs("workspace.desktop.open", { bookmark: "feature/work", repo: target }), undefined, known))
+  expect(payloadFor("box.desktop.open", flowArgs("box.desktop.open", { bookmark: "feature/work", repo: target }), undefined, known))
     .toEqual({ payload: { bookmark: "feature/work", repo: target } })
   expect(payloadFor("github.mirror.retry-ref", flowArgs("github.mirror.retry-ref", { ref: "feature/work", repo: target }), undefined, known))
     .toEqual({ payload: { ref: "feature/work", repo: target } })
@@ -42,7 +42,7 @@ test("structured targets retain slash-bearing ids and the originating run card",
 })
 
 test("typed argument objects reject misspelled fields instead of silently choosing an ambient target", () => {
-  for (const name of ["prs.review", "workspace.open", "workspace.desktop.open", "runs.list", "github.mirror.retry-ref"]) {
+  for (const name of ["prs.review", "box.open", "box.desktop.open", "runs.list", "github.mirror.retry-ref"]) {
     expect(payloadFor(name, JSON.stringify({ reop: target }), undefined, new Set())).toHaveProperty("error")
   }
 })
@@ -51,7 +51,7 @@ test("human review text and lone slash-bearing identifiers retain their existing
   const known = new Set([ambient])
   expect(payloadFor("prs.review", "42 comment inspect docs/readme", undefined, known))
     .toEqual({ payload: { number: 42, verdict: "comment", text: "inspect docs/readme" } })
-  expect(payloadFor("workspace.desktop.open", "feature/work", undefined, known)).toEqual({ payload: { bookmark: "feature/work" } })
+  expect(payloadFor("box.desktop.open", "feature/work", undefined, known)).toEqual({ payload: { bookmark: "feature/work" } })
   expect(payloadFor("github.mirror.retry-ref", "feature/work", undefined, known)).toEqual({ payload: { ref: "feature/work" } })
   expect(payloadFor("runs.open", "jobs/run-1", undefined, known)).toEqual({ payload: { runId: "jobs/run-1" } })
 })
@@ -59,7 +59,7 @@ test("human review text and lone slash-bearing identifiers retain their existing
 const createAppController = scopedControllers()
 test.each([
   ["prs.review", "button"], ["prs.review", "form"], ["prs.review", "agent"],
-  ["workspace.desktop.open", "button"], ["workspace.desktop.open", "agent"], ["desktop", "agent"], ["workspace.open", "button"]
+  ["box.desktop.open", "button"], ["box.desktop.open", "agent"], ["desktop", "agent"], ["box.open", "button"]
 ] as const)("%s through %s never routes a typed target through the active repository", async (name, door) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ method: string; path: string; body?: unknown }> = []
@@ -78,7 +78,7 @@ test.each([
   await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null })
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: ambient, org: "owner", ownerKind: "user", name: "ambient", head: null }] })
   await store.dispatch({ type: "repo.selected", actor: "user", id: ambient })
-  const args = name === "prs.review" ? flowArgs(name, { number: 42, verdict: "approve", repo: target }) : name === "workspace.open" ? flowArgs(name, { repo: target, kind: "container" }) : flowArgs("workspace.desktop.open", { repo: target })
+  const args = name === "prs.review" ? flowArgs(name, { number: 42, verdict: "approve", repo: target }) : name === "box.open" ? flowArgs(name, { repo: target, kind: "container" }) : flowArgs("box.desktop.open", { repo: target })
   if (door === "form") {
     await controller.commands.run(name, "")
     for (const [field, value] of [["number", "42"], ["verdict", "approve"], ["repo", target]]) {
@@ -87,7 +87,7 @@ test.each([
     await controller.commands.run("form.submit", `form-${name}`)
   } else if (door === "agent") {
     await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name, args }) })
-    if (name === "workspace.desktop.open" || name === "desktop") {
+    if (name === "box.desktop.open" || name === "desktop") {
       expect(requests.filter(request => request.method === "POST")).toEqual([])
       const action = [...store.collections.messages.values()].find(message => message.action?.flow === name)?.action
       expect(action).toBeDefined()
@@ -97,5 +97,5 @@ test.each([
   expect(requests.filter(request => request.path.includes(`/repos/${ambient}/`) && /\/(landings|workspaces)(\/|$)/.test(request.path))).toEqual([])
   expect(requests.filter(request => request.method === "POST")).toEqual(name === "prs.review"
     ? [{ method: "POST", path: `/api/repos/${target}/landings/42/reviews`, body: { type: "approve", body: "", commit_id: "reviewed-tip" } }]
-    : [{ method: "POST", path: `/api/repos/${target}/workspaces`, body: { kind: name === "workspace.open" ? "container" : "desktop" } }])
+    : [{ method: "POST", path: `/api/repos/${target}/workspaces`, body: { kind: name === "box.open" ? "container" : "desktop" } }])
 })

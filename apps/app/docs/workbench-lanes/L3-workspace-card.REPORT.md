@@ -19,7 +19,7 @@ route is implemented, tested and reachable as `/egress.session`.
 | `apps/app/src/mainview/state/seams/WorkspaceSeam.test.ts` | Live-sample fixture `WS_LIVE` + 16 new tests. |
 | `apps/app/src/mainview/cards/WorkspaceCard.tsx` | Header facts line, ssh-host copy line, Files facet (imports `FileListCardBody`), Services facet, Egress facet with "Load older", the `egress_proxy_unavailable` line. Exports `uptimeLabel` and `headerFacts` as pure helpers. |
 | `apps/app/src/mainview/cards/WorkspaceCard.test.tsx` | 14 new tests (22 total in the file). |
-| `apps/app/src/mainview/flows/Flows.ts` | `workspace.files`, `workspace.file`, `workspace.services`, `workspace.egress`, `egress.session`; `workspace.facet` accepts `egress`. |
+| `apps/app/src/mainview/flows/Flows.ts` | `box.files`, `box.file`, `box.services`, `box.egress`, `egress.session`; `box.facet` accepts `egress`. |
 | `apps/app/src/mainview/flows/SlashPayload.ts` | Parsers for the five new flows. |
 | `apps/app/src/mainview/state/AppController.ts` | `createEgressSeam` wired; five new actions on both action tables. |
 | `apps/app/src/mainview/flows/registry.test.ts` | The five new flow names pinned. |
@@ -41,7 +41,7 @@ so a persisted row or card from before this lane still validates.
 - the Files facet reads the workspace's own route and keeps the path it listed
 - a subdirectory listing replaces the previous path's rows, and the facet re-reads the path the card holds
 - a refused listing shows the server's own words and never an empty directory
-- workspace.file reads the workspace's copy into a file card; base64 is stated as binary
+- box.file reads the workspace's copy into a file card; base64 is stated as binary
 - the Services facet lists what plue answered — a name and a state, because that is all the DTO carries
 - a workspace that declares no services says so
 - the Egress facet reads a page, keeps plue's cursor, and never renders a secret's value
@@ -121,7 +121,7 @@ the wire. Nothing was inferred from a doc.
   to hold a facet would be an unbriefed user-visible surface. Instead the
   route is real and tested end to end in the seam, and reachable as
   `/egress.session <sessionId> [owner/repo] [cursor]`, which answers the same
-  rows as a transcript listing (the idiom `workspace.list` already uses) and
+  rows as a transcript listing (the idiom `box.list` already uses) and
   names the cursor for the next page. When an agent-session card lands, the
   facet is `loadEgressPage(ctx, agentSessionEgressPath(...))` and the same row
   markup.

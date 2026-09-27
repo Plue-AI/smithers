@@ -32,7 +32,7 @@ const runningWorkspace = async <T>(page: Page, request: APIRequestContext, repo:
 
 authenticatedTest("a product workspace suspends, resumes, and deletes", scenario("workspaces.product-lifecycle", {
   capabilities: ["identity", "cloud"],
-  coverage: ["action:workspace.open", "action:workspace.suspend", "action:workspace.resume", "action:workspace.delete", "host:local", "host:production", "path:success", "door:slash", "surface:workspace-api", "evidence:state-transitions-and-delete"]
+  coverage: ["action:box.open", "action:box.suspend", "action:box.resume", "action:box.delete", "host:local", "host:production", "path:success", "door:slash", "surface:workspace-api", "evidence:state-transitions-and-delete"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, (repo) => runningWorkspace(page, request, repo, async (id) => {
     const path = `${repo.path}/workspaces/${encodeURIComponent(id)}`
@@ -47,19 +47,19 @@ authenticatedTest("a product workspace suspends, resumes, and deletes", scenario
 
 authenticatedTest("a product terminal accepts keyboard input on its workspace", scenario("workspaces.product-terminal-keyboard-output", {
   capabilities: ["identity", "cloud", "cloud.terminal"],
-  coverage: ["action:workspace.view", "action:workspace.terminal", "host:local", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "evidence:terminal-output-and-cleanup"]
+  coverage: ["action:box.view", "action:box.terminal", "host:local", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "evidence:terminal-output-and-cleanup"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, (repo) => runningWorkspace(page, request, repo, async (id) => {
     const startedAt = performance.now()
     await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })
     await awaitBoot(page, "navigate", startedAt)
     await finishFirstVisit(page)
-    await runSlash(page, `/workspace.view ${id}`)
+    await runSlash(page, `/box.view ${id}`)
     const card = page.getByTestId(`card-workspace-${id}`)
     await expect(card).toBeVisible()
     const sessionPath = `${repo.path}/workspace/sessions`
     const created = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === sessionPath)
-    await runSlash(page, `/workspace.terminal ${id}`)
+    await runSlash(page, `/box.terminal ${id}`)
     expect((await created).status()).toBe(201)
     await closeComposer(page)
     const terminal = card.locator('[data-testid^="terminal-"]')

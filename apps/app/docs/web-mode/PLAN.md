@@ -28,7 +28,7 @@ the same mechanism).
   `cloudCapabilities(env: { identity; Smithers Cloud; agent; checkout; terminal: boolean }): RuntimeCapability[]`
   and `localCapabilities(opts: { agent; identity; Smithers Cloud; pathEntry: boolean }): RuntimeCapability[]`.
   `index.ts:2246` and `server.ts:524` call them; the parity test reads them.
-- `flows/Flows.ts`: `workspace.terminal` -> `["Smithers Cloud", "cloud.terminal"]`;
+- `flows/Flows.ts`: `box.terminal` -> `["Smithers Cloud", "cloud.terminal"]`;
 - `flows/registry.ts`: `FlowMetadata.hosts?: ReadonlyArray<AppBootstrap["host"]>`;
   `Commands.ts available()` checks it. Used only by the two download flows.
 
@@ -280,7 +280,7 @@ slash tree, model catalog, recommendations, rendered `data-flow` controls
 and the `data-flows` manifest (`App.tsx:340`); (b) every cloud-present flow
 whose seam touches `/api/cloud/*` or `/api/*` names a prefix in the exported
 `PLATFORM_PROXY_RULES` (`smithers-server` is already a devDependency);
-(c) `workspace.terminal` is present iff `cloud.terminal` is. Drift
+(c) `box.terminal` is present iff `cloud.terminal` is. Drift
 failures: a declaration naming a capability unknown to
 `RuntimeCapabilitySchema`; a capability with no host row; a web DOM
 `data-flow` absent from the web registry. A new `local.*` flow fails (a)

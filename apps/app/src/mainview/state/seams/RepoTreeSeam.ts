@@ -57,7 +57,7 @@ export const workspaceTreeRefusal = (copy: WorkingCopy): string | undefined => {
   const name = `${copy.label} (${copy.workspaceId ?? copy.id})`
   if (copy.state === "failed") return `${name} is failed; the workspace card names why.`
   const remedy = copy.state === "suspended" || copy.state === "stopped"
-    ? "/workspace.resume it first"
+    ? "/box.resume it first"
     : "wait for it to settle (the workspace card tracks it)"
   return `${name} is ${copy.state}, not running; ${remedy}.`
 }

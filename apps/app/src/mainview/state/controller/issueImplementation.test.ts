@@ -24,7 +24,7 @@ test("cloud implementation binds the real issue to coding/request and refuses mi
   expect(await flows.runIssueImplementation(9, repo)).toContain("Open Smithers Cloud issue #9")
   expect(lists).toBe(0)
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "cloud-issue", kind: "issue", title: issue.title, status: "active", createdAt: 1, ordinal: 2, payload: issue } }).isPersisted.promise
-  expect(await flows.runIssueImplementation(9, repo)).toContain("/workspace.open")
+  expect(await flows.runIssueImplementation(9, repo)).toContain("/box.open")
   expect(lists).toBe(0)
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: repo, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: repo + "#workspace:" + workspaceId }).isPersisted.promise

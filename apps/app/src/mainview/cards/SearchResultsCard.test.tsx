@@ -118,7 +118,7 @@ test("a saved global file address becomes an explicit repository argument", () =
 })
 
 test("a saved workspace file keeps its explicit workspace and quoted path", () => {
-  const { host, calls } = render(savedFile("notes/read me.md", '\"notes/read me.md\" ws-1', "workspace.file"))
+  const { host, calls } = render(savedFile("notes/read me.md", '\"notes/read me.md\" ws-1', "box.file"))
   flushSync(() => host.querySelector<HTMLButtonElement>("[data-role='open']")?.click())
-  expect(calls).toEqual([["workspace.file", '\"notes/read me.md\" ws-1']])
+  expect(calls).toEqual([["box.file", '\"notes/read me.md\" ws-1']])
 })

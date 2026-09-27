@@ -17,9 +17,9 @@ const EGRESS = [
 export default showcase({
   id: "workspace",
   order: 118,
-  title: "Workspaces",
-  summary: "A cloud computer per branch: its files, services, egress; suspend, resume, delete.",
-  flows: ["workspace.open", "workspace.facet", "workspace.file", "workspace.suspend", "workspace.resume", "workspace.list", "workspace.images", "egress.session", "workspace.delete"],
+  title: "Boxes",
+  summary: "A box per branch: its files, services, egress; suspend, resume, delete.",
+  flows: ["box.open", "box.facet", "box.file", "box.suspend", "box.resume", "box.list", "box.images", "egress.session", "box.delete"],
   run: async ({ page, app, backend }) => {
     let status = "running"
     let polls = 0
@@ -71,7 +71,7 @@ export default showcase({
     ])
 
     await app.open("/")
-    await app.slash(`/workspace.open main ${REPO}`)
+    await app.slash(`/box.open main ${REPO}`)
     const card = page.getByTestId("card-workspace-ws-1")
     await expect(card).toContainText("Running", { timeout: 20_000 })
     await app.closeComposer()
@@ -79,7 +79,7 @@ export default showcase({
 
     await app.click(card.getByRole("tab", { name: "Files" }))
     await expect(card).toContainText("README.md")
-    const readme = card.locator('[data-flow="workspace.file"]').filter({ hasText: "README.md" }).first()
+    const readme = card.locator('[data-flow="box.file"]').filter({ hasText: "README.md" }).first()
     await app.click(readme)
     await expect(page.locator('[data-kind="file"]').last()).toContainText("the split flow is wired in", { timeout: 15_000 })
     await app.show(card)
@@ -96,8 +96,8 @@ export default showcase({
     await app.click(card.getByRole("button", { name: "Resume", exact: true }))
     await expect(card.getByRole("button", { name: "Suspend", exact: true })).toBeVisible({ timeout: 15_000 })
 
-    await app.slash(`/workspace.list ${REPO}`)
-    await app.slash(`/workspace.images ${REPO}`)
+    await app.slash(`/box.list ${REPO}`)
+    await app.slash(`/box.images ${REPO}`)
     await app.slash(`/egress.session as-7 ${REPO}`)
     await app.closeComposer()
     const images = page.locator(".smithers-card", { hasText: "platform base" }).last()

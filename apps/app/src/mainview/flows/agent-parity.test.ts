@@ -104,7 +104,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "workspace.rename", args: "Force", confirm: false },
   { name: "change.pins", args: "c1 parent current", confirm: false },
   { name: "change.checks", args: "c1 1", confirm: false },
-  { name: "workspace.facet", args: "ws-1 files", confirm: false },
+  { name: "box.facet", args: "ws-1 files", confirm: false },
   { name: "change.facet", args: "c1 diff", confirm: false },
   { name: "flow.run.retry", args: "card-1", confirm: true },
   { name: "runs.rerun", args: "sourceCard=card-1 run-1", confirm: true },
@@ -364,11 +364,11 @@ describe("the three-door law", () => {
     const { store, controller } = await boot()
     cloudSession(store, "signed-out", null)
     await settle(2)
-    const agent = await execute(controller, "workspace.terminal")
+    const agent = await execute(controller, "box.terminal")
     expect(agent).toStartWith("failed: Sign in to Smithers Cloud to continue")
     expect(agent).toContain("cloud.prompt")
     expect(agent).not.toContain("/cloud.sign-in")
-    const human = await controller.commands.run("workspace.terminal")
+    const human = await controller.commands.run("box.terminal")
     expect(human).toEqual({ status: "failed", error: "Sign in to Smithers Cloud to continue." })
   })
 
@@ -378,7 +378,7 @@ describe("the three-door law", () => {
       cloudSession(store, "signed-out", null)
       const flow = host.host === "cloud" ? "auth.sign-in" : "cloud.sign-in"
       try {
-        for (const name of ["workspace.terminal", "change.view"] as const) {
+        for (const name of ["box.terminal", "change.view"] as const) {
           const outcome = await controller.commands.run(name, name === "change.view" ? "change-1" : undefined)
           expect(outcome).toEqual({ status: "failed", error: "Sign in to Smithers Cloud to continue." })
           const step = messages(store).at(-1)
@@ -386,7 +386,7 @@ describe("the three-door law", () => {
           expect(controller.commands.find(step!.action!.flow)).toBeDefined()
           expect(step?.text).not.toContain("/cloud.sign-in")
         }
-        expect(await execute(controller, "workspace.terminal")).toContain("cloud.prompt")
+        expect(await execute(controller, "box.terminal")).toContain("cloud.prompt")
         expect(messages(store).at(-1)?.action?.flow).toBe(flow)
       } finally { controller.dispose() }
     })

@@ -44,8 +44,8 @@ describe("registry data tables read the namespace modules", () => {
     expect(new Set(NAMESPACES.map((row) => row.id)).size).toBe(NAMESPACES.length)
   })
 
-  test("the workspace namespace is labeled Boxes: the product says box, never computer (design session 2026-09-07)", () => {
-    const row = NAMESPACES.find((candidate) => candidate.id === "workspace")
+  test("the box namespace is labeled Boxes: the product says box, never computer (design session 2026-09-07, #2147)", () => {
+    const row = NAMESPACES.find((candidate) => candidate.id === "box")
     expect(row?.label).toBe("Boxes")
     expect(row?.summary).toContain("box")
     expect(row?.summary.toLowerCase()).not.toContain("computer")

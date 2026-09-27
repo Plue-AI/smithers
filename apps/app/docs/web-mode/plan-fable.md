@@ -27,7 +27,7 @@ one axis is missing; add them, do not build a parallel capability set:
   `"cloud.terminal"` (a workspace-terminal tunnel exists on this origin) and
   `"cloud.pat"` (a host-held Smithers Cloud PAT session: `/api/cloud-auth/*`, the
   after lane W3 and never `cloud.pat`.
-- `flows/Flows.ts`: `workspace.terminal` -> `runtime: ["Smithers Cloud", "cloud.terminal"]`;
+- `flows/Flows.ts`: `box.terminal` -> `runtime: ["Smithers Cloud", "cloud.terminal"]`;
 - `flows/registry.ts` `FlowMetadata`: add `readonly hosts?: ReadonlyArray<AppBootstrap["host"]>`;
   `Commands.ts` `available()` checks it. Used by exactly one flow
   (`app.download`, `hosts: ["cloud"]`), so native chrome gains nothing
@@ -266,7 +266,7 @@ static `electrobun/view` import in `NativeBridge.ts`. W4 makes it lazy:
   whose seam touches `/api/cloud/*` names a path prefix in
   `apps/server/src/index.ts` `PLATFORM_PROXY_RULES` (export the table;
   `smithers-server` is already an apps/app devDependency); (c)
-  `workspace.terminal` is present only when `cloud.terminal` is. Any new
+  `box.terminal` is present only when `cloud.terminal` is. Any new
   `local.*` flow fails (a) automatically, so a native-only flow can never
   appear enabled on web.
 - **Worker units (`apps/server/src/index.test.ts`).** `/api/cloud/api/user/repos`

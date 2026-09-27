@@ -63,8 +63,8 @@ Renderer (`apps/app/src/mainview`):
   local working copy → `LspClient`; cloud repo → the sign-in gate, the
   running workspace (the active working copy's when it is one, else the one
   running workspace; several running → "select one in the sidebar"; a
-  suspended/stopped one → `/workspace.resume <id>`; pending/starting →
-  "wait for it to settle"; none → `/workspace.open <repo>`), the language
+  suspended/stopped one → `/box.resume <id>`; pending/starting →
+  "wait for it to settle"; none → `/box.open <repo>`), the language
   (`lspLanguageFor` against the DTO's `lsp.languages`; unsupported →
   "No workspace language server handles .md files — "review" (ws-1) serves
   typescript."), the card's whole text (a truncated or binary card is

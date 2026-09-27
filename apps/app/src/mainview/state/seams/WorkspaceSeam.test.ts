@@ -176,7 +176,7 @@ const harness = async (
     store,
     dispatch: (transition) => {
       const transaction = store.dispatch(transition)
-      dispatched.push({ type: transition.type, tabs: tabsOf(store), attached: payloadOf(store)?.terminalSessionId, toast: structuredClone(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")) })
+      dispatched.push({ type: transition.type, tabs: tabsOf(store), attached: payloadOf(store)?.terminalSessionId, toast: structuredClone(store.collections.toasts.get("toast-box.desktop.open:ws-1")) })
       return transaction
     },
     actor: () => "user",
@@ -308,7 +308,7 @@ describe("workspace seam list", () => {
    * the DTO parser dropped to zero rows — and then scope-replaced every
    * loaded workspace away.
    */
-  test("workspace.list parses plue's per-user rows, asks for 100 a page, syncs the tree copies, and announces", async () => {
+  test("box.list parses plue's per-user rows, asks for 100 a page, syncs the tree copies, and announces", async () => {
     const { store, seam, urls } = await harness({
       "api/user/workspaces": json(200, [
         USER_ROW,
@@ -366,7 +366,7 @@ describe("workspace seam list", () => {
     await seedWorkspace(store)
     const refusal = await seam.listWorkspaces()
     expect(typeof refusal).toBe("string")
-    expect(refusal).toContain("2 workspace rows in a shape Smithers can't read")
+    expect(refusal).toContain("2 box rows in a shape Smithers can't read")
     expect(workspacesOf(store).map((row) => row.id)).toEqual(["ws-1"])
     expect(copiesOf(store).map((copy) => copy.id)).toEqual(["workspace:ws-1"])
   })
@@ -377,7 +377,7 @@ describe("workspace seam list", () => {
     })
     await seedWorkspace(store)
     const result = await seam.listWorkspaces()
-    expect(result).toEqual({ value: "No cloud workspaces." })
+    expect(result).toEqual({ value: "No boxes." })
     expect(workspacesOf(store)).toEqual([])
   })
 
@@ -648,7 +648,7 @@ describe("workspace seam acts", () => {
     await seedWorkspace(store, { ...wsRow, id: "ws-2", name: "bench" })
     const refusal = await seam.suspendWorkspace()
     expect(typeof refusal).toBe("string")
-    expect(refusal).toContain("name a workspace id")
+    expect(refusal).toContain("name a box id")
   })
 
   /*
@@ -666,7 +666,7 @@ describe("workspace seam acts", () => {
       const refusal = await seam.deleteWorkspace("ws-1", typed)
       expect(typeof refusal).toBe("string")
       expect(refusal).toContain("needs its name typed back exactly")
-      expect(refusal).toContain("/workspace.delete ws-1 review")
+      expect(refusal).toContain("/box.delete ws-1 review")
     }
     expect(requests).toEqual([])
     expect(workspacesOf(store).map((row) => row.id)).toEqual(["ws-1"])
@@ -702,7 +702,7 @@ describe("workspace seam terminal", () => {
     const refusal = await seam.openTerminal("ws-1")
     expect(typeof refusal).toBe("string")
     expect(refusal).toContain("suspended")
-    expect(refusal).toContain("/workspace.resume")
+    expect(refusal).toContain("/box.resume")
     expect(tabsOf(store)).toEqual([])
   })
 
@@ -1215,7 +1215,7 @@ describe("workspace seam files and services (plue#449)", () => {
     expect(payloadOf(store)?.files).toBeUndefined()
   })
 
-  test("workspace.file reads the workspace's copy into a file card; base64 is stated as binary", async () => {
+  test("box.file reads the workspace's copy into a file card; base64 is stated as binary", async () => {
     const { store, seam, urls } = await harness({
       "api/repos/will/smithers/workspaces/ws-1/files/content": (url) =>
         json(200, url.searchParams.get("path") === "logo.png"
@@ -2488,13 +2488,13 @@ describe("the one-command desktop open", () => {
       expect(store.collections.cloudWorkspaces.get("ws-1")?.status).toBe("running")
       const shown = dispatched.filter(row => row.type === "toast.shown")
       expect(shown).toHaveLength(1)
-      expect(shown[0]!.toast).toMatchObject({ status: "running", action: { flow: "workspace.view", args: "ws-1", label: "Open details" } })
+      expect(shown[0]!.toast).toMatchObject({ status: "running", action: { flow: "box.view", args: "ws-1", label: "Open details" } })
       const progress = dispatched.filter(row => row.type === "toast.progressed").map(row => row.toast as { detail: string })
       for (const stage of ["Creating the box", "Resuming the box", "Booting the box", "desktop is still activating", "Starting the stream"]) {
         expect(progress.some(row => row.detail.includes(stage))).toBe(true)
       }
       for (const row of progress) expect(row.detail).toMatch(/\d+s elapsed · usually (about 20s|under 60s)/)
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Desktop ready" })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Desktop ready" })
     } finally {
       dropDesktopStream()
       seam.dispose()
@@ -2540,7 +2540,7 @@ describe("the one-command desktop open", () => {
       expect(requests.filter((key) => key.endsWith("/desktop/session"))).toEqual([])
       /* The card carries plue's reason, and the wait's stage line is gone. */
       expect(payloadOf(store)?.failureMessage).toBe(`bookmark "main" not found on will/smithers`)
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: `provisioning_failed — bookmark "main" not found on will/smithers`, action: { flow: "workspace.desktop.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers" }) } })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: `provisioning_failed — bookmark "main" not found on will/smithers`, action: { flow: "box.desktop.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers" }) } })
       expect(payloadOf(store)?.desktopStage).toBeUndefined()
       expect(readDesktopStream("ws-1")).toBeNull()
     } finally {
@@ -2558,9 +2558,9 @@ describe("the one-command desktop open", () => {
     try {
       const result = await seam.openDesktopBox()
       expect(result).toBe(
-        "The desktop box ws-1 on will/smithers is still starting after 120s — /workspace.view ws-1 reads its state, /desktop tries again."
+        "The desktop box ws-1 on will/smithers is still starting after 120s — /box.view ws-1 reads its state, /desktop tries again."
       )
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: result })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: result })
       /* One read per attempt, and not one more: the loop stops, it does not slow down. */
       expect(requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1")).toHaveLength(desktopBoxWait.maxAttempts)
       expect(requests.filter((key) => key.endsWith("/desktop/session"))).toEqual([])
@@ -2592,7 +2592,7 @@ describe("the one-command desktop open", () => {
     try {
       /* A superseded wait answers nothing: the human stopped it, so there is no line to read. */
       expect(await seam.openDesktopBox()).toBeUndefined()
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Stopped waiting" })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Stopped waiting" })
       expect(payloadOf(store)?.desktopStage).toBeUndefined()
       expect(requests.filter((key) => key.endsWith("/desktop/session"))).toEqual([])
       /* Stop touched the box not at all — no suspend, no delete, no second create. */
@@ -2613,7 +2613,7 @@ describe("the one-command desktop open", () => {
         if (mints === 2) {
           expect(payloadOf(store)?.desktopStage).toBe("activating")
           expect(payloadOf(store)?.desktopRefusal?.code).toBe("desktop_not_ready")
-          expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "running" })
+          expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "running" })
         }
         return mints === 1
           ? json(503, { code: "desktop_not_ready", message: "service unavailable" }, { "retry-after": "0" })
@@ -2648,14 +2648,14 @@ describe("the one-command desktop open", () => {
       await new Promise(resolve => setTimeout(resolve, 2_100))
       expect(dispatched.filter(row => row.type === "toast.progressed").length).toBeGreaterThan(before)
       expect(payloadOf(store)?.desktopProgress).toMatch(/[2-9]s elapsed/)
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "running" })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "running" })
       expect(payloadOf(store)?.desktopProgress).toMatch(/Starting the stream · \d+s elapsed/)
       await seam.stopDesktopWait("ws-1")
       const count = dispatched.filter(row => row.type.startsWith("toast.")).length
       release(json(201, DESKTOP_MINT))
       expect(await opening).toBeUndefined()
       expect(dispatched.filter(row => row.type.startsWith("toast."))).toHaveLength(count)
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Stopped waiting" })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Stopped waiting" })
       expect(readDesktopStream("ws-1")).toBeNull()
     } finally { dropDesktopStream(); seam.dispose() }
   })
@@ -2680,7 +2680,7 @@ describe("the one-command desktop open", () => {
       release(json(200, desktopBox("failed", null, { failure_message: "old refusal" })))
       expect(await first).toBeUndefined()
       expect(dispatched.filter(row => row.type.startsWith("toast."))).toHaveLength(count)
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Desktop ready" })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "ok", detail: "Desktop ready" })
     } finally { dropDesktopStream(); seam.dispose() }
   })
 
@@ -2691,8 +2691,8 @@ describe("the one-command desktop open", () => {
     })
     try {
       const result = await seam.openDesktopBox("main", "will/smithers")
-      expect(store.collections.toasts.get("toast-workspace.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: result,
-        action: { flow: "workspace.desktop.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers" }), label: "Try again" } })
+      expect(store.collections.toasts.get("toast-box.desktop.open:ws-1")).toMatchObject({ status: "failed", detail: result,
+        action: { flow: "box.desktop.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers" }), label: "Try again" } })
       expect(payloadOf(store)?.desktopStage).toBeUndefined()
     } finally { seam.dispose() }
   })

@@ -152,7 +152,7 @@ type FileListNavigation = {
   readonly scope: string
 } & (
   | { readonly list: "files.list"; readonly read: "files.read" }
-  | { readonly list: "workspace.files"; readonly read: "workspace.file" }
+  | { readonly list: "box.files"; readonly read: "box.file" }
 )
 
 /** The entry's full path under the card's path — the argument the row's command takes. */

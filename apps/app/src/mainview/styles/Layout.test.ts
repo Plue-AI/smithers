@@ -75,7 +75,7 @@ describe("the slash menu overlays instead of displacing the transcript", () => {
 
   /*
    * A long summary made flex shrink the name's box below its content; a
-   * dotted name (/workspace.desktop.open) has no break opportunities, so
+   * dotted name (/box.desktop.open) has no break opportunities, so
    * its text overflowed the box and painted over the description.
    */
   test("the command name never shrinks under a long summary", () => {

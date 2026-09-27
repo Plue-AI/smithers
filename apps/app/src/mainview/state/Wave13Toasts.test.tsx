@@ -95,8 +95,8 @@ describe("wave 13 B-6 — a notification is a status, never an alert", () => {
   })
   test("opening details keeps a running toast visible", () => {
     const dismissed: string[] = []
-    const host = renderToasts([{ ...toast("desktop", "running"), action: { flow: "workspace.view", args: "ws-1", label: "Open details" } }], id => dismissed.push(id))
-    host.querySelector<HTMLButtonElement>('[data-flow="workspace.view"]')!.click()
+    const host = renderToasts([{ ...toast("desktop", "running"), action: { flow: "box.view", args: "ws-1", label: "Open details" } }], id => dismissed.push(id))
+    host.querySelector<HTMLButtonElement>('[data-flow="box.view"]')!.click()
     expect(dismissed).toEqual([])
   })
 

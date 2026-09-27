@@ -110,7 +110,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 - Source: plue · coverage: partial · effort: S
 - Exists: branches card lists name/head only (packages/rpc/src/Cards.ts:481; Flows.ts:973).
-- UI: branches card footer New bookmark (name · from change ▾) and per-row Delete (confirm) plus Open workspace (workspace.open <bookmark>).
+- UI: branches card footer New bookmark (name · from change ▾) and per-row Delete (confirm) plus Open workspace (box.open <bookmark>).
 - Flows: `branches.create <name> [from]; branches.delete <name> (confirm)`
 
 ### bookmarks/changes · Working-copy status (remote /status and local jj status)
@@ -131,8 +131,8 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 - Source: plue · coverage: partial · effort: M
 - Exists: change card changeset rendering, Land, Retry and Split ready members designed (ADR 0003 L122-129); no creation or materialization act.
-- UI: stack card footer `New changeset` opens rows to pick member changes across org repos (ADR 0001 tree picker) with parent ▾ and validation errors verbatim; workspace.open gains --changeset.
-- Flows: `changeset.create <change...> [--parent <id>]; changeset.list <org>; workspace.open --changeset <id>`
+- UI: stack card footer `New changeset` opens rows to pick member changes across org repos (ADR 0001 tree picker) with parent ▾ and validation errors verbatim; box.open gains --changeset.
+- Flows: `changeset.create <change...> [--parent <id>]; changeset.list <org>; box.open --changeset <id>`
 
 ### control plane targets · Run flows against a local checkout's control plane or an arbitrary remote gateway (`--remote`/`--credential`, `smithers serve`, read-only Sync follower)
 
@@ -194,7 +194,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 - Source: plue · coverage: none · effort: S
 - Exists: repos.import imports from GitHub (Flows.ts:790); repo.open opens a local checkout (Flows.ts:1180).
-- UI: No new sidebar control (ADR 0001 names one tree and no `+`): repo.create invoked from the composer or the existing + menu (composer.add, Flows.ts:1165) renders a `repo-new` card with owner ▾ · name · visibility · template ▾ and Create; done adds the tree row and offers workspace.open.
+- UI: No new sidebar control (ADR 0001 names one tree and no `+`): repo.create invoked from the composer or the existing + menu (composer.add, Flows.ts:1165) renders a `repo-new` card with owner ▾ · name · visibility · template ▾ and Create; done adds the tree row and offers box.open.
 - Flows: `repo.create <name> [owner] [--private] [--template owner/repo]`
 
 ### repositories · Connect a local jj repo to Smithers Cloud: license check, GitHub App wait, connection file, auto-push jj hook, disconnect, status, 10-repo quota; repository sync from source
@@ -305,7 +305,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 ### workflows/automation · Automated issue pipeline (Research, Plan, Implement, Review, Land): start, stage view, pause
 
 - Source: plue · coverage: partial · effort: M
-- Exists: issue card additions (workspace row, change row) and workspace.open --issue designed (WORKBENCH-UX §3.10; ADR 0003 L148-151); agent.delegate is local only (Flows.ts:1078).
+- Exists: issue card additions (workspace row, change row) and box.open --issue designed (WORKBENCH-UX §3.10; ADR 0003 L148-151); agent.delegate is local only (Flows.ts:1078).
 - UI: issue card footer `Start pipeline` (confirm) and Pause; progress is the existing `plan` card (packages/rpc/src/Cards.ts:103: items with pending/active/done) carrying the five stages Research · Plan · Implement · Review · Land, each active or done item linking its run card; the issue card's designed workspace and change rows carry the rest; no new stage strip.
 - Flows: `issues.pipeline.start <n> (confirm); issues.pipeline.status <n>; issues.pipeline.pause <n>`
 

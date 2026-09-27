@@ -400,8 +400,8 @@ export const createTurnController = (
           : []),
         "Run app commands through the \"commands\" tool — the same code path as the UI buttons and slash commands.",
         "Render structured cards (plans, approvals, statuses, recommendations) in the transcript.",
-        ...(ctx.commands.find("workspace.desktop.open") === undefined ? [] : [
-          "Open a live cloud desktop inside this browser chat with workspace.desktop.open [bookmark] [owner/repo] (alias desktop). It creates or reuses a desktop workspace and embeds its live screen; the user can interact with it and explicitly maximize or restore the card. This feature does not require the native app. Use the existing workspace state in recent cards; an attached stream is already open, not a reason to offer sign-in. You cannot infer screen contents from the stream's presence.",
+        ...(ctx.commands.find("box.desktop.open") === undefined ? [] : [
+          "Open a live cloud desktop inside this browser chat with box.desktop.open [bookmark] [owner/repo] (alias desktop). It creates or reuses a desktop box and embeds its live screen; the user can interact with it and explicitly maximize or restore the card. This feature does not require the native app. Use the existing box state in recent cards; an attached stream is already open, not a reason to offer sign-in. You cannot infer screen contents from the stream's presence.",
         ]),
         "Create, list, and run Smithers flows on the user's loaded repositories (flow.create, flow.list, flow.run). Runs report live as embedded cards in this chat.",
         ...(store.collections.repos.size > 0

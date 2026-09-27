@@ -62,7 +62,7 @@ const openOwnedTerminal = async (page: Page, repo: string, workspaceId: string) 
     new URL(response.url()).pathname === cloudRepoPath(repo, "/workspace/sessions") &&
     response.request().postDataJSON()?.workspace_id === workspaceId && response.status() === 201)
   void created.catch(() => undefined)
-  await command(page, `/workspace.terminal ${workspaceId}`)
+  await command(page, `/box.terminal ${workspaceId}`)
   await created
   let receipts: Session[] = []
   await expect.poll(async () => {
@@ -145,7 +145,7 @@ export const writeSeededFlow = async (page: Page, request: APIRequestContext, re
 export const restartWorkspaceHost = async (page: Page, request: APIRequestContext, repo: string, workspaceId: string): Promise<void> => {
   const workspace = cloudRepoPath(repo, `/workspaces/${workspaceId}`)
   for (const [verb, settled] of [["suspend", "suspended"], ["resume", "running"]] as const) {
-    await command(page, `/workspace.${verb} ${workspaceId}`)
+    await command(page, `/box.${verb} ${workspaceId}`)
     await closeComposer(page)
     await expect.poll(async () => {
       const response = await realApi(page, request, "GET", workspace)

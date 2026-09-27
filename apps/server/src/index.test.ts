@@ -4617,8 +4617,8 @@ describe("wave 11 — the /api/workflow/* routes", () => {
   })
 
   /*
-   * Measured on canary 0068f10c2b35: after /workspace.suspend then
-   * /workspace.resume, `POST /api/workflow/provision` answered `ready` in 0s
+   * Measured on canary 0068f10c2b35: after /box.suspend then
+   * /box.resume, `POST /api/workflow/provision` answered `ready` in 0s
    * while the gateway was not up, five rpc calls then timed out at 30s each,
    * and the first one that worked landed at t=161s. The cached record inside
    * its half-life was the whole answer, and a suspend writes nothing to it —

@@ -544,13 +544,13 @@ test("a listing refresh uses its host's flow and scope", () => {
     path=""
     readAt={{ changeId: "old", commitId: "aaaa" }}
     head={{ changeId: "new", commitId: "bbbb" }}
-    refreshCommand="workspace.files"
+    refreshCommand="box.files"
     refreshScope="workspace with spaces"
     onRunCommand={(name, args) => { commands.push({ name, args }) }}
   />))
   const button = host.querySelector("button")!
-  expect(button.dataset.flow).toBe("workspace.files")
+  expect(button.dataset.flow).toBe("box.files")
   expect(button.dataset.flowArgs).toBe('/ "workspace with spaces"')
   button.click()
-  expect(commands).toEqual([{ name: "workspace.files", args: '/ "workspace with spaces"' }])
+  expect(commands).toEqual([{ name: "box.files", args: '/ "workspace with spaces"' }])
 })

@@ -37,7 +37,7 @@ export const groupByKind = (items: ReadonlyArray<SearchItem>): ReadonlyArray<{ r
 
 /** Old saved rows may have only a relative path. Never bind those to today's selection. */
 const boundFileActions = (item: SearchItem): Array<SearchAction> => item.actions.flatMap(action => {
-  if (action.role !== "open" || (action.flow !== "files.read" && action.flow !== "workspace.file")) return []
+  if (action.role !== "open" || (action.flow !== "files.read" && action.flow !== "box.file")) return []
   const parsed = parseFileArgs(action.args)
   if ("error" in parsed) return []
   if (parsed.tokens.length === 2 && parsed.tokens[1] !== "") return [action]

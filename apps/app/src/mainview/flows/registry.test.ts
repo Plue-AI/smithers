@@ -213,11 +213,11 @@ describe("command registry pure model", () => {
    * transcript or a parked command still resolves while nothing lists them.
    */
   /*
-   * `/desktop` is the one-command open (entries/workspace.ts). The needle
+   * `/desktop` is the one-command open (entries/box.ts). The needle
    * "desktop" is a NAME SUBSTRING of several flows, so the door has to win by
-   * rank, not by luck: `workspace.desktop.open` is the only VISIBLE flow the
+   * rank, not by luck: `box.desktop.open` is the only VISIBLE flow the
    * needle reaches, and the mint on a card's own id
-   * (`workspace.desktop`/`.rotate`/`.stop`) is hidden beside it. Typed with
+   * (`box.desktop`/`.rotate`/`.stop`) is hidden beside it. Typed with
    * arguments the line never opens the overlay at all, and parseSubmit's
    * exact, hidden-inclusive match lands on the bare `desktop` alias. Both
    * doors run the same handler, so either resolution is the same act.
@@ -225,10 +225,10 @@ describe("command registry pure model", () => {
   test("/desktop resolves to the one-command open, from the overlay and from the typed line", async () => {
     const { controller } = await freshController()
     const rows = controller.slashTree("desktop").filter((row) => row.kind === "flow")
-    expect(rows.map((row) => row.kind === "flow" ? row.flow.name : "")).toEqual(["workspace.desktop.open"])
+    expect(rows.map((row) => row.kind === "flow" ? row.flow.name : "")).toEqual(["box.desktop.open"])
     /* The mint-again doors stay off the menu: they act on an id a card already holds. */
     const visibleNames = visibleItems(controller.commands).map((command) => command.name)
-    for (const hidden of ["desktop", "workspace.desktop", "workspace.desktop.rotate", "workspace.desktop.stop"]) {
+    for (const hidden of ["desktop", "box.desktop", "box.desktop.rotate", "box.desktop.stop"]) {
       expect(visibleNames).not.toContain(hidden)
       expect(controller.commands.find(hidden)).toBeDefined()
     }

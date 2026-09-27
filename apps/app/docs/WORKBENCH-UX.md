@@ -128,9 +128,9 @@ the route or card is in the tree today.
 > bookmark · the BOOKMARK's head, labeled as such. The Terminal facet runs
 > over the `/api/cloud-ws/` tunnel; Files and Services render empty with the
 > plue#449 wording until their routes exist; the Snapshots rows act (Fork
-> from, Make template, Delete). `workspace.desktop`, `workspace.attach`,
-> `workspace.services`, and `workspace.logs` are unregistered until then;
-> the shipped flows are `workspace.open/view/terminal/suspend/resume/fork/
+> from, Make template, Delete). `box.desktop`, `workspace.attach`,
+> `box.services`, and `workspace.logs` are unregistered until then;
+> the shipped flows are `box.open/view/terminal/suspend/resume/fork/
 > snapshot/snapshot.fork/snapshot.delete/template/sessions/session.destroy/
 > delete/list/facet`.
 
@@ -205,7 +205,7 @@ session contract in §6, a thumbnail route, and a workspace class with enough
 memory for a display (the 512MB class cannot run a compositor; the spike used
 c3-standard-8 hosts, the guest size is the open question).
 
-**Tracer bullet A.** `/workspace.open main` on a Smithers Cloud repo shows the card
+**Tracer bullet A.** `/box.open main` on a Smithers Cloud repo shows the card
 `running`; the Terminal facet echoes a command; the Desktop facet shows a live
 thumbnail of a NixOS session; Attach types into a terminal emulator inside the
 guest and the keystrokes appear. Exit criterion: a screenshot of the card,
@@ -455,7 +455,7 @@ agent is working in (opens the `workspace` card) and the landing that
 resulted (opens the `change` card). This mirrors plue's issue-to-workspace
 automation (workspaces spec §5.5).
 
-**Flows.** Existing `issues.*`; `workspace.open --issue <n>` reuses §3.1.
+**Flows.** Existing `issues.*`; `box.open --issue <n>` reuses §3.1.
 
 ### 3.11 Source of truth (Piper) and working copy
 

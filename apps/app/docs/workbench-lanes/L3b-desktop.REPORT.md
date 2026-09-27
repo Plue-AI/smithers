@@ -20,8 +20,8 @@ listing, except **the run card's "Open the agent's computer"** (addendum item
 | `apps/app/src/mainview/state/seams/WorkspaceSeam.test.ts` | 24 new tests (74 in the file). The harness now records request bodies and exposes the persistence backend's written bytes. |
 | `apps/app/src/mainview/cards/WorkspaceCard.tsx` | The Desktop facet (`WorkspaceDesktopBody`), `environmentProvenance`, `sessionUntil`, `imageTag`, the three-kind create affordance, the agent-session line, the Desktop tab gated on `kind === "desktop"`, and `EnvironmentImagesCardBody`. |
 | `apps/app/src/mainview/cards/WorkspaceCard.test.tsx` | 20 new tests (41 in the file); the existing Retry test became the three-kind create test. |
-| `apps/app/src/mainview/flows/Flows.ts` | `workspace.open` takes `--kind`; `workspace.facet` accepts `desktop`; new `workspace.desktop` (confirm), `workspace.desktop.rotate` (confirm, hidden), `workspace.images`. |
-| `apps/app/src/mainview/flows/SlashPayload.ts` | `workspace.open` parses `--kind` anywhere on the line and refuses an unknown one; parsers for the three new flows. |
+| `apps/app/src/mainview/flows/Flows.ts` | `box.open` takes `--kind`; `box.facet` accepts `desktop`; new `box.desktop` (confirm), `box.desktop.rotate` (confirm, hidden), `box.images`. |
+| `apps/app/src/mainview/flows/SlashPayload.ts` | `box.open` parses `--kind` anywhere on the line and refuses an unknown one; parsers for the three new flows. |
 | `apps/app/src/mainview/state/AppController.ts` | `openWorkspaceDesktop`, `rotateWorkspaceDesktop`, `listEnvironmentImages` on the interface and both action tables. |
 | `apps/app/src/mainview/styles/cards.css` | `.workspace-desktop` / `.workspace-desktop-frame`, and the maximize rules that give the frame the card's full height (same shape as `.browser-card-frame` and `.html-card-frame`). |
 | `apps/app/src/mainview/ChatCards.tsx` | **One additive line** (plus its import) mounting `EnvironmentImagesCardBody`. Outside this lane's owned list; a new card kind cannot render without it. |
@@ -45,7 +45,7 @@ be a second place to leak from.
 The facet reads the mint through `useSyncExternalStore` (React's own
 external-store hook — no `useEffect`, no lifecycle synchronisation) and puts
 it straight into the iframe's `src`. The mint is dropped when the facet leaves
-the desktop (`workspace.facet <id> <other>`), when the workspace is deleted,
+the desktop (`box.facet <id> <other>`), when the workspace is deleted,
 and when the seam is disposed.
 
 **Deviation from the brief, stated plainly.** The brief allowed
@@ -167,7 +167,7 @@ reads a raw wire key.
 
 - the create affordance offers the three kinds in plue's words and each carries its kind *(replaces L3's Retry test)*
 - a workspace with no target bookmark re-opens on its repository alone
-- the Desktop tab is offered only for a desktop workspace, and it mints through workspace.desktop
+- the Desktop tab is offered only for a desktop workspace, and it mints through box.desktop
 - **the iframe carries exactly the allow and sandbox attributes plue's relay needs**
 - the status line says when the session lapses, and Rotate session rides its own flow
 - a rotate swaps the src: the facet renders whatever the holder holds now
@@ -197,9 +197,9 @@ test became the three-kind create test.
   applies rather than the app asserting `container` on the human's behalf. No
   environment or image field is ever sent (ADR 0002's standing default).
 - **The Desktop tab is the mint.** Selecting the facet through
-  `workspace.facet` does NOT mint; the tab runs `workspace.desktop`, which
+  `box.facet` does NOT mint; the tab runs `box.desktop`, which
   carries `confirm`, so the model may ask for a desktop and only the human
-  performs it. `workspace.desktop.rotate` is `confirm` and `hidden`.
+  performs it. `box.desktop.rotate` is `confirm` and `hidden`.
 - **`⤢` was not added.** The brief's ASCII shows a maximize glyph in the meta
   row; the card header already carries the app's maximize affordance
   (`onMaximize`, bound to `card.maximize` at the App.tsx binding site), and a
@@ -211,7 +211,7 @@ test became the three-kind create test.
   facet exists on this card and the brief's prose does not specify one, so
   none was invented. The strip is Terminal / Files / Services / Snapshots /
   Egress / Desktop.
-- **The 409's Resume is the workspace's Resume.** `workspace.resume` already
+- **The 409's Resume is the workspace's Resume.** `box.resume` already
   exists and already carries `confirm`; the facet's button invokes it rather
   than a new act.
 - **Test hygiene:** the card suite now unmounts every React root in `afterAll`.
@@ -235,7 +235,7 @@ test became the three-kind create test.
   `agentSessionEgressPath`. Putting a plue workspace link on a Smithers
   gateway run would claim a relationship that does not exist. When a plue
   agent-session surface lands, the action is one button running the already
-  registered `workspace.view <workspace_id>`.
+  registered `box.view <workspace_id>`.
 - **Addendum item 1's "Open the agent session" as an action.** The brief's own
   fallback was taken: no existing flow *opens* a plue agent session
   (`egress.session` lists what one called out to, which is a different act and

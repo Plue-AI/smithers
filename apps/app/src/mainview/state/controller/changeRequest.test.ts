@@ -243,7 +243,7 @@ test("change.request without a selected Cloud workspace names the door instead o
   const controller = createAppController(store, chat.agent, { fetchImpl: async () => json(404, {}) })
   try {
     const result = await controller.commands.run("change.request", `Fix the README typo ${repo}`)
-    expect(JSON.stringify(result)).toContain("/workspace.open")
+    expect(JSON.stringify(result)).toContain("/box.open")
     expect([...store.collections.cards.values()].filter(card => card.kind === "run-trace")).toHaveLength(0)
   } finally { await controller.dispose(); await store.dispose?.() }
 })

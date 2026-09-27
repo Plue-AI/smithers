@@ -26,7 +26,7 @@ import { flowAction, flowProps } from "../flows/FlowAction"
  * data-flow (parity.test.ts gates this). The one act whose door is the
  * host's — the terminal rides the origin's `/api/cloud-ws/` tunnel, which
  * the Worker does not open until the W4 relay lands — is rendered only when
- * the live registry holds `workspace.terminal` (parity-hosts.test.ts (a‴)):
+ * the live registry holds `box.terminal` (parity-hosts.test.ts (a‴)):
  * the pointer path drops an unregistered name silently, so a button bound to
  * it would be a dead control.
  */
@@ -118,7 +118,7 @@ export const headerFacts = (payload: WorkspacePayload, now: number): ReadonlyArr
   const head = payload.head
   if (head != null && (head.changeId != null || head.commitId != null)) {
     const ids = [head.changeId, head.commitId].filter((id): id is string => id != null && id !== "").map(shortId)
-    facts.push(`workspace head @ ${ids.join(" ")}`)
+    facts.push(`box head @ ${ids.join(" ")}`)
   }
   if (payload.ahead != null) facts.push(`${payload.ahead} ahead`)
   if (payload.behind != null) facts.push(`${payload.behind} behind`)
@@ -236,7 +236,7 @@ const WorkspaceDesktopBody = ({
             size="sm"
             variant="outline"
             aria-label="Stop waiting for the desktop box"
-            {...flowAction(onRunCommand, "workspace.desktop.stop", payload.workspaceId)}
+            {...flowAction(onRunCommand, "box.desktop.stop", payload.workspaceId)}
           >
             Stop waiting
           </Button>
@@ -247,8 +247,8 @@ const WorkspaceDesktopBody = ({
             <Button
               size="sm"
               variant="outline"
-              aria-label="Resume the workspace and open its desktop"
-              {...flowAction(onRunCommand, "workspace.resume", payload.workspaceId)}
+              aria-label="Resume the box and open its desktop"
+              {...flowAction(onRunCommand, "box.resume", payload.workspaceId)}
             >
               <Play size={12} aria-hidden="true" /> Resume
             </Button>
@@ -260,7 +260,7 @@ const WorkspaceDesktopBody = ({
               size="sm"
               variant="outline"
               aria-label="Try the desktop session again"
-              {...flowAction(onRunCommand, "workspace.desktop", payload.workspaceId)}
+              {...flowAction(onRunCommand, "box.desktop", payload.workspaceId)}
             >
               <RefreshCw size={12} aria-hidden="true" /> Retry
             </Button>
@@ -280,7 +280,7 @@ const WorkspaceDesktopBody = ({
               size="sm"
               variant="outline"
               aria-label="Open a new desktop box with the current image"
-              {...flowAction(onRunCommand, "workspace.open", flowArgs("workspace.open", { bookmark: payload.targetBookmark ?? undefined, repo: payload.repo, kind: "desktop" }))}
+              {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { bookmark: payload.targetBookmark ?? undefined, repo: payload.repo, kind: "desktop" }))}
             >
               <Play size={12} aria-hidden="true" /> Open a new box
             </Button>
@@ -315,7 +315,7 @@ const WorkspaceDesktopBody = ({
         <Button
           size="sm"
           variant="outline"
-          {...flowAction(onRunCommand, "workspace.desktop.rotate", payload.workspaceId)}
+          {...flowAction(onRunCommand, "box.desktop.rotate", payload.workspaceId)}
         >
           Rotate session
         </Button>
@@ -356,7 +356,7 @@ const WorkspaceFacetBody = ({
 }: {
   readonly card: WorkspaceCard
   readonly facet: (typeof FACETS)[number]
-  /** Whether this host registers `workspace.terminal` (its tunnel is open); false renders the fact, not a button. */
+  /** Whether this host registers `box.terminal` (its tunnel is open); false renders the fact, not a button. */
   readonly canTerminal: boolean
   readonly terminalUnavailableOnWeb: boolean
   readonly onRunCommand: WorkspaceCardActions["onRunCommand"]
@@ -370,7 +370,7 @@ const WorkspaceFacetBody = ({
     return (
       <FileListCardBody
         card={listingCard(payload)}
-        navigation={{ list: "workspace.files", read: "workspace.file", scope: payload.workspaceId }}
+        navigation={{ list: "box.files", read: "box.file", scope: payload.workspaceId }}
         onRunCommand={onRunCommand}
       />
     )
@@ -420,7 +420,7 @@ const WorkspaceFacetBody = ({
             <Button
               size="sm"
               variant="outline"
-              {...flowAction(onRunCommand, "workspace.egress", flowArgs("workspace.egress", { workspaceId: payload.workspaceId, cursor: payload.egressCursor ?? undefined }))}
+              {...flowAction(onRunCommand, "box.egress", flowArgs("box.egress", { workspaceId: payload.workspaceId, cursor: payload.egressCursor ?? undefined }))}
             >
               Load older
             </Button>
@@ -473,7 +473,7 @@ const WorkspaceFacetBody = ({
           <Button
             size="sm"
             {...(terminalRefusal === null ? {} : { variant: "outline" as const, "aria-label": "Try the terminal again" })}
-            {...flowAction(onRunCommand, "workspace.terminal", payload.workspaceId)}
+            {...flowAction(onRunCommand, "box.terminal", payload.workspaceId)}
           >
             {terminalRefusal === null ? "Open terminal" : <><RefreshCw size={12} aria-hidden="true" /> Retry</>}
           </Button>
@@ -492,7 +492,7 @@ const WorkspaceFacetBody = ({
                   size="sm"
                   variant="outline"
                   aria-label={`Destroy session ${session.id}`}
-                  {...flowAction(onRunCommand, "workspace.session.destroy", flowArgs("workspace.session.destroy", { sessionId: session.id, workspaceId: payload.workspaceId }))}
+                  {...flowAction(onRunCommand, "box.session.destroy", flowArgs("box.session.destroy", { sessionId: session.id, workspaceId: payload.workspaceId }))}
                 >
                   Destroy
                 </Button>
@@ -510,9 +510,9 @@ export const WorkspaceCardBody = ({
 }: { readonly card: WorkspaceCard } & WorkspaceCardActions) => {
   const { payload } = card
   const facet = payload.facet ?? "terminal"
-  /* The registry is the truth about the terminal door: the Worker registers workspace.terminal only once its relay is on. */
+  /* The registry is the truth about the terminal door: the Worker registers box.terminal only once its relay is on. */
   const controller = useController()
-  const canTerminal = controller.commands.find("workspace.terminal") !== undefined
+  const canTerminal = controller.commands.find("box.terminal") !== undefined
   const terminalUnavailableOnWeb = controller.bootstrap?.host === "cloud"
     && !controller.bootstrap.capabilities.includes("cloud.terminal")
   /* The delete act's typed confirm: the draft is transient chrome state, never a store fact. */
@@ -599,8 +599,8 @@ export const WorkspaceCardBody = ({
                 key={kind}
                 size="sm"
                 variant="outline"
-                aria-label={`Open a ${kind} workspace`}
-                {...flowAction(onRunCommand, "workspace.open", flowArgs("workspace.open", { bookmark: payload.targetBookmark ?? undefined, repo: payload.repo, kind: kind }))}
+                aria-label={`Open a ${kind} box`}
+                {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { bookmark: payload.targetBookmark ?? undefined, repo: payload.repo, kind: kind }))}
               >
                 {kind} — {says}
               </Button>
@@ -611,10 +611,10 @@ export const WorkspaceCardBody = ({
       {/*
         Lane L3b: the Desktop tab exists only for a desktop workspace — a
         container and a vm have no display to stream. Opening it runs
-        `workspace.desktop`, which MINTS a session (a live machine's password),
+        `box.desktop`, which MINTS a session (a live machine's password),
         so it is its own confirmed act rather than a facet switch.
       */}
-      <div className="world-card-row" role="tablist" aria-label="Workspace facets">
+      <div className="world-card-row" role="tablist" aria-label="Box facets">
         {FACETS.filter((name) => name !== "desktop" || payload.workspaceKind === "desktop").map((name) => (
           <Button
             key={name}
@@ -622,11 +622,11 @@ export const WorkspaceCardBody = ({
             variant={name === facet ? "default" : "outline"}
             role="tab"
             aria-selected={name === facet}
-            {...flowProps(name === "desktop" ? "workspace.desktop" : "workspace.facet")}
+            {...flowProps(name === "desktop" ? "box.desktop" : "box.facet")}
             onClick={() =>
               name === "desktop"
-                ? onRunCommand("workspace.desktop", payload.workspaceId)
-                : onRunCommand("workspace.facet", flowArgs("workspace.facet", { workspaceId: payload.workspaceId, facet: name }))}
+                ? onRunCommand("box.desktop", payload.workspaceId)
+                : onRunCommand("box.facet", flowArgs("box.facet", { workspaceId: payload.workspaceId, facet: name }))}
           >
             {name[0]!.toUpperCase()}{name.slice(1)}
           </Button>
@@ -639,7 +639,7 @@ export const WorkspaceCardBody = ({
             <Button
               size="sm"
               variant="outline"
-              {...flowAction(onRunCommand, "workspace.suspend", payload.workspaceId)}
+              {...flowAction(onRunCommand, "box.suspend", payload.workspaceId)}
             >
               <Square size={12} aria-hidden="true" /> Suspend
             </Button>
@@ -650,7 +650,7 @@ export const WorkspaceCardBody = ({
             <Button
               size="sm"
               variant="outline"
-              {...flowAction(onRunCommand, "workspace.resume", payload.workspaceId)}
+              {...flowAction(onRunCommand, "box.resume", payload.workspaceId)}
             >
               <Play size={12} aria-hidden="true" /> Resume
             </Button>
@@ -659,7 +659,7 @@ export const WorkspaceCardBody = ({
         <Button
           size="sm"
           variant="outline"
-          {...flowProps("workspace.delete")}
+          {...flowProps("box.delete")}
           onClick={() => setDeleteDraft((draft) => (draft === null ? "" : null))}
         >
           <Trash2 size={12} aria-hidden="true" /> Delete
@@ -680,7 +680,7 @@ export const WorkspaceCardBody = ({
               size="sm"
               variant="outline"
               disabled={deleteDraft !== payload.name}
-              {...flowAction(onRunCommand, "workspace.delete", flowArgs("workspace.delete", { workspaceId: payload.workspaceId, confirmName: deleteDraft }))}
+              {...flowAction(onRunCommand, "box.delete", flowArgs("box.delete", { workspaceId: payload.workspaceId, confirmName: deleteDraft }))}
             >
               Delete permanently
             </Button>

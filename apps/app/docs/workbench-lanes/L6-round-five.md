@@ -48,7 +48,7 @@ fixtures `unverified`.
 - plue #496 (rolling next): the desktop session POST answers 500 until NixOS
   activation finishes, about 30 s after `running`. Until it rolls, the
   Desktop facet renders the 500 body verbatim with a `Retry` button
-  (`workspace.desktop` again, no confirm on retry); never a spinner that
+  (`box.desktop` again, no confirm on retry); never a spinner that
   hides the server's answer, never an invented "still starting" line.
 - plue #497/#498 are backend (empty clone for fresh repos; no egress env in
   workspace terminals): nothing to build, but a Files facet that shows only

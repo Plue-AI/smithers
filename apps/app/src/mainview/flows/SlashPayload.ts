@@ -311,7 +311,7 @@ const triggerRun = (args: string | undefined, known?: KnownRepositories): Parsed
   return ok({ ...(slug === "" ? {} : { slug }), ...(repo === undefined ? {} : { repo }) })
 }
 
-/** The three sandbox kinds `workspace.open --kind` accepts (ADR 0002). */
+/** The three sandbox kinds `box.open --kind` accepts (ADR 0002). */
 const KINDS: ReadonlyArray<string> = ["container", "vm", "desktop"]
 
 /**
@@ -341,7 +341,7 @@ const issueComment = (args: string | undefined, known?: KnownRepositories): Pars
 
 /** `[bookmark] [owner/repo]`: the one-command desktop open and its bare `desktop` door. */
 const desktopOpen = (args: string | undefined, known?: KnownRepositories): Parsed => {
-  const structured = structuredFields("workspace.desktop.open", args, ["bookmark", "repo"])
+  const structured = structuredFields("box.desktop.open", args, ["bookmark", "repo"])
   if (structured !== undefined) return structured
   const { rest, repo } = identifierRepo(args, known)
   const bookmark = rest.trim()
@@ -938,9 +938,9 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * snapshot's optional name is the rest of the line; template's name is one
    * token (a slug), with the workspace id trailing it.
    */
-  "workspace.list": (args) => repoOnly("workspace.list", args),
-  "workspace.open": (args, known) => {
-    const structured = structuredFields("workspace.open", args, ["bookmark", "repo", "kind"])
+  "box.list": (args) => repoOnly("box.list", args),
+  "box.open": (args, known) => {
+    const structured = structuredFields("box.open", args, ["bookmark", "repo", "kind"])
     if (structured !== undefined) return structured
     /*
      * ADR 0002: the kind IS the choice, so it rides the line as `--kind
@@ -950,42 +950,42 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
      */
     const flagged = /(?:^|\s)--kind(?:\s+(\S+))?/.exec(args ?? "")
     if (flagged !== null && (flagged[1] === undefined || !KINDS.includes(flagged[1]))) {
-      return no("workspace.open's kind must be container, vm, or desktop")
+      return no("box.open's kind must be container, vm, or desktop")
     }
     const kind = flagged?.[1]
     const line = flagged === null ? args : (args ?? "").replace(flagged[0], " ")
     const { rest, repo } = identifierRepo(line, known)
     const bookmark = rest.trim()
-    if (/\s/.test(bookmark)) return no("workspace.open takes a bookmark and optionally an owner/repo")
+    if (/\s/.test(bookmark)) return no("box.open takes a bookmark and optionally an owner/repo")
     return ok({
       ...(bookmark === "" ? {} : { bookmark }),
       ...(repo === undefined ? {} : { repo }),
       ...(kind === undefined ? {} : { kind })
     })
   },
-  "workspace.view": (args) => required("workspaceId", args, "workspace.view needs a workspace id"),
-  "workspace.terminal": (args) => optional("workspaceId", args),
-  "workspace.suspend": (args) => optional("workspaceId", args),
-  "workspace.resume": (args) => optional("workspaceId", args),
-  "workspace.sessions": (args) => optional("workspaceId", args),
-  "workspace.session.destroy": (args) => {
+  "box.view": (args) => required("workspaceId", args, "box.view needs a workspace id"),
+  "box.terminal": (args) => optional("workspaceId", args),
+  "box.suspend": (args) => optional("workspaceId", args),
+  "box.resume": (args) => optional("workspaceId", args),
+  "box.sessions": (args) => optional("workspaceId", args),
+  "box.session.destroy": (args) => {
     const [sessionId, workspaceId, ...rest] = tokensOf(args)
-    if (sessionId === undefined) return no("workspace.session.destroy needs a session id")
-    if (rest.length > 0) return no("workspace.session.destroy takes a session id and optionally a workspace id")
+    if (sessionId === undefined) return no("box.session.destroy needs a session id")
+    if (rest.length > 0) return no("box.session.destroy takes a session id and optionally a workspace id")
     return ok(workspaceId === undefined ? { sessionId } : { sessionId, workspaceId })
   },
-  "workspace.delete": (args) => {
+  "box.delete": (args) => {
     /* `<workspaceId> <name>`: the name typed back is required; the card sends the draft the user typed. */
     const [workspaceId, ...rest] = tokensOf(args)
-    if (workspaceId === undefined) return no("workspace.delete needs a workspace id and its name typed back: /workspace.delete <workspaceId> <name>")
+    if (workspaceId === undefined) return no("box.delete needs a workspace id and its name typed back: /box.delete <workspaceId> <name>")
     const confirmName = rest.join(" ").trim()
-    if (confirmName === "") return no(`workspace.delete needs the workspace's name typed back: /workspace.delete ${workspaceId} <name>`)
+    if (confirmName === "") return no(`box.delete needs the workspace's name typed back: /box.delete ${workspaceId} <name>`)
     return ok({ workspaceId, confirmName })
   },
-  "workspace.facet": (args) => {
+  "box.facet": (args) => {
     const [workspaceId, facet, ...rest] = tokensOf(args)
     if (workspaceId === undefined || facet === undefined || rest.length > 0) {
-      return no("workspace.facet takes a workspace id and a facet")
+      return no("box.facet takes a workspace id and a facet")
     }
     return ok({ workspaceId, facet })
   },
@@ -995,44 +995,44 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * it; the egress cursor is plue's opaque base64 keyset position and trails
    * the workspace id.
    */
-  "workspace.files": (args) => {
+  "box.files": (args) => {
     const parsed = parseFileArgs(args)
     if ("error" in parsed) return parsed
     const [path, workspaceId, ...rest] = parsed.tokens
-    if (rest.length > 0) return no("workspace.files takes a path and optionally a workspace id")
+    if (rest.length > 0) return no("box.files takes a path and optionally a workspace id")
     return ok({
       ...(path === undefined ? {} : { path }),
       ...(workspaceId === undefined ? {} : { workspaceId })
     })
   },
-  "workspace.file": (args) => {
+  "box.file": (args) => {
     const parsed = parseFileArgs(args)
     if ("error" in parsed) return parsed
     const [path, workspaceId, ...rest] = parsed.tokens
-    if (path === undefined) return no("workspace.file needs a path: /workspace.file <path> [workspaceId]")
-    if (rest.length > 0) return no("workspace.file takes a path and optionally a workspace id")
+    if (path === undefined) return no("box.file needs a path: /box.file <path> [workspaceId]")
+    if (rest.length > 0) return no("box.file takes a path and optionally a workspace id")
     return ok(workspaceId === undefined ? { path } : { path, workspaceId })
   },
-  "workspace.services": (args) => optional("workspaceId", args),
+  "box.services": (args) => optional("workspaceId", args),
   /*
    * Lane L3b: a mint is always addressed by id, because it hands out a
    * credential for one named box. The one-command open is the exception that
    * proves it — it takes no id because it is what CREATES the box:
-   * `/desktop [bookmark] [owner/repo]`, the same shape as `workspace.open`
+   * `/desktop [bookmark] [owner/repo]`, the same shape as `box.open`
    * without the kind. A bookmark is one token; the trailing `owner/repo` is
    * the target.
    */
-  "workspace.desktop.open": (args, known) => desktopOpen(args, known),
+  "box.desktop.open": (args, known) => desktopOpen(args, known),
   "desktop": (args, known) => desktopOpen(args, known),
-  "workspace.desktop": (args) => required("workspaceId", args, "workspace.desktop needs a workspace id"),
-  "workspace.desktop.stop": (args) =>
-    required("workspaceId", args, "workspace.desktop.stop needs a workspace id"),
-  "workspace.desktop.rotate": (args) =>
-    required("workspaceId", args, "workspace.desktop.rotate needs a workspace id"),
-  "workspace.images": (args) => repoOnly("workspace.images", args),
-  "workspace.egress": (args) => {
+  "box.desktop": (args) => required("workspaceId", args, "box.desktop needs a workspace id"),
+  "box.desktop.stop": (args) =>
+    required("workspaceId", args, "box.desktop.stop needs a workspace id"),
+  "box.desktop.rotate": (args) =>
+    required("workspaceId", args, "box.desktop.rotate needs a workspace id"),
+  "box.images": (args) => repoOnly("box.images", args),
+  "box.egress": (args) => {
     const [workspaceId, cursor, ...rest] = tokensOf(args)
-    if (rest.length > 0) return no("workspace.egress takes a workspace id and optionally a page cursor")
+    if (rest.length > 0) return no("box.egress takes a workspace id and optionally a page cursor")
     return ok({
       ...(workspaceId === undefined ? {} : { workspaceId }),
       ...(cursor === undefined ? {} : { cursor })

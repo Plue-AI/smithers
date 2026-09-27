@@ -74,7 +74,7 @@ import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import type { SeamContext } from "./SeamContext"
 
 export const DEGRADED_WORKSPACE_REFUSAL =
-  "This Smithers Cloud sign-in can't use workspaces — sign in again to enable them."
+  "This Smithers Cloud sign-in can't use boxes — sign in again to enable them."
 
 
 /*
@@ -116,7 +116,7 @@ export const desktopBoxWait = {
 // take ~30s more (desktop_not_ready). These are typical durations, not deadlines.
 const desktopBootEstimateSeconds = 20
 const desktopReadyEstimateSeconds = 60
-const desktopToastKey = (id: string): string => `workspace.desktop.open:${id}`
+const desktopToastKey = (id: string): string => `box.desktop.open:${id}`
 
 /** How far the one-command open has got; the card names it while nothing streams yet. */
 export type DesktopStage = "creating" | "resuming" | "starting" | "activating" | "streaming"
@@ -149,12 +149,12 @@ export const terminalSessionRetry = {
 export type WorkspaceFacet = "terminal" | "files" | "services" | "egress" | "desktop"
 
 export interface WorkspaceSeam {
-  /** `workspace.list [owner/repo]`: refresh the collection and the tree; a bare call lists the per-user inventory. */
+  /** `box.list [owner/repo]`: refresh the collection and the tree; a bare call lists the per-user inventory. */
   readonly listWorkspaces: (repo?: string) => Promise<string | void | { readonly value: string }>
   /** The silent refresh (sign-in, boot): the collection and tree, no transcript line. */
   readonly refreshWorkspaces: (repo?: string) => Promise<string | void>
   /**
-   * `workspace.open [bookmark] [owner/repo] [--kind container|vm|desktop]`:
+   * `box.open [bookmark] [owner/repo] [--kind container|vm|desktop]`:
    * create-or-reuse, render the card, watch until it settles. ADR 0002 — the
    * kind IS the choice; a call that names none leaves plue's own default
    * (`container`) to stand rather than asserting one.
@@ -164,38 +164,38 @@ export interface WorkspaceSeam {
     repo?: string,
     kind?: WorkspaceKind
   ) => Promise<string | void | { readonly value: string }>
-  /** `workspace.view <id>`: re-read one workspace and render its card. */
+  /** `box.view <id>`: re-read one workspace and render its card. */
   readonly viewWorkspace: (workspaceId: string) => Promise<string | void | { readonly value: string }>
-  /** `workspace.terminal [workspaceId]`: open (or re-attach) the workspace's terminal tab. */
+  /** `box.terminal [workspaceId]`: open (or re-attach) the workspace's terminal tab. */
   readonly openTerminal: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   readonly suspendWorkspace: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   readonly resumeWorkspace: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   /** A workspace created FROM a snapshot (the snapshot row's "Fork from"): POST /workspaces { snapshot_id }. */
   readonly listSessions: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   readonly destroySession: (sessionId: string, workspaceId?: string) => Promise<string | void | { readonly value: string }>
-  /** `workspace.delete <id> <name>`: the workspace's name typed back is the gate — a mismatch refuses, whoever invoked. */
+  /** `box.delete <id> <name>`: the workspace's name typed back is the gate — a mismatch refuses, whoever invoked. */
   readonly deleteWorkspace: (workspaceId: string, confirmName: string) => Promise<string | void | { readonly value: string }>
   /** The card's body tab; hidden, card-button scoped. */
   readonly setFacet: ViewAction<[workspaceId: string, facet: WorkspaceFacet]>
-  /** `workspace.files [path] [workspaceId]`: the Files facet at one directory (`""` is the root). */
+  /** `box.files [path] [workspaceId]`: the Files facet at one directory (`""` is the root). */
   readonly listFiles: (path?: string, workspaceId?: string) => Promise<string | void | { readonly value: string }>
-  /** `workspace.file <path> [workspaceId]`: read one file out of the workspace and render the file card. */
+  /** `box.file <path> [workspaceId]`: read one file out of the workspace and render the file card. */
   readonly readFile: (path: string, workspaceId?: string) => Promise<string | void | { readonly value: string }>
-  /** `workspace.services [workspaceId]`: the Services facet's rows. */
+  /** `box.services [workspaceId]`: the Services facet's rows. */
   readonly listServices: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   /**
-   * `workspace.egress [workspaceId] [cursor]`: one page of the egress audit.
+   * `box.egress [workspaceId] [cursor]`: one page of the egress audit.
    * Without a cursor it replaces the facet's rows; with one it appends the
    * older page the card's "Load older" asked for.
    */
   readonly listEgress: (workspaceId?: string, cursor?: string) => Promise<string | void | { readonly value: string }>
   /**
-   * `workspace.desktop <workspaceId>`: mint a desktop session and open the
+   * `box.desktop <workspaceId>`: mint a desktop session and open the
    * facet. The answer is a credential, so it goes to the ephemeral holder in
    * DesktopStream.ts and NEVER to a collection, a transcript row, or a card.
    */
   readonly openDesktop: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
-  /** `workspace.desktop.rotate <workspaceId>`: mint again (the guest's VNC password changes; the old iframe drops). */
+  /** `box.desktop.rotate <workspaceId>`: mint again (the guest's VNC password changes; the old iframe drops). */
   readonly rotateDesktop: (workspaceId?: string) => Promise<string | void | { readonly value: string }>
   /**
    * `/desktop [bookmark] [owner/repo]`: create-or-reuse the desktop box on a
@@ -203,9 +203,9 @@ export interface WorkspaceSeam {
    * whole thing under the one confirmation the flow asked for.
    */
   readonly openDesktopBox: (bookmark?: string, repo?: string) => Promise<string | void | { readonly value: string }>
-  /** `workspace.desktop.stop <workspaceId>`: stop waiting for the box, without touching the box. */
+  /** `box.desktop.stop <workspaceId>`: stop waiting for the box, without touching the box. */
   readonly stopDesktopWait: (workspaceId: string) => Promise<string | void>
-  /** `workspace.images [owner/repo]`: the environment images a repository has built. */
+  /** `box.images [owner/repo]`: the environment images a repository has built. */
   readonly listEnvironmentImages: (repo?: string) => Promise<string | void | { readonly value: string }>
   /**
    * One event off `GET …/workspaces/{id}/stream` (RFD-004). The stream now
@@ -716,7 +716,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if (workspaceId !== undefined && workspaceId !== "") {
       const row = cloudWorkspaces.get(workspaceId)
       return row === undefined
-        ? { error: `Workspace ${workspaceId} is not loaded — /workspace.list refreshes the inventory` }
+        ? { error: `Box ${workspaceId} is not loaded — /box.list refreshes the inventory` }
         : { workspace: row }
     }
     const key = ctx.store.session().activeRepoKey ?? null
@@ -731,9 +731,9 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const all = [...cloudWorkspaces.values()]
     if (all.length === 1) return { workspace: all[0]! }
     if (all.length === 0) {
-      return { error: "No cloud workspace is loaded — /workspace.open creates one, /workspace.list refreshes" }
+      return { error: "No box is loaded — /box.open creates one, /box.list refreshes" }
     }
-    return { error: `Several workspaces are loaded (${all.map((row) => row.id).join(", ")}) — name a workspace id` }
+    return { error: `Several boxes are loaded (${all.map((row) => row.id).join(", ")}) — name a box id` }
   }
 
   /* The repository a snapshot or session act routes through. */
@@ -963,7 +963,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       return row === null ? [] : [row]
     })
     if (raw.length > 0 && parsed.length === 0) {
-      return `Smithers Cloud answered ${raw.length} workspace row${raw.length === 1 ? "" : "s"} in a shape Smithers can't read — the loaded workspaces were kept.`
+      return `Smithers Cloud answered ${raw.length} box row${raw.length === 1 ? "" : "s"} in a shape Smithers can't read — the loaded boxes were kept.`
     }
     /*
      * The per-user row is a switcher row: no bookmark, no stage, no
@@ -1084,8 +1084,8 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if (typeof loaded === "string") return loaded
     const listing = loaded.length === 0
       ? scope === undefined
-        ? "No cloud workspaces."
-        : `No cloud workspaces on ${scope}.`
+        ? "No boxes."
+        : `No boxes on ${scope}.`
       : loaded
         .map((workspace) =>
           `${workspace.name} (${workspace.id}) · ${workspace.status} · ${workspace.repoId}${
@@ -1147,7 +1147,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       return refusalSentence(created.refusal)
     }
     const workspace = parseWorkspaceWire(created.body, target.repo)
-    if (workspace === null) return `Smithers Cloud's answer for the new workspace on ${target.repo} was malformed.`
+    if (workspace === null) return `Smithers Cloud's answer for the new box on ${target.repo} was malformed.`
     ctx.dispatch({ type: "workspace.updated", actor: "system", workspace })
     // Opening a computer also makes it the target of subsequent coding runs.
     // A slow create must not pull the user back after they chose another repo.
@@ -1165,7 +1165,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       ...(sessions === null ? {} : { sessions })
     })
     return {
-      value: `Workspace "${workspace.name}" (${workspace.id}) is ${workspace.status} on ${workspace.repoId}${
+      value: `Box "${workspace.name}" (${workspace.id}) is ${workspace.status} on ${workspace.repoId}${
         workspace.targetBookmark === null ? "" : `@${workspace.targetBookmark}`
       } — the card tracks it.`
     }
@@ -1182,7 +1182,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if (!current()) return SIGN_OUT_REFUSAL
     if ("error" in answer) return failOnCard(workspace, answer)
     const fresh = parseWorkspaceWire(answer.body, workspace.repoId)
-    if (fresh === null) return `Smithers Cloud's answer for workspace ${workspace.id} was malformed.`
+    if (fresh === null) return `Smithers Cloud's answer for box ${workspace.id} was malformed.`
     ctx.dispatch({ type: "workspace.updated", actor: "system", workspace: fresh })
     if (UNSETTLED.has(fresh.status)) watch(fresh.id)
     const [bookmarkHead, sessions] = await Promise.all([
@@ -1194,7 +1194,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       bookmarkHead,
       ...(sessions === null ? {} : { sessions })
     })
-    return { value: `Workspace "${fresh.name}" (${fresh.id}) is ${fresh.status} — the card is current.` }
+    return { value: `Box "${fresh.name}" (${fresh.id}) is ${fresh.status} — the card is current.` }
   }
 
   /* Suspend and resume share everything but the verb. */
@@ -1222,20 +1222,20 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       if ("error" in reread) {
         await loadList(workspace.repoId, accountCurrent)
         if (!accountCurrent()) return SIGN_OUT_REFUSAL
-        return `Workspace "${workspace.name}" (${workspace.id}) ${verb}ed, but its new state could not be read — the list was refreshed.`
+        return `Box "${workspace.name}" (${workspace.id}) ${verb}ed, but its new state could not be read — the list was refreshed.`
       }
       fresh = parseWorkspaceWire(reread.body, workspace.repoId)
       if (fresh === null) {
         await loadList(workspace.repoId, accountCurrent)
         if (!accountCurrent()) return SIGN_OUT_REFUSAL
-        return `Workspace "${workspace.name}" (${workspace.id}) ${verb}ed, but its answer was malformed — the list was refreshed.`
+        return `Box "${workspace.name}" (${workspace.id}) ${verb}ed, but its answer was malformed — the list was refreshed.`
       }
     }
     if (!accountCurrent()) return SIGN_OUT_REFUSAL
     ctx.dispatch({ type: "workspace.updated", actor: "system", workspace: fresh })
     if (UNSETTLED.has(fresh.status)) watch(fresh.id)
     renderWorkspace(fresh)
-    return { value: `Workspace "${fresh.name}" (${fresh.id}) is ${fresh.status}.` }
+    return { value: `Box "${fresh.name}" (${fresh.id}) is ${fresh.status}.` }
   }
 
   const listSessions: WorkspaceSeam["listSessions"] = async (workspaceId) => {
@@ -1247,12 +1247,12 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const current = currentOperation(workspace.id)
     const sessions = await loadSessions(workspace.repoId, workspace.id)
     if (!current()) return SIGN_OUT_REFUSAL
-    if (sessions === null) return `The sessions of workspace ${workspace.id} couldn't be read right now.`
+    if (sessions === null) return `The sessions of box ${workspace.id} couldn't be read right now.`
     renderWorkspace(workspace, { sessions })
     return {
       value: sessions.length === 0
-        ? `Workspace "${workspace.name}" (${workspace.id}) has no sessions.`
-        : `Workspace "${workspace.name}" (${workspace.id}) sessions: ${
+        ? `Box "${workspace.name}" (${workspace.id}) has no sessions.`
+        : `Box "${workspace.name}" (${workspace.id}) sessions: ${
           sessions.map((session) => `${session.id} (${session.status})`).join(", ")
         }.`
     }
@@ -1301,7 +1301,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
      * the name the invoker typed, and only the workspace's own name deletes.
      */
     if (confirmName.trim() !== workspace.name) {
-      return `Deleting "${workspace.name}" (${workspace.id}) needs its name typed back exactly — /workspace.delete ${workspace.id} ${workspace.name}.`
+      return `Deleting "${workspace.name}" (${workspace.id}) needs its name typed back exactly — /box.delete ${workspace.id} ${workspace.name}.`
     }
     const current = currentOperation(workspace.id)
     const deleted = await sendJson("DELETE", repoPath(workspace.repoId, `/workspaces/${encodeURIComponent(workspace.id)}`))
@@ -1325,7 +1325,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const loaded = await loadList(workspace.repoId, owner)
     if (!owner()) return SIGN_OUT_REFUSAL
     if (typeof loaded === "string") return loaded
-    return { value: `Workspace "${workspace.name}" (${workspace.id}) is deleted.` }
+    return { value: `Box "${workspace.name}" (${workspace.id}) is deleted.` }
   }
 
   /*
@@ -1389,7 +1389,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if (gate() !== undefined) return SIGN_OUT_REFUSAL
     const current = currentOperation(workspaceId)
     const row = ctx.store.collections.cloudWorkspaces.get(workspaceId)
-    if (row === undefined) return `Workspace ${workspaceId} is not loaded — /workspace.list refreshes the inventory`
+    if (row === undefined) return `Box ${workspaceId} is not loaded — /box.list refreshes the inventory`
     const existing = ctx.store.collections.cards.get(cardIdOf(row.id))
     const path = existing?.kind === "workspace" ? existing.payload.filesPath ?? "" : ""
     const placeholder = workspaceCard(row, { facet })
@@ -1415,7 +1415,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
         let extra: Partial<CardAux> = { facet }
         if (facet === "terminal") {
           const sessions = await loadSessions(row.repoId, row.id)
-          if (sessions === null) return "Workspace sessions couldn't be loaded. Try again."
+          if (sessions === null) return "Box sessions couldn't be loaded. Try again."
           extra = { facet, sessions }
         } else if (facet === "files") {
           const files = await loadFiles(row.repoId, row.id, path)
@@ -1747,7 +1747,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const accountCurrent = currentOperation()
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
-    /* The same default `workspace.open` applies: the repository's head bookmark, never an invented one. */
+    /* The same default `box.open` applies: the repository's head bookmark, never an invented one. */
     const repoRow = ctx.store.collections.repositories.get(target.repo)
     const source = bookmark === undefined || bookmark === "" ? repoRow?.head?.bookmark ?? undefined : bookmark
     const created = await sendJson("POST", repoPath(target.repo, "/workspaces"), {
@@ -1776,7 +1776,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const key = desktopToastKey(box.id)
     ctx.dispatch({ type: "toast.shown", actor: "system", key,
       title: `Starting the desktop box on ${target.repo}`,
-      action: { flow: "workspace.view", args: box.id, label: "Open details" } })
+      action: { flow: "box.view", args: box.id, label: "Open details" } })
     let stage: DesktopStage = "creating"
     const pendingProgress = new Map<string, { value: string }>()
     // Only this opening's accepted receipt can stand in for committed evidence.
@@ -1827,8 +1827,8 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       }
       resolveDesktopToast(key, { status, detail,
         title: status === "ok" ? "Desktop ready" : "Desktop box could not start",
-        ...(status === "failed" ? { action: { flow: "workspace.desktop.open" as const,
-          args: flowArgs("workspace.desktop.open", { ...(source === undefined ? {} : { bookmark: source }), repo: target.repo }), label: "Try again" } } : {}) })
+        ...(status === "failed" ? { action: { flow: "box.desktop.open" as const,
+          args: flowArgs("box.desktop.open", { ...(source === undefined ? {} : { bookmark: source }), repo: target.repo }), label: "Try again" } } : {}) })
     }
     progress("creating")
     // Keep elapsed live even while a network request or Retry-After is pending.
@@ -1887,7 +1887,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
           renderWorkspace(row, { facet: "desktop", desktopStage: null })
           const detail = `The desktop box ${row.id} on ${row.repoId} is still ${row.status} after ${
             Math.round((desktopBoxWait.maxAttempts * desktopBoxWait.pollMs) / 1_000)
-          }s — /workspace.view ${row.id} reads its state, /desktop tries again.`
+          }s — /box.view ${row.id} reads its state, /desktop tries again.`
           finish(detail, "failed")
           return detail
         }
@@ -1917,13 +1917,13 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
    * The card's "Stop waiting": bump the epoch and clear the stage. It ends
    * the wait and any `desktop_not_ready` retry riding the same epoch, and
    * touches the box itself not at all — plue keeps building it, and
-   * `/workspace.view` reads where it got to.
+   * `/box.view` reads where it got to.
    */
   const stopDesktopWait: WorkspaceSeam["stopDesktopWait"] = async (workspaceId) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
     const row = ctx.store.collections.cloudWorkspaces.get(workspaceId)
-    if (row === undefined) return `Workspace ${workspaceId} is not loaded — /workspace.list refreshes the inventory`
+    if (row === undefined) return `Box ${workspaceId} is not loaded — /box.list refreshes the inventory`
     desktopMintEpochs.set(workspaceId, (desktopMintEpochs.get(workspaceId) ?? 0) + 1)
     cancelSleeps(workspaceId)
     renderWorkspace(row, { desktopStage: null })
@@ -1987,7 +1987,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
         workspace,
         `"${workspace.name}" (${workspace.id}) is ${workspace.status}, not running — ${
           workspace.status === "suspended" || workspace.status === "stopped"
-            ? "/workspace.resume it first"
+            ? "/box.resume it first"
             : "wait for it to settle (the card tracks it)"
         }.`
       )

@@ -160,7 +160,7 @@ const CARD_TEXT =
 const CARD_ACTION = { flow: "app.download", label: "Download the app" }
 const SESSION_REFUSAL =
   "/cloud.sign-in is not in the web app — on the web your GitHub sign-in is your Smithers Cloud sign-in."
-const ORIGIN_REFUSAL = "/workspace.terminal is not available on this origin yet."
+const ORIGIN_REFUSAL = "/box.terminal is not available on this origin yet."
 
 /** The one download card the refusal renders, or a failure naming what rendered instead. */
 const downloadCards = (store: AppStore) =>
@@ -316,7 +316,7 @@ describe("explainAbsent — an exact miss classified against the unfiltered cata
   test("a door this origin could grow is 'not available on this origin yet', never the native app and never 'no such flow'", async () => {
     const { controller } = await freshController(WEB)
     // The W4 relay is off: cloud.terminal is absent, and the native app is not the answer.
-    expect(controller.commands.explainAbsent("workspace.terminal")).toEqual({ door: "origin", reason: ORIGIN_REFUSAL })
+    expect(controller.commands.explainAbsent("box.terminal")).toEqual({ door: "origin", reason: ORIGIN_REFUSAL })
     // A Worker without the Smithers Cloud upstream lacks every Smithers Cloud flow the same way.
     const offline = await freshController({
       ...WEB,
@@ -338,7 +338,7 @@ describe("explainAbsent — an exact miss classified against the unfiltered cata
       ...NATIVE,
       capabilities: localCapabilities({ agent: true, identity: false, cloud: false })
     })
-    expect(offline.controller.commands.explainAbsent("workspace.terminal")).toEqual({ door: "origin", reason: ORIGIN_REFUSAL })
+    expect(offline.controller.commands.explainAbsent("box.terminal")).toEqual({ door: "origin", reason: ORIGIN_REFUSAL })
   })
 })
 
@@ -368,14 +368,14 @@ describe("the unavailable outcome — one answer for slash, button and agent", (
   test("a door this origin could grow is refused as such by every trigger, with no card and no 'no such flow'", async () => {
     const { store, controller } = await freshController(WEB)
     signIn(store)
-    expect(await controller.commands.run("workspace.terminal")).toEqual({
+    expect(await controller.commands.run("box.terminal")).toEqual({
       status: "unavailable",
       door: "origin",
       reason: ORIGIN_REFUSAL,
       action: null
     })
     expect(downloadCards(store)).toHaveLength(0)
-    controller.send("/workspace.terminal")
+    controller.send("/box.terminal")
     await settle()
     const toasts = [...store.collections.toasts.values()]
     expect(toasts).toHaveLength(1)
@@ -383,7 +383,7 @@ describe("the unavailable outcome — one answer for slash, button and agent", (
     expect(toasts[0]?.detail).toBe(ORIGIN_REFUSAL)
     const agent = await executeAgentToolCall(controller.commands, {
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "workspace.terminal" })
+      arguments: JSON.stringify({ action: "execute", name: "box.terminal" })
     })
     expect(agent).toBe(`failed: ${ORIGIN_REFUSAL}`)
     expect(downloadCards(store)).toHaveLength(0)
@@ -513,7 +513,7 @@ describe("app.download and app.download.prompt", () => {
       error: "/files.read is in the web app — run it."
     })
     // A door this origin could grow: the sentence, no download claim.
-    expect(await controller.commands.runForAgent("app.download.prompt", "workspace.terminal")).toEqual({
+    expect(await controller.commands.runForAgent("app.download.prompt", "box.terminal")).toEqual({
       status: "failed",
       error: ORIGIN_REFUSAL
     })

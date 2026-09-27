@@ -1,7 +1,7 @@
 # Lane: agent parity. Anything a button does, the agent can do (2026-09-03)
 
 Will, in the app at 11:29, after the agent said "I can't launch a Claude code
-session", then tried `/workspace.terminal` (cloud) for "launch a terminal",
+session", then tried `/box.terminal` (cloud) for "launch a terminal",
 failed on the missing cloud session, and ran `/auth.prompt` (GitHub, already
 connected): "more bugs. This rule that I set that I was very clear about how
 anything we can do in the ui the agent should be able to do too is not being
@@ -18,7 +18,7 @@ never user-only because they are consequential.
 
 1. `tab.terminal`, `tab.harness`, `agent.role`, `tab.card`, `tab.close`,
    `repo.open`, `repo.unpin`, `repo.tree`, `workspace.rename`, `target.run`,
-   `target.run.pattern`, `target.open`, `workspace.facet`, `change.facet`,
+   `target.run.pattern`, `target.open`, `box.facet`, `change.facet`,
    `change.pins`, `change.checks`, `flow.run.retry` are `userOnly: true` and
    mostly `hidden: true` in `flows/Flows.ts`, with the comment "browser
    mechanics the human clicks". Opening a local terminal or launching Claude
@@ -46,7 +46,7 @@ never user-only because they are consequential.
 | `repo.unpin <copyId>` | agent-invocable, listed, **confirm** | forgets a repository |
 | `repo.tree`, `workspace.rename` | agent-invocable, listed, no confirm | harmless |
 | `target.run <target>`, `target.run.pattern <pattern>` | agent-invocable, listed, **confirm** | runs builds/tests locally |
-| `target.open`, `change.pins`, `change.checks`, `workspace.facet`, `change.facet` | agent-invocable, listed, no confirm | showing a facet or pin is how the agent answers "show me the diff / the checks" |
+| `target.open`, `change.pins`, `change.checks`, `box.facet`, `change.facet` | agent-invocable, listed, no confirm | showing a facet or pin is how the agent answers "show me the diff / the checks" |
 | `target.filter/select/expand/pick/star/unstar`, `frame.*`, `card.maximize/minimize`, `toast.dismiss`, `composer.add`, `workspace.rename.edit`, `chat.send/stop/copy-message`, `system.recommend`, `flow.repo.choose`, `*.confirm`, `*.cancel`, `*.ask`, `app.download`, `flows`, `auth.sign-in/out`, `cloud.sign-in/out` | user-only (keep), each with a one-line `userOnlyReason` in the registry | gestures, picker answers, typed confirms, browser handoffs, the EMBED LAW |
 | `flow.run.retry` | agent-invocable, **confirm** | a retry spends |
 
@@ -84,7 +84,7 @@ Honesty and context:
   allowlist contains nothing else; every flow in the table's agent rows is
   invocable through `executeAgentToolCall` (a `confirm` flow yields the
   confirm card, not a refusal); `cloud.prompt` renders the card; a missing
-  cloud session on `workspace.terminal` names `cloud.prompt`.
+  cloud session on `box.terminal` names `cloud.prompt`.
 - Registry/parity pins, `Wave13*.test.ts`, `AgentRuntimeContext.test.ts`
   (the cloud line), `ChromeBar.test.tsx` (the `+` menu still binds the same
   flows), `AgentRoleMenu.test.ts`.

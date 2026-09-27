@@ -72,7 +72,7 @@ const bootPrivateWorkflowRepository = async (page: Page, repo: string, workspace
   await bootProductionRepository(page, repo)
   await enableProductionVerbose(page)
   if (workspaceId !== undefined) {
-    await command(page, `/workspace.view ${workspaceId}`)
+    await command(page, `/box.view ${workspaceId}`)
     await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
     await closeComposer(page)
     await command(page, `/repo.select ${repo}#workspace:${workspaceId}`)

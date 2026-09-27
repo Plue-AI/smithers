@@ -218,7 +218,7 @@ export const gatewayBindingFor = (store: AppStore, repo: string, runId?: string)
   if (copy.kind !== "workspace") return {}
   const workspace = copy.workspaceId === undefined ? undefined : store.collections.cloudWorkspaces.get(copy.workspaceId)
   if (workspace === undefined || workspace.repoId !== repo) {
-    return { error: "The selected cloud workspace is no longer available for this repository." }
+    return { error: "The selected box is no longer available for this repository." }
   }
   return { workspaceId: workspace.id }
 }

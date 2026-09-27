@@ -49,7 +49,7 @@ const bootOwnedWorkflow = async (page: Parameters<typeof bootProductionRepositor
   await bootProductionRepository(page, repo)
   await enableProductionVerbose(page)
   if (workspaceId !== undefined) {
-    await command(page, `/workspace.view ${workspaceId}`)
+    await command(page, `/box.view ${workspaceId}`)
     await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
     await closeComposer(page)
     await command(page, `/repo.select ${repo}#workspace:${workspaceId}`)
@@ -255,7 +255,7 @@ workflowTest("a completed provider run exposes its real trace, transcript, event
 workflowTest("a successful prompt run matches its journal while live and after keyboard scrubbing", scenario("runs.timeline-phase-strip-scrub-durable", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:workspace.view", "action:workspace.terminal", "action:workspace.suspend", "action:workspace.resume", "action:repo.select",
+    "action:box.view", "action:box.terminal", "action:box.suspend", "action:box.resume", "action:repo.select",
     "action:flow.run", "action:runs.trace.select", "action:runs.trace.live", "action:runs.trace.view",
     "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:real-provider", "dimension:real-pty", "dimension:keyboard", "dimension:repository-owned-prompt-flow", "dimension:completed-run",
@@ -313,7 +313,7 @@ workflowTest("a successful prompt run matches its journal while live and after k
 workflowTest("a budget-failed prompt run shows its recorded failure without claiming an edit", scenario("runs.timeline-failed-prompt-evidence", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:workspace.view", "action:workspace.terminal", "action:workspace.suspend", "action:workspace.resume", "action:repo.select", "action:flow.run",
+    "action:box.view", "action:box.terminal", "action:box.suspend", "action:box.resume", "action:repo.select", "action:flow.run",
     "host:production", "path:error", "door:slash", "dimension:real-provider", "dimension:failed-run",
     "dimension:repository-owned-prompt-flow", "dimension:timeline", "evidence:failed-journal-and-unchanged-file"
   ],
@@ -364,7 +364,7 @@ workflowTest("a budget-failed prompt run shows its recorded failure without clai
 workflowTest("an ordinary module run reports recorded step evidence or its pinned host limitation", scenario("runs.timeline-ordinary-module-evidence", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:workspace.view", "action:workspace.terminal", "action:repo.select", "action:flow.run",
+    "action:box.view", "action:box.terminal", "action:repo.select", "action:flow.run",
     "host:production", "path:success", "door:slash", "dimension:real-provider", "dimension:ordinary-module-flow",
     "dimension:host-revision-evidence", "evidence:recorded-module-step-trail-or-host-predates-commit"
   ],

@@ -302,7 +302,7 @@ interface DeclaredMove {
 }
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
-  ...(["runs.list", "github.mirror.retry-ref", "workspace.open", "workspace.desktop.open", "desktop"] as const).map(flow => ({
+  ...(["runs.list", "github.mirror.retry-ref", "box.open", "box.desktop.open", "desktop"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 2,
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
   })),

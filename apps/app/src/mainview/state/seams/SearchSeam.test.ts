@@ -544,8 +544,8 @@ test("workspace files retain distinct explicit targets and orphan tree rows are 
     const items=files(controller)
     expect(items.map(item=>item.ref).sort()).toEqual(["workspace:ws-a/README.md","workspace:ws-b/README.md"])
     expect(items.map(item=>item.actions[0])).toEqual([
-      expect.objectContaining({flow:"workspace.file",args:"README.md ws-a",role:"open"}),
-      expect.objectContaining({flow:"workspace.file",args:"README.md ws-b",role:"open"})
+      expect.objectContaining({flow:"box.file",args:"README.md ws-a",role:"open"}),
+      expect.objectContaining({flow:"box.file",args:"README.md ws-b",role:"open"})
     ])
   } finally {await controller.dispose?.();await store.dispose?.()}
 })

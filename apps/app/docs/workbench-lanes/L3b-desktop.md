@@ -44,7 +44,7 @@ and the Files/Services/Egress facets; build on it, do not redo it.
 ## UI
 
 - **Kind on create.** ADR 0002: "three sandbox kinds share one option surface;
-  the kind is the choice." `workspace.open [bookmark] [repo] [--kind
+  the kind is the choice." `box.open [bookmark] [repo] [--kind
   container|vm|desktop]`; the card's create affordance offers the three kinds
   as three buttons with plue's one-line descriptions in words; default
   `container`. No environment or image picker (ADR 0002 default stands).
@@ -62,13 +62,13 @@ and the Files/Services/Egress facets; build on it, do not redo it.
 │ session until 09:12 tomorrow · Rotate session · ⤢                          │
 ```
 
-  Opening the facet runs `workspace.desktop <workspaceId>` (user + button;
+  Opening the facet runs `box.desktop <workspaceId>` (user + button;
   agent-invocable only through confirm, since it mints a credential): POSTs
   the session, holds the absolute `stream_url` in COMPONENT-LOCAL memory
   (a `useRef`/`useState` in the facet is acceptable here because the value
   must never enter the store; document why in a comment) and renders the
   iframe with exactly the `allow` and `sandbox` attributes above. `Rotate
-  session` (`workspace.desktop.rotate`, confirm) POSTs again and swaps the
+  session` (`box.desktop.rotate`, confirm) POSTs again and swaps the
   src. The status line reads `session until <expires_at local>`; a 409 reads
   the server text plus a Resume button; a 400 reads the server text.
   Maximize gives the iframe the card's full height (the card's maximize
@@ -84,7 +84,7 @@ and the Files/Services/Egress facets; build on it, do not redo it.
   lane adds a CSP/`frame-src` allowance for the API origin where either
   server sets one, and writes a test that the iframe element carries the
   exact attributes. Do not weaken COEP (OPFS SQLite needs it).
-- **Environment images** (item 6): a `workspace.images [repo]` flow rendering
+- **Environment images** (item 6): a `box.images [repo]` flow rendering
   a small listing card (kind, closure short, status, cold-pull note when
   `golden_snapshot_id` is empty). Last; skip if time is short and say so.
 
@@ -114,7 +114,7 @@ Same files, same lane. Parse and render, nothing invented:
    session id; otherwise render the id as text and note it in the REPORT).
 2. Agent-session DTO gains optional `workspace_id`: on the run card
    (`cards/RunsCards.tsx`, seam that reads agent sessions) add `Open the
-   agent's computer` → `workspace.view <workspace_id>`; the workspace
+   agent's computer` → `box.view <workspace_id>`; the workspace
    persists after the run (suspended; Resume like any workspace).
 3. Workspace status stream `GET …/workspaces/{id}/stream` now also emits
    `{ status, head { change_id, commit_id }, ahead, behind }` on new heads.

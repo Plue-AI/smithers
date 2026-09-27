@@ -222,7 +222,7 @@ for (const state of ["signed-in", "signed-out", "degraded"] as const) {
     try {
       const result = await workspace.listWorkspaces()
       if (state === "signed-in") {
-        expect(result).toEqual({ value: "No cloud workspaces." })
+        expect(result).toEqual({ value: "No boxes." })
         expect(await workspace.openDesktopBox("main", "will/smithers")).toContain("fixture desktop create reached Cloud")
         expect(upstream.some(request => request.method === "POST" && new URL(request.url).pathname === "/api/repos/will/smithers/workspaces")).toBe(true)
         expect(requests.some(request => request.url.startsWith("/api/user/workspaces"))).toBe(true)

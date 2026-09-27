@@ -39,8 +39,8 @@ configuredGatewayTest(
     capabilities: ["identity", "cloud"],
     description: "Open the configured canary workspace through the rendered UI, read files, services, sessions, snapshots, and egress from the provider, and verify every response remains bound to the exact repository and workspace id.",
     coverage: [
-      "action:workspace.view", "action:workspace.facet", "action:workspace.files", "action:workspace.file",
-      "action:workspace.services", "action:workspace.sessions", "action:workspace.egress",
+      "action:box.view", "action:box.facet", "action:box.files", "action:box.file",
+      "action:box.services", "action:box.sessions", "action:box.egress",
       "host:production", "path:success", "door:slash", "door:button", "dimension:provider-readback",
       "dimension:workspace-scope", "dimension:facet-readback", "evidence:ui-cards-and-independent-provider-responses"
     ]
@@ -56,8 +56,8 @@ configuredGatewayTest(
     const row = await current.json() as WorkspaceWire
     expectWorkspaceRow(row, workflowRepo.repositoryId, workspaceId)
 
-    await command(page, `/workspace.view ${workspaceId}`)
-    await expectFlowOutcome(page, "workspace.view", workspaceId, "executed")
+    await command(page, `/box.view ${workspaceId}`)
+    await expectFlowOutcome(page, "box.view", workspaceId, "executed")
     await closeComposer(page)
     const card = page.getByTestId(`card-workspace-${workspaceId}`)
     await expect(card).toBeVisible({ timeout: 60_000 })
@@ -66,15 +66,15 @@ configuredGatewayTest(
 
     const observed: Record<string, unknown> = { workspace: row, id: workspaceId }
     for (const [flow, suffix, bodyText] of [
-      ["workspace.files", `/workspaces/${workspaceId}/files?path=`, "Files"],
-      ["workspace.services", `/workspaces/${workspaceId}/services`, "Services"],
-      ["workspace.sessions", "/workspace/sessions", "Sessions"],
-      ["workspace.egress", `/workspaces/${workspaceId}/egress?limit=30`, "Egress"]
+      ["box.files", `/workspaces/${workspaceId}/files?path=`, "Files"],
+      ["box.services", `/workspaces/${workspaceId}/services`, "Services"],
+      ["box.sessions", "/workspace/sessions", "Sessions"],
+      ["box.egress", `/workspaces/${workspaceId}/egress?limit=30`, "Egress"]
     ] as const) {
       const path = cloudRepoPath(workflowRepo.repo, suffix)
       const requestSeen = page.waitForResponse((response) =>
         response.request().method() === "GET" && new URL(response.url()).pathname + new URL(response.url()).search === path)
-      const args = flow === "workspace.files" ? `/ ${workspaceId}` : workspaceId
+      const args = flow === "box.files" ? `/ ${workspaceId}` : workspaceId
       await command(page, `/${flow} ${args}`)
       await expectFlowOutcome(page, flow, args, "executed")
       await closeComposer(page)
@@ -98,8 +98,8 @@ configuredGatewayTest(
       const readPath = cloudRepoPath(workflowRepo.repo, `/workspaces/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`)
       const readSeen = page.waitForResponse((response) =>
         response.request().method() === "GET" && new URL(response.url()).pathname + new URL(response.url()).search === readPath)
-      await command(page, `/workspace.file ${path} ${workspaceId}`)
-      await expectFlowOutcome(page, "workspace.file", `${path} ${workspaceId}`, "executed")
+      await command(page, `/box.file ${path} ${workspaceId}`)
+      await expectFlowOutcome(page, "box.file", `${path} ${workspaceId}`, "executed")
       await closeComposer(page)
       expect((await readSeen).status()).toBe(200)
     }
@@ -114,7 +114,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Drive suspend and resume through the UI's real commands, independently poll each provider state transition, then type the exact workspace name and verify the provider and UI both report deletion.",
     coverage: [
-      "action:workspace.suspend", "action:workspace.resume", "action:workspace.delete", "action:workspace.view",
+      "action:box.suspend", "action:box.resume", "action:box.delete", "action:box.view",
       "host:production", "path:success", "path:keyboard", "door:slash", "door:button", "dimension:keyboard", "dimension:state-transitions",
       "dimension:typed-delete-confirmation", "dimension:post-delete-readback", "evidence:provider-status-polls-and-404"
     ]
@@ -130,8 +130,8 @@ workflowTest(
     const before = await beforeResponse.json() as WorkspaceWire
     expectWorkspaceRow(before, workflowRepo.repositoryId, workspaceId)
     const name = String(before.name)
-    await command(page, `/workspace.view ${workspaceId}`)
-    await expectFlowOutcome(page, "workspace.view", workspaceId, "executed")
+    await command(page, `/box.view ${workspaceId}`)
+    await expectFlowOutcome(page, "box.view", workspaceId, "executed")
     await closeComposer(page)
     const card = page.getByTestId(`card-workspace-${workspaceId}`)
     await expect(card).toBeVisible({ timeout: 60_000 })
@@ -139,8 +139,8 @@ workflowTest(
     const transition = async (verb: "suspend" | "resume", expected: RegExp): Promise<WorkspaceWire> => {
       const mutation = page.waitForResponse((response) =>
         response.request().method() === "POST" && new URL(response.url()).pathname === `${path}/${verb}`)
-      await command(page, `/workspace.${verb} ${workspaceId}`)
-      await expectFlowOutcome(page, `workspace.${verb}`, workspaceId, "executed")
+      await command(page, `/box.${verb} ${workspaceId}`)
+      await expectFlowOutcome(page, `box.${verb}`, workspaceId, "executed")
       await closeComposer(page)
       expect((await mutation).status()).toBe(200)
       let settled: WorkspaceWire | undefined
@@ -173,7 +173,7 @@ workflowTest(
       response.request().method() === "DELETE" && new URL(response.url()).pathname === path)
     await deleteButton.press("Enter")
     expect((await deletion).status()).toBe(204)
-    await expectFlowOutcome(page, "workspace.delete", `${workspaceId} ${name}`, "executed")
+    await expectFlowOutcome(page, "box.delete", `${workspaceId} ${name}`, "executed")
     await expect.poll(async () => (await realApi(page, request, "GET", path)).status(), { timeout: 60_000 }).toBe(404)
     await expect(card).toHaveCount(0)
     await reloadApp(page)
@@ -191,19 +191,19 @@ configuredGatewayTest(
   scenario("workspaces.cloud-terminal-keyboard-output", {
     capabilities: ["identity", "cloud"],
     description: "Open a new terminal session on the configured canary workspace through the UI, type a split marker, verify the shell's combined output, and destroy exactly the created session.",
-    coverage: ["action:workspace.view", "action:workspace.terminal", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "dimension:websocket", "evidence:rendered-shell-output-and-session-cleanup"]
+    coverage: ["action:box.view", "action:box.terminal", "host:production", "path:success", "path:keyboard", "door:slash", "dimension:keyboard", "dimension:real-pty", "dimension:websocket", "evidence:rendered-shell-output-and-session-cleanup"]
   }),
   async ({ page, request, workflowRepo }, testInfo) => {
     const id = workflowRepo.workspaceId!
     await bootProductionRepository(page, workflowRepo.repo)
-    await command(page, `/workspace.view ${id}`)
+    await command(page, `/box.view ${id}`)
     await expect(page.getByTestId(`card-workspace-${id}`)).toBeVisible()
     await closeComposer(page)
     const path = cloudRepoPath(workflowRepo.repo, "/workspace/sessions")
     const created = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === path && response.ok(), { timeout: 90_000 })
     let sessionId: string | undefined
     try {
-      await command(page, `/workspace.terminal ${id}`)
+      await command(page, `/box.terminal ${id}`)
       expect((await created).status()).toBe(201)
       await closeComposer(page)
       const terminal = page.getByTestId(`card-workspace-${id}`).locator('[data-testid^="terminal-"]')
@@ -242,12 +242,12 @@ workflowTest(
   scenario("workspaces.cloud-missing-model-refusal", {
     capabilities: ["identity", "cloud"],
     description: "Select a freshly imported running workspace with no model configured and require the real coding gateway to name the missing configuration in the UI.",
-    coverage: ["action:workspace.view", "action:repo.select", "action:flow.list", "host:production", "path:error", "door:slash", "dimension:missing-model", "dimension:bounded-refusal", "evidence:real-provision-response-and-visible-error"]
+    coverage: ["action:box.view", "action:repo.select", "action:flow.list", "host:production", "path:error", "door:slash", "dimension:missing-model", "dimension:bounded-refusal", "evidence:real-provision-response-and-visible-error"]
   }),
   async ({ page, request, workflowRepo }, testInfo) => {
     const id = workflowRepo.workspaceId!
     await bootProductionRepository(page, workflowRepo.repo)
-    await command(page, `/workspace.view ${id}`)
+    await command(page, `/box.view ${id}`)
     await expect(page.getByTestId(`card-workspace-${id}`)).toBeVisible()
     await closeComposer(page)
     await command(page, `/repo.select ${workflowRepo.repo}#workspace:${id}`)

@@ -103,8 +103,8 @@ const UNSETTLED: ReadonlySet<string> = new Set(["pending", "starting"])
 const refusedCloud = (refusal: LspRefusal, document: CloudLspDocument, workspace: { readonly id: string; readonly name: string }): { readonly intel: Intel; readonly text: string } =>
   refusal.code === LSP_LANGUAGE_SERVER_MISSING && refusal.install !== undefined
     ? {
-      intel: { state: "unavailable", note: `no ${document.language} language server in workspace "${workspace.name}" (${workspace.id}) — install: ${refusal.install}` },
-      text: `Workspace "${workspace.name}" (${workspace.id}) has no ${document.language} language server. Install: ${refusal.install}`
+      intel: { state: "unavailable", note: `no ${document.language} language server in box "${workspace.name}" (${workspace.id}) — install: ${refusal.install}` },
+      text: `Box "${workspace.name}" (${workspace.id}) has no ${document.language} language server. Install: ${refusal.install}`
     }
     : { intel: { state: "unavailable", note: refusal.message }, text: refusal.message }
 
@@ -216,7 +216,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
           return
         }
         case "closed": {
-          const note = `the workspace language server closed: ${event.reason === "" ? "no reason given" : event.reason} (${event.code})`
+          const note = `the box language server closed: ${event.reason === "" ? "no reason given" : event.reason} (${event.code})`
           for (const id of cloudCards(event)) observe(id, { intel: { state: "unavailable", note } })
           return
         }
@@ -272,17 +272,17 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
     if (active !== undefined) return { workspace: active }
     if (running.length === 1) return { workspace: running[0]! }
     if (running.length > 1) {
-      return { refusal: `Several workspaces of ${repo} are running (${running.map((row) => `"${row.name}" ${row.id}`).join(", ")}) — select one first.` }
+      return { refusal: `Several boxes of ${repo} are running (${running.map((row) => `"${row.name}" ${row.id}`).join(", ")}) — select one first.` }
     }
     const resumable = rows.find((row) => row.status === "suspended" || row.status === "stopped")
     if (resumable !== undefined) {
-      return { refusal: `Hover and definitions need a running workspace of ${repo}: "${resumable.name}" (${resumable.id}) is ${resumable.status} — /workspace.resume ${resumable.id} first.` }
+      return { refusal: `Hover and definitions need a running box of ${repo}: "${resumable.name}" (${resumable.id}) is ${resumable.status} — /box.resume ${resumable.id} first.` }
     }
     const settling = rows.find((row) => UNSETTLED.has(row.status))
     if (settling !== undefined) {
-      return { refusal: `Hover and definitions need a running workspace of ${repo}: "${settling.name}" (${settling.id}) is ${settling.status} — wait for it to settle (the card tracks it).` }
+      return { refusal: `Hover and definitions need a running box of ${repo}: "${settling.name}" (${settling.id}) is ${settling.status} — wait for it to settle (the card tracks it).` }
     }
-    return { refusal: `Hover and definitions need a running workspace of ${repo} — /workspace.open ${repo} first.` }
+    return { refusal: `Hover and definitions need a running box of ${repo} — /box.open ${repo} first.` }
   }
 
   /** The cloud half of `prepare`: the tunnel, the sign-in, the workspace, the language it relays, and the card's whole text. */
@@ -308,8 +308,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       const extension = /\.[^./]+$/.exec(path)?.[0]
       const noun = extension === undefined ? "this file" : `${extension} files`
       const refusal = served === null
-        ? `No workspace language server handles ${noun}.`
-        : `No workspace language server handles ${noun} — "${workspace.name}" (${workspace.id}) serves ${served.length === 0 ? "no language" : served.join(", ")}.`
+        ? `No box language server handles ${noun}.`
+        : `No box language server handles ${noun} — "${workspace.name}" (${workspace.id}) serves ${served.length === 0 ? "no language" : served.join(", ")}.`
       if (canPublish()) patch(id, { intel: { state: "unavailable", note: refusal } })
       return refusal
     }

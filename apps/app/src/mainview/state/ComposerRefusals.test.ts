@@ -215,7 +215,7 @@ describe("a flow typed into the composer states its refusal", () => {
       toastAutoDismissMs: 1
     })
     store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null })
-    controller.send("/workspace.list")
+    controller.send("/box.list")
     await settled()
     await settled()
     const prompts = [...store.collections.messages.values()].filter(message => message.action !== undefined)

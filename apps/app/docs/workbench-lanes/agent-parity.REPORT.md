@@ -12,7 +12,7 @@ bun test` 132/132. Nothing committed; no `jj`/`git` write ran.
 1. **The policy table, in `flows/Flows.ts`.** Seventeen flows left `userOnly`:
    - agent-invocable, listed, no confirm: `tab.terminal [cwd]`, `tab.card`,
      `repo.tree`, `workspace.rename`, `target.open`, `change.pins`,
-     `change.checks`, `workspace.facet`, `change.facet`;
+     `change.checks`, `box.facet`, `change.facet`;
    - agent-invocable, listed, **confirm**: `tab.harness` ("launch a harness as
      a session"), `agent.role` ("launch an agent role as a session"),
      `tab.close` ("close the session"), `repo.unpin` ("unpin the repository"),
@@ -153,7 +153,7 @@ across both hosts; every agent row of the table through the production door
 `workspace.rename` names the workspace); `tab.terminal [cwd]` by path/id with
 the refusal listing the open copies; `repo.open` without a path refuses the
 agent, opens the dialog for the human, confirms with a path; `cloud.prompt`
-renders the card and answers signed-in; `workspace.terminal` without the
+renders the card and answers signed-in; `box.terminal` without the
 cloud session names `cloud.prompt` to the agent and `/cloud.sign-in` to the
 human; a user-only refusal quotes the reason and the agent's door on both
 agent doors; the `+` menu's flows are callable and disclosed.

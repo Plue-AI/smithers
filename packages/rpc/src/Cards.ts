@@ -2934,6 +2934,26 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
 ])
 /** Retired UI records keep their identity, without retaining executable forms or feature data. */
 const retiredFlows = new Set([
+  /* Renamed to box.* (#2147): a form saved under the old name retires rather than naming a flow that no longer exists. */
+  "workspace.delete",
+  "workspace.desktop",
+  "workspace.desktop.open",
+  "workspace.desktop.rotate",
+  "workspace.desktop.stop",
+  "workspace.egress",
+  "workspace.facet",
+  "workspace.file",
+  "workspace.files",
+  "workspace.images",
+  "workspace.list",
+  "workspace.open",
+  "workspace.resume",
+  "workspace.services",
+  "workspace.session.destroy",
+  "workspace.sessions",
+  "workspace.suspend",
+  "workspace.terminal",
+  "workspace.view",
   "repo.welcome",
   "repo.explore",
   "repo.contribute",

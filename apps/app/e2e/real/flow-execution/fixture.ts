@@ -271,7 +271,7 @@ export const configuredGatewayTest = authenticatedTest.extend<{ workflowRepo: Ow
     expect(await workspace.json()).toMatchObject({ id: workspaceId, repository_id: repositoryId })
     const provisioned = await provisionRepository(page, request, repo, workspaceId, testInfo)
     await enableProductionVerbose(page)
-    await command(page, `/workspace.view ${workspaceId}`)
+    await command(page, `/box.view ${workspaceId}`)
     await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
     await closeComposer(page)
     await command(page, `/repo.select ${repo}#workspace:${workspaceId}`)

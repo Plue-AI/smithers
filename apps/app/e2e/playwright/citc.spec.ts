@@ -44,7 +44,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test("T1: /workspace.open renders the card, streams starting→running, and exposes its supported facets", async ({ page }) => {
+test("T1: /box.open renders the card, streams starting→running, and exposes its supported facets", async ({ page }) => {
   await installCloudFixture(page)
   let polls = 0
   await page.route(new RegExp(`/api/repos/${REPO}/workspaces(\\?.*)?$`), (route) => {
@@ -70,7 +70,7 @@ test("T1: /workspace.open renders the card, streams starting→running, and expo
   })
   await page.goto("/")
 
-  await fillComposer(page, "/workspace.open main smithersai/smithers")
+  await fillComposer(page, "/box.open main smithersai/smithers")
   await page.getByTestId("composer-send").click()
 
   // The card: header names the repo, the bookmark, and the BOOKMARK's head — labeled, never a workspace head.
@@ -94,12 +94,12 @@ test("T1: /workspace.open renders the card, streams starting→running, and expo
   await filesTab.focus()
   await page.keyboard.press("Enter")
   const directory = card.getByRole("button", { name: "my docs", exact: true })
-  await expect(directory).toHaveAttribute("data-flow", "workspace.files")
+  await expect(directory).toHaveAttribute("data-flow", "box.files")
   await expect(directory).toHaveAttribute("data-flow-args", '"my docs" ws-1')
   await directory.focus()
   await page.keyboard.press("Enter")
   const file = card.getByRole("button", { name: "read me.txt", exact: true })
-  await expect(file).toHaveAttribute("data-flow", "workspace.file")
+  await expect(file).toHaveAttribute("data-flow", "box.file")
   await expect(file).toHaveAttribute("data-flow-args", '"my docs/read me.txt" ws-1')
   await file.focus()
   await page.keyboard.press("Enter")
@@ -111,7 +111,7 @@ test("T1: a degraded sign-in refuses a workspace act with the exact enable wordi
   await installCloudFixture(page, { degraded: true })
   await page.goto("/")
 
-  await fillComposer(page, "/workspace.list")
+  await fillComposer(page, "/box.list")
   await page.getByTestId("composer-send").click()
 
   const toast = page.locator(".toast-stack .toast-detail")

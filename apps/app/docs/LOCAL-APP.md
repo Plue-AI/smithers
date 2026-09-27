@@ -267,7 +267,7 @@ surfaces, all over the workspace gateway's own projections and procedures:
 
 Lane `citc` (ADR 0002) adds the persistent cloud computers:
 
-- **`workspace`** (`/workspace.open [bookmark] [owner/repo]`, `/workspace.view
+- **`workspace`** (`/box.open [bookmark] [owner/repo]`, `/box.view
   <id>`) opens one cloud computer bound to a repository bookmark. The header
   names the repo, the target bookmark, and the BOOKMARK's head (`bookmark
   main head @ qupxosqw`), then the facts line the DTO carries: the sandbox
@@ -283,7 +283,7 @@ Lane `citc` (ADR 0002) adds the persistent cloud computers:
   starting, running, suspended, stopped, failed) leads; a starting workspace
   streams its `provisioningStage`, a failed one names the stage plus plue's
   failure code and message verbatim and offers the three kinds as the retry
-  (`/workspace.open … --kind <kind>`). The facet strip switches Terminal (the
+  (`/box.open … --kind <kind>`). The facet strip switches Terminal (the
   attachment or the refusal in plue's own words and code, then every session
   with its id, its status, and its Destroy), Files (the repository file
   card's own listing, bound to the workspace's routes), Services (each
@@ -294,13 +294,13 @@ Lane `citc` (ADR 0002) adds the persistent cloud computers:
   mints a session and streams plue's NixOS VM over VNC, so it is its own
   confirmed act rather than a facet switch. The footer acts: Suspend or
   Resume, Fork, Snapshot, and Delete behind a typed confirm.
-  `/workspace.terminal` opens the workspace's terminal as an ordinary
+  `/box.terminal` opens the workspace's terminal as an ordinary
   terminal tab whose row carries a `workspaceId` instead of a `cwd` (the
   socket tunnels through the Bun server's `/api/cloud-ws/` bridge with the
   Bun-held bearer attached upstream, and the token never reaches the
   renderer), and closing the tab detaches; killing the session is the
-  explicit `/workspace.session.destroy`. That act is rendered only where the
-  live registry holds `workspace.terminal`, and the Terminal facet otherwise
+  explicit `/box.session.destroy`. That act is rendered only where the
+  live registry holds `box.terminal`, and the Terminal facet otherwise
   says terminals are not on the web yet. Every workspace act refuses a
   `degraded` cloud session with the "sign in again to enable" wording (ADR
   0001's legacy scope set).
@@ -360,7 +360,7 @@ Lane `change` (ADR 0003) makes the change the unit of review:
 - **`repo-import`** grows the job's own progress: the stage counts (`refs
   214 of 214 · objects … · issues …`) when the wire carries them, the
   failed phase's Retry through `/repos.import.retry <jobId>` (the route
-  exists), and the done state's workspace link (`/workspace.view`). A
+  exists), and the done state's workspace link (`/box.view`). A
   structured 429 (`code: "github_rate_limited"`) renders the ADR's
   rate-limit line on every sync card (`GitHub rate limit reached · 0 of
   5,000 · resets 12:40 · Retry after`), as does a status answer whose

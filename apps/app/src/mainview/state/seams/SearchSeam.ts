@@ -141,7 +141,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
 
   /** Files the app has listed: the sidebar's loaded directories and the file and listing cards. Box files open in the box. */
   const fileItems = (): ReadonlyArray<Fact> => {
-    const read = (flow: "files.read" | "workspace.file", path: string, target: string): SearchAction => ({
+    const read = (flow: "files.read" | "box.file", path: string, target: string): SearchAction => ({
       flow, args: fileArgs(path, target), role: "open",
       label: flow === "files.read" ? "Read a file from a repository" : "Read one file out of a cloud workspace"
     })
@@ -152,7 +152,7 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
       if (seen.has(ref)) return
       // Identity and execution retain the observed repository or explicit working copy.
       seen.set(ref, { kind: "file", ref, title: relative, subtitle,
-        actions: [read(kind === "workspace" ? "workspace.file" : "files.read", relative, target)] })
+        actions: [read(kind === "workspace" ? "box.file" : "files.read", relative, target)] })
     }
     const copies = ctx.store.collections.workingCopies
     for (const row of ctx.store.collections.repoTree.values()) {

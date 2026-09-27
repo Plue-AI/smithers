@@ -926,7 +926,7 @@ export const createWorkflowController = (
     const target = workflowScope(repoArg)
     if ("error" in target) return target.error
     const { repo, binding } = target
-    if (binding.workspaceId === undefined) return `Open a cloud workspace for ${repo} with /workspace.open, select it, then request the change again.`
+    if (binding.workspaceId === undefined) return `Open a box for ${repo} with /box.open, select it, then request the change again.`
     return requests.start({ repo, binding, workflow: "coding/request", input: { prompt: what }, actor: ctx.commandActor, then: "coding/vibe",
       source: { name: from ?? "head", explicit: from !== undefined } })
   }

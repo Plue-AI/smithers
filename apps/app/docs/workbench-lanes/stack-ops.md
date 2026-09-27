@@ -9,7 +9,7 @@ Scope:
    `change.stack`, `change.land <stack>` (confirm).
 2. `operations` card and flows `change.ops`, `change.undo` (confirm);
    History-row Operations toggle renders it inline.
-3. History-row "Open the computer": `workspace.open --snapshot <id>`; the
+3. History-row "Open the computer": `box.open --snapshot <id>`; the
    workspace card's facts line reads "forked from snapshot <id>".
 4. Diff conflict hunk action `change.resolve` (confirm) rendering the run
    card; Revert footer action `change.revert` (confirm) rendering the new

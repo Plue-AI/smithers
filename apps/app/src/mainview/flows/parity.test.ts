@@ -127,7 +127,7 @@ const PRESENTATION_ONLY = [
   "setSelectedPath", // world card doc selection: which note the embedded editor shows — local presentation state
   "onDismissDrawer(", // graph card detail drawer close: local presentation state (which node is focused)
   "setOpenLog(", // run timeline log panel: which row's log is open — local presentation state
-  "setDeleteDraft", // workspace card delete: the typed-confirm row's open state and its draft — local presentation state; the act itself rides workspace.delete
+  "setDeleteDraft", // workspace card delete: the typed-confirm row's open state and its draft — local presentation state; the act itself rides box.delete
   "onRunCommand(", // delegated: App.tsx binds it to the registry's runCommand
   "onChoose(", // delegated: Composer.tsx routes a palette row through runCommand, or edits the draft (a namespace, a prefix)
   // Card maximize/minimize: each calls the delegated onMaximize/onMinimize (bound to card.maximize /
@@ -411,7 +411,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * in ITS file. 17 = 15 + lane L3b's Desktop facet: Rotate session and
        * the 409's Resume. The create affordance's three kind buttons share one
        * handler, and so does the facet strip (the Desktop tab mints through
-       * workspace.desktop, every other tab switches through workspace.facet).
+       * box.desktop, every other tab switches through box.facet).
        * 20 = 19 + the Desktop facet's "Open a new box": the only door for a
        * box whose image predates the desktop tools, where a Retry is a door
        * onto a wall.

@@ -365,7 +365,7 @@ export const OPEN_FLOWS: Readonly<Record<SearchItemKind, ReadonlyArray<string>>>
   run: ["runs.open"],
   change: ["change.view"],
   issue: ["issues.view"],
-  box: ["box.open", "workspace.view"],
+  box: ["box.view"],
   "secret-name": ["secrets.list"],
   person: []
 }
@@ -380,7 +380,7 @@ export const PRIMARY_FLOWS: Readonly<Record<SearchItemKind, ReadonlyArray<string
   run: ["runs.resume"],
   change: ["review"],
   issue: ["implement"],
-  box: ["box.terminal", "workspace.terminal"],
+  box: ["box.terminal"],
   "secret-name": [],
   person: []
 }
@@ -403,7 +403,7 @@ const REF_FIELDS: Readonly<Record<SearchItemKind, ReadonlyArray<string>>> = {
 
 /** The namespaces whose flows are about a kind. */
 const KIND_NAMESPACES: Readonly<Record<SearchItemKind, ReadonlyArray<string>>> = {
-  file: ["files", "code", "workspace", "tab"],
+  file: ["files", "code", "box", "tab"],
   flow: [],
   target: ["target"],
   wiki: ["wiki", "world"],
@@ -412,7 +412,7 @@ const KIND_NAMESPACES: Readonly<Record<SearchItemKind, ReadonlyArray<string>>> =
   run: ["runs"],
   change: ["change", "review"],
   issue: ["issues"],
-  box: ["workspace", "box"],
+  box: ["box"],
   "secret-name": ["secrets"],
   person: []
 }
@@ -453,7 +453,7 @@ const roleOf = (kind: SearchItemKind, name: string): SearchAction["role"] =>
 /**
  * Every registered flow that acts on the item, the open flow first. A kind's
  * open and primary flows are named by preference (`box.open`, else
- * `workspace.view`): the first one registered wins the role, so a hidden
+ * `box.view`): the first one registered wins the role, so a hidden
  * alias never doubles a row. A flow whose required input the ref cannot fill
  * is absent, never listed with a form (a button always carries its args).
  */

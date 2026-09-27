@@ -571,7 +571,7 @@ test.each(["commit", "reject"] as const)("desktop progress deduplicates committe
     expect(fixture.footprint()).toEqual(physical)
     now = 2_000
     // The real heartbeat advances elapsed progress while the backend read stays held.
-    await waitFor(() => store.collections.toasts.get("toast-workspace.desktop.open:desktop-growth")?.detail.includes("2s elapsed") === true)
+    await waitFor(() => store.collections.toasts.get("toast-box.desktop.open:desktop-growth")?.detail.includes("2s elapsed") === true)
     const advanced = await store.eventHistory()
     expect(advanced.head.sequence).toBe(before.head.sequence + 2)
     expect(structuredClone(store.committedCard("workspace-desktop-growth"))).toMatchObject({ payload: { desktopStage: "starting", desktopProgress: expect.stringContaining("2s elapsed") } })
@@ -593,7 +593,7 @@ test.each(["commit", "reject"] as const)("desktop progress deduplicates committe
       for (const read of reads) read.resolve(answer("failed"))
       await pending
       expect(failures).toMatchObject([{ message: "Changes could not be saved." }])
-      expect(store.committedToast("toast-workspace.desktop.open:desktop-growth")?.detail).toContain("2s elapsed")
+      expect(store.committedToast("toast-box.desktop.open:desktop-growth")?.detail).toContain("2s elapsed")
       await expect(Promise.resolve(store.dispose?.())).rejects.toThrow("Progress write refused")
       stores.splice(stores.indexOf(store), 1)
       const reopened = await open(fixture.path)
@@ -602,7 +602,7 @@ test.each(["commit", "reject"] as const)("desktop progress deduplicates committe
       return
     }
     // A different queued observation must not be hidden by our matching pending receipt.
-    store.dispatch({ type: "toast.progressed", actor: "system", key: "workspace.desktop.open:desktop-growth", detail: "Other progress" })
+    store.dispatch({ type: "toast.progressed", actor: "system", key: "box.desktop.open:desktop-growth", detail: "Other progress" })
     const current = store.collections.cards.get("workspace-desktop-growth")
     if (current?.kind !== "workspace") throw new Error("Workspace card is absent")
     store.dispatch({ type: "card.upsert", actor: "system", card: { ...current, payload: { ...current.payload, desktopProgress: "Other progress" } } })
@@ -616,7 +616,7 @@ test.each(["commit", "reject"] as const)("desktop progress deduplicates committe
     await pending
     await store.settled?.()
     expect(store.committedWorkspace("desktop-growth")?.status).toBe("failed")
-    expect(store.collections.toasts.get("toast-workspace.desktop.open:desktop-growth")?.status).toBe("failed")
+    expect(store.collections.toasts.get("toast-box.desktop.open:desktop-growth")?.status).toBe("failed")
     const reopened = await open(fixture.path)
     expect(reopened.store.committedWorkspace("desktop-growth")?.status).toBe("failed")
     expect(reopened.store.committedCard("workspace-desktop-growth")).not.toHaveProperty("payload.desktopStage")

@@ -50,8 +50,8 @@ export function TabBodies() {
         open={pendingClose !== undefined}
         title={`Close ${pendingClose?.title ?? "this session"}?`}
         body={pendingClose?.kind === "terminal" && pendingClose.workspaceId !== undefined
-          // A workspace terminal's process lives in the cloud workspace: closing detaches; workspace.session.destroy ends it.
-          ? "Closing detaches from the workspace session; it keeps running in the cloud workspace."
+          // A workspace terminal's process lives in the cloud workspace: closing detaches; box.session.destroy ends it.
+          ? "Closing detaches from the box session; it keeps running in the box."
           : "Its process is still running and will be stopped."}
         confirmLabel="Close session"
         destructive
