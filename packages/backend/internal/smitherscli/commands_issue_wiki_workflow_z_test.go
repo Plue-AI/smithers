@@ -54,6 +54,10 @@ func commandsIWWZSuccessServer(t *testing.T) *httptest.Server {
 			fmt.Fprint(w, `{"number":7,"pinned":true}`)
 		case path == "/api/repos/alice/demo/issues/7/dependencies":
 			fmt.Fprint(w, `{"blocks":8}`)
+		case r.Method == http.MethodGet && path == "/api/repos/alice/demo/wiki/navigation/index":
+			fmt.Fprint(w, `{"pages":[{"id":7,"slug":"home","title":"Home","path":"Home.md","revision":2,"visibility":"`+r.URL.Query().Get("visibility")+`","metadata":{"tags":["guide"],"links":[]},"backlinks":[{"page_id":8,"path":"Guides/Start.md","embed":false}]},{"id":8,"slug":"start","title":"Start","path":"Guides/Start.md","revision":1,"metadata":{"tags":[]},"backlinks":[]}],"folders":["Guides"],"tags":["guide"]}`)
+		case r.Method == http.MethodGet && path == "/api/repos/alice/demo/wiki/history/7":
+			fmt.Fprint(w, `[{"page_id":7,"revision":2,"path":"Home.md","title":"Home","content_digest":"aa","deleted":false,"author":{"id":1,"login":"alice"},"updated_at":"2026-09-26T00:00:00Z"},{"page_id":7,"revision":1,"path":"Old/Home.md","title":"Home","content_digest":"bb","deleted":false,"author":{"id":1,"login":"alice"},"updated_at":"2026-09-26T00:00:00Z"}]`)
 		case r.Method == http.MethodGet && path == "/api/repos/alice/demo/wiki":
 			fmt.Fprint(w, `[{"title":"Home","slug":"home","author":{"login":"w"},"updated_at":"t"}]`)
 		case r.Method == http.MethodGet && path == "/api/repos/alice/demo/wiki/search":
@@ -134,6 +138,19 @@ func TestCommandsIssueWikiWorkflow_Z_WikiFormatAndErrorBranches(t *testing.T) {
 	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"edit", "home", "--repo", "alice/demo", "--title", "X", "--slug", "y", "--body", "z", "--json"})
 	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"delete", "home", "--repo", "alice/demo", "--json"})
 	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"revisions", "home", "--repo", "alice/demo", "--json"})
+	// The wiki spaces (#1922): every command carries --visibility; index and history are new.
+	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"list", "--repo", "alice/demo", "--visibility", "private"})
+	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"view", "home", "--repo", "alice/demo", "--visibility", "private", "--json"})
+	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"edit", "home", "--repo", "alice/demo", "--path", "Guides/Home.md", "--expected-revision", "2", "--visibility", "private", "--json"})
+	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"index", "--repo", "alice/demo", "--visibility", "private"})
+	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"index", "--repo", "alice/demo", "--json"})
+	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"history", "7", "--repo", "alice/demo", "--visibility", "private"})
+	commandsIssueWikiWorkflowCovServe(t, wikiCommand(), []string{"history", "7", "--repo", "alice/demo", "--json"})
+	commandsIWWZServeErr(t, wikiCommand(), "invalid wiki page id", "history", "x", "--repo", "alice/demo")
+	commandsIWWZServeErr(t, wikiCommand(), "boom", "index", "--repo", "err/err")
+	commandsIWWZServeErr(t, wikiCommand(), "boom", "history", "7", "--repo", "err/err")
+	commandsIWWZServeErr(t, wikiCommand(), "Invalid repo format", "index", "--repo", "bad")
+	commandsIWWZServeErr(t, wikiCommand(), "Invalid repo format", "history", "7", "--repo", "bad")
 
 	// cleanAPIError error branches.
 	commandsIWWZServeErr(t, wikiCommand(), "boom", "list", "--repo", "err/err")

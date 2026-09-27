@@ -262,10 +262,11 @@ func wikiCommand() *incur.Cli {
 	cmd.Command("list", &incur.CommandDef{
 		Description: "List wiki pages",
 		OptionsSchema: objectSchema(nil, map[string]*incur.JSONSchema{
-			"page":  numberSchema("Page number", 1),
-			"limit": numberSchema("Results per page", 30),
-			"query": stringSchema("Search titles, slugs, and body content"),
-			"repo":  stringSchema("Repository (OWNER/REPO)"),
+			"page":       numberSchema("Page number", 1),
+			"limit":      numberSchema("Results per page", 30),
+			"query":      stringSchema("Search titles, slugs, and body content"),
+			"repo":       stringSchema("Repository (OWNER/REPO)"),
+			"visibility": wikiVisibilitySchema(),
 		}),
 		Handler: func(ctx *incur.CommandContext) (any, error) {
 			pages, err := wikiListRequest(ctx, "/wiki", true)
@@ -279,7 +280,7 @@ func wikiCommand() *incur.Cli {
 		},
 	})
 	cmd.Command("view", wikiSlugCommand("View a wiki page", func(owner, repo, slug string, ctx *incur.CommandContext) (any, error) {
-		page, err := APIRequest("GET", fmt.Sprintf("/api/repos/%s/%s/wiki/%s", owner, repo, url.PathEscape(slug)), nil, nil)
+		page, err := APIRequest("GET", wikiScoped(ctx, fmt.Sprintf("/api/repos/%s/%s/wiki/%s", owner, repo, url.PathEscape(slug))), nil, nil)
 		if err != nil {
 			return nil, cleanAPIError(err)
 		}
@@ -291,21 +292,27 @@ func wikiCommand() *incur.Cli {
 	cmd.Command("create", &incur.CommandDef{
 		Description: "Create a wiki page",
 		OptionsSchema: objectSchema([]string{"title"}, map[string]*incur.JSONSchema{
-			"title": stringSchema("Page title"),
-			"slug":  stringSchema("Page slug (defaults to a slugified title)"),
-			"body":  {Type: "string", Description: "Page content (Markdown)", Default: ""},
-			"repo":  stringSchema("Repository (OWNER/REPO)"),
+			"title":      stringSchema("Page title"),
+			"slug":       stringSchema("Page slug (defaults to a slugified title)"),
+			"body":       {Type: "string", Description: "Page content (Markdown)", Default: ""},
+			"path":       stringSchema("Markdown path in the space (defaults to <slug>.md)"),
+			"repo":       stringSchema("Repository (OWNER/REPO)"),
+			"visibility": wikiVisibilitySchema(),
 		}),
 		Handler: func(ctx *incur.CommandContext) (any, error) {
 			owner, repo, err := ResolveRepoRef(stringValue(ctx.Options["repo"]))
 			if err != nil {
 				return nil, err
 			}
-			page, err := APIRequest("POST", fmt.Sprintf("/api/repos/%s/%s/wiki", owner, repo), map[string]any{
+			body := map[string]any{
 				"title": stringValue(ctx.Options["title"]),
 				"slug":  nullableString(stringValue(ctx.Options["slug"])),
 				"body":  stringValue(ctx.Options["body"]),
-			}, nil)
+			}
+			if path := stringValue(ctx.Options["path"]); path != "" {
+				body["path"] = path
+			}
+			page, err := APIRequest("POST", wikiScoped(ctx, fmt.Sprintf("/api/repos/%s/%s/wiki", owner, repo)), body, nil)
 			if err != nil {
 				return nil, cleanAPIError(err)
 			}
@@ -316,9 +323,11 @@ func wikiCommand() *incur.Cli {
 		},
 	})
 	cmd.Command("edit", wikiSlugCommandWithOptions("Edit a wiki page", map[string]*incur.JSONSchema{
-		"title": stringSchema("New title"),
-		"slug":  stringSchema("New slug"),
-		"body":  stringSchema("New content (Markdown)"),
+		"title":             stringSchema("New title"),
+		"slug":              stringSchema("New slug"),
+		"body":              stringSchema("New content (Markdown)"),
+		"path":              stringSchema("New Markdown path in the space"),
+		"expected-revision": numberSchema("The revision you read; a stale one is refused instead of overwritten", 0),
 	}, func(owner, repo, slug string, ctx *incur.CommandContext) (any, error) {
 		body := map[string]any{}
 		if _, ok := ctx.Options["title"]; ok {
@@ -330,7 +339,13 @@ func wikiCommand() *incur.Cli {
 		if _, ok := ctx.Options["body"]; ok {
 			body["body"] = stringValue(ctx.Options["body"])
 		}
-		page, err := APIRequest("PATCH", fmt.Sprintf("/api/repos/%s/%s/wiki/%s", owner, repo, url.PathEscape(slug)), body, nil)
+		if _, ok := ctx.Options["path"]; ok {
+			body["path"] = stringValue(ctx.Options["path"])
+		}
+		if revision := intValue(ctx.Options["expected-revision"], 0); revision > 0 {
+			body["expected_revision"] = revision
+		}
+		page, err := APIRequest("PATCH", wikiScoped(ctx, fmt.Sprintf("/api/repos/%s/%s/wiki/%s", owner, repo, url.PathEscape(slug))), body, nil)
 		if err != nil {
 			return nil, cleanAPIError(err)
 		}
@@ -340,7 +355,7 @@ func wikiCommand() *incur.Cli {
 		return formatWikiMutation("Updated", page), nil
 	}))
 	cmd.Command("delete", wikiSlugCommand("Delete a wiki page", func(owner, repo, slug string, ctx *incur.CommandContext) (any, error) {
-		if _, err := APIRequest("DELETE", fmt.Sprintf("/api/repos/%s/%s/wiki/%s", owner, repo, url.PathEscape(slug)), nil, nil); err != nil {
+		if _, err := APIRequest("DELETE", wikiScoped(ctx, fmt.Sprintf("/api/repos/%s/%s/wiki/%s", owner, repo, url.PathEscape(slug))), nil, nil); err != nil {
 			return nil, cleanAPIError(err)
 		}
 		if ctx.FormatExplicit {
@@ -351,10 +366,11 @@ func wikiCommand() *incur.Cli {
 	cmd.Command("search", &incur.CommandDef{
 		Description: "Search wiki pages by title, slug, and body content",
 		OptionsSchema: objectSchema([]string{"query"}, map[string]*incur.JSONSchema{
-			"query": stringSchema("Search query"),
-			"page":  numberSchema("Page number", 1),
-			"limit": numberSchema("Results per page", 30),
-			"repo":  stringSchema("Repository (OWNER/REPO)"),
+			"query":      stringSchema("Search query"),
+			"page":       numberSchema("Page number", 1),
+			"limit":      numberSchema("Results per page", 30),
+			"repo":       stringSchema("Repository (OWNER/REPO)"),
+			"visibility": wikiVisibilitySchema(),
 		}),
 		Handler: func(ctx *incur.CommandContext) (any, error) {
 			pages, err := wikiListRequest(ctx, "/wiki/search", false)
@@ -374,7 +390,7 @@ func wikiCommand() *incur.Cli {
 		query := url.Values{}
 		query.Set("page", strconv.Itoa(intValue(ctx.Options["page"], 1)))
 		query.Set("per_page", strconv.Itoa(intValue(ctx.Options["limit"], 30)))
-		revisions, err := APIRequest("GET", fmt.Sprintf("/api/repos/%s/%s/wiki/%s/revisions?%s", owner, repo, url.PathEscape(slug), query.Encode()), nil, nil)
+		revisions, err := APIRequest("GET", wikiScoped(ctx, fmt.Sprintf("/api/repos/%s/%s/wiki/%s/revisions?%s", owner, repo, url.PathEscape(slug), query.Encode())), nil, nil)
 		if err != nil {
 			return nil, cleanAPIError(err)
 		}
@@ -383,7 +399,106 @@ func wikiCommand() *incur.Cli {
 		}
 		return formatWikiRevisionList(arrayValue(revisions)), nil
 	}))
+	// The wiki spaces (#1922): the navigation index of one space, and a page's history by its id (renames and the deletion included).
+	cmd.Command("index", &incur.CommandDef{
+		Description: "Show a space's navigation index: pages with tags and backlinks, folders, tags",
+		OptionsSchema: objectSchema(nil, map[string]*incur.JSONSchema{
+			"repo":       stringSchema("Repository (OWNER/REPO)"),
+			"visibility": wikiVisibilitySchema(),
+		}),
+		Handler: func(ctx *incur.CommandContext) (any, error) {
+			owner, repo, err := ResolveRepoRef(stringValue(ctx.Options["repo"]))
+			if err != nil {
+				return nil, err
+			}
+			index, err := APIRequest("GET", wikiScoped(ctx, fmt.Sprintf("/api/repos/%s/%s/wiki/navigation/index", owner, repo)), nil, nil)
+			if err != nil {
+				return nil, cleanAPIError(err)
+			}
+			if ctx.FormatExplicit {
+				return index, nil
+			}
+			return formatWikiIndex(index), nil
+		},
+	})
+	cmd.Command("history", &incur.CommandDef{
+		Description: "List a wiki page's history by page id, renames and the deletion included",
+		ArgsSchema:  objectSchema([]string{"page-id"}, map[string]*incur.JSONSchema{"page-id": stringSchema("Wiki page id")}),
+		OptionsSchema: objectSchema(nil, map[string]*incur.JSONSchema{
+			"page":       numberSchema("Page number", 1),
+			"limit":      numberSchema("Results per page", 30),
+			"repo":       stringSchema("Repository (OWNER/REPO)"),
+			"visibility": wikiVisibilitySchema(),
+		}),
+		Handler: func(ctx *incur.CommandContext) (any, error) {
+			owner, repo, err := ResolveRepoRef(stringValue(ctx.Options["repo"]))
+			if err != nil {
+				return nil, err
+			}
+			pageID, err := strconv.ParseInt(strings.TrimSpace(stringValue(ctx.Args["page-id"])), 10, 64)
+			if err != nil || pageID <= 0 {
+				return nil, fmt.Errorf("invalid wiki page id")
+			}
+			query := url.Values{}
+			query.Set("page", strconv.Itoa(intValue(ctx.Options["page"], 1)))
+			query.Set("per_page", strconv.Itoa(intValue(ctx.Options["limit"], 30)))
+			revisions, err := APIRequest("GET", wikiScoped(ctx, fmt.Sprintf("/api/repos/%s/%s/wiki/history/%d?%s", owner, repo, pageID, query.Encode())), nil, nil)
+			if err != nil {
+				return nil, cleanAPIError(err)
+			}
+			if ctx.FormatExplicit {
+				return revisions, nil
+			}
+			return formatWikiRevisionList(arrayValue(revisions)), nil
+		},
+	})
 	return cmd
+}
+
+// wikiVisibilitySchema is the space a wiki command reads or writes (#1922): public (the default) or private.
+func wikiVisibilitySchema() *incur.JSONSchema {
+	return &incur.JSONSchema{Type: "string", Description: "Wiki space: public (default) or private", Enum: []any{"public", "private"}}
+}
+
+// wikiScoped appends the space the command names to a wiki route; a command naming none reads the backend's default, public.
+func wikiScoped(ctx *incur.CommandContext, route string) string {
+	visibility := strings.TrimSpace(stringValue(ctx.Options["visibility"]))
+	if visibility == "" {
+		return route
+	}
+	separator := "?"
+	if strings.Contains(route, "?") {
+		separator = "&"
+	}
+	return route + separator + "visibility=" + url.QueryEscape(visibility)
+}
+
+// formatWikiIndex prints a space's index one page per line: the path, its tags, and how many pages link to it.
+func formatWikiIndex(index any) string {
+	object, _ := index.(map[string]any)
+	pages := arrayValue(object["pages"])
+	if len(pages) == 0 {
+		return "No wiki pages in this space."
+	}
+	var lines []string
+	for _, entry := range pages {
+		page, _ := entry.(map[string]any)
+		line := stringValue(page["path"])
+		if metadata, ok := page["metadata"].(map[string]any); ok {
+			if tags := arrayValue(metadata["tags"]); len(tags) > 0 {
+				var names []string
+				for _, tag := range tags {
+					names = append(names, "#"+stringValue(tag))
+				}
+				line += "  " + strings.Join(names, " ")
+			}
+		}
+		if backlinks := arrayValue(page["backlinks"]); len(backlinks) > 0 {
+			line += fmt.Sprintf("  ← %d", len(backlinks))
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func wikiListRequest(ctx *incur.CommandContext, suffix string, optionalQuery bool) (any, error) {
@@ -411,7 +526,7 @@ func wikiSlugCommand(description string, handler func(owner, repo, slug string, 
 }
 
 func wikiSlugCommandWithOptions(description string, extra map[string]*incur.JSONSchema, handler func(owner, repo, slug string, ctx *incur.CommandContext) (any, error)) *incur.CommandDef {
-	properties := map[string]*incur.JSONSchema{"repo": stringSchema("Repository (OWNER/REPO)")}
+	properties := map[string]*incur.JSONSchema{"repo": stringSchema("Repository (OWNER/REPO)"), "visibility": wikiVisibilitySchema()}
 	for key, schema := range extra {
 		properties[key] = schema
 	}
