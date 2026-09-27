@@ -49,7 +49,7 @@ export const BillingPlansCardBody = ({ card, onRunCommand, creditBalanceCents = 
       {included > 0 ? <> · Included: <span data-testid="billing-credit-included">{creditDollars(included)}</span> per month</> : null}
       {included > 0 && resets !== null ? <> · Resets <time data-testid="billing-credit-reset" dateTime={resets}>{day.format(new Date(resets))}</time></> : null}
     </p>}
-    {columns.length === 0 ? null : <div style={{ overflowX: "auto" }}><table>
+    {columns.length === 0 ? null : <div style={{ overflowX: "auto" }}><table className="secrets-table billing-plans">
       <thead><tr><th scope="col">Plan</th>{columns.map(plan => <th scope="col" key={plan.key}
         aria-current={plan.key === planKey ? "true" : undefined}
         style={plan.key === planKey ? { background: "var(--surface)", outline: "2px solid currentColor", outlineOffset: "-2px" } : undefined}>
