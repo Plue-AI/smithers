@@ -60,6 +60,7 @@ test("every flows fixture belongs to a declared gate; native targets stay separa
   // runs the whole file under the prerequisites the rest of it requires.
   const twice = ordinary.filter((name, index) => ordinary.indexOf(name) !== index).sort()
   assert.deepEqual([...new Set(twice)], [
+    "coding-host-modules.test.ts",
     "coding-host-policy.test.ts",
     "coding-landing-config.test.ts",
     "coding-landing.test.ts",

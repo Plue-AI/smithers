@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { policySources } from "../wiki/reuse.ts"
+import { hostModulesSource } from "./host-modules-build.mjs"
 import { wikiPolicyIdentity } from "./wiki-policy.ts"
 
 /** Used to build the same runtime acceptance entry with the deployment bundler; not a package export. */
@@ -13,7 +14,7 @@ export const bundle = async (entryPoint, outfile) => {
   // shared with another worktree. Otherwise a release silently bundles old code.
   const root = fileURLToPath(new URL("../../", import.meta.url))
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"))
-  const alias = {}
+  const alias = {}, roots = {}
   for (const pattern of manifest.workspaces) {
     const paths = pattern.endsWith("/*")
       ? (await readdir(resolve(root, pattern.slice(0, -2)), { withFileTypes: true }))
@@ -23,6 +24,7 @@ export const bundle = async (entryPoint, outfile) => {
       try {
         const pkg = JSON.parse(await readFile(resolve(path, "package.json"), "utf8"))
         if (pkg.name) {
+          roots[pkg.name] = path
           for (const [key, target] of Object.entries(pkg.exports ?? {})) {
             if (typeof target !== "string" || key.includes("*")) continue
             alias[pkg.name + (key === "." ? "" : key.slice(1))] = resolve(path, target)
@@ -33,24 +35,48 @@ export const bundle = async (entryPoint, outfile) => {
       }
     }
   }
-  const result = await build({
-    alias,
+  const options = {
+    alias, absWorkingDir: root,
     entryPoints: [entryPoint], outfile, write: false, bundle: true, platform: "node", format: "esm", target: "node26.4",
-    banner: { js: "#!/usr/bin/env node\nimport {createRequire as __smithersCreateRequire} from 'node:module'; const require=__smithersCreateRequire(import.meta.url);" },
+    banner: { js: "#!/usr/bin/env node\nimport {createRequire as __smithersCreateRequire} from 'node:module'; const require=__smithersCreateRequire(import.meta.url);" }
+  }
+  const lazyBunSqlite = {
+    name: "lazy-bun-sqlite",
+    setup(build) {
+      // esbuild hoists static external imports from dynamically loaded ESM
+      // modules. Keep Bun's existing builtin behind that same lazy boundary,
+      // so a Node launch never attempts to resolve bun:sqlite.
+      build.onResolve({ filter: /^bun:sqlite$/ }, args => args.namespace === "lazy-bun-sqlite"
+        ? { path: args.path, external: true }
+        : { path: args.path, namespace: "lazy-bun-sqlite" })
+      build.onLoad({ filter: /.*/, namespace: "lazy-bun-sqlite" }, () => ({
+        contents: 'const native = await import("bun:sqlite"); export const Database = native.Database;', loader: "js"
+      }))
+    }
+  }
+  // A repository's file flows share the host's own modules (host-modules.ts).
+  // The probe learns which modules the host runs; the build then serves
+  // exactly those, so sharing adds no module of its own.
+  const probe = await build({ ...options, metafile: true, plugins: [lazyBunSqlite] })
+  // Only modules the host evaluates at start: sharing a module the host only
+  // imports dynamically (Bun's platform layers) would evaluate it eagerly.
+  const graph = probe.metafile.inputs, inputs = new Set()
+  const pending = Object.keys(graph).filter(path => resolve(root, path) === resolve(entryPoint))
+  for (let path = pending.pop(); path !== undefined; path = pending.pop()) {
+    if (path.includes(":") || inputs.has(resolve(root, path))) continue
+    inputs.add(resolve(root, path))
+    for (const edge of graph[path]?.imports ?? []) if (!edge.external && edge.kind !== "dynamic-import") pending.push(edge.path)
+  }
+  const result = await build({
+    ...options,
     plugins: [{
-      name: "lazy-bun-sqlite",
+      name: "host-modules",
       setup(build) {
-        // esbuild hoists static external imports from dynamically loaded ESM
-        // modules. Keep Bun's existing builtin behind that same lazy boundary,
-        // so a Node launch never attempts to resolve bun:sqlite.
-        build.onResolve({ filter: /^bun:sqlite$/ }, args => args.namespace === "lazy-bun-sqlite"
-          ? { path: args.path, external: true }
-          : { path: args.path, namespace: "lazy-bun-sqlite" })
-        build.onLoad({ filter: /.*/, namespace: "lazy-bun-sqlite" }, () => ({
-          contents: 'const native = await import("bun:sqlite"); export const Database = native.Database;', loader: "js"
+        build.onLoad({ filter: /[\\/]flows[\\/]coding[\\/]host-modules\.ts$/ }, async ({ path }) => ({
+          contents: await hostModulesSource(await readFile(path, "utf8"), inputs, alias, roots), loader: "ts"
         }))
       }
-    }]
+    }, lazyBunSqlite]
   })
   if (result.outputFiles.length !== 1) throw new Error("Coding host must be one immutable executable")
   // The built-in prompt bodies travel with the executable.

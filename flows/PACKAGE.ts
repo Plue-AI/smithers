@@ -197,6 +197,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-request-coordinator.test.ts"),
     Smithers.file("//flows/test/coding-correction-stall.test.ts"),
     Smithers.file("//flows/test/coding-host-policy.test.ts"),
+    Smithers.file("//flows/test/coding-host-modules.test.ts"),
     Smithers.file("//flows/test/coding-wiki-registry.test.ts"),
     Smithers.file("//flows/test/coding-create-flow-registry.test.ts"),
     Smithers.file("//flows/test/coding-jev-check.test.ts"),
@@ -220,6 +221,7 @@ const codingConfigBun = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-host-policy.test.ts"),
+    Smithers.file("//flows/test/coding-host-modules.test.ts"),
     Smithers.file("//flows/test/coding-wiki-registry.test.ts"),
     Smithers.file("//flows/test/coding-vibe-evidence.test.ts"),
     Smithers.file("//flows/test/coding-vibe-admission.test.ts"),

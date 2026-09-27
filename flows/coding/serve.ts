@@ -9,6 +9,7 @@ import * as Serve from "../../packages/smithers/src/Serve.ts"
 import { packageVersion } from "../../packages/smithers/src/Version.ts"
 import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
+import { share } from "./host-modules.ts"
 import { layer } from "./host.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
@@ -59,6 +60,9 @@ if (parsed.values.version) {
   if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "serve") {
     throw new Error("This configured workspace entry accepts the existing serve command")
   }
+  // Before any repository flow is imported: its effect and @smthrs packages
+  // are the host's own instances (#2197).
+  share()
   const root = resolve(parsed.values.root ?? process.cwd())
   const port = Number(parsed.values.port)
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("port must be an integer from 0 to 65535")

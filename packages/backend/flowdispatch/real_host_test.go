@@ -39,6 +39,23 @@ model: coding/implement
 Write flow-proof.txt and read it back.
 `
 
+// A file flow in the one shape every repository flow has (flows/<name>/flow.ts
+// with Flow.make): it imports @smthrs/flow, @smthrs/plan and effect from the
+// repository's own node_modules, not from the host's bundle (#2197).
+const realHostFileFlow = `import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+
+export default Flow.make("echo", {
+  description: "Echo",
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+  payload: { text: Schema.String },
+  success: Schema.String,
+  body: ({ text }) => Node.succeed(text)
+})
+`
+
 type codingHostProcess struct {
 	command  *exec.Cmd
 	done     chan error
@@ -54,7 +71,7 @@ type observedAcceptanceRuntime struct {
 
 func (runtime observedAcceptanceRuntime) Observe(ctx context.Context, runID, cursor string, limit int) (flowruntime.Observation, error) {
 	observation, err := runtime.Runtime.Observe(ctx, runID, cursor, limit)
-	if err == nil && (!validObservationPage(cursor, observation) || observation.Run.FlowID != "proof" || observation.Run.RunID != runID || observation.Terminal != terminalStatus(observation.Run.Status)) {
+	if err == nil && (!validObservationPage(cursor, observation) || (observation.Run.FlowID != "proof" && observation.Run.FlowID != "echo") || observation.Run.RunID != runID || observation.Terminal != terminalStatus(observation.Run.Status)) {
 		runtime.t.Logf("invalid real-host observation: run=%+v after=%s next=%s terminal=%t", observation.Run, cursor, observation.NextCursor, observation.Terminal)
 	}
 	return observation, err
@@ -233,6 +250,10 @@ func realHostFixtureFor(t *testing.T) realHostFixture {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "flows", "proof"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "flows", "proof", "flow.mdx"), []byte(realHostFlow), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "flows", "echo"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "flows", "echo", "flow.ts"), []byte(realHostFileFlow), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(repositoryRoot, "node_modules"), filepath.Join(root, "node_modules")))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "README.md"), []byte("# Fixture\n"), 0o644))
 	runCommand(t, root, "git", "init", "-b", "main")
 	runCommand(t, root, "git", "config", "user.name", "Fixture")
@@ -355,6 +376,54 @@ func TestRealBundledHostAdmissionReconnectCompletionAndCancellation(t *testing.T
 	})
 	stopAcceptanceWorker(t, stopSecond, secondDone)
 	host.stop(t)
+}
+
+// A repository's .ts file flow runs to completion on the box's packaged host:
+// the host decodes the flow's declared success value with the same Effect
+// instance the flow declared it with (#2197).
+func TestRealBundledHostRunsRepositoryFileFlow(t *testing.T) {
+	if os.Getenv("SMITHERS_FLOWDISPATCH_REAL_HOST") != "1" {
+		t.Skip("set SMITHERS_FLOWDISPATCH_REAL_HOST=1 to build and execute the bundled coding host")
+	}
+	store, _ := newFlowDispatchStore(t)
+	fixture := realHostFixtureFor(t)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+	host, client := startCodingHost(t, fixture, port, 1)
+	t.Cleanup(func() { host.stop(t) })
+	service, err := New(Config{
+		Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			return observedAcceptanceRuntime{Runtime: client, t: t}, nil
+		}), ObservationDelay: 10 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	request := LaunchRequest{
+		Scope: jobs.Scope{TenantID: "owner", PrincipalID: "owner"}, RequestID: "real-host-file-flow",
+		Target: flowruntime.Target{BindingKind: "trusted-owner", BindingID: "owner"},
+		FlowID: "echo", Payload: []byte(`{"text":"echoed"}`),
+		AuthorizationContext: []byte(`{"role":"owner"}`), Projection: []byte(`{"kind":"acceptance"}`),
+		ApprovalPolicy: ApprovalManual,
+	}
+	receipt, err := service.Admit(context.Background(), request)
+	require.NoError(t, err)
+	stop, done := startAcceptanceWorker(service, "real-host-file-flow")
+	t.Cleanup(func() { stopAcceptanceWorker(t, stop, done) })
+	waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
+		return operation.State == jobs.StateWaiting && bytes.Contains(operation.ExternalReceipt, []byte(`"Parked"`))
+	})
+	_, err = service.Approve(context.Background(), request.Scope, receipt.OperationID, "real-host-file-flow-approval", []byte(`{"role":"owner"}`))
+	require.NoError(t, err)
+	finished := waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool {
+		return operation.State == jobs.StateCompleted || operation.State == jobs.StateFailed
+	})
+	var terminal terminalReceipt
+	require.NoError(t, json.Unmarshal(finished.TerminalReceipt, &terminal))
+	require.Equal(t, jobs.StateCompleted, finished.State, "terminal receipt: %s", finished.TerminalReceipt)
+	require.NotNil(t, terminal.Run)
+	require.Equal(t, "completed", terminal.Run.Status)
+	require.NotContains(t, host.logs.String(), "SchemaError")
 }
 
 func Example_realHostAcceptanceCommand() {

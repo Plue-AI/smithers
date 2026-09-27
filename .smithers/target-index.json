@@ -19357,6 +19357,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-host-modules.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-wiki-registry.test.ts"
       },
       {
@@ -20382,6 +20386,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-host-policy.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-host-modules.test.ts"
       },
       {
         "kind": "file",
