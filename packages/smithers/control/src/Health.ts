@@ -6,7 +6,7 @@ import * as Sha256 from "@smthrs/crypto/Sha256"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Cause, Effect, Metric, Schema } from "effect"
 import type { ControlEvent, RunSummary } from "./ControlSchema.ts"
-import { jevSessionChecker, makeJevSessionChecker } from "./JevSessionChecker.ts"
+import { makeJevSessionChecker } from "./JevSessionChecker.ts"
 
 /** Authoritative subject lifecycle.
  * @category schemas
@@ -318,6 +318,9 @@ export const lifecycleSessionChecker: HealthChecker = {
   id: "lifecycle.session",
   probe: () => Effect.succeed({ activity: "unknown", reason: "ok" })
 }
+const hostCheckers = (evaluator: Evaluator.Evaluator | undefined): ReadonlyArray<HealthChecker<any>> => [
+  makeJevSessionChecker({ evaluator })
+]
 /** Checkers every host may bind by id, beyond the lifecycle default it always has.
  *
  * Registration is not a binding. A host opts in by naming one of these as a
@@ -327,7 +330,7 @@ export const lifecycleSessionChecker: HealthChecker = {
  * @category constants
  * @since 1.0.0
  */
-export const registeredCheckers: ReadonlyArray<HealthChecker<any>> = [jevSessionChecker]
+export const registeredCheckers: ReadonlyArray<HealthChecker<any>> = hostCheckers(undefined)
 const bounded = (value: number, min: number, max: number) => Number.isSafeInteger(value) && value >= min && value <= max
 const invalid = (reason: HealthConfigurationError["reason"]): never => {
   throw new HealthConfigurationError({ reason })
@@ -344,9 +347,7 @@ export const makeRegistry = (
   const fallback = kind === "run" ? lifecycleRunChecker : lifecycleSessionChecker
   const checkers = new Map<string, ResolvedCheck["checker"]>([
     [fallback.id, fallback],
-    ...registeredCheckers.map((checker) =>
-      [checker.id, checker.id === "jev.session" ? makeJevSessionChecker({ evaluator }) : checker] as const
-    )
+    ...hostCheckers(evaluator).map((checker) => [checker.id, checker] as const)
   ])
   for (const checker of config.checkers ?? []) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$/.test(checker.id) || checkers.has(checker.id)) invalid("invalid-checker")

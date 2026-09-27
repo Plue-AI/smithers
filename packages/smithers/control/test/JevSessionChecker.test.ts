@@ -62,6 +62,16 @@ describe("seat-backed session checker", () => {
       expect(observation.report).toBeUndefined()
     }
   )
+  it("keeps the HTTP status of a refused judgment", async () => {
+    const judge = checker(() =>
+      Effect.fail(new Evaluator.EvaluatorError({ code: "refused", message: "private details", status: 429 }))
+    )
+    await expect(probe(judge)).rejects.toMatchObject({ reason: "http", status: 429 })
+  })
+  it("keeps a verdict with no stated confidence unknown", async () => {
+    const unstated: Evaluator.Response = { answers: { activity: { type: "choice", choice: "idle" } }, latencyMs: 1 }
+    expect(await probe(checker(() => Effect.succeed(unstated)))).toEqual({ activity: "unknown", reason: "ok" })
+  })
   it("bounds a stalled subscription request", async () => {
     await expect(probe(Jev.makeJevSessionChecker({ evaluator: { evaluate: () => Effect.never }, timeoutMs: 5 })))
       .rejects.toMatchObject({ reason: "timeout" })
