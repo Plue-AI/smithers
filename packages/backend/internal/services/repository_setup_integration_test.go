@@ -14,6 +14,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
@@ -263,4 +264,84 @@ func TestRepositorySetupProjectionRejectsForeignAndMissingCompletion(t *testing.
 			require.NotEmpty(t, saved.ObservationError)
 		}
 	}
+}
+
+// Deleting a repository removes its setup requests, keeps other repositories'
+// requests, and the orphaned setup job settles instead of retrying forever.
+func TestRepositoryDeletionRemovesSetupRequestsAndSettlesTheirJob(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	product := NewRepositorySetupService(pool, NewRepositoryJobService(db.New(pool), nil, pool), nil)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	// The resolver runs on the worker goroutine; record, then assert after it stops.
+	resolved := make(chan error, 16)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: product, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+		_, err := product.ResolveFlowHostTarget(ctx, target)
+		select {
+		case resolved <- err:
+		default:
+		}
+		return nil, err
+	})})
+	require.NoError(t, err)
+	product.SetFlowDispatcher(dispatcher)
+	request := func(userID, repoID int64) SetupRecord {
+		input := setupFixtureInput(t)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT u.username||'/'||r.name FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, repoID).Scan(&input.Repo))
+		input.Digest = setupCandidateDigest(input, false)
+		record, err := product.Request(ctx, repoID, userID, input)
+		require.NoError(t, err)
+		return record
+	}
+	userID, repoID := setupTestUserAndRepo(t, pool)
+	otherUserID, otherRepoID := setupTestUserAndRepo(t, pool)
+	deleted := request(userID, repoID)
+	kept := request(otherUserID, otherRepoID)
+
+	user, err := db.New(pool).GetUserByID(ctx, userID)
+	require.NoError(t, err)
+	var repoName string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT name FROM repositories WHERE id=$1`, repoID).Scan(&repoName))
+	host := &preparedRepoHost{
+		mockRepoHostClient: &mockRepoHostClient{finalizeDeleteRepoFn: func(context.Context, repohost.StagedDelete) error { return nil }},
+		prepareDeleteFn: func(_ context.Context, owner, repo string) (repohost.StagedDelete, error) {
+			return repohost.StagedDelete{BaseURL: "http://s1.test", StorageRouteKey: "static", Token: strings.Repeat("c", 64), Owner: owner, Repo: repo}, nil
+		},
+		executeDeleteFn: func(context.Context, repohost.StagedDelete) error { return nil },
+	}
+	repos := NewProductRepoServiceWithPool(db.New(pool), host, pool)
+	require.NoError(t, repos.DeleteRepo(ctx, &user, user.Username, repoName))
+
+	var remaining int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_setup_requests WHERE id=$1`, deleted.ID).Scan(&remaining))
+	require.Zero(t, remaining)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_setup_requests WHERE id=$1 AND repository_id=$2`, kept.ID, otherRepoID).Scan(&remaining))
+	require.Equal(t, 1, remaining)
+
+	// Only the deleted repository's job is left to dispatch.
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='cancelled',terminal_receipt='{}' WHERE id=$1`, kept.OperationID)
+	require.NoError(t, err)
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "setup-delete-test", Capacity: 1, Lease: 2 * time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+	}()
+	var stopErr error
+	var stopOnce sync.Once
+	stop := func() { stopOnce.Do(func() { cancel(); stopErr = <-done }) }
+	defer stop()
+	require.Eventually(t, func() bool {
+		var state string
+		return pool.QueryRow(ctx, `SELECT state FROM product_job_requests WHERE id=$1`, deleted.OperationID).Scan(&state) == nil && state == "failed"
+	}, 5*time.Second, 5*time.Millisecond)
+	stop()
+	require.NoError(t, stopErr)
+	close(resolved)
+	var resolutions int
+	for err := range resolved {
+		resolutions++
+		require.Error(t, err, "a deleted repository's setup must not resolve a host")
+	}
+	require.Positive(t, resolutions)
 }

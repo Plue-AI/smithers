@@ -325,3 +325,25 @@ func TestBaselineChecksumPinned(t *testing.T) {
 		t.Fatalf("baseline migration changed; add a new numbered migration instead (got %q)", registered[0].checksum)
 	}
 }
+
+// Every foreign key to repositories states its delete behavior; a default
+// NO ACTION key lets one dependent row block repository deletion.
+func TestRepositoryForeignKeysStateDeleteBehavior(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	if err := Apply(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := pool.Query(ctx, `SELECT conname FROM pg_constraint
+		WHERE contype='f' AND confrelid='public.repositories'::regclass AND confdeltype='a' ORDER BY conname`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocking, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocking) != 0 {
+		t.Fatalf("repository foreign keys without ON DELETE: %v", blocking)
+	}
+}
