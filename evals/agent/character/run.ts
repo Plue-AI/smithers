@@ -23,7 +23,7 @@
  * the suite's `usageWeights`. Results go to `<suite>/results/`, and a line is
  * appended to `<suite>/REGRESSION-LOG.md`.
  *
- * Other flags: `--cases a,b` keeps some cases; `--category a,b` keeps some
+ * Other flags: `--coverage` lists how many cases test each spec rule; `--cases a,b` keeps some cases; `--category a,b` keeps some
  * categories; `--reply-from summary` reads a RoleResult reply's summary; `--profile <file>` and `--common <file>` swap the
  * role file; `--label <name>` names the run; `--trace` prints every turn.
  *
@@ -512,6 +512,14 @@ const program = Effect.gen(function*() {
 
   const lines: Array<string> = []
   let exitCode = 0
+  if (flag("coverage")) {
+    const byRule = new Map<string, Array<string>>()
+    for (const suiteCase of suite.cases) {
+      for (const rule of suiteCase.tests) byRule.set(rule, [...(byRule.get(rule) ?? []), suiteCase.id])
+    }
+    const rules = [...byRule.keys()].sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
+    lines.push("coverage (rule: cases):", ...rules.map((rule) => `  ${rule}: ${byRule.get(rule)!.length}`), "")
+  }
   if (!live) {
     for (const outcome of outcomes) {
       const expectedPass = outcome.plan.variant.kind === "golden"
