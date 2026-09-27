@@ -142,7 +142,16 @@ func buildRouter(
 	// APIError JSON ({"message":"feature not available"}) when the flag is
 	// off. Callers wrap a route or sub-router with the gate alongside (not
 	// instead of) the existing auth/scope middleware.
-	gateIssues := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Issues })
+	// A box that ran outsider-started work reads no live conversation: its
+	// run works from the approved copy in its inputs. Every issue route
+	// carries the check with the issues gate.
+	var outsiderWorkspaces middleware.OutsiderWorkspaces
+	if queries != nil {
+		outsiderWorkspaces = queries
+	}
+	withholdConversation := middleware.WithholdConversation(outsiderWorkspaces)
+	issuesFeature := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Issues })
+	gateIssues := func(next http.Handler) http.Handler { return issuesFeature(withholdConversation(next)) }
 	gateSearch := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Search })
 	gateWiki := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Wiki })
 	gateLabels := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Labels })
@@ -766,7 +775,7 @@ func buildRouter(
 			readRepo = append(readRepo, repoAPIQuota)
 			r.With(readRepo...).Get("/api/repos/{owner}/{repo}/changes/events", jjVCSHandler.ChangeStream)
 			if extras.Mythical != nil {
-				r.With(readRepo...).Get("/api/repos/{owner}/{repo}/mythical/events", extras.Mythical.Events)
+				r.With(append(readRepo, withholdConversation)...).Get("/api/repos/{owner}/{repo}/mythical/events", extras.Mythical.Events)
 			}
 		})
 	}
@@ -1210,7 +1219,7 @@ func buildRouter(
 				// The mythical stack: its snapshot, and the admin's bootstrap
 				// request. The event stream is mounted outside the JSON timeout.
 				if extras.Mythical != nil {
-					r.With(readRepo...).Get("/mythical", extras.Mythical.GetStack)
+					r.With(append(readRepo, middleware.ResolveConversationWithheld(outsiderWorkspaces))...).Get("/mythical", extras.Mythical.GetStack)
 					r.With(adminRepo...).Post("/mythical/bootstrap", extras.Mythical.Bootstrap)
 					r.With(writeRepo...).Post("/mythical/backfill", extras.Mythical.Backfill)
 					r.With(adminRepo...).Put("/mythical/config", extras.Mythical.Config)
@@ -1241,7 +1250,7 @@ func buildRouter(
 					r.With(writeRepo...).Delete("/stacks/active", stackHandler.DeleteActiveStack)
 				}
 				if gitHubProxyHandler != nil {
-					r.With(writeRepo...).Post("/github-proxy", gitHubProxyHandler.PostRepoGitHubProxy)
+					r.With(append(writeRepo, middleware.ResolveConversationWithheld(outsiderWorkspaces))...).Post("/github-proxy", gitHubProxyHandler.PostRepoGitHubProxy)
 				}
 
 				r.With(append(writeRepo, repoStackQuota)...).Post("/landings", landingHandler.CreateLandingRequest)
@@ -1772,8 +1781,8 @@ func buildRouter(
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings", landingHandler.ListLandingRequests)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}", landingHandler.GetLandingRequest)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}/land/append", landingHandler.ObserveLandingAppend)
-			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}/reviews", landingHandler.ListLandingReviews)
-			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}/comments", landingHandler.ListLandingComments)
+			r.With(append(readRepo, withholdConversation)...).Get("/repos/{owner}/{repo}/landings/{number}/reviews", landingHandler.ListLandingReviews)
+			r.With(append(readRepo, withholdConversation)...).Get("/repos/{owner}/{repo}/landings/{number}/comments", landingHandler.ListLandingComments)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}/changes", landingHandler.ListLandingChanges)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}/diff", landingHandler.GetLandingDiff)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/landings/{number}/conflicts", landingHandler.GetLandingConflicts)

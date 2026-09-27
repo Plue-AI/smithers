@@ -13,6 +13,7 @@ const (
 	gitHubProxyReasonDeleteBranchDenied = "deleting branches is not allowed for workflows"
 	gitHubProxyReasonPushBranchDenied   = "can only push to smithers/* branches"
 	gitHubProxyReasonDefaultDenied      = "action is not allowed for workflows"
+	gitHubProxyReasonConversationDenied = "a run started from an outsider's text works from its approved copy, not the live conversation"
 )
 
 type GitHubProxyPolicyInput struct {
@@ -24,6 +25,10 @@ type GitHubProxyPolicyInput struct {
 	AllowPullWrites    bool
 	AllowMerges        bool
 	AllowBranchDeletes bool
+	// WithholdConversation refuses issues, comments and pull request
+	// conversation, and the pull request list, whose bodies are live text,
+	// to a run started from an outsider's approved text.
+	WithholdConversation bool
 }
 
 type GitHubProxyPolicyDecision struct {
@@ -49,6 +54,10 @@ func EvaluateGitHubProxyPolicy(input GitHubProxyPolicyInput) GitHubProxyPolicyDe
 
 	if !strings.EqualFold(strings.TrimSpace(input.RepoOwner), owner) || !strings.EqualFold(strings.TrimSpace(input.RepoName), repo) {
 		return denyGitHubProxyPolicy(gitHubProxyReasonRepositoryMismatch)
+	}
+
+	if input.WithholdConversation && isConversationPath(subpath) {
+		return denyGitHubProxyPolicy(gitHubProxyReasonConversationDenied)
 	}
 
 	if isPullMergePath(subpath) && (method == "PUT" || method == "POST" || method == "DELETE") && !input.AllowMerges {
@@ -181,6 +190,22 @@ func isIssueCommentPath(subpath string) bool {
 func isPullCommentPath(subpath string) bool {
 	parts := strings.Split(strings.Trim(subpath, "/"), "/")
 	return len(parts) == 3 && parts[0] == "pulls" && strings.TrimSpace(parts[1]) != "" && parts[2] == "comments"
+}
+
+// isConversationPath covers every issue path, pull request comment and
+// review paths, and the pull request list.
+func isConversationPath(subpath string) bool {
+	parts := strings.Split(strings.Trim(subpath, "/"), "/")
+	switch {
+	case parts[0] == "issues":
+		return true
+	case parts[0] != "pulls":
+		return false
+	case len(parts) == 1 || parts[1] == "comments":
+		return true
+	default:
+		return len(parts) >= 3 && (parts[2] == "comments" || parts[2] == "reviews")
+	}
 }
 
 func isGitHeadsRefPath(subpath string) bool {

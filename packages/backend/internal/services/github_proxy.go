@@ -106,7 +106,8 @@ func (s *GitHubProxyService) ProxyRepoRequest(ctx context.Context, actor *db.Use
 	}
 
 	return s.proxyRequest(ctx, resolved, input, GitHubProxyPolicyInput{
-		AllowPullWrites: true,
+		AllowPullWrites:      true,
+		WithholdConversation: middleware.ConversationWithheldFromContext(ctx),
 	})
 }
 
@@ -147,14 +148,15 @@ func (s *GitHubProxyService) proxyRequest(ctx context.Context, resolved gitHubPr
 	}
 
 	policyDecision := EvaluateGitHubProxyPolicy(GitHubProxyPolicyInput{
-		Method:             method,
-		Path:               requestPath,
-		Body:               json.RawMessage(bodyBytes),
-		RepoOwner:          resolved.Owner,
-		RepoName:           resolved.Repo,
-		AllowPullWrites:    policyOverrides.AllowPullWrites,
-		AllowMerges:        policyOverrides.AllowMerges,
-		AllowBranchDeletes: policyOverrides.AllowBranchDeletes,
+		Method:               method,
+		Path:                 requestPath,
+		Body:                 json.RawMessage(bodyBytes),
+		RepoOwner:            resolved.Owner,
+		RepoName:             resolved.Repo,
+		AllowPullWrites:      policyOverrides.AllowPullWrites,
+		AllowMerges:          policyOverrides.AllowMerges,
+		AllowBranchDeletes:   policyOverrides.AllowBranchDeletes,
+		WithholdConversation: policyOverrides.WithholdConversation,
 	})
 	if !policyDecision.Allowed {
 		logGitHubProxyRequest(method, requestPath, http.StatusForbidden, "deny", policyDecision.Reason)

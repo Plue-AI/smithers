@@ -84,6 +84,11 @@ func (h *MythicalHandler) GetStack(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, err)
 		return
 	}
+	// A box that ran outsider-started work reads the stack's state for its
+	// delivery, never other items' issue text.
+	if middleware.ConversationWithheldFromContext(r.Context()) {
+		view.Items = []services.MythicalItemView{}
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	pkgerrors.WriteJSON(w, http.StatusOK, view)
 }
