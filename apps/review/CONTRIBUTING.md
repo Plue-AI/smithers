@@ -57,8 +57,9 @@ loading the review snapshot.
 ## CI
 
 `.github/workflows/pr-review.yml` dogfoods the action in `action/` on this
-repo. It is the README's workflow with a checkout step and the action referenced
-as `./apps/review/action` so every PR runs its own action code. The
+repo. It is the README's workflow with the action referenced at `@main`, never
+as `./apps/review/action`: the job holds the review identity and PR write, so
+a pull request never runs its own action code there. The
 repository is registered with the review service, so its reviews run on
 metered inference and it passes no provider key. It stays on
 `pull_request` and `issue_comment` (never `pull_request_target`) with

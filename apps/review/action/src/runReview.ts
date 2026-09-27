@@ -37,6 +37,10 @@ export async function runReview(input: RunReviewInput): Promise<number> {
   if (input.quiz) args.push("--quiz", input.quiz);
   if (input.concurrency !== undefined) args.push("--concurrency", String(input.concurrency));
 
+  // The CLI reads an untrusted diff: it never gets the job's means to mint
+  // an OIDC token.
+  const { ACTIONS_ID_TOKEN_REQUEST_TOKEN: _token, ACTIONS_ID_TOKEN_REQUEST_URL: _url, ...env } = process.env;
+
   return new Promise<number>((resolve, reject) => {
     // cwd must be the smithers checkout, never the workspace: the bin resolves
     // its workspace dependencies relative to cwd, and the caller's checkout has
@@ -46,7 +50,7 @@ export async function runReview(input: RunReviewInput): Promise<number> {
       cwd: input.smithersRoot,
       stdio: "inherit",
       env: {
-        ...process.env,
+        ...env,
         ...input.inferenceEnv,
         SMITHERS_REVIEW_PUBLISH_URL: input.publishUrl,
         SMITHERS_REVIEW_PUBLISH_TOKEN: input.publishToken,

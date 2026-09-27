@@ -18,11 +18,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The action runs from this checkout, so a pull request is reviewed by its
-    # own action code: a break in the action turns this repository's PR red
-    # before `@main` users get it.
+    # The job holds the review identity and PR write, so it runs main's action,
+    # never the pull request's own action code.
     steps:
-      - uses: actions/checkout@v6.0.2
-        with:
-          fetch-depth: 0
-      - uses: ./apps/review/action
+      - uses: smithersai/smithers/apps/review/action@main

@@ -39,14 +39,11 @@ const workflow = parse(
 };
 
 describe("pr-review.yml", () => {
-  test("runs the action from the checkout under review, not a pinned commit", () => {
+  test("runs main's action, never the action code of the pull request under review", () => {
+    // The job holds the review identity and PR write; a local `uses: ./…`
+    // would run the pull request's own checkout with both.
     const steps = workflow.jobs.review.steps;
-    const action = steps.findIndex((entry) => entry.uses === "./apps/review/action");
-    const checkout = steps.findIndex((entry) => entry.uses?.startsWith("actions/checkout@"));
-    expect(action).toBeGreaterThanOrEqual(0);
-    expect(checkout).toBeGreaterThanOrEqual(0);
-    expect(checkout).toBeLessThan(action);
-    expect(steps.filter((entry) => entry.uses?.includes("apps/review/action"))).toHaveLength(1);
+    expect(steps.map((entry) => entry.uses)).toEqual(["smithersai/smithers/apps/review/action@main"]);
   });
 
   test("asks for exactly the three permissions the action needs", () => {

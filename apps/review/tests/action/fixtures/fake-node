@@ -4,7 +4,7 @@
 # Checked in and executable (not written at test time) so spawning it never
 # races a fresh write-then-exec.
 #
-# Records the invocation (cwd via `pwd -P`, args) to the JSON file named by
+# Records the invocation (cwd via `pwd -P`, args, any OIDC request variable) to the JSON file named by
 # $SMITHERS_FAKE_NODE_LOG, then exits with the code in $SMITHERS_FAKE_NODE_EXIT
 # (default 0).
 log=$SMITHERS_FAKE_NODE_LOG
@@ -16,6 +16,13 @@ if [ -n "$log" ]; then
       [ "$first" -eq 1 ] || printf ','
       first=0
       printf '"%s"' "$a"
+    done
+    printf '],"oidc":['
+    sep=
+    for v in "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL"; do
+      [ -n "$v" ] || continue
+      printf '%s"%s"' "$sep" "$v"
+      sep=,
     done
     printf ']}'
   } > "$log"

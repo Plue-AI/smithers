@@ -153,6 +153,31 @@ describe("runReview", () => {
     }
   }, SPAWN_BUDGET);
 
+  test("never hands the CLI the job's OIDC token request", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "smithers-root-"));
+    const log = join(tmp, "node-log.json");
+    process.env.SMITHERS_FAKE_NODE_LOG = log;
+    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = "request-token";
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = "https://token.test";
+    try {
+      await runReview({
+        smithersRoot: tmp,
+        workspace: "/some/workspace",
+        prNumber: 1,
+        inferenceEnv: {},
+        publishUrl: "https://review.test",
+        publishToken: "srs_tok",
+        nodePath: FAKE_NODE,
+      });
+      const logged = (await Bun.file(log).json()) as { oidc: string[] };
+      expect(logged.oidc).toEqual([]);
+    } finally {
+      delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+      delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+      await rm(tmp, { recursive: true, force: true });
+    }
+  }, SPAWN_BUDGET);
+
   test("runs with smithersRoot as cwd, not the workspace", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "smithers-root-"));
     const log = join(tmp, "node-log.json");

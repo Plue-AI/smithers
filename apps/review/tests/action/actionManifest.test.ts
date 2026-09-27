@@ -122,8 +122,8 @@ describe("review action manifest", () => {
     expect(review).toBeGreaterThan(checkout);
   });
 
-  // pr-review.yml runs this action from the checkout it reviews, so the
-  // install lands inside the caller's workspace. actions/checkout cleans an
+  // A caller that runs this action from its own checkout (`uses: ./…`)
+  // installs inside its workspace. actions/checkout cleans an
   // existing checkout with `git clean -ffdx`, which deletes ignored files, so a
   // checkout after the install would leave the review with no node_modules.
   test("checks the caller's repository out before installing the action's dependencies", () => {
