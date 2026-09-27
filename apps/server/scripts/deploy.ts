@@ -35,6 +35,8 @@
  * read afterwards, so `scripts/canary/build-probe.ts` can hold the deployment
  * to the claim.
  */
+import { rollout, type RolloutReceipt } from "../../../flows/rollout/runtime.ts"
+import { workerRolloutHost, writeRolloutReceipt } from "./rollout"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -84,7 +86,7 @@ const wrangler = (...args: ReadonlyArray<string>): ReadonlyArray<string> => [
 
 const run = async (
   cmd: ReadonlyArray<string>,
-  options: { cwd: string; capture?: boolean; env?: Record<string, string> }
+  options: { cwd: string; capture?: boolean; env?: Record<string, string>; timeout?: number }
 ): Promise<{ exitCode: number; output: string }> => {
   const proc = Bun.spawn([...cmd], {
     cwd: options.cwd,
@@ -92,9 +94,11 @@ const run = async (
     stdout: options.capture === true ? "pipe" : "inherit",
     stderr: "inherit"
   })
+  const timer = setTimeout(() => proc.kill("SIGKILL"), options.timeout ?? 600_000)
   const output = options.capture === true ? await new Response(proc.stdout).text() : ""
   if (options.capture === true) process.stdout.write(output)
   const exitCode = await proc.exited
+  clearTimeout(timer)
   return { exitCode, output }
 }
 
@@ -162,6 +166,7 @@ const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? WORKER_IDENTITY.accountId
 const wranglerEnv = { CLOUDFLARE_ACCOUNT_ID: accountId }
 
 let versionId: string | null = null
+let rolloutReceipt: RolloutReceipt | null = null
 let activation: (ActivationAuthorization & { readonly artifactSHA256: string }) | null = null
 let dryRunArtifactSHA256: string | null = null
 
@@ -212,31 +217,38 @@ if (dryRun) {
   try {
     if ((await liveFactsFromCloudflare(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion) throw new DeployGuardRefusal("DEPLOY_GUARD_LIVE_CHANGED", "the live version changed after the interlock judged it")
   } catch (error) { guardRefused(error) }
-  console.log(`[deploy] wrangler deploy --tag ${verdict.tag} ...`)
-  const deploy = await run(wrangler(...wranglerDeployArgs(verdict)), { cwd: serverDir, env: wranglerEnv, capture: true })
-  if (deploy.exitCode !== 0) {
-    console.error("[deploy] wrangler deploy failed.")
-    process.exit(deploy.exitCode)
+  // Bind the rollback SHA to the captured live version before any mutation.
+  let previousRevision = guard!.mode === "activation" ? guard!.executionID : ""
+  if (!previousRevision) {
+    const response = await fetch("https://canary.smithers.sh/__build.json", { signal: AbortSignal.timeout(30_000), redirect: "error" })
+    const previousStamp = await response.json() as { gitSha?: string }
+    if (!response.ok || !/^[a-f0-9]{40}$/.test(previousStamp.gitSha ?? "")) throw new Error("Previous build identity unavailable")
+    previousRevision = previousStamp.gitSha!
   }
-  /*
-   * wrangler prints the id of the version it just made live. A real deploy
-   * that leaves no readable id gives CN-24 a receipt it cannot use:
-   * rollback-probe.ts needs the id to assert that the previous version is
-   * reachable and that the deployment matches the receipt. Writing `null`
-   * and carrying on would hand the operator a rollback plan that silently
-   * verifies nothing. Fail here instead, while the deploy output is still on
-   * screen.
-   */
-  versionId = deploy.output.match(/Current Version ID:\s*([0-9a-f-]{36})/)?.[1] ?? null
-  if (versionId === null) {
-    console.error("[deploy] wrangler deployed but printed no `Current Version ID`.")
-    console.error("[deploy] The receipt would carry wranglerVersionId: null, which CN-24 cannot verify.")
-    console.error("[deploy] Check the account with `bun scripts/canary/rollback-probe.ts`, then re-run, or record the id by hand.")
-    process.exit(1)
-  }
-  if (activation) {
-    try { verifyActivated(await liveFactsFromCloudflare(WORKER_IDENTITY.name), activation.artifactSHA256) } catch (error) { guardRefused(error) }
-  }
+  rolloutReceipt = await rollout(workerRolloutHost({
+    previous: { version: guard!.liveVersion, revision: previousRevision },
+    serverDir, accountId, worker: WORKER_IDENTITY.name, token: apiToken,
+    inviteConfigured: Boolean(process.env.IDENTITY_SERVICE_TOKEN || process.env.CANARY_ALLOWLIST_LOGINS),
+    ...(guard!.mode === "activation" ? { fenceExecution: guard!.executionID } : {}),
+    run,
+    record: async receipt => {
+      writeRolloutReceipt(join(serverDir, "deploy-receipts", "rollout"), receipt)
+      console.log(`[deploy] rollout ${receipt.status}`)
+    },
+    beforePublish: async () => {
+      // Baseline verification can take time; reject a moved target before publication.
+      if ((await liveFactsFromCloudflare(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion)
+        throw new Error("Live deployment changed")
+    },
+    publish: async () => {
+      const deploy = await run(wrangler(...wranglerDeployArgs(verdict)), { cwd: serverDir, env: wranglerEnv, capture: true })
+      if (deploy.exitCode !== 0) throw new Error("Publish failed")
+      versionId = deploy.output.match(/Current Version ID:\s*([0-9a-f-]{36})/)?.[1] ?? null
+      if (versionId === null) throw new Error("Published version identity unavailable")
+      if (activation) verifyActivated(await liveFactsFromCloudflare(WORKER_IDENTITY.name), activation.artifactSHA256)
+      return { version: versionId, revision: gitSha }
+    }
+  }))
 }
 
 /*
@@ -248,10 +260,13 @@ const receipt = {
   dryRun,
   dryRunMode: dryRun ? "bundle" : null,
   deployTool: "wrangler",
-  gitSha,
+  gitSha: rolloutReceipt?.status === "rolled-back" ? rolloutReceipt.previous.revision : gitSha,
+  attemptedGitSha: gitSha,
   gitDirty,
   timestamp: new Date().toISOString(),
-  wranglerVersionId: versionId,
+  wranglerVersionId: rolloutReceipt?.status === "rolled-back" ? rolloutReceipt.previous.version :
+    rolloutReceipt?.status === "rollback-failed" ? null : versionId,
+  rollout: rolloutReceipt,
   versionTag: verdict.tag,
   versionMessage: verdict.message,
   runUrl,
@@ -266,9 +281,4 @@ writeFileSync(receiptPath, `${JSON.stringify(receipt, null, "\t")}\n`)
 writeFileSync(`${receiptDir}/latest.json`, `${JSON.stringify(receipt, null, "\t")}\n`)
 
 console.log(`[deploy] receipt written to ${receiptPath}`)
-if (!dryRun) {
-  console.log(
-    `[deploy] verify the deployment serves what this receipt claims:\n` +
-      `         bun scripts/canary/build-probe.ts https://canary.smithers.sh --sha ${gitSha}`
-  )
-}
+if (rolloutReceipt && rolloutReceipt.status !== "passed") process.exitCode = 1

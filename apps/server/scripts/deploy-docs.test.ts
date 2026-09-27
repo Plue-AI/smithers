@@ -41,13 +41,11 @@ for (const [name, source] of [["deployment guide", guide], ["HTTP reference", re
   })
 }
 
-test("receipt troubleshooting explains the publish-without-receipt failure and recovery", () => {
-  expect(guide).not.toContain("does not guard either one")
-  expect(guide).not.toContain("Either turns a real deploy into a receipt")
-  expect(guide).toContain("exits with status 1 after publishing")
-  expect(guide).toContain("no fresh receipt")
-  expect(guide).toContain("latest.json` still describes the previous deployment")
-  expect(guide).toContain("re-run the scripted deploy")
+test("receipt recovery is automatic even when publication identity is missing", () => {
+  expect(guide).toContain("automatically restores")
+  expect(guide).toContain("deploy-receipts/rollout/latest.json")
+  expect(guide).not.toContain("writes no fresh receipt")
+  expect(guide).not.toContain("Nothing rolls back automatically")
 })
 
 test("the deploy tool is this package's wrangler, and the guide names it", () => {
@@ -93,22 +91,21 @@ test("the secrets section names every secret and knob the Worker reads, and no v
 })
 
 /*
- * CI parity. The "Deploy (real)" step exports the two Cloudflare credentials
- * and nothing else: a Worker secret exported there would be ignored by
- * wrangler (it uploads none), and listing one would tell the next operator
- * that the deploy needs it. .github/workflows/apps-deploy.yml is
- * hand-maintained (only actionlint runs over it), so this is the gate.
+ * CI parity: Cloudflare credentials deploy the Worker. The one additional
+ * Worker secret is consumed only by CN-23's read-only allowlist probe, never
+ * uploaded as a binding. apps-deploy.yml remains hand-maintained.
  */
 const deployRealEnv = (): string => {
   const step = workflow.split("- name: Deploy (real)")[1]!
   return step.split("run:")[0]!
 }
 
-test("the CI deploy step exports the Cloudflare credentials and no Worker secret", () => {
+test("the CI deploy step exports only deployment and read-only probe credentials", () => {
   const env = deployRealEnv()
   expect(env).toContain("CLOUDFLARE_API_TOKEN:")
   expect(env).toContain("CLOUDFLARE_ACCOUNT_ID:")
   for (const name of [...Object.keys(WORKER_IDENTITY.secrets), ...WORKER_IDENTITY.optionalVars]) {
+    if (name === "IDENTITY_SERVICE_TOKEN") continue // Read-only CN-23, never passed to wrangler as a binding.
     expect(`${name}: ${new RegExp(`^\\s+${name}: `, "m").test(env)}`).toBe(`${name}: false`)
   }
   expect(env).not.toContain("${{ secrets.GITHUB_TOKEN }}")

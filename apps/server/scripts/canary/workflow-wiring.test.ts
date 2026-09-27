@@ -13,9 +13,7 @@
  * passing after someone adds probe six.
  */
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const canaryDir = fileURLToPath(new URL(".", import.meta.url))
@@ -143,25 +141,24 @@ describe("canary probes are wired into a gate", () => {
     expect(entryPoints).toContain("rollback-probe.ts")
   })
 
-  it("invokes every probe entry point from at least one workflow", () => {
+  it("invokes liveness probes from a workflow or the shared rollout; keeps rollback diagnostic read-only", () => {
     const workflows = workflowNames.map((name) => ({ name, text: readWorkflow(name) }))
+    // rollback-probe.ts is now the standalone diagnostic; rollout verifies its pinned target directly.
     const unwired = entryPoints.filter(
-      (probe) => !workflows.some((workflow) => workflow.text.includes(`scripts/canary/${probe}`))
+      (probe) => probe !== "rollback-probe.ts" &&
+        !readFileSync(new URL("../rollout.ts", import.meta.url), "utf8").includes(`scripts/canary/${probe}`) &&
+        !workflows.some((workflow) => workflow.text.includes(`scripts/canary/${probe}`))
     )
     expect(unwired).toEqual([])
   })
 
-  it("runs CN-1 against the sha the deploy just published", () => {
-    // Without an expected sha the probe skips its comparison checks and
-    // still prints PASS, having verified only that the deployment can state
-    // what it is. The sha has to reach the probe for the verdict to move.
+  it("delegates publication and required checks to the deploy command", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
-    const cn1 = deploy.jobs.deploy.steps.find((step) => step.run?.includes("scripts/canary/build-probe.ts") === true)
-    expect(cn1?.run).toContain('--sha "$DEPLOYED_SHA"')
-    expect(cn1?.env?.DEPLOYED_SHA).toBe("${{ github.sha }}")
-    // No drift bound: supersession makes a newer main routine during a deploy,
-    // and the newer sha is the next queued deploy, not a defect of this one.
-    expect(readWorkflow("apps-deploy.yml")).not.toContain("--max-drift")
+    expect(deploy.jobs.deploy.steps.find(step => step.id === "deploy_real")?.run).toBe("pnpm --filter smithers-server run deploy")
+    expect(deploy.jobs.deploy.steps.some(step => step.run?.includes("scripts/canary/"))).toBe(false)
+    const source = readFileSync(new URL("../deploy.ts", import.meta.url), "utf8")
+    expect(source).toContain("rollout(workerRolloutHost(")
+    expect(source).toContain("return { version: versionId, revision: gitSha }")
   })
 
   /*
@@ -198,68 +195,15 @@ describe("canary probes are wired into a gate", () => {
    * does not run and a warning says so; with either one present the probe
    * runs, so a half-configured roster or token still fails the job.
    */
-  it("runs CN-23 when its credential or roster exists, and warns when neither does", () => {
+  it("supplies read-only invite probe inputs and always retains rollback evidence", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
     const steps = deploy.jobs.deploy.steps
-    const decide = steps.find((step) => step.id === "invite")
-    expect(decide?.env).toEqual({
-      HAS_SERVICE_TOKEN: "${{ secrets.IDENTITY_SERVICE_TOKEN != '' }}",
-      HAS_ROSTER: "${{ vars.CANARY_ALLOWLIST_LOGINS != '' }}"
-    })
-    // Before the deploy, with no condition: a red CN-1 must not leave the
-    // decision unmade and both CN-23 steps skipped.
-    expect(decide?.if).toBeUndefined()
-    expect(steps.indexOf(decide!)).toBeLessThan(steps.findIndex((step) => step.id === "deploy_real"))
-
-    const temp = mkdtempSync(join(tmpdir(), "cn23-wiring-"))
-    let runs = 0
-    const shell = (run: string, env: Record<string, string>) => {
-      const output = join(temp, `out-${(runs += 1)}`)
-      writeFileSync(output, "")
-      const result = Bun.spawnSync(["bash", "-c", run], {
-        env: { PATH: process.env.PATH ?? "", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: output, ...env }
-      })
-      return { exitCode: result.exitCode, stdout: result.stdout.toString(), file: readFileSync(output, "utf8") }
-    }
-    try {
-      const configured = (token: string, roster: string) =>
-        shell(decide!.run!, { HAS_SERVICE_TOKEN: token, HAS_ROSTER: roster }).file.trim()
-      expect(configured("false", "false")).toBe("configured=false")
-      expect(configured("true", "false")).toBe("configured=true")
-      expect(configured("false", "true")).toBe("configured=true")
-      expect(configured("true", "true")).toBe("configured=true")
-
-      const ran = "(steps.deploy_real.outcome == 'success' || steps.deploy_dry.outcome == 'success')"
-      const probe = steps.find((step) => step.run?.includes("scripts/canary/invite-probe.ts") === true)
-      expect(probe?.if).toBe(`\${{ !cancelled() && ${ran} && steps.invite.outputs.configured == 'true' }}`)
-      const notRun = steps.find((step) => step.name === "CN-23 not run (no identity credential or roster)")
-      expect(notRun?.if).toBe(`\${{ !cancelled() && ${ran} && steps.invite.outputs.configured == 'false' }}`)
-
-      const warned = shell(notRun!.run!, {})
-      expect(warned.exitCode).toBe(0)
-      expect(warned.stdout).toStartWith("::warning title=CN-23 not run::")
-      expect(warned.file).toContain("- CN-23 allowlist seed probe: NOT RUN")
-    } finally {
-      rmSync(temp, { recursive: true, force: true })
-    }
-  })
-
-  it("reports every post-deploy probe in one run", () => {
-    /*
-     * GitHub's default step condition is "every previous step succeeded",
-     * so without `!cancelled()` a red CN-1 skips CN-18, CN-23 and CN-24 and
-     * the operator learns one verdict per production deploy. The step list
-     * is derived from the file, so a probe step added without the condition
-     * fails here rather than being silently masked in the next incident.
-     */
-    const steps = readWorkflow("apps-deploy.yml")
-      .split(/\n(?=\t{0,0} {6}- )/)
-      .filter((block) => block.includes("scripts/canary/") && block.includes("bun scripts/canary/"))
-    expect(steps.length).toBeGreaterThanOrEqual(4)
-    const masked = steps
-      .filter((block) => !block.includes("!cancelled()"))
-      .map((block) => (/- name: (.*)/.exec(block) ?? [, block.slice(0, 40)])[1])
-    expect(masked).toEqual([])
+    const real = steps.find(step => step.id === "deploy_real")!
+    expect(real.env?.IDENTITY_SERVICE_TOKEN).toBe("${{ secrets.IDENTITY_SERVICE_TOKEN }}")
+    expect(real.env?.CANARY_ALLOWLIST_LOGINS).toBe("${{ vars.CANARY_ALLOWLIST_LOGINS }}")
+    const upload = steps.find(step => step.with?.name === "deploy-receipt")!
+    expect(upload.if).toBe("always()")
+    expect(upload.with?.path).toBe("apps/server/deploy-receipts/**/*.json")
   })
 
   it("lints every workflow file in ci.yml's actionlint step", () => {

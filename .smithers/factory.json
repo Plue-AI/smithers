@@ -1000,6 +1000,20 @@
       "flows": []
     },
     {
+      "id": "rollout",
+      "description": "Deploy, verify, automatically restore the last good release on failure, and re-verify.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/rollout/flow.ts",
+      "capabilities": [
+        "deploy:rollout"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "tutorial-change",
       "description": "Execute the reviewed tutorial plan through the coding flow. Re-read HEAD before any writes; refuse if it differs from plan.base.commitId. Require exactly one change and one atom. Do not push. Return the exact coding result; never invent revision evidence.",
       "summary": null,

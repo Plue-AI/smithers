@@ -112,7 +112,8 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 20
+    # Reserve time for bounded probes AND restoration after a failed publish.
+    timeout-minutes: 60
     steps:
       # Full history: scripts/deploy.ts checks that HEAD is an ancestor of
       # origin/main, and a shallow clone has no origin/main history.
@@ -143,31 +144,13 @@ jobs:
           else
             echo "dry_run=true" >> "$GITHUB_OUTPUT"
           fi
-      # CN-23 reads the allowlist back with the identity service token and the
-      # roster variable. With neither configured it can assert nothing, so it
-      # does not run and a warning says so. With either one it runs, and a
-      # missing half fails it as `CN-23 ASSERTED NOTHING`. Decided here, before
-      # any probe, so a red CN-1 cannot leave both CN-23 steps skipped.
-      - name: Decide whether CN-23 can read the allowlist
-        id: invite
-        env:
-          HAS_SERVICE_TOKEN: ${{ secrets.IDENTITY_SERVICE_TOKEN != '' }}
-          HAS_ROSTER: ${{ vars.CANARY_ALLOWLIST_LOGINS != '' }}
-        run: |
-          if [ "$HAS_SERVICE_TOKEN" = "true" ] || [ "$HAS_ROSTER" = "true" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          fi
       - name: Deploy (dry-run)
         id: deploy_dry
         if: steps.mode.outputs.dry_run == 'true'
         run: pnpm --filter smithers-server run deploy:dry
-      # Only the Cloudflare credentials. The Worker's secrets are set once on
+      # Cloudflare deploy credentials plus read-only CN-23 probe inputs. The Worker's secrets are set once on
       # the live script with `wrangler secret put` and every `wrangler deploy`
-      # keeps them (`keep_bindings`), so nothing else is exported here: a
-      # repository secret listed in this env would be ignored by the deploy and
-      # would tell the next operator the deploy needs it. `SMITHERS_BUILD_SHA`
+      # keeps them (`keep_bindings`). Probe inputs are not uploaded as bindings. `SMITHERS_BUILD_SHA`
       # is not a binding either; scripts/deploy.ts bakes it into the site build.
       # apps/server/scripts/deploy-docs.test.ts holds this env to that rule.
       - name: Deploy (real)
@@ -176,120 +159,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --filter smithers-server run deploy
-      # --- Post-deploy verification ---------------------------------------
-      #
-      # E2E-CANARY-CHECKLIST CN-1, CN-18, CN-23 and CN-24.
-      # apps/server/scripts/canary/workflow-wiring.test.ts fails if a probe
-      # loses its caller.
-      #
-      # These grade this job's outcome (the sha just published, the upstreams
-      # the new Worker proxies, the entry path, the rollback target), so a red
-      # one reds this run, which is the audience that can act on it. canary.yml
-      # is the scheduled home for continuous liveness. They verify what
-      # shipped; they cannot prevent it.
-      #
-      # Every probe carries `!cancelled()` so one red probe does not skip the
-      # others, and keys off the deploy steps' `outcome` so none runs against a
-      # deploy that failed or was skipped. A red probe still fails the job.
-      - name: CN-1 — the deployment serves the sha it just published
-        if: ${{ !cancelled() && steps.deploy_real.outcome == 'success' }}
-        working-directory: apps/server
-        env:
-          DEPLOYED_SHA: ${{ github.sha }}
-          REPORT: ${{ runner.temp }}/canary-build.json
-        run: |
-          set -uo pipefail
-          # --sha is what makes the comparison real: without it the probe
-          # verifies only that the deployment can state what it is. There is
-          # no drift bound: a newer push is the next queued deploy, not a
-          # defect of this one.
-          #
-          # Cloudflare returns from the deploy call before every edge serves the
-          # new asset, so three reads over 40 seconds.
-          for attempt in 1 2 3; do
-            if bun scripts/canary/build-probe.ts https://canary.smithers.sh \
-              --sha "$DEPLOYED_SHA" \
-              --json "$REPORT"; then
-              exit 0
-            fi
-            if [ "$attempt" != 3 ]; then
-              echo "CN-1 attempt $attempt did not match; waiting for the rollout." >&2
-              sleep 20
-            fi
-          done
-          echo "CN-1: canary.smithers.sh is not serving $DEPLOYED_SHA." >&2
-          exit 1
-      # A skipped check has to say so out loud: a silently absent step and a
-      # passing one look identical in the Actions list.
-      - name: CN-1 not run (dry-run deploy)
-        if: ${{ !cancelled() && steps.deploy_dry.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          echo "::warning title=CN-1 not run::This job deployed nothing, so canary.smithers.sh still serves an earlier commit and its sha is not this run's to assert."
-          echo "- CN-1 build-stamp probe: NOT RUN — dry-run deploy (a manual run, or CLOUDFLARE_API_TOKEN is unset in the production environment)." >> "$GITHUB_STEP_SUMMARY"
-      # The site's pages and 404, the app document with its isolation headers,
-      # a frame path reload, the Worker answering /api/* before the assets
-      # layer, and every legacy Mintlify path. Anonymous GETs only.
-      - name: Site probe (the deployment serves the site, the app document, and the legacy aliases)
-        if: ${{ !cancelled() && steps.deploy_real.outcome == 'success' }}
-        working-directory: apps/server
-        env:
-          REPORT: ${{ runner.temp }}/canary-site.json
-        run: bun scripts/canary/site-probe.ts canary.smithers.sh --json "$REPORT"
-      # No credential; the origins are committed in workers-manifest.ts so a
-      # wrong one cannot hide in a secret. Upstream health does not depend on
-      # whether this job deployed, so it runs on the dry-run path too.
-      - name: CN-18 — the backing Workers answer
-        if: ${{ !cancelled() && (steps.deploy_real.outcome == 'success' || steps.deploy_dry.outcome == 'success') }}
-        working-directory: apps/server
-        run: bun scripts/canary/workers-health.ts
-      # Read-only half only; the write half mutates the production allowlist
-      # and stays a human drill in apps/server/INVITES.md. Runs when the
-      # `invite` step found the service token or the roster; a missing half is
-      # red, the probe's own ruling (invite-verdict.ts). Do not add
-      # continue-on-error. IDENTITY_UPSTREAM_URL is not set: an unset variable
-      # expands to "" and would override the probe's default origin.
-      - name: CN-23 — the closed-alpha entry path
-        if: ${{ !cancelled() && (steps.deploy_real.outcome == 'success' || steps.deploy_dry.outcome == 'success') && steps.invite.outputs.configured == 'true' }}
-        working-directory: apps/server
-        env:
+          # Read-only CN-23 probe inputs, never uploaded as Worker bindings.
           IDENTITY_SERVICE_TOKEN: ${{ secrets.IDENTITY_SERVICE_TOKEN }}
           CANARY_ALLOWLIST_LOGINS: ${{ vars.CANARY_ALLOWLIST_LOGINS }}
-        run: bun scripts/canary/invite-probe.ts
-      - name: CN-23 not run (no identity credential or roster)
-        if: ${{ !cancelled() && (steps.deploy_real.outcome == 'success' || steps.deploy_dry.outcome == 'success') && steps.invite.outputs.configured == 'false' }}
-        run: |
-          set -euo pipefail
-          echo "::warning title=CN-23 not run::Neither the IDENTITY_SERVICE_TOKEN secret nor the CANARY_ALLOWLIST_LOGINS variable is set, so the allowlist seed was not read back."
-          echo "- CN-23 allowlist seed probe: NOT RUN — IDENTITY_SERVICE_TOKEN and CANARY_ALLOWLIST_LOGINS are unset (apps/server/INVITES.md)." >> "$GITHUB_STEP_SUMMARY"
-      # Reads the receipt the deploy step just wrote (deploy-receipts/latest.json),
-      # so it means something only on the real-deploy path. The probe exits 0
-      # when it verified nothing, so that becomes a warning here.
-      - name: CN-24 — a rollback target still exists
-        if: ${{ !cancelled() && steps.deploy_real.outcome == 'success' }}
-        working-directory: apps/server
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          LOG: ${{ runner.temp }}/canary-rollback.log
-        run: |
-          set -euo pipefail
-          bun scripts/canary/rollback-probe.ts | tee "$LOG"
-          if ! grep -q "ROLLBACK PROBE PASS" "$LOG"; then
-            echo "::warning title=CN-24 verified nothing::The rollback probe found no receipt or no Cloudflare credential. Nothing here proves a rollback target exists."
-            echo "- CN-24 rollback readiness: NOT VERIFIED — see the step log." >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Upload the canary probe reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: canary-probe-reports
-          path: |
-            ${{ runner.temp }}/canary-build.json
-            ${{ runner.temp }}/canary-site.json
-            ${{ runner.temp }}/canary-rollback.log
-          if-no-files-found: ignore
+        run: pnpm --filter smithers-server run deploy
+      # scripts/deploy.ts owns the deterministic rollout and all required probes.
+      # Keep the rollout receipt even after successful recovery (the run stays red).
       - name: Upload deploy receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -341,9 +341,9 @@ Landing on `main` is the deploy. Every push to `main` runs two jobs:
    secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are the only
    deploy credentials; the Worker's own secrets live on the script and are
    kept.
-   It runs `scripts/deploy.ts`, then CN-1 (the sha it published), the site
-   probe, CN-18, CN-23 and CN-24, and uploads the receipt as the
-   `deploy-receipt` artifact.
+   `scripts/deploy.ts` owns publication, the required probes, automatic
+   restoration and re-verification. The workflow uploads its receipts as the
+   `deploy-receipt` artifact. CN-23 uses separate read-only probe inputs.
 
 A manual `workflow_dispatch` run, or a push while the `production`
 environment has no token, runs the gates and the dry-run deploy.
@@ -578,53 +578,49 @@ named credential and an honest skip, never a shared privileged session.
 
 ## Rollback
 
-Cloudflare Workers keep prior versions. Nothing rolls back automatically:
-the Deploy apps workflow reports a bad deployment by failing, and an operator
-rolls back from a credentialed shell. Every version's message starts with its
-sha, so `bun x wrangler deployments list` finds the version to return to. To
-roll back to the immediately prior version:
+Every real deploy captures the live Worker version and verifies it before
+publication. The shared `flows/rollout/runtime.ts` implementation runs CN-1,
+the site probe, CN-18 and CN-24; CN-23 is required when either of its existing
+credential/roster inputs is configured, and recorded as skipped otherwise.
+Missing inputs for a required check, exceptions and timeouts fail the check.
 
-```sh
-bun x wrangler rollback --message "rollback to <git sha from receipt>"
-```
+A failed required check automatically restores the captured version with the
+package's pinned `wrangler rollback <version-id> --yes`, then re-runs checks
+against the previous build SHA. It never chooses a target from version-list
+ordering or asks an agent or person. The invocation remains unsuccessful after
+recovery. A failed restoration or re-verification remains a failed receipt.
+The cutover activation path restores only its captured final fence and verifies
+its maintenance response and exact version; it never restores a legacy writer.
 
-run from `apps/server`, with the same `CLOUDFLARE_API_TOKEN` set. This
-targets the immediately-prior version; for a specific historical version, use
-`bun x wrangler deployments list` to find its Version ID and
-`bun x wrangler rollback <version-id>`. Rollback does not touch Durable Object
-state: storage for all six bindings listed above is unaffected, since it is
-keyed to the unchanged Worker identity, not to a version. A rollback also
-restores that version's bindings, secrets included.
+Rollbacks restore code, assets and bindings, not mutable Durable Object or
+upstream database state. Releases must preserve storage compatibility.
+[Cloudflare's rollback contract](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
+describes the provider limitations.
 
 ### Receipt version IDs and recovery
 
-`scripts/deploy.ts` parses the `Current Version ID` line wrangler prints and
-writes it as `wranglerVersionId`, the key `scripts/canary/rollback-verdict.ts`
-reads. A successful real deploy writes that ID to a timestamped receipt and
-`deploy-receipts/latest.json`. A `--dry-run` publishes nothing and has no
-version ID, so its receipts in `deploy-receipts/dry-run/` legitimately carry
-`"wranglerVersionId": null` and `"dryRunMode": "bundle"`.
+Before publication, `deploy-receipts/rollout/latest.json` records the exact
+previous version and baseline checks. Atomic updates retain publication,
+failed checks, rollback outcome and re-verification, with timestamped copies.
+The existing deployment receipt embeds the final rollout receipt. A missing
+`Current Version ID` after publication triggers restoration too. Dry runs
+publish nothing and do not probe or restore production.
 
-If wrangler succeeds but prints no version id, the script
-exits with status 1 after publishing. It writes no fresh receipt;
-`deploy-receipts/latest.json` still describes the previous deployment if it
-exists. The nonzero exit does not undo the publish. A changed API shape or a
-token without the deployments read permission can trigger this guard.
+`scripts/deploy.ts` is the current Actions entry and calls the same policy as
+`flows/rollout/flow.ts`. Self-hosters register that flow with an exclusively
+leased host, bounded checks and durable `record` storage; its structured result
+is the rollout receipt. Any status other than `passed`, including `rolled-back`,
+fails the flow with that receipt. No model or approval is involved.
 
-1. Preserve the command output and the build's recorded git SHA and dirty
-   flag. Confirm the active version with
-   `bun x wrangler deployments list` from `apps/server`, using the same
-   Cloudflare account and credentials. Do not use an older receipt as evidence
-   of what just published.
-2. Check the API response and repair the reader if its shape has changed, then
-   re-run the scripted deploy to obtain a fresh receipt. If redeploying is
-   unsuitable, record the verified version ID by hand in a separate receipt
-   with `worker`, `dryRun: false`, `gitSha`, `gitDirty`, `timestamp`, and
-   `wranglerVersionId` from this publish; do not relabel an older receipt or
-   guess an ID.
-3. Run `bun scripts/canary/rollback-probe.ts` against the fresh receipt (use
-   `--receipt <path>` for a manual receipt), then verify the deployed build with
-   `bun scripts/canary/build-probe.ts https://canary.smithers.sh --sha <gitSha>`.
+[Cloud migration #2276](https://github.com/smithersai/smithers/issues/2276)
+tracks moving this existing invocation to Cloud and publishing receipts through
+the existing app run card. Until then, receipts are Actions artifacts, not app
+receipts. Hard runner termination requires host recovery from the prepared
+receipt before another deployment; a killed process cannot restore a release.
+The existing cutover interlock also refuses a live version older than the
+newest upload, because Cloudflare's content endpoint returns the newest upload.
+That refusal remains intact after rollback; #2276 tracks the verified artifact
+source needed to resume deploys safely.
 
 ### Probe it: `scripts/canary/rollback-probe.ts`
 
@@ -655,14 +651,15 @@ It skips (exit 0, `skip:` lines) when `CLOUDFLARE_API_TOKEN` is unset or no
 receipt is on disk, and reports `INCONCLUSIVE` rather than `PASS` when it
 verified nothing. It fails when a receipt exists but cannot support a
 rollback. Receipts are gitignored; the deploy workflow keeps each one as its
-run's `deploy-receipt` artifact, so this belongs in the deploy workflow after a
-real deploy, not in a scheduled canary that has no receipt to read.
+run's `deploy-receipt` artifact, so this is a read-only diagnostic for a deployment receipt. The automatic rollout
+checks its captured target directly, without relying on this diagnostic’s
+version-list ordering or inconclusive exit status.
 
 ### The drill — do this once, by hand, and keep the receipt
 
-A rollback plan nobody has ever exercised is not a rollback plan. Rolling back
-and forward swaps the live deployment, so it is a human drill and is
-deliberately not automated.
+The automated failure tests exercise rollback and re-verification offline.
+This optional production drill retains independent live evidence; it does not
+decide recovery after a failed rollout.
 
 1. Take the receipt of the newest green Deploy apps run:
    `gh run download <run id> -R smithersai/smithers -n deploy-receipt`. Its

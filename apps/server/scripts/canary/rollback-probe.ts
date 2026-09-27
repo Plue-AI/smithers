@@ -14,9 +14,8 @@
  * has no URL of its own; nothing can HTTP it. The probe says exactly what it
  * checked and never implies more.
  *
- * Deliberately NOT automated: performing the rollback and rolling forward
- * again. That swaps the live deployment, so it belongs in a human drill —
- * DEPLOY.md carries the procedure and the receipt it must leave behind.
+ * Read-only diagnostic. scripts/deploy.ts owns automatic rollback through
+ * the shared rollout implementation and verifies its exact captured target.
  *
  * Where it runs: deploy receipts are gitignored and exist only on the machine
  * that deployed, so this belongs in the deploy workflow after a real deploy,

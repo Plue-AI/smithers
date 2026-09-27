@@ -17,7 +17,8 @@ const cwd = "apps/server"
 /** The Worker sources and the operator scripts the suite covers. */
 const sources = [
   Smithers.glob("//apps/server/src/**/*.ts"),
-  Smithers.glob("//apps/server/scripts/**/*.ts")
+  Smithers.glob("//apps/server/scripts/**/*.ts"),
+  Smithers.file("//flows/rollout/runtime.ts")
 ]
 
 /**
