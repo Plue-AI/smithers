@@ -7,7 +7,7 @@ description: "A staged migration plan that preserves Markdown, attachments, priv
 
 This is a future importer plan, not an executed migration. No existing vault has been read or modified. The wiki is the Smithers product; an Obsidian vault is an import source, not a second product wiki. The owner explicitly chooses the source, destination repository, private/public wiki scope and approved source revision or snapshot before migration.
 
-Wait for the wiki UI connection and the shared document sync contract ([#1922](https://github.com/smithersai/smithers/issues/1922), [#2122](https://github.com/smithersai/smithers/issues/2122)). Implement importing as an initial reconciliation through that mechanism. Do not introduce another worker, mapping database, catalog or generator. Notion requires explicit connection credentials and a review of provider conversion losses before writes.
+The backend shared document sync port is `WikiService.SyncWiki` ([contract](./wiki.md)); its initial reconciliation imports an explicitly configured folder. Wait for the wiki UI connection and deployed host receipts before an operational migration ([#1922](https://github.com/smithersai/smithers/issues/1922), [#2122](https://github.com/smithersai/smithers/issues/2122)). Do not introduce another worker, mapping database, catalog or generator. Notion requires explicit connection credentials and a review of provider conversion losses before writes.
 
 ## Preview without mutation
 

@@ -465,7 +465,7 @@ func (s *IssueService) ClaimIssueSync(ctx context.Context, actor *db.User, owner
 	defer tx.Rollback(ctx)
 	token := uuid.NewString()
 	var state string
-	err = tx.QueryRow(ctx, `UPDATE issue_sync_deliveries SET state='dispatching',claim_token=$2,updated_at=now() WHERE id=$1 AND state='pending' AND NOT EXISTS(SELECT 1 FROM issue_sync_deliveries earlier WHERE earlier.issue_id=issue_sync_deliveries.issue_id AND earlier.id<$1 AND earlier.state NOT IN ('sent','unsupported')) RETURNING state`, id, token).Scan(&state)
+	state, err = q.WithTx(tx).ClaimSyncDelivery(ctx, id, token)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return IssueSyncReceipt{State: "outcome_unknown"}, nil
 	}
@@ -584,7 +584,19 @@ func (s *IssueService) CompleteIssueSync(ctx context.Context, actor *db.User, ow
 			}
 		}
 	}
-	_, err = tx.Exec(ctx, `UPDATE issue_sync_deliveries SET state=$2,message_id=$3,error=$4,updated_at=now() WHERE id=$1`, id, in.State, in.MessageID, in.Error)
+	settlementToken := in.Token
+	if resolving {
+		settlementToken = in.ExpectedToken
+	}
+	if settlementToken == "" {
+		if err = tx.QueryRow(ctx, "SELECT claim_token FROM issue_sync_deliveries WHERE id=$1", id).Scan(&settlementToken); err != nil {
+			return err
+		}
+	}
+	settled, err := q.WithTx(tx).SettleSyncDelivery(ctx, id, settlementToken, in.State, in.MessageID, in.Error)
+	if err == nil && !settled {
+		return api.Conflict("delivery claim changed")
+	}
 	if err != nil {
 		return err
 	}
