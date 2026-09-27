@@ -5,12 +5,35 @@ sidebar:
   order: 8
 ---
 
-import { CardGrid, LinkCard } from "@astrojs/starlight/components"
+import { CardGrid, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components"
 import versions from "../../../../data/versions.json"
 
 In this tutorial you'll build a notebook step that records three facts in one run, recalls them in a later run, and then lists the namespace with the Smithers CLI.
 
 A memory policy decides which banks a flow tree reads and writes, whether recall runs at all, the budget recall answers within, and whether writes are kept. It is attached to the flow declaration with `WithMemory.withMemory`, and every flow that declaration names inherits it. [Memory](/docs/concepts/memory/) explains the model.
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+Not available.
+
+</TabItem>
+<TabItem label="TUI">
+
+Not available.
+
+</TabItem>
+<TabItem label="CLI">
+
+`smthrs memory list` and `recall`: [Operate on memory](/docs/guides/memory-ops/).
+
+</TabItem>
+<TabItem label="API">
+
+**This page.** It uses the `@smthrs/flow` library directly.
+
+</TabItem>
+</Tabs>
 
 ## Before you begin
 

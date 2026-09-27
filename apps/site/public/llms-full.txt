@@ -2644,6 +2644,22 @@ https://smithers.sh/docs/tutorials/first-flow/
 
 In this tutorial you'll build the smallest complete Smithers program: one action, one flow that names it, an implementation attached as a layer, and two runs of that flow, first on the in-memory engine and then on the durable engine over a SQLite journal.
 
+**GUI**
+
+Flows run from the app once they're in the repository: [Run a flow](/docs/learn/run-a-flow/).
+
+**TUI**
+
+`/flow <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
+
+**CLI**
+
+`smthrs flow start <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
+
 ## Before you begin
 
 - Node.js 26.4.0 or later.
@@ -2846,6 +2862,22 @@ https://smithers.sh/docs/tutorials/crash-and-resume/
 
 In this tutorial you'll build a run that survives a crash: a flow whose step waits on a durable deferred, a first drive that suspends and drops the engine, and a second drive that completes the wait and finishes the run without re-executing the work the first drive recorded.
 
+**GUI**
+
+A paused run resumes from its run card: [Steer or stop](/docs/learn/watch-an-agent/#steer-or-stop).
+
+**TUI**
+
+`r` in a flow run's tab resumes it: [Steer or stop](/docs/learn/watch-an-agent/#steer-or-stop).
+
+**CLI**
+
+`smthrs runs resume <run>`: [Steer or stop](/docs/learn/watch-an-agent/#steer-or-stop).
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
+
 ## Before you begin
 
 - You have completed [Build your first durable flow](/docs/tutorials/first-flow/).
@@ -2996,6 +3028,22 @@ per drive).
 https://smithers.sh/docs/tutorials/retry-policy/
 
 In this tutorial you'll build a retry around a flaky action: a `RetryPolicy` value, its backoff ladder read straight off the data, an upload that fails twice and succeeds on the third attempt, and a durable run that records every attempt.
+
+**GUI**
+
+Not available: this is written in code.
+
+**TUI**
+
+Not available: this is written in code.
+
+**CLI**
+
+Not available: this is written in code.
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
 
 ## Before you begin
 
@@ -3173,6 +3221,22 @@ https://smithers.sh/docs/tutorials/human-approval/
 
 In this tutorial you'll build a flow that asks a person before it finishes: a human task that parks the run on a confirmation, a prose answer the task refuses and re-asks within its attempt budget, and the boolean answer that completes the run.
 
+**GUI**
+
+Approval cards and `/approvals.list`: [Answer an approval](/docs/learn/approvals/).
+
+**TUI**
+
+`y` and `n` on the approval row: [Answer an approval](/docs/learn/approvals/).
+
+**CLI**
+
+`smthrs approvals list` and `approve`: [Answer an approval](/docs/learn/approvals/).
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
+
 ## Before you begin
 
 - You have completed [Retry a flaky action](/docs/tutorials/retry-policy/).
@@ -3335,6 +3399,22 @@ In this tutorial you'll build a small release flow, finish a run, fork it at a j
 Fork copies a run's history up to one frame so the copy can diverge from its parent, rewind trims the run's own history back to a frame, and compensation is the per-effect undo a rewind performs on what the trimmed suffix did. [Time travel](/docs/concepts/time-travel/) explains all three. This tutorial uses the library API to show the operation directly. For existing CLI runs, use `smthrs runs inspect/replay/fork/rewind` as described in [time travel](/docs/concepts/time-travel/). The full operation and error tables live in the [time-travel API reference](/docs/reference/api/time-travel/).
 
 **Fork replay limitation:** copied attempt rows retain their parent digests, so actions keyed by the run ID execute again in the child. [Keep sealed steps from re-executing](https://time-travel.smithers.sh/guides/fork-a-run/#keep-sealed-steps-from-re-executing) carries the full rule and the cache declaration that answers it.
+
+**GUI**
+
+Not available.
+
+**TUI**
+
+`/fork` branches a conversation from an earlier message: [Chat with an agent](/docs/learn/chat/#pick-up-where-you-left-off).
+
+**CLI**
+
+`smthrs runs fork` and `smthrs runs rewind`: [Time travel](/docs/concepts/time-travel/).
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
 
 ## Before you begin
 
@@ -3741,6 +3821,22 @@ https://smithers.sh/docs/tutorials/first-agent-flow/
 
 Give a model-backed step real file tools and run the code it writes inside a sandbox. To write and run a markdown agent flow from the CLI first, use the [CLI quickstart](/docs/cli-quickstart/).
 
+**GUI**
+
+Flows run from the app once they're in the repository: [Run a flow](/docs/learn/run-a-flow/).
+
+**TUI**
+
+`/flow <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
+
+**CLI**
+
+`smthrs flow start <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
+
 ## Before you begin
 
 - Node.js 26.4.0 or later, and Jujutsu (`jj`) on your PATH.
@@ -3976,6 +4072,22 @@ https://smithers.sh/docs/tutorials/agent-outputs/
 In this tutorial you'll build a two-step research-then-write flow. The first step's answer must decode against a schema you declare, and the second reads its typed fields. You will run the chain in memory, then persist it over SQLite. The model responses and completion judge are scripted, so it needs no provider key.
 
 A declared `output` schema is rendered into the step's system teaching as JSON Schema. The model's final answer is decoded against it, with one correction re-prompt before the step fails. [Agent runtime](/docs/concepts/agent-runtime/) explains the loop.
+
+**GUI**
+
+Flows run from the app once they're in the repository: [Run a flow](/docs/learn/run-a-flow/).
+
+**TUI**
+
+`/flow <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
+
+**CLI**
+
+`smthrs flow start <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
 
 ## Before you begin
 
@@ -4311,6 +4423,22 @@ In this tutorial you'll build a notebook step that records three facts in one ru
 
 A memory policy decides which banks a flow tree reads and writes, whether recall runs at all, the budget recall answers within, and whether writes are kept. It is attached to the flow declaration with `WithMemory.withMemory`, and every flow that declaration names inherits it. [Memory](/docs/concepts/memory/) explains the model.
 
+**GUI**
+
+Not available.
+
+**TUI**
+
+Not available.
+
+**CLI**
+
+`smthrs memory list` and `recall`: [Operate on memory](/docs/guides/memory-ops/).
+
+**API**
+
+**This page.** It uses the `@smthrs/flow` library directly.
+
 ## Before you begin
 
 - The Smithers CLI and a project: run `smthrs init notes` in a fresh directory. The project gives you the `.flows/` state directory this tutorial's facts live in.
@@ -4616,6 +4744,22 @@ https://smithers.sh/docs/tutorials/first-target/
 Build a small target graph and observe its cache behavior. You will run a JavaScript program, reuse its result, and then change a declared input to make it run again. This tutorial does not call a model.
 
 You need the [Smithers CLI](/docs/installation/#install-the-cli) and Git.
+
+**GUI**
+
+Not available.
+
+**TUI**
+
+Not available.
+
+**CLI**
+
+**This page.** It uses `smthrs test` and `smthrs explain`.
+
+**API**
+
+Not available.
 
 ## Create the workspace
 
