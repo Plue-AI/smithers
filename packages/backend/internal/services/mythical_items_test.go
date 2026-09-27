@@ -294,7 +294,9 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Equal(t, repohost.WorkspaceSourceRef(workspace, stack.TipCommit), payload.Base.Ref)
 	assert.Equal(t, stack.TipCommit, o.hostRef(payload.Base.Ref), "the tip is retained where the lane's import reads it")
 	assert.Contains(t, payload.Prompt, "#7: Add docs")
-	assert.Contains(t, payload.Prompt, "#8 Drive-by", "other open issues are listed for duplicates")
+	assert.NotContains(t, payload.Prompt, "#8 Drive-by", "an unapproved title never reaches a lane")
+	assert.NotContains(t, payload.Prompt, "https://github.com/", "the lane works from the approved text, not a link to the live issue")
+	assert.Contains(t, payload.Prompt, "approved text")
 
 	// A duplicate launch is impossible: the lane is busy until the run settles.
 	o.wake()

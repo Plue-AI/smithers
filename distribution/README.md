@@ -146,6 +146,8 @@ docker run --rm --network "$SMITHERS_DOCKER_NETWORK" \
 
 Restore verifies archive checksums, the distribution/schema/PostgreSQL versions, and the archived state manifest before changing PostgreSQL. It stages files inside the writable data volume, restores PostgreSQL in one transaction, then publishes the files.
 
+Never change issue or comment rows with triggers disabled (for example `session_replication_role = replica`). Triggers record who last wrote each title and body, and automation trusts that record; text changed without them keeps its previous writer.
+
 For an upgrade, first create the backup with the old image as above. Then run the new image against the stopped installation and that verified backup:
 
 ```sh

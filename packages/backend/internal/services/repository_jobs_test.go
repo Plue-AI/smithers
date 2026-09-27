@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -1216,4 +1218,23 @@ func TestRepositoryJobNativeCommentTextNamesItsLastWriter(t *testing.T) {
 	require.NoError(t, err)
 	approved, _ = last("edited")
 	require.False(t, approved, "an external account's edit")
+}
+
+// A run reads the text that was approved, not the live issue: the dispatch
+// event carries the approved title, body and revision of its subject.
+func TestRepositoryJobDispatchEventCarriesTheApprovedText(t *testing.T) {
+	t.Parallel()
+	event := func(payload string) map[string]interface{} {
+		return repositoryJobDispatchEvent(db.RepositoryJobRegistration{}, db.RepositoryJobDispatch{Source: "github", EventType: "issues",
+			EventAction: "opened", IssueNumber: 4, Payload: json.RawMessage(payload)})
+	}
+	sum := sha256.Sum256([]byte("Tidy\x00tidy the README"))
+	want := repositoryJobApprovedText{Title: "Tidy", Body: "tidy the README", Revision: "sha256:" + hex.EncodeToString(sum[:])}
+	require.Equal(t, want, event(`{"issue":{"number":4,"title":"Tidy","body":"tidy the README"},"comment":{"body":"and more"}}`)["approvedText"])
+	require.Equal(t, want, event(`{"pull_request":{"number":4,"title":"Tidy","body":"tidy the README","smithers_text_by_maintainer":true},"review":{"body":"ok"}}`)["approvedText"])
+	require.NotContains(t, event(`{"pull_request":{"number":4,"title":"Tidy","body":"tidy the README"}}`), "approvedText", "an outsider's pull request approves nothing")
+	empty := sha256.Sum256([]byte("Tidy\x00"))
+	require.Equal(t, repositoryJobApprovedText{Title: "Tidy", Revision: "sha256:" + hex.EncodeToString(empty[:])},
+		event(`{"issue":{"number":4,"title":"Tidy","body":null}}`)["approvedText"])
+	require.NotContains(t, event(`{"ref":"refs/heads/main"}`), "approvedText")
 }

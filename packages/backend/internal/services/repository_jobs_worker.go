@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -198,9 +200,53 @@ func (s *RepositoryJobService) enqueueSchedules(ctx context.Context) error {
 	return nil
 }
 
+// repositoryJobApprovedText is the text of a dispatch's subject as it was
+// when the event was approved: its issue (every issue event a job takes is
+// approved, or is its trial or a person's manual run), else its pull request
+// when that is a maintainer's text. A run works from it, never from the live
+// subject, which may have changed since. An outsider's pull request has none:
+// its run is an outsider's anyway.
+type repositoryJobApprovedText struct {
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Revision string `json:"revision"`
+}
+
+func repositoryJobSubjectText(payload json.RawMessage) (repositoryJobApprovedText, bool) {
+	type text struct {
+		Title            *string `json:"title"`
+		Body             *string `json:"body"`
+		TextByMaintainer bool    `json:"smithers_text_by_maintainer"`
+	}
+	var event struct {
+		Issue       *text `json:"issue"`
+		PullRequest *text `json:"pull_request"`
+	}
+	if json.Unmarshal(payload, &event) != nil {
+		return repositoryJobApprovedText{}, false
+	}
+	subject := event.Issue
+	if subject == nil && event.PullRequest != nil && event.PullRequest.TextByMaintainer {
+		subject = event.PullRequest
+	}
+	if subject == nil || subject.Title == nil {
+		return repositoryJobApprovedText{}, false
+	}
+	approved := repositoryJobApprovedText{Title: *subject.Title}
+	if subject.Body != nil {
+		approved.Body = *subject.Body
+	}
+	sum := sha256.Sum256([]byte(approved.Title + "\x00" + approved.Body))
+	approved.Revision = "sha256:" + hex.EncodeToString(sum[:])
+	return approved, true
+}
+
 func repositoryJobDispatchEvent(reg db.RepositoryJobRegistration, claim db.RepositoryJobDispatch) map[string]interface{} {
 	event := map[string]interface{}{"source": claim.Source, "type": claim.EventType, "action": claim.EventAction,
 		"deliveryKey": claim.DeliveryKey, "issueNumber": claim.IssueNumber, "payload": claim.Payload}
+	if approved, ok := repositoryJobSubjectText(claim.Payload); ok {
+		event["approvedText"] = approved
+	}
 	// The source payload is untrusted. Trial authority comes only from the
 	// persisted registration and its exact source/issue scope, never its body.
 	if reg.Mode == "trial" && reg.TrialIssueNumber > 0 && reg.TrialIssueNumber == claim.IssueNumber && reg.TrialSource == claim.Source {
