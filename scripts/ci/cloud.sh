@@ -9,7 +9,7 @@
 # hours per push: run 11697 (2026-09-15) still had 4 tasks running and 35
 # queued after 20 minutes.
 #
-# So .smithers/workflows/ci.tsx batches the gates (46 as of 2026-09-23) into 6 tasks, and each
+# So .smithers/workflows/ci.tsx batches the gates (48 as of 2026-09-26) into 6 tasks, and each
 # task calls the group mode here:
 #
 #   bash scripts/ci/cloud.sh <gate>                  # one gate (unchanged)
@@ -331,6 +331,8 @@ gate_tools() {
     flows-repository) echo 'js jj' ;;
     flows-fixtures) echo 'js jj' ;;
     flows-product-host) echo 'js' ;;
+    flows-lint) echo 'js' ;;
+    swebench-lint) echo 'js' ;;
     jsdoc) echo 'js' ;;
     script-lint) echo 'js' ;;
     jsdoc-rules) echo 'js' ;;
@@ -430,6 +432,12 @@ run_gate() {
       ;;
     flows-product-host)
       pnpm exec smthrs test '//flows:productHost' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    flows-lint)
+      pnpm exec smthrs lint '//flows/...' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    swebench-lint)
+      pnpm exec smthrs lint '//evals/swebench/...' --known-red '.github/ci-known-red.json' --verbose
       ;;
     jsdoc)
       pnpm exec smthrs lint '//:jsdocTree' --known-red '.github/ci-known-red.json' --verbose
