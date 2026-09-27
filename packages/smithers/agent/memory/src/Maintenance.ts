@@ -7,7 +7,6 @@ import * as Digest from "@smthrs/core/Digest"
 import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Schedule from "effect/Schedule"
 import { MemoryError } from "./MemoryError.ts"
 import { MemoryStore, type Message, type Service } from "./MemoryStore.ts"
 
@@ -44,9 +43,14 @@ export interface TtlGcScheduleOptions {
 }
 
 /**
- * Runs {@link ttlGc} once at build and then on every interval for as long as
- * the layer's scope is open. A failed pass is logged and the next one still
- * runs; a pass that deletes rows logs how many.
+ * Runs {@link ttlGc} once while the layer builds and then on every interval
+ * for as long as the layer's scope is open. A failed pass is logged and the
+ * next one still runs; a pass that deletes rows logs how many.
+ *
+ * The first pass completes before the layer is built, and the interval fiber
+ * starts at once, so its first sleep is already scheduled when the build
+ * returns: the interval is measured from the built layer, whatever the
+ * database's latency.
  *
  * Compose it in the host that owns the memory database, so expired facts and
  * their FTS and vector projections are deleted, not only hidden from reads.
@@ -54,18 +58,26 @@ export interface TtlGcScheduleOptions {
  * @category layers
  * @since 1.0.0
  */
-export const layerTtlGc = (options: TtlGcScheduleOptions = {}): Layer.Layer<never, never, MemoryStore> =>
-  Layer.effectDiscard(
-    ttlGc.pipe(
-      Effect.tap(({ deletedFacts }) =>
-        deletedFacts > 0 ? Effect.logInfo("memory TTL GC deleted expired facts", { deletedFacts }) : Effect.void
-      ),
-      Effect.withSpan("Maintenance.ttlGc"),
-      Effect.catch((error) => Effect.logWarning("memory TTL GC pass failed", error)),
-      Effect.repeat(Schedule.spaced(options.interval ?? "10 minutes")),
-      Effect.forkScoped
+export const layerTtlGc = (options: TtlGcScheduleOptions = {}): Layer.Layer<never, never, MemoryStore> => {
+  const pass = ttlGc.pipe(
+    Effect.tap(({ deletedFacts }) =>
+      deletedFacts > 0 ? Effect.logInfo("memory TTL GC deleted expired facts", { deletedFacts }) : Effect.void
+    ),
+    Effect.withSpan("Maintenance.ttlGc"),
+    Effect.catch((error) => Effect.logWarning("memory TTL GC pass failed", error))
+  )
+  return Layer.effectDiscard(
+    pass.pipe(
+      Effect.andThen(
+        pass.pipe(
+          Effect.delay(options.interval ?? "10 minutes"),
+          Effect.forever,
+          Effect.forkScoped({ startImmediately: true })
+        )
+      )
     )
   )
+}
 
 /**
  * Configuration for one history token-limiter pass.
