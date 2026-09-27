@@ -1043,10 +1043,12 @@ export const Needs = (options: {
     // The environment supplies every interpreter and language toolchain, so a
     // job that also installs one on the runner would run two copies and the
     // generated PATH would decide which. Refuse the mix rather than pick.
-    const mixed = (["runtimes", "rust", "cargoBinaries", "jj", "ripgrep", "go", "foundry", "postgres"] as const).filter((name) => {
-      const value = options[name]
-      return Array.isArray(value) ? value.length > 0 : value !== undefined
-    })
+    const mixed = (["runtimes", "rust", "cargoBinaries", "jj", "ripgrep", "go", "foundry", "postgres"] as const).filter(
+      (name) => {
+        const value = options[name]
+        return Array.isArray(value) ? value.length > 0 : value !== undefined
+      }
+    )
     if (mixed.length > 0) {
       throw new Error(
         `CiToolchain.Needs: a Nix environment supplies the toolchain; remove ${mixed.join(", ")} from the job`

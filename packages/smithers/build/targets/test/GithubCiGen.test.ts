@@ -1719,7 +1719,11 @@ describe("system packages", () => {
         id: "test",
         name: "test",
         runsOn: "ubuntu-latest",
-        toolchain: CiToolchain.Needs({ runtimes: [node], apt: CiToolchain.Apt({ packages: ["bubblewrap"] }), postgres }),
+        toolchain: CiToolchain.Needs({
+          runtimes: [node],
+          apt: CiToolchain.Apt({ packages: ["bubblewrap"] }),
+          postgres
+        }),
         steps: [{ name: "Targets", verb: Verb.Test, pattern: "//packages/..." }]
       }],
       gates: []
