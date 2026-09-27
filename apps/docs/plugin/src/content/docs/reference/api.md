@@ -19,6 +19,16 @@ Every function that can refuse returns `Effect<A, PluginError>`, except
 `Config.merge` and `Config.deepFreeze`, which are synchronous and throw a
 `PluginError`.
 
+## Example
+
+```ts
+import { Kernel, make } from "@smthrs/plugin"
+
+const editor = make({ name: "flows-plugin-editor", hooks: { config: () => Effect.succeed({ editor: { readOnly: false } }) } })
+const kernel = await Effect.runPromise(Kernel.make([editor], {}, { target: "harness" }))
+console.log(kernel.config) // { editor: { readOnly: false } }
+```
+
 ## Root exports
 
 | Export                                                                   | Kind               | Summary                                                               |

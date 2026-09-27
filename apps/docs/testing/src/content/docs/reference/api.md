@@ -31,6 +31,18 @@ conformance case is a value a runner registers, and `Vitest` is a thin adapter.
 Services and tags are Effect constructs: a `Layer` provides a service, and a
 test body reads it from context.
 
+## Example
+
+```ts
+import { Conformance, EngineSubject, FlowEngineLike } from "@smthrs/testing"
+import { describe, it } from "@smthrs/testing/Vitest"
+describe("engine conformance", () => {
+  for (const c of Conformance.coreSuite()) {
+    it.scoped(c.name, () => Effect.flatMap(EngineSubject.EngineSubject, c.run).pipe(Effect.provide(FlowEngineLike.layerMemory)))
+  }
+})
+```
+
 ## Vitest
 
 The Vitest adapter for scoped Effect test bodies, and the only module here that

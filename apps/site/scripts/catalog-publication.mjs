@@ -11,8 +11,8 @@
  * @since 1.0.0
  */
 
-/** A heading whose text is the package name, linked to its documentation site. */
-const packageHeading = /^#{2,6} \[`?(@smthrs\/[a-z0-9-]+)`?\]/gm
+/** A heading or table row that opens with the package name, linked to its documentation. */
+const packageHeading = /^(?:#{2,6} |\| )\[`?(@smthrs\/[a-z0-9-]+)`?\]/gm
 
 /** An install command a reader can paste, in any of the package managers the docs use. */
 const installCommand = /(?:npm (?:install|i|add)|pnpm (?:add|install)|bun (?:add|install)|yarn add)[^\n`]*?(@smthrs\/[a-z0-9-]+)/g

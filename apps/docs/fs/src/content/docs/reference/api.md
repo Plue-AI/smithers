@@ -27,6 +27,18 @@ The root and the eight named module subpaths are the whole import surface.
 routes whose `modelInvocable` flag is true. `Route.load` refuses every other
 body kind.
 
+## Example
+
+```ts
+import { Command, FileRouter } from "@smthrs/fs"
+
+const program = Effect.gen(function*() {
+  const { routes } = yield* FileRouter.scan({ root: "flows" })
+  const commands = yield* Command.make(routes)
+  return yield* commands.execute("review --number 42")
+})
+```
+
 ## Command
 
 Agent-facing projection of executable, model-visible module routes.

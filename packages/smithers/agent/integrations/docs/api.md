@@ -23,6 +23,18 @@ Conventions worth knowing before the signatures:
 - Explicit configuration wins over the environment, and a passed `env` record
   replaces the ambient environment rather than layering over it.
 
+## Example
+
+```ts
+import { GitHub } from "@smthrs/integrations"
+
+const client = GitHub.GitHubClient.make({})
+
+await Effect.runPromise(
+  client.request("POST", "/repos/OWNER/REPO/issues/1/comments", { body: "Triaged." })
+)
+```
+
 ## Core
 
 The service-agnostic pieces every provider builds on, exported as `Core`.

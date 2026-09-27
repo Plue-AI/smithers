@@ -30,6 +30,20 @@ permission failures in its own interface.
 The schema ids (`@smthrs/capability/Capability`, `@smthrs/capability/PermissionDenied`, and the rest) and the `action:resource` text `format` renders are identity, not display text: a stored decision keeps those exact strings and is read back through them. Render capability text with `format` rather than assembling it yourself.
 :::
 
+## Example
+
+```ts
+import { Capability, Permission } from "@smthrs/capability"
+
+const pattern = new Capability.CapabilityPattern({ action: "fs:write", resource: "/workspace/**" })
+const policy = [new Permission.Rule({ effect: "allow", pattern })]
+
+Permission.evaluate([policy], Capability.make("fs:write", "/workspace/out.txt"))
+// "allow"
+Permission.evaluate([policy], Capability.make("net:post", "https://api.example.test/deploy"))
+// "ask"
+```
+
 ## Entry points
 
 | Import                          | Source                                                                                                                     | Platform |

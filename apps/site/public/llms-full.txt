@@ -13142,6 +13142,19 @@ flows, actions, and interpreters, see the
 and the sandbox vocabulary the loop runs on, see the
 [`@smthrs/harness` reference](/docs/reference/api/harness/).
 
+## Example
+
+```ts
+import { AgentAction } from "@smthrs/agent"
+import * as Schema from "effect/Schema"
+const Research = AgentAction.make("docs/Research", {
+  payload: { topic: Schema.String },
+  output: Schema.Struct({ summary: Schema.String }),
+  seat: "anthropic:claude-sonnet-4-5",
+  prompt: ({ topic }) => `Research ${topic}.`
+})
+```
+
 ## Agent
 
 The agent: one service whose `run` executes one whole agent loop and returns
@@ -15519,6 +15532,18 @@ Addresses are the SHA-256 digests [`@smthrs/crypto`](/docs/reference/api/crypto/
 through the injected `Crypto` service, which with `effect` is the whole
 dependency list.
 
+## Example
+
+```ts
+import { ArtifactStore } from "@smthrs/artifacts"
+
+const program = Effect.gen(function*() {
+  const store = yield* ArtifactStore.ArtifactStore
+  const address = yield* store.put(new TextEncoder().encode("build output"))
+  return yield* store.get(address)
+})
+```
+
 ## ArtifactStore
 
 `@smthrs/artifacts/ArtifactStore`. The contract, its errors, and the three
@@ -17240,6 +17265,20 @@ permission failures in its own interface.
 The schema ids (`@smthrs/capability/Capability`, `@smthrs/capability/PermissionDenied`, and the rest) and the `action:resource` text `format` renders are identity, not display text: a stored decision keeps those exact strings and is read back through them. Render capability text with `format` rather than assembling it yourself.
 :::
 
+## Example
+
+```ts
+import { Capability, Permission } from "@smthrs/capability"
+
+const pattern = new Capability.CapabilityPattern({ action: "fs:write", resource: "/workspace/**" })
+const policy = [new Permission.Rule({ effect: "allow", pattern })]
+
+Permission.evaluate([policy], Capability.make("fs:write", "/workspace/out.txt"))
+// "allow"
+Permission.evaluate([policy], Capability.make("net:post", "https://api.example.test/deploy"))
+// "ask"
+```
+
 ## Entry points
 
 | Import                          | Source                                                                                                                     | Platform |
@@ -18801,6 +18840,15 @@ The nested `cli/*`, `evaluation/*`, `history/*`, `operator/*`, and `suggest/*`
 entries in the export map are subpath-only: `@smthrs/cli/<dir>/<Module>`
 resolves and no root namespace does. The package README lists them.
 
+## Example
+
+```bash
+smthrs doctor
+smthrs init hello
+smthrs flow start hello
+smthrs runs list
+```
+
 ## Trust boundaries
 
 Four rules hold across every module below, and each one is a property of the
@@ -19297,6 +19345,26 @@ exported, and so is `@smthrs/control/test/TestControl`.
 Signatures in this reference use the usual shorthand: `Effect<A, E, R>` for
 `Effect.Effect`, `Stream<A, E>` for `Stream.Stream`, `Layer<A, E, R>` for
 `Layer.Layer`, and `Redacted<A>` for `Redacted.Redacted`.
+
+## Example
+
+```ts
+import { Control } from "@smthrs/control/Control"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function*() {
+  const control = yield* Control
+  const card = yield* control.plan({ flowId: "quickstart/Deploy", input: { build: "v1.4.0" } })
+  yield* control.approve(card.approval)
+  return yield* control.run({
+    _tag: "Plan",
+    planId: card.planId,
+    digest: card.digest,
+    envelope: card.envelope,
+    idempotencyKey: "deploy:v1.4.0"
+  })
+})
+```
 
 ## Control
 
@@ -21441,6 +21509,17 @@ and from `@smthrs/crypto/Identity`.
 import { Digest, digest, digestSync, Identity, Sha256, Sha256Error, Sha256ErrorCode, syncCrypto } from "@smthrs/crypto"
 ```
 
+## Example
+
+```ts
+import { digest, digestSync } from "@smthrs/crypto"
+
+const address = await Effect.runPromise(
+  digest("hello").pipe(Effect.provide(NodeCrypto.layer))
+)
+const sameAddress = digestSync("hello")
+```
+
 ## Hashing
 
 ### digest
@@ -21778,6 +21857,19 @@ platform specific and lives at an explicit subpath.
 | `@smthrs/database/test/TestDatabase`  | Node only. The in-memory client and writer                                           |
 
 `@smthrs/database/internal/*` is blocked by the export map.
+
+## Example
+
+```ts
+import * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
+
+const insertNote = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  const writer = yield* DurableWriter.DurableWriter
+  yield* writer.write(sql`INSERT INTO notes (id, body) VALUES ('first', 'hello')`)
+})
+```
 
 ## DurableWriter
 
@@ -23595,6 +23687,19 @@ import { SmithersError } from "@smthrs/errors/SmithersError"
 `@smthrs/errors/package.json` is exported. `@smthrs/errors/internal/*` and
 `@smthrs/errors/*/index` are not.
 
+## Example
+
+```ts
+import { isSmithersError, SmithersError } from "@smthrs/errors"
+
+try {
+  throw new SmithersError("INVALID_INPUT", "maxLength must be between 1 and 4096.", { maxLength: 0 })
+} catch (error) {
+  if (!isSmithersError(error)) throw error
+  console.log(error.code, error.summary, error.details)
+}
+```
+
 ## SmithersError
 
 The error class the integration adapters raise, and the only class in the
@@ -24455,6 +24560,19 @@ The root entry point bundles for browsers, which buys authoring and inspection;
 it does not make a browser a durable host, and supplying another SQL client does
 not change that.
 
+## Example
+
+```ts
+import { Action, Flow, Interpreter } from "@smthrs/flows"
+import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
+import { Effect, Layer, Schema } from "effect"
+const Greet = Action.make("demo/Greet", { payload: { name: Schema.String }, success: Schema.String })
+const Hello = Flow.make("demo/Hello", { payload: { name: Schema.String }, success: Schema.String, body: (payload) => Greet.call(payload) })
+const code = Interpreter.layer(Hello).pipe(Layer.provideMerge(Greet.toLayer(({ name }) => Effect.succeed(`hi ${name}`))), Layer.provideMerge(Action.layerImplementations))
+const host = NodeRuntime.layerHost({ filename: ".flows/engine.db", workspaceRoot: ".", owner: { hostId: "demo" } }, code)
+console.log(await Effect.runPromise(Hello.execute({ name: "ada" }, { executionId: "demo-1" }).pipe(Effect.provide(host), Effect.scoped)))
+```
+
 ## The barrel
 
 ### Namespace exports
@@ -25080,6 +25198,18 @@ The root and the eight named module subpaths are the whole import surface.
 routes whose `modelInvocable` flag is true. `Route.load` refuses every other
 body kind.
 
+## Example
+
+```ts
+import { Command, FileRouter } from "@smthrs/fs"
+
+const program = Effect.gen(function*() {
+  const { routes } = yield* FileRouter.scan({ root: "flows" })
+  const commands = yield* Command.make(routes)
+  return yield* commands.execute("review --number 42")
+})
+```
+
 ## Command
 
 Agent-facing projection of executable, model-visible module routes.
@@ -25630,6 +25760,17 @@ The model behind these signatures is in [Projections](https://gateway.smithers.s
 [Subscriptions and cursors](https://gateway.smithers.sh/concepts/subscriptions/), and
 [The trust boundary](https://gateway.smithers.sh/concepts/trust-boundary/).
 
+## Example
+
+```ts
+import * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
+import * as Projections from "@smthrs/gateway/Projections"
+import { Layer } from "effect"
+
+const health = { workspaceHash: "8f4b2c1d", gatewayId: "host-1", protocolVersion: "1", version: "1.0.0-rc.0" }
+const gateway = NodeGateway.layer(health, NodeGateway.defaultServerOptions).pipe(Layer.provide(Projections.layer))
+```
+
 ## `GatewayServer`
 
 The whole HTTP surface as one application layer a host serves.
@@ -26080,6 +26221,19 @@ that outlives the frame; the only authority the program holds is
 `ctx.call(flowName, input)`; and the program states its intent by calling
 `ctx.done(output)`, `ctx.park(reason, message)`, or neither, which continues.
 `Sandbox.replTransition` turns that into the transition the journal records.
+
+## Example
+
+```ts
+import * as Cell from "@smthrs/harness/Cell"
+import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
+
+const frame = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+  const realm = yield* (yield* QuickJSSandbox.make).openRealm!({ flows: {} })
+  const call = () => Effect.succeed(new Cell.CallResult({ outcome: "success", value: null }))
+  return yield* realm.evaluate({ cell: Cell.source(`ctx.done("hi")`), frame: 0, call })
+})))
+```
 
 ## Entry points
 
@@ -27762,6 +27916,18 @@ Conventions worth knowing before the signatures:
   [the errors API](/docs/reference/api/errors/) for `SmithersError`.
 - Explicit configuration wins over the environment, and a passed `env` record
   replaces the ambient environment rather than layering over it.
+
+## Example
+
+```ts
+import { GitHub } from "@smthrs/integrations"
+
+const client = GitHub.GitHubClient.make({})
+
+await Effect.runPromise(
+  client.request("POST", "/repos/OWNER/REPO/issues/1/comments", { body: "Triaged." })
+)
+```
 
 ## Core
 
@@ -29790,6 +29956,19 @@ import * as GrantStore from "@smthrs/kernel/GrantStore"
 Schema ids (`@smthrs/kernel/GrantEvent/RunGrant` and its siblings), journal event types (`flows.kernel.grant.*`, `flows.host.process-*`), and the `HostServiceIds` slot ids are durable identity rather than internal names. They are written to the journal and read back on replay, so code that reads grant or process history can match on them. They change only when the service behind the id changes.
 :::
 
+## Example
+
+```ts
+import { GrantStore, HostServices, Workspace } from "@smthrs/kernel"
+import * as TestHost from "@smthrs/testing/TestHost"
+import { Effect, FileSystem, Layer } from "effect"
+
+const raw = Layer.mergeAll(TestHost.layer({ files: { "/w/a.txt": "hi" } }), Workspace.layer("/w"))
+const read = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString("/w/a.txt"))
+// Refused with permission_required: no rule authorizes fs:read.
+Effect.runPromise(read.pipe(Effect.provide(HostServices.layer), Effect.provide(Layer.orDie(GrantStore.layer({ attended: false }))), Effect.provide(raw), Effect.scoped))
+```
+
 ## Entry points
 
 | Import                               | Source                                                                                                                                   | Platform |
@@ -31293,6 +31472,18 @@ For the flow-binding contract this package implements, see the
 `McpFlows.capabilities` is derived from, see the
 [`@smthrs/capability` reference](/docs/reference/api/capability/).
 
+## Example
+
+```ts
+import * as McpFlows from "@smthrs/mcp/McpFlows"
+import { Effect } from "effect"
+
+const program = Effect.scoped(Effect.gen(function*() {
+  const source = yield* McpFlows.connected({ server: "github", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] })
+  return yield* source.bindings()
+}))
+```
+
 ## McpClient
 
 A minimal MCP client covering the `initialize` handshake, `tools/list`, and
@@ -32185,6 +32376,14 @@ Everything on this page is deterministic. The report's Markdown is a pure
 function of its JSON, and every list in the JSON is sorted, so two reads of
 the same project differ only in the `generatedAt` timestamp and a reviewer
 sees only what actually changed.
+
+## Example
+
+```bash
+smthrs migrate --scan
+smthrs migrate
+smthrs migrate --apply --seat anthropic:claude-sonnet-4-5
+```
 
 ## Import forms
 
@@ -34488,6 +34687,18 @@ import * as SteerPayload from "@smthrs/notifications/SteerPayload"
 Types written below as `Schema` are `effect` schemas; each one exports a value
 and a type of the same name, and the type is the decoded form.
 
+## Example
+
+```ts
+import { NotificationQueue } from "@smthrs/notifications"
+
+const deliver = Effect.gen(function*() {
+  const queue = yield* NotificationQueue.NotificationQueue
+  const receipt = yield* queue.drain({ runId: "run-1", targetLineageId: "run-1/root", boundary: "turn-1", wouldIdle: true })
+  return receipt.notifications
+}).pipe(Effect.provide(NotificationQueue.layer))
+```
+
 ## NotificationQueue
 
 Journal-backed durable admission and turn-boundary drain. Import from
@@ -34904,6 +35115,17 @@ OpenTelemetry SDK. `@smthrs/observability/package.json` is exported.
 The package is tested with `effect@4.0.0-rc.115`. Layers, services, and schemas
 are Effect constructs: a `Layer` provides services, a scoped layer releases on
 scope close, and a schema decodes to an `Effect`.
+
+## Example
+
+```ts
+import * as Otlp from "@smthrs/observability/Otlp"
+
+const telemetry = Otlp.layerFetch({ baseUrl: "http://localhost:4318", serviceName: "deploy-status" })
+const program = Effect.logInfo("deploying the API").pipe(Effect.withSpan("deploy"))
+
+await Effect.runPromise(program.pipe(Effect.provide(telemetry), Effect.orDie, Effect.scoped))
+```
 
 ## Otlp
 
@@ -38699,6 +38921,16 @@ Every function that can refuse returns `Effect<A, PluginError>`, except
 `Config.merge` and `Config.deepFreeze`, which are synchronous and throw a
 `PluginError`.
 
+## Example
+
+```ts
+import { Kernel, make } from "@smthrs/plugin"
+
+const editor = make({ name: "flows-plugin-editor", hooks: { config: () => Effect.succeed({ editor: { readOnly: false } }) } })
+const kernel = await Effect.runPromise(Kernel.make([editor], {}, { target: "harness" }))
+console.log(kernel.config) // { editor: { readOnly: false } }
+```
+
 ## Root exports
 
 | Export                                                                   | Kind               | Summary                                                               |
@@ -39219,6 +39451,18 @@ declaration values a discovered body carries, see the
 | [`Executable`](#executable)       | Turning a descriptor into a runnable `@smthrs/flow` value.                |
 | [`Pack`](#pack)                   | Manifests, content addresses, compatibility ranges, and merge precedence. |
 | [`RegistryError`](#registryerror) | The typed failures and their constructors.                                |
+
+## Example
+
+```ts
+import * as NodeServices from "@effect/platform-node/NodeServices"
+import { Executable, Registry } from "@smthrs/registry"
+
+const registry = Executable.layerProject({ root: process.cwd() }).pipe(Layer.provide(NodeServices.layer))
+const flows = Registry.Registry.use((catalog) => catalog.list())
+
+console.log(await Effect.runPromise(flows.pipe(Effect.provide(registry), Effect.orDie)))
+```
 
 ## Descriptor
 
@@ -40662,6 +40906,19 @@ Services and tags are Effect constructs: a `Layer` provides a service, and an
 effect reads it from context. `RunStore.layer` and `AttemptStore.layer` each
 require a `SqlClient` and a `DurableWriter` from
 [`@smthrs/database`](/docs/reference/api/database/).
+
+## Example
+
+```ts
+import { RunStore } from "@smthrs/run-store"
+const owner = { hostId: "worker-1", pid: process.pid, nonce: "9c31-af02" }
+const program = Effect.gen(function*() {
+  const runs = yield* RunStore.RunStore
+  yield* runs.create("build-42", JSON.stringify({ step: "checkout" }))
+  const taken = yield* runs.claimAndOwn("build-42", { status: "pending", owner: null, heartbeatAtMs: null }, owner, Date.now())
+  if (taken._tag === "Activated") yield* runs.transitionOwned("build-42", owner, "completed")
+})
+```
 
 ## Entry points
 
@@ -42419,6 +42676,18 @@ For the input and output fields of each flow, see the
 [Flow reference](https://std.smithers.sh/reference/flows/). This page is the module and export
 surface.
 
+## Example
+
+```ts
+import { NodeServices } from "@effect/platform-node"
+import * as Read from "@smthrs/std/Read"
+
+const page = await Effect.runPromise(
+  Effect.provide(Read.run({ path: "./README.md", limit: 20 }), NodeServices.layer)
+)
+console.log(page.content, page.totalLines, page.truncated)
+```
+
 ## The flow modules
 
 Seventeen modules declare a flow. Every one of them exports the same names:
@@ -42796,6 +43065,18 @@ contract, `CacheStore.Service`, has three implementations in this package: the
 SQL store, the HTTP client for a shared tier, and the composition of the two.
 For the model behind the two tables, see
 [the head and the ledger](https://step-cache.smithers.sh/concepts/head-and-ledger/).
+
+## Example
+
+```ts
+import * as CacheStore from "@smthrs/step-cache/CacheStore"
+import * as TestCacheStore from "@smthrs/step-cache/test/TestCacheStore"
+const cached = Effect.gen(function*() {
+  const cache = yield* CacheStore.CacheStore
+  yield* cache.put({ keyDigest: "compile-v1", result: { bytes: 41_022 }, meta: {}, createdAtMs: Date.now(), recordedRunId: "run-a", recordedEventSeq: 7 })
+  return yield* cache.get("compile-v1")
+}).pipe(Effect.provide(TestCacheStore.layer))
+```
 
 ## Entry points
 
@@ -43811,6 +44092,18 @@ The package holds no runner. Every assertion is an ordinary `Effect`, every
 conformance case is a value a runner registers, and `Vitest` is a thin adapter.
 Services and tags are Effect constructs: a `Layer` provides a service, and a
 test body reads it from context.
+
+## Example
+
+```ts
+import { Conformance, EngineSubject, FlowEngineLike } from "@smthrs/testing"
+import { describe, it } from "@smthrs/testing/Vitest"
+describe("engine conformance", () => {
+  for (const c of Conformance.coreSuite()) {
+    it.scoped(c.name, () => Effect.flatMap(EngineSubject.EngineSubject, c.run).pipe(Effect.provide(FlowEngineLike.layerMemory)))
+  }
+})
+```
 
 ## Vitest
 
@@ -46191,6 +46484,17 @@ durable writer of [`@smthrs/database`](/docs/reference/api/database/).
 
 The package is not on npm at 1.0.0-rc.0. See [Installation](https://triggers.smithers.sh/installation/)
 for how to get it.
+
+## Example
+
+```ts
+import * as Trigger from "@smthrs/triggers/Trigger"
+
+const nightly = Trigger.make({
+  id: "nightly-report", flowId: "reports/nightly", input: { channel: "#ops" },
+  cron: "0 3 * * *", timezone: "UTC", overlap: "skip", enabled: true
+})
+```
 
 ## Trigger
 
@@ -50816,731 +51120,6 @@ Global Options:
   --token-count                       Print token count of output (instead of output)
   --token-limit <n>                   Limit output to n tokens
   --token-offset <n>                  Skip first n tokens of output
-```
-
----
-
-# Subpackages
-https://smithers.sh/docs/reference/subpackages/
-
-Smithers is not one package. It is a durable execution engine, an agent loop,
-a control plane, and a command line, and most of those are published separately
-so you can take the part you need without the rest.
-
-Installing [`@smthrs/cli`](https://cli.smithers.sh) gets you the whole product.
-Everything below is what it is built from, and most of it is usable on its own:
-you can run the durable engine with no agent, or embed the agent loop in your
-own service with no command line. The few packages marked workspace-private
-below are documented for contributors and are not installable from npm: their
-examples run inside this repository, against the workspace copy.
-
-Every package has its own documentation site, linked from its heading. The
-aggregate API reference for all of them lives under
-[Packages](/docs/reference/api/).
-
-## Command line and control plane
-
-What you reach for to start a run, approve what it asks for, and watch it work.
-
-### [@smthrs/cli](https://cli.smithers.sh)
-
-Command line for starting durable agent runs, approving what they ask for, and reading back what they did.
-
-```bash
-npm install --global @smthrs/cli@next
-smthrs doctor
-smthrs init hello
-smthrs flow start hello
-smthrs runs list
-```
-
-### [@smthrs/control](https://control.smithers.sh)
-
-Plans, approves, starts, watches, steers, and cancels long-running agent runs from any process, recording every decision beside the state it changed.
-
-```ts
-import { Control } from "@smthrs/control/Control"
-import * as Effect from "effect/Effect"
-
-const program = Effect.gen(function*() {
-  const control = yield* Control
-  const card = yield* control.plan({ flowId: "quickstart/Deploy", input: { build: "v1.4.0" } })
-  yield* control.approve(card.approval)
-  return yield* control.run({
-    _tag: "Plan",
-    planId: card.planId,
-    digest: card.digest,
-    envelope: card.envelope,
-    idempotencyKey: "deploy:v1.4.0"
-  })
-})
-```
-
-### [@smthrs/gateway](https://gateway.smithers.sh)
-
-Puts a workspace of running agents on an HTTP port so dashboards, scripts, and other machines can watch and steer them.
-
-```ts
-import * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
-import * as Projections from "@smthrs/gateway/Projections"
-import { Layer } from "effect"
-
-const health = { workspaceHash: "8f4b2c1d", gatewayId: "host-1", protocolVersion: "1", version: "1.0.0-rc.0" }
-const gateway = NodeGateway.layer(health, NodeGateway.defaultServerOptions).pipe(Layer.provide(Projections.layer))
-```
-
-### [@smthrs/mcp](https://mcp.smithers.sh)
-
-Connects to a Model Context Protocol server and turns each tool it offers into a flow a Smithers agent can call.
-
-```ts
-import * as McpFlows from "@smthrs/mcp/McpFlows"
-import { Effect } from "effect"
-
-const program = Effect.scoped(Effect.gen(function*() {
-  const source = yield* McpFlows.connected({ server: "github", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] })
-  return yield* source.bindings()
-}))
-```
-
-### [@smthrs/migrate](https://migrate.smithers.sh)
-
-Rewrites an old Smithers 0.x JSX project onto the 1.0 Flow authoring model, one unit at a time, with an auditable report.
-
-```bash
-npx @smthrs/migrate@next --scan
-npx @smthrs/migrate@next
-npx @smthrs/migrate@next --apply --seat anthropic:claude-sonnet-4-5
-```
-
-### [@smthrs/notifications](https://notifications.smithers.sh)
-
-Durable queue for handing a message to a running agent, delivered only at a point in the run where reading it is safe.
-
-```ts
-import { NotificationQueue } from "@smthrs/notifications"
-
-const deliver = Effect.gen(function*() {
-  const queue = yield* NotificationQueue.NotificationQueue
-  const receipt = yield* queue.drain({ runId: "run-1", targetLineageId: "run-1/root", boundary: "turn-1", wouldIdle: true })
-  return receipt.notifications
-}).pipe(Effect.provide(NotificationQueue.layer))
-```
-
-### [@smthrs/create-app](https://create-app.smithers.sh)
-
-Turns a set of Smithers flows into a deployable web app whose pages, panes, and flows are named by file location.
-
-```ts
-import { CreateApp } from "@smthrs/create-app"
-
-export const App = CreateApp({
-  name: "ledger",
-  brand: { name: "Ledger", tokens: { accent: "#5288c2" } },
-  deploy: { cloudflare: { workerName: "ledger", domain: "ledger.example.com" } }
-})
-```
-
-## The agent
-
-The agent loop itself, and the pieces it calls out to while it works.
-
-### [@smthrs/agent](https://agent.smithers.sh)
-
-Runs a coding agent as a durable program, so every model call and tool call is journaled, replayable after a crash, and typed.
-
-```ts
-import { AgentAction } from "@smthrs/agent"
-import * as Schema from "effect/Schema"
-const Research = AgentAction.make("docs/Research", {
-  payload: { topic: Schema.String },
-  output: Schema.Struct({ summary: Schema.String }),
-  seat: "anthropic:claude-sonnet-4-5",
-  prompt: ({ topic }) => `Research ${topic}.`
-})
-```
-
-### [@smthrs/harness](https://harness.smithers.sh)
-
-Runs an agent loop where the model writes JavaScript instead of calling tools, with every outside call durable and permission gated.
-
-```ts
-import * as Cell from "@smthrs/harness/Cell"
-import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
-
-const frame = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-  const realm = yield* (yield* QuickJSSandbox.make).openRealm!({ flows: {} })
-  const call = () => Effect.succeed(new Cell.CallResult({ outcome: "success", value: null }))
-  return yield* realm.evaluate({ cell: Cell.source(`ctx.done("hi")`), frame: 0, call })
-})))
-```
-
-### [@smthrs/chain](https://chain.smithers.sh)
-
-Runs a model-driven agent loop that survives a crash, journaling every tool call so a resumed run repeats no side effects.
-
-`@smthrs/chain` is **workspace-private**: the example below runs inside this repository, not from an npm install.
-
-```ts
-import { Author, Catalog, Chain, Journal, QuickJsRunner } from "@smthrs/chain"
-import { Effect, Layer } from "effect"
-
-const script = "```flow\nreturn done({ ok: true })\n```"
-const layers = Layer.mergeAll(Journal.layerMemory(), Author.layerMock([script]), QuickJsRunner.layer(), Catalog.layer(Catalog.system))
-
-const outcome = await Effect.runPromise(Chain.run({ goal: "check the build" }).pipe(Effect.provide(layers)))
-```
-
-### [@smthrs/model](https://model.smithers.sh)
-
-Calls Anthropic, OpenAI, and OpenAI-compatible models through one typed streaming interface, so provider differences stay out of your code.
-
-```ts
-import { Model, ModelEvent, ModelRequest, RequestExecutor, Route } from "@smthrs/model"
-import { Effect, Layer, Redacted, Result, Stream } from "effect"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-const route = Result.getOrThrow(Route.anthropic({ apiKey: Redacted.make(process.env["ANTHROPIC_API_KEY"] ?? "") }))
-const request = ModelRequest.ModelRequest.make({ modelId: "claude-sonnet-4-5", system: [], messages: [ModelRequest.Message.user("Say hello.")], tools: [], params: ModelRequest.GenerationParams.make({ maxTokens: 256 }) })
-const turn = Effect.gen(function*() {
-  return ModelEvent.settledMessage(yield* Stream.runCollect((yield* Model.Model).stream(request)))
-}).pipe(Effect.provide(Route.layer(route).pipe(Layer.provide(RequestExecutor.layer), Layer.provide(FetchHttpClient.layer))))
-```
-
-### [@smthrs/std](https://std.smithers.sh)
-
-Ships the seventeen tools a coding agent needs, read, edit, grep, bash and more, each a portable declaration plus a handler your host runs.
-
-```ts
-import { NodeServices } from "@effect/platform-node"
-import * as Read from "@smthrs/std/Read"
-
-const page = await Effect.runPromise(
-  Effect.provide(Read.run({ path: "./README.md", limit: 20 }), NodeServices.layer)
-)
-console.log(page.content, page.totalLines, page.truncated)
-```
-
-### [@smthrs/memory](https://memory.smithers.sh)
-
-Stores an agent's facts, notes, and message threads in SQLite so a later run can recall what an earlier one learned.
-
-```ts
-import { Flows, RecallKeyword } from "@smthrs/memory"
-import * as TestMemory from "@smthrs/memory/test/TestMemory"
-
-const rows = await Effect.runPromise(Effect.gen(function*() {
-  yield* Flows.handlers.remember({ bank: "global-notes", key: "release", text: "cut 0.1.0" })
-  return yield* Flows.handlers.recall({ banks: ["global-notes"], query: "release" })
-}).pipe(Effect.provide(Layer.provideMerge(RecallKeyword.layer, TestMemory.layer))))
-```
-
-### [@smthrs/registry](https://registry.smithers.sh)
-
-Lists what workflows a project contains by scanning files without running them, so a host can show them to a model and run one.
-
-```ts
-import * as NodeServices from "@effect/platform-node/NodeServices"
-import { Executable, Registry } from "@smthrs/registry"
-
-const registry = Executable.layerProject({ root: process.cwd() }).pipe(Layer.provide(NodeServices.layer))
-const flows = Registry.Registry.use((catalog) => catalog.list())
-
-console.log(await Effect.runPromise(flows.pipe(Effect.provide(registry), Effect.orDie)))
-```
-
-### [@smthrs/fs](https://fs.smithers.sh)
-
-Turns a directory of flow files into named, schema checked commands that agents, shells, HTTP clients, and MCP tools can call.
-
-`@smthrs/fs` is **workspace-private**: the example below runs inside this repository, not from an npm install.
-
-```ts
-import { Command, FileRouter } from "@smthrs/fs"
-
-const program = Effect.gen(function*() {
-  const { routes } = yield* FileRouter.scan({ root: "flows" })
-  const commands = yield* Command.make(routes)
-  return yield* commands.execute("review --number 42")
-})
-```
-
-### [@smthrs/plugin](https://plugin.smithers.sh)
-
-Lets a TypeScript program accept plugins from other people at named extension points, with typed hooks, Vite ordering rules, and a frozen config.
-
-```ts
-import { Kernel, make } from "@smthrs/plugin"
-
-const editor = make({ name: "flows-plugin-editor", hooks: { config: () => Effect.succeed({ editor: { readOnly: false } }) } })
-const kernel = await Effect.runPromise(Kernel.make([editor], {}, { target: "harness" }))
-console.log(kernel.config) // { editor: { readOnly: false } }
-```
-
-### [@smthrs/integrations](https://integrations.smithers.sh)
-
-Connects a durable agent flow to GitHub, Linear, and Telegram with verified webhook ingress, typed clients, and replay-safe write actions.
-
-```ts
-import { GitHub } from "@smthrs/integrations"
-
-const client = GitHub.GitHubClient.make({})
-
-await Effect.runPromise(
-  client.request("POST", "/repos/OWNER/REPO/issues/1/comments", { body: "Triaged." })
-)
-```
-
-### [@smthrs/triggers](https://triggers.smithers.sh)
-
-Starts workflows on a cron schedule or a verified webhook. Scheduled dispatch makes at-least-once launch attempts; the runner must durably deduplicate by idempotency key and return the same run identity on replay.
-
-```ts
-import * as Trigger from "@smthrs/triggers/Trigger"
-
-const nightly = Trigger.make({
-  id: "nightly-report", flowId: "reports/nightly", input: { channel: "#ops" },
-  cron: "0 3 * * *", timezone: "UTC", overlap: "skip", enabled: true
-})
-```
-
-### [@smthrs/evals](https://evals.smithers.sh)
-
-Scores a flow against a fixed set of committed cases, compares each run with a saved baseline, and grades CI.
-
-```ts
-import { Baseline, Runner, Suite } from "@smthrs/evals"
-
-const program = Effect.gen(function*() {
-  const suite = yield* Suite.make({ name: "smoke", cases: [{ name: "hello", input: "hi" }], concurrency: 1 })
-  const run = yield* Runner.run(suite, { runId: "ci-1", at: "2026-01-01T00:00:00.000Z" })
-  return Baseline.write(yield* Baseline.fromRun(run))
-})
-```
-
-### [@smthrs/scorers](https://scorers.smithers.sh)
-
-Grades work an agent or flow already did, and keeps every score under a durable identity that survives restarts.
-
-```ts
-import { Scorer } from "@smthrs/scorers"
-const exactMatch = Scorer.make({
-  id: "docs/scorers/exact-match",
-  version: "1",
-  score: ({ groundTruth, output }) => Effect.succeed({ score: output === groundTruth ? 1 : 0 })
-})
-const graded = await Effect.runPromise(exactMatch.score({ input: "greet Ada", output: "Hi, Ada", groundTruth: "Hi, Ada" }))
-```
-
-## Durable execution
-
-The engine underneath. How work is planned, journaled, replayed, cached, and sandboxed.
-
-### [@smthrs/flows](https://flows.smithers.sh)
-
-Runs long jobs as durable programs that record every finished step and resume where they stopped after a crash.
-
-```ts
-import { Action, Flow, Interpreter } from "@smthrs/flows"
-import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
-import { Effect, Layer, Schema } from "effect"
-const Greet = Action.make("demo/Greet", { payload: { name: Schema.String }, success: Schema.String })
-const Hello = Flow.make("demo/Hello", { payload: { name: Schema.String }, success: Schema.String, body: (payload) => Greet.call(payload) })
-const code = Interpreter.layer(Hello).pipe(Layer.provideMerge(Greet.toLayer(({ name }) => Effect.succeed(`hi ${name}`))), Layer.provideMerge(Action.layerImplementations))
-const host = NodeRuntime.layerHost({ filename: ".flows/engine.db", workspaceRoot: ".", owner: { hostId: "demo" } }, code)
-console.log(await Effect.runPromise(Hello.execute({ name: "ada" }, { executionId: "demo-1" }).pipe(Effect.provide(host), Effect.scoped)))
-```
-
-### [@smthrs/flow](https://flow.smithers.sh)
-
-Declares durable workflows in TypeScript as named, typed steps, so a re-run replays what already finished instead of doing the work twice.
-
-```ts
-import { Action, Flow } from "@smthrs/flow"
-
-const Summarize = Action.make("digest/Summarize", { payload: { url: Schema.String }, success: Schema.String })
-const Digest = Flow.make("digest/Digest", {
-  payload: { url: Schema.String },
-  success: Schema.String,
-  body: (payload) => Summarize.call(payload)
-})
-```
-
-### [@smthrs/engine](https://engine.smithers.sh)
-
-Executes durable flow programs, recording every step so a retried, resumed, or restarted run replays finished work instead of doing it twice.
-
-```ts
-import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Node } from "@smthrs/plan"
-
-const Build = Flow.make("build/Build", { payload: { target: Schema.String }, success: Schema.String, body: ({ target }) => Node.succeed(`${target}.js`) })
-const layer = Interpreter.layer(Build).pipe(Layer.provideMerge(Action.layerImplementations), Layer.provideMerge(FlowEngine.layerMemory))
-Effect.runPromise(Build.execute({ target: "app" }, { executionId: "build-1" }).pipe(Effect.orDie, Effect.provide(layer))).then(console.log)
-```
-
-### [@smthrs/engine-store](https://engine-store.smithers.sh)
-
-Persists every step a flow takes to SQLite, so a crashed or killed run resumes where it stopped instead of restarting.
-
-```ts
-import { EngineStore } from "@smthrs/engine-store"
-
-const engine = EngineStore.layer({
-  owner: { hostId: "worker-a" },
-  journalSource: "worker-a"
-})
-```
-
-### [@smthrs/plan](https://plan.smithers.sh)
-
-Turns declared steps into a durable graph where each step's identity is a hash of what it declares, so edits invalidate only affected work.
-
-```ts
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import { KeyMaterial, Plan } from "@smthrs/plan"
-
-const material = { version: KeyMaterial.version, kind: "sealed", body: { pr: 4821 }, inputs: [], layers: [], capabilities: [] } as const
-const nodes = [{ id: "read-pr", material, effects: { reads: [], writes: ["pr.json"], boundaryMode: "hard" } }] as const
-const plan = await Effect.runPromise(Plan.compile({ planId: "review-4821", flow: "example/Review", nodes }).pipe(Effect.provide(NodeCrypto.layer), Effect.orDie))
-console.log(plan.digest, plan.nodes[0].key)
-```
-
-### [@smthrs/journal](https://journal.smithers.sh)
-
-Records what a long-running job did, in order, in an append-only SQLite history that scrubs credentials and survives a crash.
-
-```ts
-import { Journal, JournalEvent } from "@smthrs/journal"
-
-const runId = "run-1" as JournalEvent.RunId
-const program = Effect.gen(function*() {
-  const journal = yield* Journal.Journal
-  yield* journal.emitDurableUnfenced({ runId, sourceId: "engine" as JournalEvent.SourceId, eventType: "run.created", payload: { flow: "build" } })
-  return yield* journal.entries({ runId, limit: 100 })
-})
-```
-
-### [@smthrs/run-store](https://run-store.smithers.sh)
-
-Keeps the live state of long running jobs in a SQL database and decides which process is allowed to touch each one.
-
-```ts
-import { RunStore } from "@smthrs/run-store"
-const owner = { hostId: "worker-1", pid: process.pid, nonce: "9c31-af02" }
-const program = Effect.gen(function*() {
-  const runs = yield* RunStore.RunStore
-  yield* runs.create("build-42", JSON.stringify({ step: "checkout" }))
-  const taken = yield* runs.claimAndOwn("build-42", { status: "pending", owner: null, heartbeatAtMs: null }, owner, Date.now())
-  if (taken._tag === "Activated") yield* runs.transitionOwned("build-42", owner, "completed")
-})
-```
-
-### [@smthrs/step-cache](https://step-cache.smithers.sh)
-
-Stores a finished step's result under a digest of its inputs so the next run reads it back instead of doing the work again.
-
-```ts
-import * as CacheStore from "@smthrs/step-cache/CacheStore"
-import * as TestCacheStore from "@smthrs/step-cache/test/TestCacheStore"
-const cached = Effect.gen(function*() {
-  const cache = yield* CacheStore.CacheStore
-  yield* cache.put({ keyDigest: "compile-v1", result: { bytes: 41_022 }, meta: {}, createdAtMs: Date.now(), recordedRunId: "run-a", recordedEventSeq: 7 })
-  return yield* cache.get("compile-v1")
-}).pipe(Effect.provide(TestCacheStore.layer))
-```
-
-### [@smthrs/time-travel](https://time-travel.smithers.sh)
-
-Replays, forks, or rewinds a durable run from the journal it already wrote, so history can be read or branched without re-running anything.
-
-```ts
-import { Engine } from "@smthrs/flows"
-import { TimeTravel } from "@smthrs/time-travel"
-const forked = Effect.gen(function*() {
-  const timeTravel = yield* TimeTravel
-  const lineageId = Engine.FlowEngine.Lineage.root("build-42")
-  return yield* timeTravel.fork({ runId: "build-42", frame: { lineageId, seq: 17 } })
-})
-```
-
-### [@smthrs/patterns](https://smithers-patterns.smithers.sh)
-
-Ready-made shapes for multi-step agent work, such as review loops and escalation ladders, that you can inspect before anything runs.
-
-```ts
-import { ReviewLoop } from "@smthrs/patterns"
-
-const approved = await Effect.runPromise(ReviewLoop.run("Write the release notes.", {
-  maxRounds: 3,
-  produce: (goal: string) => Effect.succeed(`Draft: ${goal}`),
-  review: (output: string) => Effect.succeed({ approved: output.includes("Draft") }),
-  revise: ({ output }) => Effect.succeed(`${output} revised`)
-}))
-```
-
-### [@smthrs/sync](https://smithers-sync.smithers.sh)
-
-Replicates a run's recorded history to readers that do not own it, replaying what already happened and then following it live.
-
-```ts
-import { SyncClient } from "@smthrs/sync"
-import { Effect, Stream } from "effect"
-
-const follow = Effect.gen(function*() {
-  const sync = yield* SyncClient.Sync
-  const entries = sync.subscribe({ scope: { _tag: "Workspace" }, cursors: [] })
-  yield* Stream.runForEach(entries, (entry) => Effect.logInfo(`${entry.seq} ${entry.eventType}`))
-})
-```
-
-### [@smthrs/database](https://database.smithers.sh)
-
-Runs every SQL write inside one transaction that retries lock conflicts, reports five stable error codes, and applies migrations from many packages in order.
-
-```ts
-import * as DurableWriter from "@smthrs/database/DurableWriter"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
-
-const insertNote = Effect.gen(function*() {
-  const sql = yield* SqlClient.SqlClient
-  const writer = yield* DurableWriter.DurableWriter
-  yield* writer.write(sql`INSERT INTO notes (id, body) VALUES ('first', 'hello')`)
-})
-```
-
-### [@smthrs/artifacts](https://artifacts.smithers.sh)
-
-Stores bytes under their own SHA-256 address, so every read returns exactly the bytes that were published or fails loudly.
-
-```ts
-import { ArtifactStore } from "@smthrs/artifacts"
-
-const program = Effect.gen(function*() {
-  const store = yield* ArtifactStore.ArtifactStore
-  const address = yield* store.put(new TextEncoder().encode("build output"))
-  return yield* store.get(address)
-})
-```
-
-### [@smthrs/sandbox](https://sandbox.smithers.sh)
-
-Runs an Effect program's files and commands on a machine you provision: a container, a microVM, a cloud sandbox, or a scratch directory. `DirectorySandbox` requires a lifecycle-backed spawner, such as `NodeHost.layerContained()` provided with a `ProcessLedger`; its [quickstart](https://sandbox.smithers.sh/quickstart/) shows the host composition.
-
-```ts
-import { DirectorySandbox, Sandbox } from "@smthrs/sandbox"
-import * as FileSystem from "effect/FileSystem"
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-
-const write = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.writeFileString("report.txt", "hi\n"))
-const program = Effect.gen(function*() {
-  const provider = DirectorySandbox.make({ fs: yield* FileSystem.FileSystem, spawner: yield* ChildProcessSpawner, root: "/var/tmp/smithers" })
-  yield* Effect.scoped(Effect.provide(write, Sandbox.layerHost(provider, { session: "run:01J" })))
-})
-```
-
-### [@smthrs/kernel](https://kernel.smithers.sh)
-
-Checks every file, process, network, and repository operation an Effect program runs against a permission policy, refusing whatever nobody authorized.
-
-```ts
-import { GrantStore, HostServices, Workspace } from "@smthrs/kernel"
-import * as TestHost from "@smthrs/testing/TestHost"
-import { Effect, FileSystem, Layer } from "effect"
-
-const raw = Layer.mergeAll(TestHost.layer({ files: { "/w/a.txt": "hi" } }), Workspace.layer("/w"))
-const read = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString("/w/a.txt"))
-// Refused with permission_required: no rule authorizes fs:read.
-Effect.runPromise(read.pipe(Effect.provide(HostServices.layer), Effect.provide(Layer.orDie(GrantStore.layer({ attended: false }))), Effect.provide(raw), Effect.scoped))
-```
-
-### [@smthrs/capability](https://capability.smithers.sh)
-
-Describes one operation a program is about to perform and decides from ordered rules whether it is allowed, denied, or needs a person.
-
-```ts
-import { Capability, Permission } from "@smthrs/capability"
-
-const pattern = new Capability.CapabilityPattern({ action: "fs:write", resource: "/workspace/**" })
-const policy = [new Permission.Rule({ effect: "allow", pattern })]
-
-Permission.evaluate([policy], Capability.make("fs:write", "/workspace/out.txt"))
-// "allow"
-Permission.evaluate([policy], Capability.make("net:post", "https://api.example.test/deploy"))
-// "ask"
-```
-
-### [@smthrs/keys](https://keys.smithers.sh)
-
-Turns structured data into a stable content key, and validates keys read back from storage without hashing them again.
-
-```ts
-import { deriveKey } from "@smthrs/keys"
-
-const key = await Effect.runPromise(
-  deriveKey({ domain: "example/compile", version: 1, source: "main.ts" }).pipe(Effect.provide(NodeCrypto.layer))
-)
-// key1_74a286a394e4b0619c05801dd4e7315deeb83b8203cd3c3ee7cd6033ec55c683
-```
-
-### [@smthrs/crypto](https://crypto.smithers.sh)
-
-Hashes text or bytes into a SHA-256 fingerprint with one strict format, from Effect code or plain synchronous code.
-
-```ts
-import { digest, digestSync } from "@smthrs/crypto"
-
-const address = await Effect.runPromise(
-  digest("hello").pipe(Effect.provide(NodeCrypto.layer))
-)
-const sameAddress = digestSync("hello")
-```
-
-### [@smthrs/canonical](https://canonical.smithers.sh)
-
-Turns any JavaScript value into RFC 8785 canonical JSON, so equal data always produces the same bytes and the same hash.
-
-```ts
-import { canonicalize } from "@smthrs/canonical"
-import { createHash } from "node:crypto"
-
-const key = (value: unknown) => createHash("sha256").update(canonicalize(value), "utf8").digest("hex")
-
-key({ a: 1, b: 2 }) === key({ b: 2, a: 1 })
-// => true
-```
-
-### [@smthrs/core](https://core.smithers.sh)
-
-Schema-first flow signatures over [@smthrs/flow](https://flow.smithers.sh): one options object lowers to the declared action a host implements and the flow that calls it, so you can inspect, order, and cache the graph before anything runs.
-
-```ts
-import { Flow, Graph } from "@smthrs/core"
-import { Schema } from "effect"
-
-const review = Flow.make({
-  name: "review/file",
-  input: Schema.Struct({ path: Schema.String }),
-  output: Schema.String
-})
-console.log(Graph.edges(Graph.build(review.flow, { path: "src/api.ts" })))
-```
-
-### [@smthrs/jj](https://jj.smithers.sh)
-
-Snapshots and restores a working copy through Jujutsu version control, as one Effect service that runs on Node, Bun, or in a browser.
-
-```ts
-import { Jj } from "@smthrs/jj"
-import * as NodeJj from "@smthrs/jj/node/NodeJj"
-const program = Effect.gen(function*() {
-  const jj = yield* Jj
-  const { changeId } = yield* jj.snapshot("before the risky step")
-  yield* jj.restore(changeId)
-}).pipe(Effect.provide(NodeJj.layerAt("/srv/checkouts/main")))
-```
-
-### [@smthrs/observability](https://observability.smithers.sh)
-
-Sends an Effect program's logs, metrics, and traces to an OpenTelemetry collector with one layer and no OpenTelemetry SDK.
-
-```ts
-import * as Otlp from "@smthrs/observability/Otlp"
-
-const telemetry = Otlp.layerFetch({ baseUrl: "http://localhost:4318", serviceName: "deploy-status" })
-const program = Effect.logInfo("deploying the API").pipe(Effect.withSpan("deploy"))
-
-await Effect.runPromise(program.pipe(Effect.provide(telemetry), Effect.orDie, Effect.scoped))
-```
-
-## Platform bindings
-
-The same engine bound to a different runtime. Pick the one your host runs on.
-
-### [@smthrs/platform-node](https://platform-node.smithers.sh)
-
-Runs a program's side effects on Node.js through a filesystem, spawner, and HTTP client that a symlink or a crash cannot subvert.
-
-```ts
-import { NodeHost } from "@smthrs/platform-node"
-import * as ChildProcess from "effect/unstable/process/ChildProcess"
-
-const program = Effect.gen(function*() {
-  const spawner = yield* ChildProcessSpawner
-  return yield* spawner.string(ChildProcess.make("git", ["status", "--short"]))
-}).pipe(Effect.provide(NodeHost.layer))
-```
-
-### [@smthrs/platform-bun](https://platform-bun.smithers.sh)
-
-Supplies a Bun program with one Effect layer for the five outside world services Smithers uses: files, paths, processes, version control, and HTTP.
-
-```ts
-import { BunHost } from "@smthrs/platform-bun"
-
-const program = Effect.gen(function*() {
-  const fs = yield* FileSystem.FileSystem
-  yield* fs.writeFileString("report.txt", "written through the host\n")
-})
-Effect.runPromise(Effect.provide(program, BunHost.layer))
-```
-
-### [@smthrs/platform-browser](https://platform-browser.smithers.sh)
-
-Gives a browser tab Effect's FileSystem and command spawning, backed by a virtual filesystem and a bash interpreter running in the page.
-
-```ts
-import { BrowserServices } from "@smthrs/platform-browser"
-import { configureSingle, fs } from "@zenfs/core"
-import { IndexedDB } from "@zenfs/dom"
-import { Bash } from "just-bash"
-
-await configureSingle({ backend: IndexedDB })
-// One mount, two views: the interpreter's and the promises API the adapter reads.
-const layer = BrowserServices.layer({ bash: new Bash({ fs }), fs: fs.promises })
-```
-
-## Standalone
-
-Useful on their own, with or without the rest.
-
-### [@smthrs/errors](https://errors.smithers.sh)
-
-One error class with five fixed codes, so a caller classifies an integration failure by code instead of by matching message text.
-
-```ts
-import { isSmithersError, SmithersError } from "@smthrs/errors"
-
-try {
-  throw new SmithersError("INVALID_INPUT", "maxLength must be between 1 and 4096.", { maxLength: 0 })
-} catch (error) {
-  if (!isSmithersError(error)) throw error
-  console.log(error.code, error.summary, error.details)
-}
-```
-
-### [@smthrs/testing](https://testing.smithers.sh)
-
-Test library for Smithers flows: plan and journal assertions, engine conformance suites, and model doubles that record once and replay forever.
-
-```ts
-import { Conformance, EngineSubject, FlowEngineLike } from "@smthrs/testing"
-import { describe, it } from "@smthrs/testing/Vitest"
-describe("engine conformance", () => {
-  for (const c of Conformance.coreSuite()) {
-    it.scoped(c.name, () => Effect.flatMap(EngineSubject.EngineSubject, c.run).pipe(Effect.provide(FlowEngineLike.layerMemory)))
-  }
-})
-```
-
-### [smthrs](https://smthrs.smithers.sh)
-
-Holds the old npm name from Smithers 0.x and throws on import, naming the @smthrs/* packages that replaced the umbrella.
-
-```bash
-npm install --global @smthrs/cli@next
-smthrs migrate
-cat .smithers-migrate/report.md
 ```
 
 ---

@@ -7358,7 +7358,7 @@
       },
       {
         "kind": "file",
-        "path": "apps/site/src/content/docs/docs/reference/subpackages.mdx"
+        "path": "apps/site/docs/reference/api/index.mdx"
       },
       {
         "kind": "file",

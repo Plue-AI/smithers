@@ -351,7 +351,7 @@ const catalogPublicationTest = Smithers.Shell.Test({
   data: [
     Smithers.file("scripts/catalog-publication.mjs"),
     Smithers.file("scripts/catalog-publication.test.mjs"),
-    Smithers.file("src/content/docs/docs/reference/subpackages.mdx"),
+    Smithers.file("docs/reference/api/index.mdx"),
     Smithers.file("//scripts/pack-release.mjs"),
     Smithers.file("//scripts/workspace-packages.mjs"),
     // The roster is checked against what every member manifest declares, so a

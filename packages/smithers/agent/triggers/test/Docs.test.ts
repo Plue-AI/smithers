@@ -22,8 +22,7 @@ describe("documentation contracts", () => {
     expect(read("docs/concepts/claim-protocol.md")).toMatch(/accepted.*before.*`launched` result/)
     expect(read("docs/troubleshooting.md")).not.toContain("which the store's transaction forbids")
     expect(read("docs/quickstart.md")).not.toContain("fire the occurrence once")
-    const roster = read("../../../../apps/site/src/content/docs/docs/reference/subpackages.mdx")
-    expect(roster).not.toContain("two hosts never fire the same scheduled run twice")
+    expect(read("docs/api.md")).not.toContain("two hosts never fire the same scheduled run twice")
   })
 
   it("describes catch-up enumeration subject to overlap, not lossless billing (documentation/2, api-design/2)", () => {

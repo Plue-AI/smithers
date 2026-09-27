@@ -19,6 +19,19 @@ import * as GrantStore from "@smthrs/kernel/GrantStore"
 Schema ids (`@smthrs/kernel/GrantEvent/RunGrant` and its siblings), journal event types (`flows.kernel.grant.*`, `flows.host.process-*`), and the `HostServiceIds` slot ids are durable identity rather than internal names. They are written to the journal and read back on replay, so code that reads grant or process history can match on them. They change only when the service behind the id changes.
 :::
 
+## Example
+
+```ts
+import { GrantStore, HostServices, Workspace } from "@smthrs/kernel"
+import * as TestHost from "@smthrs/testing/TestHost"
+import { Effect, FileSystem, Layer } from "effect"
+
+const raw = Layer.mergeAll(TestHost.layer({ files: { "/w/a.txt": "hi" } }), Workspace.layer("/w"))
+const read = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString("/w/a.txt"))
+// Refused with permission_required: no rule authorizes fs:read.
+Effect.runPromise(read.pipe(Effect.provide(HostServices.layer), Effect.provide(Layer.orDie(GrantStore.layer({ attended: false }))), Effect.provide(raw), Effect.scoped))
+```
+
 ## Entry points
 
 | Import                               | Source                                                                                                                                   | Platform |

@@ -25,6 +25,18 @@ For the flow-binding contract this package implements, see the
 `McpFlows.capabilities` is derived from, see the
 [`@smthrs/capability` reference](https://capability.smithers.sh/reference/api/).
 
+## Example
+
+```ts
+import * as McpFlows from "@smthrs/mcp/McpFlows"
+import { Effect } from "effect"
+
+const program = Effect.scoped(Effect.gen(function*() {
+  const source = yield* McpFlows.connected({ server: "github", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] })
+  return yield* source.bindings()
+}))
+```
+
 ## McpClient
 
 A minimal MCP client covering the `initialize` handshake, `tools/list`, and

@@ -385,8 +385,10 @@
 /integrations/custom-ui/  /docs/migration/1.0/  301
 /integrations/daytona-sandbox-provider  /docs/guides/sandboxes/  301
 /integrations/daytona-sandbox-provider/  /docs/guides/sandboxes/  301
-/integrations/ecosystem  /docs/reference/subpackages/  301
-/integrations/ecosystem/  /docs/reference/subpackages/  301
+/integrations/ecosystem  /docs/reference/api/  301
+/integrations/ecosystem/  /docs/reference/api/  301
+/docs/reference/subpackages  /docs/reference/api/  301
+/docs/reference/subpackages/  /docs/reference/api/  301
 /integrations/embedded-engine  /docs/guides/module-flows/  301
 /integrations/embedded-engine/  /docs/guides/module-flows/  301
 /integrations/gateway  /docs/guides/control-plane/  301

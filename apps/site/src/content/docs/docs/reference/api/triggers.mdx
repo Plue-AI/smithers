@@ -30,6 +30,17 @@ durable writer of [`@smthrs/database`](/docs/reference/api/database/).
 The package is not on npm at 1.0.0-rc.0. See [Installation](https://triggers.smithers.sh/installation/)
 for how to get it.
 
+## Example
+
+```ts
+import * as Trigger from "@smthrs/triggers/Trigger"
+
+const nightly = Trigger.make({
+  id: "nightly-report", flowId: "reports/nightly", input: { channel: "#ops" },
+  cron: "0 3 * * *", timezone: "UTC", overlap: "skip", enabled: true
+})
+```
+
 ## Trigger
 
 The trigger declaration: which flow to run, with what input, on what schedule.

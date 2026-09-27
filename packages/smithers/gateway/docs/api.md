@@ -23,6 +23,17 @@ The model behind these signatures is in [Projections](./concepts/projections.md)
 [Subscriptions and cursors](./concepts/subscriptions.md), and
 [The trust boundary](./concepts/trust-boundary.md).
 
+## Example
+
+```ts
+import * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
+import * as Projections from "@smthrs/gateway/Projections"
+import { Layer } from "effect"
+
+const health = { workspaceHash: "8f4b2c1d", gatewayId: "host-1", protocolVersion: "1", version: "1.0.0-rc.0" }
+const gateway = NodeGateway.layer(health, NodeGateway.defaultServerOptions).pipe(Layer.provide(Projections.layer))
+```
+
 ## `GatewayServer`
 
 The whole HTTP surface as one application layer a host serves.

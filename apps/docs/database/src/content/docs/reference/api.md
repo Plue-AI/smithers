@@ -19,6 +19,19 @@ platform specific and lives at an explicit subpath.
 
 `@smthrs/database/internal/*` is blocked by the export map.
 
+## Example
+
+```ts
+import * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
+
+const insertNote = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  const writer = yield* DurableWriter.DurableWriter
+  yield* writer.write(sql`INSERT INTO notes (id, body) VALUES ('first', 'hello')`)
+})
+```
+
 ## DurableWriter
 
 The write boundary shared by the durable stores, free of journal or host

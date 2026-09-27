@@ -94,19 +94,6 @@ test("migrate --scan rows describe the scan pipeline: planned units, nothing wri
   assert.match(rows[0], /plan/)
 })
 
-test("subpackage keys example reuses the derivation vector of the keys API reference", () => {
-  const subpackages = readFileSync(new URL("../src/content/docs/docs/reference/subpackages.mdx", import.meta.url), "utf8")
-  const reference = readFileSync(new URL("../src/content/docs/docs/reference/api/keys.mdx", import.meta.url), "utf8")
-  const vector = (source, label) => {
-    const input = /deriveKey\((\{[^}]*\})\)/.exec(source)
-    const key = /^\/\/ (key1_[0-9a-f]{64})$/m.exec(source)
-    assert.ok(input, `${label} derives a key from a literal input`)
-    assert.ok(key, `${label} prints the derived key`)
-    return { input: input[1], key: key[1] }
-  }
-  assert.deepEqual(vector(subpackages, "subpackages"), vector(reference, "keys reference"))
-})
-
 test("preserves example imports while removing MDX imports", () => {
   const source = 'import { Code } from "@astrojs/starlight/components"\n\n```ts title="main.ts"\nimport { Action } from "@smthrs/flow"\nconst value = 1\n```'
   const result = docsText(source)

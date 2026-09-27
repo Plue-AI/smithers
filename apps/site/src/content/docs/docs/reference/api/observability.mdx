@@ -32,6 +32,17 @@ The package is tested with `effect@4.0.0-rc.115`. Layers, services, and schemas
 are Effect constructs: a `Layer` provides services, a scoped layer releases on
 scope close, and a schema decodes to an `Effect`.
 
+## Example
+
+```ts
+import * as Otlp from "@smthrs/observability/Otlp"
+
+const telemetry = Otlp.layerFetch({ baseUrl: "http://localhost:4318", serviceName: "deploy-status" })
+const program = Effect.logInfo("deploying the API").pipe(Effect.withSpan("deploy"))
+
+await Effect.runPromise(program.pipe(Effect.provide(telemetry), Effect.orDie, Effect.scoped))
+```
+
 ## Otlp
 
 The default exporter. `Otlp` composes `effect/unstable/observability/Otlp` and

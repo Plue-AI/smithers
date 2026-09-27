@@ -32,6 +32,18 @@ declaration values a discovered body carries, see the
 | [`Pack`](#pack)                   | Manifests, content addresses, compatibility ranges, and merge precedence. |
 | [`RegistryError`](#registryerror) | The typed failures and their constructors.                                |
 
+## Example
+
+```ts
+import * as NodeServices from "@effect/platform-node/NodeServices"
+import { Executable, Registry } from "@smthrs/registry"
+
+const registry = Executable.layerProject({ root: process.cwd() }).pipe(Layer.provide(NodeServices.layer))
+const flows = Registry.Registry.use((catalog) => catalog.list())
+
+console.log(await Effect.runPromise(flows.pipe(Effect.provide(registry), Effect.orDie)))
+```
+
 ## Descriptor
 
 The serializable values discovery produces. Every one of them is a schema, so a

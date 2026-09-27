@@ -23,6 +23,19 @@ that outlives the frame; the only authority the program holds is
 `ctx.done(output)`, `ctx.park(reason, message)`, or neither, which continues.
 `Sandbox.replTransition` turns that into the transition the journal records.
 
+## Example
+
+```ts
+import * as Cell from "@smthrs/harness/Cell"
+import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
+
+const frame = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+  const realm = yield* (yield* QuickJSSandbox.make).openRealm!({ flows: {} })
+  const call = () => Effect.succeed(new Cell.CallResult({ outcome: "success", value: null }))
+  return yield* realm.evaluate({ cell: Cell.source(`ctx.done("hi")`), frame: 0, call })
+})))
+```
+
 ## Entry points
 
 | Import                           | What it is                                                                                                           |

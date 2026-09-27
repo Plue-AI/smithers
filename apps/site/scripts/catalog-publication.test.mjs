@@ -93,20 +93,25 @@ const treeManifests = () => {
   return manifests
 }
 
-const catalogPath = new URL("../src/content/docs/docs/reference/subpackages.mdx", import.meta.url)
+const catalogPath = new URL("../docs/reference/api/index.mdx", import.meta.url)
 
-test("the shipped subpackages catalog agrees with the release roster", () => {
+test("the API index agrees with the release roster", () => {
   const tree = { manifests: treeManifests(), roster: new Set(publishedPackages) }
   assert.deepEqual(catalogPublicationErrors(readFileSync(catalogPath, "utf8"), tree), [])
 })
 
-test("dropping the chain label and teaching its install reddens the catalog", () => {
+test("a table row names its package like a heading does", () => {
+  assert.deepEqual(catalogPublicationErrors("| [`@smthrs/private-thing`](/docs/reference/api/private-thing/) | What it does |\n", fixture), [
+    "@smthrs/private-thing is not in the release roster; the page heads a section with it without labelling it workspace-private"
+  ])
+})
+
+test("dropping the chain label and teaching its install reddens the API index", () => {
   const tree = { manifests: treeManifests(), roster: new Set(publishedPackages) }
   const page = readFileSync(catalogPath, "utf8")
-  const start = page.indexOf("`@smthrs/chain` is **workspace-private**")
-  const end = page.indexOf("### [@smthrs/model]")
-  assert.ok(start > 0 && end > start, "the catalog labels the chain entry workspace-private")
-  const mutated = `${page.slice(0, start)}\`\`\`bash\nnpm install @smthrs/chain@next\n\`\`\`\n\n${page.slice(end)}`
+  const label = "[`@smthrs/chain`](/docs/reference/api/chain/) **workspace-private**"
+  assert.ok(page.includes(label), "the API index labels the chain row workspace-private")
+  const mutated = `${page.replace(label, "[`@smthrs/chain`](/docs/reference/api/chain/)")}\n\`\`\`bash\nnpm install @smthrs/chain@next\n\`\`\`\n`
   assert.deepEqual(catalogPublicationErrors(mutated, tree), [
     "@smthrs/chain is not in the release roster; the page heads a section with it without labelling it workspace-private",
     "teaches installing @smthrs/chain, which the release roster does not publish"

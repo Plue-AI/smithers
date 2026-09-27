@@ -22,6 +22,18 @@ Addresses are the SHA-256 digests [`@smthrs/crypto`](/docs/reference/api/crypto/
 through the injected `Crypto` service, which with `effect` is the whole
 dependency list.
 
+## Example
+
+```ts
+import { ArtifactStore } from "@smthrs/artifacts"
+
+const program = Effect.gen(function*() {
+  const store = yield* ArtifactStore.ArtifactStore
+  const address = yield* store.put(new TextEncoder().encode("build output"))
+  return yield* store.get(address)
+})
+```
+
 ## ArtifactStore
 
 `@smthrs/artifacts/ArtifactStore`. The contract, its errors, and the three

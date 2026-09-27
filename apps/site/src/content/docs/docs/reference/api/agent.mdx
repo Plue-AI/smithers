@@ -29,6 +29,19 @@ flows, actions, and interpreters, see the
 and the sandbox vocabulary the loop runs on, see the
 [`@smthrs/harness` reference](/docs/reference/api/harness/).
 
+## Example
+
+```ts
+import { AgentAction } from "@smthrs/agent"
+import * as Schema from "effect/Schema"
+const Research = AgentAction.make("docs/Research", {
+  payload: { topic: Schema.String },
+  output: Schema.Struct({ summary: Schema.String }),
+  seat: "anthropic:claude-sonnet-4-5",
+  prompt: ({ topic }) => `Research ${topic}.`
+})
+```
+
 ## Agent
 
 The agent: one service whose `run` executes one whole agent loop and returns

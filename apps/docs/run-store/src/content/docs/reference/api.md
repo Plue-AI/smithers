@@ -24,6 +24,19 @@ effect reads it from context. `RunStore.layer` and `AttemptStore.layer` each
 require a `SqlClient` and a `DurableWriter` from
 [`@smthrs/database`](https://database.smithers.sh/reference/api/).
 
+## Example
+
+```ts
+import { RunStore } from "@smthrs/run-store"
+const owner = { hostId: "worker-1", pid: process.pid, nonce: "9c31-af02" }
+const program = Effect.gen(function*() {
+  const runs = yield* RunStore.RunStore
+  yield* runs.create("build-42", JSON.stringify({ step: "checkout" }))
+  const taken = yield* runs.claimAndOwn("build-42", { status: "pending", owner: null, heartbeatAtMs: null }, owner, Date.now())
+  if (taken._tag === "Activated") yield* runs.transitionOwned("build-42", owner, "completed")
+})
+```
+
 ## Entry points
 
 | Import                                | Source                                                                                                                                  | Platform |

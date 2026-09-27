@@ -15,6 +15,18 @@ import * as SteerPayload from "@smthrs/notifications/SteerPayload"
 Types written below as `Schema` are `effect` schemas; each one exports a value
 and a type of the same name, and the type is the decoded form.
 
+## Example
+
+```ts
+import { NotificationQueue } from "@smthrs/notifications"
+
+const deliver = Effect.gen(function*() {
+  const queue = yield* NotificationQueue.NotificationQueue
+  const receipt = yield* queue.drain({ runId: "run-1", targetLineageId: "run-1/root", boundary: "turn-1", wouldIdle: true })
+  return receipt.notifications
+}).pipe(Effect.provide(NotificationQueue.layer))
+```
+
 ## NotificationQueue
 
 Journal-backed durable admission and turn-boundary drain. Import from

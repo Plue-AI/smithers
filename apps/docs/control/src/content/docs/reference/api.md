@@ -20,6 +20,26 @@ Signatures in this reference use the usual shorthand: `Effect<A, E, R>` for
 `Effect.Effect`, `Stream<A, E>` for `Stream.Stream`, `Layer<A, E, R>` for
 `Layer.Layer`, and `Redacted<A>` for `Redacted.Redacted`.
 
+## Example
+
+```ts
+import { Control } from "@smthrs/control/Control"
+import * as Effect from "effect/Effect"
+
+const program = Effect.gen(function*() {
+  const control = yield* Control
+  const card = yield* control.plan({ flowId: "quickstart/Deploy", input: { build: "v1.4.0" } })
+  yield* control.approve(card.approval)
+  return yield* control.run({
+    _tag: "Plan",
+    planId: card.planId,
+    digest: card.digest,
+    envelope: card.envelope,
+    idempotencyKey: "deploy:v1.4.0"
+  })
+})
+```
+
 ## Control
 
 The transport-independent control vtable. Every implementation in this package

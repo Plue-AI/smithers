@@ -13,6 +13,17 @@ and from `@smthrs/crypto/Identity`.
 import { Digest, digest, digestSync, Identity, Sha256, Sha256Error, Sha256ErrorCode, syncCrypto } from "@smthrs/crypto"
 ```
 
+## Example
+
+```ts
+import { digest, digestSync } from "@smthrs/crypto"
+
+const address = await Effect.runPromise(
+  digest("hello").pipe(Effect.provide(NodeCrypto.layer))
+)
+const sameAddress = digestSync("hello")
+```
+
 ## Hashing
 
 ### digest

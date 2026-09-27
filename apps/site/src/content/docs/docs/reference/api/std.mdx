@@ -29,6 +29,18 @@ For the input and output fields of each flow, see the
 [Flow reference](https://std.smithers.sh/reference/flows/). This page is the module and export
 surface.
 
+## Example
+
+```ts
+import { NodeServices } from "@effect/platform-node"
+import * as Read from "@smthrs/std/Read"
+
+const page = await Effect.runPromise(
+  Effect.provide(Read.run({ path: "./README.md", limit: 20 }), NodeServices.layer)
+)
+console.log(page.content, page.totalLines, page.truncated)
+```
+
 ## The flow modules
 
 Seventeen modules declare a flow. Every one of them exports the same names:

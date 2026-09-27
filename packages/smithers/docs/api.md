@@ -12,6 +12,15 @@ The nested `cli/*`, `evaluation/*`, `history/*`, `operator/*`, and `suggest/*`
 entries in the export map are subpath-only: `@smthrs/cli/<dir>/<Module>`
 resolves and no root namespace does. The package README lists them.
 
+## Example
+
+```bash
+smthrs doctor
+smthrs init hello
+smthrs flow start hello
+smthrs runs list
+```
+
 ## Trust boundaries
 
 Four rules hold across every module below, and each one is a property of the

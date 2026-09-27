@@ -225,7 +225,6 @@
 - [smthrs tui](https://smithers.sh/docs/reference/cli/tui/): Open the terminal coding agent
 - [smthrs update](https://smithers.sh/docs/reference/cli/update/): Check npm for a newer @smthrs/cli
 - [smthrs watch](https://smithers.sh/docs/reference/cli/watch/): Replan and rerun a target graph when workspace files change
-- [Subpackages](https://smithers.sh/docs/reference/subpackages/): Smithers ships as many small packages rather than one. What each one is, a minimal example of using it, and where its documentation lives.
 - [The smthrs command](https://smithers.sh/docs/reference/cli/): Target execution, durable flows, run control, and operator commands in one CLI.
 - [Triggers](https://smithers.sh/docs/reference/triggers/): The trigger declaration, its CLI verbs, scheduler behavior, and fire ledger.
 

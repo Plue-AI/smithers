@@ -15,6 +15,14 @@ function of its JSON, and every list in the JSON is sorted, so two reads of
 the same project differ only in the `generatedAt` timestamp and a reviewer
 sees only what actually changed.
 
+## Example
+
+```bash
+smthrs migrate --scan
+smthrs migrate
+smthrs migrate --apply --seat anthropic:claude-sonnet-4-5
+```
+
 ## Import forms
 
 The root entry point exports the scanner modules, plus `Contract`, `Gate`, and

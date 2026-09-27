@@ -9,6 +9,18 @@ SQL store, the HTTP client for a shared tier, and the composition of the two.
 For the model behind the two tables, see
 [the head and the ledger](./concepts/head-and-ledger.md).
 
+## Example
+
+```ts
+import * as CacheStore from "@smthrs/step-cache/CacheStore"
+import * as TestCacheStore from "@smthrs/step-cache/test/TestCacheStore"
+const cached = Effect.gen(function*() {
+  const cache = yield* CacheStore.CacheStore
+  yield* cache.put({ keyDigest: "compile-v1", result: { bytes: 41_022 }, meta: {}, createdAtMs: Date.now(), recordedRunId: "run-a", recordedEventSeq: 7 })
+  return yield* cache.get("compile-v1")
+}).pipe(Effect.provide(TestCacheStore.layer))
+```
+
 ## Entry points
 
 | Import                                   | Exports                                                                                                 | Platform |

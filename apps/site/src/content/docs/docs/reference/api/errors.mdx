@@ -21,6 +21,19 @@ import { SmithersError } from "@smthrs/errors/SmithersError"
 `@smthrs/errors/package.json` is exported. `@smthrs/errors/internal/*` and
 `@smthrs/errors/*/index` are not.
 
+## Example
+
+```ts
+import { isSmithersError, SmithersError } from "@smthrs/errors"
+
+try {
+  throw new SmithersError("INVALID_INPUT", "maxLength must be between 1 and 4096.", { maxLength: 0 })
+} catch (error) {
+  if (!isSmithersError(error)) throw error
+  console.log(error.code, error.summary, error.details)
+}
+```
+
 ## SmithersError
 
 The error class the integration adapters raise, and the only class in the
