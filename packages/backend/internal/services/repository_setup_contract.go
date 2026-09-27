@@ -144,7 +144,7 @@ func (draft *SetupDraft) validate() error {
 	if draft.ChoreEvent == "" {
 		draft.ChoreEvent = "none"
 	}
-	if draft.Steps == nil || len(draft.Steps) > 30 || draft.Checks == nil || len(draft.Checks) > 50 || draft.Cases == nil || len(draft.Cases) > 100 || !setupOne(draft.Replies, "draft", "automatic") || !setupOne(draft.Landing, "ask", "checks") || !setupOne(draft.Scope, "future", "label") || !setupText(draft.Label, 0, 100) || !setupText(draft.Schedule, 0, 200) || !setupOne(draft.ChoreEvent, "none", "push", "labeled") || draft.BudgetMinutes < 1 || draft.BudgetMinutes > 120 || draft.ConnectIssues == nil || !setupText(draft.TrialTitle, 1, 240) || !setupText(draft.TrialBody, 0, 16000) {
+	if draft.Steps == nil || len(draft.Steps) > 30 || draft.Checks == nil || len(draft.Checks) > 50 || draft.Cases == nil || len(draft.Cases) > 100 || !setupOne(draft.Replies, "draft", "automatic") || !setupOne(draft.Landing, "ask", "checks") || !setupOne(draft.Scope, "future", "label") || !setupText(draft.Label, 0, 100) || !setupText(draft.Schedule, 0, 200) || !setupOne(draft.ChoreEvent, "none", "push", "labeled") || draft.BudgetMinutes < 1 || draft.BudgetMinutes > 360 || draft.ConnectIssues == nil || !setupText(draft.TrialTitle, 1, 240) || !setupText(draft.TrialBody, 0, 16000) {
 		return fmt.Errorf("invalid setup draft")
 	}
 	ids := map[string]bool{}
