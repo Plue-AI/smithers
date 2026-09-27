@@ -30,6 +30,34 @@ const slash = async (page: Page, line: string) => {
   await page.getByTestId("composer-input").press("Escape")
 }
 
+
+/** The words a title breaks across lines (none, ever): each word's range must draw as one rect. */
+const brokenWords = (page: Page) => page.locator(".app-tile-title").evaluateAll((nodes) => nodes.flatMap((node) => {
+  const text = node.firstChild
+  if (!(text instanceof Text)) return []
+  const words: string[] = []
+  for (const match of text.data.matchAll(/\S+/g)) {
+    const range = document.createRange()
+    range.setStart(text, match.index)
+    range.setEnd(text, match.index + match[0].length)
+    if (range.getClientRects().length > 1) words.push(match[0])
+  }
+  return words
+}))
+
+/** The tiles' rows: the top edge of each tile, so a 4-across grid has one row and a 2×2 grid has two. */
+const tileRows = async (page: Page) => {
+  const boxes = await page.getByTestId("app-tile").evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)))
+  return [...new Set(boxes)].length
+}
+
+/** Every drawn picture card sits inside its tile. */
+const clippedPictures = (page: Page) => page.locator(".app-tile").evaluateAll((nodes) => nodes.flatMap((node) => {
+  const tile = node.getBoundingClientRect()
+  return [...node.querySelectorAll(".app-picture-card")].filter((card) => card.getBoundingClientRect().right > tile.right + 0.5)
+    .map((card) => `${node.textContent} ${card.className} ${Math.round(card.getBoundingClientRect().right - tile.right)}px over ${Math.round(tile.width)}`)
+}))
+
 const wikiFixture = async (page: Page) => {
   const bodies: Record<Space, Record<string, string>> = {
     public: { home: "# Home\n\nSee [[Guides/Start#Install|start]].\n\n![[assets/logo.png]]\n\nLater: [[Nowhere]].", start: `# Start\n\nBack to [[Home]].\n${"\nA paragraph.\n".repeat(40)}\n## Install\n\nRun the installer.` },
@@ -176,6 +204,10 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(view.getByTestId("wiki-embed").locator("img")).toHaveAttribute("src", `/api/repos/${repo}/wiki/history/3/1/content?visibility=public`)
   await expect(view.locator('a[href^="#unresolved/"]')).toHaveText("Nowhere")
   await expect(view).not.toContainText("[[")
+  // The home beside the pane reflows to 2×2: no picture clipped, no word broken.
+  expect(await tileRows(page)).toBe(2)
+  expect(await brokenWords(page)).toEqual([])
+  expect(await clippedPictures(page)).toEqual([])
   await expect(pane.locator(".world-document-notice")).toHaveCount(0)
   await expect(page.locator('[data-testid^="card-wiki-open-"]')).toHaveCount(0)
   if (process.env.SMITHERS_WIKI_CAPTURE) {

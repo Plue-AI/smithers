@@ -88,6 +88,8 @@ test("the home is the question, the composer and the apps; opening one gives one
   await expect(page.getByRole("button", { name: "Fix an issue", exact: true })).toBeVisible()
   await expect(tiles.nth(0).locator(".app-tile-title")).toHaveText("Fix an issue")
   await expect(tiles.nth(3).locator(".app-tile-title")).toHaveText("Run it every night")
+  // Four across at full width, one row.
+  expect(new Set(await tiles.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)))).size).toBe(1)
   await expect(page.getByPlaceholder("Ask Smithers…")).toBeVisible()
   // The home replaces the setup checklist, the recommended jobs and the host diagnostic.
   await expect(page.getByTestId("setup-checklist")).toHaveCount(0)

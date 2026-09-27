@@ -9,7 +9,8 @@
  * it is all the transcript holds.
  */
 .app-shell .smithers-transcript .sui-chat-messages:has(.factory-home[data-apps]) { width: min(100%, 1180px); }
-.factory-home[data-apps] { justify-items: center; gap: 32px; padding: 24px 0; }
+/* The home is a container: the grid below reflows on the room it has (a pane beside it narrows it), not on the window. */
+.factory-home[data-apps] { justify-items: center; gap: 32px; padding: 24px 0; container: factory-home / inline-size; }
 .sui-chat-messages > [data-slot="message-scroller-item"]:first-child:last-child .factory-home[data-apps] {
   min-height: calc(100dvh - 180px);
   align-content: center;
@@ -23,9 +24,10 @@
 .app-shell .factory-home-composer .sui-chat-composer-toolbar { min-height: 0; }
 .factory-home-kbd { padding: 3px 7px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-caption); line-height: 1.2; }
 
+/* Four across while every tile keeps 240px, then 2×2, then one column: a tile never squeezes its picture or breaks a word. */
 .factory-home-apps { display: grid; width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
-@media (max-width: 960px) { .factory-home-apps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .factory-home-apps { grid-template-columns: minmax(0, 1fr); } }
+@container factory-home (width < 1032px) { .factory-home-apps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container factory-home (width < 504px) { .factory-home-apps { grid-template-columns: minmax(0, 1fr); } }
 
 .app-tile {
   display: grid;
@@ -44,7 +46,7 @@
 }
 .app-tile:hover, .app-tile:focus-visible { transform: translateY(-2px); border-color: var(--golden-border); box-shadow: var(--shadow-2); }
 .app-tile:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.app-tile-title { display: block; padding: 18px 22px 20px; font-size: 1.125rem; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.app-tile-title { display: block; padding: 18px 22px 20px; font-size: 1.125rem; font-weight: 650; line-height: 1.3; overflow-wrap: normal; }
 
 /* The picture: the app's last result where one exists, otherwise what the app makes, drawn. */
 .app-tile-picture {
@@ -58,6 +60,14 @@
   overflow: hidden;
 }
 .app-picture-card { display: grid; gap: 10px; padding: 16px; border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-1); }
+/* A tile is a container too: below 270px the picture keeps its drawing whole on tighter margins. */
+.app-tile { container-type: inline-size; }
+@container (width < 270px) {
+  .app-tile-picture { padding: 16px 16px 56px; }
+  .app-picture-card { padding: 12px; }
+  .app-picture-flow > span + span { margin-left: 10px; }
+  .app-picture-flow > span + span::before { left: -11px; width: 10px; }
+}
 .app-picture-row { display: flex; align-items: center; gap: 12px; }
 .app-line { display: block; height: 8px; flex: 1; border-radius: 4px; background: var(--border-strong); }
 .app-line[data-ink] { width: 40%; height: 12px; flex: none; background: var(--text); }
