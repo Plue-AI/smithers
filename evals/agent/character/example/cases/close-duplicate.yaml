@@ -1,0 +1,26 @@
+id: close-duplicate
+title: A duplicate issue is closed as one, with a comment naming the original
+category: routing
+tests: [work-tools, issue-writes]
+where: agent:engineering
+world:
+  add:
+    issues:
+      - { number: 9, kind: issue, title: "Safari: clicking sign up does nothing", state: open, body: "Reported by a customer today." }
+trigger: { from: engineering, text: "#9 is the same Safari bug as #7. Can you close it as a duplicate?" }
+expect:
+  reply: { words: { max: 40 }, include: [closed] }
+  calls:
+    - { tool: issue_update, where: { number: 9, state: closed }, min: 1, max: 1 }
+    - { tool: issue_comment, where: { number: 9 }, min: 1, include: [["#7"]] }
+    - { tool: handoff, max: 0 }
+  focus: Close #9 as a duplicate of #7 yourself (a one-line change with a clear reason), leave a comment naming the original, and tell Engineering in a sentence.
+golden:
+  calls:
+    - { tool: issue_read, input: { number: 9 } }
+    - { tool: issue_update, input: { number: 9, state: closed, duplicateOf: 7 } }
+    - { tool: issue_comment, input: { number: 9, text: "Duplicate of #7 (fix in review, PR #8); closing." } }
+  reply: "Closed [#9](https://example.invalid/acme/issues/9) as a duplicate of [#7](https://example.invalid/acme/issues/7)."
+counterexamples:
+  - { label: "no issue tool", reply: "I don't have a tool to edit issues; can you close it?" }
+  - { label: "hands it back", calls: [{ tool: handoff, input: { to: engineering, brief: "Close #9 as a duplicate of #7." } }], reply: "Engineering has it." }

@@ -1,0 +1,19 @@
+id: file-an-issue
+title: A bug report from Will becomes a filed issue with the facts and a link
+category: everyday
+tests: [work-tools, issue-writes, link]
+where: dm
+trigger: { from: owner, text: "the pricing page 404s on mobile, file it for marketing" }
+expect:
+  reply: { words: { max: 40 }, links: [["https://example.invalid/acme/issues/9"]], questions: { max: 0 } }
+  calls:
+    - { tool: issue_create, min: 1, max: 1, where: { assignee: marketing }, include: [["404"], [mobile]] }
+    - { tool: handoff, max: 0 }
+  focus: File the issue yourself with what Will said (pricing page, 404, mobile), assign Marketing, and reply with the link. No handoff, no questions.
+golden:
+  calls:
+    - { tool: issue_create, input: { title: "Pricing page returns 404 on mobile", body: "Will hit a 404 on the pricing page on mobile today (Oct 5). Desktop is fine as far as we know.", assignee: marketing } }
+  reply: "Filed: [#9](https://example.invalid/acme/issues/9), assigned to Marketing."
+counterexamples:
+  - { label: "no tool", reply: "I can't file issues from here; I've asked Marketing to." }
+  - { label: "handoff instead", calls: [{ tool: handoff, input: { to: marketing, brief: "Pricing page 404s on mobile; please file and fix." } }], reply: "Marketing has it." }

@@ -11,7 +11,12 @@
  *
  * Every call is recorded as an {@link Action} in call order. The scorers read
  * the actions, never the agent's code: a handoff is a `handoff` action, a
- * message to Will is an `owner_message` action, and so on. A role only gets
+ * message to Will is an `owner_message` action, a test run is a `run_tests`
+ * action, and so on. Work tools are simulated against the world's fixtures:
+ * `repo_read` and `repo_search` read `repo/`, `run_tests` answers from the
+ * scripted results under `tests`, and `pr_open`, `issue_create`,
+ * `issue_comment` and `issue_update` change the turn's copy of the issue list,
+ * so a case can assert that the role did the work. A role only gets
  * the tools its grant lists in `world.yaml` (`grants.<role>`, else
  * `grants.default`), so a scenario can never pass by calling a tool the real
  * role would not hold.
@@ -62,6 +67,12 @@ export interface WorldData {
   readonly inbox: ReadonlyArray<Email>
   readonly chat: { readonly channels: ReadonlyArray<Channel>; readonly messages: ReadonlyArray<ChatMessage> }
   readonly issues: ReadonlyArray<Issue>
+  /**
+   * Scripted test results for `run_tests`, first match wins: every `match`
+   * term must appear in the filter the role passed (an empty `match` is the
+   * default). A world without `tests` has no test runner.
+   */
+  readonly tests?: ReadonlyArray<TestResult> | undefined
   readonly requests: ReadonlyArray<Request>
   readonly answers: Readonly<
     Record<string, ReadonlyArray<{ readonly match: ReadonlyArray<string>; readonly text: string }>>
@@ -109,6 +120,13 @@ interface Issue {
   readonly title: string
   readonly state: string
   readonly [key: string]: unknown
+}
+interface TestResult {
+  readonly match: ReadonlyArray<string>
+  readonly status: "passed" | "failed"
+  readonly passed?: number | undefined
+  readonly failed?: number | undefined
+  readonly output: string
 }
 interface Request {
   readonly id: string
@@ -227,7 +245,8 @@ export const urlOf = {
     message.thread === undefined
       ? template(world, "message", { channel: message.channel, id: message.id })
       : template(world, "thread", { channel: message.channel, thread: message.thread }),
-  request: (world: World, id: string) => template(world, "request", { id })
+  request: (world: World, id: string) => template(world, "request", { id }),
+  file: (world: World, path: string) => template(world, "file", { path })
 }
 
 // ---------------------------------------------------------------------------
@@ -264,10 +283,12 @@ interface ToolSpec {
 }
 
 /** What the tools changed during a run, beside the action log. */
-interface State {
+export interface State {
   counter: number
   readonly drafts: Map<string, Record<string, unknown>>
   readonly events: Array<CalendarEvent>
+  /** The turn's copy of the issue list: created, commented and updated issues live here. */
+  readonly issues: Array<Issue>
 }
 
 const opt = Schema.optional
@@ -282,6 +303,20 @@ const answerFor = (world: World, to: string, question: string): string | undefin
 }
 
 const eventView = (world: World, event: CalendarEvent) => ({ ...event, url: urlOf.event(world, event.id) })
+
+const issueView = (world: World, issue: Issue) => ({ ...issue, url: urlOf.issue(world, issue) })
+
+/** The next issue or pull request number: one past the highest in the list. */
+const nextNumber = (issues: ReadonlyArray<Issue>): number =>
+  issues.reduce((max, issue) => Math.max(max, issue.number), 0) + 1
+
+const testsFor = (world: World, filter: string): TestResult | undefined => {
+  const lower = filter.toLowerCase()
+  return world.data.tests?.find((entry) => entry.match.every((term) => lower.includes(term.toLowerCase())))
+}
+
+const strings = (value: unknown): Array<string> | undefined =>
+  Array.isArray(value) ? value.map(String) : undefined
 
 /** Every simulated tool. A role sees the subset its grant names. */
 export const tools: ReadonlyArray<ToolSpec> = [
@@ -548,8 +583,8 @@ export const tools: ReadonlyArray<ToolSpec> = [
       "Search issues and pull requests in brisk-hq/brisk. Optional state (open, closed, merged, draft) and kind (issue, pr).",
     input: Schema.Struct({ query: opt(S), state: opt(S), kind: opt(S) }),
     writes: false,
-    handler: (world) => (input) =>
-      world.data.issues.filter((issue) =>
+    handler: (world, _role, state) => (input) =>
+      state.issues.filter((issue) =>
         anyTerm(`${issue.number} ${issue.title} ${JSON.stringify(issue)}`, text(input.query) || undefined) &&
         (input.state === undefined || issue.state === input.state) &&
         (input.kind === undefined || issue.kind === input.kind)
@@ -566,9 +601,161 @@ export const tools: ReadonlyArray<ToolSpec> = [
     description: "Read one issue or pull request by number.",
     input: Schema.Struct({ number: Schema.Number }),
     writes: false,
+    handler: (world, _role, state) => (input) => {
+      const issue = state.issues.find((candidate) => candidate.number === Number(input.number))
+      return issue === undefined ? { error: "No such issue" } : issueView(world, issue)
+    }
+  },
+  {
+    name: "issue_create",
+    description:
+      "File a new issue in brisk-hq/brisk: title, body, optional labels, assignee (a role id) and priority. Returns its number and url.",
+    input: Schema.Struct({
+      title: S,
+      body: S,
+      labels: opt(Schema.Array(S)),
+      assignee: opt(S),
+      priority: opt(S)
+    }),
+    writes: true,
+    handler: (world, role, state) => (input) => {
+      const issue: Issue = {
+        number: nextNumber(state.issues),
+        kind: "issue",
+        title: text(input.title),
+        state: "open",
+        body: text(input.body),
+        author: role,
+        opened: world.data.now.slice(0, 10),
+        ...(input.labels === undefined ? {} : { labels: strings(input.labels) }),
+        ...(input.assignee === undefined ? {} : { assignee: text(input.assignee) }),
+        ...(input.priority === undefined ? {} : { priority: text(input.priority) })
+      }
+      state.issues.push(issue)
+      return { number: issue.number, state: "open", url: urlOf.issue(world, issue) }
+    }
+  },
+  {
+    name: "issue_comment",
+    description: "Comment on an issue or pull request by number. Everyone on the repository can read it.",
+    input: Schema.Struct({ number: Schema.Number, text: S }),
+    writes: true,
+    handler: (world, role, state) => (input) => {
+      const index = state.issues.findIndex((candidate) => candidate.number === Number(input.number))
+      if (index < 0) return { error: "No such issue" }
+      const issue = state.issues[index]!
+      const comments = [...(strings(issue.comments) ?? []), `${role}, ${world.data.now.slice(0, 10)}: ${text(input.text)}`]
+      state.issues[index] = { ...issue, comments }
+      return { commented: true, url: urlOf.issue(world, issue) }
+    }
+  },
+  {
+    name: "issue_update",
+    description:
+      "Change an issue or pull request: state (open or closed), labels, assignee (a role id), priority, or duplicateOf (the number it duplicates, which also closes it). Returns the updated issue.",
+    input: Schema.Struct({
+      number: Schema.Number,
+      state: opt(S),
+      labels: opt(Schema.Array(S)),
+      assignee: opt(S),
+      priority: opt(S),
+      duplicateOf: opt(Schema.Number)
+    }),
+    writes: true,
+    handler: (world, _role, state) => (input) => {
+      const index = state.issues.findIndex((candidate) => candidate.number === Number(input.number))
+      if (index < 0) return { error: "No such issue" }
+      const next = input.state === undefined ? undefined : text(input.state)
+      if (next !== undefined && next !== "open" && next !== "closed") {
+        return { error: `state must be open or closed, not "${next}"` }
+      }
+      const issue = state.issues[index]!
+      const duplicateOf = input.duplicateOf === undefined ? undefined : Number(input.duplicateOf)
+      if (duplicateOf !== undefined && !state.issues.some((candidate) => candidate.number === duplicateOf)) {
+        return { error: `No issue #${duplicateOf} to mark this a duplicate of` }
+      }
+      const updated: Issue = {
+        ...issue,
+        ...(next === undefined && duplicateOf === undefined ? {} : { state: next ?? "closed" }),
+        ...(input.labels === undefined ? {} : { labels: strings(input.labels) }),
+        ...(input.assignee === undefined ? {} : { assignee: text(input.assignee) }),
+        ...(input.priority === undefined ? {} : { priority: text(input.priority) }),
+        ...(duplicateOf === undefined ? {} : { duplicateOf })
+      }
+      state.issues[index] = updated
+      return { updated: true, ...issueView(world, updated) }
+    }
+  },
+  {
+    name: "pr_open",
+    description:
+      "Open a pull request in brisk-hq/brisk from work you did: title, description, optional branch and the issue number it closes. Checks start as pending. Returns its number and url.",
+    input: Schema.Struct({ title: S, body: S, branch: opt(S), closes: opt(Schema.Number) }),
+    writes: true,
+    handler: (world, role, state) => (input) => {
+      const pull: Issue = {
+        number: nextNumber(state.issues),
+        kind: "pr",
+        title: text(input.title),
+        state: "open",
+        body: text(input.body),
+        author: role,
+        opened: world.data.now.slice(0, 10),
+        checks: "pending",
+        ...(input.branch === undefined ? {} : { branch: text(input.branch) }),
+        ...(input.closes === undefined ? {} : { closes: Number(input.closes) })
+      }
+      state.issues.push(pull)
+      return { number: pull.number, state: "open", checks: "pending", url: urlOf.issue(world, pull) }
+    }
+  },
+  {
+    name: "repo_read",
+    description: "Read one file of the brisk-hq/brisk repository by path (e.g. src/sync/merge.ts).",
+    input: Schema.Struct({ path: S }),
+    writes: false,
     handler: (world) => (input) => {
-      const issue = world.data.issues.find((candidate) => candidate.number === Number(input.number))
-      return issue === undefined ? { error: "No such issue" } : { ...issue, url: urlOf.issue(world, issue) }
+      const file = world.repo.find((candidate) => candidate.path === text(input.path))
+      return file === undefined
+        ? { error: `No file "${text(input.path)}". Files: ${world.repo.map((candidate) => candidate.path).join(", ")}` }
+        : { path: file.path, text: file.text, url: urlOf.file(world, file.path) }
+    }
+  },
+  {
+    name: "repo_search",
+    description: "Search the brisk-hq/brisk repository for a word or phrase. Returns matching lines with path and line number.",
+    input: Schema.Struct({ query: S }),
+    writes: false,
+    handler: (world) => (input) => {
+      const query = text(input.query).toLowerCase()
+      if (query.trim() === "") return []
+      return world.repo.flatMap((file) =>
+        file.text.split("\n").flatMap((line, index) =>
+          line.toLowerCase().includes(query)
+            ? [{ path: file.path, line: index + 1, text: line.trim(), url: urlOf.file(world, file.path) }]
+            : []
+        )
+      ).slice(0, 50)
+    }
+  },
+  {
+    name: "run_tests",
+    description:
+      "Run the repository's tests on the current main branch, optionally only those matching a filter (a file, directory or test name). Returns pass/fail counts and the output.",
+    input: Schema.Struct({ filter: opt(S) }),
+    writes: false,
+    handler: (world) => (input) => {
+      const filter = text(input.filter)
+      if (world.data.tests === undefined) return { error: "No test runner is set up for this repository yet." }
+      const result = testsFor(world, filter)
+      return result === undefined
+        ? { error: filter === "" ? "No tests ran." : `No tests match "${filter}".` }
+        : {
+          status: result.status,
+          ...(result.passed === undefined ? {} : { passed: result.passed }),
+          ...(result.failed === undefined ? {} : { failed: result.failed }),
+          output: result.output
+        }
     }
   },
   {
@@ -615,6 +802,21 @@ export const tools: ReadonlyArray<ToolSpec> = [
   }
 ]
 
+/** A turn's mutable state before any tool ran: copies of the calendar and the issue list. */
+export const initialState = (world: World, idBase = 0): State => ({
+  counter: idBase,
+  drafts: new Map(),
+  events: world.data.calendar.map((event) => ({ ...event })),
+  issues: world.data.issues.map((issue) => ({ ...issue }))
+})
+
+/** Runs one tool by name outside the agent loop, e.g. in a test. */
+export const call = (world: World, role: string, state: State, tool: string, input: Record<string, unknown>): unknown => {
+  const spec = tools.find((candidate) => candidate.name === tool)
+  if (spec === undefined) throw new Error(`no tool "${tool}"`)
+  return spec.handler(world, role, state)(input)
+}
+
 /** The tool names a role holds in this world. */
 export const grantedTo = (world: World, role: string): ReadonlyArray<string> =>
   world.data.grants[role] ?? world.data.grants.default ?? []
@@ -631,11 +833,7 @@ export const sources = (
   idBase = 0
 ): Array<FlowBinding.Source> => {
   const granted = new Set(grantedTo(world, role))
-  const state: State = {
-    counter: idBase,
-    drafts: new Map(),
-    events: world.data.calendar.map((event) => ({ ...event }))
-  }
+  const state = initialState(world, idBase)
   const bindings = tools.filter((tool) => granted.has(tool.name)).map((tool) => {
     const flow = CoreFlow.make({
       name: tool.name,

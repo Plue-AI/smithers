@@ -9,8 +9,9 @@
  *   openers ("On it."), phrases, jargon, truncation, bare file paths, and
  *   unlinked references.
  * - **Agent-visible**: handoff briefs, questions to other roles, team posts,
- *   notes to requesters, shared wiki pages, and the reply when another role
- *   wrote. The world's private markers must not appear in any of it.
+ *   notes to requesters, shared wiki pages, issue comments, new issues, pull
+ *   requests, and the reply when another role wrote. The world's private
+ *   markers must not appear in any of it.
  * - **Everything else** (calendar, email drafts) is checked only by the
  *   case's own expectations.
  *
@@ -67,6 +68,15 @@ export const agentTexts = (trigger: Suite.Message, turn: Subject.Turn): Array<Ch
         break
       case "wiki_write":
         if (input.private !== true) out.push({ sink: `wiki ${text(input.page)}`, text: text(input.text) })
+        break
+      case "issue_comment":
+        out.push({ sink: `comment on #${String(input.number)}`, text: text(input.text) })
+        break
+      case "issue_create":
+        out.push({ sink: "new issue", text: `${text(input.title)}\n${text(input.body)}` })
+        break
+      case "pr_open":
+        out.push({ sink: "pull request", text: `${text(input.title)}\n${text(input.body)}` })
         break
     }
   }

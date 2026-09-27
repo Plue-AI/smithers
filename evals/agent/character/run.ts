@@ -144,7 +144,9 @@ const describeActions = (actions: ReadonlyArray<World.Action>): string =>
       "chat_search",
       "notes_read",
       "calendar_list",
-      "calendar_freebusy"
+      "calendar_freebusy",
+      "repo_read",
+      "repo_search"
     ].includes(action.tool)
   )
     .map((action) => {

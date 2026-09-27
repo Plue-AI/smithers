@@ -192,7 +192,7 @@ owner's subscription login (`SMITHERS_OPENAI_AUTH=chatgpt`, the codex login in
 
 | File | What it is |
 | --- | --- |
-| `character/world.ts` | The simulated workplace: `world.yaml`, `wiki/`, `repo/`, and the tools a role may call (chat, handoffs, requests, calendar, email, wiki, issues, web), each recording its calls. |
+| `character/world.ts` | The simulated workplace: `world.yaml`, `wiki/`, `repo/`, and the tools a role may call (chat, handoffs, requests, calendar, email, wiki, issues, web, and the work tools: `repo_read`, `repo_search`, `run_tests`, `pr_open`, `issue_create`, `issue_comment`, `issue_update`), each recording its calls. |
 | `character/profile.ts` | Composes a profile's system segments: the host's turn contract, shared instructions, charter, skills, with byte caps. |
 | `character/event.ts` | Renders the event that starts a turn: time, where it arrived, the conversation so far, the new message. |
 | `character/subject.ts` | Runs one turn through `Agent` on a live subscription seat or a replay seat. |
@@ -208,6 +208,17 @@ A case file holds the world patch, the conversation so far, the trigger (or
 counterexamples. Offline, each counterexample replaces one turn of the golden
 conversation and must make the case fail on its own; a counterexample that
 passes means the case can't see that failure.
+
+Work is simulated against the world's fixtures, so a case can assert that a
+role did it instead of saying it can't: `repo_read` and `repo_search` read
+`repo/`; `run_tests` answers from the world's `tests` list (the first entry
+whose `match` terms all appear in the filter wins, an empty `match` is the
+default, and a world without `tests` has no runner); `pr_open`,
+`issue_create`, `issue_comment` and `issue_update` (state, labels, assignee,
+priority, `duplicateOf`) change the turn's copy of the issue list, which
+`issues_search` and `issue_read` then see. A world grants them per role like
+any other tool. A case patch applies `set`, then `remove`, then `add`, then
+`pages`, so removing and re-adding an issue replaces it.
 
 Limits: the world's tools are simulations, so a live pass shows how the
 profile behaves against this world, not that real integrations work. The
