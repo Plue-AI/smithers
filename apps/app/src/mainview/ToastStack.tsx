@@ -5,6 +5,10 @@ import { workerToastActions } from "./WorkerToastActions"
 import type { Card, Toast } from "./state/AppState"
 import { bindToastShortcut, ToastActionButton, type ToastAction } from "./ToastAction"
 import { flowProps } from "./flows/FlowAction"
+import { frameMs } from "@smthrs/rpc/SubagentCard"
+import { live } from "@smthrs/rpc/WorkerControls"
+import { useClock } from "@smthrs/ui/clock"
+import { subagentOf, toastOf } from "./state/Subagents"
 
 /*
  * The one shared toast surface (the 300ms law): a corner stack over the chat,
@@ -26,11 +30,19 @@ export function ToastStack({
   readonly onDismiss: (id: string) => void
   readonly onAction: (action: ToastAction) => void
 }) {
+  // A worker's toast says what its subagent card says (#2162): glyph, title, clock.
+  const workers = new Map(toasts.flatMap(toast => {
+    const subagent = subagentOf(cards.find(card => card.id === toast.sourceCard))
+    return subagent === undefined ? [] : [[toast.id, subagent] as const]
+  }))
+  const now = useClock([...workers.values()].some(subagent => live(subagent.status)), frameMs)
   if (toasts.length === 0) return null
   return (
     <ModalPopover className="toast-stack" label="Notifications" onMount={bindToastShortcut}>
-      {[...toasts].sort((a, b) => b.createdAt - a.createdAt).map((toast) => (
-        <Alert
+      {[...toasts].sort((a, b) => b.createdAt - a.createdAt).map((toast) => {
+        const worker = workers.get(toast.id)
+        const line = worker === undefined ? undefined : toastOf(worker, now)
+        return <Alert
           key={toast.id}
           className="toast"
           data-toast-status={toast.status}
@@ -43,12 +55,13 @@ export function ToastStack({
            */
           role={toast.status === "failed" ? "alert" : "status"}
         >
-          {toast.status === "running" ? <Spinner size="sm" className="toast-icon" aria-label="Working" />
+          {line !== undefined ? <span className="toast-icon subagent-glyph" data-tone={line.tone} aria-hidden="true">{line.glyph}</span>
+            : toast.status === "running" ? <Spinner size="sm" className="toast-icon" aria-label="Working" />
             : toast.status === "cancelled" ? <Square size={17} className="toast-icon" aria-hidden="true" />
             : toast.status === "ok" ? <Check size={17} className="toast-icon" aria-hidden="true" />
             : <X size={17} className="toast-icon" aria-hidden="true" />}
           <div className="toast-body">
-            <AlertTitle className="toast-title">{toast.title}</AlertTitle>
+            <AlertTitle className="toast-title">{line?.text ?? toast.title}</AlertTitle>
             {toast.detail !== "" ? <AlertDescription className="toast-detail">{toast.detail}</AlertDescription> : null}
             <ToastActionButton toast={toast} onAction={action => { if (toast.status !== "running") onDismiss(toast.id); onAction(action) }} />
             <div className="toast-worker-actions">
@@ -72,7 +85,7 @@ export function ToastStack({
             ) :
             null}
         </Alert>
-      ))}
+      })}
     </ModalPopover>
   )
 }

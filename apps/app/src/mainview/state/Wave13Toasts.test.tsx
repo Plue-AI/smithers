@@ -63,6 +63,9 @@ describe("wave 13 B-6 — a notification is a status, never an alert", () => {
       onAction: action => actions.push(action)
     })
     expect(host.querySelector('[data-flow="runs.seat"]')).toBeNull()
+    // The worker's line is its subagent card's: the turning glyph, the title, the clock.
+    expect(host.querySelector(".toast-icon")?.textContent).toMatch(/^[◐◓◑◒]$/)
+    expect(host.querySelector(".toast-title")?.textContent).toMatch(/^Review · \d+[smh]/)
     const steer = host.querySelector<HTMLButtonElement>('[data-flow="runs.steer"]')!
     expect(steer.getAttribute("data-flow-args")).toBe("sourceCard=card-run run-1")
     steer.click()
