@@ -1077,7 +1077,8 @@ func (d dependencyLayer) script() string {
 exec 3>&1 4>&2 >>/var/tmp/layer.log 2>&1
 trap 'tail -60 /var/tmp/layer.log >&4' ERR
 set -a; eval "$(python3 -c 'import json,shlex; [print(k+"="+shlex.quote(v)) for k,v in json.load(open("/opt/smithers/env.json")).items()]')"; set +a
-cd %s/prepare/src
+mkdir -p %[1]s/prepare/src
+cd %[1]s/prepare/src
 `, cacheRoot)
 	if d.has("Install") {
 		// The offline install proves the store is complete for the lockfile

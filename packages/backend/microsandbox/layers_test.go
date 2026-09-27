@@ -42,6 +42,7 @@ func TestToolchainRecipeReadsRepositoryPins(t *testing.T) {
 
 // A layer key follows the graph: a change to an install node's declared
 // input changes the dependency key; an unrelated file does not.
+
 func TestDependencyKeyFollowsDeclaredInputs(t *testing.T) {
 	index := `[{"label":"//:nodeModules","rule":"Install","inputs":[{"kind":"pnpm-workspace","path":"pnpm-workspace.yaml"},{"kind":"file","path":"pnpm-lock.yaml"}]},
 	{"label":"//:backendGoModules","rule":"Go.ModDownload","inputs":[{"kind":"file","path":"go.mod"},{"kind":"file","path":"go.sum"}]},
@@ -66,6 +67,15 @@ func TestDependencyKeyFollowsDeclaredInputs(t *testing.T) {
 	require.Equal(t, []string{"1.62.1"}, recipe.Playwright)
 	require.Equal(t, []string{"pnpm", "install", "--offline", "--frozen-lockfile"}, recipe.link())
 	require.Len(t, recipe.Nodes, 2)
+}
+
+// A repository with no install inputs plants nothing, so the layer script
+// makes its own working directory instead of failing on `cd`.
+func TestDependencyScriptWithoutInputsHasItsDirectory(t *testing.T) {
+	recipe, inputs, err := dependencyRecipe("toolchain", fakeRepository(map[string]string{"README.md": "notes"}))
+	require.NoError(t, err)
+	require.Empty(t, inputs)
+	require.Contains(t, recipe.script(), "mkdir -p "+cacheRoot+"/prepare/src\ncd "+cacheRoot+"/prepare/src")
 }
 
 func TestLockImportersAndToolNodes(t *testing.T) {
