@@ -1,5 +1,5 @@
 {
-  "description": "Smithers is an orchestration agent, primarily used to orchestrate maintaining a codebase, but it can be used for orchestration in general. Agents plan, run, and review changes through flows declared beside the code.",
+  "description": "Smithers maintains your codebase. It turns issues into reviewed, tested changes and keeps the project wiki current. Flows beside your code define how.",
   "support": {
     "requiredPlatform": "The release candidate's required package platform is Linux with Node 26.4.0.",
     "advisoryPlatforms": "macOS and Windows package checks are advisory and do not establish a support guarantee.",
