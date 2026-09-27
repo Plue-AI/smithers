@@ -112,7 +112,7 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 		nil, nil,
 		nil, nil, nil,
 		nil, nil, nil,
-		&routes.RepoGatewayHandler{},
+		&routes.RepositoryJobHandler{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
 	serve := func(bearer, method, path, body string) *httptest.ResponseRecorder {

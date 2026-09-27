@@ -1716,7 +1716,7 @@ func TestReceivePackFailsWhenImportRefsFails(t *testing.T) {
 
 func TestReceivePackPushHooksUseAcceptedRefDiff(t *testing.T) {
 	t.Setenv("GIT_STUB_STATE_FILE", filepath.Join(t.TempDir(), "receive-pack-state"))
-	installGitStub(t, "#!/bin/sh\nset -eu\nif [ \"$#\" -ge 4 ] && [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"for-each-ref\" ]; then\n  if [ -f \"$GIT_STUB_STATE_FILE\" ]; then\n    printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'\n    printf 'refs/heads/release\\000cccccccccccccccccccccccccccccccccccccccc\\n'\n  else\n    printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'\n  fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then\n  cat >/dev/null\n  : > \"$GIT_STUB_STATE_FILE\"\n  printf 'receive-pack-response'\n  exit 0\nfi\necho \"unexpected git invocation: $*\" >&2\nexit 1\n")
+	installGitStub(t, "#!/bin/sh\nset -eu\nif [ \"$#\" -ge 4 ] && [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"for-each-ref\" ]; then\n  if [ -f \"$GIT_STUB_STATE_FILE\" ]; then\n    printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'\n    printf 'refs/heads/release\\000cccccccccccccccccccccccccccccccccccccccc\\n'\n  else\n    printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'\n  fi\n  exit 0\nfi\nif [ \"$#\" -ge 3 ] && [ \"$3\" = \"merge-base\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then\n  cat >/dev/null\n  : > \"$GIT_STUB_STATE_FILE\"\n  printf 'receive-pack-response'\n  exit 0\nfi\necho \"unexpected git invocation: $*\" >&2\nexit 1\n")
 
 	type callbackRequest struct {
 		Auth    string

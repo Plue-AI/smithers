@@ -294,32 +294,34 @@ func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands 
 // refuseDefaultBookmarkRewind refuses a published push that deleted the
 // default bookmark or moved it to a commit that does not descend from its old
 // one: main is append-only. It runs after git applied the refs, when the new
-// objects exist, and fails closed on a default it cannot read. The GitHub
-// sync credential is exempt: it copies GitHub's refs as they are.
+// objects exist. Only a bookmark the push deleted or moved backwards needs
+// the default, and a default that cannot be read then refuses the push. The
+// GitHub sync credential is exempt: it copies GitHub's refs as they are.
 func refuseDefaultBookmarkRewind(ctx context.Context, gitDir string, before, after map[string]string) error {
-	defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
-	if err != nil {
-		return forbidden("the push is refused: the default bookmark cannot be read")
+	for ref, old := range before {
+		current := after[ref]
+		if current == old || !strings.HasPrefix(ref, "refs/heads/") {
+			continue
+		}
+		if current != "" {
+			err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "merge-base", "--is-ancestor", old, current).Run()
+			var exit *exec.ExitError
+			if err == nil {
+				continue
+			}
+			if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+				return internalError("failed to compare bookmark history", err)
+			}
+		}
+		defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
+		if err != nil {
+			return forbidden("the push is refused: the default bookmark cannot be read")
+		}
+		if ref == "refs/heads/"+defaultBookmark {
+			return forbidden("the default bookmark only moves forward; its history is never rewritten")
+		}
 	}
-	ref := "refs/heads/" + defaultBookmark
-	old, existed := before[ref]
-	current := after[ref]
-	if !existed || current == old {
-		return nil
-	}
-	if current == "" {
-		return forbidden("the default bookmark cannot be deleted")
-	}
-	err = exec.CommandContext(ctx, "git", "--git-dir", gitDir, "merge-base", "--is-ancestor", old, current).Run()
-	var exit *exec.ExitError
-	switch {
-	case err == nil:
-		return nil
-	case errors.As(err, &exit) && exit.ExitCode() == 1:
-		return forbidden("the default bookmark only moves forward; its history is never rewritten")
-	default:
-		return internalError("failed to compare default bookmark history", err)
-	}
+	return nil
 }
 
 // setGitDefaultBookmark updates the bare repository's HEAD symref. Git permits
