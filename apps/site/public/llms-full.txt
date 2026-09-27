@@ -1733,7 +1733,7 @@ The wiki holds what people and agents know about the project. Every edit is a re
 
 **Factory** in the pane lists the repository's wiki and environment files.
 
-![The Wiki pane open beside the conversation, showing the World note.](/images/app/wiki.png)
+![The Wiki pane open beside the conversation, showing a note.](/images/app/wiki.png)
 
 The Wiki pane.
 

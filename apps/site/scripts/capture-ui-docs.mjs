@@ -56,10 +56,6 @@ const screens = {
   slash: async (page) => {
     await page.getByTestId("composer-input").fill("/review")
     await page.getByRole("listbox", { name: "Search palette" }).waitFor()
-  },
-  factory: async (page) => {
-    await send(page, "/factory.show")
-    await page.getByTestId("factory-infra").waitFor()
   }
 }
 try {
