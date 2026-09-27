@@ -22,7 +22,7 @@ The name is one path segment of letters, digits, `-`, and `_`; omit it to defaul
 
 To add another flow, use `smthrs generate flow <name>`. `smthrs init` also initializes workspace and target declarations; use it when setting up a new workspace.
 
-The scaffold's `model:` line comes from the first provider credential the environment sets, in the order `smthrs doctor` reports them: `ANTHROPIC_API_KEY` resolves `anthropic:claude-sonnet-4-5`, `OPENAI_API_KEY` resolves `openai:gpt-6-sol`, and `OPENROUTER_API_KEY` resolves `openrouter:anthropic/claude-sonnet-4.5`. Moonshot, Gemini (including `GOOGLE_API_KEY`), and Cerebras follow; the [init reference](/docs/reference/cli/init/) lists every default. With no credential set, the scaffold still declares the default and a frontmatter comment names the key to set, because a flow without a `model:` line is not launchable at all.
+The scaffold's `model:` line comes from the first provider credential the environment sets; see [Configure model seats](/docs/guides/model-seats/).
 
 ## 2. Set the frontmatter
 

@@ -7,11 +7,9 @@ sidebar:
 
 import { CardGrid, LinkCard } from "@astrojs/starlight/components"
 
-In this tutorial you'll build a two-step research-then-write flow. The first step's answer must decode against a schema you declare, and the second reads its typed fields. You will run the chain in memory, then persist it over SQLite. It takes about 15 minutes and needs no provider key: the model responses and evidence-based completion judge are scripted.
+In this tutorial you'll build a two-step research-then-write flow. The first step's answer must decode against a schema you declare, and the second reads its typed fields. You will run the chain in memory, then persist it over SQLite. The model responses and completion judge are scripted, so it needs no provider key.
 
 A declared `output` schema is rendered into the step's system teaching as JSON Schema. The model's final answer is decoded against it, with one correction re-prompt before the step fails. [Agent runtime](/docs/concepts/agent-runtime/) explains the loop.
-
-The offline host explicitly binds `ScriptedJudge.layer`, which reads completion evidence and rejects unrecorded command claims. A live host selects `Evaluator.layerFromEnvironment(process.env, "my host")` before opening resources, or deliberately scripts every classifier it uses. A missing gateway key now prevents that host from booting.
 
 ## Before you begin
 

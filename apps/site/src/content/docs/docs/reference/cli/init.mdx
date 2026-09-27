@@ -16,16 +16,7 @@ smthrs init [name] [--root <directory>]
 
 `smthrs init` creates a `WORKSPACE.ts`, a starter `PACKAGE.ts`, a Markdown flow at `flows/<name>/flow.mdx`, and the `.flows/` state directory. A missing `package.json` is scaffolded with a Node/Pnpm toolchain; an existing supported Yarn, Bun, or Pnpm declaration is reused. Existing declarations and flows are preserved; an existing `.smithers/WORKSPACE.ts` also counts as the workspace declaration. In a git or jj repository it adds `.flows/` to `.gitignore`. Use `--root` to choose the directory and `generate flow <name>` to add another flow later. Seats resolve from provider configuration; the old `init --global` flag remains unsupported.
 
-The scaffolded flow declares a `model:` seat chosen from the first provider credential the environment sets, in the order `smthrs doctor` reports them:
-
-- `ANTHROPIC_API_KEY` resolves `anthropic:claude-sonnet-4-5`.
-- `OPENAI_API_KEY` resolves `openai:gpt-6-sol`. The ChatGPT session `SMITHERS_OPENAI_AUTH=chatgpt` resolves the same seat.
-- `OPENROUTER_API_KEY` resolves `openrouter:anthropic/claude-sonnet-4.5`.
-- `MOONSHOT_API_KEY` resolves `moonshot:kimi-k3`.
-- `GEMINI_API_KEY`, then `GOOGLE_API_KEY`, resolves `gemini:gemini-2.5-pro`.
-- `CEREBRAS_API_KEY` resolves `cerebras:qwen-3.8-27b`.
-
-With no credential set, the scaffold still declares the default (`anthropic:claude-sonnet-4-5`), and the frontmatter comment names the key to set. A scaffold without a `model:` line would not be launchable at all.
+The scaffolded flow's `model:` seat comes from the first provider credential the environment sets; see [Configure model seats](/docs/guides/model-seats/#starter-seats).
 
 The starter requests `fs:read:**`, `fs:write:**`, and `proc:spawn:*` for its file-editing and test-running instructions. Narrow these capabilities before running a smaller task; process spawning permits shell commands. Its directory supplies the flow name, so the frontmatter contains no ignored `name:` key.
 

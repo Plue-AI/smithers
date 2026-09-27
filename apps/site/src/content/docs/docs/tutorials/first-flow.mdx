@@ -9,22 +9,13 @@ import { CardGrid, LinkCard } from "@astrojs/starlight/components"
 
 In this tutorial you'll build the smallest complete Smithers program: one action, one flow that names it, an implementation attached as a layer, and two runs of that flow, first on the in-memory engine and then on the durable engine over a SQLite journal.
 
-Time: about 20 minutes. You need Node.js and pnpm.
-
 ## Before you begin
 
-- You have Node.js 26.4.0 or later. The durable engine runs on Node only.
-- You have pnpm for installing packages.
-- The [CLI quickstart](/docs/cli-quickstart/) is a useful warm-up, but this tutorial starts from an empty directory.
+- Node.js 26.4.0 or later.
 
 ## 1. Set up the project
 
 Create a `first-flow` directory and link the libraries into it as described in [Installation](/docs/installation/#use-the-libraries). Every program here runs with `node <file>.ts`.
-
-```text
-You should see: pnpm writes a package.json and a lockfile and installs the
-packages into node_modules. Nothing from Smithers has run yet.
-```
 
 ## 2. Declare the action
 

@@ -53,18 +53,40 @@ The string holds no credential, endpoint, or client. At launch the CLI's seat re
 
 | Seat prefix | Credential the resolver reads | Route it builds |
 | --- | --- | --- |
-| `anthropic:` | `ANTHROPIC_API_KEY` | Anthropic Messages at `https://api.anthropic.com/v1/messages` |
+| `anthropic:` | `ANTHROPIC_API_KEY`, then the Claude subscription tokens `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` | Anthropic Messages at `https://api.anthropic.com/v1/messages` |
 | `openai:` | `OPENAI_API_KEY`, or the ChatGPT session (step 3) | OpenAI Responses at `https://api.openai.com/v1/responses` |
 | `openrouter:` | `OPENROUTER_API_KEY` | OpenRouter through its configured model route. |
 | `moonshot:` | `MOONSHOT_API_KEY` | OpenAI-compatible Chat Completions at Moonshot. |
 | `gemini:` | `GEMINI_API_KEY`, then `GOOGLE_API_KEY` | Gemini's OpenAI-compatible Chat Completions endpoint. |
 | `cerebras:` | `CEREBRAS_API_KEY` | OpenAI-compatible Chat Completions at Cerebras. |
 
-OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider.
+OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider. A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY`, `SMITHERS_ACCOUNT_POOL_PROVIDERS`) signs `anthropic:` and `openai:` seats ahead of these credentials.
 
-:::note
-`smthrs init` writes the scaffold's `model:` line from the first provider credential your environment sets, in the order `smthrs doctor` reports them: `ANTHROPIC_API_KEY` gives `anthropic:claude-sonnet-4-5`, `OPENAI_API_KEY` gives `openai:gpt-6-sol`, and `OPENROUTER_API_KEY` gives `openrouter:anthropic/claude-sonnet-4.5`. Moonshot, Gemini, and Cerebras follow. See the [init reference](/docs/reference/cli/init/) for the full order.
-:::
+These aliases expand to a full seat; the run records the alias:
+
+| Alias | Seat |
+| --- | --- |
+| `sol` | `openai:gpt-6-sol` |
+| `astra` | `openai:gpt-6-astra` |
+| `luna` | `openai:gpt-6-luna` |
+| `opus` | `anthropic:claude-opus-5-5` |
+| `fable` | `anthropic:claude-fable-5-1` |
+| `qwen` | `cerebras:qwen-3.8-27b` |
+
+`jev` is the decision seat; it answers classifier questions and cannot run an agent turn.
+
+### Starter seats
+
+`smthrs init` writes the scaffold's `model:` line from the first provider credential the environment sets, in the order `smthrs doctor` reports them:
+
+- `ANTHROPIC_API_KEY` resolves `anthropic:claude-sonnet-4-5`.
+- `OPENAI_API_KEY` resolves `openai:gpt-6-sol`. The ChatGPT session `SMITHERS_OPENAI_AUTH=chatgpt` resolves the same seat.
+- `OPENROUTER_API_KEY` resolves `openrouter:anthropic/claude-sonnet-4.5`.
+- `MOONSHOT_API_KEY` resolves `moonshot:kimi-k3`.
+- `GEMINI_API_KEY`, then `GOOGLE_API_KEY`, resolves `gemini:gemini-2.5-pro`.
+- `CEREBRAS_API_KEY` resolves `cerebras:qwen-3.8-27b`.
+
+With no credential set, the scaffold still declares the default (`anthropic:claude-sonnet-4-5`), and the frontmatter comment names the key to set. A scaffold without a `model:` line would not be launchable at all.
 
 [Agent runtime](/docs/concepts/agent-runtime/) explains the two halves of a seat and what `SeatResolver` does with them.
 
