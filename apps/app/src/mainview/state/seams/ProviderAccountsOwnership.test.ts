@@ -72,3 +72,78 @@ test("an older available list cannot reopen a newer gated pool", async () => {
   try { expect(await old).toEqual({ value: "" }); expect(t.card()).toEqual(current) }
   finally { await t.dispose() }
 })
+
+const backgroundRefresh = async (t: Awaited<ReturnType<typeof fixture>>, response: Promise<Response>) => {
+  let calls = 0
+  const started = Promise.withResolvers<void>()
+  t.setFetch(async () => {
+    if (++calls === 1) return new Response(null, { status: 204 })
+    started.resolve()
+    return response
+  })
+  expect(await t.seam.revokeCodingProvider(active.id)).toEqual({ value: "Requested" })
+  await started.promise
+  await Promise.all(t.work)
+}
+const drain = () => new Promise(resolve => setTimeout(resolve, 20))
+for (const outcome of ["available", "http-error", "network-error", "malformed"] as const) {
+  test(`an older ${outcome} background refresh cannot reopen a newer gated pool`, async () => {
+    const t = await fixture(), held = Promise.withResolvers<Response>()
+    await t.seam.listCodingProviders()
+    await backgroundRefresh(t, held.promise)
+    t.setFetch(async () => Response.json({ message: "feature not available" }, { status: 403 }))
+    await t.seam.listCodingProviders()
+    const current = t.card()
+    try {
+      if (outcome === "network-error") held.reject(new Error("offline"))
+      else held.resolve(outcome === "available" ? Response.json([active]) : outcome === "http-error" ? new Response(null, { status: 503 }) : Response.json({ invalid: true }))
+      await drain()
+      expect(t.card()).toEqual(current)
+    } finally { await t.dispose() }
+  })
+}
+
+test("a background feature gate withdraws the pool and a newer successful refresh restores it", async () => {
+  const t = await fixture()
+  try {
+    await t.seam.listCodingProviders()
+    await backgroundRefresh(t, Promise.resolve(Response.json({ message: "feature not available" }, { status: 403 })))
+    await drain()
+    expect(t.card()?.payload).toEqual({ accounts: [], unavailable: true })
+    await backgroundRefresh(t, Promise.resolve(Response.json([active])))
+    await drain()
+    expect(t.card()?.payload).toMatchObject({ accounts: [{ id: active.id }] })
+    expect(t.card()?.payload).not.toHaveProperty("unavailable")
+  } finally { await t.dispose() }
+})
+
+test("an older background feature gate cannot withdraw a newer available pool", async () => {
+  const t = await fixture(), gate = delayedGate()
+  try {
+    await t.seam.listCodingProviders()
+    await backgroundRefresh(t, Promise.resolve(gate.response))
+    await gate.parsed
+    t.setFetch(async () => Response.json([active]))
+    await t.seam.listCodingProviders()
+    const current = t.card()
+    gate.release()
+    await drain()
+    expect(t.card()).toEqual(current)
+  } finally { await t.dispose() }
+})
+
+test("failed background reads retain the last available accounts", async () => {
+  const t = await fixture()
+  try {
+    await t.seam.listCodingProviders()
+    const current = t.card()
+    for (const result of ["http-error", "network-error", "malformed"] as const) {
+      const held = Promise.withResolvers<Response>()
+      await backgroundRefresh(t, held.promise)
+      if (result === "network-error") held.reject(new Error("offline"))
+      else held.resolve(result === "http-error" ? new Response(null, { status: 503 }) : Response.json({ invalid: true }))
+      await drain()
+      expect(t.card()).toEqual(current)
+    }
+  } finally { await t.dispose() }
+})

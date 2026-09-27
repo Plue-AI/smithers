@@ -174,7 +174,11 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       id: ACCOUNTS_CARD, kind: "provider-accounts", title: "Accounts", status: "active", loading: false,
       createdAt: previous?.createdAt ?? Date.now(),
       ordinal: surface || !previous ? ctx.nextOrdinal() : previous.ordinal,
-      payload: { accounts: rows ? withPendingOrders(accountsOf(rows)) : previous?.payload.accounts ?? [], ...(code ? { pending: code } : {}) }
+      payload: {
+        accounts: rows ? withPendingOrders(accountsOf(rows)) : previous?.payload.accounts ?? [],
+        ...(!rows && previous?.payload.unavailable ? { unavailable: true } : {}),
+        ...(code ? { pending: code } : {})
+      }
     }
     ctx.dispatch({ type: "card.upsert", actor: "system", card })
   }
@@ -207,15 +211,17 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     } }
   }
   /** Re-read the pool into the card; a failed read keeps the rows the card had. */
-  const refresh = async (current: () => boolean, pending?: PendingCode | null, surface = false): Promise<void> => {
-    if (!surface && !accountsCard()) return
-    let rows: Connection[] | undefined
+  const refresh = async (current: () => boolean): Promise<void> => {
+    if (!accountsCard()) return
     try {
       const read = await readPool()
       if (!current()) return
-      rows = read.rows && read.fresh() ? read.rows : undefined
-    } catch { rows = undefined }
-    if (current()) publish(rows, pending, surface)
+      const gated = await featureGated(read.response)
+      if (!current()) return
+      if (gated) {
+        if (read.fresh()) withdraw(false)
+      } else if (read.rows && read.fresh()) publish(read.rows, undefined, false)
+    } catch { /* A failed refresh leaves the last authoritative card intact. */ }
   }
   /*
    * Poll one Codex device sign-in at the server's interval until it settles.

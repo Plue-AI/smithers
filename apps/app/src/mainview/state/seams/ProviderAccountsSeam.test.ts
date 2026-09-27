@@ -168,6 +168,29 @@ test("an expired or failed Codex sign-in fails its toast and clears the code", a
   }
 })
 
+test("settling Codex clears its code without reopening an unavailable pool after a failed refresh", async () => {
+  const wait = deferred<void>()
+  let gated = false
+  const h = harness({ sleep: () => wait.promise, http: async call => {
+    if (call.path.endsWith("/codex/device")) return Response.json(device("pending"))
+    if (call.path.includes("/codex/device/")) return Response.json(device("connected"))
+    return gated ? Response.json({ message: "feature not available" }, { status: 403 }) : Response.json(POOL)
+  } })
+  await h.seam.connectCodex()
+  for (let index = 0; index < 5; index += 1) await tick()
+  expect(h.accounts()?.pending).toBeDefined()
+  gated = true
+  await h.seam.listCodingProviders()
+  expect(h.accounts()).toEqual({ accounts: [], unavailable: true })
+  const updates: unknown[] = []
+  h.onCard(payload => updates.push(payload))
+  wait.resolve()
+  expect(await h.work[0]).toBe(true)
+  for (let index = 0; index < 5; index += 1) await tick()
+  expect(updates.length).toBeGreaterThan(0)
+  for (const payload of updates) expect(payload).toEqual({ accounts: [], unavailable: true })
+})
+
 test("a refused start fails without polling, and a transient poll refusal waits for the next interval", async () => {
   const refused = harness({ http: async () => new Response(null, { status: 403 }) })
   await refused.seam.connectCodex()

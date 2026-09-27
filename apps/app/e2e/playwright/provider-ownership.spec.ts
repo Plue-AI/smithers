@@ -53,3 +53,56 @@ test("an old unavailable response cannot clear the next account's coding connect
     await page.evaluate(() => (window as any).providerGateProbe?.release()).catch(() => {})
   }
 })
+
+
+test("an old background refresh cannot reopen unavailable coding connections", async ({ page }) => {
+  await signedOutVisitor(page)
+  await page.route("**/api/auth/session", route => route.fulfill({ json: SCOPED_TEST_USER }))
+  let reads = 0
+  await page.route("**/api/user/provider-connections", route => {
+    reads += 1
+    if (reads > 2) return route.fulfill({ status: 403, json: { message: "feature not available" } })
+    return route.fulfill({ json: [{ id: "current", provider: "claude", label: reads === 2 ? "Held refresh" : "Current account", state: "active" }] })
+  })
+  await page.route("**/api/user/provider-connections/current", route => route.fulfill({ status: 204 }))
+  // Only the fixture response is delayed; revocation never reaches a provider.
+  await page.addInitScript(() => {
+    const json = Response.prototype.json
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    const probe = { started: false, finished: false, release }
+    ;(window as any).providerRefreshProbe = probe
+    Response.prototype.json = async function() {
+      const body = await json.call(this)
+      if (Array.isArray(body) && body[0]?.label === "Held refresh") {
+        probe.started = true
+        await held
+        setTimeout(() => { probe.finished = true }, 0)
+      }
+      return body
+    }
+  })
+  const command = async (line: string) => {
+    await page.getByRole("button", { name: "Chat", exact: true }).click()
+    const input = page.getByTestId("composer-input")
+    await input.fill(line)
+    await input.press("Enter")
+  }
+  try {
+    await page.goto("/smithersai/smithers/")
+    await skipSignup(page)
+    await command("/secrets.connections")
+    await expect(page.getByTestId("account-current")).toBeVisible()
+    await command("/secrets.revoke current")
+    await expect.poll(() => page.evaluate(() => (window as any).providerRefreshProbe.started)).toBe(true)
+    await command("/secrets.connections")
+    const card = page.getByTestId("card-provider-accounts")
+    await expect(card.getByRole("button", { name: "Add Claude", exact: true })).toHaveCount(0)
+    await page.evaluate(() => (window as any).providerRefreshProbe.release())
+    await expect.poll(() => page.evaluate(() => (window as any).providerRefreshProbe.finished)).toBe(true)
+    await expect(card.getByRole("button", { name: "Add Claude", exact: true })).toHaveCount(0)
+    await expect(page.getByTestId("account-current")).toHaveCount(0)
+  } finally {
+    await page.evaluate(() => (window as any).providerRefreshProbe?.release()).catch(() => {})
+  }
+})
