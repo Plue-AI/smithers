@@ -253,9 +253,11 @@ describe("durable command intent at the active shared door", () => {
   test("HTTP tool calls carry stable turn/call identity through executeForAgent", async () => {
     const store = await open()
     await store.dispatch({ type: "message.submitted", actor: "user", turnId: "http-turn", text: "read" }).isPersisted.promise
-    const controller = controllerFor(store)
-    const call = { name: "commands", arguments: JSON.stringify({ action: "execute", name: "repo.update", args: "practice:smithersai/hello-server" }), httpCall: { turnId: "http-turn", callId: "tool-1" } }
+    const http = repositoryHttpFixture()
+    const controller = controllerFor(store, { fetchImpl: (url, init) => http(String(url), init) })
+    const call = { name: "commands", arguments: JSON.stringify({ action: "execute", name: "repo.update", args: "owner/repo" }), httpCall: { turnId: "http-turn", callId: "tool-1" } }
     expect(await controller.commands.executeForAgent(call)).not.toContain("failed:")
+    expect([...store.collections.repositoryContexts.values()][0]?.data.repo).toBe("owner/repo")
     expect(await controller.commands.executeForAgent(call)).toContain("saved outcome")
     expect([...store.collections.commandIntents.values()].filter(row => row.name === "repo.update")).toMatchObject([{ actor: "smithers", status: "settled", invocationKey: expect.any(String) }])
     await store.dispatch({ type: "message.response.cancelled", actor: "user", turnId: "http-turn" }).isPersisted.promise
