@@ -59,7 +59,7 @@ authenticatedTest("an owned repository runs a declared Flow on its box and expos
       const catalog = await list.json() as { readonly ok?: boolean; readonly payload?: { readonly items?: ReadonlyArray<{ readonly flowId?: string }> } }
       expect(catalog.ok).toBe(true)
       expect(catalog.payload?.items?.map(({ flowId }) => flowId)).toContain("proof")
-      await expect(page.locator('.smithers-card[data-kind="workflow-list"] .workflow-list-row').filter({ hasText: "proof" })).toBeVisible()
+      await expect(page.locator('.smithers-card[data-kind="workflow-list"] .workflow-list-row').filter({ has: page.getByText("proof", { exact: true }) })).toBeVisible()
       expect(procedures).not.toContain("Plan")
       expect(procedures).not.toContain("Run")
       // No box is selected: the run binds to the repository's one running box.
