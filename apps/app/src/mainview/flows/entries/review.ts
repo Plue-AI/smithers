@@ -9,7 +9,7 @@ import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
 /** The `review` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
-export const namespace: Namespace = { id: "review", label: "Review", summary: "Review comments, requests, and the diff since your last one (ADR 0004)" }
+export const namespace: Namespace = { id: "review", label: "Review", summary: "Review comments, requests, and the diff since your last one" }
 
 /** The `review` flows registered as one aggregator block. */
 export const reviewFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
