@@ -1606,8 +1606,11 @@ export function App(props: AppProps) {
     if (key.ctrl && key.name === "s") {
       key.preventDefault()
       flushSync(() => {
-        if (!focusMain) setSurface(surface === "chat" ? "summary" : surface)
-        setPanelFocus(!panelFocus)
+        if (surface === "summary" && !focusMain) showTab("chat")
+        else {
+          if (!focusMain) setSurface(surface === "chat" ? "summary" : surface)
+          setPanelFocus(!panelFocus)
+        }
       })
       return
     }
@@ -1847,11 +1850,12 @@ export function App(props: AppProps) {
     ? Keys.panelHints({ undo: true }).filter((binding) => binding.id !== "expand-row")
     : footerContext === "panel" && panel !== undefined
     ? [
+      ...(surface === "summary" ? Keys.panelHints({}).filter((binding) => binding.id === "close-panel") : []),
       ...Keys.panelHints({
         ...selectedFlowActions,
         undo: surface === "summary" || surface.startsWith("tab:"),
         action: panel.rows[Math.max(0, Math.min(navigation.selected, panel.rows.length - 1))]?.action?.label
-      }),
+      }).filter((binding) => surface !== "summary" || binding.id !== "close-panel"),
       // A contributed panel key works only on its owner's view; a global one works here too.
       ...Keys.hintsFor("panel", merged).filter((binding) =>
         binding.owner !== undefined && (binding.context !== "panel" || binding.owner === ownerOf(surface))

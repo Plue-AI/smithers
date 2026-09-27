@@ -324,6 +324,26 @@ describe("ctrl+c and ctrl+d", () => {
 })
 
 describe("tabs", () => {
+  it("shows the back hint on Ctrl+S Summary and returns to Chat", async () => {
+    const { tui } = await start()
+    await tui.press(key.ctrlS)
+    await tui.until((screen) => screen.includes("esc Chat"), 5_000, "summary back hint")
+    await tui.press(key.ctrlS)
+    await tui.until(
+      (screen) => !screen.includes("esc Chat") && screen.includes("ctrl+k Search"),
+      5_000,
+      "chat after ctrl+s"
+    )
+    await tui.press(key.ctrlS)
+    await tui.until((screen) => screen.includes("esc Chat"), 5_000, "summary again")
+    await tui.press(key.escape)
+    await tui.until(
+      (screen) => !screen.includes("esc Chat") && screen.includes("ctrl+k Search"),
+      5_000,
+      "chat after esc"
+    )
+  }, 60_000)
+
   it("switches Chat and Summary by clicking a tab title", async () => {
     const { tui } = await start()
     await tui.click("Summary")
