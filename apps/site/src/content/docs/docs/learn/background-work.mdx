@@ -1,0 +1,98 @@
+---
+title: "Work in the background"
+description: "Hand off a bounded job, keep chatting, and follow, stop, or retry it."
+sidebar:
+  order: 7
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+Give a job a clear result and a small set of files. It runs in the background while you keep chatting.
+
+```text
+Fix the failing search tests. Keep changes inside src/search.ts and its tests.
+```
+
+## Hand it off
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Ask in chat, or start a flow. A toast follows the work until it finishes; the run card holds the detail. Chat stays usable.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Ask in chat. Smithers starts a worker in its own tab and returns to chat. Up to six run at once (`SMITHERS_TUI_WORKERS`); more wait in order.
+
+<AppScreenshot src="/images/learn/tui-background-worker.gif" alt="A worker runs in its own TUI tab while chat stays available." caption="The TUI with a scripted test model." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.** Start a flow and return as soon as it's admitted:
+
+```sh
+smthrs flow start review --data '{"args":"Review main"}' --detached
+```
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `POST /api/repos/{owner}/{repo}/invoke` returns at once with the `run_id`.
+
+</TabItem>
+</Tabs>
+
+## Follow, stop, retry
+
+| State | Means |
+| --- | --- |
+| Requested | Saved; not started yet. |
+| Queued | Waiting for a free slot. |
+| Running | Working. |
+| Waiting | Waiting for work it started. |
+| Parked | Waiting for provider capacity. |
+| Done | Finished; read the result and checks. |
+| Failed | Read the error, then retry. |
+| Cancelled | Stopped. |
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** The toast offers the controls that apply; the run card has **Steer** and **Stop**. See [Watch an agent work](/docs/learn/watch-an-agent/#steer-or-stop).
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers, `c` opens it in chat, `x` stops, `r` retries with its earlier steps, `m` picks another model, `w` waits for the provider's reset. `/stop <id>` and `/retry <id>` work from anywhere.
+
+<AppScreenshot src="/images/learn/tui-worker-controls.gif" alt="Stopping and retrying a worker from its TUI tab." caption="The TUI with a scripted test model." width={880} height={480} />
+
+A worker can start its own workers, three levels deep. A `tree:` tab shows them together.
+
+<AppScreenshot src="/images/learn/tui-worker-tree.gif" alt="A lead worker with a child worker in a TUI tree tab." caption="The TUI with a scripted test model." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs runs list --status running
+smthrs runs cancel <run>
+smthrs runs resume <run>
+```
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** API procedures `List`, `Cancel`, and `Resume`; see [HTTP and RPC endpoints](/docs/reference/http-api/).
+
+</TabItem>
+</Tabs>
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): read a run's timeline.

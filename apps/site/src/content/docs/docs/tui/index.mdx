@@ -1,0 +1,47 @@
+---
+title: "Smithers in your terminal"
+description: "Install and start the TUI, make a first change, and find its references."
+sidebar:
+  order: 1
+---
+
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+`smthrs tui` is Smithers in a terminal. It works in your local checkout: ask for a change, keep chatting while it works, and inspect every step. The tutorials show it in each **TUI** tab.
+
+## Try it in a browser
+
+The [playground](https://tui.smithers.sh) runs the same agent on a two-file sandbox, with no access to your computer. Move the checkpoint slider to see the files at any step, and branch to try another approach.
+
+## Install
+
+Until the release is published, run it from a source checkout. You need the Node version in `.node-version`, pnpm 11.25.0, Bun 1.4 or later, jj 0.39.0 or later, ripgrep, and Rust 1.98.0.
+
+```bash
+git clone https://github.com/smithersai/smithers.git
+cd smithers
+pnpm install
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+bun run tui /path/to/project
+```
+
+Set a provider key first, such as `OPENAI_API_KEY`. `smthrs tui` takes the same arguments once installed. On Alpine, the compiled binary also needs `apk add libstdc++`.
+
+## Make a first change
+
+Give it a check it can run:
+
+```text
+Fix math.js so node check.mjs passes.
+```
+
+<AppScreenshot src="/images/learn/tui-fix-add.gif" alt="The TUI fixes a subtraction bug in math.js and runs the check until it passes." caption="The TUI replaying a recorded model run." width={880} height={480} />
+
+Press Ctrl+S for **Summary**: each edit with its diff, each command with its output.
+
+## Reference
+
+- [Commands](/docs/tui/commands/) and [keys](/docs/tui/keys/)
+- [Command line](/docs/tui/cli/) and [configuration](/docs/tui/configuration/)
+- [Views, filters, and estimates](/docs/tui/views/)
+- [Extend the TUI](/docs/tui/extend/): cards, keys, and monitors

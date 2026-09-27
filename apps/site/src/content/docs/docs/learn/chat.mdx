@@ -34,7 +34,9 @@ Smithers answers in prose, shows a card, or starts a flow. If a step needs sign-
 smthrs tui
 ```
 
-Type your request and press Enter. Shift+Enter adds a new line.
+Type your request and press Enter. Shift+Enter or Ctrl+J adds a line; Up and Down recall earlier prompts; Ctrl+G opens your editor for a long one. Type `@` to mention a file.
+
+New to the TUI? Start with [Smithers in your terminal](/docs/tui/).
 
 <AppScreenshot src="/images/learn/tui-composer.gif" alt="Writing a two-line request in the TUI and reading the answer." caption="The TUI with a scripted test model." width={880} height={480} />
 
@@ -111,7 +113,7 @@ A turn can take a while. You don't have to wait.
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** Enter steers, Alt+Enter queues, Alt+Up brings queued messages back, and Esc stops.
+**Available now.** Enter steers, Alt+Enter queues, Alt+Up brings queued messages back, and Esc stops the turn and returns queued messages to the editor. Esc leaves background workers running.
 
 <AppScreenshot src="/images/learn/tui-queue.gif" alt="Queueing a follow-up in the TUI, bringing it back to the editor, and stopping the turn." caption="The TUI with a scripted test model." width={880} height={480} />
 
@@ -130,6 +132,73 @@ smthrs runs steer <run> --message "Keep the public API unchanged."
 <TabItem label="API">
 
 **Available now** for durable runs, over the API: `Steer { runId, message, idempotencyKey }` and `Cancel { runId, idempotencyKey }`. See [HTTP and RPC endpoints](/docs/reference/http-api/).
+
+</TabItem>
+</Tabs>
+
+## Run a shell command
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now** in a [box](/docs/learn/boxes/): open its terminal from the box card.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Start a line with `!` to run a command and add its output to the conversation, or `!!` to keep the output out. Esc cancels it.
+
+<AppScreenshot src="/images/learn/tui-shell-context.gif" alt="Running a shell command from the TUI composer and adding its output to the conversation." caption="The TUI with a scripted test model." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+Use your shell.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** A box's terminal is a WebSocket; see [Work in a box](/docs/learn/boxes/).
+
+</TabItem>
+</Tabs>
+
+## Pick up where you left off
+
+Conversations are saved. Come back to one, or branch from an earlier message to try another way.
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** The app keeps your conversation for your account. Reload and it's there.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.**
+
+| Do | How |
+| --- | --- |
+| Continue the latest | `smthrs tui -c` |
+| Pick one | `smthrs tui -r`, `/resume`, or Ctrl+K then `session:` |
+| Name it | `/name <name>` |
+| Branch from an earlier message | `/fork`; the original stays |
+| Drop old context | `/compact` |
+| Copy the last answer | `/copy` |
+
+Running work restarts from its recorded steps. `/fork` doesn't change files; press `u` in **Summary** to [undo an edit](/docs/learn/review-a-change/).
+
+<AppScreenshot src="/images/learn/tui-fork-session.gif" alt="Forking a TUI conversation from an earlier message." caption="The TUI with a scripted test model." width={880} height={480} />
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now** for durable runs: `smthrs runs list`, then `smthrs runs resume <run>`.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now** for durable runs: the `Resume` procedure.
 
 </TabItem>
 </Tabs>

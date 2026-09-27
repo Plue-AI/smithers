@@ -71,7 +71,9 @@ Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
 /flow echo text=hello
 ```
 
-A missing input opens a form. Each run gets its own tab.
+Quote values with spaces: `text="hello world"`. A missing input opens a form: Tab moves between fields, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. Each run gets its own tab; `/smithers` lists them.
+
+<AppScreenshot src="/images/learn/tui-flow-form.gif" alt="Filling in a flow's input form in the TUI." caption="The TUI with fixture flows." width={880} height={480} />
 
 <AppScreenshot src="/images/learn/tui-run-flow.gif" alt="Running a flow from the TUI and reading its result in the run tab." caption="The TUI with fixture flows." width={880} height={480} />
 

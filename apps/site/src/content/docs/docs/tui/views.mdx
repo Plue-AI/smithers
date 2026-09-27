@@ -1,0 +1,28 @@
+---
+title: "Views, filters, and estimates"
+description: "Tabs, transcript filters, themes, and time and token estimates in the TUI."
+sidebar:
+  order: 6
+---
+
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+## Tabs
+
+Chat, Summary, workers, flow runs, and custom views each have a tab. Ctrl+] moves forward, Ctrl+\ moves back. Click a tab to open it.
+
+## Filter the transcript
+
+`/filter` shows or hides chat, each worker, and kinds of row. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
+
+<AppScreenshot src="/images/learn/tui-transcript-filter.gif" alt="Filtering the TUI transcript by lane and text." caption="The TUI with a scripted test model." width={880} height={480} />
+
+## Theme
+
+`/theme` picks purple, blue, green, or orange.
+
+## Estimates
+
+Each turn, worker, and flow run shows a time and token estimate, such as `~7m·250k`, or `late` once it passes. Estimates learn from this project's past runs.
+
+<AppScreenshot src="/images/learn/tui-estimates.gif" alt="Time and token estimates beside running work in the TUI." caption="The TUI with a scripted test model." width={880} height={480} />

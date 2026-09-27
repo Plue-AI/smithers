@@ -1,0 +1,79 @@
+---
+title: "Choose a model"
+description: "Pick the model for chat, for background work, and for each agent, and set its reasoning effort."
+sidebar:
+  order: 8
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+Each agent names its model in its file (`model:`). You can also pick the model for chat and override it per run.
+
+## Pick a model
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** `/model.list` shows the models and which one each job uses. `/model.assign` changes one.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** Ctrl+L or `/model` opens the picker; type to filter. Ctrl+P and Ctrl+Shift+P step through models. `/model provider:modelId` picks one directly.
+
+<AppScreenshot src="/images/learn/tui-model-picker.gif" alt="Filtering and choosing a model in the TUI picker." caption="The TUI with placeholder provider keys." width={880} height={480} />
+
+| Setting | Applies to |
+| --- | --- |
+| `--model provider:modelId` | Chat |
+| `SMITHERS_TUI_SEAT` | Default chat model |
+| `SMITHERS_TUI_WORKER_SEAT` | Default background model |
+| `SMITHERS_TUI_WORKER_SEATS=a,b` | Fallbacks when a provider is at its limit |
+| An agent's `model:` | That agent |
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.** Set it in the flow's `model:` line. For one answer:
+
+```sh
+smthrs tui -p "Explain this repository." --model openai:gpt-6-sol
+```
+
+`smthrs doctor` lists the provider keys it found.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** The flow's `model:` line decides; there is no per-request override.
+
+</TabItem>
+</Tabs>
+
+## Reasoning effort
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Available now.** Set `effort:` in the agent's file.
+
+</TabItem>
+<TabItem label="TUI">
+
+**Available now.** `/thinking` takes `default`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Shift+Tab cycles through them.
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.** Set `effort:` in the agent's file.
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** Set `effort:` in the agent's file.
+
+</TabItem>
+</Tabs>
+
+Support varies by provider. See [Model seats](/docs/guides/model-seats/) for providers and keys.

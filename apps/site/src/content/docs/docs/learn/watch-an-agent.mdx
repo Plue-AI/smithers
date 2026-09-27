@@ -2,7 +2,7 @@
 title: "Watch an agent work"
 description: "Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you."
 sidebar:
-  order: 7
+  order: 9
 ---
 
 import { Tabs, TabItem } from "@astrojs/starlight/components"
@@ -33,7 +33,7 @@ An agent's history is its runs. Each run has a timeline.
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** `/smithers` lists flow runs, newest first. Select one to open its tab.
+**Available now.** `/smithers` lists flow runs, newest first. Select one to open its tab. Background workers each have a tab too; see [Work in the background](/docs/learn/background-work/).
 
 </TabItem>
 <TabItem label="CLI">
@@ -69,7 +69,7 @@ smthrs runs list --status waiting-approval
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** The timeline sits above the composer, with phases (Researching, Implementing, Testing, Stuck, Blocked) and milestones. Press Ctrl+T to inspect it; arrows move, `[` and `]` jump between milestones, Esc returns to live.
+**Available now.** The timeline sits above the composer, with phases (Researching, Implementing, Testing, Stuck, Blocked) and milestones. Press Ctrl+T to inspect it; arrows move, `[` and `]` jump between milestones, Home and End jump to the ends, Esc returns to live. An earlier point shows only what was known then.
 
 <AppScreenshot src="/images/learn/tui-timeline.gif" alt="Scrubbing the TUI timeline across phases and milestones." caption="The TUI with a scripted test model." width={880} height={480} />
 

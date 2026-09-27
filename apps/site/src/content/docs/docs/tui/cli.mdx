@@ -1,0 +1,51 @@
+---
+title: "Command line"
+description: "Start the TUI interactive, continued, or for one answer."
+sidebar:
+  order: 4
+---
+
+import AppScreenshot from "../../../../components/AppScreenshot.astro"
+
+```text
+smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny]
+```
+
+From a source checkout, use `bun run tui` with the same arguments.
+
+| Option | Short | Effect |
+| --- | --- | --- |
+| `directory` | | Working directory; defaults to the current one. |
+| `--model provider:modelId` | `-m` | Chat model; overrides `SMITHERS_TUI_SEAT`. |
+| `--continue` | `-c` | Continue the latest conversation in this directory. |
+| `--resume` | `-r` | Pick a conversation to continue. |
+| `--print "prompt"` | `-p` | Answer one prompt, print it, and exit. |
+| `--approve all` | | Run edits, commands, and network calls. The default. |
+| `--approve ask` | | Ask first. Interactive only. |
+| `--approve deny` | | Refuse them. |
+| `--help` | `-h` | Show options. |
+
+## One answer
+
+```bash
+smthrs tui /path/to/project -p "Explain how the search index is built."
+```
+
+Exits 0 on an answer and 1 on failure or cancellation. `--approve ask` is refused in this mode.
+
+<AppScreenshot src="/images/learn/tui-print-mode.gif" alt="The TUI prints one answer and exits." caption="Print mode with a scripted test model." width={880} height={480} />
+
+## Runtime
+
+`smthrs tui` tries `SMITHERS_TUI_BIN`, an installed binary, Bun, then Node 26.4 or later. Interactive compiled builds need a writable, executable `TMPDIR`.
+
+```bash
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
+node packages/smithers/scripts/build-tui.mjs
+SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$PWD/target/release/smithers-jj-export" \
+  node --experimental-ffi --disable-warning=ExperimentalWarning packages/smithers/dist/tui/main.js /path/to/project
+```
+
+## Exit
+
+`/quit` or `/exit`. Ctrl+D exits with an empty editor; Ctrl+C twice within 500 ms exits. Stop background work with its own controls first.
