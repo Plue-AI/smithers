@@ -253,6 +253,9 @@ func TestBrowserFlowWakesASleepingBox(t *testing.T) {
 	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"Projection.Snapshot","payload":{}}`)
 	require.JSONEq(t, `{"status":"provisioning"}`, writer.Body.String())
 	require.Len(t, dispatcher.targets, 1)
+	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"List","payload":{"_tag":"flows"}}`)
+	require.JSONEq(t, `{"status":"provisioning"}`, writer.Body.String(), "the flows list of a box whose host is down starts it")
+	require.Len(t, dispatcher.targets, 2)
 }
 
 type hostlessDispatcher struct{ *startingDispatcher }

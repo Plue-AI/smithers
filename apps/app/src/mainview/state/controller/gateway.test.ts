@@ -380,6 +380,21 @@ test("an approval snapshot waits for resume with the original workspace binding"
   expect(requests[1]?.workspaceId).toBe("workspace-a")
 })
 
+test("the flows list waits while a box's coding host starts (#2198)", async () => {
+  let calls = 0
+  const seam = createGatewaySeam({
+    baseUrl: "https://app.test",
+    bindingFor: () => ({ workspaceId: "box-1" }),
+    fetch: async () => {
+      calls++
+      return Response.json(calls === 1 ? { status: "provisioning" } : { ok: true, payload: { items: [] } })
+    },
+    errorMessageOf: async (_response, fallback) => fallback
+  })
+  expect(await seam.listFlows("o/r")).toMatchObject({ status: "ok", value: [] })
+  expect(calls).toBe(2)
+}, 10_000)
+
 test("a consequential gateway call does not retry a provisioning response", async () => {
   let calls = 0
   const seam = createGatewaySeam({

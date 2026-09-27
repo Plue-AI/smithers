@@ -229,8 +229,8 @@ func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) 
 }
 
 // rpc relays one procedure to the box's coding host. A snapshot of a box that
-// is waking, or whose host is starting, answers "provisioning", which the app
-// polls; any other procedure on a waking box is refused as workspace_starting,
+// is waking answers "provisioning", which the app polls; a read (snapshot,
+// List) of a running box whose host is down starts it and answers the same; any other procedure on a waking box is refused as workspace_starting,
 // and every procedure on a box its owner stopped as workspace_stopped.
 func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 	request, target, workspace, ok := api.prepare(w, r, false)
@@ -266,7 +266,7 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 	}
 	answer, err := api.dispatcher.CallRPC(r.Context(), target, request.Procedure, request.Payload)
 	var failure flowruntime.Failure
-	if snapshot && errors.As(err, &failure) && (failure.FlowRuntimeCode() == "runtime_host_not_running" || failure.FlowRuntimeCode() == "runtime_host_starting") {
+	if (snapshot || request.Procedure == "List") && errors.As(err, &failure) && (failure.FlowRuntimeCode() == "runtime_host_not_running" || failure.FlowRuntimeCode() == "runtime_host_starting") {
 		if _, err = api.dispatcher.StartHost(r.Context(), target); err == nil {
 			browserFlowProvisioning(w)
 			return

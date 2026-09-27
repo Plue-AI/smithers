@@ -70,10 +70,9 @@ export const createWorkflowPumpController = (
   /*
    * Workflows in the conversation ("make me a workflow").
    *
-   * Every act routes through the per-user gateway seam on the product Worker:
-   * provision-or-resume the workspace gateway for a loaded repo (the loaded
-   * set is the universe), then the
-   * gateway's own procedures. A run renders as an embedded run card (THE EMBED
+   * Every act routes through the box's flow seam: provision-or-resume the
+   * box's coding host for a loaded repo (the loaded set is the universe),
+   * then the host's own procedures. A run renders as an embedded run card (THE EMBED
    * LAW) whose pump re-reads the `run-summary`, `transcript`, and `approvals`
    * projections. Summary and transcript rows replace their current answer;
    * the journal appends the suffix after the card's retained position.

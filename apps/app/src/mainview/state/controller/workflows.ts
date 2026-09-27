@@ -223,9 +223,9 @@ export const createWorkflowController = (
     const epoch = ctx.accountEpoch
     // Preparation starts signed in and survives an identity outage; only an owner change stops it.
     const current = () => !ctx.disposed && owner !== null && ctx.accountEpoch === epoch && ctx.accountOwner() === owner
-    // The Worker absorbs the upstream 409 and answers 200 `{ status: "provisioning" }`
-    // while a workspace is mid-provision (apps/server/src/index.ts): poll that
-    // body to a bounded deadline, never stampede. Any non-2xx here is a failure.
+    // The backend answers 200 `{ status: "provisioning" }` while the box wakes
+    // or its coding host starts (packages/backend/internal/compose/browser_flow.go):
+    // poll that body to a bounded deadline, never stampede. Any non-2xx is a failure.
     const deadline = Date.now() + 180_000
     for (;;) {
       if (!current()) return { code: "request_superseded", message: "The account changed while the workspace was being prepared." }

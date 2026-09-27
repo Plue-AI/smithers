@@ -276,7 +276,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly openBrowser: (url: string) => Promise<string | void | { readonly value: string }>
   /*
    * Wave 11 — workflows in the conversation. Create/list/run through the
-   * per-user gateway seam; runs render as embedded run cards tracked live.
+   * box's flow seam; runs render as embedded run cards tracked live.
    */
   readonly createWorkflow: (
     description: string,

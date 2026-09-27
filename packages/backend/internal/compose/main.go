@@ -1449,8 +1449,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		router.With(access(false)...).Post("/api/workflow/rpc", browser.rpc)
 		setup := &repositorySetupAPI{repos: repoService, setup: repositorySetupService}
 		router.With(flowAccess...).Post("/api/repository-setup/{operation}", setup.serve)
-		setupReads := append([]func(http.Handler) http.Handler{}, flowAccess[:len(flowAccess)-1]...)
-		setupReads = append(setupReads, middleware.RequireScope(middleware.ScopeReadRepository))
+		// A setup's progress is polled every few seconds for up to six hours,
+		// so its reads stay out of the API budget like a run's progress reads.
+		unlimited := access(false)
+		setupReads := append(unlimited[:len(unlimited)-1:len(unlimited)-1], middleware.RequireScope(middleware.ScopeReadRepository))
 		router.With(setupReads...).Get("/api/repository-setup/{operation}", setup.serve)
 	}
 	if chatService != nil && options.topology.servesHTTP() {

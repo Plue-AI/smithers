@@ -27,7 +27,8 @@ deliberately frozen in `src/workerIdentity.ts` (`WORKER_IDENTITY`), and
 - Six Durable Objects (`TURN_CANCELS`, `GATEWAY_SESSIONS`, `TURN_LIMITS`,
   `CLIENT_ERRORS`, `RECOMMEND_LOG`, `MODEL_VAULTS`; classes `TurnCancelRegistry`,
   `GatewaySessionRegistry`, `TurnRateLimiter`, `ClientErrorLog`,
-  `RecommendLog`, `AccountModelVault`) hold state keyed to this Worker's identity. Renaming the
+  `RecommendLog`, `AccountModelVault`) hold state keyed to this Worker's identity (`GatewaySessionRegistry` is retired: it
+  answers 410 and stores nothing new). Renaming the
   Worker, or deploying under a different name, creates a **fresh** Worker
   with **fresh, empty** Durable Object storage: the existing state is
   orphaned, not migrated. Renaming a class or a binding is a migration, and

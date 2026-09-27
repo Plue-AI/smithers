@@ -217,9 +217,10 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
             ...(failure.retryAfterSeconds === null ? {} : { retryAfterSeconds: failure.retryAfterSeconds }) }
         }
         body = (await response.json().catch(() => undefined)) as typeof body
-        // A snapshot is a read. Keep its original binding while a sleeping VM
-        // resumes; never retry mutations or turn a pending response into rows.
-        if (procedure !== "Projection.Snapshot" || body?.status !== "provisioning" || Date.now() >= resumeDeadline) break
+        // A snapshot and the flows list are reads. Keep their binding while a
+        // sleeping box resumes or its coding host starts; never retry mutations
+        // or turn a pending response into rows.
+        if ((procedure !== "Projection.Snapshot" && procedure !== "List") || body?.status !== "provisioning" || Date.now() >= resumeDeadline) break
         await new Promise<void>(resolve => setTimeout(resolve, 2_000))
       }
     } catch {

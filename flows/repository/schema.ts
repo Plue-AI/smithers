@@ -44,7 +44,7 @@ export const Draft = Schema.Struct({
   choreEvent: Schema.Literals(["none", "push", "labeled"]).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed("none" as const))
   ),
-  budgetMinutes: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 120 })),
+  budgetMinutes: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 360 })),
   connectIssues: Schema.Boolean,
   trialTitle: text(240),
   trialBody: text(16000)
