@@ -24,8 +24,13 @@ type fakeIssueTextGitHub struct {
 	titleWriter, bodyWriter *gitHubGraphQLActor // nil: never changed
 	permissions             map[string]string
 	permissionReads         map[string]int
-	status                  int
-	reads                   int
+	// labelsViaApp are logins whose label applications a GitHub App made
+	// for them; every other login applied its labels itself.
+	labelsViaApp map[string]bool
+	// issueViaApp: a GitHub App created issue (or pull request) 24.
+	issueViaApp bool
+	status      int
+	reads       int
 }
 
 type fakeIssueTextTokens struct{}
@@ -51,7 +56,7 @@ func (f *fakeIssueTextGitHub) authorNode(r *http.Request) map[string]string {
 func newFakeIssueTextGitHub(t *testing.T) (*fakeIssueTextGitHub, *GitHubTextStamper) {
 	t.Helper()
 	fake := &fakeIssueTextGitHub{title: "Empty config crashes", body: "Steps: use []", author: "contributor",
-		permissions: map[string]string{"contributor": "admin"}, permissionReads: map[string]int{}}
+		permissions: map[string]string{"contributor": "admin"}, permissionReads: map[string]int{}, labelsViaApp: map[string]bool{}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
@@ -72,6 +77,30 @@ func newFakeIssueTextGitHub(t *testing.T) (*fakeIssueTextGitHub, *GitHubTextStam
 				"title": fake.title, "body": fake.body, "author": fake.authorNode(r),
 				"userContentEdits": map[string]any{"nodes": edits}, "timelineItems": map[string]any{"nodes": renames},
 			}}}})
+			return
+		}
+		app := map[string]any{"id": 1, "slug": "some-app"}
+		if r.URL.Path == "/repos/Acme/demo/issues/24/events" {
+			events := []map[string]any{}
+			for _, login := range []string{"contributor", "maintainer", "triager", "user7", "user922"} {
+				for _, label := range []string{"smithers", "invalid"} {
+					event := map[string]any{"event": "labeled", "actor": map[string]string{"login": login},
+						"label": map[string]string{"name": label}, "performed_via_github_app": nil}
+					if fake.labelsViaApp[login] {
+						event["performed_via_github_app"] = app
+					}
+					events = append(events, event)
+				}
+			}
+			_ = json.NewEncoder(w).Encode(events)
+			return
+		}
+		if r.URL.Path == "/repos/Acme/demo/issues/24" {
+			issue := map[string]any{"number": 24, "performed_via_github_app": nil}
+			if fake.issueViaApp {
+				issue["performed_via_github_app"] = app
+			}
+			_ = json.NewEncoder(w).Encode(issue)
 			return
 		}
 		if login, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/repos/Acme/demo/collaborators/"), "/permission"); ok {
@@ -420,4 +449,64 @@ func TestGitHubTriggerLabelNeedsAMaintainerPerson(t *testing.T) {
 	outsider.permissions["contributor"] = "read"
 	own := stampIssueText(t, fresh, "labeled", labeledEvent(t, issueAuthor))
 	assert.False(t, gitHubIssueEventApproves("issues", "labeled", own, issueApprovalLabel), "an outsider author's own label")
+}
+
+// withIssueApp marks an event's own issue or comment as created through a
+// GitHub App acting for its author.
+func withIssueApp(t *testing.T, payload []byte, object string) []byte {
+	t.Helper()
+	var event map[string]any
+	require.NoError(t, json.Unmarshal(payload, &event))
+	event[object].(map[string]any)["performed_via_github_app"] = map[string]any{"id": 1, "slug": "some-app"}
+	out, err := json.Marshal(event)
+	require.NoError(t, err)
+	return out
+}
+
+// A user acting through another GitHub App's user token is that app, not the
+// user, wherever GitHub says so (performed_via_github_app): an issue, pull
+// request or comment the app created, and a label the app applied, are not a
+// maintainer's.
+func TestGitHubAppActingForAMaintainerIsTheApp(t *testing.T) {
+	t.Parallel()
+	fake, stamper := newFakeIssueTextGitHub(t)
+	fake.permissions["maintainer"] = "write"
+
+	opened := stampIssueText(t, stamper, "opened", withIssueApp(t, issueTextEvent(t, "opened", issueAuthor), "issue"))
+	assert.False(t, gitHubIssueEventApproves("issues", "opened", opened, issueApprovalLabel), "an app opened it for the maintainer")
+	reopened := stampIssueText(t, stamper, "reopened", withIssueApp(t, issueTextEvent(t, "reopened", issueAuthor), "issue"))
+	assert.False(t, gitHubIssueEventApproves("issues", "reopened", reopened, ""), "the app's text, never rewritten")
+	fake.titleWriter = &gitHubGraphQLActor{Typename: "User", Login: "contributor"}
+	fake.bodyWriter = &gitHubGraphQLActor{Typename: "User", Login: "maintainer"}
+	rewritten := stampIssueText(t, stamper, "reopened", withIssueApp(t, issueTextEvent(t, "reopened", issueAuthor), "issue"))
+	assert.False(t, gitHubIssueEventApproves("issues", "reopened", rewritten, ""), "GitHub does not say whether the app made the edits too")
+	fake.titleWriter, fake.bodyWriter = nil, nil
+
+	comment := stampText(t, stamper, "issue_comment", "created",
+		withIssueApp(t, textEvent(t, "issue_comment", "created", issueAuthor), "comment"))
+	assert.False(t, gitHubIssueEventApproves("issue_comment", "created", comment, ""), "an app posted it for the maintainer")
+
+	fake.issueViaApp = true
+	pull := stampText(t, stamper, "pull_request", "opened", textEvent(t, "pull_request", "opened", issueAuthor))
+	assert.True(t, gitHubEventByOutsider(pull), "an app opened the pull request for the maintainer")
+	fake.issueViaApp = false
+	assert.False(t, gitHubEventByOutsider(stampText(t, stamper, "pull_request", "opened", textEvent(t, "pull_request", "opened", issueAuthor))))
+
+	fake.bodyWriter = &gitHubGraphQLActor{Typename: "Bot", Login: "some-app[bot]"}
+	fake.labelsViaApp["maintainer"] = true
+	labeled := stampIssueText(t, stamper, "labeled", labeledEvent(t, issueEditor))
+	assert.False(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), "an app applied the label for the maintainer")
+	fake.labelsViaApp["maintainer"] = false
+	labeled = stampIssueText(t, stamper, "labeled", labeledEvent(t, issueEditor))
+	assert.True(t, gitHubIssueEventApproves("issues", "labeled", labeled, issueApprovalLabel), "the maintainer's own label")
+
+	// Only the application this event reports counts: an older one of the
+	// same label is not it, and GitHub's list may not show it yet.
+	var event map[string]any
+	require.NoError(t, json.Unmarshal(labeledEvent(t, issueEditor), &event))
+	event["issue"].(map[string]any)["updated_at"] = "2026-09-27T12:00:00Z"
+	later, err := json.Marshal(event)
+	require.NoError(t, err)
+	_, err = stamper.stampGitHubText(context.Background(), "issues", "labeled", later)
+	require.ErrorIs(t, err, errGitHubIssueTextUnavailable, "retried until GitHub lists this application")
 }

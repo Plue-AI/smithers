@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,6 +29,8 @@ type mythicalIssue struct {
 	Title, Body, URL string
 	State            string // open | closed
 	Author           gitHubActor
+	// ViaApp: a GitHub App created the issue for its author.
+	ViaApp bool
 	// TextByMaintainer: the author and the last writers of the title and
 	// body are maintainer persons (issueTextByMaintainerField).
 	TextByMaintainer bool
@@ -141,13 +144,14 @@ func (g *mythicalGitHubAPI) Resolve(ctx context.Context, repository db.Repositor
 }
 
 type mythicalGitHubIssue struct {
-	Number           int64       `json:"number"`
-	Title            string      `json:"title"`
-	Body             *string     `json:"body"`
-	HTMLURL          string      `json:"html_url"`
-	State            string      `json:"state"`
-	User             gitHubActor `json:"user"`
-	TextByMaintainer bool        `json:"smithers_text_by_maintainer"`
+	Number           int64            `json:"number"`
+	Title            string           `json:"title"`
+	Body             *string          `json:"body"`
+	HTMLURL          string           `json:"html_url"`
+	State            string           `json:"state"`
+	User             gitHubActor      `json:"user"`
+	ViaApp           *json.RawMessage `json:"performed_via_github_app"`
+	TextByMaintainer bool             `json:"smithers_text_by_maintainer"`
 	Labels           []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
@@ -156,7 +160,8 @@ type mythicalGitHubIssue struct {
 
 func (i mythicalGitHubIssue) issue() mythicalIssue {
 	out := mythicalIssue{Number: i.Number, Title: i.Title, URL: i.HTMLURL, State: i.State,
-		Author: i.User, TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil}
+		Author: i.User, ViaApp: i.ViaApp != nil && string(*i.ViaApp) != "null",
+		TextByMaintainer: i.TextByMaintainer, PullRequest: i.PullRequest != nil}
 	if i.Body != nil {
 		out.Body = *i.Body
 	}
@@ -168,7 +173,7 @@ func (i mythicalGitHubIssue) issue() mythicalIssue {
 
 func (g *mythicalGitHubAPI) IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
 	return g.text.TextByMaintainer(ctx, gh.Token, gh.Owner, gh.Name,
-		gitHubIssueTextWrite{Number: issue.Number, Title: issue.Title, Body: issue.Body, Author: issue.Author})
+		gitHubIssueTextWrite{Number: issue.Number, Title: issue.Title, Body: issue.Body, Author: issue.Author, ViaApp: issue.ViaApp})
 }
 
 func (g *mythicalGitHubAPI) Maintainer(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error) {

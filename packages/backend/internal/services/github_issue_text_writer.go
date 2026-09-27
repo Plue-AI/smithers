@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -177,6 +178,74 @@ func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo,
 	return maintainer, nil
 }
 
+// LabelAppliedByPerson reports whether this application of label to an
+// issue by login (the event GitHub lists at appliedAt, give or take a few
+// seconds) was the person's own, not a GitHub App acting for them
+// (performed_via_github_app). An application GitHub does not list yet is
+// retried; one it will not list, or an issue with more events than are
+// read, is not the person's.
+func (g *gitHubIssueTextAPI) LabelAppliedByPerson(ctx context.Context, token, owner, repo string, number int64, label, login string, appliedAt time.Time) (bool, error) {
+	const pages, skew = 10, 5 * time.Second
+	var found *bool
+	for page := 1; ; page++ {
+		if page > pages {
+			slog.Warn("github.label_events_unread", "owner", owner, "repo", repo, "issue", number)
+			return false, nil
+		}
+		var events []struct {
+			Event string `json:"event"`
+			Actor *struct {
+				Login string `json:"login"`
+			} `json:"actor"`
+			Label *struct {
+				Name string `json:"name"`
+			} `json:"label"`
+			CreatedAt time.Time        `json:"created_at"`
+			ViaApp    *json.RawMessage `json:"performed_via_github_app"`
+		}
+		query := url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}
+		status, err := g.api.request(ctx, token, http.MethodGet,
+			landingGitHubRepoPath(owner, repo)+"/issues/"+strconv.FormatInt(number, 10)+"/events?"+query.Encode(), nil, &events)
+		if err != nil || gitHubTransient(status) {
+			return false, errGitHubIssueTextUnavailable
+		}
+		if status != http.StatusOK {
+			slog.Warn("github.label_events_unreadable", "owner", owner, "repo", repo, "issue", number, "status", status)
+			return false, nil
+		}
+		for _, event := range events {
+			if event.Event == "labeled" && event.Actor != nil && event.Label != nil &&
+				strings.EqualFold(event.Actor.Login, login) && strings.EqualFold(strings.TrimSpace(event.Label.Name), strings.TrimSpace(label)) &&
+				!event.CreatedAt.Before(appliedAt.Add(-skew)) && !event.CreatedAt.After(appliedAt.Add(skew)) {
+				person := event.ViaApp == nil || string(*event.ViaApp) == "null"
+				found = &person
+			}
+		}
+		if len(events) < 100 {
+			break
+		}
+	}
+	if found == nil {
+		// GitHub's list can trail the webhook.
+		return false, errGitHubIssueTextUnavailable
+	}
+	return *found, nil
+}
+
+// PullCreatedViaApp reads whether a pull request was created through a
+// GitHub App: pull request events do not say, its issue does.
+func (g *gitHubIssueTextAPI) PullCreatedViaApp(ctx context.Context, token, owner, repo string, number int64) (bool, error) {
+	var issue struct {
+		ViaApp *json.RawMessage `json:"performed_via_github_app"`
+	}
+	status, err := g.api.request(ctx, token, http.MethodGet,
+		landingGitHubRepoPath(owner, repo)+"/issues/"+strconv.FormatInt(number, 10), nil, &issue)
+	if err != nil || gitHubTransient(status) {
+		return false, errGitHubIssueTextUnavailable
+	}
+	return status != http.StatusOK || (issue.ViaApp != nil && string(*issue.ViaApp) != "null"), nil
+}
+
 // personIsMaintainer applies the maintainer rule to one account: a user
 // (never an app, bot or organization) with write access.
 func (g *gitHubIssueTextAPI) personIsMaintainer(ctx context.Context, token, owner, repo string, actor *gitHubActor) (bool, error) {
@@ -194,6 +263,11 @@ type gitHubIssueTextWrite struct {
 	Title, Body             string
 	Author                  gitHubActor
 	TitleWriter, BodyWriter *gitHubActor
+	// ViaApp: the object was created through a GitHub App acting for its
+	// author (performed_via_github_app). Its text is the app's: GitHub does
+	// not say whether a later edit was the app's too, so it is never a
+	// maintainer's; only a maintainer's label approves it.
+	ViaApp bool
 }
 
 // TextByMaintainer reports whether an object's author and the last writer
@@ -201,6 +275,9 @@ type gitHubIssueTextWrite struct {
 // is read from GitHub and must still be the event's text; text GitHub no
 // longer shows is not a maintainer's.
 func (g *gitHubIssueTextAPI) TextByMaintainer(ctx context.Context, token, owner, repo string, write gitHubIssueTextWrite) (bool, error) {
+	if write.ViaApp {
+		return false, nil
+	}
 	if write.TitleWriter == nil || write.BodyWriter == nil {
 		current, err := g.IssueText(ctx, token, owner, repo, write.Number)
 		if errors.Is(err, errGitHubIssueTextUnavailable) {
@@ -279,11 +356,11 @@ type gitHubTextEvent struct {
 // gitHubTextObject is one stamped object: an issue or pull request (a title
 // and a body) or a comment or review (a body).
 type gitHubTextObject struct {
-	Number            int64       `json:"number"`
-	Title             *string     `json:"title"`
-	Body              *string     `json:"body"`
-	AuthorAssociation string      `json:"author_association"`
-	User              gitHubActor `json:"user"`
+	Number int64            `json:"number"`
+	Title  *string          `json:"title"`
+	Body   *string          `json:"body"`
+	User   gitHubActor      `json:"user"`
+	ViaApp *json.RawMessage `json:"performed_via_github_app"`
 }
 
 // stampGitHubText returns payload with issueTextByMaintainerField set on each
@@ -323,8 +400,16 @@ func (s *GitHubTextStamper) stampGitHubText(ctx context.Context, eventType, acti
 	}
 	if kind == "issue" && strings.EqualFold(action, "labeled") && len(raw["label"]) > 0 {
 		var label map[string]json.RawMessage
-		if json.Unmarshal(raw["label"], &label) == nil && label != nil {
-			byMaintainer, err := run.labelApplication()
+		var applied struct {
+			Name string `json:"name"`
+		}
+		var issue struct {
+			Number    int64     `json:"number"`
+			UpdatedAt time.Time `json:"updated_at"`
+		}
+		_ = json.Unmarshal(raw["issue"], &issue)
+		if json.Unmarshal(raw["label"], &label) == nil && label != nil && json.Unmarshal(raw["label"], &applied) == nil {
+			byMaintainer, err := run.labelApplication(applied.Name, issue.Number, issue.UpdatedAt)
 			if err != nil {
 				return nil, err
 			}
@@ -342,12 +427,21 @@ func (s *GitHubTextStamper) stampGitHubText(ctx context.Context, eventType, acti
 }
 
 // labelApplication reads whether a labeled event's sender is a maintainer
-// person.
-func (r *gitHubTextStamp) labelApplication() (bool, error) {
+// person who applied the label themselves, not through a GitHub App (the
+// event names the user an app acted for; the issue's events name the app).
+func (r *gitHubTextStamp) labelApplication(label string, number int64, appliedAt time.Time) (bool, error) {
 	if r.stamper == nil || r.stamper.api == nil || r.stamper.tokens == nil || r.event.Installation.ID <= 0 || r.event.Sender == nil {
 		return false, nil
 	}
-	return r.personIsMaintainer(r.event.Repository.Owner.Login, r.event.Repository.Name, r.event.Sender)
+	owner, repo := r.event.Repository.Owner.Login, r.event.Repository.Name
+	if ok, err := r.personIsMaintainer(owner, repo, r.event.Sender); err != nil || !ok {
+		return false, err
+	}
+	token, err := r.installationToken()
+	if err != nil {
+		return false, err
+	}
+	return r.stamper.api.LabelAppliedByPerson(r.ctx, token, owner, repo, number, label, r.event.Sender.Login, appliedAt)
 }
 
 // gitHubTextStamp stamps one event; it mints at most one token.
@@ -378,7 +472,8 @@ func (r *gitHubTextStamp) object(kind, action, name string, text gitHubTextObjec
 	// issue_comment event its comment, and so on; other objects are context.
 	own := map[string]string{"issue": "issue", "pull_request": "pull_request", "issue_comment": "comment",
 		"pull_request_review": "review"}[kind] == name
-	write := gitHubIssueTextWrite{Number: text.Number, Author: text.User}
+	write := gitHubIssueTextWrite{Number: text.Number, Author: text.User,
+		ViaApp: text.ViaApp != nil && string(*text.ViaApp) != "null"}
 	if text.Title != nil {
 		write.Title = *text.Title
 	}
@@ -412,7 +507,14 @@ func (r *gitHubTextStamp) object(kind, action, name string, text gitHubTextObjec
 	if err != nil {
 		return false, err
 	}
-	return s.api.TextByMaintainer(r.ctx, token, owner, repo, write)
+	trusted, err := s.api.TextByMaintainer(r.ctx, token, owner, repo, write)
+	if err != nil || !trusted || name != "pull_request" {
+		return trusted, err
+	}
+	// A pull request event does not name the app that created it; its issue
+	// does.
+	viaApp, err := s.api.PullCreatedViaApp(r.ctx, token, owner, repo, text.Number)
+	return err == nil && !viaApp, err
 }
 
 func (r *gitHubTextStamp) personIsMaintainer(owner, repo string, person *gitHubActor) (bool, error) {
