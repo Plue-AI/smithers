@@ -454,10 +454,10 @@ func (w *LandingWorker) executeTask(ctx context.Context, task db.LandingTask) er
 	}
 	unresolvedThreads, err := w.queries.CountUnresolvedLandingRequestThreads(ctx, lr.ID)
 	if err != nil {
-		return fmt.Errorf("count unresolved review threads: %w", err)
+		return fmt.Errorf("count unresolved review comments: %w", err)
 	}
 	if unresolvedThreads > 0 {
-		return fmt.Errorf("landing request has %d unresolved review threads", unresolvedThreads)
+		return fmt.Errorf("landing request has %d unresolved review comments", unresolvedThreads)
 	}
 
 	// Re-check required status checks right before landing: statuses may have

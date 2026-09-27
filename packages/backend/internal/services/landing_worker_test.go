@@ -406,7 +406,7 @@ func TestLandingWorker_RefusesNewUnresolvedThreadBeforeLanding(t *testing.T) {
 	assert.False(t, q.markLandingStartedCalled)
 	assert.True(t, q.markLandingRequestFailedCalled)
 	assert.True(t, q.failTaskCalled)
-	assert.Contains(t, q.lastFailTaskArg.LastError.String, "1 unresolved review threads")
+	assert.Contains(t, q.lastFailTaskArg.LastError.String, "1 unresolved review comments")
 }
 
 func TestLandingWorker_CancellationDuringLandStillFinalizesTruthfulSuccess(t *testing.T) {

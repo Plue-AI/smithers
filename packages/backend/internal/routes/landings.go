@@ -598,15 +598,15 @@ func (h *LandingHandler) PostLandingComment(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *LandingHandler) MarkLandingThreadDone(w http.ResponseWriter, r *http.Request) {
-	h.updateLandingThread(w, r, "Marking a review thread done", h.Service.MarkLandingThreadDone)
+	h.updateLandingThread(w, r, "Marking a review comment done", h.Service.MarkLandingThreadDone)
 }
 
 func (h *LandingHandler) AckLandingThread(w http.ResponseWriter, r *http.Request) {
-	h.updateLandingThread(w, r, "Acknowledging a review thread", h.Service.AckLandingThread)
+	h.updateLandingThread(w, r, "Acknowledging a review comment", h.Service.AckLandingThread)
 }
 
 func (h *LandingHandler) ReopenLandingThread(w http.ResponseWriter, r *http.Request) {
-	h.updateLandingThread(w, r, "Reopening a review thread", h.Service.ReopenLandingThread)
+	h.updateLandingThread(w, r, "Reopening a review comment", h.Service.ReopenLandingThread)
 }
 
 func (h *LandingHandler) updateLandingThread(

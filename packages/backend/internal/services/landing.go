@@ -1121,12 +1121,12 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 	if !appendRecovered {
 		unresolvedThreads, err := s.queries.CountUnresolvedLandingRequestThreads(ctx, landingRow.ID)
 		if err != nil {
-			return LandLandingRequestAccepted{}, pkgerrors.Internal("failed to count unresolved review threads").WithCause(err)
+			return LandLandingRequestAccepted{}, pkgerrors.Internal("failed to count unresolved review comments").WithCause(err)
 		}
 		if unresolvedThreads > 0 {
 			return LandLandingRequestAccepted{}, landingBlocked(
 				[]LandingOwnerBlock{{Kind: "thread", Count: unresolvedThreads}},
-				"landing request has unresolved review threads",
+				"landing request has unresolved review comments",
 			)
 		}
 
@@ -2688,7 +2688,7 @@ func (s *LandingService) MarkLandingThreadDone(ctx context.Context, actor *db.Us
 		return db.LandingRequestComment{}, err
 	}
 	if actor.ID != landingRow.AuthorID {
-		return db.LandingRequestComment{}, pkgerrors.Forbidden("only the landing request author can mark a review thread done")
+		return db.LandingRequestComment{}, pkgerrors.Forbidden("only the landing request author can mark a review comment done")
 	}
 	revision, err := s.currentLandingTipRevision(ctx, repository.ID, owner, repo, landingRow.ChangeIds)
 	if err != nil {
@@ -2702,9 +2702,9 @@ func (s *LandingService) MarkLandingThreadDone(ctx context.Context, actor *db.Us
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.LandingRequestComment{}, pkgerrors.Conflict("review thread is not open")
+			return db.LandingRequestComment{}, pkgerrors.Conflict("review comment is not open")
 		}
-		return db.LandingRequestComment{}, pkgerrors.Internal("failed to mark review thread done").WithCause(err)
+		return db.LandingRequestComment{}, pkgerrors.Internal("failed to mark review comment done").WithCause(err)
 	}
 	if err := s.dispatchLandingCommentEventAction(ctx, repository, landingRow, actor, updated, "done"); err != nil {
 		return db.LandingRequestComment{}, err
@@ -2729,9 +2729,9 @@ func (s *LandingService) AckLandingThread(ctx context.Context, actor *db.User, o
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.LandingRequestComment{}, pkgerrors.Conflict("review thread is not done")
+			return db.LandingRequestComment{}, pkgerrors.Conflict("review comment is not done")
 		}
-		return db.LandingRequestComment{}, pkgerrors.Internal("failed to acknowledge review thread").WithCause(err)
+		return db.LandingRequestComment{}, pkgerrors.Internal("failed to acknowledge review comment").WithCause(err)
 	}
 	if err := s.dispatchLandingCommentEventAction(ctx, repository, landingRow, actor, updated, "resolved"); err != nil {
 		return db.LandingRequestComment{}, err
@@ -2757,9 +2757,9 @@ func (s *LandingService) ReopenLandingThread(ctx context.Context, actor *db.User
 	})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.LandingRequestComment{}, pkgerrors.Conflict("review thread is already open")
+			return db.LandingRequestComment{}, pkgerrors.Conflict("review comment is already open")
 		}
-		return db.LandingRequestComment{}, pkgerrors.Internal("failed to reopen review thread").WithCause(err)
+		return db.LandingRequestComment{}, pkgerrors.Internal("failed to reopen review comment").WithCause(err)
 	}
 	if err := s.dispatchLandingCommentEventAction(ctx, repository, landingRow, actor, updated, "reopened"); err != nil {
 		return db.LandingRequestComment{}, err
@@ -2788,9 +2788,9 @@ func (s *LandingService) resolveWritableLandingThread(ctx context.Context, actor
 	thread, err := s.queries.GetLandingRequestCommentByID(ctx, db.GetLandingRequestCommentByIDParams{ID: threadID, LandingRequestID: landingRow.ID})
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Repository{}, db.GetLandingRequestWithChangeIDsByNumberRow{}, db.LandingRequestComment{}, pkgerrors.NotFound("review thread not found")
+			return db.Repository{}, db.GetLandingRequestWithChangeIDsByNumberRow{}, db.LandingRequestComment{}, pkgerrors.NotFound("review comment not found")
 		}
-		return db.Repository{}, db.GetLandingRequestWithChangeIDsByNumberRow{}, db.LandingRequestComment{}, pkgerrors.Internal("failed to load review thread").WithCause(err)
+		return db.Repository{}, db.GetLandingRequestWithChangeIDsByNumberRow{}, db.LandingRequestComment{}, pkgerrors.Internal("failed to load review comment").WithCause(err)
 	}
 	return repository, landingRow, thread, nil
 }
