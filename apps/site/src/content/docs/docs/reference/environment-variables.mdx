@@ -65,6 +65,7 @@ Provider keys are read by the seat resolver, not by the CLI itself; `smthrs doct
 | `MOONSHOT_API_KEY` | seat resolver | Credentials for `moonshot:*` seats. |
 | `GEMINI_API_KEY` | seat resolver | First credential source for `gemini:*` seats. |
 | `GOOGLE_API_KEY` | seat resolver | Fallback for `gemini:*` seats when `GEMINI_API_KEY` is unset or empty. |
+| `AI_GATEWAY_API_KEY` | evaluator | Vercel AI Gateway key for Jev, which judges every completion. `smthrs flow start` and `smthrs serve` refuse to run without it. |
 
 ## Removed in 1.0
 

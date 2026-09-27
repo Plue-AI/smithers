@@ -188,6 +188,7 @@ https://smithers.sh/docs/installation/
 
 - Node.js <code>>=26.4.0</code>, or Bun 1.4 or later. See the [support matrix](/docs/reference/support-matrix/).
 - pnpm 11.25.0, Git, and Rust 1.98.0 (`rustup toolchain install 1.98.0`).
+- A model provider key, and `AI_GATEWAY_API_KEY` (Vercel AI Gateway) to run flows. See [environment variables](/docs/reference/environment-variables/#provider-keys).
 - No database server. Run state is local SQLite in the project's `.flows/` directory.
 
 See the [RC support matrix](/docs/reference/support-matrix/) for engine ranges, platforms, and hosting limits.
@@ -261,7 +262,7 @@ Create a flow that lives with your code, give it a small prompt, and inspect the
 
 ## 1. Install the CLI
 
-Use Node.js 26.4.0 or later. The durable engine runs on Node. You also need a provider credential for the model that will run the flow.
+Use Node.js 26.4.0 or later. You also need a provider credential for the model that will run the flow, and `AI_GATEWAY_API_KEY` (a Vercel AI Gateway key): Smithers asks Jev to judge every completion, and `smthrs flow start` refuses to run without it.
 
 The 1.0 release candidate is not published to npm yet. Follow the [source-checkout installation](/docs/installation/#install-the-cli), including its PATH setting, then verify:
 
@@ -303,7 +304,7 @@ and name the source directories a new contributor should read first.
 Do not modify files or run commands.
 ```
 
-The `model:` field selects the provider and model. `init` chooses it from the first available provider credential; if none is set, the generated comment names the key required by its default model. Set that credential in your shell, or change `model:` to a seat you can use. The [init reference](/docs/reference/cli/init/) lists the selection order. A model call uses that provider's account and usage limits.
+The `model:` field selects the provider and model. `init` chooses it from the first available provider credential; if none is set, the generated comment names the key required by its default model. Set that credential in your shell, or change `model:` to a model you can use. `init` tries `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, then `CEREBRAS_API_KEY`. A model call uses that provider's account and usage limits.
 
 The starter declares file-read, file-write, and process-spawn capabilities for editing and testing. For this read-only prompt, replace its `capabilities:` line with `capabilities: ["fs:read:**"]`. Review that declaration whenever you change the prompt; the flow name comes from its directory, so no `name:` field is needed.
 
@@ -47754,6 +47755,7 @@ Provider keys are read by the seat resolver, not by the CLI itself; `smthrs doct
 | `MOONSHOT_API_KEY` | seat resolver | Credentials for `moonshot:*` seats. |
 | `GEMINI_API_KEY` | seat resolver | First credential source for `gemini:*` seats. |
 | `GOOGLE_API_KEY` | seat resolver | Fallback for `gemini:*` seats when `GEMINI_API_KEY` is unset or empty. |
+| `AI_GATEWAY_API_KEY` | evaluator | Vercel AI Gateway key for Jev, which judges every completion. `smthrs flow start` and `smthrs serve` refuse to run without it. |
 
 ## Removed in 1.0
 
