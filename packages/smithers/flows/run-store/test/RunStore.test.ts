@@ -14,7 +14,7 @@ import {
   type LivenessEvidence,
   type OwnerId
 } from "../src/Ownership.ts"
-import { type RunRow, type RunSnapshot, type RunStatus, RunStore } from "../src/RunStore.ts"
+import { type HeartbeatOutcome, type RunRow, type RunSnapshot, type RunStatus, RunStore } from "../src/RunStore.ts"
 import * as RunStoreLive from "../src/RunStore.ts"
 
 const run = <A, E>(effect: Effect.Effect<A, E, never>) => effect
@@ -923,16 +923,37 @@ describe("RunStore", () => {
         const store = yield* RunStore
         const running = yield* activateNew(store, "run-heartbeat-loop", ownerA)
         const started = yield* Deferred.make<void>()
+        // The pulse's write is real database I/O, so no count of scheduler
+        // turns can prove it finished. Record each pulse synchronously as it is
+        // issued, which pins the one-second cadence, and expose its completion
+        // so the test waits on the write itself.
+        const pulses: Array<{ readonly atMs: number; readonly done: Deferred.Deferred<HeartbeatOutcome> }> = []
+        const observedStore = {
+          ...store,
+          heartbeat: (runId: string, owner: OwnerId, atMs: number) =>
+            Effect.suspend(() => {
+              const done = Deferred.makeUnsafe<HeartbeatOutcome>()
+              pulses.push({ atMs, done })
+              return store.heartbeat(runId, owner, atMs).pipe(
+                Effect.tap((outcome) => Deferred.succeed(done, outcome))
+              )
+            })
+        }
         const owningFiber = yield* Effect.scoped(
           Effect.gen(function*() {
             yield* Deferred.succeed(started, undefined)
             return yield* Effect.raceFirst(Effect.never, heartbeatLoop(running.runId, ownerA))
           })
-        ).pipe(Effect.forkChild({ startImmediately: true }))
+        ).pipe(
+          Effect.provideService(RunStore, observedStore),
+          Effect.forkChild({ startImmediately: true })
+        )
 
         yield* Deferred.await(started)
         yield* TestClock.adjust(heartbeatInterval)
         yield* Effect.yieldNow
+        expect(pulses.map((pulse) => pulse.atMs)).toEqual([1_000])
+        expect(yield* Deferred.await(pulses[0]!.done)).toEqual({ _tag: "Updated" })
         const pulsed = yield* store.get(running.runId)
         expect(pulsed.heartbeatAtMs).toBe(1_000)
 
@@ -941,6 +962,8 @@ describe("RunStore", () => {
         })
         yield* TestClock.adjust(heartbeatInterval)
         yield* Effect.yieldNow
+        expect(pulses.map((pulse) => pulse.atMs)).toEqual([1_000, 2_000])
+        expect(yield* Deferred.await(pulses[1]!.done)).toEqual({ _tag: "FenceLost" })
         return yield* Fiber.await(owningFiber)
       })))
 
