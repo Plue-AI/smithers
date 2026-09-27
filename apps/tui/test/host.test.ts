@@ -102,7 +102,9 @@ describe("Host.run workspace observation", () => {
         const editingSeat = `replay:${
           doneReplay(
             cwd,
-            "await ctx.call(\"write\", { path: \"sessions/project.ts\", content: \"real project edit\" }); ctx.done(\"edited\")"
+            `await ctx.call("write", { path: ${
+              JSON.stringify(join(cwd, "sessions", "project.ts"))
+            }, content: "real project edit" }); ctx.done("edited")`
           )
         }`
         const edited = await host.run({

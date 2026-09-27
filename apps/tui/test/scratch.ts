@@ -3,7 +3,9 @@
  *
  * `claim()` makes `tui-run-<pid>-XXXXXX` under the current temporary
  * directory and points `TMPDIR` at it, so every `mkdtemp(tmpdir())` in a case,
- * every child the case spawns, and every `zmuxd` socket land inside it.
+ * every child the case spawns, and every `zmuxd` socket land inside it. It
+ * points `SMITHERS_TUI_SESSION_DIR` there too, so sessions and `tui.log` never
+ * reach the user's `~/.smithers/tui`.
  * Release kills any `zmuxd` whose socket is under the root, then deletes the
  * root. A test run calls it from a global `afterAll`, which Bun still runs
  * after a timed-out case; `bun test` never emits `exit`, so that hook only
@@ -70,13 +72,15 @@ export const sweep = (base: string) => {
   }
 }
 
-/** Points `TMPDIR` at a fresh private root; the returned function releases it. */
+/** Points `TMPDIR` and the session directory at a fresh private root; the returned function releases it. */
 export const claim = (): () => void => {
   const base = tmpdir()
   sweep(base)
   const root = mkdtempSync(join(base, `${PREFIX}${process.pid}-`))
   const previous = process.env.TMPDIR
+  const previousSessions = process.env.SMITHERS_TUI_SESSION_DIR
   process.env.TMPDIR = root
+  process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   let released = false
   const release = () => {
     if (released) return
@@ -85,6 +89,8 @@ export const claim = (): () => void => {
     rmSync(root, { recursive: true, force: true })
     if (previous === undefined) delete process.env.TMPDIR
     else process.env.TMPDIR = previous
+    if (previousSessions === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previousSessions
   }
   process.once("exit", release)
   for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
