@@ -448,3 +448,15 @@ it("runs a package-owned test matrix with the same source and dependency boundar
   expect(attrs.srcs).toContainEqual(Input.file("vitest.config.ts"))
   expect(attrs.srcs).toContainEqual(Input.glob("test/**/*.ts"))
 })
+
+
+it("uses default matrix limits without a package manager or Vitest config", () => {
+  const targets = BuildAndCheckTypeScriptPackage({
+    testProgram: Input.file("test-matrix.mjs"),
+    vitestConfig: null
+  })
+  const attrs = attrsOf<NodeTest.Attrs>(targets.test)
+  expect(attrs.runtime).toBeUndefined()
+  expect(attrs.timeout).toBe("1200000ms")
+  expect(attrs.srcs).not.toContainEqual(Input.file("vitest.config.ts"))
+})
