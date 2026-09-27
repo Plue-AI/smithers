@@ -183,6 +183,14 @@ describe("the approvals inbox card", () => {
     expect(decisions[0]).toEqual({ id: approvalActionId(`approvals-inbox-${REPO}`, { runId: "run-a", requestId: "req-1" }), decision: "approved" })
   })
 
+  test("grants and questions count apart", () => {
+    const host = render(<ApprovalsInboxCardBody card={inboxCard([
+      gate,
+      { ...gate, requestId: "q-1", title: "Human input", question: { kind: "ask", prompt: "Which service owns retries?" } },
+    ])} onDecideApproval={() => {}} />)
+    expect(host.querySelector("[data-testid='approvals-inbox-count']")?.textContent).toBe("1 approval pending · 1 question pending")
+  })
+
   test("only undecided rows count as pending, including in-flight and failed submissions", () => {
     const host = render(<ApprovalsInboxCardBody card={inboxCard([
       { ...gate, requestId: "approved", decision: "approved" },

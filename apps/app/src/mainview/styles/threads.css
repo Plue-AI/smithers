@@ -121,16 +121,5 @@ button.thread-reaction:focus-visible { outline: 2px solid var(--ring-border); ou
 }
 
 
-/* ── Inbox incidents and references (RunsCards.tsx) ──────────────────── */
-.inbox-incident {
-	display: flex;
-	flex-direction: column;
-	gap: var(--sp-2);
-	padding: var(--sp-2) var(--sp-3);
-	border: 1px solid var(--danger-border);
-	border-radius: var(--r-sm);
-	background: var(--danger-soft);
-}
-.inbox-incident-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+/* ── Inbox references (RunsCards.tsx) ────────────────────────────────── */
 .inbox-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
-.inbox-age { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-muted); }

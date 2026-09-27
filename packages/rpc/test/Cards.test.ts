@@ -1190,15 +1190,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         pending: true,
         agent: { id: "assistant", name: "Assistant", agentId: "assistant" },
         thread: "example/app#2101"
-      }],
-      incidents: [{
-        runId: "run-2",
-        title: "Daily audit",
-        guard: "budget",
-        detail: "2.1% of the week",
-        parkedAt: 1_757_000_000_000,
-        agent: { id: "engineer", name: "Engineer", agentId: "engineer" },
-        thread: "example/app#2101"
       }]
     }
   },

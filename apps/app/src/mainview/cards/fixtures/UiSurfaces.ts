@@ -1,8 +1,8 @@
 /*
  * Fixture cards for the surfaces smithers-ui-DESIGN.md extends: a threads
  * list with chat and task rows, one chat issue as a conversation, the agent
- * profiles, a run in its Steps view under a runaway guard, the inbox with an
- * incident, and the connect card's integration rows. Invented values over the
+ * profiles, a run in its Steps view under a runaway guard, the inbox, and
+ * the connect card's integration rows. Invented values over the
  * real payload shapes, for tests and screenshots only; nothing here reaches a
  * production path.
  */
@@ -106,8 +106,7 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
       approvals: [
         { runId: "run-post-digest", requestId: "gate-1", title: "slack.post #team", approval: { _tag: "ApprovalTarget.Node", node: "call-3" }, requestedAt: T0 - 12 * 60_000, agent: PA, thread: `${REPO}#2104` },
         { runId: "run-eval-suite", requestId: "gate-2", title: "Which suite owns the flaky test?", approval: {}, requestedAt: T0 - 60 * 60_000, agent: QA, question: { kind: "ask", prompt: "Which suite owns the flaky test?" } }
-      ],
-      incidents: [{ runId: "run-daily-audit", title: "Daily audit", guard: "budget", detail: "2.1% of the week", parkedAt: T0 - 4 * 60_000, agent: ENGINEER, thread: `${REPO}#2101` }]
+      ]
     }
   },
   {

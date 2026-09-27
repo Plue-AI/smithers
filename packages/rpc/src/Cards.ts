@@ -1421,21 +1421,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           /** The conversation (`owner/repo#number`) the run was working, when recorded. */
           thread: z.string().optional()
         })
-      ),
-      /*
-       * Runaway incidents (smithers-ui-DESIGN.md §3.4): a budget or time guard
-       * parked a run. The row offers Continue (runs.resume) and Stop
-       * (flow.run.stop); the guard's detail is the record's own words.
-       */
-      incidents: z.array(z.object({
-        runId: z.string(),
-        title: z.string(),
-        guard: z.enum(["budget", "time"]),
-        detail: z.string(),
-        parkedAt: z.number(),
-        agent: PersonaRefSchema.optional(),
-        thread: z.string().optional()
-      })).optional()
+      )
     })
   }),
   /*
