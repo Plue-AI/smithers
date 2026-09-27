@@ -126,9 +126,9 @@ test("the hosted GitHub cookie session reads the selected backend identity and o
     ...ownerSeams(WORKER),
     applicationIdentity: { current: async () => {
       identityReads++
-      return { username: "github-owner", admin: false }
+      return { username: "github-owner", admin: false, scopes: null }
     } },
-    http: async (url) => { requests.push(String(url)); return new Response("{}", { status: 404 }) }
+    fetchImpl: async (url) => { requests.push(String(url)); return new Response("{}", { status: 404 }) }
   })
   await controller.loadSession()
   await settled()
