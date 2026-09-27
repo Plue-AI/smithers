@@ -338,6 +338,28 @@ const githubHref = "https://github.com/smithersai/smithers"
       --scan-offset: 0.12em;
     }
     .wordmark.settled .wordmark-row { animation: none; }
+    /* Decorative rows ripple independently; the pre stays free for app-entry flight. */
+    .wordmark .wordmark-row {
+      transition: transform 380ms cubic-bezier(0.2, 0.8, 0.2, 1.15), opacity 380ms var(--ease);
+      transition-delay: calc(var(--row) * 22ms);
+    }
+    .home .sub {
+      transition: transform 280ms var(--ease), opacity 280ms var(--ease);
+    }
+    @media (hover: hover) {
+      .wordmark pre:hover .wordmark-row {
+        transform: translateY(calc((var(--row) - 2) * -2px)) scale(1.012);
+        opacity: 0.88;
+      }
+      .home .sub:hover { transform: translateY(-3px); opacity: 0.8; }
+    }
+    .wordmark pre:active .wordmark-row {
+      transform: translateY(2px) scale(0.99);
+      opacity: 0.7;
+      transition-duration: 100ms;
+      transition-delay: 0ms;
+    }
+    .home .sub:active { transform: translateY(1px) scale(0.995); opacity: 0.7; }
   }
   @keyframes wordmark-scan {
     from { clip-path: inset(var(--scan-edge)); transform: translateX(var(--scan-offset)); }
