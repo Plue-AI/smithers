@@ -17,6 +17,7 @@
  * 4. The source store is untouched: its owner keeps its fence there.
  */
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import { DurableWriter } from "@smthrs/database"
@@ -91,7 +92,7 @@ const services = (
     Layer.merge(jj),
     Layer.merge(OwnerIdentity.layerConstant(owner)),
     Layer.provideMerge(ArtifactStore.layerFileSystem({ directory: objectsDirectory })),
-    Layer.provideMerge(NodeFileSystem.layer)
+    Layer.provideMerge(Layer.merge(NodeFileSystem.layer, NodePath.layer))
   )
 
 const dispatch = (options: {

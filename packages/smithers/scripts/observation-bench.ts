@@ -22,6 +22,7 @@
  * run with `/usr/bin/time -l` to include helper CPU and OS peak memory.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as Budget from "@smthrs/agent/Budget"
 import * as FlowEngineLike from "@smthrs/agent/FlowEngineLike"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
@@ -127,7 +128,7 @@ const batchedBoundary = Effect.gen(function*() {
   })
   const host = KernelFileSystem.layer.pipe(
     Layer.provide(AtomicFileSystem.layer),
-    Layer.provide(Path.layer),
+    Layer.provideMerge(NodePath.layer),
     Layer.provide(Workspace.layer(directory)),
     Layer.provide(GrantStore.layerNoop)
   )
@@ -146,7 +147,7 @@ const batchedBoundary = Effect.gen(function*() {
         }
       }
     })
-    const service = StepBoundary.makeFileSystem(measuredFs, ArtifactStore.makeMemory())
+    const service = StepBoundary.makeFileSystem(measuredFs, yield* Path.Path, ArtifactStore.makeMemory())
     const started = performance.now()
     const cpu = process.cpuUsage()
     const spawns = AtomicFileSystem.helperSpawns()

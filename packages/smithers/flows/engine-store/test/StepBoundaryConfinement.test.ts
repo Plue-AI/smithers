@@ -16,12 +16,14 @@ import * as KernelWorkspace from "@smthrs/kernel/Workspace"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import { sha256, withCrypto } from "./Sha256.ts"
+import { win32Host } from "./Win32Host.ts"
 
 const bytes = new TextEncoder().encode("replayed")
 
@@ -157,7 +159,7 @@ describe("StepBoundary replay confinement", () => {
       try {
         const layer = StepBoundary.layer.pipe(
           Layer.provide(Layer.succeed(ArtifactStore.ArtifactStore)(ArtifactStore.makeMemory())),
-          Layer.provide(Layer.mergeAll(NodeFileSystem.layer, KernelWorkspace.layer(paths.workspace)))
+          Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, KernelWorkspace.layer(paths.workspace)))
         )
         const exit = yield* replay(layer, evidence([written("result"), { path: "gone", digest: null }]))
         refusedWith(exit)
@@ -165,5 +167,25 @@ describe("StepBoundary replay confinement", () => {
       } finally {
         paths.dispose()
       }
+    }))
+
+  it.effect("pins replay to a Windows drive root through the host Path", () =>
+    Effect.gen(function*() {
+      const root = "D:\\a\\kernel"
+      const host = win32Host(root)
+      const layer = StepBoundary.layer.pipe(
+        Layer.provide(Layer.succeed(ArtifactStore.ArtifactStore)(ArtifactStore.makeMemory())),
+        Layer.provide(Layer.mergeAll(
+          Layer.succeed(FileSystem.FileSystem)(host.fs),
+          NodePath.layerWin32,
+          KernelWorkspace.layer(root)
+        ))
+      )
+      const exit = yield* replay(layer, evidence([{ path: "gone.txt", digest: null }]))
+      expect(exit).toMatchObject({ _tag: "Success" })
+      expect(host.realPaths).toEqual([root])
+      expect(host.requests).toMatchObject([
+        { operation: "remove", path: "D:\\a\\kernel\\gone.txt", logicalRoot: root, boundaryRoot: root }
+      ])
     }))
 })

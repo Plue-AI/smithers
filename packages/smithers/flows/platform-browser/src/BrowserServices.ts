@@ -54,6 +54,7 @@ export const layer = (options: {
     BrowserChildProcessSpawner.layer(options.bash),
     Layer.mergeAll(
       BrowserFileSystem.layer(options.fs, { workspaceRoot: options.workspaceRoot ?? "/" }),
+      // POSIX by design: the browser volume is in-memory and rooted at "/".
       EffectPath.layer
     )
   )

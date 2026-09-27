@@ -10,6 +10,7 @@
  * not compose the remote artifact tier, which requires HTTPS.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { CacheSync, EngineStore, StepBoundary, WorkspaceSandbox } from "@smthrs/engine-store"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
@@ -194,7 +195,7 @@ const engineLayer = (filename: string, hostId: string, endpoint: string) => {
       )
     ),
     Layer.provideMerge(NodeCrypto.layer),
-    Layer.provideMerge(AtomicFileSystem.layer)
+    Layer.provideMerge(Layer.merge(AtomicFileSystem.layer, NodePath.layer))
   )
 }
 

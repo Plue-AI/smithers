@@ -11,6 +11,7 @@ import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import type * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as StepBoundary from "./StepBoundary.ts"
 import * as WorkspaceSandbox from "./WorkspaceSandbox.ts"
@@ -73,7 +74,7 @@ export const make = (workspace: WorkspaceSandbox.Service): Service =>
 export const layer: Layer.Layer<
   Service,
   WorkspaceSandbox.WorkspaceError,
-  FileSystem.FileSystem | ArtifactStore.ArtifactStore | KernelWorkspace.Workspace
+  FileSystem.FileSystem | Path.Path | ArtifactStore.ArtifactStore | KernelWorkspace.Workspace
 > = Layer.effect(
   StepSandbox,
   Effect.map(WorkspaceSandbox.WorkspaceSandbox, make)

@@ -94,6 +94,7 @@ stub keeps the wiring honest without requiring a `jj` binary:
 
 ```ts
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { EngineStore, StepBoundary, WorkspaceSandbox } from "@smthrs/engine-store"
 import { Jj } from "@smthrs/kernel"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
@@ -122,7 +123,7 @@ const engine = (filename: string, root: string, hostId: string) =>
       Layer.mergeAll(StepBoundary.layer, WorkspaceSandbox.layerFileSystem(), stubJj)
     ),
     Layer.provideMerge(stores(filename, root)),
-    Layer.provideMerge(Layer.merge(NodeCrypto.layer, AtomicFileSystem.layer))
+    Layer.provideMerge(Layer.mergeAll(NodeCrypto.layer, AtomicFileSystem.layer, NodePath.layer))
   )
 ```
 
@@ -130,6 +131,8 @@ const engine = (filename: string, root: string, hostId: string) =>
 descriptor-relative helper. The workspace sandbox refuses to build over a plain
 `NodeFileSystem.layer`: its copy-back must never follow a symlink swapped into
 the workspace while it writes.
+`NodePath.layer` supplies the host's path syntax. The boundary and the sandbox
+resolve the workspace root with it, so a Windows drive root confines correctly.
 
 `isAlive` is the liveness arbitration this engine applies before stealing a run
 from a stale owner. `Ownership.sameHostPidProbe` asks this machine's process

@@ -13,6 +13,7 @@
  * back without healing it, so verification now runs on every put.
  */
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import * as Clock from "effect/Clock"
 import * as Deferred from "effect/Deferred"
@@ -27,6 +28,7 @@ import { TestClock } from "effect/testing"
 import { posix } from "node:path"
 import * as ArtifactStore from "../src/ArtifactStore.ts"
 import { bytes, sha256, text, withCrypto } from "./Crypto.ts"
+import { hostPath } from "./HostPath.ts"
 
 const artifact = "shared-oversized-artifact-content"
 const digest = sha256(bytes(artifact))
@@ -204,7 +206,7 @@ const memoryFs = (options: {
 }
 
 const store = (host: ReturnType<typeof memoryFs>, options?: ArtifactStore.FileSystemOptions) =>
-  ArtifactStore.makeFileSystem(host.fs, { durability: "best-effort", coordination: "process", ...options })
+  ArtifactStore.makeFileSystem(host.fs, hostPath, { durability: "best-effort", coordination: "process", ...options })
 
 const tempsOf = (host: ReturnType<typeof memoryFs>) => [...host.files.keys()].filter((path) => path.includes(".tmp-"))
 
@@ -266,7 +268,7 @@ describe("atomic publication (issues #117, #131, #138)", () => {
       })
       const input = bytes(artifact)
       const running = yield* withCrypto(
-        ArtifactStore.makeFileSystem(gated, {
+        ArtifactStore.makeFileSystem(gated, hostPath, {
           durability: "best-effort",
           coordination: "process"
         }).put(input)
@@ -316,11 +318,11 @@ describe("atomic publication (issues #117, #131, #138)", () => {
       const exit = yield* withCrypto(
         Effect.all(
           [
-            ArtifactStore.makeFileSystem(firstProcess, {
+            ArtifactStore.makeFileSystem(firstProcess, hostPath, {
               durability: "best-effort",
               coordination: "process"
             }).put(bytes(artifact)),
-            ArtifactStore.makeFileSystem(secondProcess, {
+            ArtifactStore.makeFileSystem(secondProcess, hostPath, {
               durability: "best-effort",
               coordination: "process"
             }).put(bytes(artifact))
@@ -357,6 +359,30 @@ describe("atomic publication (issues #117, #131, #138)", () => {
         ...[posix.dirname(blobPath), ".flows/objects", ".flows", "."].map((path) => ({ op: "directory-sync", path }))
       ])
       expect(host.durable(blobPath)).toBe(true)
+    }))
+
+  it.effect("fsyncs every ancestor of a Windows drive directory through the host Path", () =>
+    Effect.gen(function*() {
+      const directory = "D:\\store\\objects"
+      const host = memoryFs({ supportsOpen: true })
+      host.directories.add("D:\\store")
+      host.directories.add("D:\\")
+      yield* withCrypto(
+        Effect.flatMap(ArtifactStore.ArtifactStore, (artifacts) => artifacts.put(bytes(artifact))).pipe(
+          Effect.provide(
+            ArtifactStore.layerFileSystem({ directory, durability: "required" }).pipe(
+              Layer.provide(Layer.succeed(FileSystem.FileSystem)(host.fs)),
+              Layer.provide(NodePath.layerWin32)
+            )
+          )
+        )
+      )
+      expect(host.events.filter((event) => event.op === "directory-sync").map((event) => event.path)).toEqual([
+        `${directory}/${digest.slice(0, 2)}`,
+        directory,
+        "D:\\store",
+        "D:\\"
+      ])
     }))
 
   it.effect("refuses publication on a host with no exclusive writable file handles", () =>
@@ -739,7 +765,7 @@ describe("reads, probes, and refusals", () => {
             return digest === requested[3]
           })
       })
-      const artifacts = ArtifactStore.makeFileSystem(fs)
+      const artifacts = ArtifactStore.makeFileSystem(fs, hostPath)
       const running = yield* Effect.gen(function*() {
         const start = yield* Clock.currentTimeMillis
         const missing = yield* artifacts.findMissing([...requested, requested[0]!, requested[3]!])
@@ -765,7 +791,7 @@ describe("reads, probes, and refusals", () => {
             return false
           })
       })
-      const exit = yield* ArtifactStore.makeFileSystem(fs).findMissing([digest, "invalid"]).pipe(Effect.exit)
+      const exit = yield* ArtifactStore.makeFileSystem(fs, hostPath).findMissing([digest, "invalid"]).pipe(Effect.exit)
       expect(errorOf(exit)).toMatchObject({ code: "invalid_digest" })
       expect(calls).toEqual([])
     }))
@@ -796,7 +822,8 @@ describe("layers", () => {
         Effect.flatMap(ArtifactStore.ArtifactStore, (artifacts) => artifacts.put(bytes(artifact))).pipe(
           Effect.provide(
             ArtifactStore.layerFileSystem({ coordination: "process" }).pipe(
-              Layer.provide(Layer.succeed(FileSystem.FileSystem)(host.fs))
+              Layer.provide(Layer.succeed(FileSystem.FileSystem)(host.fs)),
+              Layer.provide(NodePath.layer)
             )
           )
         )
@@ -817,7 +844,7 @@ describe("Node filesystem publication security", () => {
       )
       for (const sharing of [false, true]) {
         const directory = `${root}/${sharing ? "shared" : "private"}/objects`
-        const artifacts = ArtifactStore.makeFileSystem(fs, {
+        const artifacts = ArtifactStore.makeFileSystem(fs, hostPath, {
           directory,
           ...(sharing ? { fileMode: 0o640, directoryMode: 0o750 } : {})
         })
@@ -853,7 +880,7 @@ describe("Node filesystem publication security", () => {
           })
       }
       const directory = `${root}/objects`
-      yield* ArtifactStore.makeFileSystem(hostile, { directory }).put(bytes(artifact))
+      yield* ArtifactStore.makeFileSystem(hostile, hostPath, { directory }).put(bytes(artifact))
       expect(attempts).toHaveLength(2)
       expect(attempts[0]).not.toBe(attempts[1])
       expect(yield* fs.readLink(attempts[0]!)).toBe(victim)
@@ -877,7 +904,9 @@ describe("Node filesystem publication security", () => {
             return yield* fs.open(path, options)
           })
       }
-      const exit = yield* ArtifactStore.makeFileSystem(hostile, { directory: `${root}/objects` }).put(bytes(artifact))
+      const exit = yield* ArtifactStore.makeFileSystem(hostile, hostPath, { directory: `${root}/objects` }).put(
+        bytes(artifact)
+      )
         .pipe(Effect.exit)
       expect(Exit.isFailure(exit)).toBe(true)
       const reason = Exit.isFailure(exit) ? exit.cause.reasons[0] : undefined
@@ -906,7 +935,9 @@ describe("Node filesystem publication security", () => {
         const target = entry === "blob" ? `${outside}/victim` : outside
         if (entry === "blob") yield* fs.writeFileString(target, artifact)
         yield* fs.symlink(target, path)
-        const exit = yield* ArtifactStore.makeFileSystem(fs, { directory: `${directory}/` }).put(bytes(artifact)).pipe(
+        const exit = yield* ArtifactStore.makeFileSystem(fs, hostPath, { directory: `${directory}/` }).put(
+          bytes(artifact)
+        ).pipe(
           Effect.exit
         )
         expect(errorOf(exit), JSON.stringify(exit)).toMatchObject({ code: "unavailable" })
@@ -941,7 +972,7 @@ describe("Node filesystem publication security", () => {
               )
             )
         }
-        const exit = yield* ArtifactStore.makeFileSystem(hostile, { directory, coordination: "process" }).put(
+        const exit = yield* ArtifactStore.makeFileSystem(hostile, hostPath, { directory, coordination: "process" }).put(
           bytes(artifact)
         ).pipe(Effect.exit)
         expect(errorOf(exit), JSON.stringify(exit)).toMatchObject({ code: "unavailable" })
@@ -973,7 +1004,9 @@ describe("Node filesystem publication security", () => {
             )
           )
       }
-      const exit = yield* ArtifactStore.makeFileSystem(hostile, { directory: `${root}/objects` }).put(bytes(artifact))
+      const exit = yield* ArtifactStore.makeFileSystem(hostile, hostPath, { directory: `${root}/objects` }).put(
+        bytes(artifact)
+      )
         .pipe(Effect.exit)
       expect(errorOf(exit), JSON.stringify(exit)).toMatchObject({ code: "unavailable" })
       expect(yield* fs.readFileString(victim)).toBe("unrelated data")
@@ -991,7 +1024,7 @@ describe("Node filesystem publication security", () => {
       yield* fs.utimes(`${outside}/old.tmp-dead`, new Date(0), new Date(0))
       yield* fs.symlink(outside, `${directory}/aa`)
       yield* fs.symlink(`${outside}/old.tmp-dead`, `${directory}/bb/link.tmp-dead`)
-      yield* ArtifactStore.makeFileSystem(fs, { directory }).put(bytes(artifact))
+      yield* ArtifactStore.makeFileSystem(fs, hostPath, { directory }).put(bytes(artifact))
       expect(yield* fs.readFileString(`${outside}/old.tmp-dead`)).toBe("keep")
       expect(yield* fs.readLink(`${directory}/bb/link.tmp-dead`)).toBe(`${outside}/old.tmp-dead`)
     })).pipe(Effect.provide(NodeFileSystem.layer), withCrypto))
@@ -1010,7 +1043,7 @@ describe("filesystem capability refusals", () => {
             method: "readLink"
           }))
       }
-      const exit = yield* withCrypto(ArtifactStore.makeFileSystem(fs).put(bytes(artifact))).pipe(Effect.exit)
+      const exit = yield* withCrypto(ArtifactStore.makeFileSystem(fs, hostPath).put(bytes(artifact))).pipe(Effect.exit)
       expect(errorOf(exit)).toMatchObject({ code: "unavailable" })
       expect(host.writes).toEqual([])
     }))
@@ -1038,7 +1071,7 @@ describe("filesystem capability refusals", () => {
               : host.fs.readDirectory(path)
         }
         const body = entries === undefined ? artifact : "second"
-        yield* withCrypto(ArtifactStore.makeFileSystem(fs, { coordination: "process" }).put(bytes(body)))
+        yield* withCrypto(ArtifactStore.makeFileSystem(fs, hostPath, { coordination: "process" }).put(bytes(body)))
       }
       expect(text(host.files.get(".flows/objects/aa/old.tmp-dead"))).toBe("keep")
     }))
@@ -1068,7 +1101,7 @@ describe("filesystem capability refusals", () => {
               )
             )
         }
-        const exit = yield* ArtifactStore.makeFileSystem(hostile, { directory, coordination: "process" }).put(
+        const exit = yield* ArtifactStore.makeFileSystem(hostile, hostPath, { directory, coordination: "process" }).put(
           bytes(artifact)
         ).pipe(Effect.exit)
         expect(errorOf(exit)).toMatchObject({ code: "unavailable" })
@@ -1090,7 +1123,7 @@ it.effect("fails closed when directory metadata cannot be inspected", () =>
           method: "stat"
         }))
     }
-    const exit = yield* withCrypto(ArtifactStore.makeFileSystem(fs).put(bytes(artifact))).pipe(Effect.exit)
+    const exit = yield* withCrypto(ArtifactStore.makeFileSystem(fs, hostPath).put(bytes(artifact))).pipe(Effect.exit)
     expect(errorOf(exit)).toMatchObject({ code: "unavailable" })
     expect(host.writes).toEqual([])
   }))

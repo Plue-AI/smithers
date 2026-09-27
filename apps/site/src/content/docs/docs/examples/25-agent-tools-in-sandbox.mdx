@@ -36,6 +36,7 @@ Vitest reports the assertions that passed, failed, or were skipped. Examples tha
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as Agent from "@smthrs/agent/Agent"
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Budget from "@smthrs/agent/Budget"
@@ -341,7 +342,7 @@ export const main = (filename: string, root: string, model?: Model.Model): Effec
       eventTypes: observed.eventTypes
     } satisfies Summary
   }).pipe(
-    Effect.provide(Layer.mergeAll(NodeFileSystem.layer, Path.layer, NodeCrypto.layer)),
+    Effect.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layer)),
     Effect.orDie
   )
 ```

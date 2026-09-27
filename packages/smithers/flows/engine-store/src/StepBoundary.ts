@@ -560,6 +560,7 @@ export const referencedDigests = (evidence: BoundaryEvidence): ReadonlyArray<Art
  */
 export const makeFileSystem = (
   fs: FileSystem.FileSystem,
+  platformPath: Path.Path,
   artifacts: ArtifactStore.Service,
   options: FileSystemOptions = {}
 ): Service => {
@@ -649,7 +650,10 @@ export const makeFileSystem = (
   // and keep the caller's filesystem.
   const replayRoot = KernelFileSystem.confinedRoot(fs) ?? options.root ?? "."
   const replayHost: Effect.Effect<FileSystem.FileSystem, UnsupportedBoundary> = KernelFileSystem.isConfinable(fs)
-    ? KernelFileSystem.confined(fs, replayRoot).pipe(Effect.provide(Path.layer), Effect.mapError(hostFailure))
+    ? KernelFileSystem.confined(fs, replayRoot).pipe(
+      Effect.provideService(Path.Path, platformPath),
+      Effect.mapError(hostFailure)
+    )
     : Effect.fail(
       new UnsupportedBoundary({
         code: "unsupported_boundary",
@@ -1057,13 +1061,18 @@ export const makeFileSystem = (
  * @since 0.1.0
  * @category layers
  */
-export const layer: Layer.Layer<Service, never, FileSystem.FileSystem | ArtifactStore.ArtifactStore> = Layer.effect(
+export const layer: Layer.Layer<
+  Service,
+  never,
+  FileSystem.FileSystem | Path.Path | ArtifactStore.ArtifactStore
+> = Layer.effect(
   StepBoundary,
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
+    const platformPath = yield* Path.Path
     const artifacts = yield* ArtifactStore.ArtifactStore
     const workspace = yield* Effect.serviceOption(KernelWorkspace)
-    return makeFileSystem(fs, artifacts, workspace._tag === "Some" ? { root: workspace.value.root } : {})
+    return makeFileSystem(fs, platformPath, artifacts, workspace._tag === "Some" ? { root: workspace.value.root } : {})
   })
 )
 

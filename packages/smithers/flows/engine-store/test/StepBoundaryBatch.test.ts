@@ -14,6 +14,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import * as FileEnumeration from "../src/internal/FileEnumeration.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
+import { hostPath } from "./HostPath.ts"
 
 const roots: Array<string> = []
 const temporary = async () => {
@@ -80,7 +81,7 @@ describe("batched boundary identities", () => {
             })
         }
       })
-      const boundary = StepBoundary.makeFileSystem(fs, ArtifactStore.makeMemory())
+      const boundary = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeMemory())
       await Effect.runPromise(
         Effect.gen(function*() {
           const prepared = yield* boundary.prepare({ readSet: [], writeSet: ["a"], boundaryMode: "hard" })
@@ -106,7 +107,7 @@ describe("batched boundary identities", () => {
           })
       }
     })
-    const boundary = StepBoundary.makeFileSystem(fs, ArtifactStore.makeMemory())
+    const boundary = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeMemory())
     const error = await Effect.runPromise(
       Effect.flip(boundary.prepare({ readSet: [{ path: "a", digest: "old" }], writeSet: [], boundaryMode: "hard" }))
         .pipe(Effect.provide(NodeCrypto.layer))
@@ -145,10 +146,11 @@ describe("batched boundary identities", () => {
         const fs = yield* FileSystem.FileSystem
         const old = StepBoundary.makeFileSystem(
           { ...fs, [KernelFileSystem.FileSystemBatchTypeId]: undefined } as FileSystem.FileSystem,
+          hostPath,
           ArtifactStore.makeMemory(),
           { maxInlineBytes: 64 }
         )
-        const batched = StepBoundary.makeFileSystem(fs, ArtifactStore.makeMemory(), { maxInlineBytes: 64 })
+        const batched = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeMemory(), { maxInlineBytes: 64 })
         const prepared = yield* batched.prepare(descriptor)
         expect(prepared).toEqual(yield* old.prepare(descriptor))
         const expectedReads = [...input].map(([path, bytes]) => ({ path, digest: sha(bytes) })).concat({
@@ -203,7 +205,7 @@ describe("batched boundary identities", () => {
     await Effect.runPromise(
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
-        const boundary = StepBoundary.makeFileSystem(fs, ArtifactStore.makeMemory())
+        const boundary = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeMemory())
         const descriptor: FileBoundary = { readSet: [], writeSet: paths, boundaryMode: "hard" }
         const evidence = yield* boundary.settle(yield* boundary.prepare(descriptor))
         expect(
@@ -224,7 +226,7 @@ describe("batched boundary identities", () => {
     await Effect.runPromise(
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
-        const boundary = StepBoundary.makeFileSystem(fs, ArtifactStore.makeMemory())
+        const boundary = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeMemory())
         const prepared = yield* boundary.prepare({
           readSet: [{ path: "a", digest: sha("old") }],
           writeSet: [],

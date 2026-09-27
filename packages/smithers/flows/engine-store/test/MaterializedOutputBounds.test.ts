@@ -23,6 +23,7 @@ import type * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import { memoryFileSystem } from "./fixtures/MemoryFileSystem.ts"
+import { hostPath } from "./HostPath.ts"
 import { sha256, withCrypto } from "./Sha256.ts"
 
 const encoder = new TextEncoder()
@@ -50,7 +51,8 @@ const boundaryLayer = (fs: FileSystem.FileSystem, options?: BoundaryOptions) =>
     StepBoundary.StepBoundary,
     StepBoundary.makeFileSystem(
       fs,
-      ArtifactStore.makeFileSystem(fs, {
+      hostPath,
+      ArtifactStore.makeFileSystem(fs, hostPath, {
         directory: options?.objectsDirectory,
         durability: "best-effort",
         coordination: "process"
@@ -227,7 +229,7 @@ describe("an artifact store that refuses outright stays a retryable host refusal
           Effect.provide(
             Layer.succeed(
               StepBoundary.StepBoundary,
-              StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop(), { maxInlineBytes: 16 })
+              StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop(), { maxInlineBytes: 16 })
             )
           )
         )

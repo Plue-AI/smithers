@@ -24,10 +24,11 @@ in Bun, in a browser tab, and inside a sandbox:
 | -------------------------------------------------------------- | ------------------------------------------------- | ----------------------- |
 | `Crypto.Crypto` from `effect/Crypto`                           | `put` and `get` on every store                    | `NodeCrypto.layer`      |
 | `FileSystem.FileSystem` from `effect/FileSystem`               | the filesystem store, the sweep, the backup lease | `NodeFileSystem.layer`  |
+| `Path.Path` from `effect/Path`                                 | the filesystem store                              | `NodePath.layer`        |
 | `HttpClient.HttpClient` from `effect/unstable/http/HttpClient` | `RemoteArtifacts`                                 | `FetchHttpClient.layer` |
 
 `has` and `findMissing` never hash anything, so they do not require `Crypto`.
-The memory and no-op stores require no `FileSystem` at all, which is what makes
+The memory and no-op stores require no `FileSystem` or `Path` at all, which is what makes
 them usable in a browser and in a test with no temporary directory.
 
 The Node implementations live in `@effect/platform-node`:
@@ -39,11 +40,12 @@ pnpm add @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-r
 ```ts
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as Layer from "effect/Layer"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 
 /** Everything every tier in this package can ask for. */
-export const host = Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, FetchHttpClient.layer)
+export const host = Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, NodePath.layer, FetchHttpClient.layer)
 ```
 
 `FetchHttpClient` ships inside `effect`, so the shared tier adds no dependency

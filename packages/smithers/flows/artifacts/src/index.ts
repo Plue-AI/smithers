@@ -11,9 +11,11 @@
  * import { ArtifactStore, CombinedArtifacts, RemoteArtifacts } from "@smthrs/artifacts"
  * import * as Effect from "effect/Effect"
  * import * as FileSystem from "effect/FileSystem"
+ * import * as Path from "effect/Path"
  *
  * const layer = CombinedArtifacts.layer({
- *   local: Effect.map(FileSystem.FileSystem, (fs) => ArtifactStore.makeFileSystem(fs)),
+ *   local: Effect.map(Effect.all([FileSystem.FileSystem, Path.Path]), ([fs, path]) =>
+ *     ArtifactStore.makeFileSystem(fs, path)),
  *   remote: RemoteArtifacts.make({ endpoint: "https://cache.example.com" })
  * })
  * ```

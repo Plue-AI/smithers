@@ -14,6 +14,7 @@
  * @since 1.0.0
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import type { DurableFlow } from "@smthrs/control/SqlControlRuntime"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
@@ -27,7 +28,7 @@ import { Plan } from "@smthrs/plan"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
-import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { Effect, FileSystem, Layer, Schema } from "effect"
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -169,7 +170,7 @@ export const makeAuthoringFixture = (root: string) => {
   ]
   const host = KernelFileSystem.layer.pipe(
     Layer.provide(AtomicFileSystem.layer),
-    Layer.provide(Path.layer),
+    Layer.provideMerge(NodePath.layer),
     Layer.provide(KernelWorkspace.layer(root)),
     Layer.provide(GrantStore.layerNoop)
   )

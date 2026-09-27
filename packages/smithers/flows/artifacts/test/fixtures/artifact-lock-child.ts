@@ -5,6 +5,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as ArtifactBackupLease from "../../src/ArtifactBackupLease.ts"
 import * as ArtifactStore from "../../src/ArtifactStore.ts"
+import { hostPath } from "../HostPath.ts"
 
 const [mode, directory, digest] = process.argv.slice(2)
 if (
@@ -61,7 +62,7 @@ if (
           : fs.utimes(path, atime, mtime)
     }
     process.stdout.write("started\n")
-    const store = ArtifactStore.makeFileSystem(gated, { directory, durability: "best-effort" })
+    const store = ArtifactStore.makeFileSystem(gated, hostPath, { directory, durability: "best-effort" })
     const published = yield* store.put(bytes)
     process.stdout.write(`done:${published}\n`)
     process.stdin.destroy()

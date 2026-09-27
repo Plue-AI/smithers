@@ -23,6 +23,7 @@ import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as Path from "effect/Path"
 import type { ArtifactCorruption, ArtifactMissing, ArtifactStoreError } from "./ArtifactStoreError.ts"
 import { type FileSystemOptions, makeFileSystem } from "./FileSystemArtifactStore.ts"
 import { makeMemory } from "./MemoryArtifactStore.ts"
@@ -126,8 +127,10 @@ export class ArtifactStore extends Context.Service<ArtifactStore, Service>()("@s
  */
 export const layerFileSystem = (
   options: FileSystemOptions = {}
-): Layer.Layer<ArtifactStore, never, FileSystem.FileSystem> =>
-  Layer.effect(ArtifactStore)(Effect.map(FileSystem.FileSystem, (fs) => makeFileSystem(fs, options)))
+): Layer.Layer<ArtifactStore, never, FileSystem.FileSystem | Path.Path> =>
+  Layer.effect(ArtifactStore)(Effect.gen(function*() {
+    return makeFileSystem(yield* FileSystem.FileSystem, yield* Path.Path, options)
+  }))
 
 /**
  * Provides an in-memory artifact store.

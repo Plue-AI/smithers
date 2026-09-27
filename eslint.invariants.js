@@ -164,6 +164,28 @@ export const ambientAuthority = {
 }
 
 /**
+ * Rule 4, POSIX host paths.
+ *
+ * `Path.layer` from `effect/Path` is POSIX-only. Providing it under code that
+ * resolves host paths breaks every Windows drive root: POSIX `resolve` treats
+ * `D:\a` as relative and prefixes the working directory, and `dirname` of it
+ * is `.`. Host-path code reads the ambient `Path.Path` the composition root
+ * provides (`NodePath.layer` on Node). Opt-in: a package whose `src` only ever
+ * handles host paths holds this rule; a browser, sandbox-guest, or in-memory
+ * host that is POSIX by construction does not.
+ * The selector matches by identifier name, not import source, so hold it only
+ * in a package where `Path` always means `effect/Path`.
+ */
+export const hostPath = {
+  name: "host-path",
+  selectors: [{
+    selector: "MemberExpression[object.name=/^(Path|EffectPath)$/][property.name='layer']",
+    message:
+      "`Path.layer` from `effect/Path` is POSIX-only, so a Windows drive root resolves under the working directory and host confinement and fsync walk the wrong paths (issue #2302). Read the ambient `Path.Path` instead and require it in the layer, so the composition root provides the host's one (`NodePath.layer` on Node)."
+  }]
+}
+
+/**
  * The chosen invariants, as flat config.
  *
  * Every chosen invariant's selectors land in one `no-restricted-syntax` entry,

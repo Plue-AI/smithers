@@ -36,7 +36,7 @@ const clock = mode === "crash" ? {
 } : liveClock
 const owner = { hostId: "plan-merge-frontier", pid: process.pid, nonce: `process-${process.pid}` }
 const workspaceFs = KernelFileSystem.layer.pipe(
-  Layer.provide(AtomicFileSystem.layer), Layer.provide(NodePath.layer),
+  Layer.provide(AtomicFileSystem.layer), Layer.provideMerge(NodePath.layer),
   Layer.provide(Workspace.layer(root)), Layer.provide(GrantStore.layerNoop)
 )
 const artifacts = ArtifactStore.layerFileSystem({ directory: join(root, ".flows/objects"), durability: "best-effort" })

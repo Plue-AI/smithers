@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { createHash } from "node:crypto"
 import * as WorkspaceSandbox from "../../src/WorkspaceSandbox.ts"
+import { hostPath } from "../HostPath.ts"
 
 const root = process.argv[2]
 if (root === undefined) {
@@ -27,7 +28,7 @@ if (root === undefined) {
           ? Effect.sync(() => process.stdout.write("locked\n")).pipe(Effect.andThen(Effect.never))
           : atomic.execute(request)
     })
-    const sandbox = WorkspaceSandbox.makeFileSystem(stalled, ArtifactStore.makeNoop(), root)
+    const sandbox = WorkspaceSandbox.makeFileSystem(stalled, hostPath, ArtifactStore.makeNoop(), root)
     yield* sandbox.materialize({
       _tag: "Accepted",
       cache: { status: "disabled" },

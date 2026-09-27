@@ -18,6 +18,7 @@ import * as ActionPersistence from "../src/internal/ActionPersistence.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
 import { memoryFileSystem } from "./fixtures/MemoryFileSystem.ts"
+import { hostPath } from "./HostPath.ts"
 import { sha256, withCrypto } from "./Sha256.ts"
 
 const owner: Ownership.OwnerId = { hostId: "evidence-bounds-host", pid: 59, nonce: "evidence-bounds-process" }
@@ -71,7 +72,8 @@ describe("persisted evidence stays bounded through the real boundary (issue #125
         StepBoundary.StepBoundary,
         StepBoundary.makeFileSystem(
           host.fs,
-          ArtifactStore.makeFileSystem(host.fs, {
+          hostPath,
+          ArtifactStore.makeFileSystem(host.fs, hostPath, {
             directory: ".objects",
             durability: "best-effort",
             coordination: "process"

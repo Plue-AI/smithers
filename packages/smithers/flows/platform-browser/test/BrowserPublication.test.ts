@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { expect, it } from "@effect/vitest"
 import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
-import { Effect, FileSystem } from "effect"
+import { Effect, FileSystem, Path } from "effect"
 import * as fs from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -15,7 +15,7 @@ it.effect("refuses filesystem publication without trusted handles and uses memor
       const bytes = new TextEncoder().encode("browser publication")
       yield* Effect.gen(function*() {
         const fileSystem = yield* FileSystem.FileSystem
-        const store = ArtifactStore.makeFileSystem(fileSystem, {
+        const store = ArtifactStore.makeFileSystem(fileSystem, yield* Path.Path, {
           directory: root,
           durability: "best-effort",
           coordination: "process"

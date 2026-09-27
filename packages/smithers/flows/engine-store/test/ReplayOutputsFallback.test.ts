@@ -17,6 +17,7 @@
  * corrupt succeeded-attempt evidence is quarantined with
  * `AttemptEvidenceQuarantined`; see ReplayCorruptionClassification.test.ts.
  */
+import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import { Journal } from "@smthrs/journal"
@@ -37,8 +38,11 @@ import * as StepBoundary from "../src/StepBoundary.ts"
  * `FileSystem`: blob mechanics moved to `@smthrs/artifacts`.
  */
 const hostLayer = (fs: FileSystem.FileSystem) =>
-  ArtifactStore.layerFileSystem().pipe(Layer.provideMerge(Layer.succeed(FileSystem.FileSystem)(fs)))
+  ArtifactStore.layerFileSystem().pipe(
+    Layer.provideMerge(Layer.merge(Layer.succeed(FileSystem.FileSystem)(fs), NodePath.layer))
+  )
 import * as TestStores from "../src/test/TestStores.ts"
+import { hostPath } from "./HostPath.ts"
 import { sha256, withCrypto } from "./Sha256.ts"
 
 const owner: Ownership.OwnerId = { hostId: "replay-fallback-host", pid: 51, nonce: "replay-fallback-process" }
@@ -122,7 +126,7 @@ const unconfined = (hostWrites: Array<string>) => {
     makeDirectory: ((path: string) => Effect.sync(() => void hostWrites.push(path))) as never,
     remove: ((path: string) => Effect.sync(() => void hostWrites.push(path))) as never
   })
-  const production = StepBoundary.makeFileSystem(host, ArtifactStore.makeMemory())
+  const production = StepBoundary.makeFileSystem(host, hostPath, ArtifactStore.makeMemory())
   return Layer.succeed(
     StepBoundary.StepBoundary,
     StepBoundary.make({

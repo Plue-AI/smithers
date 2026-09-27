@@ -32,12 +32,13 @@ import * as CombinedArtifacts from "@smthrs/artifacts/CombinedArtifacts"
 import * as RemoteArtifacts from "@smthrs/artifacts/RemoteArtifacts"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
 
 declare const token: string
 
 const combined = Effect.gen(function*() {
   const fileSystem = yield* FileSystem.FileSystem
-  const local = ArtifactStore.makeFileSystem(fileSystem)
+  const local = ArtifactStore.makeFileSystem(fileSystem, yield* Path.Path)
   const remote = yield* RemoteArtifacts.make({
     endpoint: "https://cas.example.com",
     headers: { authorization: `Bearer ${token}` }
@@ -68,11 +69,15 @@ import * as CombinedArtifacts from "@smthrs/artifacts/CombinedArtifacts"
 import * as RemoteArtifacts from "@smthrs/artifacts/RemoteArtifacts"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
 
 declare const token: string
 
 export const sharedArtifacts = CombinedArtifacts.layer({
-  local: Effect.map(FileSystem.FileSystem, (fs) => ArtifactStore.makeFileSystem(fs, { directory: ".flows/objects" })),
+  local: Effect.map(
+    Effect.all([FileSystem.FileSystem, Path.Path]),
+    ([fs, path]) => ArtifactStore.makeFileSystem(fs, path, { directory: ".flows/objects" })
+  ),
   remote: RemoteArtifacts.make({
     endpoint: "https://cas.example.com",
     headers: { authorization: `Bearer ${token}` },
@@ -82,8 +87,8 @@ export const sharedArtifacts = CombinedArtifacts.layer({
 })
 ```
 
-The layer requires whatever its two effects require, here a `FileSystem` and an
-`HttpClient`, and it provides `ArtifactStore` to everything above it.
+The layer requires whatever its two effects require, here a `FileSystem`, a
+`Path`, and an `HttpClient`, and it provides `ArtifactStore` to everything above it.
 
 ## 3. Choose a download policy
 

@@ -291,6 +291,7 @@ export const layer = (options?: {
   ).pipe(Layer.orDie)
   const platform = Layer.mergeAll(
     isolatedFileSystem,
+    // POSIX by design: the in-memory volume has no host path syntax.
     Path.layer
   )
   return Layer.mergeAll(

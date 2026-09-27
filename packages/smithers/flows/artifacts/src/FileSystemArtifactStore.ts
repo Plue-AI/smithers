@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
-import * as Path from "effect/Path"
+import type * as Path from "effect/Path"
 import * as PlatformError from "effect/PlatformError"
 import * as Random from "effect/Random"
 import type { Service } from "./ArtifactStore.ts"
@@ -136,12 +136,18 @@ const fanout = (directory: string, digest: string): { readonly parent: string; r
  * `layerHost` does. The guarded native filesystem deliberately refuses open
  * handles and cannot back this store; best-effort durability does not lift
  * that requirement. A browser host can instead use the memory store.
+ * `platformPath` is the host's `Path` service; the directory fsync walks ancestors with it,
+ * so a Windows drive directory syncs its real parents.
  *
  * @category constructors
  * @since 1.0.0-rc.0
  * @slop
  */
-export const makeFileSystem = (fs: FileSystem.FileSystem, options: FileSystemOptions = {}): Service => {
+export const makeFileSystem = (
+  fs: FileSystem.FileSystem,
+  platformPath: Path.Path,
+  options: FileSystemOptions = {}
+): Service => {
   const directory = (options.directory ?? defaultDirectory).replace(/([^/])\/+$/, "$1")
   const durability = options.durability ?? "required"
   const coordination = options.coordination ?? "required"
@@ -220,8 +226,8 @@ export const makeFileSystem = (fs: FileSystem.FileSystem, options: FileSystemOpt
    * handle; this helper syncs published blobs and directories. Best-effort
    * durability tolerates sync refusals, but still requires exclusive creation.
    */
-  const syncPath = (path: string, flag: "r" | "r+"): Effect.Effect<void, ArtifactStoreError> => {
-    const sync = Effect.scoped(Effect.flatMap(fs.open(path, { flag }), (file) => file.sync)).pipe(
+  const syncPath = (target: string, flag: "r" | "r+"): Effect.Effect<void, ArtifactStoreError> => {
+    const sync = Effect.scoped(Effect.flatMap(fs.open(target, { flag }), (file) => file.sync)).pipe(
       Effect.mapError(hostFailure)
     )
     return durability === "best-effort" ? Effect.ignore(sync) : sync
@@ -231,15 +237,14 @@ export const makeFileSystem = (fs: FileSystem.FileSystem, options: FileSystemOpt
   // been created by an interrupted publication in another store or process.
   // Syncing objects also persists the lock directory created by withDigest.
   const syncDirectoryAncestry = Effect.gen(function*() {
-    const path = yield* Path.Path
     let current = directory
     while (true) {
       yield* syncPath(current, "r")
-      const parent = path.dirname(current)
+      const parent = platformPath.dirname(current)
       if (parent === current) return
       current = parent
     }
-  }).pipe(Effect.provide(Path.layer))
+  })
 
   const put: Service["put"] = Effect.fn("ArtifactStore.put")((bytes: Uint8Array) =>
     Effect.flatMap(

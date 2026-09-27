@@ -6,6 +6,7 @@ import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import * as FileEnumeration from "../src/internal/FileEnumeration.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
+import { hostPath } from "./HostPath.ts"
 
 describe("filesystem batch fallback", () => {
   it("groups metadata across sibling directories instead of starting one batch per leaf", async () => {
@@ -67,7 +68,7 @@ describe("filesystem batch fallback", () => {
     expect(peak).toBe(4)
     expect(active).toBe(0)
     peak = 0
-    const boundary = StepBoundary.makeFileSystem(fs, ArtifactStore.makeMemory())
+    const boundary = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeMemory())
     const prepared = await Effect.runPromise(
       boundary.prepare({ readSet: paths.map((path) => ({ path, digest: "old" })), writeSet: [], boundaryMode: "hard" })
         .pipe(Effect.provide(NodeCrypto.layer))

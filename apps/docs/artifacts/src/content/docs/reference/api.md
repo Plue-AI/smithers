@@ -98,11 +98,15 @@ store's strongest invariant.
 ### The filesystem store
 
 ```ts
-declare const makeFileSystem: (fs: FileSystem, options?: FileSystemOptions) => Service
+declare const makeFileSystem: (fs: FileSystem, path: Path, options?: FileSystemOptions) => Service
 declare const layerFileSystem: (
   options?: FileSystemOptions
-) => Layer<ArtifactStore, never, FileSystem>
+) => Layer<ArtifactStore, never, FileSystem | Path>
 ```
+
+`path` is the host's `Path` service (`NodePath.layer` on Node). The directory
+sync walks the objects directory's ancestors with it, so a Windows drive path
+syncs its real parents.
 
 Publishes at `${directory}/${digest.slice(0, 2)}/${digest}`. Bytes land at a
 unique temp path in the destination fanout directory, are synced when required,
@@ -266,7 +270,7 @@ declare const layer: <EL, RL, ER, RR>(
 `LayerOptions` is the same shape with `local` and `remote` as `Effect`s. Both
 tiers are supplied as effects rather than layers because they inhabit the same
 tag: composing two `Layer<ArtifactStore>` would shadow one with the other. Pair
-`Effect.map(FileSystem.FileSystem, (fs) => ArtifactStore.makeFileSystem(fs))`
+`Effect.map(Effect.all([FileSystem.FileSystem, Path.Path]), ([fs, path]) => ArtifactStore.makeFileSystem(fs, path))`
 with `RemoteArtifacts.make`.
 
 Both timeout options must be finite, positive durations. Invalid values fail

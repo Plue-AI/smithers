@@ -156,9 +156,9 @@ Two hosts ship:
 - `makeMemory(initialFiles)` is deterministic and browser-safe. It seeds the
   whole tree rather than the declared read set, so an undeclared read is
   observable, which is what makes it the conformance implementation.
-- `makeFileSystem(fs, artifacts, workspaceRoot, options)` and its layer
+- `makeFileSystem(fs, path, artifacts, workspaceRoot, options)` and its layer
   `layerFileSystem(options)` back the transaction with the kernel `FileSystem`,
-  the kernel `Workspace` root, and the artifact store for products too large to
+  the host `Path`, the kernel `Workspace` root, and the artifact store for products too large to
   carry inline.
 
 Because both are `makeHosted` over one `Host`, the transaction, the diff, the

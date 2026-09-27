@@ -21,6 +21,7 @@ import { TestClock } from "effect/testing"
 import * as ArtifactStore from "../src/ArtifactStore.ts"
 import * as ArtifactSweep from "../src/ArtifactSweep.ts"
 import { bytes, sha256, text, withCrypto } from "./Crypto.ts"
+import { hostPath } from "./HostPath.ts"
 
 const artifact = "sweepable-artifact-content"
 const digest = sha256(bytes(artifact))
@@ -364,7 +365,7 @@ describe("fenced removal", () => {
       const release = yield* Deferred.make<void>()
       host.hooks.beforeRemove = () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release)))
       const sweep = sweepFor(host)
-      const store = ArtifactStore.makeFileSystem(host.fs, {
+      const store = ArtifactStore.makeFileSystem(host.fs, hostPath, {
         durability: "best-effort",
         coordination: "process"
       })
@@ -471,7 +472,7 @@ describe("put freshens a deduplicated blob (git's loose-object freshening)", () 
   it.effect("re-stamps the mtime instead of rewriting, so the grace fence protects it", () =>
     Effect.gen(function*() {
       const host = memoryFs({ seed: { [blobPath]: artifact }, mtimes: { [blobPath]: 1_000 } })
-      const store = ArtifactStore.makeFileSystem(host.fs, {
+      const store = ArtifactStore.makeFileSystem(host.fs, hostPath, {
         durability: "best-effort",
         coordination: "process"
       })
@@ -499,7 +500,7 @@ describe("put freshens a deduplicated blob (git's loose-object freshening)", () 
         utimesUnsupported: true
       })
       yield* withCrypto(
-        ArtifactStore.makeFileSystem(host.fs, { durability: "best-effort", coordination: "process" }).put(
+        ArtifactStore.makeFileSystem(host.fs, hostPath, { durability: "best-effort", coordination: "process" }).put(
           bytes(artifact)
         )
       )
@@ -519,7 +520,7 @@ describe("put freshens a deduplicated blob (git's loose-object freshening)", () 
         failExistsAfter: 1
       })
       yield* withCrypto(
-        ArtifactStore.makeFileSystem(host.fs, { durability: "best-effort", coordination: "process" }).put(
+        ArtifactStore.makeFileSystem(host.fs, hostPath, { durability: "best-effort", coordination: "process" }).put(
           bytes(artifact)
         )
       )
@@ -539,7 +540,7 @@ describe("put freshens a deduplicated blob (git's loose-object freshening)", () 
         utimesVanishes: true
       })
       const published = yield* withCrypto(
-        ArtifactStore.makeFileSystem(host.fs, { durability: "best-effort", coordination: "process" }).put(
+        ArtifactStore.makeFileSystem(host.fs, hostPath, { durability: "best-effort", coordination: "process" }).put(
           bytes(artifact)
         )
       )
@@ -747,7 +748,7 @@ describe("stale lock reclamation", () => {
         })
         return self
       }
-      const writer = ArtifactStore.makeFileSystem(host("writer"), { directory, durability: "best-effort" })
+      const writer = ArtifactStore.makeFileSystem(host("writer"), hostPath, { directory, durability: "best-effort" })
       const sweep = ArtifactSweep.makeFileSystem(host("sweep"), { directory })
 
       const writing = yield* writer.put(payload).pipe(withCrypto, Effect.forkChild({ startImmediately: true }))

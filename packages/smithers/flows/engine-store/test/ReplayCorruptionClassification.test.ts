@@ -583,7 +583,7 @@ describe("replay-failed classification (issue #150)", () => {
         // workspace-relative, and replay refuses evidence naming anything else.
         const host = KernelFileSystem.layer.pipe(
           Layer.provide(AtomicFileSystem.layer),
-          Layer.provide(NodePath.layer),
+          Layer.provideMerge(NodePath.layer),
           Layer.provide(KernelWorkspace.layer(root)),
           Layer.provide(GrantStore.layerNoop)
         )
@@ -591,7 +591,9 @@ describe("replay-failed classification (issue #150)", () => {
         // while workspace reads and writes keep the descriptor-relative guard.
         // Required durability exercises retained file and directory handles.
         const artifacts = Layer.merge(
-          ArtifactStore.layerFileSystem({ directory: objectsDirectory }).pipe(Layer.provide(NodeFileSystem.layer)),
+          ArtifactStore.layerFileSystem({ directory: objectsDirectory }).pipe(
+            Layer.provide(Layer.merge(NodeFileSystem.layer, NodePath.layer))
+          ),
           host
         )
         const production = Layer.merge(

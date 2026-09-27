@@ -8,6 +8,7 @@
  * previous one wrote.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
+import * as NodePath from "@effect/platform-node/NodePath"
 import { StepBoundary, WorkspaceSandbox } from "@smthrs/engine-store"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import { Jj } from "@smthrs/kernel"
@@ -64,7 +65,7 @@ export const requirements = (filename: string) =>
   ).pipe(
     Layer.provideMerge(NodeRuntime.storage(filename)),
     Layer.provideMerge(NodeCrypto.layer),
-    Layer.provideMerge(AtomicFileSystem.layer)
+    Layer.provideMerge(Layer.merge(AtomicFileSystem.layer, NodePath.layer))
   )
 
 /**

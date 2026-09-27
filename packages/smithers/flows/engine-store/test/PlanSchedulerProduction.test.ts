@@ -58,7 +58,7 @@ const jjLayer = Layer.succeed(
 const production = (root: string) => {
   const workspaceFs = KernelFileSystem.layer.pipe(
     Layer.provide(AtomicFileSystem.layer),
-    Layer.provide(NodePath.layer),
+    Layer.provideMerge(NodePath.layer),
     Layer.provide(KernelWorkspace.layer(root)),
     Layer.provide(GrantStore.layerNoop)
   )
@@ -82,7 +82,7 @@ const production = (root: string) => {
 const boundaryOnly = (root: string) => {
   const workspaceFs = KernelFileSystem.layer.pipe(
     Layer.provide(AtomicFileSystem.layer),
-    Layer.provide(NodePath.layer),
+    Layer.provideMerge(NodePath.layer),
     Layer.provide(KernelWorkspace.layer(root)),
     Layer.provide(GrantStore.layerNoop)
   )

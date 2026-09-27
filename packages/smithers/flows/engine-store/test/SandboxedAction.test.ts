@@ -69,7 +69,7 @@ const production = (root: string, sandboxed: boolean) => {
   // workspace-relative and resolve against `root` on every host operation.
   const host = KernelFileSystem.layer.pipe(
     Layer.provide(AtomicFileSystem.layer),
-    Layer.provide(NodePath.layer),
+    Layer.provideMerge(NodePath.layer),
     Layer.provide(KernelWorkspace.layer(root)),
     Layer.provide(GrantStore.layerNoop)
   )

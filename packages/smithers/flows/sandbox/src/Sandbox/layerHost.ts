@@ -99,4 +99,5 @@ export const layerHost = (
         )
       )
     })
+    // Guest paths, not host paths: sessions speak POSIX and `rootedAt` normalizes to "/".
   ).pipe(Layer.merge(Path.layer))

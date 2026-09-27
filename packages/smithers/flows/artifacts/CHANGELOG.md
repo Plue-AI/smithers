@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The filesystem store syncs the real ancestors of a Windows drive directory.
+  Breaking: `makeFileSystem(fs, path, options)` takes the host `Path`, and
+  `layerFileSystem` requires `Path.Path` (`NodePath.layer` on Node) (#2302).
+
 ## [1.0.0-rc.0] - 2026-08-31
 
 ### Added

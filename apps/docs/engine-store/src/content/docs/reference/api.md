@@ -311,16 +311,16 @@ interface Service {
 }
 ```
 
-| Export              | Signature                                                                                    | Meaning                                                                                                                |
-| ------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `StepBoundary`      | `Context.Service<Service>`                                                                   | Service tag.                                                                                                           |
-| `make`              | `(service: Service) => Service`                                                              | Brands an implementation, so a wrong shape is reported where it is written.                                            |
-| `makeFileSystem`    | `(fs: FileSystem, artifacts: ArtifactStore.Service, options?: FileSystemOptions) => Service` | The production boundary.                                                                                               |
-| `layer`             | `Layer<Service, never, FileSystem \| ArtifactStore>`                                         | Provides it, confining replay to the kernel `Workspace` root when one is in context.                                   |
-| `layerTest`         | `(options?: TestOptions) => Layer<Service>`                                                  | Deterministic in-memory boundary.                                                                                      |
-| `exactReads`        | `(descriptor: FileBoundary) => ReadonlyArray<FileInput>`                                     | Exact read inputs, ignoring declarations that still need expansion.                                                    |
-| `readSetMatches`    | `(prepared: PreparedBoundary) => boolean`                                                    | Whether the measured snapshot still matches the declaration.                                                           |
-| `referencedDigests` | `(evidence: BoundaryEvidence) => ReadonlyArray<ArtifactStore.Digest>`                        | The digests the evidence references rather than inlines. Evidence from a foreign implementation yields the empty list. |
+| Export              | Signature                                                                                                | Meaning                                                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `StepBoundary`      | `Context.Service<Service>`                                                                               | Service tag.                                                                                                                  |
+| `make`              | `(service: Service) => Service`                                                                          | Brands an implementation, so a wrong shape is reported where it is written.                                                   |
+| `makeFileSystem`    | `(fs: FileSystem, path: Path, artifacts: ArtifactStore.Service, options?: FileSystemOptions) => Service` | The production boundary.                                                                                                      |
+| `layer`             | `Layer<Service, never, FileSystem \| Path \| ArtifactStore>`                                             | Provides it, confining replay to the kernel `Workspace` root when one is in context. Resolves that root with the host `Path`. |
+| `layerTest`         | `(options?: TestOptions) => Layer<Service>`                                                              | Deterministic in-memory boundary.                                                                                             |
+| `exactReads`        | `(descriptor: FileBoundary) => ReadonlyArray<FileInput>`                                                 | Exact read inputs, ignoring declarations that still need expansion.                                                           |
+| `readSetMatches`    | `(prepared: PreparedBoundary) => boolean`                                                                | Whether the measured snapshot still matches the declaration.                                                                  |
+| `referencedDigests` | `(evidence: BoundaryEvidence) => ReadonlyArray<ArtifactStore.Digest>`                                    | The digests the evidence references rather than inlines. Evidence from a foreign implementation yields the empty list.        |
 
 ### Schemas
 
@@ -379,15 +379,15 @@ Full model: [Step boundaries](/concepts/step-boundaries/).
 
 Scope-safe acquisition of one isolated workspace per step.
 
-| Export           | Signature                                                                  | Meaning                                                                  |
-| ---------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `StepSandbox`    | `Context.Service<Service>`                                                 | Service tag.                                                             |
-| `Service`        | `{ open: Effect<WorkspaceSandbox.Service, UnsupportedBoundary> }`          | Acquires the workspace.                                                  |
-| `make`           | `(workspace: WorkspaceSandbox.Service) => Service`                         | Wraps a transaction backend.                                             |
-| `layer`          | `Layer<Service, WorkspaceError, FileSystem \| ArtifactStore \| Workspace>` | The filesystem-backed sandbox. Refuses a path-based host at build.       |
-| `layerTest`      | `(initialFiles?: InitialFiles) => Layer<Service, WorkspaceError, Crypto>`  | Deterministic in-memory sandbox.                                         |
-| `layerNoop`      | `Layer<Service>`                                                           | Fails closed with `UnsupportedBoundary`, for a host that cannot sandbox. |
-| `UndeclaredRead` | tagged error, `code: "undeclared_read"`, fields `paths` and `diffIdentity` | A hermetic body read outside its declared read set.                      |
+| Export           | Signature                                                                          | Meaning                                                                  |
+| ---------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `StepSandbox`    | `Context.Service<Service>`                                                         | Service tag.                                                             |
+| `Service`        | `{ open: Effect<WorkspaceSandbox.Service, UnsupportedBoundary> }`                  | Acquires the workspace.                                                  |
+| `make`           | `(workspace: WorkspaceSandbox.Service) => Service`                                 | Wraps a transaction backend.                                             |
+| `layer`          | `Layer<Service, WorkspaceError, FileSystem \| Path \| ArtifactStore \| Workspace>` | The filesystem-backed sandbox. Refuses a path-based host at build.       |
+| `layerTest`      | `(initialFiles?: InitialFiles) => Layer<Service, WorkspaceError, Crypto>`          | Deterministic in-memory sandbox.                                         |
+| `layerNoop`      | `Layer<Service>`                                                                   | Fails closed with `UnsupportedBoundary`, for a host that cannot sandbox. |
+| `UndeclaredRead` | tagged error, `code: "undeclared_read"`, fields `paths` and `diffIdentity`         | A hermetic body read outside its declared read set.                      |
 
 ## WorkspaceSandbox
 
@@ -432,20 +432,20 @@ A crashed holder's lock is reclaimed once its heartbeat is 60 seconds old. A
 commit that cannot take the lock within 2 minutes fails with
 `commit_lock_timeout` and changes nothing. Lock waits are interruptible.
 
-| Export                      | Signature                                                                                                                          | Meaning                                                                                                                     |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `WorkspaceSandbox`          | `Context.Service<Service>`                                                                                                         | Service tag.                                                                                                                |
-| `make`                      | `(service: Service) => Service`                                                                                                    | Brands an implementation.                                                                                                   |
-| `layer`                     | `(service: Service) => Layer<Service>`                                                                                             | Provides one.                                                                                                               |
-| `makeHosted`                | `(host: Host) => Service`                                                                                                          | The transaction itself, over a `Host`.                                                                                      |
-| `makeMemory`                | `(initialFiles?: InitialFiles) => Effect<MemorySandbox, WorkspaceError, Crypto>`                                                   | Deterministic, browser-safe, and the conformance implementation. Seeds the whole tree, so an undeclared read is observable. |
-| `makeFileSystem`            | `(fs: FileSystem, artifacts: ArtifactStore.Service, workspaceRoot: string, options?: FileSystemOptions) => Service`                | The production host.                                                                                                        |
-| `layerFileSystem`           | `(options?: FileSystemOptions) => Layer<Service, WorkspaceError, FileSystem \| ArtifactStore \| Workspace>`                        | Provides it, taking the root from the kernel `Workspace`. Fails with `host_unavailable` over a path-based host.             |
-| `Workspace`                 | `Context.Service<Workspace>`                                                                                                       | The in-transaction filesystem and effect outbox, available only inside `execute`.                                           |
-| `EffectDispatcher`          | `Context.Service<Dispatcher>`                                                                                                      | The post-copy-back dispatch stage. Optional.                                                                                |
-| `layerDispatcher`           | `(dispatcher: Dispatcher) => Layer<Dispatcher>`                                                                                    | Provides one.                                                                                                               |
-| `violations`                | `(descriptor: FileBoundary, base: ReadonlyMap<string, Uint8Array>, provenance: Provenance) => ReadonlyArray<DeclarationViolation>` | Everything the declaration failed to predict, deduplicated.                                                                 |
-| `isMaterializationConflict` | `(error: unknown) => boolean`                                                                                                      | Recognizes both the live class and the persisted schema form.                                                               |
+| Export                      | Signature                                                                                                                          | Meaning                                                                                                                                               |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WorkspaceSandbox`          | `Context.Service<Service>`                                                                                                         | Service tag.                                                                                                                                          |
+| `make`                      | `(service: Service) => Service`                                                                                                    | Brands an implementation.                                                                                                                             |
+| `layer`                     | `(service: Service) => Layer<Service>`                                                                                             | Provides one.                                                                                                                                         |
+| `makeHosted`                | `(host: Host) => Service`                                                                                                          | The transaction itself, over a `Host`.                                                                                                                |
+| `makeMemory`                | `(initialFiles?: InitialFiles) => Effect<MemorySandbox, WorkspaceError, Crypto>`                                                   | Deterministic, browser-safe, and the conformance implementation. Seeds the whole tree, so an undeclared read is observable.                           |
+| `makeFileSystem`            | `(fs: FileSystem, path: Path, artifacts: ArtifactStore.Service, workspaceRoot: string, options?: FileSystemOptions) => Service`    | The production host.                                                                                                                                  |
+| `layerFileSystem`           | `(options?: FileSystemOptions) => Layer<Service, WorkspaceError, FileSystem \| Path \| ArtifactStore \| Workspace>`                | Provides it, taking the root from the kernel `Workspace` and resolving it with the host `Path`. Fails with `host_unavailable` over a path-based host. |
+| `Workspace`                 | `Context.Service<Workspace>`                                                                                                       | The in-transaction filesystem and effect outbox, available only inside `execute`.                                                                     |
+| `EffectDispatcher`          | `Context.Service<Dispatcher>`                                                                                                      | The post-copy-back dispatch stage. Optional.                                                                                                          |
+| `layerDispatcher`           | `(dispatcher: Dispatcher) => Layer<Dispatcher>`                                                                                    | Provides one.                                                                                                                                         |
+| `violations`                | `(descriptor: FileBoundary, base: ReadonlyMap<string, Uint8Array>, provenance: Provenance) => ReadonlyArray<DeclarationViolation>` | Everything the declaration failed to predict, deduplicated.                                                                                           |
+| `isMaterializationConflict` | `(error: unknown) => boolean`                                                                                                      | Recognizes both the live class and the persisted schema form.                                                                                         |
 
 ### Models
 

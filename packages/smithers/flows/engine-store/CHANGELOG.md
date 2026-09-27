@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Cache replay and workspace copy-back confine to a Windows drive root instead
+  of failing with `host_unavailable`. Breaking: `StepBoundary.makeFileSystem`
+  and `WorkspaceSandbox.makeFileSystem` take the host `Path` after `fs`, and
+  `StepBoundary.layer`, `WorkspaceSandbox.layerFileSystem`, and
+  `StepSandbox.layer` require `Path.Path` (`NodePath.layer` on Node). The Node
+  and Bun runtimes already provide it (#2302).
+
 ### Security
 
 - Workspace copy-back can no longer be redirected outside the workspace by a

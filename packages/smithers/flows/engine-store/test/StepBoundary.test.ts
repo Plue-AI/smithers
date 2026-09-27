@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import type { FileBoundary } from "@smthrs/flow/FileBoundary"
@@ -19,7 +20,10 @@ import * as StepBoundary from "../src/StepBoundary.ts"
  * `FileSystem`: blob mechanics moved to `@smthrs/artifacts`.
  */
 const hostLayer = (fs: FileSystem.FileSystem) =>
-  ArtifactStore.layerFileSystem().pipe(Layer.provideMerge(Layer.succeed(FileSystem.FileSystem)(fs)))
+  ArtifactStore.layerFileSystem().pipe(
+    Layer.provideMerge(Layer.merge(Layer.succeed(FileSystem.FileSystem)(fs), NodePath.layer))
+  )
+import { hostPath } from "./HostPath.ts"
 import { sha256, withCrypto } from "./Sha256.ts"
 
 const descriptor: FileBoundary = {
@@ -396,7 +400,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
     Effect.gen(function*() {
       const host = memoryFs({ "memo.txt": "stable" })
       host.mtimes.set("memo.txt", 0)
-      const boundary = StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop())
       const snapshots = yield* withCrypto(
         Effect.gen(function*() {
           yield* TestClock.setTime(3_000)
@@ -420,7 +424,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
     Effect.gen(function*() {
       const host = memoryFs({ "memo.txt": "stable" })
       host.mtimes.set("memo.txt", 0)
-      const boundary = StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop())
       const evidence = yield* withCrypto(
         Effect.gen(function*() {
           yield* TestClock.setTime(3_000)
@@ -444,7 +448,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
     Effect.gen(function*() {
       const host = memoryFs({ "memo.txt": "old" })
       host.mtimes.set("memo.txt", 0)
-      const boundary = StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop())
       const digests = yield* withCrypto(
         Effect.gen(function*() {
           yield* TestClock.setTime(3_000)
@@ -468,7 +472,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
     Effect.gen(function*() {
       const host = memoryFs({ "memo.txt": "before" })
       host.mtimes.set("memo.txt", 0)
-      const boundary = StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop())
       const digest = yield* withCrypto(
         Effect.gen(function*() {
           yield* TestClock.setTime(10_000)
@@ -510,7 +514,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
         boundaryMode: "hard"
       }
       const running = yield* withCrypto(
-        StepBoundary.makeFileSystem(fs, ArtifactStore.makeNoop()).prepare(mutable).pipe(
+        StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeNoop()).prepare(mutable).pipe(
           Effect.forkChild({ startImmediately: true })
         )
       )
@@ -540,7 +544,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
       const host = memoryFs({ "memo.txt": "before" })
       host.mtimes.set("memo.txt", 0)
       const artifacts = ArtifactStore.makeMemory()
-      const boundary = StepBoundary.makeFileSystem(host.fs, artifacts, { maxInlineBytes: 0 })
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, artifacts, { maxInlineBytes: 0 })
       const observed = yield* withCrypto(Effect.gen(function*() {
         const prepared = yield* boundary.prepare({
           readSet: [{ path: "memo.txt", digest: sha256("before") }],
@@ -565,7 +569,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
       const artifacts = ArtifactStore.makeNoop({
         put: () => Effect.succeed(sha256("different") as ArtifactStore.Digest)
       })
-      const boundary = StepBoundary.makeFileSystem(host.fs, artifacts, { maxInlineBytes: 0 })
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, artifacts, { maxInlineBytes: 0 })
       const failure = yield* withCrypto(Effect.flip(Effect.gen(function*() {
         const prepared = yield* boundary.prepare({ readSet: [], writeSet: ["output.txt"], boundaryMode: "hard" })
         return yield* boundary.settle(prepared)
@@ -584,7 +588,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
     Effect.gen(function*() {
       const expected = ["e\u0301", "é", "日本", "😀", "\uE000"]
       const host = memoryFs(Object.fromEntries(expected.map((path) => [path, path])))
-      const boundary = StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop())
       const evidence = yield* withCrypto(Effect.gen(function*() {
         const prepared = yield* boundary.prepare({
           readSet: [...expected].reverse().map((path) => ({ path, digest: sha256(path) })),
@@ -610,7 +614,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
             return encoder.encode("fallback")
           })) as never
       })
-      const boundary = StepBoundary.makeFileSystem(fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeNoop())
       const descriptor: FileBoundary = {
         readSet: [{ path: "fallback.txt", digest: sha256("fallback") }],
         writeSet: [],
@@ -644,7 +648,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
             return encoder.encode("timeless")
           })) as never
       })
-      const boundary = StepBoundary.makeFileSystem(fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(fs, hostPath, ArtifactStore.makeNoop())
       const descriptor: FileBoundary = {
         readSet: [{ path: "timeless.txt", digest: sha256("timeless") }],
         writeSet: [],
@@ -1132,7 +1136,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
   it.effect("verifies the destination before decoding inline content or reading an artifact", () =>
     Effect.gen(function*() {
       const host = memoryFs({ "inline.txt": "inline", "referenced.txt": "referenced" })
-      const boundary = StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop())
 
       yield* withCrypto(
         boundary.replayOutputs({
@@ -1155,7 +1159,7 @@ describe("StepBoundary.layer (filesystem-backed)", () => {
     Effect.gen(function*() {
       const host = memoryFs({ "output.txt": "stale" })
       host.failedReads.add("output.txt")
-      const boundary = StepBoundary.makeFileSystem(host.fs, ArtifactStore.makeNoop())
+      const boundary = StepBoundary.makeFileSystem(host.fs, hostPath, ArtifactStore.makeNoop())
 
       yield* withCrypto(
         boundary.replayOutputs({

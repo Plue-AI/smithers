@@ -1312,6 +1312,7 @@ const lockFailure = (cause: unknown): WorkspaceError =>
  */
 export const makeFileSystem = (
   fs: FileSystem.FileSystem,
+  platformPath: Path.Path,
   artifacts: ArtifactStore.Service,
   workspaceRoot: string,
   options: FileSystemOptions = {}
@@ -1364,7 +1365,7 @@ export const makeFileSystem = (
       // Pinned once per commit, after the root exists: every lock, preflight,
       // apply, and rollback call below resolves against this root identity.
       const host = yield* KernelFileSystem.confined(fs, root).pipe(
-        Effect.provide(Path.layer),
+        Effect.provideService(Path.Path, platformPath),
         Effect.mapError(hostFailure)
       )
       const canonical = yield* canonicalRoot
@@ -1552,14 +1553,19 @@ export const makeFileSystem = (
  */
 export const layerFileSystem = (
   options: FileSystemOptions = {}
-): Layer.Layer<Service, WorkspaceError, FileSystem.FileSystem | ArtifactStore.ArtifactStore | KernelWorkspace> =>
+): Layer.Layer<
+  Service,
+  WorkspaceError,
+  FileSystem.FileSystem | Path.Path | ArtifactStore.ArtifactStore | KernelWorkspace
+> =>
   Layer.effect(
     WorkspaceSandbox,
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
+      const platformPath = yield* Path.Path
       const artifacts = yield* ArtifactStore.ArtifactStore
       const workspace = yield* KernelWorkspace
       yield* KernelFileSystem.requireConfinable(fs, workspace.root).pipe(Effect.mapError(hostFailure))
-      return makeFileSystem(fs, artifacts, workspace.root, options)
+      return makeFileSystem(fs, platformPath, artifacts, workspace.root, options)
     })
   )

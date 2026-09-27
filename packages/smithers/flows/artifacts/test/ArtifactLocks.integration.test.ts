@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url"
 import * as ArtifactBackupLease from "../src/ArtifactBackupLease.ts"
 import * as ArtifactStore from "../src/ArtifactStore.ts"
 import * as ArtifactSweep from "../src/ArtifactSweep.ts"
+import { hostPath } from "./HostPath.ts"
 
 const payload = new TextEncoder().encode("cross-process-artifact")
 const digest = "97af2a42624678e1e99f77a0cfa63accb6bf32a49ad5ab386a0a68f24ebe2c6c" as ArtifactStore.Digest
@@ -70,7 +71,7 @@ describe("cross-process artifact locking", () => {
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         const directory = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-artifact-backup-lease-" })
-        const store = ArtifactStore.makeFileSystem(fs, { directory, durability: "best-effort" })
+        const store = ArtifactStore.makeFileSystem(fs, hostPath, { directory, durability: "best-effort" })
         expect(yield* store.put(payload)).toBe(digest)
 
         const child = launch("backup-hold", directory)
@@ -96,7 +97,7 @@ describe("cross-process artifact locking", () => {
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         const directory = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-artifact-lock-" })
-        const store = ArtifactStore.makeFileSystem(fs, { directory, durability: "best-effort" })
+        const store = ArtifactStore.makeFileSystem(fs, hostPath, { directory, durability: "best-effort" })
         expect(yield* store.put(payload)).toBe(digest)
         const blobPath = `${directory}/${digest.slice(0, 2)}/${digest}`
         const old = Date.now() - 120_000
@@ -142,7 +143,7 @@ describe("cross-process artifact locking", () => {
         const lockPath = `${directory}/.locks/${digest}.lock`
         const stale = Date.now() - 120_000
         yield* fs.utimes(lockPath, new Date(stale), new Date(stale))
-        const store = ArtifactStore.makeFileSystem(fs, { directory, durability: "best-effort" })
+        const store = ArtifactStore.makeFileSystem(fs, hostPath, { directory, durability: "best-effort" })
         expect(yield* store.put(payload)).toBe(digest)
         expect(yield* fs.exists(lockPath)).toBe(false)
         expect(Array.from(yield* store.get(digest))).toEqual(Array.from(payload))

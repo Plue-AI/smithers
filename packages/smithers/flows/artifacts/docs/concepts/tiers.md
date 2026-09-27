@@ -19,13 +19,13 @@ reason a composition can swap one for another without touching a caller.
 
 ## The implementations
 
-| Constructor                                 | Backing                                             | Notes                                                                                         |
-| ------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `ArtifactStore.makeFileSystem(fs, options)` | A directory reached through Effect's `FileSystem`   | The durable host tier. Atomic publication, digest-verified reads, cross-process coordination. |
-| `ArtifactStore.makeMemory()`                | A private `Map`                                     | Tests and browser hosts with no durable filesystem. Copies on both boundaries.                |
-| `ArtifactStore.makeNoop(overrides)`         | Nothing                                             | Every operation fails as `unavailable`, with per-method overrides. The honest absence.        |
-| `RemoteArtifacts.make(options)`             | An HTTP cache reached through Effect's `HttpClient` | The shared tier. Bounded, digest-verified downloads.                                          |
-| `CombinedArtifacts.make(options)`           | Two of the above                                    | Local first, shared second, with write-back.                                                  |
+| Constructor                                       | Backing                                             | Notes                                                                                         |
+| ------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `ArtifactStore.makeFileSystem(fs, path, options)` | A directory reached through Effect's `FileSystem`   | The durable host tier. Atomic publication, digest-verified reads, cross-process coordination. |
+| `ArtifactStore.makeMemory()`                      | A private `Map`                                     | Tests and browser hosts with no durable filesystem. Copies on both boundaries.                |
+| `ArtifactStore.makeNoop(overrides)`               | Nothing                                             | Every operation fails as `unavailable`, with per-method overrides. The honest absence.        |
+| `RemoteArtifacts.make(options)`                   | An HTTP cache reached through Effect's `HttpClient` | The shared tier. Bounded, digest-verified downloads.                                          |
+| `CombinedArtifacts.make(options)`                 | Two of the above                                    | Local first, shared second, with write-back.                                                  |
 
 `RemoteArtifacts.Service` extends the store contract with one field,
 `downloadPolicy`, so a composition can read the shared tier's own preference

@@ -26,6 +26,7 @@ import * as ArtifactGc from "../src/ArtifactGc.ts"
 import * as TestStores from "../src/test/TestStores.ts"
 import { at } from "./Clocks.ts"
 import { memoryFileSystem } from "./fixtures/MemoryFileSystem.ts"
+import { hostPath } from "./HostPath.ts"
 import { sha256, withCrypto } from "./Sha256.ts"
 
 const encoder = new TextEncoder()
@@ -86,7 +87,7 @@ const harness = (host: Host, options?: {
   return Layer.mergeAll(
     collector,
     Layer.succeed(ArtifactStore.ArtifactStore)(
-      ArtifactStore.makeFileSystem(host.fs, {
+      ArtifactStore.makeFileSystem(host.fs, hostPath, {
         durability: "best-effort",
         coordination: "process"
       })
@@ -580,7 +581,7 @@ describe("sweep: liveness under concurrency and crashes", () => {
       const freshened = host.seedBlob("re-referenced-output", 100 * dayMs)
       const fresh = "written-during-sweep"
       const freshDigest = sha256(bytes(fresh))
-      const store = ArtifactStore.makeFileSystem(host.fs, {
+      const store = ArtifactStore.makeFileSystem(host.fs, hostPath, {
         durability: "best-effort",
         coordination: "process"
       })
