@@ -38,4 +38,5 @@ const server = createServer(async (request, response) => {
   }
   response.writeHead(404).end("unknown provider route")
 })
-server.listen(8080, "0.0.0.0")
+// The image acceptance serves on 8080; a local acceptance picks its own port.
+server.listen(Number(process.env.PORT ?? 8080), process.env.HOST ?? "0.0.0.0")
