@@ -265,8 +265,8 @@ export const renderDiagnosis = (
   }
   if (d.parkedApproval !== undefined) {
     lines.push(
-      `${label("Unblock")}${shellCommand("smthrs", "approve", d.parkedApproval, "--scope", "run")} && ${
-        shellCommand("smthrs", "run", "--resume", runId)
+      `${label("Unblock")}${shellCommand("smthrs", "approvals", "approve", d.parkedApproval, "--scope", "run")} && ${
+        shellCommand("smthrs", "runs", "resume", runId)
       }`
     )
   }
@@ -275,11 +275,11 @@ export const renderDiagnosis = (
     // that drives the flow takes the run, or the run ends.
     lines.push(
       `${label("Unblock")}${
-        shellCommand("smthrs", "cancel", runId)
+        shellCommand("smthrs", "runs", "cancel", runId)
       }    # or run the flow from the host program that registers it`
     )
   }
-  lines.push(`${label("Next")}${shellCommand("smthrs", "logs", runId)}    # turn-by-turn transcript`)
+  lines.push(`${label("Next")}${shellCommand("smthrs", "runs", "logs", runId)}    # turn-by-turn transcript`)
   return lines.join("\n")
 }
 

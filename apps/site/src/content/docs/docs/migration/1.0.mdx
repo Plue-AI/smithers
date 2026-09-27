@@ -187,11 +187,11 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### hijack
 
-**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs hijack`, and the flag `smthrs steer --takeover` (hijack is not available; `steer --message` is the only mode). **1.0 path:** control a live run with `smthrs runs steer`, `smthrs runs signal`, `smthrs approvals approve`, `smthrs approvals deny`, or `smthrs runs cancel`, and resume a parked one with `smthrs runs resume`; see [Steering runs](/docs/guides/steering/).
+**Reason:** Not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`. **Removed:** `smthrs hijack`, and the flag `smthrs steer --takeover` (hijack is not available; `smthrs runs steer --message` is the only mode). **1.0 path:** control a live run with `smthrs runs steer`, `smthrs runs signal`, `smthrs approvals approve`, `smthrs approvals deny`, or `smthrs runs cancel`, and resume a parked one with `smthrs runs resume`; see [Steering runs](/docs/guides/steering/).
 
 ### pause
 
-**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs pause`. **1.0 path:** `smthrs runs cancel` ends a run and `smthrs runs resume` resumes a parked one; see [Steering runs](/docs/guides/steering/).
+**Reason:** Not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`. **Removed:** `smthrs pause`. **1.0 path:** `smthrs runs cancel` ends a run and `smthrs runs resume` resumes a parked one; see [Steering runs](/docs/guides/steering/).
 
 **Old gateway and UI hosting.**
 
@@ -341,21 +341,21 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### human
 
-**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs human list` and `smthrs human resolve`. **1.0 path:** list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
+**Reason:** Approvals park the run; use `smthrs approvals list|approve|deny`. **Removed:** `smthrs human list` and `smthrs human resolve`. **1.0 path:** list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
 
 ### ask-human
 
-**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs ask-human`. **1.0 path:** the run parks at the approval; list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
+**Reason:** Approvals park the run; use `smthrs approvals list|approve|deny`. **Removed:** `smthrs ask-human`. **1.0 path:** the run parks at the approval; list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
 
 **Node detail.**
 
 ### node
 
-**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs node`. **1.0 path:** `smthrs runs output` prints one registered node output and `smthrs runs logs --format json` renders the events; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** Use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection. **Removed:** `smthrs node`. **1.0 path:** `smthrs runs output` prints one registered node output and `smthrs runs logs --format json` renders the events; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 ### tail
 
-**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs tail`. **1.0 path:** `smthrs runs logs --follow` streams future events and `smthrs runs output` prints one registered node output; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** Use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection. **Removed:** `smthrs tail`. **1.0 path:** `smthrs runs logs --follow` streams future events and `smthrs runs output` prints one registered node output; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 **Release.**
 
@@ -367,35 +367,35 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### list-runs
 
-**Reason:** Use `ps`. **Removed:** `smthrs list-runs`. **1.0 path:** `smthrs runs list`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs list`. **Removed:** `smthrs list-runs`. **1.0 path:** `smthrs runs list`; see [CLI reference](/docs/reference/cli/).
 
 ### list
 
-**Reason:** Use `ls`. **Removed:** `smthrs list`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow list`. **Removed:** `smthrs list`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
 
 ### workflows
 
-**Reason:** Use `ls`. **Removed:** `smthrs workflows`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow list`. **Removed:** `smthrs workflows`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
 
 ### stop
 
-**Reason:** Use `cancel`. **Removed:** `smthrs stop`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs cancel`. **Removed:** `smthrs stop`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
 
 ### kill
 
-**Reason:** Use `cancel`. **Removed:** `smthrs kill`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs cancel`. **Removed:** `smthrs kill`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
 
 ### start
 
-**Reason:** Use `up`. **Removed:** `smthrs start`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow start`. **Removed:** `smthrs start`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
 
 ### exec
 
-**Reason:** Use `up`. **Removed:** `smthrs exec`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow start`. **Removed:** `smthrs exec`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
 
 ### log
 
-**Reason:** Use `logs`. **Removed:** `smthrs log`. **1.0 path:** `smthrs runs logs`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs logs`. **Removed:** `smthrs log`. **1.0 path:** `smthrs runs logs`; see [CLI reference](/docs/reference/cli/).
 
 ### help
 

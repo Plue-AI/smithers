@@ -151,7 +151,7 @@ const runIdArguments = Schema.Struct({
 })
 
 const runFlowArguments = Schema.Struct({
-  flowId: describedString("The flow to run, as `smthrs ls` names it."),
+  flowId: describedString("The flow to run, as `smthrs flow list` names it."),
   input: Schema.optionalKey(
     Schema.Record(Schema.String, Schema.Unknown).annotate({ description: "The flow's input." })
   )
@@ -207,7 +207,7 @@ const resolveApprovalArguments = Schema.Struct({
 
 const nodeDetailArguments = Schema.Struct({
   runId: describedString("The run to read."),
-  nodeId: describedString("The node, as `smthrs output <run-id>` lists it.")
+  nodeId: describedString("The node, as `smthrs runs output <run-id>` lists it.")
 })
 
 const requireRunId = (args: Record<string, unknown>): string | undefined =>
@@ -340,7 +340,7 @@ export const supportedTools: ReadonlyArray<Tool> = [
   makeTool({
     name: "run_flow",
     description:
-      "Operator-only: planning and launching a flow requires approval. MCP calls return UNAUTHORIZED; use smthrs up as an operator.",
+      "Operator-only: planning and launching a flow requires approval. MCP calls return UNAUTHORIZED; use smthrs flow start as an operator.",
     readOnly: false,
     schema: runFlowArguments,
     call: (args) => {
@@ -348,7 +348,7 @@ export const supportedTools: ReadonlyArray<Tool> = [
       if (flowId === undefined) return Effect.succeed(missingArgument("flowId"))
       if (Unsupported.isReservedFlow(flowId)) {
         return Effect.succeed(
-          failed("unsupported", Unsupported.reservedFlowError("up", flowId).message)
+          failed("unsupported", Unsupported.reservedFlowError("flow start", flowId).message)
         )
       }
       const input = args["input"] ?? {}

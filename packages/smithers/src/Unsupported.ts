@@ -47,11 +47,11 @@ export interface RemovedVerb {
 const timeTravel = "use `smthrs runs inspect|replay|fork|rewind` for current execution history"
 const recovery = "the run driver's heartbeat sweep owns recovery"
 const uiHosting = "replaced by `smthrs serve`; the terminal monitor is deleted"
-const control = "not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`"
+const control = "not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`"
 const plugins = "moved to the plugins repository or deferred"
 const packs = "JSX pack tooling is gone; `smthrs migrate` replaces `upgrade`"
-const approvals = "approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`"
-const nodeDetail = "use `output`, `logs --json`, and the node-output projection"
+const approvals = "approvals park the run; use `smthrs approvals list|approve|deny`"
+const nodeDetail = "use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection"
 const jsx = "removed with the JSX inline workflow"
 const evaluation = "use `smthrs eval list|run|baseline|compare`; automatic optimization remains unavailable"
 const reserved = "not an rc.0 verb"
@@ -155,11 +155,11 @@ export const removedVerbs: ReadonlyArray<RemovedVerb> = [
   ...removed("Human requests", approvals, ["ask-human"]),
   ...removed("Node detail", nodeDetail, ["node", "tail"]),
   ...removed("Release", reserved, ["release"]),
-  ...removed("Old aliases and did-you-mean keys", "use `ps`", ["list-runs"]),
-  ...removed("Old aliases and did-you-mean keys", "use `ls`", ["list", "workflows"]),
-  ...removed("Old aliases and did-you-mean keys", "use `cancel`", ["stop", "kill"]),
-  ...removed("Old aliases and did-you-mean keys", "use `up`", ["start", "exec"]),
-  ...removed("Old aliases and did-you-mean keys", "use `logs`", ["log"]),
+  ...removed("Old aliases and did-you-mean keys", "use `smthrs runs list`", ["list-runs"]),
+  ...removed("Old aliases and did-you-mean keys", "use `smthrs flow list`", ["list", "workflows"]),
+  ...removed("Old aliases and did-you-mean keys", "use `smthrs runs cancel`", ["stop", "kill"]),
+  ...removed("Old aliases and did-you-mean keys", "use `smthrs flow start`", ["start", "exec"]),
+  ...removed("Old aliases and did-you-mean keys", "use `smthrs runs logs`", ["log"]),
   ...removed("Old aliases and did-you-mean keys", "use `--help`", ["help"])
 ]
 
@@ -191,7 +191,7 @@ export const removedFlags: ReadonlyArray<RemovedFlag> = [
   {
     parent: "steer",
     flag: "takeover",
-    reason: "hijack is not available; `steer --message` is the only mode",
+    reason: "hijack is not available; `smthrs runs steer --message` is the only mode",
     anchor: "hijack"
   },
   { parent: "up", flag: "serve", reason: uiHosting, anchor: "ui" },
@@ -388,7 +388,7 @@ export const isReservedFlow = (flowId: string): boolean => flowId.startsWith("sy
 export const reservedFlowError = (verb: string, flowId: string): CliError.UnsupportedError =>
   new CliError.UnsupportedError({
     message: `smthrs ${verb} ${flowId}: ${flowId} is a reserved system flow id and carries no body in ` +
-      `1.0.0-rc.0, so a launch would park with nothing to run. Name a flow from \`smthrs ls\`. ` +
+      `1.0.0-rc.0, so a launch would park with nothing to run. Name a flow from \`smthrs flow list\`. ` +
       `See ${migrationUrl}#flows`
   })
 

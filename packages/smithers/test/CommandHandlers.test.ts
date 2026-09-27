@@ -646,7 +646,7 @@ describe("up", () => {
 
     expect(error).toBeInstanceOf(CliError.UnsupportedError)
     expect((error as CliError.UnsupportedError).message).toBe(
-      "up -d spawns a local executor; run `smthrs up` attached against --remote"
+      "flow start -d spawns a local executor; run `smthrs flow start` attached against --remote"
     )
   })
 })
@@ -666,7 +666,7 @@ describe("forensic projections", () => {
     // `--json` keeps the stable listing shape; the human reader gets the
     // diagnosis computed from the run's own events.
     expect(result.card).toContain("Verdict")
-    expect(result.card).toContain(`Next      smthrs logs ${result.runId}`)
+    expect(result.card).toContain(`Next      smthrs runs logs ${result.runId}`)
     expect(result.raw).toMatchObject({ _tag: "runs", items: [{ runId: result.runId }] })
   })
 

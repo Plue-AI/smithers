@@ -282,7 +282,7 @@ const plan = Command.make(
       const decodedInput = yield* decodeInput(config.input, config.data)
       const flowId = yield* selectedFlow(config.flowId)
       if (Unsupported.isReservedFlow(flowId)) {
-        return yield* Effect.fail(Unsupported.reservedFlowError("plan", flowId))
+        return yield* Effect.fail(Unsupported.reservedFlowError("flow plan", flowId))
       }
       const control = yield* ControlService.Control
       yield* render(yield* control.plan({ flowId, input: decodedInput }))
@@ -407,13 +407,13 @@ const up = Command.make("up", upFlags, (config) =>
     if (config.detached && remote !== undefined) {
       return yield* Effect.fail(
         new CliError.UnsupportedError({
-          message: "up -d spawns a local executor; run `smthrs up` attached against --remote"
+          message: "flow start -d spawns a local executor; run `smthrs flow start` attached against --remote"
         })
       )
     }
     const flowId = yield* selectedFlow(config.flow)
     if (Unsupported.isReservedFlow(flowId)) {
-      return yield* Effect.fail(Unsupported.reservedFlowError("up", flowId))
+      return yield* Effect.fail(Unsupported.reservedFlowError("flow start", flowId))
     }
     const decodedInput = yield* decodeInput([], config.data)
     const control = yield* ControlService.Control

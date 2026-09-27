@@ -83,6 +83,6 @@ describe("Settlement", () => {
     const error = Settlement.declined("run-1", undefined)
 
     expect(error.message).toContain("Run run-1 was accepted but no executor took it: it is accepted")
-    expect(error.message).toContain("smthrs cancel run-1")
+    expect(error.message).toContain("smthrs runs cancel run-1")
   })
 })

@@ -42295,7 +42295,7 @@ Commands run through `execStreamWith(shell, ["-c", command])` with the workdir a
 
 `image` and `snapshot` are exclusive; naming both fails with `unavailable` before any vendor call. A removed machine is gone with its files. With the default `backend: "local"`, `acquire` refuses before provisioning unless `sdk.defaultBackendKind()` is `local`, and refuses again when the opened machine reports another `backendKind`, so an ambient `MSB_BACKEND`, `MSB_API_KEY`, or `MSB_PROFILE` cannot move guest work off the host; a composition that must stay local also calls `sdk.setDefaultBackend("local")` once at startup. `backend: "any"` accepts the hosted backend. `cpus`, `maxCpus`, `memoryMib`, `maxMemoryMib`, `maxDurationSecs`, `idleTimeoutSecs`, `security`, `pullPolicy`, `scripts`, and `disableNetwork` go to the builder as named. `networkPolicy` (a `NetworkPolicy`: per-direction defaults and ordered rules, such as deny-by-default egress that allows DNS and listed domains) goes to `network(b => b.policy(...))` unless `disableNetwork` is set, and `rootDiskMib` sets the root disk of an image boot; a snapshot boot keeps the disk it captured.
 
-`captureSnapshot({ sdk, machine, name, stopTimeoutMs? })` stops a machine, captures its root disk as the named snapshot, and removes the machine whether or not the capture succeeded. `hasSnapshot(sdk, name)` answers whether one exists (a `SnapshotNotFound` answer is `false`; any other failure is `unavailable`). `pruneSnapshots(sdk, prefix, keep, retain?)` removes the snapshots named with `prefix` beyond the `keep` newest, except those named in `retain`, and returns their names. `removeSnapshot(sdk, name)` removes one; one already gone is not an error. A machine booted from a snapshot does not depend on it afterwards, so pruning never disturbs a running machine.
+Snapshots are named `<family>.<member>` (`snapshotName(family, member)`, separator `snapshotSeparator`): the family is the preparation a snapshot repeats, the member tells its captures apart and never contains the separator, so `snapshotFamily(name)` places every name in exactly one family. `captureSnapshot({ sdk, machine, family, member, stopTimeoutMs? })` stops a machine, captures its root disk as that snapshot, removes the machine whether or not the capture succeeded, and returns the name; a family and member that cannot name a snapshot fail with `unavailable` before any vendor call and leave the machine. `hasSnapshot(sdk, name)` answers whether one exists (a `SnapshotNotFound` answer is `false`; any other failure is `unavailable`). `pruneSnapshots(sdk, family, keep, retain?)` removes that family's snapshots beyond the `keep` newest, except those named in `retain`, and returns their names; a family whose name extends another's is never touched by the other's prune. `removeSnapshot(sdk, name)` removes one; one already gone is not an error. A machine booted from a snapshot does not depend on it afterwards, so pruning never disturbs a running machine.
 
 Every machine carries three ownership labels beside any `labels` the caller passes, and the provider's own values win: `smithers.provider` (`providerLabel`) is always `microsandbox` (`providerName`), `smithers.owner` (`ownerLabel`) is `owner` (default `smithers`), and `smithers.holder` (`holderLabel`) is `holder` (default a random token per `make` call). `reap({ sdk, owner, isAlive, retain?, stopTimeoutMs? })` lists that owner's machines by the provider and owner labels, page by page, asks `isAlive` about each one's holder, and removes those whose holder is dead the same graceful-then-forced way, whatever their persistence, except those `retain` keeps by the labels their configuration records (a sticky machine a resuming run will reattach). Just before each removal the machine is read again, and one whose holder label changed since the listing (a live holder reattached it) or that disappeared is skipped. Machines of other owners, machines without a readable holder label, and machines this package did not create are never touched. Every candidate is attempted; the effect resolves with the removed machines, or fails with `unavailable` naming those that could not be removed after the others were. Reattachment relabels a machine to the new holder as a next-start modification, so a host reaps at startup, before it acquires.
 
@@ -52013,11 +52013,11 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### hijack
 
-**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs hijack`, and the flag `smthrs steer --takeover` (hijack is not available; `steer --message` is the only mode). **1.0 path:** control a live run with `smthrs runs steer`, `smthrs runs signal`, `smthrs approvals approve`, `smthrs approvals deny`, or `smthrs runs cancel`, and resume a parked one with `smthrs runs resume`; see [Steering runs](/docs/guides/steering/).
+**Reason:** Not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`. **Removed:** `smthrs hijack`, and the flag `smthrs steer --takeover` (hijack is not available; `smthrs runs steer --message` is the only mode). **1.0 path:** control a live run with `smthrs runs steer`, `smthrs runs signal`, `smthrs approvals approve`, `smthrs approvals deny`, or `smthrs runs cancel`, and resume a parked one with `smthrs runs resume`; see [Steering runs](/docs/guides/steering/).
 
 ### pause
 
-**Reason:** Not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`. **Removed:** `smthrs pause`. **1.0 path:** `smthrs runs cancel` ends a run and `smthrs runs resume` resumes a parked one; see [Steering runs](/docs/guides/steering/).
+**Reason:** Not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`. **Removed:** `smthrs pause`. **1.0 path:** `smthrs runs cancel` ends a run and `smthrs runs resume` resumes a parked one; see [Steering runs](/docs/guides/steering/).
 
 **Old gateway and UI hosting.**
 
@@ -52167,21 +52167,21 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### human
 
-**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs human list` and `smthrs human resolve`. **1.0 path:** list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
+**Reason:** Approvals park the run; use `smthrs approvals list|approve|deny`. **Removed:** `smthrs human list` and `smthrs human resolve`. **1.0 path:** list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
 
 ### ask-human
 
-**Reason:** Approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`. **Removed:** `smthrs ask-human`. **1.0 path:** the run parks at the approval; list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
+**Reason:** Approvals park the run; use `smthrs approvals list|approve|deny`. **Removed:** `smthrs ask-human`. **1.0 path:** the run parks at the approval; list parked approvals with `smthrs runs list --status waiting-approval`, then answer them with `smthrs approvals approve` or `smthrs approvals deny`; see [Human approval](/docs/tutorials/human-approval/).
 
 **Node detail.**
 
 ### node
 
-**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs node`. **1.0 path:** `smthrs runs output` prints one registered node output and `smthrs runs logs --format json` renders the events; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** Use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection. **Removed:** `smthrs node`. **1.0 path:** `smthrs runs output` prints one registered node output and `smthrs runs logs --format json` renders the events; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 ### tail
 
-**Reason:** Use `output`, `logs --json`, and the node-output projection. **Removed:** `smthrs tail`. **1.0 path:** `smthrs runs logs --follow` streams future events and `smthrs runs output` prints one registered node output; see [Inspecting runs](/docs/guides/inspecting-runs/).
+**Reason:** Use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection. **Removed:** `smthrs tail`. **1.0 path:** `smthrs runs logs --follow` streams future events and `smthrs runs output` prints one registered node output; see [Inspecting runs](/docs/guides/inspecting-runs/).
 
 **Release.**
 
@@ -52193,35 +52193,35 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 
 ### list-runs
 
-**Reason:** Use `ps`. **Removed:** `smthrs list-runs`. **1.0 path:** `smthrs runs list`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs list`. **Removed:** `smthrs list-runs`. **1.0 path:** `smthrs runs list`; see [CLI reference](/docs/reference/cli/).
 
 ### list
 
-**Reason:** Use `ls`. **Removed:** `smthrs list`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow list`. **Removed:** `smthrs list`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
 
 ### workflows
 
-**Reason:** Use `ls`. **Removed:** `smthrs workflows`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow list`. **Removed:** `smthrs workflows`. **1.0 path:** `smthrs flow list`; see [CLI reference](/docs/reference/cli/).
 
 ### stop
 
-**Reason:** Use `cancel`. **Removed:** `smthrs stop`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs cancel`. **Removed:** `smthrs stop`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
 
 ### kill
 
-**Reason:** Use `cancel`. **Removed:** `smthrs kill`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs cancel`. **Removed:** `smthrs kill`. **1.0 path:** `smthrs runs cancel`; see [CLI reference](/docs/reference/cli/).
 
 ### start
 
-**Reason:** Use `up`. **Removed:** `smthrs start`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow start`. **Removed:** `smthrs start`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
 
 ### exec
 
-**Reason:** Use `up`. **Removed:** `smthrs exec`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs flow start`. **Removed:** `smthrs exec`. **1.0 path:** `smthrs flow start`; see [CLI reference](/docs/reference/cli/).
 
 ### log
 
-**Reason:** Use `logs`. **Removed:** `smthrs log`. **1.0 path:** `smthrs runs logs`; see [CLI reference](/docs/reference/cli/).
+**Reason:** Use `smthrs runs logs`. **Removed:** `smthrs log`. **1.0 path:** `smthrs runs logs`; see [CLI reference](/docs/reference/cli/).
 
 ### help
 

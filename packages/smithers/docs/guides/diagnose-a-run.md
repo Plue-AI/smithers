@@ -47,7 +47,7 @@ Run       run-1 · hello · 0s
 Activity  0 turns · 0 calls (0 refused, 0 duplicate) · edits 0/0
 Tokens    0 in / 0 out
 Cause     Set OPENAI_API_KEY to run the openai:gpt-6-sol seat
-Next      smthrs logs run-1    # turn-by-turn transcript
+Next      smthrs runs logs run-1    # turn-by-turn transcript
 ```
 
 Lines appear only when they have something to say. A run with refused flow

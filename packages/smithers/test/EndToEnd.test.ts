@@ -210,7 +210,7 @@ describe("one project, from init to gc", processBudget, () => {
 
     expect(card.status).toBe(0)
     expect(card.stdout).toContain("no executor took the run")
-    expect(card.stdout).toContain(`smthrs cancel ${runId}`)
+    expect(card.stdout).toContain(`smthrs runs cancel ${runId}`)
 
     // And the launch that produced it said the same thing, in the log the
     // detached child wrote.

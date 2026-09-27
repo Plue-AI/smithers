@@ -377,7 +377,7 @@ describe("Control surface", () => {
     // nothing to say about a launch no executor drives.
     expect(message).toContain("no executor took it")
     expect(message).toContain("registers its delegates")
-    expect(message).toContain("smthrs cancel run-1")
+    expect(message).toContain("smthrs runs cancel run-1")
     expect(CliError.exitCode(error as CliError.UnsupportedError)).toBe(1)
   })
 

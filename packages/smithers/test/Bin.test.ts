@@ -803,7 +803,7 @@ describe("reserved system flow ids", processBudget, () => {
     const result = run(["plan", "system/replay", "--json"])
 
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain("smthrs plan system/replay")
+    expect(result.stderr).toContain("smthrs flow plan system/replay")
     expect(result.stderr).toContain("reserved system flow")
     expect(result.stdout).not.toContain("planId")
   })
@@ -812,7 +812,7 @@ describe("reserved system flow ids", processBudget, () => {
     const result = run(["up", "system/release", "--json"])
 
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain("smthrs up system/release")
+    expect(result.stderr).toContain("smthrs flow start system/release")
     expect(result.stdout).not.toContain("Accepted")
   })
 
@@ -2200,7 +2200,7 @@ describe("smthrs signal against a run parked on something else", processBudget, 
       expect(error.code).toBe("NoMatchingWait")
       expect(error.message).toBe(
         `no wait point named "go" is open on run ${runId}. ` +
-          `Read \`smthrs status ${runId}\` to see what that run is waiting for.`
+          `Read \`smthrs runs show ${runId}\` to see what that run is waiting for.`
       )
       expect(signalled.stderr).toBe("")
     } finally {

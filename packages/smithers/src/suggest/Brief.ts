@@ -78,7 +78,7 @@ export const system: string = [
   "",
   section(
     "Markdown flows",
-    `A flow is a directory \`flows/<name>/\` holding \`flow.mdx\`. The frontmatter declares it and the body is the prompt the run's agent is handed. \`model:\` is the seat; use the one named in the brief. \`capabilities\` are the kernel grants the body needs: \`fs:read:**\`, \`fs:write:**\`, \`proc:spawn:*\` (the \`bash\` tool). The appended command-line arguments reach the body as text. It runs with \`smthrs up <name>\`.
+    `A flow is a directory \`flows/<name>/\` holding \`flow.mdx\`. The frontmatter declares it and the body is the prompt the run's agent is handed. \`model:\` is the seat; use the one named in the brief. \`capabilities\` are the kernel grants the body needs: \`fs:read:**\`, \`fs:write:**\`, \`proc:spawn:*\` (the \`bash\` tool). It runs with \`smthrs flow start <name>\`.
 
 ${fenced("md", sampleFlow)}`
   ),
@@ -103,7 +103,7 @@ A repository with no \`PACKAGE.ts\` gets a flow only, unless the brief asks for 
       "Complete with an `Implemented`:",
       "",
       "- `files`: every project-relative path you added or edited.",
-      "- `command`: the one command that runs it, for example `smthrs up review` or `smithers-build test //packages/core:test`.",
+      "- `command`: the one command that runs it, for example `smthrs flow start review` or `smithers-build test //packages/core:test`.",
       "- `notes`: what a reader should know before running it, in at most three sentences."
     ].join("\n")
   )

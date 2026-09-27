@@ -278,7 +278,7 @@ describe("the removed surface", () => {
 
     expect(singular.subcommands).toEqual(["run", "path", "create", "inspect", "skills", "doctor"])
     expect(singular.reason).toContain("JSX pack tooling is gone")
-    expect(plural.reason).toBe("use `ls`")
+    expect(plural.reason).toBe("use `smthrs flow list`")
   })
 
   it("gives every removal a reason and a migration link", () => {

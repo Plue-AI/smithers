@@ -185,7 +185,7 @@ export const declined = (runId: string, summary: ControlSchema.RunSummary | unde
       `${summary?.status ?? "accepted"} with nothing running. This host drives prompt flows. A flow whose ` +
       `body is a module (\`flow.ts\`) is driven by the host program that registers its delegates, and a flow ` +
       `this project's registry does not hold belongs to another host: run the flow from that program, or end ` +
-      `the run with \`smthrs cancel ${runId}\`. \`smthrs status ${runId}\` shows what it waits for.`
+      `the run with \`smthrs runs cancel ${runId}\`. \`smthrs runs show ${runId}\` shows what it waits for.`
   })
 
 /**

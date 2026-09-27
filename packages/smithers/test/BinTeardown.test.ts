@@ -305,8 +305,8 @@ describe("smithers entrypoint", () => {
     expect(error).toBeInstanceOf(fresh.cliError.UnsupportedError)
     expect((error as InstanceType<typeof fresh.cliError.UnsupportedError>).message)
       .toBe(
-        "smthrs hijack was removed in 1.0.0-rc.0: not available; use `steer`, `signal`, `approve`, " +
-          "`deny`, `cancel`, `run --resume`. See https://smithers.sh/migration/1.0#hijack"
+        "smthrs hijack was removed in 1.0.0-rc.0: not available; use `smthrs runs steer|signal|cancel|resume` " +
+          "and `smthrs approvals approve|deny`. See https://smithers.sh/migration/1.0#hijack"
       )
     expect(status(fresh, exit)).toBe(1)
 

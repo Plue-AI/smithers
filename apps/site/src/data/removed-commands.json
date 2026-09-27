@@ -154,7 +154,7 @@
       "anchor": "hijack",
       "name": "hijack",
       "group": "Hijack and pause",
-      "reason": "not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`",
+      "reason": "not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`",
       "subcommands": [],
       "spellings": [
         "smthrs hijack"
@@ -165,7 +165,7 @@
       "anchor": "pause",
       "name": "pause",
       "group": "Hijack and pause",
-      "reason": "not available; use `steer`, `signal`, `approve`, `deny`, `cancel`, `run --resume`",
+      "reason": "not available; use `smthrs runs steer|signal|cancel|resume` and `smthrs approvals approve|deny`",
       "subcommands": [],
       "spellings": [
         "smthrs pause"
@@ -599,7 +599,7 @@
       "anchor": "human",
       "name": "human",
       "group": "Human requests",
-      "reason": "approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`",
+      "reason": "approvals park the run; use `smthrs approvals list|approve|deny`",
       "subcommands": [
         "list",
         "resolve"
@@ -614,7 +614,7 @@
       "anchor": "ask-human",
       "name": "ask-human",
       "group": "Human requests",
-      "reason": "approvals park the run; use `ps --status waiting-approval`, `approve`, and `deny`",
+      "reason": "approvals park the run; use `smthrs approvals list|approve|deny`",
       "subcommands": [],
       "spellings": [
         "smthrs ask-human"
@@ -625,7 +625,7 @@
       "anchor": "node",
       "name": "node",
       "group": "Node detail",
-      "reason": "use `output`, `logs --json`, and the node-output projection",
+      "reason": "use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection",
       "subcommands": [],
       "spellings": [
         "smthrs node"
@@ -636,7 +636,7 @@
       "anchor": "tail",
       "name": "tail",
       "group": "Node detail",
-      "reason": "use `output`, `logs --json`, and the node-output projection",
+      "reason": "use `smthrs runs output`, `smthrs runs logs --format json`, and the node-output projection",
       "subcommands": [],
       "spellings": [
         "smthrs tail"
@@ -658,7 +658,7 @@
       "anchor": "list-runs",
       "name": "list-runs",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `ps`",
+      "reason": "use `smthrs runs list`",
       "subcommands": [],
       "spellings": [
         "smthrs list-runs"
@@ -669,7 +669,7 @@
       "anchor": "list",
       "name": "list",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `ls`",
+      "reason": "use `smthrs flow list`",
       "subcommands": [],
       "spellings": [
         "smthrs list"
@@ -680,7 +680,7 @@
       "anchor": "workflows",
       "name": "workflows",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `ls`",
+      "reason": "use `smthrs flow list`",
       "subcommands": [],
       "spellings": [
         "smthrs workflows"
@@ -691,7 +691,7 @@
       "anchor": "stop",
       "name": "stop",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `cancel`",
+      "reason": "use `smthrs runs cancel`",
       "subcommands": [],
       "spellings": [
         "smthrs stop"
@@ -702,7 +702,7 @@
       "anchor": "kill",
       "name": "kill",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `cancel`",
+      "reason": "use `smthrs runs cancel`",
       "subcommands": [],
       "spellings": [
         "smthrs kill"
@@ -713,7 +713,7 @@
       "anchor": "start",
       "name": "start",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `up`",
+      "reason": "use `smthrs flow start`",
       "subcommands": [],
       "spellings": [
         "smthrs start"
@@ -724,7 +724,7 @@
       "anchor": "exec",
       "name": "exec",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `up`",
+      "reason": "use `smthrs flow start`",
       "subcommands": [],
       "spellings": [
         "smthrs exec"
@@ -735,7 +735,7 @@
       "anchor": "log",
       "name": "log",
       "group": "Old aliases and did-you-mean keys",
-      "reason": "use `logs`",
+      "reason": "use `smthrs runs logs`",
       "subcommands": [],
       "spellings": [
         "smthrs log"
@@ -759,7 +759,7 @@
       "anchor": "hijack",
       "name": "takeover",
       "parent": "steer",
-      "reason": "hijack is not available; `steer --message` is the only mode",
+      "reason": "hijack is not available; `smthrs runs steer --message` is the only mode",
       "spellings": [
         "smthrs steer --takeover"
       ]
