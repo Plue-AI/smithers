@@ -6,9 +6,9 @@
  */
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { appendFileSync, writeFileSync } from "node:fs"
+import { accessSync, appendFileSync, constants, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { delimiter, join } from "node:path"
 import * as Output from "./shell-output.ts"
 import { stopGroup } from "./subprocess.ts"
 
@@ -74,6 +74,19 @@ export const flushMs = 50
 /** Give a stopped command time to clean up before killing its remaining process group. */
 export const cancelGraceMs = 1000
 
+/** Bash from PATH, when SHELL names no shell. */
+const bashOnPath = (path: string | undefined): string | undefined => {
+  for (const dir of (path ?? "").split(delimiter)) {
+    if (dir === "") continue
+    const candidate = join(dir, "bash")
+    try {
+      accessSync(candidate, constants.X_OK)
+      return candidate
+    } catch {}
+  }
+  return undefined
+}
+
 export const run = (options: {
   readonly command: string
   readonly cwd: string
@@ -83,7 +96,7 @@ export const run = (options: {
   readonly spillDir?: string
 }): Running => {
   const env = options.env ?? process.env
-  const shell = env.SHELL ?? "/bin/bash"
+  const shell = env.SHELL ?? bashOnPath(env.PATH) ?? "/bin/sh"
   const child = spawn(shell, ["-c", options.command], {
     cwd: options.cwd,
     env: { ...env, TERM: "dumb" },
