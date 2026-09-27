@@ -43,7 +43,7 @@ In a new workspace, this creates:
 
 Existing declarations and flow files are retained. In a Git or jj repository, the command adds `.flows/` to `.gitignore`. Execution databases are created when a runtime command needs them.
 
-For an existing npm workspace, or when you only want a flow without build declarations, use `smthrs generate flow change` instead. `init` can infer a workspace toolchain from pnpm, Yarn, or Bun; it refuses an unsupported package manager before writing project files.
+For an npm workspace, or a flow without build declarations, see the [init reference](/docs/reference/cli/init/).
 
 ## 3. Give it a prompt and a model
 
@@ -90,9 +90,7 @@ Smithers records completed action results in the project's journal. A resumed ru
 
 ## Find useful flows for your project
 
-For help choosing what to automate next, run `smthrs suggest`. It scans the project and lists candidate flows and build targets. In an interactive terminal, you can choose a suggestion for an agent to implement, then select follow-ups. `--list`, `--json`, and noninteractive sessions list suggestions without implementing them.
-
-`suggest` chooses the first available seat in this order: a Codex subscription, Moonshot, OpenAI, Gemini, OpenRouter, then Cerebras. A Codex subscription requires an existing login; `SMITHERS_OPENAI_AUTH=chatgpt` selects that authentication mode but does not create credentials. Use `--seat provider:model` to select a seat explicitly. See the [suggest reference](/docs/reference/cli/suggest/) for setup and output details.
+Run `smthrs suggest` for candidate flows and build targets. The [suggest reference](/docs/reference/cli/suggest/) covers seats and output.
 
 ## Next steps
 
