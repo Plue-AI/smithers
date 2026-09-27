@@ -224,7 +224,7 @@ func (l Ledger) Import(ctx context.Context, exportedAt time.Time, input []Legacy
 		return ImportReport{}, err
 	}
 	var now time.Time
-	if err = l.DB.QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
+	if err = l.handle().QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
 		return ImportReport{}, err
 	}
 	if exportedAt.After(now) {
@@ -330,7 +330,7 @@ func (l Ledger) Verify(ctx context.Context, exportedAt time.Time, input []Legacy
 		return ImportReport{}, err
 	}
 	var receipts int
-	if err = l.DB.QueryRow(ctx, `SELECT count(*) FROM credit_legacy_imports`).Scan(&receipts); err != nil {
+	if err = l.handle().QueryRow(ctx, `SELECT count(*) FROM credit_legacy_imports`).Scan(&receipts); err != nil {
 		return ImportReport{}, err
 	}
 	if receipts != len(accounts) {
@@ -352,7 +352,7 @@ func (l Ledger) verifyOne(ctx context.Context, a normalized) (Disposition, error
 	var accountID, openingDebt int64
 	var recorded, disposition string
 	var raw string
-	err := l.DB.QueryRow(ctx, `SELECT account_id, checksum, raw_account, opening_debt_nanos, disposition FROM credit_legacy_imports WHERE source_id = $1`,
+	err := l.handle().QueryRow(ctx, `SELECT account_id, checksum, raw_account, opening_debt_nanos, disposition FROM credit_legacy_imports WHERE source_id = $1`,
 		a.SourceID).Scan(&accountID, &recorded, &raw, &openingDebt, &disposition)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("receipt: %w", ErrNotFound)
@@ -370,7 +370,7 @@ func (l Ledger) verifyOne(ctx context.Context, a normalized) (Disposition, error
 	var ownerType *string
 	var ownerID *int64
 	var drift bool
-	if err = l.DB.QueryRow(ctx, `SELECT a.disposition, a.owner_type, a.owner_id,
+	if err = l.handle().QueryRow(ctx, `SELECT a.disposition, a.owner_type, a.owner_id,
 			a.debt_nanos <> COALESCE((SELECT sum(debt_delta_nanos) FROM credit_events e WHERE e.account_id = a.id), 0)
 			OR EXISTS (SELECT 1 FROM credit_grants g WHERE g.account_id = a.id
 				AND g.available_nanos <> COALESCE((SELECT sum(available_delta_nanos) FROM credit_events e WHERE e.grant_id = g.id), 0))
@@ -386,7 +386,7 @@ func (l Ledger) verifyOne(ctx context.Context, a normalized) (Disposition, error
 	if drift {
 		return "", fmt.Errorf("account %d amounts differ from its event log: %w", accountID, ErrConflict)
 	}
-	rows, err := l.DB.Query(ctx, `SELECT source_key, original_nanos, expires_at FROM credit_grants WHERE account_id = $1 AND source_key LIKE $2`,
+	rows, err := l.handle().Query(ctx, `SELECT source_key, original_nanos, expires_at FROM credit_grants WHERE account_id = $1 AND source_key LIKE $2`,
 		accountID, escapeLike(grantKey(a.SourceID, ""))+"%")
 	if err != nil {
 		return "", err

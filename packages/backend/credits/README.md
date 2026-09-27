@@ -22,7 +22,10 @@ former integer-cent balances into it.
   it.
 - Plan credit is one grant per paid invoice (`invoice:<id>`), expiring at the
   end of the period the invoice pays for. `Ledger.Forfeit` ends an owner's
-  live grants by key prefix on a refund, a dispute or a lapsed subscription. Every ledger that can create a payer's account (commerce via
+  live grants by key prefix on a refund, a dispute or a lapsed subscription.
+  The payment webhook grants and forfeits through `Ledger.InTransaction`, so
+  credit commits with the billing state it follows from; a billing read never
+  forfeits. Every ledger that can create a payer's account (commerce via
   `commerce.Config.SignupCreditGrantCents`, and any model proxy resolving the
   payer) must carry the same amount.
 - A self-hosted operator funds platform-model calls with

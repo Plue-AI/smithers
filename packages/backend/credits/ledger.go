@@ -49,6 +49,41 @@ type Ledger struct {
 	// login), so it is never granted twice and never reaches an organization
 	// or an account that already existed or was imported. Zero grants nothing.
 	SignupGrantNanos int64
+	// tx, when set, is a caller's open transaction every read and write
+	// joins (see InTransaction).
+	tx pgx.Tx
+}
+
+// InTransaction returns the ledger joined to a caller's open transaction:
+// each write runs in a savepoint of tx and commits or rolls back with it, and
+// reads see tx's uncommitted writes. A payment webhook grants and forfeits
+// credit with the billing projection it derives from, so neither can commit
+// without the other.
+func (l Ledger) InTransaction(tx pgx.Tx) Ledger {
+	l.tx = tx
+	return l
+}
+
+// conn is the ledger's database handle: the joined transaction or the pool.
+type conn interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func (l Ledger) db() (conn, error) {
+	if l.tx == nil && l.DB == nil {
+		return nil, errors.New("credits: PostgreSQL pool required")
+	}
+	return l.handle(), nil
+}
+
+// handle is the joined transaction, else the pool.
+func (l Ledger) handle() conn {
+	if l.tx != nil {
+		return l.tx
+	}
+	return l.DB
 }
 
 // Reservation is one request key's hold on credit.
@@ -64,10 +99,11 @@ type Reservation struct {
 }
 
 func (l Ledger) transaction(ctx context.Context, fn func(pgx.Tx) error) error {
-	if l.DB == nil {
-		return errors.New("credits: PostgreSQL pool required")
+	db, err := l.db()
+	if err != nil {
+		return err
 	}
-	tx, err := l.DB.Begin(ctx)
+	tx, err := db.Begin(ctx) // a savepoint when the ledger joined a transaction
 	if err != nil {
 		return err
 	}
@@ -195,11 +231,12 @@ func (l Ledger) Forfeit(ctx context.Context, ownerType string, ownerID int64, pr
 	if prefix == "" {
 		return 0, errors.New("credits: forfeit prefix required")
 	}
-	if l.DB == nil {
-		return 0, errors.New("credits: PostgreSQL pool required")
+	db, err := l.db()
+	if err != nil {
+		return 0, err
 	}
 	var accountID int64
-	err := l.DB.QueryRow(ctx, `SELECT a.id FROM credit_accounts a WHERE a.owner_type = $1 AND a.owner_id = $2
+	err = db.QueryRow(ctx, `SELECT a.id FROM credit_accounts a WHERE a.owner_type = $1 AND a.owner_id = $2
 		AND EXISTS (SELECT 1 FROM credit_grants g WHERE g.account_id = a.id AND starts_with(g.source_key, $3)
 			AND (g.expires_at IS NULL OR g.expires_at > now()))`, ownerType, ownerID, prefix).Scan(&accountID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -271,7 +308,7 @@ func sameTime(a, b *time.Time) bool {
 // Credit held by open reservations is not spendable and is excluded.
 func (l Ledger) Balance(ctx context.Context, accountID int64) (int64, error) {
 	var n int64
-	err := l.DB.QueryRow(ctx, `SELECT COALESCE((SELECT sum(available_nanos) FROM credit_grants
+	err := l.handle().QueryRow(ctx, `SELECT COALESCE((SELECT sum(available_nanos) FROM credit_grants
 			WHERE account_id = a.id AND (expires_at IS NULL OR expires_at > now())), 0)::bigint - a.debt_nanos
 		FROM credit_accounts a WHERE a.id = $1`, accountID).Scan(&n)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -283,7 +320,7 @@ func (l Ledger) Balance(ctx context.Context, accountID int64) (int64, error) {
 // OwnerBalance reads an owner's balance without creating an account.
 func (l Ledger) OwnerBalance(ctx context.Context, ownerType string, ownerID int64) (int64, error) {
 	var id int64
-	err := l.DB.QueryRow(ctx, `SELECT id FROM credit_accounts WHERE owner_type = $1 AND owner_id = $2`, ownerType, ownerID).Scan(&id)
+	err := l.handle().QueryRow(ctx, `SELECT id FROM credit_accounts WHERE owner_type = $1 AND owner_id = $2`, ownerType, ownerID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}

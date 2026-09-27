@@ -96,7 +96,7 @@ func (l Ledger) resolveOwner(ctx context.Context, owner string) (string, int64, 
 		return "", 0, errors.New("credits: -owner must be user:NAME or org:NAME")
 	}
 	var id int64
-	if err := l.DB.QueryRow(ctx, query, name).Scan(&id); err != nil {
+	if err := l.handle().QueryRow(ctx, query, name).Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", 0, fmt.Errorf("credits: no %s named %q", kind, name)
 		}

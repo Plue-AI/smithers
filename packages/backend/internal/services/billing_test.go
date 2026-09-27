@@ -1584,8 +1584,10 @@ func TestBillingService_BalanceReadGrantsNoPlanCredit(t *testing.T) {
 	assert.Empty(t, ledger.accounts)
 }
 
-// Plan credit leaves the balance once no active or trialing subscription
-// can spend it; the signup grant stays.
+// A subscription webhook forfeits plan credit once no active or trialing
+// subscription can spend it; the signup grant stays. A billing read never
+// forfeits: it could race the webhook transaction that grants the credit
+// (smithersai/smithers#2175).
 func TestBillingService_LapsedSubscriptionForfeitsPlanCredit(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -1606,6 +1608,10 @@ func TestBillingService_LapsedSubscriptionForfeitsPlanCredit(t *testing.T) {
 		require.NoError(t, ledger.Grant(ctx, id, credits.SignupGrantKey, 1000*credits.NanosPerCent, nil))
 		svc := NewBillingService(queries, nil, BillingServiceConfig{MonthlyCreditGrantCents: 5000}, WithBillingCreditLedger(ledger))
 		overview, err := svc.GetUserOverview(ctx, &db.User{ID: 42, Username: "alice"})
+		require.NoError(t, err)
+		assert.Equal(t, int64(6000), overview.CreditBalanceCents, "a read does not forfeit: %s", tc.status)
+		require.NoError(t, svc.forfeitLapsedPlanCredit(ctx, queries.accountsByOwner[queries.ownerKey(BillingOwnerTypeUser, 42)]))
+		overview, err = svc.GetUserOverview(ctx, &db.User{ID: 42, Username: "alice"})
 		require.NoError(t, err)
 		want := int64(1000)
 		if tc.kept {

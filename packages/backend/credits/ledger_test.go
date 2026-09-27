@@ -605,3 +605,37 @@ func TestForfeitEndsMatchingGrants(t *testing.T) {
 	}
 	mustBalance(t, l, id, 50)
 }
+
+// A ledger joined to a caller's transaction commits and rolls back with it.
+func TestInTransactionFollowsTheCallersTransaction(t *testing.T) {
+	ctx := context.Background()
+	l, id := testLedger(t)
+	for _, commit := range []bool{false, true} {
+		tx, err := l.DB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := l.InTransaction(tx)
+		if err := joined.Grant(ctx, id, "gift", 70, nil); err != nil {
+			t.Fatal(err)
+		}
+		// A refused write rolls back only its savepoint.
+		if err := joined.Grant(ctx, id, "gift", 71, nil); !errors.Is(err, ErrConflict) {
+			t.Fatalf("conflicting grant err=%v", err)
+		}
+		if n, err := joined.Balance(ctx, id); err != nil || n != 70 {
+			t.Fatalf("joined read balance=%d err=%v", n, err)
+		}
+		mustBalance(t, l, id, 0) // not visible outside before commit
+		if commit {
+			err = tx.Commit(ctx)
+		} else {
+			err = tx.Rollback(ctx)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustBalance(t, l, id, 70)
+	assertInvariants(t, l)
+}

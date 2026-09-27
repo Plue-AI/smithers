@@ -28,6 +28,10 @@ func (p *subscriptionTransport) GetSubscription(context.Context, string) (commer
 		Metadata: map[string]string{"owner_type": "user", "owner_id": fmt.Sprint(p.owner)}}, nil
 }
 
+func (p *subscriptionTransport) ListActiveEntitlements(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
 // Plan credit follows paid invoices, never a balance read: once per invoice,
 // capped at the amount paid, forfeited on refund and on cancellation
 // (smithersai/plue#528, plue 4053bc1c4).
@@ -195,5 +199,77 @@ func TestPaymentReversalFollowsSettlementOrder(t *testing.T) {
 	deliver("evt_untimed", "invoice.paid", time.Time{}, fmt.Sprintf(`{"id":"in_untimed","customer":"cus_plan","amount_paid":5000,
 		"currency":"usd","parent":{"subscription_details":{"subscription":"sub_plan"}},"lines":{"data":[{"period":{"end":%d}}]}}`, end.Unix()))
 	require.False(t, paid())
+	require.Equal(t, int64(1000), balance())
+}
+
+// Plan credit commits with the webhook that grants it: a delivery that fails
+// to commit grants nothing, a billing read in between cannot forfeit it, and
+// Stripe's retry grants it once (smithersai/smithers#2175).
+func TestPlanCreditCommitsWithItsWebhook(t *testing.T) {
+	pool := database(t)
+	ctx := context.Background()
+	owner := user(t, pool)
+	end := time.Now().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	transport := &subscriptionTransport{owner: owner, status: "active", end: end}
+	const secret = "test-only-plan-credit-secret"
+	api, err := commerce.New(pool, transport, commerce.Config{Usage: admission.ProductUsage, Prices: admission.Prices{ProMonthly: "price_pro"},
+		WebhookSecret: secret, MonthlyCreditGrantCents: 5000, SignupCreditGrantCents: 1000})
+	require.NoError(t, err)
+	payload := []byte(fmt.Sprintf(`{"id":"evt_in1","type":"invoice.paid","data":{"object":{"id":"in_1","customer":"cus_plan",
+		"amount_paid":5000,"currency":"usd","parent":{"subscription_details":{"subscription":"sub_plan"}},
+		"lines":{"data":[{"period":{"start":%d,"end":%d}}]}}}}`, time.Now().Unix(), end.Unix()))
+	deliver := func() error {
+		now := time.Now().Unix()
+		mac := hmac.New(sha256.New, []byte(secret))
+		fmt.Fprintf(mac, "%d.%s", now, payload)
+		return api.HandleStripeWebhook(ctx, payload, fmt.Sprintf("t=%d,v1=%x", now, mac.Sum(nil)))
+	}
+	balance := func() int64 {
+		n, err := api.CreditLedger().OwnerBalance(ctx, "user", owner)
+		require.NoError(t, err)
+		return n / credits.NanosPerCent
+	}
+
+	// The subscription is past due when its renewal invoice is paid.
+	transport.status = "past_due"
+	event := []byte(fmt.Sprintf(`{"id":"evt_past_due","type":"customer.subscription.updated","data":{"object":{"id":"sub_plan","customer":"cus_plan",
+		"metadata":{"owner_type":"user","owner_id":"%d"}}}}`, owner))
+	now := time.Now().Unix()
+	mac := hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "%d.%s", now, event)
+	require.NoError(t, api.HandleStripeWebhook(ctx, event, fmt.Sprintf("t=%d,v1=%x", now, mac.Sum(nil))))
+	require.Zero(t, balance())
+	transport.status = "active"
+
+	// The renewal's first delivery fails at commit, after every side effect
+	// ran; a billing read then sees the committed past_due subscription.
+	_, err = pool.Exec(ctx, `
+		CREATE FUNCTION fail_webhook_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN RAISE EXCEPTION 'webhook commit failed'; END $$;
+		CREATE CONSTRAINT TRIGGER fail_webhook_commit AFTER INSERT ON stripe_processed_events
+		DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_webhook_commit()`)
+	require.NoError(t, err)
+	require.Error(t, deliver())
+	require.Zero(t, balance(), "a webhook that did not commit grants nothing")
+
+	_, err = api.GetUserOverview(ctx, &commerce.User{ID: owner})
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `DROP TRIGGER fail_webhook_commit ON stripe_processed_events`)
+	require.NoError(t, err)
+	require.NoError(t, deliver())
+	require.Equal(t, int64(6000), balance(), "Stripe's retry grants the plan credit")
+
+	// A refresh projects a lapsed snapshot but never forfeits: its snapshot
+	// can predate a webhook that just granted. The lapse webhook forfeits.
+	transport.status = "past_due"
+	_, err = api.RefreshUserBilling(ctx, &commerce.User{ID: owner})
+	require.NoError(t, err)
+	require.Equal(t, int64(6000), balance())
+	lapse := []byte(`{"id":"evt_lapsed","type":"customer.subscription.updated","data":{"object":{"id":"sub_plan","customer":"cus_plan"}}}`)
+	now = time.Now().Unix()
+	mac = hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "%d.%s", now, lapse)
+	require.NoError(t, api.HandleStripeWebhook(ctx, lapse, fmt.Sprintf("t=%d,v1=%x", now, mac.Sum(nil))))
 	require.Equal(t, int64(1000), balance())
 }

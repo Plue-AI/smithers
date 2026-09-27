@@ -235,6 +235,19 @@ type BillingCreditLedger interface {
 	Forfeit(ctx context.Context, ownerType string, ownerID int64, prefix string) (int64, error)
 }
 
+// creditLedgerInTransaction joins ledger to tx. A ledger that cannot join a
+// transaction fails closed rather than committing credit on its own.
+func creditLedgerInTransaction(ledger BillingCreditLedger, tx pgx.Tx) (BillingCreditLedger, error) {
+	switch l := ledger.(type) {
+	case nil:
+		return nil, nil
+	case credits.Ledger:
+		return l.InTransaction(tx), nil
+	default:
+		return nil, pkgerrors.Internal("billing credit ledger cannot join the webhook transaction")
+	}
+}
+
 func WithBillingCreditLedger(ledger BillingCreditLedger) BillingServiceOption {
 	return func(s *BillingService) {
 		s.credits = ledger
@@ -759,6 +772,11 @@ func (s *BillingService) processStripeEventTx(ctx context.Context, txq billingTx
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	txService, err := s.inTransaction(tx)
 	if err != nil {
+		return err
+	}
+	// Credit granted or forfeited by the event commits with the claim and the
+	// billing projection it follows from (smithersai/smithers#2175).
+	if txService.credits, err = creditLedgerInTransaction(s.credits, tx); err != nil {
 		return err
 	}
 	claimed, err := txService.claimStripeProcessedEvent(ctx, eventID, eventType)
@@ -1544,14 +1562,6 @@ func (s *BillingService) resolveLocalState(ctx context.Context, owner billingOwn
 			subscription = &row
 			plan = s.planForSubscription(owner.OwnerType, &row)
 		}
-		// Best-effort: a transient failure must not fail plan/usage
-		// resolution, which gates repo, workflow, and agent actions. The
-		// forfeiture is idempotent, so the next resolution retries it.
-		if !planCreditSpendable(subscription) {
-			if err := s.forfeitPlanCredit(ctx, *account, "subscription not active"); err != nil {
-				slog.Warn("failed to forfeit lapsed plan credit", "billing_account_id", account.ID, "error", err)
-			}
-		}
 	}
 
 	usage, err := s.computeAndPersistUsage(ctx, owner, plan.Limits)
@@ -1867,7 +1877,7 @@ func (s *BillingService) handleCheckoutSessionCompleted(ctx context.Context, ses
 		if err != nil {
 			return pkgerrors.Internal("failed to load stripe subscription after checkout").WithCause(err)
 		}
-		return s.upsertSubscriptionSnapshot(ctx, account, snapshot)
+		return s.projectWebhookSubscription(ctx, account, snapshot)
 	}
 	return nil
 }
@@ -1901,7 +1911,7 @@ func (s *BillingService) handleSubscriptionEvent(ctx context.Context, payload st
 			snapshot = authoritative
 		}
 	}
-	return s.upsertSubscriptionSnapshot(ctx, *account, snapshot)
+	return s.projectWebhookSubscription(ctx, *account, snapshot)
 }
 
 func (s *BillingService) handleSubscriptionTrialWillEnd(ctx context.Context, payload stripeSubscriptionPayload, raw json.RawMessage) error {
@@ -1945,7 +1955,7 @@ func (s *BillingService) handleInvoicePaymentFailed(ctx context.Context, payload
 		if err != nil {
 			return pkgerrors.Internal("failed to refresh stripe subscription after payment failure").WithCause(err)
 		}
-		if err := s.upsertSubscriptionSnapshot(ctx, *account, snapshot); err != nil {
+		if err := s.projectWebhookSubscription(ctx, *account, snapshot); err != nil {
 			return err
 		}
 	}
@@ -2152,6 +2162,18 @@ func (s *BillingService) upsertSubscriptionSnapshot(ctx context.Context, account
 	})
 	if err != nil {
 		return pkgerrors.Internal("failed to persist billing subscription").WithCause(err)
+	}
+	return nil
+}
+
+// projectWebhookSubscription persists a webhook's subscription snapshot and
+// forfeits plan credit the account can no longer spend. Only a webhook
+// forfeits, inside its transaction: a refresh or a read that forfeited from
+// its own snapshot could take credit a concurrent webhook just granted
+// (smithersai/smithers#2175).
+func (s *BillingService) projectWebhookSubscription(ctx context.Context, account db.BillingAccount, snapshot StripeSubscriptionSnapshot) error {
+	if err := s.upsertSubscriptionSnapshot(ctx, account, snapshot); err != nil {
+		return err
 	}
 	return s.forfeitLapsedPlanCredit(ctx, account)
 }

@@ -23,8 +23,10 @@ import (
 //   - The grant expires at the end of the period the invoice pays for. There
 //     is no rollover. The ledger spends the soonest-expiring credit first, so
 //     plan credit goes before the signup grant.
-//   - Unspent plan credit is forfeited when the account has no active or
-//     trialing subscription, and on a refund or dispute. A refund or dispute
+//   - Unspent plan credit is forfeited when a webhook leaves the account
+//     with no active or trialing subscription, and on a refund or dispute.
+//     Grants and forfeits commit in the webhook's transaction; a billing read
+//     never forfeits (smithersai/smithers#2175). A refund or dispute
 //     also suspends the account's paid entitlements
 //     (billing_subscriptions.payment_reversed_at) until an invoice settled
 //     after it is paid (plue 0511eb46e, smithersai/smithers#2175).
@@ -174,7 +176,7 @@ func (s *BillingService) handleInvoicePaid(ctx context.Context, invoice stripeIn
 			}
 			account = &row
 		}
-		if err := s.upsertSubscriptionSnapshot(ctx, *account, snapshot); err != nil {
+		if err := s.projectWebhookSubscription(ctx, *account, snapshot); err != nil {
 			return err
 		}
 	}
