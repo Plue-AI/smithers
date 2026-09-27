@@ -68,6 +68,9 @@ use serde::{Deserialize, Serialize};
 
 const PAGINATION_MAX_PER_PAGE: u32 = 100;
 
+/// The mythical stack's bookmark (Go: repohost.MythicalBookmarkRef).
+const MYTHICAL_BOOKMARK: &str = "mythical";
+
 #[derive(Serialize)]
 struct ErrorResponse {
     error: String,
@@ -625,6 +628,49 @@ impl RepoHandle {
         Ok(change_from_commit(&self.repo, &commit))
     }
 
+    /// The append-only bookmark whose history contains `commit`: the jj revset
+    /// `::(default | mythical)` membership. Main is never rewritten, and only
+    /// the stack service rewrites mythical, by pushing it.
+    fn append_only_history_containing(&self, commit: &CommitId) -> Result<Option<String>, JjError> {
+        use jj_lib::revset::ResolvedRevsetExpression;
+        // Fail closed: without a known default, main cannot be told apart.
+        let default = default_git_bookmark(&self.repo_path)?
+            .ok_or_else(|| JjError::Conflict("the default bookmark cannot be read".to_string()))?;
+        for name in [default.as_str(), MYTHICAL_BOOKMARK] {
+            let target = self.repo.view().get_local_bookmark(RefName::new(name));
+            // A conflicted bookmark protects every side.
+            let heads: Vec<CommitId> = target
+                .added_ids()
+                .chain(target.removed_ids())
+                .cloned()
+                .collect();
+            if heads.is_empty() {
+                continue;
+            }
+            let history = ResolvedRevsetExpression::commits(heads)
+                .ancestors()
+                .evaluate(self.repo.as_ref())
+                .map_err(|err| JjError::Internal(err.to_string()))?;
+            if history.containing_fn()(commit)
+                .block_on()
+                .map_err(|err| JjError::Internal(err.to_string()))?
+            {
+                return Ok(Some(name.to_owned()));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Every operation that rewrites an existing change calls this first.
+    fn ensure_rewritable(&self, commit: &CommitId) -> Result<(), JjError> {
+        match self.append_only_history_containing(commit)? {
+            Some(bookmark) => Err(JjError::Conflict(format!(
+                "the change is in {bookmark}'s history, which is never rewritten"
+            ))),
+            None => Ok(()),
+        }
+    }
+
     /// Move the selected paths' diff into a new parent change while preserving
     /// the stable change ID and remaining diff in a rewritten original change.
     fn split_change(
@@ -650,6 +696,7 @@ impl RepoHandle {
         }
 
         let commit_id = resolve_change_id(&self.repo, change_id)?;
+        self.ensure_rewritable(&commit_id)?;
         let original =
             self.repo.store().get_commit(&commit_id).map_err(|err| {
                 JjError::Internal(format!("failed to load change to split: {err}"))
@@ -5045,6 +5092,120 @@ mod tests {
         };
         assert_eq!(result["code"], "unprocessable_entity");
         assert_eq!(result["error"], "no listed path is in the change");
+    }
+
+    #[test]
+    fn ffi_split_change_refuses_history_of_default_and_mythical() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_path = repo_path(&tmp);
+        let repo_path_c = c_path(&repo_path);
+        let _ = unsafe { take_json(smithers_init_repo(repo_path_c.as_ptr())) };
+        persist_default_git_bookmark(&repo_path, "trunk").expect("save default bookmark");
+        let files: &[(&str, &str)] = &[("a.txt", "a\n"), ("b.txt", "b\n")];
+        let landed = create_commit_with_files(&repo_path, "Landed", files);
+        let tip = create_commit_with_files(&repo_path, "Tip", &[("c.txt", "c\n")]);
+        let stacked = create_commit_with_files(&repo_path, "Stacked", &[("d.txt", "d\n")]);
+        let pending = create_commit_with_files(&repo_path, "Pending", &[("e.txt", "e\n")]);
+        let bookmark = |name: &str, change: &str| {
+            let (name, change) = (c_string(name), c_string(change));
+            let created = unsafe {
+                take_json(smithers_create_bookmark(
+                    repo_path_c.as_ptr(),
+                    name.as_ptr(),
+                    change.as_ptr(),
+                ))
+            };
+            assert!(created.get("code").is_none(), "{created}");
+        };
+        bookmark("trunk", &tip);
+        bookmark("mythical", &stacked);
+        let split = |change: &str, path: &str| {
+            let (change, paths) = (c_string(change), c_string(&format!(r#"["{path}"]"#)));
+            let description = c_string("part");
+            unsafe {
+                take_json(smithers_split_change(
+                    repo_path_c.as_ptr(),
+                    change.as_ptr(),
+                    paths.as_ptr(),
+                    description.as_ptr(),
+                ))
+            }
+        };
+
+        // `::trunk` and `::mythical`, an ancestor or the head itself, are
+        // never rewritten; nothing moves.
+        for (change, path, bookmark) in [
+            (&landed, "a.txt", "trunk"),
+            (&tip, "c.txt", "trunk"),
+            (&stacked, "d.txt", "mythical"),
+        ] {
+            let refused = split(change, path);
+            assert_eq!(refused["code"], "conflict", "{refused}");
+            assert_eq!(
+                refused["error"],
+                format!("the change is in {bookmark}'s history, which is never rewritten")
+            );
+        }
+        let handle = RepoHandle::open(&repo_path).expect("open");
+        let head = |name: &str| {
+            handle
+                .repo
+                .view()
+                .get_local_bookmark(RefName::new(name))
+                .as_normal()
+                .cloned()
+                .expect("bookmark")
+        };
+        let trunk_commit = resolve_change_id(&handle.repo, &tip).expect("tip");
+        assert_eq!(head("trunk"), trunk_commit);
+
+        // A change above both is still split.
+        let result = split(&pending, "e.txt");
+        assert_eq!(result["original"]["change_id"], pending, "{result}");
+    }
+
+    #[test]
+    fn ffi_split_change_fails_closed_without_a_default_bookmark() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo_path = repo_path(&tmp);
+        let repo_path_c = c_path(&repo_path);
+        let _ = unsafe { take_json(smithers_init_repo(repo_path_c.as_ptr())) };
+        let change = create_commit_with_files(&repo_path, "Change", &[("a.txt", "a\n")]);
+        let git_dir = repo_path.join(".jj/repo/store/git");
+        std::fs::write(
+            git_dir.join("HEAD"),
+            "0000000000000000000000000000000000000000\n",
+        )
+        .expect("detach HEAD");
+        for name in ["one", "two"] {
+            let (name, change) = (c_string(name), c_string(&change));
+            let _ = unsafe {
+                take_json(smithers_create_bookmark(
+                    repo_path_c.as_ptr(),
+                    name.as_ptr(),
+                    change.as_ptr(),
+                ))
+            };
+        }
+        export_git_refs(&repo_path).expect("export");
+        std::fs::write(
+            git_dir.join("HEAD"),
+            "0000000000000000000000000000000000000000\n",
+        )
+        .expect("detach HEAD");
+
+        let (change_c, paths, description) =
+            (c_string(&change), c_string(r#"["a.txt"]"#), c_string(""));
+        let refused = unsafe {
+            take_json(smithers_split_change(
+                repo_path_c.as_ptr(),
+                change_c.as_ptr(),
+                paths.as_ptr(),
+                description.as_ptr(),
+            ))
+        };
+        assert_eq!(refused["code"], "conflict", "{refused}");
+        assert_eq!(refused["error"], "the default bookmark cannot be read");
     }
 
     #[test]
