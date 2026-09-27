@@ -589,6 +589,18 @@ run_gate() {
   esac
 }
 
+# Runs one gate in a subshell and leaves its exit status in $gate_status.
+# Bash suspends `set -e` for everything left of `||` or `&&` or tested by `if`,
+# functions and subshells included, so `(run_gate) || status=$?` let the
+# docs and tui gates report OK whenever only their last command was green.
+# Here the subshell is a plain statement, so its own `set -e` stays in force.
+run_gate_checked() {
+  set +e
+  (set -e; run_gate "$1")
+  gate_status=$?
+  set -e
+}
+
 # One task, many gates: bootstrap once, then report every gate's result.
 run_group() {
   local gate status failed=''
@@ -606,8 +618,8 @@ run_group() {
   for gate in "$@"; do
     printf '::gate %s start\n' "$gate"
     # A subshell keeps one gate's cwd and shell state out of the next one.
-    status=0
-    (run_gate "$gate") || status=$?
+    run_gate_checked "$gate"
+    status=$gate_status
     case "$status" in
       0) printf '::gate %s ok\n' "$gate" ;;
       # skip_gate already printed the marker and the reason for it.
@@ -635,8 +647,7 @@ if ! gate_tools "${1:-}" >/dev/null; then
   exit 2
 fi
 bootstrap_for "$1"
-gate_status=0
-run_gate "$1" || gate_status=$?
+run_gate_checked "$1"
 if [ "$gate_status" -eq "$gate_skipped" ]; then exit 0; fi
 if [ "$gate_status" -ne 0 ]; then exit "$gate_status"; fi
 printf 'GATE-OK %s\n' "$1"
