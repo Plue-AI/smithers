@@ -1,3 +1,4 @@
+import { noticeDismissDelay, shouldShowSettlement } from "@smthrs/ui/notification-policy"
 import { claimWorkToast } from "./backgroundWork"
 import type { CommandOutcome } from "../../flows/Commands"
 import type { Toast } from "../AppState"
@@ -125,13 +126,14 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
       detail: outcome.detail,
       action: outcome.action
     })
-    if (outcome.status === "failed" && outcome.autoDismissMs === undefined) return
+    const delay = noticeDismissDelay(outcome.status, ctx.toastAutoDismissMs, outcome.autoDismissMs)
+    if (delay === undefined) return
     const resolvedAt = ctx.store.collections.toasts.get(id)?.updatedAt
     later(() => {
       const current = ctx.store.collections.toasts.get(id)
       if (current === undefined || current.status !== outcome.status || current.updatedAt !== resolvedAt) return
       ctx.store.dispatch({ type: "toast.dismissed", actor: "system", id })
-    }, outcome.autoDismissMs ?? ctx.toastAutoDismissMs)
+    }, delay)
   }
   /** A thrown flow is still an honest failure — never a toast stuck "running". */
   const unexpectedFailure = (title: string): string =>
@@ -142,8 +144,7 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
    * the key's run slot, which leaves the work a user DID ask for owning its
    * own notice and resolving it. A failure is shown and resolved in one go,
    * because resolveToast writes nothing onto a key with no toast on screen —
-   * which also means quiet work surfaces a failure at any speed, where the
-   * 300ms law drops the ones that settle inside the debounce.
+   * which also means quiet work surfaces a failure at any speed.
    *
    * Succeeding is how quiet work takes its own failure back down. The
    * sentence a failed read left says the read did not happen; the next one
@@ -175,7 +176,8 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
   /*
    * The 300ms toast law (2026-08-09): background work not settled within
    * 300ms states what is running on the shared toast stack; work under
-   * 300ms never flashes anything. `work` answers true on success or the
+   * 300ms never flashes a success. Failures remain visible at any speed.
+   * `work` answers true on success or the
    * honest failure line — a failure toast stays until dismissed, an ok
    * toast resolves into the result and dismisses itself.
    */
@@ -239,12 +241,16 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     }
     // Resolve whatever is on screen for this key — including a toast an
     // earlier (slower) run put up, or a failed one this run just retried.
-    if (!shown && ctx.store.collections.toasts.get(`toast-${key}`) === undefined) {
+    const hasToast = ctx.store.collections.toasts.get(`toast-${key}`) !== undefined
+    if (!shouldShowSettlement(typeof outcome === "string", shown || hasToast)) {
       // Settled with nothing ever shown: the run slot is terminal, so the
       // counter entry leaves with it (the map otherwise grows one entry per
       // flow key and never lets go).
       ctx.toastRuns.delete(key)
       return outcome
+    }
+    if (!hasToast) {
+      ctx.store.dispatch({ type: "toast.shown", actor: "system", key, title, ...(sourceCard === undefined ? {} : { sourceCard }) })
     }
     // A cancellation has its own receipt; a string is the honest failure line.
     // Other outcomes are success

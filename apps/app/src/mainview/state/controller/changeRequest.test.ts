@@ -100,7 +100,9 @@ test("a refused vibe launch stays visible on its own card and the retry door rel
     const vibe = runCards(t.store).find(card => card.payload.workflow === "coding/vibe")!
     expect(vibe.payload.error).toBe("The workspace refused the landing.")
     // Never reported as landed: the request's toast states only that it completed.
-    expect(toasts(t.store).map(toast => toast.title)).toEqual(["coding/request completed"])
+    expect(toasts(t.store).filter(toast => toast.status === "ok").map(toast => toast.title)).toEqual(["coding/request completed"])
+    expect(toasts(t.store).find(toast => toast.status === "failed")).toMatchObject({
+      title: "coding/vibe", detail: "The workspace refused the landing." })
     refuse = false
     expect(t.controller.retry(vibe.id)).toBe(true)
     await waitFor(() => runCards(t.store).some(card => card.payload.runId === "vibe-run"))

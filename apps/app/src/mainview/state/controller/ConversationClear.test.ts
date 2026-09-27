@@ -334,7 +334,11 @@ describe("local archive and append-only summary notes", () => {
       const before = state(store)
       finish(response())
       expect(typeof await pending).toBe("string")
-      expect(state(store)).toEqual(before)
+      // A failed request is visible even when it settles before debounce;
+      // only its toast transitions may advance the session revision.
+      expect(state(store)).toEqual({ ...before, session: { ...before.session,
+        revision: before.session.revision + (change === "dispose" ? 0 : 2) } })
+      if (change !== "dispose") expect(store.collections.toasts.get("toast-chat.clear")?.status).toBe("failed")
       ctx.dispose()
     })
   }
@@ -374,7 +378,8 @@ describe("local archive and append-only summary notes", () => {
     await signIn(store)
     const before = state(store)
     expect(await world.clearConversation({ summarize: true })).toContain("nothing was cleared or saved")
-    expect(state(store)).toEqual(before)
+    expect(state(store)).toEqual({ ...before, session: { ...before.session, revision: before.session.revision + 2 } })
+    expect(store.collections.toasts.get("toast-chat.clear")?.status).toBe("failed")
     expect(await world.clearConversation()).toBeUndefined()
     ctx.dispose()
   })

@@ -1,6 +1,7 @@
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { useClock } from "@smthrs/ui/clock"
 import { parseArgs } from "@smthrs/ui/flow-arguments"
+import { NOTICE_SETTLE_MS } from "@smthrs/ui/notification-policy"
 import * as Log from "./log.ts"
 import * as TabCommand from "./tab-command.ts"
 /**
@@ -381,9 +382,9 @@ export function App(props: AppProps) {
   // One shared clock drives foreground and background progress through settlement.
   const sampledAt = Date.now()
   const clockRunning = turn !== undefined || shell !== undefined || undoing !== undefined || workspace.busy ||
-    runs.busy || flowRuns.some((run) => run.endedAt !== undefined && sampledAt - run.endedAt < 3000) ||
+    runs.busy || flowRuns.some((run) => run.endedAt !== undefined && sampledAt - run.endedAt < NOTICE_SETTLE_MS) ||
     search?.status === "running" ||
-    snapshot.tabs.some((tab) => tab.endedAt !== undefined && sampledAt - tab.endedAt < 3000)
+    snapshot.tabs.some((tab) => tab.endedAt !== undefined && sampledAt - tab.endedAt < NOTICE_SETTLE_MS)
   const now = useClock(clockRunning, 100)
   const eta = (id: string, status: string, startedAt: number) => {
     if (

@@ -1,3 +1,4 @@
+import { WORK_NOTICE_DELAY_MS, NOTICE_SETTLE_MS } from "@smthrs/ui/notification-policy"
 import { createOperationalFailureReporter, type OperationalFailureReporter } from "../OperationalFailures"
 import { Effect } from "effect"
 import type { AgentChatMessage, FetchLike } from "@smthrs/rpc/NativeAgent"
@@ -194,8 +195,8 @@ export const createControllerContext = (
     services,
     baseUrl: services.baseUrl ?? "",
     rawHttp,
-    toastDebounceMs: services.toastDebounceMs ?? 300,
-    toastAutoDismissMs: services.toastAutoDismissMs ?? 4000,
+    toastDebounceMs: services.toastDebounceMs ?? WORK_NOTICE_DELAY_MS,
+    toastAutoDismissMs: services.toastAutoDismissMs ?? NOTICE_SETTLE_MS,
     workflowPollMs: services.workflowPollMs ?? 2500,
     workflowPreparationTimeoutMs: services.workflowPreparationTimeoutMs ?? 21 * 60_000,
     netRing,

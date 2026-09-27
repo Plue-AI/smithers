@@ -1,7 +1,8 @@
+import { noticeDismissDelay, WORK_NOTICE_DELAY_MS, workNoticeVisible } from "@smthrs/ui/notification-policy"
 /**
  * The toast stack: one notice (`setStatus`), plus a row for each piece of
  * background work that has run long enough to mention and has not been
- * settled long. A notice clears itself after 3 s; a failure stays until
+ * settled long. A notice clears itself after 4 s; a failure stays until
  * another notice replaces it or the next submit.
  */
 import { useCallback, useEffect, useState } from "react"
@@ -23,8 +24,10 @@ export const useToast = () => {
   /** A submit clears a failure; other notices run out on their own. */
   const clearFailure = useCallback(() => setToast((current) => (current?.tone === "danger" ? undefined : current)), [])
   useEffect(() => {
-    if (toast === undefined || toast.tone === "danger") return
-    const timer = setTimeout(() => setToast(undefined), 3000)
+    if (toast === undefined) return
+    const delay = noticeDismissDelay(toast.tone === "danger" ? "failed" : "ok")
+    if (delay === undefined) return
+    const timer = setTimeout(() => setToast(undefined), delay)
     return () => clearTimeout(timer)
   }, [toast])
   return { toast, setStatus, clearFailure }
@@ -44,7 +47,7 @@ export const rows = (input: {
 }): ReadonlyArray<{ readonly id: string } & Toast> => {
   const { now, tick, search, undoing, toast } = input
   return [
-    ...input.tabs.filter((tab) => now - tab.startedAt >= 300 && (tab.endedAt === undefined || now - tab.endedAt < 3000))
+    ...input.tabs.filter((tab) => workNoticeVisible(tab, now))
       .map((tab) => ({
         id: tab.id,
         text: `${Tabs.style(tab.status, tick).glyph} ${
@@ -52,17 +55,15 @@ export const rows = (input: {
         }`,
         tone: tab.status === "failed" ? "danger" as const : "info" as const
       })),
-    ...input.runs.filter((run) =>
-      run.status === "input" || now - run.startedAt >= 300 && (run.endedAt === undefined || now - run.endedAt < 3000)
-    ).map((run) => ({
+    ...input.runs.filter((run) => run.status === "input" || workNoticeVisible(run, now)).map((run) => ({
       id: `flow:${run.id}`,
       text: `${flowRunning(run) ? `${tick} ` : flowGlyph(run.status)}${run.flow} · ${run.status}`,
       tone: run.status === "failed" ? "danger" as const : "info" as const
     })),
-    ...(search?.status === "running" && now - search.startedAt >= 300
+    ...(search?.status === "running" && now - search.startedAt >= WORK_NOTICE_DELAY_MS
       ? [{ id: "search", text: `${tick} text: ${search.query}`, tone: "info" as const }]
       : []),
-    ...(undoing !== undefined && now - undoing >= 300
+    ...(undoing !== undefined && now - undoing >= WORK_NOTICE_DELAY_MS
       ? [{ id: "undo", text: `${tick} Undoing`, tone: "info" as const }]
       : []),
     ...(toast === undefined ? [] : [{ id: "notice", ...toast }])

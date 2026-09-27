@@ -88,6 +88,11 @@
       "types": "./src/clock.ts",
       "import": "./src/clock.ts",
       "default": "./src/clock.ts"
+    },
+    "./notification-policy": {
+      "types": "./src/notification-policy.ts",
+      "import": "./src/notification-policy.ts",
+      "default": "./src/notification-policy.ts"
     }
   },
   "files": [

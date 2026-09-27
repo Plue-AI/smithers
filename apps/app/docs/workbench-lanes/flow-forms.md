@@ -23,7 +23,7 @@ to fill it in, never to type arguments.
 
 ## Files
 
-`apps/shared/src/Cards.ts`, new `flows/FlowForms.ts` (+test), `flows/Commands.ts`,
+`apps/shared/src/Cards.ts`, new `@smthrs/ui/flow-form` (+test), `flows/Commands.ts`,
 `flows/agentTools.ts`, `flows/Flows.ts` (field hints only; re-read before
 each edit, the code-intel workflow edits it concurrently), `flows/registry.ts`
 (`form` metadata), new `cards/FlowFormCards.tsx` (+test), `cards/AgentCards.tsx`
@@ -38,7 +38,7 @@ a small `state/controller/forms.ts` for `form.set`, `state/AppController.ts`,
 ## Named submission
 
 Submit runs the flow with the form's own payload, not with the line it
-prints. `flows/FlowForms.ts` `submissionPayload(input, fields, given, draft)`
+prints. `@smthrs/ui/flow-form` `submissionPayload(input, fields, given, draft)`
 builds that payload: every filled field under its own name, a blank optional
 absent instead of shifting the next field's value onto it, a prefilled free
 text field the human cleared as the empty string it now shows, a field the

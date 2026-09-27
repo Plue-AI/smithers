@@ -301,7 +301,7 @@ export type ModelsCardPayload = {
 - New card kind: `{ ...cardBaseShape, kind: "models", payload: ModelsCardPayloadSchema }`. `Extract<Card, { kind: "models" }>` works.
 - Second card kind: `{ ...cardBaseShape, kind: "model-call", payload: ModelCallCardPayloadSchema }`, one per model, id `` `model-call-${id}` `` (`modelCallCardId`, app-owned in `state/controller/modelCall.ts`). Section 9.
 - `FORM_OPTION_PROVIDERS` gained, in this order after `"files"`: `"models"`, `"credentials"`, `"seats"`.
-  apps/app `flows/FlowForms.ts` `OPTION_PROVIDERS` and the exhaustive `optionsFor` switch in `state/controller/forms.ts` MUST add the same three or apps/app stops compiling.
+  apps/app `@smthrs/ui/flow-form` `OPTION_PROVIDERS` and the exhaustive `optionsFor` switch in `state/controller/forms.ts` MUST add the same three or apps/app stops compiling.
   - `models`: `app-models` rows; when `draft.seat` is a `SeatId`, only rows where `seatAccepts(seat, row.protocol)`, preceded by `{ value: MODEL_SEAT_DEFAULT, label: "Default" }`.
   - `credentials`: the models card's `payload.credentials`; `present: false` -> `{ disabled: true, reason: "missing" }`.
   - `seats`: the models card's `payload.seats`, label `modelSeat(id).label`.

@@ -357,3 +357,16 @@ test("a seam's sign-in notice uses human summaries and dismisses even with an ac
 })
 
 
+
+
+test("a failure before debounce is visible, persistent, and belongs to its source card", async () => {
+  const { ctx, store } = await fakeContext({ toastDebounceMs: 300, toastAutoDismissMs: 1 })
+  const failures = createFailureController(ctx)
+  await failures.withToast("fast", "Working", "Done", async () => "Launch refused", false, undefined, "source")
+  expect(store.collections.toasts.get("toast-fast")).toMatchObject({ status: "failed", detail: "Launch refused", sourceCard: "source" })
+  expect(ctx.toastRuns.has("fast")).toBe(false)
+  await settled()
+  expect(store.collections.toasts.get("toast-fast")?.status).toBe("failed")
+  failures.dismissToast("toast-fast")
+  expect(store.collections.toasts.get("toast-fast")).toBeUndefined()
+})
