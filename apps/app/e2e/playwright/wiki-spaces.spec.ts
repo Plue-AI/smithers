@@ -60,12 +60,12 @@ const clippedPictures = (page: Page) => page.locator(".app-tile").evaluateAll((n
 
 const wikiFixture = async (page: Page) => {
   const bodies: Record<Space, Record<string, string>> = {
-    public: { home: "# Home\n\nSee [[Guides/Start#Install|start]].\n\n![[assets/logo.png]]\n\nLater: [[Nowhere]].", start: `# Start\n\nBack to [[Home]].\n${"\nA paragraph.\n".repeat(40)}\n## Install\n\nRun the installer.` },
+    public: { "generated-home": "# Home\n\nSee [[Guides/Start#Install|start]].\n\n![[assets/logo.png]]\n\nLater: [[Nowhere]].", start: `# Start\n\nBack to [[Home]].\n${"\nA paragraph.\n".repeat(40)}\n## Install\n\nRun the installer.` },
     private: { home: "# Home\n\nPrivate notes. Read [[Plans/Roadmap|the roadmap]].\n\n![[assets/diagram.png]]", roadmap: "# Roadmap\n\nBack to [[Home]]." }
   }
   const pages: Record<Space, Array<Record<string, unknown>>> = {
     public: [
-      { id: 1, slug: "home", title: "Home", path: "Home.md", revision: 3, visibility: "public", content_digest: "a".repeat(64), author, created_at: at, updated_at: at,
+      { id: 1, slug: "generated-home", title: "Home", path: "Home.md", revision: 3, visibility: "public", content_digest: "a".repeat(64), author, created_at: at, updated_at: at,
         metadata: { frontmatter: null, aliases: [], tags: ["guide"], headings: ["Home"], links: [{ target: "Guides/Start", heading: "Install", alias: "start", embed: false, page_id: 2 }, { target: "assets/logo.png", embed: true, page_id: 3 }, { target: "Nowhere", embed: false }] },
         backlinks: [{ page_id: 2, path: "Guides/Start.md", embed: false }] },
       { id: 2, slug: "start", title: "Start", path: "Guides/Start.md", revision: 1, visibility: "public", content_digest: "b".repeat(64), author, created_at: at, updated_at: at,
@@ -92,7 +92,7 @@ const wikiFixture = async (page: Page) => {
   }
   const requests: Array<{ method: string; url: string }> = []
   // A 480x180 checker: an embed the capture can see.
-  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAeAAAAC0CAIAAADD3miXAAAFHklEQVR42u3UwQkAIBADwavL2mzYx7Ug1uAvBwOpYFhSfe647dXjxpkzZ86/K9CC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDk7aNCC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fOnB20oDlz5uygQXPmzJmzgxY0Z86cHTRoQXPmzNlBC5ozZ84OGrSgOXPmHHPQ4hAHZ86cM+egBc2ZM2cHLWjOnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDk7aNCC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDk7aNCC5syZs4MWNGfOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM+ecgxaHODhz5pw5By1ozpw5O2hBc+bMmbODFjRnzpwdNGhBc+bM2UELmjNnzg4atKA5c+bsoAXNmTNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5O2jQgubMmbODFjRnzpw5O2hBc+bM2UGDFjRnzpwdtKA5c+bsoEELmjNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5c3bQgubMmbODBi1ozpw5O2hBc+bM2UGDFjRnzpwdtKA5c+bM2UELmjNnzg4atKA5c+bsoAXNmTNnBw1a0Jw5c3bQgubMmbODBi1ozpw5O2hBc+bMmbODFjRnzpwdNGhBc+bM2UELmjNnzg4atKA5c+bsoAXNmTNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5O2jQgubMmbODFjRnzpwdNGhBc+bM2UELmjNnzpwdtKA5c+bsoEELmjNnzg5a0Jw5c3bQoAXNmTNnBy1ozpw5c3bQgubMmbODBi1ozpw5O2hBc+bM2UGDFjRnzpwdtKA5c+bM2UELmjNnzg4atKA5c+bsoAXNmTNnBw1a0Jw5c3bQgubMmbODBi1ozpw5x+wB0G2dYOK+sO0AAAAASUVORK5CYII=", "base64")
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAeAAAAC0CAIAAADD3miXAAAFIElEQVR42u3UMQ0AIBAEwfdf4wAT6KGiRAIa6O6TSU7BZHO1z223MVe7cebMmfPvCrSgOXPm7KAFzZkzZ84OWtCcOXN20KAFzZkzZwctaM6cOTto0ILmzJmzgxY0Z86cOTtoQXPmzNlBgxY0Z86cHbSgOXPm7KBBC5ozZ84OWtCcOXPm7KAFzZkzZwcNWtCcOXN20ILmzJmzgwYtaM6cOTtoQXPmzNlBgxY0Z86cHbSgOXPmzNlBC5ozZ84OGrSgOXPm7KAFzZkzZwcNWtCcOXN20ILmzJkzZwctaM6cOTto0ILmzJmzgxY0Z86cHTRoQXPmzNlBC5ozZ84OGrSgOXPm7KAFzZkzZ84OWtCcOXN20KAFzZkzZwctaM6cOTto0ILmzJmzgxY0Z86cOTtoQXPmzNlBgxY0Z86cHbSgOXPm7KBBC5ozZ84OWtCcOXN20KAFzZkzZwctaM6cOXN20ILmzJmzgwYtaM6cOTtoQXPmzNlBgxY0Z86cHbSgOXPmzNlBC5ozZ84OGrSgOXPm7KAFzZkzZwcNWtCcOXN20ILmzJkzZwctaM6cOTto0Jw5c+bsoAXNmTNnBw1a0Jw5c3bQgubMmbODBi1ozpw5xxy0OMTBmTPnzDloQXPmzNlBC5ozZ86cHbSgOXPm7KBBC5ozZ84OWtCcOXN20KAFzZkzZwctaM6cOXN20ILmzJmzgwYtaM6cOTtoQXPmzNlBgxY0Z86cHbSgOXPmzNlBC5ozZ84OGrSgOXPm7KAFzZkzZwcNWtCcOXN20ILmzJmzgwYtaM6cOTtoQXPmzJmzgxY0Z86cHTRoQXPmzNlBC5ozZ84OGrSgOXPm7KAFzZkzZ84OWtCcOXN20KAFzZkzZwctaM6cOTto0ILmzJmzgxY0Z86cHTRoQXPmzNlBC5ozZ86cHbSgOXPm7KBBC5ozZ84OWtCcOXN20KAFzZkzZwctaM6cOXN20ILmzJmzgwYtaM6cOTtoQXPmzNlBgxY0Z86cHbSgOXPm7KBBC5ozZ84OWtCcOXPm7KAFzZkzZwcNWtCcOXN20ILmzJmzgwYtaM6cOTtoQXPmzJmzgxY0Z86cHTRoQXPmzNlBC5ozZ84OGrSgOXPm7KAFzZkzZ84OWtCcOXN20KAFzZkzZwctaM6cOTto0ILmzJmzgxY0Z86cHTRoQXPmzDnnoMUhDs6cOWfOQQuaM2fODlrQnDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fODlrQnDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZs4MGLWjOnDk7aEFz5syZs4MWNGfOnB00aEFz5szZQQuaM2fODhq0oDlz5uygBc2ZM2cHDVrQnDlzdtCC5syZM2cHLWjOnDk7aNCC5syZs4MWNGfOnB00aEFz5szZQQuaM2fOnB20oDlz5uygQQuaM2fODlrQnDlzdtCgBc2ZM2cHLWjOnDlzdtCC5syZs4MGLWjOnDk7aEFz5szZQYMWNGfOnB20oDlz5uygQQuaM2fOMXtCxJTP8aILfQAAAABJRU5ErkJggg==", "base64")
   let renameHold: (() => Promise<void>) | undefined
   await installCloudFixture(page)
   // The app home (D-18): the repository's homepage blocks, so the chat behind the pane is the grid.
@@ -103,6 +103,12 @@ const wikiFixture = async (page: Page) => {
     { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
     { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
   ] } }))
+  // The stack (D-09b): the pane reads generated pages' freshness from it; the event stream rests open.
+  await page.route((url) => url.pathname === `/api/repos/${repo}/mythical`, (route) => route.fulfill({ json: {
+    repository: repo, state: "active", generation: 1, mainBehind: false, changes: [], items: [], lanes: [{ index: 0, state: "idle" }], limits: { maxParallel: 1 },
+    wiki: { state: "current", publishedCommit: "c1", publishedAt: at, pages: 1, edited: 0, attempt: 0 }
+  } }))
+  await page.route((url) => url.pathname === `/api/repos/${repo}/mythical/events`, () => new Promise<void>(() => {}))
   const wikiRoute = async (route: Parameters<Parameters<Page["route"]>[1]>[0]) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -194,10 +200,16 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   // Opening a page runs wiki.cloud.open in the shown space; the page shows its path, revision and server backlinks.
   await tree.getByRole("button", { name: "Home", exact: true }).click()
   await expect(pane.getByTestId("wiki-page-path")).toHaveText("Home.md")
-  await expect(pane.getByTestId("wiki-page-revision")).toHaveText("r3")
   const rail = pane.getByTestId("wiki-rail")
   await expect(rail).toContainText("Guides/Start.md")
-  expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/home/document?visibility=public`)).toBe(true)
+  expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/generated-home/document?visibility=public`)).toBe(true)
+  // Freshness (D-09b): the generated page wears the stack's wiki state in the Ask tile's chip; no revision label anywhere in the header.
+  await expect(pane.getByTestId("wiki-page-freshness")).toHaveText("current · main")
+  await expect(pane.getByTestId("wiki-page-freshness")).toHaveAttribute("data-tone", "info")
+  await expect(pane.getByTestId("wiki-page-revision")).toHaveCount(0)
+  await expect(pane.locator(".world-document-meta")).not.toContainText(/\br\d+\b/)
+  // The rail lists no loose unresolved row; the page's own dashed link marks it.
+  await expect(rail).not.toContainText("[[Nowhere]]")
   // The page reads rendered: the wikilink with its alias, the embedded image from its scoped route, the unresolved target marked, no raw markup, no chat card behind it.
   const view = pane.getByTestId("wiki-page")
   await expect(view.getByRole("link", { name: "start", exact: true })).toHaveAttribute("href", "#note/Guides%2FStart.md?h=Install")
@@ -219,6 +231,8 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(pane.getByTestId("wiki-page-path")).toHaveText("Guides/Start.md")
   await expect(rail).toContainText("Home.md")
   await expect(view.locator(".sui-md-heading", { hasText: "Install" })).toBeInViewport()
+  // A hand-written page wears no freshness chip.
+  await expect(pane.getByTestId("wiki-page-freshness")).toHaveCount(0)
   // The private space: the same path is another page, with its own tree and tags.
   await pane.getByTestId("wiki-space-private").click()
   await expect(pane.getByTestId("wiki-space-private")).toHaveAttribute("aria-pressed", "true")
@@ -226,8 +240,8 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(tree.getByRole("button", { name: "#secret" })).toBeVisible()
   await expect(tree.locator('[data-slot="file-tree-dir-toggle"]')).toHaveText(["Plans", "assets"])
   await tree.getByRole("button", { name: "Home", exact: true }).click()
-  await expect(pane.getByTestId("wiki-page-revision")).toHaveText("r1")
   await expect(pane.getByTestId("wiki-page")).toContainText("Private notes.")
+  await expect(pane.getByTestId("wiki-page-freshness")).toHaveCount(0)
   expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/home/document?visibility=private`)).toBe(true)
   await expect(pane.getByTestId("wiki-page").getByRole("link", { name: "the roadmap", exact: true })).toBeVisible()
   await expect(pane.getByTestId("wiki-page").getByTestId("wiki-embed").locator("img")).toBeVisible()
