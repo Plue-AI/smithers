@@ -57,6 +57,8 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "search.history", "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex", "secrets.move",
     "search.targets", "search.wiki", "setup.ask", "setup.discard", "setup.discard.confirm", "setup.guide",
     "setup.retry", "setup.work",
+    // Main-only secrets (D-24): the seam and backend tests cover it; the real backend run is owed.
+    "secrets.scope",
     // History writes/readback still need real-host receipts: https://github.com/smithersai/smithers/issues/1921.
     "history.backfill", "history.parallel", "history.retry", "history.show",
     // Resume reuses the reviewed registration; authenticated host acceptance remains #1939.
