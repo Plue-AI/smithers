@@ -892,6 +892,9 @@ func (s *LandingService) SetLandingRequestAutoLand(ctx context.Context, actor *d
 	if err != nil {
 		return LandingRequestResponse{}, err
 	}
+	if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
+		return LandingRequestResponse{}, err
+	}
 	if current.State != landingStateOpen {
 		return LandingRequestResponse{}, pkgerrors.Conflict("auto-land can only be enabled for an open landing request")
 	}
@@ -934,6 +937,9 @@ func (s *LandingService) ClearLandingRequestAutoLand(ctx context.Context, actor 
 	}
 	current, err := s.getLandingByNumber(ctx, repository.ID, number)
 	if err != nil {
+		return err
+	}
+	if err := requireOwnLandingOrPerson(ctx, actor, current.AuthorID); err != nil {
 		return err
 	}
 	q, ok := s.queries.(landingAutoLandQuerier)
@@ -1108,6 +1114,9 @@ func (s *LandingService) LandLandingRequest(ctx context.Context, actor *db.User,
 
 	landingRow, err := s.getLandingByNumber(ctx, repository.ID, number)
 	if err != nil {
+		return LandLandingRequestAccepted{}, err
+	}
+	if err := requireOwnLandingOrPerson(ctx, actor, landingRow.AuthorID); err != nil {
 		return LandLandingRequestAccepted{}, err
 	}
 	if landingRow.State != landingStateOpen && landingRow.State != landingStateFailed {
@@ -1385,9 +1394,25 @@ func landingBlocked(blocks []LandingBlock, message string) error {
 	return &pkgerrors.APIError{Status: 422, Code: pkgerrors.CodeLandingBlocked, Message: message, Details: LandingBlockedDetails{BlockedBy: blocks}}
 }
 
+// landingRequestIsAgentAuthored reports whether an agent run makes the
+// request: its landing is agent-authored, so agent policies (ownership
+// agent_policy, the repository CI policy) apply to it.
 func landingRequestIsAgentAuthored(ctx context.Context) bool {
 	info := middleware.AuthInfoFromContext(ctx)
+	if info.CredentialKind() == middleware.CredentialAgentRun {
+		return true
+	}
 	return info != nil && info.IsTokenAuth && len(middleware.ParseTokenPathRestrictions(info.RawScopes)) > 0
+}
+
+// requireOwnLandingOrPerson lets a run credential land or queue only its
+// user's own landing. Deciding that someone else's landing lands is a
+// person's decision (middleware.RequirePerson).
+func requireOwnLandingOrPerson(ctx context.Context, actor *db.User, authorID int64) error {
+	if actor != nil && actor.ID == authorID {
+		return nil
+	}
+	return middleware.RequirePerson(ctx, "land or queue someone else's landing")
 }
 
 func landingRequestAgentSessionID(ctx context.Context) string {
@@ -2729,6 +2754,11 @@ func (s *LandingService) MarkLandingThreadDone(ctx context.Context, actor *db.Us
 // AckLandingThread lets the reviewer who opened the thread accept the
 // author's completed work and resolve the thread.
 func (s *LandingService) AckLandingThread(ctx context.Context, actor *db.User, owner, repo string, number, threadID int64) (db.LandingRequestComment, error) {
+	// Acknowledging resolves the comment and can unblock the landing. A run
+	// credential acts as the reviewer's user, but the reviewer is a person.
+	if err := middleware.RequirePerson(ctx, "acknowledge a review comment"); err != nil {
+		return db.LandingRequestComment{}, err
+	}
 	repository, landingRow, thread, err := s.resolveWritableLandingThread(ctx, actor, owner, repo, number, threadID)
 	if err != nil {
 		return db.LandingRequestComment{}, err
@@ -2979,8 +3009,10 @@ func (s *LandingService) DismissLandingReview(ctx context.Context, actor *db.Use
 	if review.LandingRequestID != landingRow.ID {
 		return db.LandingRequestReview{}, pkgerrors.NotFound("review not found")
 	}
-	if review.ReviewerKind == "human" && actsThroughRunCredential(ctx, actor.ID) {
-		return db.LandingRequestReview{}, pkgerrors.Forbidden("a run credential cannot dismiss a person's review")
+	if review.ReviewerKind == "human" {
+		if err := middleware.RequirePerson(ctx, "dismiss a person's review"); err != nil {
+			return db.LandingRequestReview{}, err
+		}
 	}
 
 	updated, err := s.queries.UpdateLandingRequestReviewState(ctx, db.UpdateLandingRequestReviewStateParams{

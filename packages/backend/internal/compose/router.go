@@ -1221,7 +1221,10 @@ func buildRouter(
 					r.With(writeRepo...).Post("/user-refs/renew", extras.UserRefs.Renew)
 				}
 
-				r.With(writeRepo...).Post("/statuses/{sha}", commitStatusHandler.CreateCommitStatus)
+				// Required checks trust a commit status. The platform's own CI
+				// records its statuses on the server; a run credential cannot
+				// report one, or an agent could pass its own required checks.
+				r.With(append(append([]func(http.Handler) http.Handler{}, writeRepo...), middleware.RefuseRunCredentials)...).Post("/statuses/{sha}", commitStatusHandler.CreateCommitStatus)
 
 				// jj VCS write routes: bookmarks and generated change artifacts.
 				r.With(writeRepo...).Post("/bookmarks", jjVCSHandler.CreateBookmark)

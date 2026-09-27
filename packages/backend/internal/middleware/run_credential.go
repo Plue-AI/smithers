@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -88,16 +89,29 @@ func (a *AuthInfo) IsRunCredential() bool {
 	return a != nil && a.IsTokenAuth && a.TokenSystemIssued
 }
 
-// RefuseRunCredentials refuses a run credential on routes that belong to a
-// person: managing build cache read tokens (a run could revoke the committed
-// read token or mint one for itself), clearing workflow caches, and starting,
-// rerunning or resuming workflow runs (a run could start the default
-// bookmark's workflows with inputs it chooses, and their caches are what
-// every later run restores), and deciding human approvals.
+// RequirePerson refuses a run credential on a decision only a person may
+// take: one that clears a landing blocker or satisfies a human requirement
+// (acknowledging a review comment, dismissing a person's review, landing or
+// queueing someone else's landing, reporting a commit status, deciding an
+// approval), and the person-owned routes behind RefuseRunCredentials. It is
+// the one check for that rule. action completes "a run credential cannot ...".
+func RequirePerson(ctx context.Context, action string) error {
+	if AuthInfoFromContext(ctx).IsRunCredential() {
+		return apierrors.Forbidden("a run credential cannot " + action)
+	}
+	return nil
+}
+
+// RefuseRunCredentials applies RequirePerson to a whole route: managing build
+// cache read tokens (a run could revoke the committed read token or mint one
+// for itself), clearing workflow caches, starting, rerunning or resuming
+// workflow runs (a run could start the default bookmark's workflows with
+// inputs it chooses, and their caches are what every later run restores),
+// deciding human approvals, and reporting commit statuses.
 func RefuseRunCredentials(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if AuthInfoFromContext(r.Context()).IsRunCredential() {
-			apierrors.WriteError(w, apierrors.Forbidden("a run credential cannot use this endpoint"))
+		if err := RequirePerson(r.Context(), "use this endpoint"); err != nil {
+			apierrors.WriteError(w, err.(*apierrors.APIError))
 			return
 		}
 		next.ServeHTTP(w, r)
