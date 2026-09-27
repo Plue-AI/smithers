@@ -97,6 +97,9 @@ type Config struct {
 	// call on them goes through the metered model proxy. Nil offers none;
 	// guests then use repository keys and connected accounts only.
 	PlatformModelKeys ports.PlatformModelKeys
+	// ModelProxyUpstreams overrides provider origins for PlatformModelKeys
+	// (modelproxy.UpstreamsEnv on a self-hosted install).
+	ModelProxyUpstreams map[string]string
 	// AdminRoutes serves operator endpoints for deployment-owned resources
 	// under /api/admin with the product's admin authentication and audit log.
 	AdminRoutes ports.AdminRoutes
@@ -214,6 +217,7 @@ func (cfg Config) options() compose.Options {
 		ModelStreamHost:        cfg.ModelStreamHost,
 		MetricsCollectors:      append([]prometheus.Collector(nil), cfg.MetricsCollectors...),
 		PlatformModelKeys:      cfg.PlatformModelKeys,
+		ModelProxyUpstreams:    cfg.ModelProxyUpstreams,
 		AdminRoutes:            cfg.AdminRoutes,
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -254,4 +255,32 @@ func (k *FileKeys) PlatformModelKey(_ context.Context, provider string) (string,
 		return "", ErrKeyMissing
 	}
 	return key, nil
+}
+
+// UpstreamsEnv names a self-hosted install's provider origin overrides: a
+// JSON object of provider name to HTTP(S) origin, such as
+// {"cerebras":"http://inference.internal:8080"}. Platform keys are sent to
+// these origins instead of the provider's, so only an operator sets them.
+const UpstreamsEnv = "SMITHERS_MODEL_PROXY_UPSTREAMS"
+
+// ParseUpstreams validates an UpstreamsEnv value; blank means none.
+func ParseUpstreams(raw string) (map[string]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var byProvider map[string]string
+	if json.Unmarshal([]byte(raw), &byProvider) != nil || byProvider == nil {
+		return nil, fmt.Errorf("modelproxy: %s must be a JSON object of provider name to origin", UpstreamsEnv)
+	}
+	for provider, origin := range byProvider {
+		if _, ok := routes[provider]; !ok {
+			return nil, fmt.Errorf("modelproxy: %s names an unknown provider (want %s)", UpstreamsEnv, strings.Join(providerNames(), ", "))
+		}
+		parsed, err := url.Parse(origin)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+			parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("modelproxy: %s origin for %s must be an HTTP(S) URL without credentials", UpstreamsEnv, provider)
+		}
+	}
+	return byProvider, nil
 }

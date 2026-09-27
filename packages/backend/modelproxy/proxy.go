@@ -39,7 +39,7 @@ type Handler struct {
 	Meter   Meter
 	Keys    Keys
 	Callers Callers
-	// Upstreams overrides a provider's origin (tests).
+	// Upstreams overrides a provider's origin (UpstreamsEnv).
 	Upstreams map[string]string
 	Client    *http.Client
 	// MaxBodyBytes caps the request body; 0 means 16 MiB.

@@ -131,6 +131,8 @@ type Options struct {
 	// offers no platform models: guests use repository keys and connected
 	// accounts only.
 	PlatformModelKeys modelproxy.Keys
+	// ModelProxyUpstreams overrides provider origins for PlatformModelKeys.
+	ModelProxyUpstreams map[string]string
 	// AdminRoutes serves deployment operator endpoints under /api/admin.
 	AdminRoutes ports.AdminRoutes
 }
@@ -1354,7 +1356,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if options.Commerce != nil {
 			callers.PaidPlan = options.Commerce.OwnerHasPaidPlan
 		}
-		modelProxyHandler = &modelproxy.Handler{Meter: *modelMeter, Keys: options.PlatformModelKeys, Callers: callers}
+		modelProxyHandler = &modelproxy.Handler{Meter: *modelMeter, Keys: options.PlatformModelKeys, Callers: callers, Upstreams: options.ModelProxyUpstreams}
 	}
 	var recommendationHandler *routes.RecommendationHandler
 	recommender := options.Recommender

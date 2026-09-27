@@ -54,9 +54,16 @@ func run(ctx context.Context, args []string) (runErr error) {
 	if len(args) > 0 && args[0] == "microvm" {
 		return runMicroVM(ctx, args[1:])
 	}
+	upstreams, err := modelproxy.ParseUpstreams(os.Getenv(modelproxy.UpstreamsEnv))
+	if err != nil {
+		return err
+	}
 	platformKeys, err := platformModelKeys()
 	if err != nil {
 		return err
+	}
+	if upstreams != nil && platformKeys == nil {
+		return fmt.Errorf("%s needs %s", modelproxy.UpstreamsEnv, modelproxy.KeysFileEnv)
 	}
 	manifestPath := strings.TrimSpace(os.Getenv("SMITHERS_FLOW_HOST_MANIFEST"))
 	if manifestPath == "" {
@@ -121,7 +128,12 @@ func run(ctx context.Context, args []string) (runErr error) {
 	var recommender ports.Recommender
 	if platformKeys != nil && slices.Contains(platformKeys.PlatformModelProviders(), modelproxy.ProviderVercel) {
 		// Metered: the key file is what the install pays for.
-		recommender, err = modelhost.NewJevRecommender(platformKeys, os.Getenv("SMITHERS_JEV_ENDPOINT"), nil)
+		endpoint := os.Getenv("SMITHERS_JEV_ENDPOINT")
+		if origin, ok := upstreams[modelproxy.ProviderVercel]; ok && strings.TrimSpace(endpoint) == "" {
+			// The Vercel upstream moves every call on the platform key.
+			endpoint = strings.TrimRight(origin, "/") + "/v4/ai/evaluation-model"
+		}
+		recommender, err = modelhost.NewJevRecommender(platformKeys, endpoint, nil)
 		if err != nil {
 			return fmt.Errorf("configure recommender: %w", err)
 		}
@@ -143,6 +155,7 @@ func run(ctx context.Context, args []string) (runErr error) {
 	}
 	if platformKeys != nil {
 		appConfig.PlatformModelKeys = platformKeys
+		appConfig.ModelProxyUpstreams = upstreams
 	}
 	if nativeBin != "" {
 		stateRoot := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))

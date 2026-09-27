@@ -69,3 +69,20 @@ func TestOpenKeysFileRefusesUnsafeOrInvalidFiles(t *testing.T) {
 	_, err = OpenKeysFile(dir)
 	require.Error(t, err, "a directory is not a key file")
 }
+
+// Upstream overrides name known providers and plain HTTP(S) origins; an
+// origin with credentials is refused without quoting them.
+func TestParseUpstreams(t *testing.T) {
+	none, err := ParseUpstreams("  ")
+	require.NoError(t, err)
+	require.Nil(t, none)
+	upstreams, err := ParseUpstreams(`{"cerebras":"http://provider:8080","vercel":"https://gateway.internal/base"}`)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"cerebras": "http://provider:8080", "vercel": "https://gateway.internal/base"}, upstreams)
+	for _, raw := range []string{`[]`, `{"moonshot":"http://provider:8080"}`, `{"openai":"ftp://provider"}`,
+		`{"openai":"http://user:hunter2@provider"}`, `{"openai":"http://provider?x=1"}`, `{"openai":"provider:8080"}`} {
+		_, err := ParseUpstreams(raw)
+		require.Error(t, err, raw)
+		require.NotContains(t, err.Error(), "hunter2")
+	}
+}
