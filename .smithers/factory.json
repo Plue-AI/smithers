@@ -1068,19 +1068,15 @@
     {
       "event": "change.landed",
       "flow": [
-        "history.fold",
         "coding/wiki",
         "improve.mine"
       ],
-      "description": "Fold main into the mythical history, refresh the wiki, mine the landing"
+      "description": "Refresh the wiki, mine the landing"
     },
     {
       "event": "github.push:main",
-      "flow": [
-        "history.fold",
-        "coding/wiki"
-      ],
-      "description": "Fold outside merges into the mythical history and refresh the wiki"
+      "flow": "coding/wiki",
+      "description": "Refresh the wiki after outside merges"
     },
     {
       "event": "schedule:0 9 * * 1-5",
