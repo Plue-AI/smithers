@@ -29,6 +29,20 @@ export const appJourneys = [
       await page.keyboard.press("Escape")
       await pause(page, 2000)
     }
+  },
+  {
+    id: "app-agents",
+    detail: "The app on a local offline host: the Agents door and its card of built-in agents.",
+    steps: async (page) => {
+      // Opening and closing Chat once retires the first-run keyboard hint.
+      await page.getByRole("button", { name: "Chat", exact: true }).click()
+      await page.getByTestId("composer-input").press("Escape")
+      await page.getByRole("button", { name: "Agents", exact: true }).click()
+      const card = page.locator('.smithers-card[data-kind="agents"]').last()
+      await card.waitFor({ state: "visible", timeout: 30_000 })
+      await pause(page, 800)
+      return card
+    }
   }
 ]
 
@@ -65,10 +79,9 @@ export const tuiRecordings = [
 
 /** Design previews: real app components over fixture data, from an unlanded branch. */
 export const previews = [
-  { id: "issues", file: "issue-list-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2112)." },
-  { id: "chat", file: "issue-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2105)." },
-  { id: "agents", file: "agents-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2113)." },
-  { id: "run-steps", file: "run-trace-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114, #2115)." },
-  { id: "inbox", file: "approvals-inbox-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114)." },
-  { id: "integrations", file: "connect-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2116)." }
+  { id: "issues", file: "issue-list-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2111, #2112)." },
+  { id: "chat", file: "issue-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2111, #2105)." },
+  { id: "run-steps", file: "run-trace-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2114, #2115)." },
+  { id: "inbox", file: "approvals-inbox-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2114)." },
+  { id: "integrations", file: "connect-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2116)." }
 ]

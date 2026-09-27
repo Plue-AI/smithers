@@ -24,11 +24,11 @@ An agent's history is its runs. Each run has a timeline.
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** Enter `/runs.list` and set **Flow** to the agent's id, such as `reviewer`. Select a run to open it.
+**Available now.** Select **Agents** in the sidebar, then **Runs** beside an agent. Or enter `/runs.list` with **Flow** set to the agent's id, such as `reviewer`. Select a run to open it.
 
-**Planned.** An **Agents** list with a **Runs** button per agent ([#2113](https://github.com/smithersai/smithers/issues/2113)).
+<AppScreenshot src="/images/learn/app-agents.png" alt="The Agents card lists each agent with its model and a Runs button." caption="The Agents card." width={852} height={364} />
 
-<AppScreenshot src="/images/learn/preview-agents.png" alt="Design preview of the Agents list, each agent with a Runs button." caption="Design preview with example data. Not released." width={868} height={380} />
+**Partly available.** The card lists the built-in agents; your own agents appear once [#2113](https://github.com/smithersai/smithers/issues/2113) lands.
 
 </TabItem>
 <TabItem label="TUI">
@@ -62,9 +62,9 @@ smthrs runs list --status waiting-approval
 
 <AppScreenshot src="/images/app/run-example.png" alt="A run card with status, trace filters, a call tree, and controls to stop or steer the run." caption="A run card, with example data." width={712} height={592} />
 
-**Planned.** A **Steps** view: the trigger first, then time, type, description, duration, and tokens for each step ([#2115](https://github.com/smithersai/smithers/issues/2115)).
+**Available now.** Select **Steps** for one row per step: time, type, description, duration, and tokens. Select a step for its detail. **Partly available:** the first row names what started the run only for code pushes so far ([#2115](https://github.com/smithersai/smithers/issues/2115)).
 
-<AppScreenshot src="/images/learn/preview-run-steps.png" alt="Design preview of the Steps view: a run flagged Runaway, with a Resume button and five steps with durations and tokens." caption="Design preview with example data. Not released." width={868} height={562} />
+<AppScreenshot src="/images/learn/preview-run-steps.png" alt="The Steps view: a run flagged Runaway, with a Resume button and five steps with durations and tokens." caption="The Steps view, with example data." width={868} height={562} />
 
 </TabItem>
 <TabItem label="TUI">

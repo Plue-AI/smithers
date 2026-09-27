@@ -10,7 +10,8 @@
  * app: the real app server and built SPA (build first with
  * `pnpm --filter smithers-app run build:web`), offline, with a scripted model
  * behind the chat boundary (app-host.mjs). Playwright records each journey;
- * ffmpeg turns the video into a GIF.
+ * ffmpeg turns the video into a GIF. A journey that returns a locator is a
+ * still: that element is saved as a PNG instead.
  *
  * tui: the TUI docs recorder (apps/tui-docs/scripts/record.mjs) drives the
  * production TUI in a PTY with deterministic model replies; its GIFs are copied here.
@@ -84,12 +85,16 @@ async function captureApp() {
       const context = await browser.newContext({ viewport: SIZE, deviceScaleFactor: 1, colorScheme: "light", recordVideo: { dir: videoDir, size: SIZE } })
       const page = await context.newPage()
       await page.goto(origin + "/")
-      await journey.steps(page)
+      const still = await journey.steps(page)
+      if (still) await still.screenshot({ path: join(out, `${journey.id}.png`) })
       await context.close()
       const [video] = readdirSync(videoDir).filter((file) => file.endsWith(".webm"))
-      encode(join(videoDir, video), journey.id)
+      if (still) note(`${journey.id}.png`, "app", journey.detail)
+      else {
+        encode(join(videoDir, video), journey.id)
+        note(`${journey.id}.gif`, "app", journey.detail)
+      }
       rmSync(videoDir, { recursive: true, force: true })
-      note(`${journey.id}.gif`, "app", journey.detail)
       console.log(`captured ${journey.id}`)
     }
   } finally {
