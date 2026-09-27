@@ -69,7 +69,7 @@ const character = Smithers.NodeTest({
  */
 const characterUnit = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
-  runner: Smithers.testSuite(["character/world.test.ts", "character/score.test.ts"]),
+  runner: Smithers.testSuite(["character/world.test.ts", "character/score.test.ts", "character/rubric.test.ts"]),
   srcs: characterSources,
   deps: [],
   cwd

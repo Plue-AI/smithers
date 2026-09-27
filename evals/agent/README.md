@@ -197,7 +197,7 @@ owner's subscription login (`SMITHERS_OPENAI_AUTH=chatgpt`, the codex login in
 | `character/event.ts` | Renders the event that starts a turn: time, where it arrived, the conversation so far, the new message. |
 | `character/subject.ts` | Runs one turn through `Agent` on a live subscription seat or a replay seat. |
 | `character/score.ts` | Deterministic checks (`@smthrs/scorers` `Checks`): jargon, forbidden phrases and truncation on every human-read message (replies, DMs, digest items, posts, requests to Will, handoff briefs, questions, notes, wiki pages, issue comments, new issues, pull requests); openers, bare paths and unlinked references on what Will reads directly; leakage on what other people read; expected calls; booking rules. |
-| `character/rubric.ts` | The seven-criterion rubric judge (`@smthrs/scorers` `Rubric`) on a subscription seat. |
+| `character/rubric.ts` | The seven-criterion, role-neutral rubric judge (`@smthrs/scorers` `Rubric`) on a subscription seat; it reads every human-read message in full and takes the role's ideal from the case's `focus` note. `judgeKey` records what a verdict depended on. |
 | `character/suite.ts` | Loads `suite.yaml` and `cases/*.yaml`. |
 | `character/run.ts` | Runs cases through `@smthrs/evals` (`Suite`, `Runner`, `Trials`), prints pass@1, pass@k and pass^k, and writes results and a regression log for live runs. |
 | `character/example/` | A three-case suite in a tiny invented company: the offline gate and a template. |
@@ -219,6 +219,13 @@ priority, `duplicateOf`) change the turn's copy of the issue list, which
 `issues_search` and `issue_read` then see. A world grants them per role like
 any other tool. A case patch applies `set`, then `remove`, then `add`, then
 `pages`, so removing and re-adding an issue replaces it.
+
+`--rescore <results.json>` scores an earlier live run again with the current
+cases and checks without calling the role's model; with `--judge` it judges a
+conversation again when it has no verdict or its verdict was made under other
+judge notes or another rubric version (each saved conversation carries the
+`judgeKey` it was judged under), and `--rejudge` judges every conversation
+again.
 
 Limits: the world's tools are simulations, so a live pass shows how the
 profile behaves against this world, not that real integrations work. The

@@ -23,6 +23,12 @@
  * the suite's `usageWeights`. Results go to `<suite>/results/`, and a line is
  * appended to `<suite>/REGRESSION-LOG.md`.
  *
+ * `--rescore <results.json>` scores an earlier live run's conversations again
+ * with the current cases and checks, without calling the role's model; with
+ * `--judge`, a turn is judged again when it has no verdict or its verdict was
+ * made under other judge notes or another rubric (`Rubric.judgeKey`), and
+ * `--rejudge` judges every conversation again.
+ *
  * Other flags: `--coverage` lists how many cases test each spec rule; `--cases a,b` keeps some cases; `--category a,b` keeps some
  * categories; `--reply-from summary` reads a RoleResult reply's summary; `--profile <file>` and `--common <file>` swap the
  * role file; `--label <name>` names the run; `--trace` prints every turn.
@@ -71,8 +77,10 @@ const judging = flag("judge") || calibrate
 let trials = Number(option("trials") ?? 1)
 // `--rescore <results.json>` scores the conversations of an earlier live run
 // again with the current cases and checks, without calling the role's model;
-// with `--judge`, only turns that newly pass their checks go to the judge.
+// with `--judge`, a conversation goes to the judge when it has no verdict or
+// its verdict's notes or rubric changed (`--rejudge`: every conversation).
 const rescoreFile = option("rescore")
+const rejudge = flag("rejudge")
 const reportLive = live || rescoreFile !== undefined
 const concurrency = Number(option("concurrency") ?? 2)
 const trace = flag("trace")
@@ -261,30 +269,10 @@ const judgeContext = (result: TurnResult): string =>
     CharacterRubric.actionsSummary(result.turn.actions)
   ].join("\n")
 
-const judgedOutput = (result: TurnResult): string => {
-  const parts: Array<string> = []
-  const reply = result.turn.reply?.trim() ?? ""
-  parts.push(
-    `Reply posted where the event arrived${
-      result.trigger.from === "owner" ? " (to Will)" : ` (to ${result.trigger.from})`
-    }:\n${reply === "" ? "(no reply)" : reply}`
-  )
-  for (const action of result.turn.actions) {
-    if (action.tool === "owner_message") parts.push(`Direct message to Will:\n${String(action.input.text ?? "")}`)
-    if (action.tool === "handoff") {
-      parts.push(`Handoff to ${String(action.input.to)}:\n${String(action.input.brief ?? "")}`)
-    }
-    if (action.tool === "request_resolve") {
-      parts.push(`Note to the requester of ${String(action.input.id)}:\n${String(action.input.note ?? "")}`)
-    }
-  }
-  return parts.join("\n\n")
-}
-
 const judgeTurn = (suiteCase: CharacterSuite.Case, index: number, result: TurnResult) =>
   judgeScorer!.score({
     input: { context: judgeContext(result), focus: suiteCase.turns[index]!.expect.focus },
-    output: judgedOutput(result)
+    output: CharacterRubric.judgedOutput(result.trigger, result.turn)
   })
 
 const characterJudge = Scorer.make({
@@ -459,6 +447,8 @@ interface SavedConversation {
   readonly checksPass: boolean
   readonly judgePass: boolean
   readonly judge?: string | undefined
+  /** What the verdict depended on (`Rubric.judgeKey`); absent in runs saved before it existed. */
+  readonly judgeKey?: string | undefined
   readonly turns?: ReadonlyArray<{
     readonly trigger: CharacterSuite.Message
     readonly reply: string | undefined
@@ -522,7 +512,10 @@ const rescore = (file: string) =>
       const checksPass = results.length > 0 && failed.length === 0
       let judgePass = conversation.judgePass
       let judgeReason = conversation.judge
-      if (checksPass && judgeScorer !== undefined && (!conversation.checksPass || conversation.judge === undefined)) {
+      if (
+        checksPass && judgeScorer !== undefined &&
+        (rejudge || CharacterRubric.needsJudge(conversation, CharacterRubric.judgeKey(suiteCase)))
+      ) {
         const graded = yield* characterJudge.score({
           input: {},
           output: {
@@ -739,6 +732,7 @@ const program = Effect.gen(function*() {
             checksPass: outcome.checksPass,
             judgePass: outcome.judgePass,
             judge: outcome.judgeReason,
+            judgeKey: CharacterRubric.judgeKey(outcome.plan.suiteCase),
             failed: outcome.failed,
             turns: outcome.conversation?.turns.map((turn) => ({
               trigger: turn.trigger,
