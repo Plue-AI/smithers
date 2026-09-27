@@ -163,9 +163,16 @@ func TestMythicalWriteRoutes(t *testing.T) {
 	handler.Backfill(rec, withRepo(httptest.NewRequest(http.MethodPost, "/", nil)))
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Equal(t, 1, service.backfills)
+	// A run credential cannot ask for a backfill; the stack's own sweep runs in-process.
+	rec = httptest.NewRecorder()
+	req := withRepo(httptest.NewRequest(http.MethodPost, "/", nil))
+	handler.Backfill(rec, req.WithContext(middleware.ContextWithAuthInfo(req.Context(), &middleware.AuthInfo{
+		User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository"})))
+	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Equal(t, 1, service.backfills)
 
 	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req = httptest.NewRequest(http.MethodPost, "/", nil)
 	routeCtx := chi.NewRouteContext()
 	routeCtx.URLParams.Add("id", "item-9")
 	handler.Retry(rec, withRepo(req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))))

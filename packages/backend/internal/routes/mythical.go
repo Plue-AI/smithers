@@ -165,9 +165,15 @@ func decodeMythicalBody(w http.ResponseWriter, r *http.Request, limit int64, out
 
 // Backfill admits every open GitHub issue now instead of waiting for the sweep.
 // It answers when the issues are admitted; the lanes start in the background.
+// Only a person asks for it (a run credential cannot); the stack's own sweep
+// runs in-process.
 func (h *MythicalHandler) Backfill(w http.ResponseWriter, r *http.Request) {
 	if _, err := requireRouteUser(r); err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
+		return
+	}
+	if err := middleware.RequirePerson(r.Context(), "backfill the stack"); err != nil {
+		writeRouteError(w, r, err)
 		return
 	}
 	repoCtx, ok := h.repository(w, r)
