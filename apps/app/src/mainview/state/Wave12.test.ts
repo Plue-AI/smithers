@@ -720,23 +720,4 @@ describe("wave 12 §4 — the residuals", () => {
     expect(double.state.launched).toHaveLength(0)
   })
 
-  test("a watched repo with no Smithers Cloud counterpart gets its own honest line", async () => {
-    const store = await webStore()
-    const double = relay({
-      provision: () => ({
-        status: "no-cloud-repo",
-        message: `${REPO} isn't on Smithers Cloud yet, so there is no workspace to provision for it.`
-      })
-    })
-    const controller = createAppController(store, silentAgent, double.services)
-    await signIn(store)
-
-    expect(said(await controller.commands.run("flow.create", "summarize my issues"))).toContain("flow-requested")
-    await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
-    expect(authoringCard(store)?.payload.authoring?.launchError).toContain("isn't on Smithers Cloud yet")
-    expect(authoringCard(store)?.payload.observationError).toContain("isn't on Smithers Cloud yet")
-    // Honest, and un-looped: one provision attempt, nothing launched.
-    expect(double.calls.filter((call) => call.path === "/api/workflow/provision")).toHaveLength(1)
-    expect(double.state.launched).toHaveLength(0)
-  })
 })

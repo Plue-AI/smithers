@@ -256,14 +256,6 @@ export const createWorkflowController = (
         dismissReadyWorkspaceFailures(ctx, repo, binding.workspaceId)
         return true
       }
-      /*
-       * Wave 12 §4 — the loaded set is a GITHUB set; a gateway needs a
-       * Smithers Cloud repository. When they don't coincide the honest
-       * answer is that fact, not the provision seam's raw HTTP failure.
-       */
-      if (body?.status === "no-cloud-repo") {
-        return { code: "no_cloud_repo", message: `${repo} isn't on Smithers Cloud yet, so there's no workspace to run this on. Add it there and I'll pick it up, or point me at a repo that is.` }
-      }
       if (body?.status === "provisioning") {
         if (signal !== undefined) return { code: "workspace_starting", message: "Your workspace is starting." }
         if (Date.now() > deadline) {
