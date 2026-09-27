@@ -5,11 +5,11 @@ description: "Install the CLI, scaffold a flow, choose its model, and run it in 
 
 import { CardGrid, FileTree, LinkCard } from "@astrojs/starlight/components"
 
-Create a flow that lives with your code, give it a small task, and inspect the result. To use the hosted app instead, follow the [app quickstart](/docs/quickstart/).
+Create a flow that lives with your code, give it a small prompt, and inspect the result. To use the hosted app instead, follow the [app quickstart](/docs/quickstart/).
 
 ## 1. Install the CLI
 
-Use Node.js 26.4.0 or later. The durable engine runs on Node. You also need a provider credential for the model that will perform the task.
+Use Node.js 26.4.0 or later. The durable engine runs on Node. You also need a provider credential for the model that will run the flow.
 
 The 1.0 release candidate is not published to npm yet. Follow the [source-checkout installation](/docs/installation/#install-the-cli), including its PATH setting, then verify:
 
@@ -45,9 +45,9 @@ Existing declarations and flow files are retained. In a Git or jj repository, th
 
 For an existing npm workspace, or when you only want a flow without build declarations, use `smthrs generate flow change` instead. `init` can infer a workspace toolchain from pnpm, Yarn, or Bun; it refuses an unsupported package manager before writing project files.
 
-## 3. Give it a task and a model
+## 3. Give it a prompt and a model
 
-Open `flows/change/flow.mdx`. Keep the frontmatter, then replace the starter body with a small, concrete task, for example:
+Open `flows/change/flow.mdx`. Keep the frontmatter, then replace the starter body with a small, concrete prompt, for example:
 
 ```md
 Read the project's README and package manifest. Explain how to run its tests
@@ -57,7 +57,7 @@ Do not modify files or run commands.
 
 The `model:` field selects the provider and model. `init` chooses it from the first available provider credential; if none is set, the generated comment names the key required by its default model. Set that credential in your shell, or change `model:` to a seat you can use. The [init reference](/docs/reference/cli/init/) lists the selection order. A model call uses that provider's account and usage limits.
 
-The starter declares file-read, file-write, and process-spawn capabilities for editing and testing. For this read-only task, replace its `capabilities:` line with `capabilities: ["fs:read:**"]`. Review that declaration whenever you change the task; the flow name comes from its directory, so no `name:` field is needed.
+The starter declares file-read, file-write, and process-spawn capabilities for editing and testing. For this read-only prompt, replace its `capabilities:` line with `capabilities: ["fs:read:**"]`. Review that declaration whenever you change the prompt; the flow name comes from its directory, so no `name:` field is needed.
 
 Check the configuration and flow discovery:
 

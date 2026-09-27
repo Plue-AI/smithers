@@ -259,11 +259,11 @@ cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
 # CLI quickstart
 https://smithers.sh/docs/cli-quickstart/
 
-Create a flow that lives with your code, give it a small task, and inspect the result. To use the hosted app instead, follow the [app quickstart](/docs/quickstart/).
+Create a flow that lives with your code, give it a small prompt, and inspect the result. To use the hosted app instead, follow the [app quickstart](/docs/quickstart/).
 
 ## 1. Install the CLI
 
-Use Node.js 26.4.0 or later. The durable engine runs on Node. You also need a provider credential for the model that will perform the task.
+Use Node.js 26.4.0 or later. The durable engine runs on Node. You also need a provider credential for the model that will run the flow.
 
 The 1.0 release candidate is not published to npm yet. Follow the [source-checkout installation](/docs/installation/#install-the-cli), including its PATH setting, then verify:
 
@@ -295,9 +295,9 @@ Existing declarations and flow files are retained. In a Git or jj repository, th
 
 For an existing npm workspace, or when you only want a flow without build declarations, use `smthrs generate flow change` instead. `init` can infer a workspace toolchain from pnpm, Yarn, or Bun; it refuses an unsupported package manager before writing project files.
 
-## 3. Give it a task and a model
+## 3. Give it a prompt and a model
 
-Open `flows/change/flow.mdx`. Keep the frontmatter, then replace the starter body with a small, concrete task, for example:
+Open `flows/change/flow.mdx`. Keep the frontmatter, then replace the starter body with a small, concrete prompt, for example:
 
 ```md
 Read the project's README and package manifest. Explain how to run its tests
@@ -307,7 +307,7 @@ Do not modify files or run commands.
 
 The `model:` field selects the provider and model. `init` chooses it from the first available provider credential; if none is set, the generated comment names the key required by its default model. Set that credential in your shell, or change `model:` to a seat you can use. The [init reference](/docs/reference/cli/init/) lists the selection order. A model call uses that provider's account and usage limits.
 
-The starter declares file-read, file-write, and process-spawn capabilities for editing and testing. For this read-only task, replace its `capabilities:` line with `capabilities: ["fs:read:**"]`. Review that declaration whenever you change the task; the flow name comes from its directory, so no `name:` field is needed.
+The starter declares file-read, file-write, and process-spawn capabilities for editing and testing. For this read-only prompt, replace its `capabilities:` line with `capabilities: ["fs:read:**"]`. Review that declaration whenever you change the prompt; the flow name comes from its directory, so no `name:` field is needed.
 
 Check the configuration and flow discovery:
 
@@ -441,7 +441,7 @@ https://smithers.sh/docs/app/chat/
 
 Give Smithers a concrete outcome and the context it needs to work on the selected repository.
 
-## Give it a task
+## Ask for work
 
 Select **Chat**, or press **Command+K** on macOS or **Ctrl+K** on Windows and Linux, to open the composer. The same shortcut dismisses it. In Normal mode it floats over the conversation; Vim mode keeps a dock so other panes remain reachable.
 
@@ -449,7 +449,7 @@ Select **Chat**, or press **Command+K** on macOS or **Ctrl+K** on Windows and Li
 2. Write what you want to change and how you will judge the result.
 3. Select **Send message**.
 
-For a first read-only task, try this prompt:
+For a first read-only request, try this prompt:
 
 ```text
 Explain this repository. Point me to the files I should read before
@@ -464,7 +464,7 @@ keep the existing styling, and run the relevant checks. Show me the diff
 before landing the change.
 ```
 
-Smithers can answer in prose, show a card, or start a flow. If the task needs sign-in or permission, complete that step in the conversation.
+Smithers can answer in prose, show a card, or start a flow. If the work needs sign-in or permission, complete that step in the conversation.
 
 ## Work with cards
 
@@ -546,7 +546,7 @@ Use **Wiki** to read and edit the notes Smithers keeps about the project.
 
 Wiki opens beside the conversation, so you can ask about a note while reading it.
 
-Use **Back to the conversation** to close the pane. A note's confidence label is recorded metadata; check the source when a statement matters to your task.
+Use **Back to the conversation** to close the pane. A note's confidence label is recorded metadata; check the source when a statement matters to your work.
 
 ## Add or edit a note
 
@@ -626,7 +626,7 @@ Keep `smthrs serve` or `smthrs triggers serve` running against that project for 
 # Run a flow
 https://smithers.sh/docs/app/flows/
 
-A flow is a repeatable task defined by the repository. Use one to review a change, triage an issue, or perform another task the project provides.
+A flow is repeatable work defined by the repository. Use one to review a change, triage an issue, or run other work the project provides.
 
 Running a hosted flow requires GitHub sign-in, alpha access, and an available box for a registered repository. See [Account and access](/docs/app/account/) if the app asks you to sign in or apply for access, and [Register another repository](/docs/app/repositories/#register-another-repository) if the repository you want is not in the app yet.
 
@@ -638,9 +638,9 @@ Open the repository home and read the flows under **Try first**. Select a featur
 
 Type a flow's name to find it without leaving the conversation.
 
-The Smithers repository features these tasks:
+The Smithers repository features these flows:
 
-| Flow | Task |
+| Flow | What it does |
 | --- | --- |
 | `/review` | Review the working-copy change and explain the verdict. |
 | `/lint` | Check the files you name against repository conventions and fix findings. |
@@ -650,11 +650,11 @@ The Smithers repository features these tasks:
 
 The repository supplies this list, so another repository can offer different flows. You can also select **Flows** to open the flow pane after signing in.
 
-## Supply the task
+## Supply the inputs
 
 If a form appears, fill in its fields. Include the issue, files, or change the flow should work on. Read the flow's description before launching: some flows edit files, and others inspect existing work.
 
-For a first run, use `/review` on a small change in your box. If there is no change to review, choose a task with an input you can provide.
+For a first run, use `/review` on a small change in your box. If there is no change to review, choose a flow with an input you can provide.
 
 ## Start and follow the run
 
@@ -666,7 +666,7 @@ Keep chatting while the flow runs. For its trace, steering, and controls, see [I
 
 ## Create a flow for repeated work
 
-Ask Smithers to help define the repeated task, then review the proposed flow and its requested permissions. Flows live with the repository's code, so changes to them can go through the same review process.
+Ask Smithers to help define the repeated work, then review the proposed flow and its requested permissions. Flows live with the repository's code, so changes to them can go through the same review process.
 
 To author the files directly, follow the [CLI quickstart](/docs/cli-quickstart/) or [Markdown flows](/docs/guides/markdown-flows/).
 
@@ -792,7 +792,7 @@ Use `/approvals.list` to open the approval inbox for your repository. Each reque
 
 If no requests are waiting, the inbox says that no approvals are pending.
 
-## Correct the task before approving
+## Correct the request before approving
 
 If the requested action is too broad or targets the wrong repository, deny it and explain the correction to Smithers. For a running flow, use [Steer](/docs/app/runs/#send-a-correction) to direct the correction to that run.
 
@@ -807,7 +807,7 @@ Review and landing actions require sign-in and repository permission.
 
 ## Open the Change
 
-Open the Change from the task's result, or use `/change.view` and supply its identifier. Check the repository and revision named on the card.
+Open the Change from the run's result, or use `/change.view` and supply its identifier. Check the repository and revision named on the card.
 
 ## Read the diff
 
@@ -831,7 +831,7 @@ Read the reason for a failed or missing check. Ask Smithers to address the speci
 
 ## Resolve review feedback
 
-Use the actions on a review thread to respond or resolve it. If you ask for a correction, identify the file, the behavior that needs to change, and how to verify the fix.
+Use the actions on a review comment to respond or resolve it. If you ask for a correction, identify the file, the behavior that needs to change, and how to verify the fix.
 
 Check the revision associated with each approval. The review strip indicates when the code has changed since a review.
 
@@ -3279,7 +3279,7 @@ The keys:
 | --- | --- |
 | `description` | Required. Discovery refuses a markdown flow whose description is missing or empty, and warns past 1024 characters. |
 | `model` | The seat the flow runs on, `<provider>:<model>`. Change the line to run somewhere else. |
-| `capabilities` | A string array bounding what the agent may do. The starter explicitly requests file reads, file writes, and process spawning; narrow that list for the task. Omitting it grants the wildcard `["*"]`, with a discovery warning. |
+| `capabilities` | A string array bounding what the agent may do. The starter explicitly requests file reads, file writes, and process spawning; narrow that list for the work. Omitting it grants the wildcard `["*"]`, with a discovery warning. |
 | `budget` | Optional `tokens` and `milliseconds` ceilings, each a positive safe integer. A malformed budget is ignored with a warning rather than tightened. |
 | `name` | Unnecessary for project flows, which are named by directory path. Discovery ignores this line with a warning; rename the directory to rename the flow. |
 
@@ -3722,7 +3722,7 @@ Match the flow's declared wait. A run parked on a differently named wait fails w
 smthrs runs steer <run-id> --message "Skip the benchmark suite; run the unit tests only."
 ```
 
-The message is durable, attributed to the operator principal `cli` with a timestamp, and delivered to the run at its next turn boundary. Each invocation mints a fresh message id, so two invocations deliver two messages rather than one replayed receipt. Steering never takes a run over: `--takeover` was removed in 1.0 and exits 1 pointing at the migration guide.
+The message is durable, attributed to the operator `cli` with a timestamp, and delivered to the run at its next turn boundary. Each invocation mints a fresh message id, so two invocations deliver two messages rather than one replayed receipt. Steering never takes a run over: `--takeover` was removed in 1.0 and exits 1 pointing at the migration guide.
 
 ## 4. Cancel a run
 

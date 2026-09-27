@@ -1,6 +1,6 @@
 ---
 title: Create custom agents
-description: Give a recurring task a prompt, model, and capability envelope.
+description: Give recurring work a prompt, model, and capability envelope.
 order: 14
 section: Automate
 ---

@@ -7,7 +7,7 @@ sidebar:
 
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-A flow is a repeatable task defined by the repository. Use one to review a change, triage an issue, or perform another task the project provides.
+A flow is repeatable work defined by the repository. Use one to review a change, triage an issue, or run other work the project provides.
 
 Running a hosted flow requires GitHub sign-in, alpha access, and an available box for a registered repository. See [Account and access](/docs/app/account/) if the app asks you to sign in or apply for access, and [Register another repository](/docs/app/repositories/#register-another-repository) if the repository you want is not in the app yet.
 
@@ -17,9 +17,9 @@ Open the repository home and read the flows under **Try first**. Select a featur
 
 <AppScreenshot src="/images/app/slash.png" alt="The slash menu finds the review flow declared by the Smithers repository." caption="Type a flow's name to find it without leaving the conversation." />
 
-The Smithers repository features these tasks:
+The Smithers repository features these flows:
 
-| Flow | Task |
+| Flow | What it does |
 | --- | --- |
 | `/review` | Review the working-copy change and explain the verdict. |
 | `/lint` | Check the files you name against repository conventions and fix findings. |
@@ -29,11 +29,11 @@ The Smithers repository features these tasks:
 
 The repository supplies this list, so another repository can offer different flows. You can also select **Flows** to open the flow pane after signing in.
 
-## Supply the task
+## Supply the inputs
 
 If a form appears, fill in its fields. Include the issue, files, or change the flow should work on. Read the flow's description before launching: some flows edit files, and others inspect existing work.
 
-For a first run, use `/review` on a small change in your box. If there is no change to review, choose a task with an input you can provide.
+For a first run, use `/review` on a small change in your box. If there is no change to review, choose a flow with an input you can provide.
 
 ## Start and follow the run
 
@@ -45,6 +45,6 @@ Keep chatting while the flow runs. For its trace, steering, and controls, see [I
 
 ## Create a flow for repeated work
 
-Ask Smithers to help define the repeated task, then review the proposed flow and its requested permissions. Flows live with the repository's code, so changes to them can go through the same review process.
+Ask Smithers to help define the repeated work, then review the proposed flow and its requested permissions. Flows live with the repository's code, so changes to them can go through the same review process.
 
 To author the files directly, follow the [CLI quickstart](/docs/cli-quickstart/) or [Markdown flows](/docs/guides/markdown-flows/).

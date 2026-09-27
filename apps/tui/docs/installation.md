@@ -25,7 +25,7 @@ Capture "Start the terminal in the project directory."
 Type "Explain math.js"
 Press Enter
 Wait for answer "Ready."
-Capture "Send a first task and read its answer."
+Capture "Send a first prompt and read its answer."
 ```
 
 Configure a provider before starting. The terminal reads credentials such as `OPENAI_API_KEY` from your environment. Browser playground settings apply only to the playground.

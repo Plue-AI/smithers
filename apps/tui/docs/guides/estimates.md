@@ -1,6 +1,6 @@
 ---
 title: Read progress estimates
-description: Use observed history to judge how long a task may take.
+description: Use observed history to judge how long a request may take.
 order: 12
 section: Use the TUI
 ---
@@ -16,7 +16,7 @@ Press Ctrl+O
 Capture "Inspect the ETA query and its recorded result."
 ```
 
-The coordinator can call `tab.eta({})` for active workers and flow runs, including queued tasks. Chat turns and flows use their own past runs. Delegated tasks can ask Luna with similar past tasks and prior estimation errors; without a model they use a median task estimate.
+The coordinator can call `tab.eta({})` for active workers and flow runs, including queued requests. Chat turns and flows use their own past runs. Delegated requests can ask Luna with similar past requests and prior estimation errors; without a model they use a median estimate.
 
 Settled work writes observations and scores that calibrate later predictions. A model failure is logged and produces one toast. The evidence lives at `<session directory>/<cwd slug>/evals/estimates.jsonl`.
 

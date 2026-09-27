@@ -1,11 +1,11 @@
 ---
 title: Delegate and recover
-description: Keep chatting while workers execute bounded tasks.
+description: Keep chatting while workers handle bounded requests.
 order: 5
 section: Use the TUI
 ---
 
-Ask for a task with a clear result and a small file scope. The coordinator records the request and returns to chat; workers execute in separate tabs.
+Ask for work with a clear result and a small file scope. The coordinator records the request and returns to chat; workers execute in separate tabs.
 
 ```text
 Fix the failing search tests. Keep changes inside src/search.ts and its tests.
@@ -33,14 +33,14 @@ Use `/tabs`, **Ctrl+]**, or **Ctrl+K** with `tab:` to open a worker. **s** steer
 | --------- | ----------------------------------------------------- |
 | Requested | The request is saved; execution is not yet confirmed. |
 | Queued    | Waiting for one of the worker pool's slots.           |
-| Running   | Executing the task.                                   |
+| Running   | Executing the request.                                |
 | Waiting   | Waiting for child workers; its pool slot is released. |
 | Parked    | Waiting for provider capacity or a reset time.        |
 | Done      | Execution completed; inspect the result and checks.   |
 | Failed    | A recorded failure needs review or retry.             |
 | Cancelled | The worker was stopped.                               |
 
-The pool defaults to six workers. `SMITHERS_TUI_WORKERS` changes the limit; additional requests queue FIFO with their captured chat context. Workers share the working directory. Assign independent tasks different files.
+The pool defaults to six workers. `SMITHERS_TUI_WORKERS` changes the limit; additional requests queue FIFO with their captured chat context. Workers share the working directory. Give independent requests different files.
 
 ## Recover a worker
 
@@ -61,7 +61,7 @@ Wait 400 ms
 Capture "Stop the worker without leaving the session."
 Press r
 Wait for answer "Review complete"
-Capture "Resume the saved task and inspect its result."
+Capture "Resume the saved request and inspect its result."
 ```
 
 **r** or `/retry id` resumes a failed, stopped, or parked worker with its prior steps and original model. `/stop id` stops a worker or flow run. Without an ID, these commands open the worker search. In a failed worker tab, **m** chooses a model and **w** waits for its reset.

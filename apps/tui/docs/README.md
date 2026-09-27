@@ -5,7 +5,7 @@ order: 0
 section: Start
 ---
 
-Smithers is a coding agent that runs tasks as workflows. Ask for a change, keep chatting while it works, and inspect the steps behind the result.
+Smithers is a coding agent that runs your requests as flows. Ask for a change, keep chatting while it works, and inspect the steps behind the result.
 
 ## Try it
 
@@ -34,13 +34,13 @@ Follow three examples in order:
 
 1. [Fix a failing check](./guides/fix-a-bug.md). Give the agent a result it can verify.
 2. [Inspect and branch](./guides/time-travel.md). Read the steps, compare the files, and try another path.
-3. [Keep working](./guides/background-work.md). Delegate a task without blocking chat.
+3. [Keep working](./guides/background-work.md). Delegate work without blocking chat.
 
 [Run Smithers locally](./installation.md) when you are ready to use your own repository.
 
 ## Explore the terminal
 
-| Task                                              | Guide                                          |
+| Goal                                              | Guide                                          |
 | ------------------------------------------------- | ---------------------------------------------- |
 | Write, steer, or queue a prompt                   | [Chat](./guides/chat.md)                       |
 | Find a file, command, session, or worker          | [Search](./guides/search.md)                   |

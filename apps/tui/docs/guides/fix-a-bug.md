@@ -32,6 +32,6 @@ The useful result is the changed file together with a passing check. If the chec
 
 ## Apply it to your project
 
-Name the behavior, the relevant files, and the command that verifies it. Keep the first task narrow enough to review in one diff.
+Name the behavior, the relevant files, and the command that verifies it. Keep the first request narrow enough to review in one diff.
 
 Next: [inspect and branch](./time-travel.md).

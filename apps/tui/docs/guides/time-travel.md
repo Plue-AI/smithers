@@ -17,9 +17,9 @@ Press Enter
 Wait for answer "Fixed"
 Press Ctrl+T
 Press Home
-Capture "The timeline at the start of the task."
+Capture "The timeline at the start of the run."
 Press End
-Capture "The completed task, with its later results."
+Capture "The completed run, with its later results."
 ```
 
 An earlier event shows only the recorded prefix. Later outcomes stay out of that view.

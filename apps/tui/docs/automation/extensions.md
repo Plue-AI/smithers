@@ -49,7 +49,7 @@ See the [live card recording](./views.md#add-a-live-chat-card) for those contrib
 
 | Action | Fields                         | Result                                                                |
 | ------ | ------------------------------ | --------------------------------------------------------------------- |
-| Prompt | `kind:"prompt", prompt`        | Sends a task to chat.                                                 |
+| Prompt | `kind:"prompt", prompt`        | Sends a prompt to chat.                                               |
 | Flow   | `kind:"flow", flow, input?`    | Requests a durable flow; missing input opens its form.                |
 | Agent  | `kind:"agent", agent, prompt?` | Starts the named worker or asks for its prompt.                       |
 | Open   | `kind:"open", surface`         | Opens `chat`, `summary`, `smithers`, `tab:id`, `flow:id`, or `ui:id`. |

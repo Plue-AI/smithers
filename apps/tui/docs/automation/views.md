@@ -52,7 +52,7 @@ await ctx.call("ui.publish", {
 | Table | `kind: "table"`, `columns`, `rows`          |
 | Diff  | `kind: "diff"`, `path`, unified `patch`     |
 
-Rows can carry a status and an action. Use `{label,prompt}` to send a task, or `{label,action}` for a typed [extension action](./extensions.md). **a** runs the selected action; rendering the row does not.
+Rows can carry a status and an action. Use `{label,prompt}` to send a prompt, or `{label,action}` for a typed [extension action](./extensions.md). **a** runs the selected action; rendering the row does not.
 
 ## Add a live chat card
 

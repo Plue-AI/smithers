@@ -17,7 +17,7 @@
 
 - [The interface](https://smithers.sh/docs/app/): Find your way around the Smithers app: repositories, chat, cards, and the six main areas.
 - [Open a repository](https://smithers.sh/docs/app/repositories/): Open or import a repository, read its guide files, and select the context for your work.
-- [Talk to Smithers](https://smithers.sh/docs/app/chat/): Describe a task, inspect the cards in the conversation, and steer work while it runs.
+- [Talk to Smithers](https://smithers.sh/docs/app/chat/): Ask for work, inspect the cards in the conversation, and steer work while it runs.
 - [Search the app](https://smithers.sh/docs/app/search/): Use the command palette to find files, flows, notes, and other project information.
 - [Read and edit the Wiki](https://smithers.sh/docs/app/wiki/): Open project notes, follow their sources, and understand the difference between notes and a generated repository wiki.
 - [Inspect the Dispatcher](https://smithers.sh/docs/app/dispatcher/): Inspect declared rules, register a schedule after reviewing its plan, and follow its runs.
@@ -45,7 +45,7 @@
 
 ## How-to guides
 
-- [Guides](https://smithers.sh/docs/guides/): Choose a task: author a flow, run it, connect an agent, or operate persistent runs.
+- [Guides](https://smithers.sh/docs/guides/): Choose what to do: author a flow, run it, connect an agent, or operate persistent runs.
 - [Run selected and affected targets](https://smithers.sh/docs/guides/build-targets/): Choose target kinds and labels, preview work, and run only the targets affected by a change.
 - [Write a markdown flow](https://smithers.sh/docs/guides/markdown-flows/): Scaffold a flow.mdx with smthrs init, write its frontmatter and prose instructions, and run it with smthrs flow start.
 - [Share target results between machines](https://smithers.sh/docs/guides/remote-cache/): Configure a remote target cache, separate read and write credentials, and verify reuse from a second checkout.

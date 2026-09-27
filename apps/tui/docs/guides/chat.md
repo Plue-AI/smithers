@@ -5,7 +5,7 @@ order: 2
 section: Use the TUI
 ---
 
-Send a task with **Enter**. While a turn runs, **Enter** steers that turn before its next cell; **Alt+Enter** queues a separate follow-up. Use **Alt+Up** to bring queued messages back into the editor.
+Send a prompt with **Enter**. While a turn runs, **Enter** steers that turn before its next cell; **Alt+Enter** queues a separate follow-up. Use **Alt+Up** to bring queued messages back into the editor.
 
 ## Compose a prompt
 
@@ -16,7 +16,7 @@ Use "basic"
 Type "Explain math.js"
 Press Ctrl+J
 Type "Keep it brief."
-Capture "Write a multiline task."
+Capture "Write a multiline prompt."
 Press Enter
 Wait for answer "Ready."
 Press ArrowUp
@@ -50,7 +50,7 @@ Press Escape
 Capture "Stop the current turn and keep the draft."
 ```
 
-Queued prompts retain their order. Steering changes the current task; a queued follow-up starts after it. **Esc** stops the current turn and returns unsent queued messages to the editor. It does not stop independent background workers; use their [worker controls](./background-work.md).
+Queued prompts retain their order. Steering changes the current turn; a queued follow-up starts after it. **Esc** stops the current turn and returns unsent queued messages to the editor. It does not stop independent background workers; use their [worker controls](./background-work.md).
 
 ## Read and copy
 

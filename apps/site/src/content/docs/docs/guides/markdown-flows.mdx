@@ -45,7 +45,7 @@ The keys:
 | --- | --- |
 | `description` | Required. Discovery refuses a markdown flow whose description is missing or empty, and warns past 1024 characters. |
 | `model` | The seat the flow runs on, `<provider>:<model>`. Change the line to run somewhere else. |
-| `capabilities` | A string array bounding what the agent may do. The starter explicitly requests file reads, file writes, and process spawning; narrow that list for the task. Omitting it grants the wildcard `["*"]`, with a discovery warning. |
+| `capabilities` | A string array bounding what the agent may do. The starter explicitly requests file reads, file writes, and process spawning; narrow that list for the work. Omitting it grants the wildcard `["*"]`, with a discovery warning. |
 | `budget` | Optional `tokens` and `milliseconds` ceilings, each a positive safe integer. A malformed budget is ignored with a warning rather than tightened. |
 | `name` | Unnecessary for project flows, which are named by directory path. Discovery ignores this line with a warning; rename the directory to rename the flow. |
 

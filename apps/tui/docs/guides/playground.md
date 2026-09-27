@@ -19,9 +19,9 @@ Click "Branch"
 Capture "Create an independent branch while preserving the original result."
 ```
 
-Move **Checkpoint** to inspect the transcript and files at that point. **Branch** starts a new task from that snapshot and retains the original branch. The branch selector returns to any existing branch's latest state.
+Move **Checkpoint** to inspect the transcript and files at that point. **Branch** starts a new attempt from that snapshot and retains the original branch. The branch selector returns to any existing branch's latest state.
 
-Completed model responses are saved before their cells execute. Each completed flow result, file snapshot, and visible event commit atomically. Reload reconstructs the saved run; **Resume** continues an interrupted task without repeating already committed results. **Stop** interrupts the current execution. One tab may write the sandbox at a time.
+Completed model responses are saved before their cells execute. Each completed flow result, file snapshot, and visible event commit atomically. Reload reconstructs the saved run; **Resume** continues an interrupted run without repeating already committed results. **Stop** interrupts the current execution. One tab may write the sandbox at a time.
 
 ## Configure a provider
 

@@ -39,7 +39,7 @@ Match the flow's declared wait. A run parked on a differently named wait fails w
 smthrs runs steer <run-id> --message "Skip the benchmark suite; run the unit tests only."
 ```
 
-The message is durable, attributed to the operator principal `cli` with a timestamp, and delivered to the run at its next turn boundary. Each invocation mints a fresh message id, so two invocations deliver two messages rather than one replayed receipt. Steering never takes a run over: `--takeover` was removed in 1.0 and exits 1 pointing at the migration guide.
+The message is durable, attributed to the operator `cli` with a timestamp, and delivered to the run at its next turn boundary. Each invocation mints a fresh message id, so two invocations deliver two messages rather than one replayed receipt. Steering never takes a run over: `--takeover` was removed in 1.0 and exits 1 pointing at the migration guide.
 
 ## 4. Cancel a run
 
