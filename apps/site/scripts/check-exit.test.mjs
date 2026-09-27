@@ -71,12 +71,43 @@ test("sync-api-docs --check names the stale page and the fix command", () => {
   })
 })
 
+test("ingest-reference --check names the stale page and the fix command", () => {
+  withCopy((root) => {
+    copy(root, "apps/site/scripts/ingest-reference.mjs")
+    copy(root, "apps/docs/shared")
+    copy(root, "apps/site/src/content/docs/docs/reference")
+    // The docs manifest reads every package's manifest; the ingested sources are three docs trees.
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name === "node_modules" || entry.name.startsWith(".")) continue
+        walk(join(dir, entry.name))
+      }
+      try {
+        readFileSync(join(dir, "package.json"))
+      } catch {
+        return
+      }
+      copy(root, join(relative(repo, dir), "package.json"))
+    }
+    walk(join(repo, "packages"))
+    for (const source of ["packages/smithers/flows/flow", "packages/smithers/flows/engine", "packages/smithers/build/targets"]) {
+      copy(root, `${source}/docs`)
+    }
+    assert.equal(check(root, "ingest-reference.mjs").status, 0, "the copied tree starts clean")
+    appendFileSync(join(root, "apps/site/src/content/docs/docs/reference/api/targets.mdx"), "stale\n")
+    const result = check(root, "ingest-reference.mjs")
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /drift: apps\/site\/src\/content\/docs\/docs\/reference\/api\/targets\.mdx/)
+    assert.match(result.stderr, /run node apps\/site\/scripts\/ingest-reference\.mjs/)
+  })
+})
+
 // process.exit() ends the process before queued writes to a pipe drain, and
 // on macOS pipe writes are asynchronous, so a reason printed just before it
 // can reach the reader truncated or not at all. Setting exitCode lets node
 // flush stdout and stderr first.
 test("neither check ends with process.exit()", () => {
-  for (const script of ["generate-llms.mjs", "sync-api-docs.mjs"]) {
+  for (const script of ["generate-llms.mjs", "sync-api-docs.mjs", "ingest-reference.mjs"]) {
     const source = readFileSync(join(site, "scripts", script), "utf8")
     assert.doesNotMatch(source, /process\.exit\(/, `${script} calls process.exit()`)
   }

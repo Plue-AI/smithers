@@ -23,7 +23,7 @@
  * colocated page changes.
  */
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
-import { dirname, join, posix, resolve } from "node:path"
+import { dirname, join, posix, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { sites } from "../../docs/shared/manifest.mjs"
 import { outputRelFor, routeFor } from "../../docs/shared/sync-content.mjs"
@@ -264,6 +264,7 @@ const main = async () => {
 
   let written = 0
   const skipped = []
+  const drifted = []
   for (const [area, list] of byArea) {
     const directory = join(outRoot, area)
     if (!check) await mkdir(directory, { recursive: true })
@@ -290,6 +291,7 @@ const main = async () => {
       const current = (await exists(target)) ? await readFile(target, "utf8") : undefined
       if (current !== content) {
         if (!check) await writeFile(target, content, "utf8")
+        else drifted.push(relative(root, target))
         written += 1
       }
     }
@@ -303,6 +305,7 @@ const main = async () => {
     if (entries.length === 0) {
       if (await isOwned(index)) {
         if (!check) await rm(index)
+        else drifted.push(relative(root, index))
         written += 1
       }
       skipped.push(`reference/${area}/ has no pages yet; no index written`)
@@ -313,16 +316,21 @@ const main = async () => {
       const current = (await exists(index)) ? await readFile(index, "utf8") : undefined
       if (current !== content) {
         if (!check) await writeFile(index, content, "utf8")
+        else drifted.push(relative(root, index))
         written += 1
       }
     }
   }
   for (const line of skipped) process.stderr.write(`ingest-reference: skipped ${line}\n`)
+  for (const path of drifted) process.stderr.write(`drift: ${path}\n`)
   process.stdout.write(`ingest-reference: ${pages.length} page(s), ${written} file(s) ${check ? "with drift" : "written"}, ${skipped.length} skipped\n`)
-  if (check && written > 0) process.exitCode = 1
+  if (check && written > 0) {
+    process.stderr.write("ingest-reference: run node apps/site/scripts/ingest-reference.mjs\n")
+    process.exitCode = 1
+  }
 }
 
 main().catch((error) => {
   process.stderr.write(`ingest-reference: ${error instanceof Error ? error.message : String(error)}\n`)
-  process.exit(1)
+  process.exitCode = 1
 })
