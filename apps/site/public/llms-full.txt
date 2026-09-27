@@ -18,7 +18,7 @@ Add an open-source repository and answer a few questions. We review it and set S
 
 [Register a repository](https://smithers.sh/?register=1)
 
-![Smithers asks how the repository runs its checks and what to take on first; a registration card shows Questions done and In review.](/images/app/register.png)
+![The Register a repository app asks which repository, how it runs checks, and what to take on first; a card shows Questions done and In review, and the sidebar shows acme/widgets In review.](/images/app/register.png)
 
 Registering acme/widgets.
 
