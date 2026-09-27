@@ -271,7 +271,7 @@ func testRepositoryOwnedByUser(id, userID int64, name string) db.Repository {
 func newNixCIWorker(t *testing.T, queries *mockWorkflowSandboxSchedulerQuerier, guests *fakeNixCIGuests) (*WorkflowSandboxSchedulerWorker, *mockWorkflowSandboxVMClient) {
 	t.Helper()
 	client := guests.client(t)
-	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 		WithWorkflowSandboxSchedulerCIGuests(guests),
 		WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
@@ -424,7 +424,7 @@ func TestNixCIRun_RunWithoutTaskGraphKeepsTheOrchestratorPath(t *testing.T) {
 func TestNixCIRun_WithoutAProvisionerCIRunFails(t *testing.T) {
 	queries := nixCIQuerier([]db.WorkflowTask{nixCITaskRow(1, 11, "build", nil)})
 	client := &mockWorkflowSandboxVMClient{}
-	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"))
 
 	require.NoError(t, worker.PollOnce(context.Background()))
@@ -440,7 +440,7 @@ func TestNixCIRun_JobGraphLookupErrorFailsTheRun(t *testing.T) {
 	}
 	guests := &fakeNixCIGuests{polls: map[string]int{}, scripts: map[string]nixCIGuestScript{}}
 	client := guests.client(t)
-	worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 		WithWorkflowSandboxSchedulerCIGuests(guests))
 

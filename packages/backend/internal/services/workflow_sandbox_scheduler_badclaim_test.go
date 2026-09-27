@@ -57,7 +57,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_BadClaimDoesNotAbortBatch(t *te
 			return sandbox.ExecResult{StatusCode: &success}, nil
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		badClaimSchedulerQuerier{mockWorkflowSandboxSchedulerQuerier: base, rows: []runtimeports.ClaimQueuedWorkflowRunsRow{missingToken, expired, good}},
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),

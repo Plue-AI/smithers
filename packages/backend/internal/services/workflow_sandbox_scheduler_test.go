@@ -383,7 +383,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_NoQueuedRuns(t *testing.T) {
 
 	queries := &mockWorkflowSandboxSchedulerQuerier{}
 	sandboxClient := &mockWorkflowSandboxVMClient{}
-	worker := NewWorkflowSandboxSchedulerWorker(queries, sandboxClient)
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, sandboxClient)
 
 	err := worker.PollOnce(context.Background())
 	require.NoError(t, err)
@@ -472,7 +472,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_Success(t *testing.T) {
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -537,7 +537,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_ExecFailureMarksRunFailure(t *t
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -605,7 +605,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_ExecFailureRevokesCredentials(t
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -671,7 +671,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_CreateNoCapacityRequeuesRun(t *
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -719,7 +719,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_CreateErrorStillFailsTerminally
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -758,7 +758,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_ExecNoCapacityStillFailsTermina
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -814,7 +814,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnceRecovering_ConvertsPanicToError(
 			panic("claim exploded")
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(queries, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, &mockWorkflowSandboxVMClient{})
 
 	err := worker.pollOnceRecovering(context.Background())
 	require.Error(t, err)
@@ -833,7 +833,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_PanicDuringRunMarksFailure(t *t
 	queries.getWorkflowDefinitionFn = func(_ context.Context, _ db.GetWorkflowDefinitionParams) (db.WorkflowDefinition, error) {
 		panic("malformed workflow definition")
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		&mockWorkflowSandboxVMClient{},
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -871,7 +871,7 @@ func TestWorkflowSandboxSchedulerWorker_Start_SurvivesDeadlineFlavoredPollError(
 			return nil, nil
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(queries, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, &mockWorkflowSandboxVMClient{})
 	worker.interval = time.Millisecond
 
 	done := make(chan struct{})
@@ -910,7 +910,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_ShutdownFailsUnstartedClaimedRu
 		},
 	}
 	sandboxClient := &mockWorkflowSandboxVMClient{}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -943,7 +943,7 @@ func TestWorkflowSandboxSchedulerWorker_LostLeaseCancelsStaleExecution(t *testin
 			return sandbox.ExecResult{}, ctx.Err()
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -981,7 +981,7 @@ func TestWorkflowSandboxSchedulerWorker_RenewalErrorsCancelAtClaimExpiry(t *test
 			return sandbox.ExecResult{}, ctx.Err()
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1013,7 +1013,7 @@ func TestWorkflowSandboxSchedulerWorker_BlockedRenewalCannotOutliveClaim(t *test
 			return sandbox.ExecResult{}, ctx.Err()
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1040,7 +1040,7 @@ func TestWorkflowSandboxSchedulerWorker_ConcurrentCancelSkipsSuccessFinalization
 	queries.markWorkflowRunSuccessFn = func(_ context.Context, _ int64) (db.WorkflowRun, error) {
 		return db.WorkflowRun{}, pgx.ErrNoRows
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		&mockWorkflowSandboxVMClient{},
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1074,7 +1074,7 @@ func TestWorkflowSandboxSchedulerWorker_ConcurrentCancelSkipsFailureFinalization
 			return sandbox.ExecResult{Stdout: "boom\n", StatusCode: &exitCode}, nil
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1163,7 +1163,7 @@ func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 		}, nil
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1244,7 +1244,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_TimeoutMarksFailureWithFinaliza
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1271,7 +1271,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_TimeoutMarksFailureWithFinaliza
 
 func TestNewWorkflowSandboxSchedulerWorker_ClampsTimeoutToMax(t *testing.T) {
 	t.Setenv("SMITHERS_WORKFLOW_SANDBOX_TIMEOUT", "45m")
-	worker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{}, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{}, &mockWorkflowSandboxVMClient{})
 	assert.Equal(t, maxWorkflowSandboxTimeout, worker.timeout)
 }
 
@@ -1283,7 +1283,7 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_ClaimError(t *testing.T) {
 			return nil, errors.New("db unavailable")
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(queries, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, &mockWorkflowSandboxVMClient{})
 
 	err := worker.PollOnce(context.Background())
 	require.Error(t, err)
@@ -1416,7 +1416,7 @@ func TestWorkflowSandboxRunnerScript_ScrubsCloneCredential(t *testing.T) {
 func TestWorkflowSandboxFinalizeContext_IgnoresParentCancellation(t *testing.T) {
 	t.Parallel()
 
-	worker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{}, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{}, &mockWorkflowSandboxVMClient{})
 	parentCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	finalizeCtx, finalizeCancel := worker.finalizeContext(parentCtx)
@@ -1489,7 +1489,7 @@ func testWorkflowSandboxSchedulerWorkerLongRunStillFinalizes(t *testing.T) {
 		},
 	}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1573,7 +1573,7 @@ func TestWorkflowSandboxSchedulerWorker_OrgOwnedRepoClonesWithRepoBoundCredentia
 	}
 	sandboxClient := &mockWorkflowSandboxVMClient{}
 
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		queries,
 		sandboxClient,
 		WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
@@ -1654,7 +1654,7 @@ func TestWorkflowSandboxSchedulerInjectsMainOnlySecretsOnlyIntoTrustedMainRuns(t
 			},
 		}, webhook.NoopSecretCodec{})
 		sandboxClient := &mockWorkflowSandboxVMClient{}
-		worker := NewWorkflowSandboxSchedulerWorker(queries, sandboxClient,
+		worker := newRunnableWorkflowSandboxScheduler(t, queries, sandboxClient,
 			WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
 			WithWorkflowSandboxSchedulerAPIBaseURL("https://api.smithers.test/api"),
 			WithWorkflowSandboxSchedulerSecretInjector(injector))

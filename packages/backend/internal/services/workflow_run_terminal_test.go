@@ -172,7 +172,7 @@ func TestNixCIRun_TerminalOutcomePublishesCommitStatusCheckRunWebhookAndTriggers
 				polls:   map[string]int{},
 				scripts: map[string]nixCIGuestScript{"build": {chunks: []string{"make build\n"}, exitCode: tc.exitCode}},
 			}
-			worker := NewWorkflowSandboxSchedulerWorker(queries, guests.client(t),
+			worker := newRunnableWorkflowSandboxScheduler(t, queries, guests.client(t),
 				WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
 				WithWorkflowSandboxSchedulerCIGuests(guests),
 				WithWorkflowSandboxSchedulerCIPollInterval(time.Millisecond),
@@ -212,7 +212,7 @@ func TestWorkflowSandboxScheduler_OrchestratorTerminalOutcomePublishes(t *testin
 					return sandbox.ExecResult{StatusCode: &exitCode}, nil
 				},
 			}
-			worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+			worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
 				WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
 				WithWorkflowSandboxSchedulerTerminalPublisher(publisher),
 			)
@@ -249,7 +249,7 @@ func TestWorkflowSandboxScheduler_LostTerminalRaceDoesNotPublish(t *testing.T) {
 					return sandbox.ExecResult{StatusCode: &exitCode}, nil
 				},
 			}
-			worker := NewWorkflowSandboxSchedulerWorker(queries, client,
+			worker := newRunnableWorkflowSandboxScheduler(t, queries, client,
 				WithWorkflowSandboxSchedulerGitBaseURL("https://api.smithers.test"),
 				WithWorkflowSandboxSchedulerTerminalPublisher(publisher),
 			)

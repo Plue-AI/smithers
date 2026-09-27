@@ -109,12 +109,28 @@ func buildWorkspaceClaudeBootstrapScript() string {
 	return buf.String()
 }
 
+// workspaceCLIPackage is the deployed npm package archive the host stages.
+func workspaceCLIPackage() string {
+	if archive := strings.TrimSpace(os.Getenv(workspaceCLIPackageEnv)); archive != "" {
+		return archive
+	}
+	return workspaceDefaultCLIPackage
+}
+
+// workspaceJJExport is the native jj helper binary the host stages.
+func workspaceJJExport() string {
+	if path := strings.TrimSpace(os.Getenv(workspaceJJExportBinaryEnv)); path != "" {
+		return path
+	}
+	return workspaceDefaultJJExportPath
+}
+
 // addWorkspaceCLI stages the deployed npm package, including production dependencies.
 func addWorkspaceCLI(files map[string]sandbox.SandboxFile) bool {
-	archive := strings.TrimSpace(os.Getenv(workspaceCLIPackageEnv))
-	if archive == "" {
-		archive = workspaceDefaultCLIPackage
-	}
+	return addWorkspaceCLIFrom(files, workspaceCLIPackage())
+}
+
+func addWorkspaceCLIFrom(files map[string]sandbox.SandboxFile, archive string) bool {
 	if !addWorkspaceExecutable(files, archive, workspaceCLIPackageB64Path, workspaceCLIPackageEnv, "npm CLI package") {
 		return false
 	}
@@ -143,10 +159,10 @@ func addWorkspaceCodingHost(files map[string]sandbox.SandboxFile) bool {
 // as /usr/local/bin/smithers-jj-export. Missing payloads only warn: the helper
 // is a coding-flow dependency, not a provisioning precondition.
 func addWorkspaceJJExport(files map[string]sandbox.SandboxFile) bool {
-	path := strings.TrimSpace(os.Getenv(workspaceJJExportBinaryEnv))
-	if path == "" {
-		path = workspaceDefaultJJExportPath
-	}
+	return addWorkspaceJJExportFrom(files, workspaceJJExport())
+}
+
+func addWorkspaceJJExportFrom(files map[string]sandbox.SandboxFile, path string) bool {
 	return addWorkspaceExecutable(files, path, workspaceJJExportB64Path, workspaceJJExportBinaryEnv, "jj export helper")
 }
 

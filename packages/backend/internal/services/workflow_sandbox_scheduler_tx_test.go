@@ -105,7 +105,7 @@ func TestWorkflowSandboxAppendLog_TransactionLocksBeforeInsertAndNotifiesAfterCo
 	}
 
 	queries := &transactionalWorkflowSandboxQuerier{mockWorkflowSandboxSchedulerQuerier: base, tx: fakeTx}
-	worker := NewWorkflowSandboxSchedulerWorker(queries, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, &mockWorkflowSandboxVMClient{})
 
 	require.NoError(t, worker.appendLog(ctx, 42, 7, "stdout", "hello"))
 	require.Len(t, fakeTx.execCalls, 2)
@@ -125,7 +125,7 @@ func TestWorkflowSandboxAppendLog_TransactionFailureDoesNotNotify(t *testing.T) 
 			mockWorkflowSandboxSchedulerQuerier: base,
 			beginErr:                            errors.New("pool exhausted"),
 		}
-		worker := NewWorkflowSandboxSchedulerWorker(queries, &mockWorkflowSandboxVMClient{})
+		worker := newRunnableWorkflowSandboxScheduler(t, queries, &mockWorkflowSandboxVMClient{})
 		err := worker.appendLog(context.Background(), 42, 7, "stderr", "boom")
 		assert.ErrorContains(t, err, "begin workflow run log transaction")
 		assert.Empty(t, base.logNotifies)
@@ -135,7 +135,7 @@ func TestWorkflowSandboxAppendLog_TransactionFailureDoesNotNotify(t *testing.T) 
 		base := &mockWorkflowSandboxSchedulerQuerier{}
 		fakeTx := &workflowSandboxLogTx{execErr: errors.New("lock failed")}
 		queries := &transactionalWorkflowSandboxQuerier{mockWorkflowSandboxSchedulerQuerier: base, tx: fakeTx}
-		worker := NewWorkflowSandboxSchedulerWorker(queries, &mockWorkflowSandboxVMClient{})
+		worker := newRunnableWorkflowSandboxScheduler(t, queries, &mockWorkflowSandboxVMClient{})
 		err := worker.appendLog(context.Background(), 42, 7, "stderr", "boom")
 		assert.ErrorContains(t, err, "lock workflow run log stream")
 		assert.True(t, fakeTx.rollbackCalled)

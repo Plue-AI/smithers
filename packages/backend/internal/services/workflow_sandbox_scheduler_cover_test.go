@@ -26,7 +26,7 @@ func TestWorkflowSandboxScheduler_Cov_OptionsEnvAndStart(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	injector := NewSecretInjector(nil, nil)
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		&mockWorkflowSandboxSchedulerQuerier{},
 		&mockWorkflowSandboxVMClient{},
 		WithWorkflowSandboxSchedulerLogger(logger),
@@ -70,7 +70,7 @@ func TestWorkflowSandboxScheduler_Cov_HelperBranches(t *testing.T) {
 	assert.Equal(t, "api.example.test", hostForFirewallRule("https://api.example.test/base"))
 	assert.Empty(t, hostForFirewallRule("://bad-url"))
 
-	worker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{}, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{}, &mockWorkflowSandboxVMClient{})
 	worker.apiBaseURL = "://bad"
 	worker.apiGatewayURL = ""
 	worker.allowedRegistry = nil
@@ -120,7 +120,7 @@ func TestWorkflowSandboxScheduler_Cov_RunPreparationAndFailureBranches(t *testin
 			return db.WorkflowDefinition{}, pgx.ErrNoRows
 		},
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(queries, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, queries, &mockWorkflowSandboxVMClient{})
 	err := worker.executeRun(context.Background(), testWorkflowSandboxRunClaim(db.WorkflowRun{ID: 50, RepositoryID: 60, WorkflowDefinitionID: 70}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load workflow definition")
@@ -128,7 +128,7 @@ func TestWorkflowSandboxScheduler_Cov_RunPreparationAndFailureBranches(t *testin
 	assert.Empty(t, queries.terminalSteps)
 
 	created := false
-	stepWorker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	stepWorker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		listWorkflowStepsByRunIDFn: func(_ context.Context, runID int64) ([]db.WorkflowStep, error) {
 			assert.Equal(t, int64(80), runID)
 			return nil, nil
@@ -147,7 +147,7 @@ func TestWorkflowSandboxScheduler_Cov_RunPreparationAndFailureBranches(t *testin
 	assert.True(t, created)
 	assert.Equal(t, int64(81), step.ID)
 
-	orgWorker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	orgWorker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
 			return db.Repository{ID: id, Name: "demo", OrgID: pgtype.Int8{Int64: 44, Valid: true}}, nil
 		},
@@ -162,7 +162,7 @@ func TestWorkflowSandboxScheduler_Cov_RunPreparationAndFailureBranches(t *testin
 	assert.Equal(t, "acme", owner)
 	assert.Zero(t, cloneUserID)
 
-	noOwnerWorker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	noOwnerWorker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
 			return db.Repository{ID: id, Name: "orphan"}, nil
 		},
@@ -175,7 +175,7 @@ func TestWorkflowSandboxScheduler_Cov_RunPreparationAndFailureBranches(t *testin
 func TestWorkflowSandboxScheduler_Cov_CloneURLAndVMRequestBranches(t *testing.T) {
 	t.Parallel()
 
-	worker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	worker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		createAccessTokenFn: func(_ context.Context, _ db.CreateAccessTokenParams) (db.AccessToken, error) {
 			return db.AccessToken{}, fmt.Errorf("token store down")
 		},
@@ -193,13 +193,15 @@ func TestWorkflowSandboxScheduler_Cov_CloneURLAndVMRequestBranches(t *testing.T)
 	require.Error(t, err)
 
 	worker.gitBaseURL = "https://git.example.test"
-	req := worker.buildCreateVMRequest(
+	withWorkflowRunnerArtifacts(t, worker)
+	req, err := worker.buildCreateVMRequest(
 		db.WorkflowRun{ID: 101, TriggerRef: "main"},
 		db.WorkflowDefinition{ID: 102, Path: " / "},
 		db.WorkflowStep{ID: 103},
 		"https://git.example.test/alice/demo.git",
 		map[string]string{"TOKEN": "secret"},
 	)
+	require.NoError(t, err)
 	require.Len(t, req.GitRepos, 1)
 	assert.Equal(t, "main", req.GitRepos[0].Rev)
 	require.NotNil(t, req.Init)

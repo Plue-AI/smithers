@@ -49,7 +49,7 @@ func workflowSandboxZLogger() WorkflowSandboxSchedulerOption {
 
 func TestWorkflowSandboxScheduler_Z_ConstructorStartAndPollGuards(t *testing.T) {
 	t.Setenv("SMITHERS_WORKFLOW_SANDBOX_TIMEOUT", "1s")
-	worker := NewWorkflowSandboxSchedulerWorker(
+	worker := newRunnableWorkflowSandboxScheduler(t,
 		&mockWorkflowSandboxSchedulerQuerier{},
 		&mockWorkflowSandboxVMClient{},
 		func(w *WorkflowSandboxSchedulerWorker) {
@@ -73,7 +73,7 @@ func TestWorkflowSandboxScheduler_Z_ConstructorStartAndPollGuards(t *testing.T) 
 	panicCtx, panicCancel := context.WithCancel(context.Background())
 	defer panicCancel()
 	panicPolls := 0
-	panicWorker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	panicWorker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		claimQueuedWorkflowRunsFn: func(context.Context, int32) ([]db.WorkflowRun, error) {
 			panicPolls++
 			if panicPolls == 1 {
@@ -102,7 +102,7 @@ func TestWorkflowSandboxScheduler_Z_ConstructorStartAndPollGuards(t *testing.T) 
 	// shutdown cancels ctx, and the DB layer's query then plausibly returns
 	// context.Canceled too, so cancel the real context here to model that.
 	cancelCtx, cancelCancel := context.WithCancel(context.Background())
-	cancelWorker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	cancelWorker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		claimQueuedWorkflowRunsFn: func(context.Context, int32) ([]db.WorkflowRun, error) {
 			cancelCancel()
 			return nil, context.Canceled
@@ -112,7 +112,7 @@ func TestWorkflowSandboxScheduler_Z_ConstructorStartAndPollGuards(t *testing.T) 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	errorThenStopWorker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	errorThenStopWorker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		claimQueuedWorkflowRunsFn: func(context.Context, int32) ([]db.WorkflowRun, error) {
 			return nil, errors.New("poll failed")
 		},
@@ -120,11 +120,11 @@ func TestWorkflowSandboxScheduler_Z_ConstructorStartAndPollGuards(t *testing.T) 
 	errorThenStopWorker.Start(ctx)
 
 	assert.Error(t, (&WorkflowSandboxSchedulerWorker{}).PollOnce(context.Background()))
-	assert.Error(t, NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{}, nil).PollOnce(context.Background()))
+	assert.Error(t, newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{}, nil).PollOnce(context.Background()))
 
 	claimedCtx, claimedCancel := context.WithCancel(context.Background())
 	claimedCancel()
-	claimedWorker := NewWorkflowSandboxSchedulerWorker(&mockWorkflowSandboxSchedulerQuerier{
+	claimedWorker := newRunnableWorkflowSandboxScheduler(t, &mockWorkflowSandboxSchedulerQuerier{
 		claimQueuedWorkflowRunsFn: func(context.Context, int32) ([]db.WorkflowRun, error) {
 			return []db.WorkflowRun{workflowSandboxZRun()}, nil
 		},
@@ -140,18 +140,18 @@ func TestWorkflowSandboxScheduler_Z_ExecuteRunFailureBranches(t *testing.T) {
 	q.getRepoByIDFn = func(context.Context, int64) (db.Repository, error) {
 		return db.Repository{}, errors.New("repo failed")
 	}
-	err := NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).executeRun(ctx, testWorkflowSandboxRunClaim(run))
+	err := newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).executeRun(ctx, testWorkflowSandboxRunClaim(run))
 	require.Error(t, err)
 
 	q = workflowSandboxZQueries()
 	q.listWorkflowStepsByRunIDFn = func(context.Context, int64) ([]db.WorkflowStep, error) {
 		return nil, errors.New("steps failed")
 	}
-	err = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}, WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test")).executeRun(ctx, testWorkflowSandboxRunClaim(run))
+	err = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}, WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test")).executeRun(ctx, testWorkflowSandboxRunClaim(run))
 	require.Error(t, err)
 
 	q = workflowSandboxZQueries()
-	err = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).executeRun(ctx, testWorkflowSandboxRunClaim(run))
+	err = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).executeRun(ctx, testWorkflowSandboxRunClaim(run))
 	require.Error(t, err)
 
 	q = workflowSandboxZQueries()
@@ -160,7 +160,7 @@ func TestWorkflowSandboxScheduler_Z_ExecuteRunFailureBranches(t *testing.T) {
 			return db.Repository{}, errors.New("secrets repo failed")
 		},
 	}, nil)
-	err = NewWorkflowSandboxSchedulerWorker(
+	err = newRunnableWorkflowSandboxScheduler(t,
 		q,
 		&mockWorkflowSandboxVMClient{},
 		WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"),
@@ -169,7 +169,7 @@ func TestWorkflowSandboxScheduler_Z_ExecuteRunFailureBranches(t *testing.T) {
 	require.Error(t, err)
 
 	q = workflowSandboxZQueries()
-	createErrWorker := NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{
+	createErrWorker := newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{
 		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{}, errors.New("create failed")
 		},
@@ -178,7 +178,7 @@ func TestWorkflowSandboxScheduler_Z_ExecuteRunFailureBranches(t *testing.T) {
 	require.Error(t, err)
 
 	q = workflowSandboxZQueries()
-	deleteErrWorker := NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{
+	deleteErrWorker := newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{
 		deleteVMFn: func(context.Context, string) error {
 			return errors.New("delete failed")
 		},
@@ -189,7 +189,7 @@ func TestWorkflowSandboxScheduler_Z_ExecuteRunFailureBranches(t *testing.T) {
 	q.markWorkflowRunSuccessFn = func(context.Context, int64) (db.WorkflowRun, error) {
 		return db.WorkflowRun{}, errors.New("mark success failed")
 	}
-	markSuccessWorker := NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}, WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"))
+	markSuccessWorker := newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}, WithWorkflowSandboxSchedulerGitBaseURL("https://git.example.test"))
 	require.Error(t, markSuccessWorker.executeRun(ctx, testWorkflowSandboxRunClaim(run)))
 }
 
@@ -200,11 +200,11 @@ func TestWorkflowSandboxScheduler_Z_FinalizeStepCloneOwnerAndEnvBranches(t *test
 	q.markWorkflowRunFailureFn = func(context.Context, int64) (db.WorkflowRun, error) {
 		return db.WorkflowRun{}, errors.New("mark failure failed")
 	}
-	worker := NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{})
+	worker := newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{})
 	assert.ErrorContains(t, worker.finalizeFailure(ctx, testWorkflowSandboxRunClaim(db.WorkflowRun{ID: 501}), 0, "failed"), "mark failure failed")
 
 	q = workflowSandboxZQueries()
-	worker = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{})
+	worker = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{})
 	assert.ErrorContains(t, worker.finalizeFailure(ctx, testWorkflowSandboxRunClaim(db.WorkflowRun{ID: 501}), 0, " "), "workflow sandbox run failed")
 
 	worker.finalizeTimeout = 0
@@ -218,7 +218,7 @@ func TestWorkflowSandboxScheduler_Z_FinalizeStepCloneOwnerAndEnvBranches(t *test
 	q.listWorkflowStepsByRunIDFn = func(context.Context, int64) ([]db.WorkflowStep, error) {
 		return nil, errors.New("list failed")
 	}
-	_, err := NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).ensureRunningStep(ctx, 501)
+	_, err := newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).ensureRunningStep(ctx, 501)
 	assert.Error(t, err)
 
 	q = workflowSandboxZQueries()
@@ -226,7 +226,7 @@ func TestWorkflowSandboxScheduler_Z_FinalizeStepCloneOwnerAndEnvBranches(t *test
 	q.createWorkflowStepFn = func(context.Context, db.CreateWorkflowStepParams) (db.WorkflowStep, error) {
 		return db.WorkflowStep{}, errors.New("create failed")
 	}
-	_, err = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).ensureRunningStep(ctx, 501)
+	_, err = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).ensureRunningStep(ctx, 501)
 	assert.Error(t, err)
 
 	q = workflowSandboxZQueries()
@@ -235,7 +235,7 @@ func TestWorkflowSandboxScheduler_Z_FinalizeStepCloneOwnerAndEnvBranches(t *test
 		revoked = true
 		return nil
 	}
-	_, _, _, err = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}, WithWorkflowSandboxSchedulerGitBaseURL("://bad")).
+	_, _, _, err = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}, WithWorkflowSandboxSchedulerGitBaseURL("://bad")).
 		buildCloneURL(ctx, 42, "alice", "demo", 11)
 	require.Error(t, err)
 	assert.True(t, revoked)
@@ -244,14 +244,14 @@ func TestWorkflowSandboxScheduler_Z_FinalizeStepCloneOwnerAndEnvBranches(t *test
 	q.getRepoByIDFn = func(context.Context, int64) (db.Repository, error) {
 		return db.Repository{}, errors.New("repo failed")
 	}
-	_, _, _, err = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).resolveRepositoryOwner(ctx, 601)
+	_, _, _, err = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).resolveRepositoryOwner(ctx, 601)
 	assert.Error(t, err)
 
 	q = workflowSandboxZQueries()
 	q.getUserByIDFn = func(context.Context, int64) (db.User, error) {
 		return db.User{}, errors.New("user failed")
 	}
-	_, _, _, err = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).resolveRepositoryOwner(ctx, 601)
+	_, _, _, err = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).resolveRepositoryOwner(ctx, 601)
 	assert.Error(t, err)
 
 	q = workflowSandboxZQueries()
@@ -261,14 +261,14 @@ func TestWorkflowSandboxScheduler_Z_FinalizeStepCloneOwnerAndEnvBranches(t *test
 	q.getOrgByIDFn = func(context.Context, int64) (db.Organization, error) {
 		return db.Organization{}, errors.New("org failed")
 	}
-	_, _, _, err = NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).resolveRepositoryOwner(ctx, 601)
+	_, _, _, err = newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).resolveRepositoryOwner(ctx, 601)
 	assert.Error(t, err)
 
 	q = workflowSandboxZQueries()
 	q.insertWorkflowRunLogNextSequenceFn = func(context.Context, db.InsertWorkflowRunLogNextSequenceParams) (db.InsertWorkflowRunLogNextSequenceRow, error) {
 		return db.InsertWorkflowRunLogNextSequenceRow{}, errors.New("insert failed")
 	}
-	assert.Error(t, NewWorkflowSandboxSchedulerWorker(q, &mockWorkflowSandboxVMClient{}).appendLog(ctx, 501, 801, "system", "entry"))
+	assert.Error(t, newRunnableWorkflowSandboxScheduler(t, q, &mockWorkflowSandboxVMClient{}).appendLog(ctx, 501, 801, "system", "entry"))
 
 	t.Setenv("WORKFLOW_SANDBOX_Z_INT32", "bad")
 	t.Setenv("WORKFLOW_SANDBOX_Z_INT64", "bad")

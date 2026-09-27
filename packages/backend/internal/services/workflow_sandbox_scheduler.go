@@ -141,6 +141,11 @@ type WorkflowSandboxSchedulerWorker struct {
 	allowedRegistry []string
 	apiGatewayURL   string
 
+	// cliPackage and jjExport are the npm CLI archive and native jj helper
+	// every orchestrator VM receives; the runner script requires both.
+	cliPackage string
+	jjExport   string
+
 	// ciGuests builds the kind=vm NixOS guest request for a CI task. Unset,
 	// every sandbox-plane run falls back to the whole-workflow orchestrator VM.
 	ciGuests WorkflowCIGuestProvisioner
@@ -232,6 +237,8 @@ func NewWorkflowSandboxSchedulerWorker(
 		allowedRegistry: parseWorkflowSandboxRegistries(os.Getenv("SMITHERS_WORKFLOW_SANDBOX_ALLOWED_REGISTRIES")),
 		apiGatewayURL:   strings.TrimSpace(os.Getenv("SMITHERS_WORKFLOW_SANDBOX_API_GATEWAY_URL")),
 		ciPollInterval:  nixCIPollInterval,
+		cliPackage:      workspaceCLIPackage(),
+		jjExport:        workspaceJJExport(),
 	}
 
 	for _, opt := range opts {
@@ -652,7 +659,11 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 		})
 	}
 
-	createReq := w.buildCreateVMRequest(run, def, step, cloneURL, secrets)
+	createReq, err := w.buildCreateVMRequest(run, def, step, cloneURL, secrets)
+	if err != nil {
+		logger.Error("workflow runner payload unavailable", "error", err)
+		return w.failRun(runCtx, claim, step.ID, "workflow runner payload unavailable")
+	}
 	createCtx := sandboxProvisionContext(runCtx, "create", "workflow_run", fmt.Sprint(run.ID), fmt.Sprintf("step-%d", step.ID))
 	vm, err := w.sandbox.CreateSandbox(createCtx, createReq)
 	if err != nil {
@@ -942,7 +953,7 @@ func (w *WorkflowSandboxSchedulerWorker) buildCreateVMRequest(
 	step db.WorkflowStep,
 	cloneURL string,
 	secrets map[string]string,
-) sandbox.CreateRequest {
+) (sandbox.CreateRequest, error) {
 	waitForReady := false
 	deleteOnStop := sandbox.DeleteOnStop
 	idleTimeoutSeconds := workflowSandboxIdleTimeoutSeconds
@@ -957,6 +968,12 @@ func (w *WorkflowSandboxSchedulerWorker) buildCreateVMRequest(
 			Content:    workflowSandboxRunnerScript(run.ID, workflowPath),
 			Executable: true,
 		},
+	}
+	if !addWorkspaceCLIFrom(files, w.cliPackage) {
+		return sandbox.CreateRequest{}, fmt.Errorf("npm CLI package %q is unavailable", w.cliPackage)
+	}
+	if !addWorkspaceJJExportFrom(files, w.jjExport) {
+		return sandbox.CreateRequest{}, fmt.Errorf("jj export helper %q is unavailable", w.jjExport)
 	}
 
 	enable := false
@@ -1006,7 +1023,7 @@ func (w *WorkflowSandboxSchedulerWorker) buildCreateVMRequest(
 
 	_ = step // Keep step in the signature so future VM templates can include step-specific metadata.
 	_ = run  // Keep run in the signature so future VM templates can include trigger metadata.
-	return req
+	return req, nil
 }
 
 func (w *WorkflowSandboxSchedulerWorker) buildFirewallPolicy() *sandbox.FirewallPolicy {
@@ -1190,7 +1207,7 @@ func workflowSandboxRunnerScript(runID int64, workflowPath string) string {
 		`mkdir -p "$cli_dir" "$HOME/.local/bin"`,
 		"test -s " + shellQuote(workspaceCLIPackageB64Path+".part0000"),
 		"cat " + shellQuote(workspaceCLIPackageB64Path) + `.part* | base64 -d | tar -xzf - -C "$cli_dir"`,
-		"base64 -d " + shellQuote(workspaceJJExportB64Path) + ` | gzip -d > "$HOME/.local/bin/smithers-jj-export"`,
+		"base64 -d < " + shellQuote(workspaceJJExportB64Path) + ` | gzip -d > "$HOME/.local/bin/smithers-jj-export"`,
 		`chmod 755 "$HOME/.local/bin/smithers-jj-export"`,
 		`export SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$HOME/.local/bin/smithers-jj-export"`,
 		"cd " + shellQuote(defaultWorkflowSandboxWorkdir),
