@@ -36,7 +36,7 @@
 - [Watch an agent work](https://smithers.sh/docs/learn/watch-an-agent/): Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you.
 - [Answer an approval](https://smithers.sh/docs/learn/approvals/): When an agent asks before acting, read the request and approve or deny it from the app, the terminal, a script, or the API.
 - [Review a change](https://smithers.sh/docs/learn/review-a-change/): Read a change's diff, checks, and reviews, answer feedback, and land it.
-- [Use the wiki](https://smithers.sh/docs/learn/wiki/): Read and edit notes, generate pages from the code, and keep them current.
+- [Use the wiki](https://smithers.sh/docs/learn/wiki/): Read and edit the repository's wiki in its public and private parts: follow links, see backlinks and history, attach files, and generate pages from the code.
 - [Open a repository](https://smithers.sh/docs/learn/open-a-repository/): Open a repository in Smithers, read its guide files, and register your own.
 - [Work in a box](https://smithers.sh/docs/learn/boxes/): Open a box for a repository, browse its files, use its terminal, and suspend or delete it.
 - [Search](https://smithers.sh/docs/learn/search/): Find a file, flow, run, issue, or command by name.
