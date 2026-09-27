@@ -33,7 +33,9 @@ export const runDeliveries = async (options: {
       if (notify === finish) notify = undefined
       resolve()
     }
-    const timer = setTimeout(finish, milliseconds)
+    // Recheck long server deadlines in bounded slices: Node turns a delay
+    // above its signed 32-bit timer limit into a one-millisecond busy loop.
+    const timer = setTimeout(finish, Math.min(milliseconds, maximumDelay))
     if (interruptible) notify = finish
     signal.addEventListener("abort", finish, { once: true })
   })
@@ -49,7 +51,7 @@ export const runDeliveries = async (options: {
       let retry = delay
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
       try {
-        if (Date.now() < blockedUntil) await wait(blockedUntil - Date.now())
+        while (!signal.aborted && Date.now() < blockedUntil) await wait(blockedUntil - Date.now())
         if (signal.aborted) break
         const response = await options.request(path, {
           signal, headers: { Accept: "text/event-stream", ...(cursor ? { "Last-Event-ID": cursor } : {}) }

@@ -121,6 +121,38 @@ test("reconnect resumes the cursor and rechecks persisted deliveries", async t =
   await run
 })
 
+test("long Retry-After deadlines cannot overflow timers or reconnect early", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 })
+  const timer = t.mock.method(globalThis, "setTimeout")
+  const stop = new AbortController()
+  let connections = 0, checks = 0
+  const deadline = 30 * 24 * 60 * 60 * 1000
+  const run = runDeliveries({ owner: "will", repo: "chat", signal: stop.signal,
+    request: async () => {
+      connections++
+      return new Response(null, { status: 429, headers: { "Retry-After": String(deadline / 1000) } })
+    },
+    drain: async () => { checks++; return 0 }
+  })
+  try {
+    await flush()
+    const initialChecks = checks
+    for (const elapsed of [2_147_483_647, deadline - 2_147_483_647 - 1]) {
+      t.mock.timers.tick(elapsed)
+      await flush()
+      assert.equal(connections, 1)
+      assert.equal(checks, initialChecks)
+    }
+    assert.ok(timer.mock.calls.every(call => Number(call.arguments[1]) <= 2_147_483_647), "Node converts overflowing delays to one millisecond")
+    t.mock.timers.tick(1)
+    await flush()
+    assert.equal(connections, 2)
+  } finally {
+    stop.abort()
+    await run
+  }
+})
+
 test("an hour with a delivery each minute remains under budget with low wake latency", async t => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 })
   const { make } = await import("../../smithers/agent/integrations/src/core/IssueSync.ts")
