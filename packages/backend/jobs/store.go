@@ -104,9 +104,11 @@ func (store *Store) AdmitInTx(ctx context.Context, tx pgx.Tx, input Admission) (
 	if effectKey == "" {
 		effectKey = "product-job:" + operationID
 	}
-	availableAt := input.AvailableAt
-	if availableAt.IsZero() {
-		availableAt = acceptedAt
+	// An unscheduled job is available at the database's clock, the one every
+	// claim compares against; the admitting process's clock may run ahead.
+	var availableAt *time.Time
+	if !input.AvailableAt.IsZero() {
+		availableAt = &input.AvailableAt
 	}
 
 	var inserted bool
@@ -154,7 +156,7 @@ func (store *Store) AdmitInTx(ctx context.Context, tx pgx.Tx, input Admission) (
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO product_job_dispatches
 			(operation_id, effect_policy, effect_key, next_attempt_at)
-		VALUES ($1,$2,$3,$4)`, operationID, input.EffectPolicy, effectKey, availableAt); err != nil {
+		VALUES ($1,$2,$3,COALESCE($4::timestamptz, clock_timestamp()))`, operationID, input.EffectPolicy, effectKey, availableAt); err != nil {
 		return RequestReceipt{}, err
 	}
 	if _, err := appendEvent(ctx, tx, input.Scope, operationID, "operation.accepted", StateAccepted, receiptJSON); err != nil {
