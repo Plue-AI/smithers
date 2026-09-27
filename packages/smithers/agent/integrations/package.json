@@ -72,11 +72,9 @@
     "./github/Actions": "./src/github/Actions.ts",
     "./github/Config": "./src/github/Config.ts",
     "./github/GitHubClient": "./src/github/GitHubClient.ts",
-    "./github/ListenerRegistry": "./src/github/ListenerRegistry.ts",
     "./github/Payload": "./src/github/Payload.ts",
     "./github/Repository": "./src/github/Repository.ts",
     "./github/Sync": "./src/github/Sync.ts",
-    "./github/Webhook": "./src/github/Webhook.ts",
     "./gmail": "./src/gmail.ts",
     "./gmail/Actions": "./src/gmail/Actions.ts",
     "./gmail/Capabilities": "./src/gmail/Capabilities.ts",
@@ -127,6 +125,8 @@
     "./x/Sync": "./src/x/Sync.ts",
     "./x/XClient": "./src/x/XClient.ts",
     "./core/migrations/0001_integration_cursors": null,
+    "./github/Webhook": null,
+    "./github/ListenerRegistry": null,
     "./slack/IssueSync": "./src/slack/IssueSync.ts",
     "./core/IssueSync": "./src/core/IssueSync.ts",
     "./telegram/IssueSync": "./src/telegram/IssueSync.ts"
@@ -379,16 +379,6 @@
           "default": "./dist/cjs/github/GitHubClient.js"
         }
       },
-      "./github/ListenerRegistry": {
-        "import": {
-          "types": "./dist/esm/github/ListenerRegistry.d.ts",
-          "default": "./dist/esm/github/ListenerRegistry.js"
-        },
-        "require": {
-          "types": "./dist/cjs/github/ListenerRegistry.d.ts",
-          "default": "./dist/cjs/github/ListenerRegistry.js"
-        }
-      },
       "./github/Payload": {
         "import": {
           "types": "./dist/esm/github/Payload.d.ts",
@@ -417,16 +407,6 @@
         "require": {
           "types": "./dist/cjs/github/Sync.d.ts",
           "default": "./dist/cjs/github/Sync.js"
-        }
-      },
-      "./github/Webhook": {
-        "import": {
-          "types": "./dist/esm/github/Webhook.d.ts",
-          "default": "./dist/esm/github/Webhook.js"
-        },
-        "require": {
-          "types": "./dist/cjs/github/Webhook.d.ts",
-          "default": "./dist/cjs/github/Webhook.js"
         }
       },
       "./gmail": {
@@ -920,6 +900,8 @@
         }
       },
       "./core/migrations/0001_integration_cursors": null,
+      "./github/Webhook": null,
+      "./github/ListenerRegistry": null,
       "./slack/IssueSync": {
         "import": {
           "types": "./dist/esm/slack/IssueSync.d.ts",

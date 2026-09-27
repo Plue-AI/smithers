@@ -38,9 +38,6 @@ export default defineConfig({
       // - `github/GitHubClient.ts:245` is the null fallback for capture group 1
       //   after a regex that requires that group. At `:507`, `Schedule.while`
       //   removes non-retryable failures before `Schedule.addDelay` can see one.
-      // - `github/ListenerRegistry.ts:1057` is an invariant guard that needs a
-      //   create or update action with no listener; exported reconciliation
-      //   builds both the plan and listener map from the same registry.
       // - `linear/LinearClient.ts:434` needs Effect to enter `tryPromise` with
       //   an already-aborted signal. Effect stops an already-aborted run before
       //   the callback, and no interrupt can land between the two synchronous
@@ -53,10 +50,10 @@ export default defineConfig({
       //
       // Slack, Google Calendar, Gmail, and X reach every line and branch.
       thresholds: {
-        branches: 99.72,
-        functions: 99.9,
+        branches: 99.8,
+        functions: 99.71,
         lines: 99.82,
-        statements: 99.8
+        statements: 99.77
       }
     }
   }

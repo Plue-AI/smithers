@@ -1,10 +1,11 @@
 /**
  * The GitHub integration surface.
  *
- * A narrow host layer plus the durable actions over it: a REST client, a
- * verified webhook channel, declared webhook reconciliation, payload schemas,
- * and the actions a flow calls. An application composes them into flows of its
- * own and adds actions for the endpoints it needs.
+ * A narrow host layer plus the durable actions over it: a REST client,
+ * payload schemas, and the actions a flow calls. An application composes them
+ * into flows of its own and adds actions for the endpoints it needs. GitHub
+ * webhooks enter through the Smithers backend, which decides who may start
+ * work.
  *
  * @since 1.0.0
  */
@@ -28,12 +29,6 @@ export * as Config from "./github/Config.ts"
 export * as GitHubClient from "./github/GitHubClient.ts"
 
 /**
- * @category constructors
- * @since 1.0.0
- */
-export * as ListenerRegistry from "./github/ListenerRegistry.ts"
-
-/**
  * @category schemas
  * @since 1.0.0
  */
@@ -50,9 +45,3 @@ export * as Repository from "./github/Repository.ts"
  * @since 1.0.0
  */
 export * as Sync from "./github/Sync.ts"
-
-/**
- * @category constructors
- * @since 1.0.0
- */
-export * as Webhook from "./github/Webhook.ts"

@@ -4602,16 +4602,6 @@
             "default": "./dist/cjs/github/GitHubClient.js"
           }
         },
-        "./github/ListenerRegistry": {
-          "import": {
-            "types": "./dist/esm/github/ListenerRegistry.d.ts",
-            "default": "./dist/esm/github/ListenerRegistry.js"
-          },
-          "require": {
-            "types": "./dist/cjs/github/ListenerRegistry.d.ts",
-            "default": "./dist/cjs/github/ListenerRegistry.js"
-          }
-        },
         "./github/Payload": {
           "import": {
             "types": "./dist/esm/github/Payload.d.ts",
@@ -4640,16 +4630,6 @@
           "require": {
             "types": "./dist/cjs/github/Sync.d.ts",
             "default": "./dist/cjs/github/Sync.js"
-          }
-        },
-        "./github/Webhook": {
-          "import": {
-            "types": "./dist/esm/github/Webhook.d.ts",
-            "default": "./dist/esm/github/Webhook.js"
-          },
-          "require": {
-            "types": "./dist/cjs/github/Webhook.d.ts",
-            "default": "./dist/cjs/github/Webhook.js"
           }
         },
         "./gmail": {
@@ -5143,6 +5123,8 @@
           }
         },
         "./core/migrations/0001_integration_cursors": null,
+        "./github/Webhook": null,
+        "./github/ListenerRegistry": null,
         "./slack/IssueSync": {
           "import": {
             "types": "./dist/esm/slack/IssueSync.d.ts",
@@ -5175,7 +5157,7 @@
         }
       },
       "declarations": {
-        "Environment.d.ts": "ea23cbb0a8a449274259b02a1f05d666ba60fc74a4e3bcd095ae4277673a8def",
+        "Environment.d.ts": "d9b3d9b3405780ad99c172bea573bcb6b3dcd9182337bae68038955d8b36147f",
         "core.d.ts": "2dde1af076c5bd953e5497ea775f58f8e667f35b41ad22f433e1f0d50f3b372f",
         "core/AccessToken.d.ts": "cbc05ec08db89bcff6152975e2440dfbaed311ff53a118ecdd4c4fa0ab53ffe4",
         "core/ActionFailure.d.ts": "e5e244698024f7746b507811ea9873ed57f6a38a31f0914809906b59be5b9a8a",
@@ -5200,15 +5182,13 @@
         "core/SourceRecord.d.ts": "c4bedf30c38e12b667853423ecff4948ac421f0f9bff5e612620f9ae79f5dbdc",
         "core/SourceStore.d.ts": "1c7e1f98c18d958316684da186812fd3838f394891d34d58d1100c62d665f8c1",
         "core/Sync.d.ts": "707f866dd2d8accb822612a256de8d4812e3af944efc254a2f8c39aa20fd086e",
-        "github.d.ts": "07f809610d8c6e91eea20f0eb0a3f98c2c222e8fb49d98a626f7eb90fca43bed",
+        "github.d.ts": "9ab8d3de212cf485dee05d4ce9b26067f5105b686f36703ef6db434adef94fcc",
         "github/Actions.d.ts": "6f669570c68139c00064d98e8448ea5fbb8df1c16848a6602f6e6c41910b03ea",
-        "github/Config.d.ts": "09d542005d894558cbeb3c241aaa04b07a0e5b599a683f3c4cd843b05c16b01a",
+        "github/Config.d.ts": "9fc3a02e3934f76ee2d4a50115f687d3571bd55aa3113731937752d25061cc54",
         "github/GitHubClient.d.ts": "7a13d270c6566bd2553789b735cdfae4b47b92619c49047c66f37b0d70f43abf",
-        "github/ListenerRegistry.d.ts": "0cdc13e31359da092d79c805c0bccc6209700da3daba6cb673c32de55069faa3",
-        "github/Payload.d.ts": "342f1187565c3f6c014dc4cf95f7e02bcaf8ed1ddbe0c8da55e9a056b72445a1",
+        "github/Payload.d.ts": "0bd892c32f882470952408f7fdfda4065c20b28f10f18b3c378c0f88806ec53b",
         "github/Repository.d.ts": "82856ead138dde7f8bfa08c830ba51628475b4923f37f2ccab14afbb88994f18",
         "github/Sync.d.ts": "f5a1e54a321faf3e735b6351fb3d9c1028df3e99fabca05c921d09b42fefb58b",
-        "github/Webhook.d.ts": "701f67716f022ee2d06f715c27eadf5f9935d167c6b4c371041031a66eb501b8",
         "gmail.d.ts": "c6501b0b9df1881abc0af0393bae05bd2f4f23ebbc11f3792dc0f5858ab9373d",
         "gmail/Actions.d.ts": "7e74418e37ca839f84b97db3b9a4a731336395302e329f95a192920406a87c9a",
         "gmail/Capabilities.d.ts": "6d46ab0ad634e1e90a38fd9cfd56aaf3a5767aa743db2bd2a114f553af6631f8",

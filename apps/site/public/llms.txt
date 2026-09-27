@@ -206,7 +206,7 @@
 - [smthrs info](https://smithers.sh/docs/reference/cli/info/): Report workspace and host configuration for diagnosis
 - [smthrs init](https://smithers.sh/docs/reference/cli/init/): Initialize target declarations and a starter durable flow while preserving existing files.
 - [smthrs install](https://smithers.sh/docs/reference/cli/install/): Plan and execute the install Flow under the toolchain the workspace declares
-- [smthrs integrations](https://smithers.sh/docs/reference/cli/integrations/): Inspect configured provider adapters and reconcile declared GitHub webhooks
+- [smthrs integrations](https://smithers.sh/docs/reference/cli/integrations/): Inspect configured provider adapters
 - [smthrs lint](https://smithers.sh/docs/reference/cli/lint/): Execute the lint targets selected by a pattern
 - [smthrs mcp](https://smithers.sh/docs/reference/cli/mcp/): Register the generated Smithers command surface with an MCP client.
 - [smthrs memory](https://smithers.sh/docs/reference/cli/memory/): Persistent facts, notes, recall, and conversation history in the control database.

@@ -100,33 +100,96 @@ defaults to 60 seconds, is bounded at both ends, and is capped at one hour; a
 skew of `Infinity` would disable the check, so such a value is refused rather
 than honored.
 
+Register the channel with `Channels` and hand every incoming POST to
+`Channels.ingest`. The example uses a Node HTTP server with a 1 MiB
+(1,048,576 byte) body limit. It counts streamed bytes before ingestion,
+including chunked requests, and responds 413 above the limit. It stops
+reading, clears buffered chunks, and destroys the request after flushing the
+response. Aborted and failed requests also release their buffered chunks. Any
+transport must bound the raw body before calling `Channels.ingest`.
+
 ```ts
 import * as Channels from "@smthrs/control/Channels"
 import { Core, Linear } from "@smthrs/integrations"
-import { Redacted } from "effect"
+import { Effect, Redacted } from "effect"
+import { createServer } from "node:http"
 
 const channel = Linear.Webhook.channel({
   credential: Redacted.make({ id: "linear-webhook", name: "linear-webhook" }),
   secret: Core.Channel.constantSecret(Redacted.make(webhookSecret)),
   route: Core.Channel.startFlow("triage")
 })
+
+const maxBodyBytes = 1024 * 1024
+const server = createServer((request, response) => {
+  const chunks: Array<Uint8Array> = []
+  let receivedBytes = 0
+  let stopped = false
+  const discard = () => {
+    stopped = true
+    chunks.length = 0
+  }
+  request.on("aborted", discard)
+  request.on("error", () => {
+    discard()
+    response.destroy()
+  })
+  request.on("data", (chunk: Uint8Array) => {
+    if (stopped) return
+    receivedBytes += chunk.byteLength
+    if (receivedBytes > maxBodyBytes) {
+      discard()
+      request.pause()
+      response.writeHead(413, { Connection: "close" }).end(() => request.destroy())
+      return
+    }
+    chunks.push(chunk)
+  })
+  request.on("end", () => {
+    if (stopped) return
+    const body = Buffer.concat(chunks)
+    discard()
+    let payload: unknown
+    try {
+      payload = JSON.parse(body.toString("utf8"))
+    } catch {
+      payload = undefined
+    }
+    const program = Effect.gen(function*() {
+      const channels = yield* Channels.Channels
+      const raw = {
+        body,
+        headers: request.headers as Record<string, string | undefined>
+      }
+      return yield* channels.ingest({
+        channel: "linear",
+        raw: { ...raw, idempotencyKey: Linear.Webhook.idempotencyKey(raw, payload) }
+      })
+    })
+    Effect.runPromise(Effect.provide(program, channelsLayer)).then(
+      () => response.writeHead(200).end(),
+      () => response.writeHead(401).end()
+    )
+  })
+})
 ```
 
 Replace `webhookSecret` with the non-empty secret from
-`Linear.Config.resolve().webhookSecret`. Registration and the HTTP handler
-match the [GitHub guide](/guides/github/), including its streamed 1 MiB
-(1,048,576 byte) body limit. Reject larger bodies with 413 before ingestion
-and release buffered chunks on aborted or failed requests. One difference
-in the `RawInbound`: the idempotency key also needs the parsed payload, because
-`Linear.Webhook.idempotencyKey(raw, payload)` reads the `Linear-Delivery`
-header and falls back to the delivery's own identity (webhook id, entity,
-action, and timestamp) when the header is absent.
+`Linear.Config.resolve().webhookSecret`, and `channelsLayer` with the layer
+that provides `Channels` over your control plane (see
+[the control API](https://control.smithers.sh/reference/api/)).
 
-```ts
-const payload = JSON.parse(new TextDecoder().decode(body))
-const raw = { body, headers }
-const inbound = { ...raw, idempotencyKey: Linear.Webhook.idempotencyKey(raw, payload) }
-```
+Three details are load-bearing:
+
+- The body is the exact bytes Linear sent. The signature covers those bytes,
+  so parsing first and re-serializing breaks verification.
+- `Linear.Webhook.idempotencyKey(raw, payload)` reads the `Linear-Delivery`
+  header and falls back to the delivery's own identity (webhook id, entity,
+  action, and timestamp) when the header is absent. `ingest` drops a replayed
+  key, which is what makes a redelivery safe to accept. Leave it unset and a
+  redelivery starts a second flow.
+- A refused delivery fails `Unauthorized` before the decoder or the control
+  plane runs. Only the refusal crosses; the digest detail stays in the log.
 
 A stale or unsigned delivery fails `Unauthorized` before anything downstream
 runs. To widen the window for a slow clock, pass `maxTimestampSkewMs` on the

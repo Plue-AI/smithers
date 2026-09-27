@@ -25,7 +25,7 @@ Commands:
   info          Report workspace and host configuration for diagnosis
   init          Initialize workspace and target declarations plus a starter flow, preserving existing files
   install       Plan and execute the install Flow under the toolchain the workspace declares
-  integrations  Inspect configured provider adapters and reconcile declared GitHub webhooks
+  integrations  Inspect configured provider adapters
   lint          Execute the lint targets selected by a pattern
   mcp           Register the Smithers MCP server with an agent
   memory        Durable facts, notes, recall, and conversation history

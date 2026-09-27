@@ -90,11 +90,11 @@ the control plane's channel coordinator:
 
 ```ts
 import * as Channels from "@smthrs/control/Channels"
-import { Core, GitHub } from "@smthrs/integrations"
+import { Core, Linear } from "@smthrs/integrations"
 import { Effect, Redacted } from "effect"
 
-const channel = GitHub.Webhook.channel({
-  credential: Redacted.make({ id: "github-webhook", name: "github-webhook" }),
+const channel = Linear.Webhook.channel({
+  credential: Redacted.make({ id: "linear-webhook", name: "linear-webhook" }),
   secret: Core.Channel.constantSecret(Redacted.make(webhookSecret)),
   route: Core.Channel.startFlow("triage")
 })
@@ -102,10 +102,12 @@ const channel = GitHub.Webhook.channel({
 const register = Effect.flatMap(Channels.Channels, (channels) => channels.register(channel))
 ```
 
-Replace `webhookSecret` with the secret GitHub signs deliveries with, read
+Replace `webhookSecret` with the secret Linear signs deliveries with, read
 from your environment or secret store. `Channels.ingest` then runs one fixed
 order on every delivery: verify the raw bytes, decode, map, dispatch. The
-[GitHub guide](/guides/github/) shows the HTTP handler that feeds it.
+[Linear guide](/guides/linear/) shows the HTTP handler that feeds it.
+GitHub webhooks enter through the Smithers backend instead; this package has
+no GitHub webhook channel.
 
 ## Where this sits
 
@@ -170,9 +172,8 @@ environment:
 
 | Variable                                               | Used by                                      |
 | ------------------------------------------------------ | -------------------------------------------- |
-| `SMITHERS_GITHUB_TOKEN`, then `GITHUB_TOKEN`           | `GitHub.GitHubClient`, `ListenerRegistry`    |
+| `SMITHERS_GITHUB_TOKEN`, then `GITHUB_TOKEN`           | `GitHub.GitHubClient`                        |
 | `SMITHERS_GITHUB_API_BASE_URL`                         | GitHub Enterprise or a fixture server        |
-| `SMITHERS_GITHUB_WEBHOOK_SECRET`                       | `GitHub.Webhook`                             |
 | `SMITHERS_LINEAR_API_KEY`                              | `Linear.LinearClient`                        |
 | `SMITHERS_LINEAR_WEBHOOK_SECRET`                       | `Linear.Webhook`                             |
 | `SMITHERS_LINEAR_API_BASE_URL`                         | A fixture server                             |

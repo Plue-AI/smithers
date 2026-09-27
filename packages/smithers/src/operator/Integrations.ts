@@ -1,5 +1,5 @@
 /**
- * Configured provider diagnostics and ownership-aware GitHub webhook reconciliation.
+ * Configured provider diagnostics.
  * @since 1.0.0
  */
 import * as Environment from "@smthrs/integrations/Environment"
@@ -146,10 +146,7 @@ export const readIntegrations = (
       const tokenEnv = provider === "github" && !env["SMITHERS_GITHUB_TOKEN"] && env["GITHUB_TOKEN"]
         ? "GITHUB_TOKEN"
         : defaultTokenEnv(provider)
-      return env[tokenEnv] ||
-          provider === "github" && existsSync(resolve(root, GitHub.ListenerRegistry.DEFAULT_REGISTRY_PATH))
-        ? [{ id: provider, provider, tokenEnv }] :
-        []
+      return env[tokenEnv] ? [{ id: provider, provider, tokenEnv }] : []
     })
   }
   const parsed = configuration.safeParse(JSON.parse(readFileSync(path, "utf8")))
@@ -209,7 +206,7 @@ export const probe = async (entry: Integration, token: string, timeoutMs = 10_00
   return { id: entry.id, provider: entry.provider, healthy: true }
 }
 
-/** Builds provider discovery, diagnostics and the declared GitHub listener reconciler.
+/** Builds provider discovery and diagnostics.
  * @category constructors
  * @since 1.0.0
  */
@@ -217,7 +214,7 @@ export const createIntegrationsCli = () => {
   const options = z.object({ ...localFields, config: z.string().default(".smithers/integrations.json") })
   const args = z.object({ id: z.string().optional() })
   return Cli.create("integrations", {
-    description: "Inspect configured provider adapters and reconcile declared GitHub webhooks"
+    description: "Inspect configured provider adapters"
   })
     .command("list", {
       description: "List configured integrations and credential references without making requests",
@@ -262,35 +259,6 @@ export const createIntegrationsCli = () => {
             })
           }
           return { healthy: true, integrations: results }
-        })
-    })
-    .command("reconcile", {
-      description: "Plan GitHub webhooks from .smithers/listeners.json; --apply writes owned hooks",
-      mcp: { annotations: { readOnlyHint: false } },
-      args,
-      options: options.extend({ apply: z.boolean().default(false), allowDelete: z.boolean().default(false) }),
-      run: (context) =>
-        execute(context, async () => {
-          const root = localRoot(context.options)
-          const entries = select(readIntegrations(root, context.options.config), context.args.id).filter((entry) =>
-            entry.provider === "github"
-          )
-          if (entries.length !== 1) {
-            throw new Error("Select exactly one configured GitHub integration for webhook reconciliation")
-          }
-          if (context.options.allowDelete && !context.options.apply) throw new Error("--allow-delete requires --apply")
-          const item = entries[0]!
-          const token = await secret(context.options, item)
-          return Effect.runPromise(
-            GitHub.ListenerRegistry.reconcile({
-              workspaceRoot: root,
-              token,
-              apiBaseUrl: item.apiBaseUrl,
-              env: process.env,
-              apply: context.options.apply,
-              allowDelete: context.options.allowDelete
-            })
-          )
         })
     })
 }

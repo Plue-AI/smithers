@@ -1880,56 +1880,6 @@
       }
     },
     {
-      "name": "integrations reconcile",
-      "description": "Plan GitHub webhooks from .smithers/listeners.json; --apply writes owned hooks",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "root": {
-              "description": "Project root (defaults to the nearest Smithers project)",
-              "type": "string"
-            },
-            "remote": {
-              "description": "Remote control server; local operator commands refuse this option",
-              "type": "string"
-            },
-            "credential": {
-              "description": "Remote control credential",
-              "type": "string"
-            },
-            "config": {
-              "default": ".smithers/integrations.json",
-              "type": "string"
-            },
-            "apply": {
-              "default": false,
-              "type": "boolean"
-            },
-            "allowDelete": {
-              "default": false,
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "config",
-            "apply",
-            "allowDelete"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "lint",
       "description": "Execute the lint targets selected by a pattern",
       "schema": {

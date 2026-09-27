@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { ScriptTarget, transpileModule } from "typescript"
 import { describe, expect, it, vi } from "vitest"
 import { computeHmacSha256Hex } from "../src/core/Signature.ts"
-import { Core, GitHub } from "../src/index.ts"
+import { Core, Linear } from "../src/index.ts"
 import config from "../vitest.config.ts"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -39,7 +39,6 @@ describe("README live-suite commands", () => {
   })
 })
 
-const githubGuide = readFileSync(join(packageRoot, "docs/guides/github.md"), "utf8")
 const linearGuide = readFileSync(join(packageRoot, "docs/guides/linear.md"), "utf8")
 const secret = "doc-fence-signing-secret"
 
@@ -49,7 +48,7 @@ const runFence = (document: string, needle: string, result: string, host: Record
     .map((match) => match[1]!)
     .find((code) => code.includes(needle))
   if (!fence) throw new Error(`Missing doc fence: ${needle}`)
-  const bindings = { Channels, Core, GitHub, Effect, Redacted, createServer, ...host }
+  const bindings = { Channels, Core, Linear, Effect, Redacted, createServer, ...host }
   const code =
     transpileModule(fence.replace(/^import .*$/gm, ""), { compilerOptions: { target: ScriptTarget.ESNext } }).outputText
   return new Function(...Object.keys(bindings), `${code}\nreturn ${result}`)(...Object.values(bindings))
@@ -58,30 +57,29 @@ const runFence = (document: string, needle: string, result: string, host: Record
 describe("documented webhook setup", () => {
   it("verifies a signature using only the README's advertised secret variable", async () => {
     const channel = runFence(readme, "const channel =", "channel", {
-      process: { env: { SMITHERS_GITHUB_WEBHOOK_SECRET: secret } }
+      process: { env: { SMITHERS_LINEAR_WEBHOOK_SECRET: secret } }
     }) as Channels.Channel
-    const body = Buffer.from("{}")
+    const body = Buffer.from(JSON.stringify({ webhookTimestamp: Date.now() }))
     await expect(Effect.runPromise(channel.verify({
       body,
       idempotencyKey: "doc-signature",
-      headers: { "x-hub-signature-256": `sha256=${computeHmacSha256Hex(body, secret)}` }
+      headers: { "linear-signature": computeHmacSha256Hex(body, secret) }
     }))).resolves.toBeUndefined()
   })
 
   it.each([undefined, "", "   "])("rejects a missing or empty README secret (%s)", (value) => {
     expect(() =>
       runFence(readme, "const channel =", "channel", {
-        process: { env: { SMITHERS_GITHUB_WEBHOOK_SECRET: value } }
+        process: { env: { SMITHERS_LINEAR_WEBHOOK_SECRET: value } }
       })
-    ).toThrow("SMITHERS_GITHUB_WEBHOOK_SECRET is required")
+    ).toThrow("SMITHERS_LINEAR_WEBHOOK_SECRET is required")
   })
 
-  it.each(["GitHub", "Linear"])("attributes %s secret resolution to Config.resolve", (provider) => {
-    const variable = `SMITHERS_${provider.toUpperCase()}_WEBHOOK_SECRET`
-    const row = readme.split("\n").find((line) => line.startsWith(`| \`${variable}\``))
-    expect(row).toContain(`${provider}.Config.resolve`)
-    const guide = provider === "GitHub" ? githubGuide : linearGuide
-    expect(guide).toContain(`${provider}.Config.resolve`)
+  it("attributes Linear secret resolution to Config.resolve", () => {
+    const row = readme.split("\n").find((line) => line.startsWith("| `SMITHERS_LINEAR_WEBHOOK_SECRET`"))
+    expect(row).toContain("Linear.Config.resolve")
+    const guide = linearGuide
+    expect(guide).toContain("Linear.Config.resolve")
     expect(guide).not.toContain("webhook secret falls back")
     expect(guide).toContain("1 MiB")
     expect(guide).toContain("credentialSecret")
@@ -97,7 +95,7 @@ describe("documented HTTP receiver", () => {
       ingest,
       project: () => Effect.die("unused")
     })
-    const server = runFence(githubGuide, "const server =", "server", { webhookSecret: secret, channelsLayer }) as Server
+    const server = runFence(linearGuide, "const server =", "server", { webhookSecret: secret, channelsLayer }) as Server
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     const address = server.address()
     if (!address || typeof address === "string") throw new Error("Missing fixture address")
@@ -108,7 +106,7 @@ describe("documented HTTP receiver", () => {
       host: "127.0.0.1",
       port: address.port,
       method: "POST",
-      headers: { "x-github-delivery": "doc-delivery" }
+      headers: { "linear-delivery": "doc-delivery" }
     })
     try {
       const reply = new Promise<{ status: number | undefined; ended: boolean }>((resolve, reject) => {
@@ -139,9 +137,9 @@ describe("documented HTTP receiver", () => {
         const [call] = ingest.mock.calls[0] as unknown as [
           { readonly channel: string; readonly raw: { readonly body: Uint8Array; readonly idempotencyKey: string } }
         ]
-        expect(call.channel).toBe("github")
+        expect(call.channel).toBe("linear")
         expect(call.raw.idempotencyKey).toBe(
-          GitHub.Webhook.idempotencyKey({ headers: { "x-github-delivery": "doc-delivery" } })
+          Linear.Webhook.idempotencyKey({ headers: { "linear-delivery": "doc-delivery" } }, undefined)
         )
         expect(Buffer.compare(Buffer.from(call.raw.body), body)).toBe(0)
       }

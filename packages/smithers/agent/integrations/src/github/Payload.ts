@@ -17,9 +17,8 @@ const open = <Fields extends Schema.Struct.Fields>(fields: Fields) => Schema.Str
 /**
  * A GitHub account.
  *
- * `type` distinguishes a person from a GitHub App: `Webhook.senderRefusal`
- * refuses a `Bot` sender, so the field is modelled rather than left to the
- * open rest.
+ * `type` distinguishes a person from a GitHub App, so the field is modelled
+ * rather than left to the open rest.
  *
  * @category schemas
  * @since 1.0.0
@@ -32,9 +31,9 @@ export const User = open({
 
 /**
  * How the author of a comment, issue, or pull request relates to the
- * repository. GitHub sends it on every author-attributed delivery, and
- * `Webhook.senderRefusal` reads it as the only authorization signal a webhook
- * payload carries.
+ * repository, as GitHub sends it on every author-attributed delivery. It names
+ * the author's standing, not who last edited the text, so it is not an
+ * authorization signal.
  *
  * @category schemas
  * @since 1.0.0

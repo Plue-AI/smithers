@@ -69,7 +69,7 @@ The `route` decides what a decoded event does. Two constructors ship:
 There is no broadcast: 1.0.0-rc.0 does not deliver one event to every run
 parked on a matching name. A delivery decodes to one event with one
 correlation, and the broader forms a caller might route on are exposed as
-data (`GitHub.Webhook.names` and `correlations`, and the Linear equivalents)
+data (`Linear.Webhook.names` and `correlations`)
 rather than delivered as duplicate signals.
 [Events, signals, and cursors](./events-and-signals.md) covers those ladders.
 
@@ -80,9 +80,6 @@ redelivery guarantee, and the key is yours to put on the `RawInbound` you
 hand `ingest`. Nothing derives one for you. Each provider exports the
 derivation from its own delivery identity:
 
-- `GitHub.Webhook.idempotencyKey(raw)` reads `X-GitHub-Delivery`, the same
-  value a redelivery carries, and returns `undefined` when the header is
-  absent.
 - `Linear.Webhook.idempotencyKey(raw, payload)` reads `Linear-Delivery` and
   falls back to the delivery's own identity: webhook id, entity, action, and
   timestamp, which together identify the same delivery across a redelivery.
@@ -91,7 +88,7 @@ derivation from its own delivery identity:
 
 An ingress that leaves the field unset has no redelivery protection at all:
 the provider's retry after a timeout becomes a second flow start or a second
-signal. The [GitHub guide](../guides/github.md) shows an HTTP handler that
+signal. The [Linear guide](../guides/linear.md) shows an HTTP handler that
 builds a `RawInbound` correctly.
 
 Telegram is the special case. There is no signed webhook to verify, so the

@@ -1,11 +1,10 @@
-smthrs integrations — Inspect configured provider adapters and reconcile declared GitHub webhooks
+smthrs integrations — Inspect configured provider adapters
 
 Usage: smthrs integrations <command>
 
 Commands:
-  doctor     Check configured credentials and probe provider authentication
-  list       List configured integrations and credential references without making requests
-  reconcile  Plan GitHub webhooks from .smithers/listeners.json; --apply writes owned hooks
+  doctor  Check configured credentials and probe provider authentication
+  list    List configured integrations and credential references without making requests
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

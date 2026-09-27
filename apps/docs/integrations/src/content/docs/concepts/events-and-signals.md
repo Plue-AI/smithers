@@ -27,9 +27,9 @@ One delivery decodes to one event:
 
 `source` is the id of the channel or polling source, and every provider
 follows that rule. A channel or source that is not named takes the provider
-name, so one GitHub channel produces `github` and a second one named
-`github-secondary` produces `github-secondary`. `GitHub.Webhook.channel`,
-`Linear.Webhook.channel`, and `Telegram.Source.make` all stamp their own id,
+name, so one Linear channel produces `linear` and a second one named
+`linear-secondary` produces `linear-secondary`. `Linear.Webhook.channel` and
+`Telegram.Source.make` both stamp their own id,
 so a listener can tell two installations or two bots apart without reading
 the payload.
 
@@ -68,10 +68,9 @@ pending notification carrying the newest payload. For the queue itself, see
 Each provider also exposes the full ordered ladder its payload answers to,
 most specific first, for a caller that routes on a broader form:
 
-| Provider | Names                                                                            | Correlations                          |
-| -------- | -------------------------------------------------------------------------------- | ------------------------------------- |
-| GitHub   | `integration:github:pull_request.opened`, then `integration:github:pull_request` | `owner/repo#12`, `owner/repo`, `null` |
-| Linear   | `integration:linear:issue.update`, then `integration:linear:issue`               | `ENG-123`, `ENG`, `null`              |
+| Provider | Names                                                              | Correlations             |
+| -------- | ------------------------------------------------------------------ | ------------------------ |
+| Linear   | `integration:linear:issue.update`, then `integration:linear:issue` | `ENG-123`, `ENG`, `null` |
 
 The decoded event carries the first rung of each ladder: the most specific
 name and correlation the payload supports. The ladders are routing inputs,
@@ -87,8 +86,7 @@ redelivery.
 ## Dedupe keys
 
 The `dedupeKey` is the provider's delivery identity folded into the event, so
-a redelivery downstream is recognizable as the same event. GitHub builds it
-from `X-GitHub-Delivery`, the event name, and the correlation. Linear builds
+a redelivery downstream is recognizable as the same event. Linear builds
 it from `Linear-Delivery`, falling back to the webhook id, entity, action,
 and timestamp when the header is absent. One derivation feeds both the
 idempotency key and the dedupe key, so the two cannot come to disagree about

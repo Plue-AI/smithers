@@ -1180,6 +1180,16 @@
       "reason": "Schema-install implementation lives at src/core/IntegrationCursorMigration.ts, which the export map does not name; Core.Migrations remains public."
     },
     {
+      "name": "@smthrs/integrations",
+      "subpath": "./github/Webhook",
+      "reason": "GitHub webhooks enter through the Smithers backend, which decides whether an event may start work; the package's GitHub channel and its author_association gate were a second trust rule."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./github/ListenerRegistry",
+      "reason": "Declared hooks pointed at the removed GitHub webhook channel; nothing else received them."
+    },
+    {
       "name": "@smthrs/build-cli",
       "subpath": "./effect-resolution.d",
       "reason": "Declaration-only source file; no corresponding emitted runtime module. Preserve the explicit ./effect-resolution JavaScript hook and its declaration."

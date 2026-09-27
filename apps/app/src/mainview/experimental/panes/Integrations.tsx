@@ -3,55 +3,21 @@
  * `/experimental.integrations`. Self-contained on purpose — see ../Pane.ts.
  *
  * A provider is a typed client plus a door, and the door is the interesting
- * half: the HMAC over the exact delivered bytes, the sender the delivery is
- * refused for, the cursor that decides what a poll replays, and the closed set
- * of codes an adapter may raise. Fields belong to `core/Signature`,
- * `core/ExternalEvent`, `core/IntegrationError`, `core/CursorStore`,
- * `github/Webhook`, `linear/Webhook`, `telegram/Source`, the
+ * half: the HMAC over the exact delivered bytes, the cursor that decides what
+ * a poll replays, and the closed set of codes an adapter may raise. Fields
+ * belong to `core/Signature`, `core/ExternalEvent`, `core/IntegrationError`,
+ * `core/CursorStore`, `linear/Webhook`, `telegram/Source`, the
  * `smithers_integration_cursors` table, and `@smthrs/errors`.
  */
 import { pane, type ExperimentalPaneContext } from "../Pane"
 import { Badge, Bars, Code, Facts, Rail, Section, Split, Steps, Table } from "../Primitives"
 
 const PROVIDERS = [
-  { id: "github", label: "github", note: "verified", tone: "ok" as const },
   { id: "linear", label: "linear", note: "refused", tone: "bad" as const },
   { id: "telegram", label: "telegram", note: "offset 918 447 210", tone: "info" as const }
 ]
 
 const DOORS = [
-  {
-    id: "github",
-    header: "x-hub-signature-256",
-    prefix: "sha256=",
-    digest: "sha256=9f2c41d0…a41d",
-    bytes: "6 144",
-    verdict: "verified",
-    tone: "ok" as const,
-    source_id: "github",
-    cursor: "—",
-    updated_at_ms: "14:35:02Z",
-    raw: `POST /hooks/github
-x-hub-signature-256: sha256=9f2c41d0…a41d
-x-github-event: pull_request
-x-github-delivery: 7d3f0c1e-9b44-4d1a-8e12-0a55c9f27e31
-content-length: 6144`,
-    steps: [
-      { id: "s1", label: "verifySignature", note: "HMAC-SHA256 over raw body", tone: "ok" as const },
-      { id: "s2", label: "constantTimeEqual", note: "32 bytes", tone: "ok" as const },
-      { id: "s3", label: "x-github-event", note: "pull_request", tone: "ok" as const },
-      { id: "s4", label: "senderRefusal", note: "author_association MEMBER", tone: "ok" as const },
-      { id: "s5", label: "ExternalEvent.decode", note: "integration:github:pull_request.opened", tone: "ok" as const }
-    ],
-    event: {
-      source: "github",
-      eventName: "integration:github:pull_request.opened",
-      correlationId: "smithersai/smithers#4412",
-      dedupeKey: "7d3f0c1e-9b44-4d1a-8e12-0a55c9f27e31:integration:github:pull_request.opened:smithersai/smithers#4412",
-      receivedAtMs: "14:35:02Z",
-      idempotencyKey: "github:7d3f0c1e-9b44-4d1a-8e12-0a55c9f27e31"
-    }
-  },
   {
     id: "linear",
     header: "linear-signature",
@@ -142,7 +108,7 @@ export const Pane = pane({
 })
 
 function IntegrationsBody({ props, set: runCommandSet }: ExperimentalPaneContext) {
-  const provider = typeof props.provider === "string" ? props.provider : "github"
+  const provider = typeof props.provider === "string" ? props.provider : "linear"
   const door = DOORS.find((row) => row.id === provider) ?? DOORS[0]!
   return (
     <Split

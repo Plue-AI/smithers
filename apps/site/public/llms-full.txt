@@ -28432,10 +28432,9 @@ driver that keeps them current.
 `@smthrs/integrations/Environment`: explicit access to the host's process
 environment, the one place the package spells that decision.
 
-| Export                    | Signature                                             | Notes                                                                                                                        |
-| ------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `ambientEnvironment`      | `() => Readonly<Record<string, string \| undefined>>` | Reads the ambient process environment. Callers that require account isolation pass an environment record explicitly instead. |
-| `ambientWorkingDirectory` | `() => string`                                        | Reads the ambient working directory. `ListenerRegistry.reconcile` defaults its workspace root through this.                  |
+| Export               | Signature                                             | Notes                                                                                                                        |
+| -------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `ambientEnvironment` | `() => Readonly<Record<string, string \| undefined>>` | Reads the ambient process environment. Callers that require account isolation pass an environment record explicitly instead. |
 
 ## GitHub
 
@@ -28448,8 +28447,7 @@ omits falls back to `env`, which defaults to the ambient environment.
 
 `GitHubConfig` fields: `token` (falls back to `SMITHERS_GITHUB_TOKEN`, then
 `GITHUB_TOKEN`), `apiBaseUrl` (falls back to `SMITHERS_GITHUB_API_BASE_URL`,
-default `https://api.github.com`), `webhookSecret` (falls back to
-`SMITHERS_GITHUB_WEBHOOK_SECRET`), `maxRetries` (defaults to 3), and
+default `https://api.github.com`), `maxRetries` (defaults to 3), and
 `requestTimeout` (defaults to 30 seconds).
 
 `requestTimeout` is the deadline for one attempt, covering the response
@@ -28518,84 +28516,6 @@ Every path this package builds from an owner and a repository goes through
 | `IssueNumber`           | schema                                                              | An integer of at least 1.                                                                                                                       |
 | `OWNER_PATTERN`         | regex                                                               | 1 to 39 characters, alphanumerics and hyphens, not starting with a hyphen, with one underscore allowed as an Enterprise Managed User separator. |
 | `REPO_PATTERN`          | regex                                                               | 1 to 100 characters of alphanumerics, dots, underscores, and hyphens, excluding `.` and `..`.                                                   |
-
-### GitHub.Webhook
-
-GitHub webhook ingress. `X-Hub-Signature-256` is verified over the exact
-delivered bytes before anything reads the body. `allowedAssociations` defaults
-to `OWNER`, `MEMBER`, and `COLLABORATOR`. Bots, disallowed associations, and
-missing associations are refused before routing. Comments and reviews use
-their own association, never a parent issue or pull request's association.
-Events without an association, including `push`, fail closed.
-
-`DecodeOptions` extends `SenderPolicy` with `source`, the decoded event's
-source id, which defaults to `github` and which `channel` sets to its own
-name.
-
-`SenderPolicy` and `ChannelOptions` accept `allowedAssociations`; an empty
-list admits nobody. `defaultAllowedAssociations` exposes the default.
-`senderRefusal(event, payload, policy?)` returns `SenderRefused | undefined`.
-`SenderRefused` has reason `permission-denied` and a typed `SenderSkipReason`
-in `skipReason`: `bot-sender`, `missing-association`, or
-`association-not-allowed`. `decode` throws the refusal; the channel converts
-it to `InvalidInput` before it can start or signal a run.
-
-| Export           | Signature                                                                                              | Notes                                                                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verify`         | `(raw: RawInbound, secret: string) => boolean`                                                         | The signature check over `raw.body`, never a re-serialized copy.                                                                                                                        |
-| `decode`         | `(raw: RawInbound, payload: unknown, receivedAtMs?: number, options?: DecodeOptions) => ExternalEvent` | Throws an `IntegrationError` `decode-failed` when `X-GitHub-Event` or `X-GitHub-Delivery` is missing. The dedupe key is `<deliveryId>:<eventName>:<correlationId or "*">`.              |
-| `names`          | `(event: string, payload: unknown) => readonly string[]`                                               | The signal names a delivery answers to, most specific first: the per-action variant ahead of the bare event name.                                                                       |
-| `correlations`   | `(payload: unknown) => readonly (string \| null)[]`                                                    | `owner/repo#number`, then `owner/repo`, then `null`.                                                                                                                                    |
-| `idempotencyKey` | `(raw: HasHeaders) => string \| undefined`                                                             | `github:<X-GitHub-Delivery>`, or `undefined` when the header is absent.                                                                                                                 |
-| `channel`        | `(options: ChannelOptions) => Channel`                                                                 | A control-plane channel for GitHub webhooks. The channel name is the decoded event's source and defaults to `github`; fingerprint headers are `x-github-delivery` and `x-github-event`. |
-| `SERVICE`        | `"github"`                                                                                             | The service segment of every GitHub signal name.                                                                                                                                        |
-
-`ChannelOptions` fields: optional `name`, `credential`, `secret`, `route`,
-and optional `project`.
-
-### GitHub.ListenerRegistry
-
-Declared GitHub webhooks, and the reconciliation that makes a repository
-match the declaration. The safety property is ownership: a hook is owned only
-when its numeric GitHub id appears in the workspace's state file. An unowned
-hook on a declared callback URL is reported as a `conflict` and never
-modified. [The GitHub guide](https://integrations.smithers.sh/guides/github/) walks the workflow.
-
-| Export                      | Signature                                                                   | Notes                                                                                                                                                                                                             |
-| --------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reconcile`                 | `(options?: ReconcileOptions) => Effect<ReconcileResult, IntegrationError>` | Plans by default and applies only with `apply: true`; deletes additionally need `allowDelete: true`. An apply that would touch an unowned hook fails `listener-conflict`. An apply holds the workspace lock file. |
-| `plan`                      | `(input: PlanInput) => readonly PlanAction[]`                               | Pure: performs no requests and writes nothing.                                                                                                                                                                    |
-| `parseRegistry`             | `(input: unknown, source?: string) => Registry`                             | Validates a declaration, reporting every problem it finds. Throws `IntegrationError` `invalid-config`.                                                                                                            |
-| `readRegistry`              | `(workspaceRoot: string) => Registry`                                       | Reads `.smithers/listeners.json`. Throws `invalid-config` when the file is missing or invalid.                                                                                                                    |
-| `readOwnershipState`        | `(workspaceRoot: string) => OwnershipState`                                 | An empty state when the workspace has never reconciled. A state file that exists but cannot be parsed is fatal.                                                                                                   |
-| `parseRemoteHooks`          | `(value: readonly unknown[], repository: string) => readonly RemoteHook[]`  | Decodes the hook list GitHub returned. Throws `decode-failed` naming the member and field.                                                                                                                        |
-| `PENDING_CREATE_MAX_AGE_MS` | `86400000`                                                                  | How long a pending create stays adoptable: one day.                                                                                                                                                               |
-| `DEFAULT_REGISTRY_PATH`     | `".smithers/listeners.json"`                                                |                                                                                                                                                                                                                   |
-| `DEFAULT_STATE_PATH`        | `".smithers/listeners.state.json"`                                          |                                                                                                                                                                                                                   |
-| `DEFAULT_LOCK_PATH`         | `".smithers/listeners.lock"`                                                |                                                                                                                                                                                                                   |
-| `LISTENER_EVENTS`           | `readonly string[]`                                                         | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`.                                                                                                                  |
-
-`ReconcileOptions` fields: `workspaceRoot` (defaults to the ambient working
-directory), `registry` (an in-memory declaration instead of the file),
-`apply`, `allowDelete`, `token`, `apiBaseUrl`, `env` (replaces the ambient
-environment outright), and `client` (an already-built client, which skips the
-token check; each listener's `secretEnv` variable is still required).
-
-`reconcile` fails with `credentials-missing` when it has neither a token nor
-a client, or when a listener's `secretEnv` variable is unset;
-`permission-denied` when listing hooks answers 401, 403, or 404;
-`delivery-failed` when a repository's hook list is truncated;
-`invalid-config` for workspace file problems; `decode-failed` when GitHub
-returns an unreadable hook or no hook id after a create; and
-`listener-conflict` when an apply meets an unowned hook on a declared URL or
-the lock is held by a live process.
-
-`PlanAction.action` is one of `create`, `update`, `delete`, `noop`, `leave`,
-or `conflict`, with `listenerId`, `repository`, `hookId`, `reason`, and
-`destructive` alongside. `ReconcileResult` adds `applied` and `skipped` to
-the plan summary (`actions`, `changes`, `destructiveChanges`, and the two
-paths). Models: `Listener`, `Registry`, `Ownership`, `PendingCreate`,
-`OwnershipState`, `RemoteHook`, `PlanInput`.
 
 ### GitHub.Payload
 
@@ -49992,14 +49912,13 @@ Global Options:
 https://smithers.sh/docs/reference/cli/integrations/
 
 ```text
-smthrs integrations — Inspect configured provider adapters and reconcile declared GitHub webhooks
+smthrs integrations — Inspect configured provider adapters
 
 Usage: smthrs integrations <command>
 
 Commands:
-  doctor     Check configured credentials and probe provider authentication
-  list       List configured integrations and credential references without making requests
-  reconcile  Plan GitHub webhooks from .smithers/listeners.json; --apply writes owned hooks
+  doctor  Check configured credentials and probe provider authentication
+  list    List configured integrations and credential references without making requests
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50065,41 +49984,6 @@ Options:
   --remote <string>      Remote control server; local operator commands refuse this option
   --credential <string>  Remote control credential
   --config <string>       (default: .smithers/integrations.json)
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## integrations reconcile
-
-```text
-smthrs integrations reconcile — Plan GitHub webhooks from .smithers/listeners.json; --apply writes owned hooks
-
-Usage: smthrs integrations reconcile [id] [options]
-
-Arguments:
-  id
-
-Options:
-  --root <string>        Project root (defaults to the nearest Smithers project)
-  --remote <string>      Remote control server; local operator commands refuse this option
-  --credential <string>  Remote control credential
-  --config <string>       (default: .smithers/integrations.json)
-  --apply
-  --allow-delete
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51473,7 +51357,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
 | [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |
 | [`install`](/docs/reference/cli/install/) | Plan and execute the install Flow under the toolchain the workspace declares |
-| [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters and reconcile declared GitHub webhooks |
+| [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters |
 | [`lint`](/docs/reference/cli/lint/) | Execute the lint targets selected by a pattern |
 | [`mcp`](/docs/reference/cli/mcp/) | Register the Smithers MCP server with an agent |
 | [`memory`](/docs/reference/cli/memory/) | Durable facts, notes, recall, and conversation history |
@@ -51513,16 +51397,14 @@ submits a previously approved plan. `runs resume` re-drives a parked run.
 | [`memory`](/docs/reference/cli/memory/) | `list/get/set/rm`, `recall`, `notes list/get/add/status/supersede`, `threads list/create/show/rm`, `messages list/add`, `compact`. |
 | [`credentials`](/docs/reference/cli/credentials/) | `list/add/rotate/revoke`; only references appear in output. |
 | [`triggers`](/docs/reference/cli/triggers/) | `list/show/register/enable/disable/fire/serve`; `fire` queues an occurrence for a running scheduler. |
-| [`integrations`](/docs/reference/cli/integrations/) | `list`, `doctor [--offline]`, and GitHub webhook `reconcile`. |
+| [`integrations`](/docs/reference/cli/integrations/) | `list` and `doctor [--offline]`. |
 | [`eval`](/docs/reference/cli/eval/) | `list/run/baseline/compare` for modules under `evals/**/*.eval.ts`. |
 
 Credentials use `SMITHERS_CREDENTIAL_KEY`, a base64-encoded 32-byte host key.
 Supply secrets through `--secret-env` or `--secret-file`; keep the host key
 outside the database. Integrations read `.smithers/integrations.json` or
 discover configured provider environment variables. Configuration entries name
-an `id`, `provider`, and optional `tokenEnv` or `credentialId`. GitHub webhook
-reconciliation reads `.smithers/listeners.json`, plans by default, writes with
-`--apply`, and requires `--allow-delete` to delete owned hooks.
+an `id`, `provider`, and optional `tokenEnv` or `credentialId`.
 
 Both `serve` and `triggers serve` host the durable scheduler. Trigger dispatch
 preserves flow approval requirements; disabling a trigger does not cancel an

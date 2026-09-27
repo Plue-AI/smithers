@@ -55,65 +55,33 @@ stops at `maxPages` and reports `truncated`.
 it is public so your tests can produce a delivery the adapter accepts:
 
 ```ts
-import { Core, GitHub } from "@smthrs/integrations"
+import { Core, Linear } from "@smthrs/integrations"
 
 const secret = "shared-secret"
 const text = JSON.stringify({
-  action: "opened",
-  pull_request: { number: 12, author_association: "MEMBER" },
-  repository: { full_name: "acme/api" },
-  sender: { login: "ana", type: "User" }
+  action: "update",
+  type: "Issue",
+  data: { id: "issue-uuid", identifier: "ENG-123", team: { key: "ENG" } },
+  webhookId: "hook-1",
+  webhookTimestamp: Date.now()
 })
 
-const delivery = {
+const raw = {
   body: new TextEncoder().encode(text),
   headers: {
-    "x-github-event": "pull_request",
-    "x-github-delivery": "delivery-1",
-    "x-hub-signature-256": `sha256=${Core.Signature.computeHmacSha256Hex(text, secret)}`
-  },
-  idempotencyKey: "github:delivery-1"
+    "linear-delivery": "delivery-1",
+    "linear-signature": Core.Signature.computeHmacSha256Hex(text, secret)
+  }
 }
+const delivery = { ...raw, idempotencyKey: "linear:delivery-1" }
 
-GitHub.Webhook.verify(delivery, secret) // true
-const event = GitHub.Webhook.decode(delivery, JSON.parse(text))
+Linear.Webhook.verify(delivery, secret) // true
+const event = Linear.Webhook.decode(delivery, JSON.parse(text))
 ```
 
-Give any fixture you expect to be accepted an `author_association`, and a
-`sender` that is not a bot. `decode` gates the sender after the signature
-check, so a valid signature is not enough: the defaults admit `OWNER`,
-`MEMBER`, and `COLLABORATOR`, and `allowedAssociations` on the channel widens
-them. The same delivery without an association verifies and is then refused:
-
-```ts
-import { Core, GitHub } from "@smthrs/integrations"
-
-const secret = "shared-secret"
-const anonymous = JSON.stringify({
-  action: "opened",
-  pull_request: { number: 12 },
-  repository: { full_name: "acme/api" }
-})
-
-const refused = {
-  body: new TextEncoder().encode(anonymous),
-  headers: {
-    "x-github-event": "pull_request",
-    "x-github-delivery": "delivery-2",
-    "x-hub-signature-256": `sha256=${Core.Signature.computeHmacSha256Hex(anonymous, secret)}`
-  },
-  idempotencyKey: "github:delivery-2"
-}
-
-GitHub.Webhook.verify(refused, secret) // true
-// Throws GitHub.Webhook.SenderRefused, reason permission-denied,
-// skipReason "missing-association".
-GitHub.Webhook.decode(refused, JSON.parse(anonymous))
-```
-
-In an ingress the key comes from `GitHub.Webhook.idempotencyKey(raw)`, which
-returns exactly `github:<X-GitHub-Delivery>`; a test that writes the literal
-keeps the delivery it controls readable.
+In an ingress the key comes from `Linear.Webhook.idempotencyKey(raw, payload)`,
+which returns exactly `linear:<Linear-Delivery>` when the header is present;
+a test that writes the literal keeps the delivery it controls readable.
 
 Sign the same bytes you send. Signing a string and then delivering a
 re-serialized copy of the parsed object is the mistake the verifier is built

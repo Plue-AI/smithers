@@ -37,7 +37,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
 | [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |
 | [`install`](/docs/reference/cli/install/) | Plan and execute the install Flow under the toolchain the workspace declares |
-| [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters and reconcile declared GitHub webhooks |
+| [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters |
 | [`lint`](/docs/reference/cli/lint/) | Execute the lint targets selected by a pattern |
 | [`mcp`](/docs/reference/cli/mcp/) | Register the Smithers MCP server with an agent |
 | [`memory`](/docs/reference/cli/memory/) | Durable facts, notes, recall, and conversation history |
@@ -79,16 +79,14 @@ submits a previously approved plan. `runs resume` re-drives a parked run.
 | [`memory`](/docs/reference/cli/memory/) | `list/get/set/rm`, `recall`, `notes list/get/add/status/supersede`, `threads list/create/show/rm`, `messages list/add`, `compact`. |
 | [`credentials`](/docs/reference/cli/credentials/) | `list/add/rotate/revoke`; only references appear in output. |
 | [`triggers`](/docs/reference/cli/triggers/) | `list/show/register/enable/disable/fire/serve`; `fire` queues an occurrence for a running scheduler. |
-| [`integrations`](/docs/reference/cli/integrations/) | `list`, `doctor [--offline]`, and GitHub webhook `reconcile`. |
+| [`integrations`](/docs/reference/cli/integrations/) | `list` and `doctor [--offline]`. |
 | [`eval`](/docs/reference/cli/eval/) | `list/run/baseline/compare` for modules under `evals/**/*.eval.ts`. |
 
 Credentials use `SMITHERS_CREDENTIAL_KEY`, a base64-encoded 32-byte host key.
 Supply secrets through `--secret-env` or `--secret-file`; keep the host key
 outside the database. Integrations read `.smithers/integrations.json` or
 discover configured provider environment variables. Configuration entries name
-an `id`, `provider`, and optional `tokenEnv` or `credentialId`. GitHub webhook
-reconciliation reads `.smithers/listeners.json`, plans by default, writes with
-`--apply`, and requires `--allow-delete` to delete owned hooks.
+an `id`, `provider`, and optional `tokenEnv` or `credentialId`.
 
 Both `serve` and `triggers serve` host the durable scheduler. Trigger dispatch
 preserves flow approval requirements; disabling a trigger does not cancel an

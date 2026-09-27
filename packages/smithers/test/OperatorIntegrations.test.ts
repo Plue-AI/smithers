@@ -37,7 +37,7 @@ const serve = async (root: string, args: ReadonlyArray<string>) => {
 }
 
 describe("integration CLI", () => {
-  it("discovers fallback credentials and listener-only GitHub configuration without exposing values", async () => {
+  it("discovers fallback credentials without exposing values", async () => {
     const directory = await root()
     expect(readIntegrations(directory, undefined, {})).toEqual([])
     expect(readIntegrations(directory, undefined, { GITHUB_TOKEN: "fallback-fixture" })).toEqual([
@@ -50,10 +50,6 @@ describe("integration CLI", () => {
     })).toEqual([
       { id: "github", provider: "github", tokenEnv: "SMITHERS_GITHUB_TOKEN" },
       { id: "telegram", provider: "telegram", tokenEnv: "SMITHERS_TELEGRAM_BOT_TOKEN" }
-    ])
-    await Fs.writeFile(Path.join(directory, ".smithers/listeners.json"), "{}")
-    expect(readIntegrations(directory, undefined, {})).toEqual([
-      { id: "github", provider: "github", tokenEnv: "SMITHERS_GITHUB_TOKEN" }
     ])
     expect(() => readIntegrations(directory, "missing.json", {})).toThrow("configuration does not exist")
   })
@@ -175,27 +171,15 @@ describe("integration CLI", () => {
     }
   })
 
-  it("refuses unknown, ambiguous, and unapproved destructive reconciliation before requests", async () => {
+  it("refuses an unknown integration before requests", async () => {
     const directory = await root()
     const fetch = vi.fn(() => {
-      throw new Error("invalid reconciliation sent a request")
+      throw new Error("an unknown integration sent a request")
     })
     vi.stubGlobal("fetch", fetch)
     const config = Path.join(directory, ".smithers/integrations.json")
     await Fs.writeFile(config, JSON.stringify({ version: 1, integrations: [{ id: "linear", provider: "linear" }] }))
     expect((await serve(directory, ["doctor", "unknown"])).output).toContain("Unknown integration")
-    expect((await serve(directory, ["reconcile"])).output).toContain("Select exactly one")
-    await Fs.writeFile(
-      config,
-      JSON.stringify({
-        version: 1,
-        integrations: [{ id: "first", provider: "github" }, { id: "second", provider: "github" }]
-      })
-    )
-    expect((await serve(directory, ["reconcile"])).output).toContain("Select exactly one")
-    const refused = await serve(directory, ["reconcile", "first", "--allow-delete"])
-    expect(refused.code).toBe(1)
-    expect(refused.output).toContain("--allow-delete requires --apply")
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -320,52 +304,5 @@ describe("integration CLI", () => {
     ])
     expect(requests).toEqual(["https://github.example.com/api/v3/rate_limit"])
     expect(authorized.output).not.toContain("authorized-fixture-secret")
-  })
-
-  it("plans GitHub webhook reconciliation without making writes", async () => {
-    const directory = await root()
-    await Fs.writeFile(
-      Path.join(directory, ".smithers/integrations.json"),
-      JSON.stringify({
-        version: 1,
-        integrations: [{ id: "gh", provider: "github", tokenEnv: "SMITHERS_TEST_INTEGRATION_TOKEN" }]
-      })
-    )
-    await Fs.writeFile(
-      Path.join(directory, ".smithers/listeners.json"),
-      JSON.stringify({
-        version: 1,
-        listeners: [{
-          id: "issues",
-          provider: "github",
-          repository: "acme/project",
-          events: ["issues"],
-          flowId: "triage",
-          callbackUrl: "https://example.com/webhooks/triage",
-          secretEnv: "SMITHERS_TEST_WEBHOOK_SECRET",
-          active: true
-        }]
-      })
-    )
-    vi.stubEnv("SMITHERS_INTEGRATION_TOKEN_ENV", "SMITHERS_TEST_INTEGRATION_TOKEN")
-    vi.stubEnv("SMITHERS_TEST_INTEGRATION_TOKEN", "test-token")
-    vi.stubEnv("SMITHERS_TEST_WEBHOOK_SECRET", "test-secret")
-    const methods: Array<string> = []
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_input: unknown, init?: RequestInit) => {
-        methods.push(init?.method ?? "GET")
-        return Response.json([])
-      })
-    )
-    try {
-      const result = await serve(directory, ["reconcile", "gh"])
-      expect(result.code, result.output).toBe(0)
-      expect(result.output).toContain("create")
-      expect(result.output).not.toContain("test-secret")
-      expect(methods.every((method) => method === "GET")).toBe(true)
-    } finally {
-      vi.unstubAllEnvs()
-    }
   })
 })

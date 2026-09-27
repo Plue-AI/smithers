@@ -49,11 +49,6 @@ export interface GitHubConfig {
    * `SMITHERS_GITHUB_API_BASE_URL`.
    */
   readonly apiBaseUrl?: string | undefined
-  /**
-   * HMAC secret for `X-Hub-Signature-256`. Falls back to
-   * `SMITHERS_GITHUB_WEBHOOK_SECRET`.
-   */
-  readonly webhookSecret?: string | undefined
   /** Retries for rate-limited and 5xx responses. Defaults to 3. */
   readonly maxRetries?: number | undefined
   /**
@@ -76,7 +71,6 @@ export interface GitHubConfig {
 export interface ResolvedGitHubConfig {
   readonly token: string | undefined
   readonly apiBaseUrl: string
-  readonly webhookSecret: string | undefined
   readonly maxRetries: number
   readonly requestTimeout: Duration.Input
 }
@@ -104,7 +98,6 @@ export const resolve = (
 ): ResolvedGitHubConfig => ({
   token: firstNonEmpty([config.token, env["SMITHERS_GITHUB_TOKEN"], env["GITHUB_TOKEN"]]),
   apiBaseUrl: firstNonEmpty([config.apiBaseUrl, env["SMITHERS_GITHUB_API_BASE_URL"]]) ?? DEFAULT_API_BASE_URL,
-  webhookSecret: firstNonEmpty([config.webhookSecret, env["SMITHERS_GITHUB_WEBHOOK_SECRET"]]),
   maxRetries: config.maxRetries ?? DEFAULT_MAX_RETRIES,
   requestTimeout: config.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT
 })

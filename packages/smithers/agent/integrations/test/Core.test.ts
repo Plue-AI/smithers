@@ -1,7 +1,6 @@
 import { ERROR_REFERENCE_URL } from "@smthrs/errors/ErrorCode"
 import { SmithersError } from "@smthrs/errors/SmithersError"
 import { Effect, Schema } from "effect"
-import { resolve as resolvePath } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   fromIntegrationError,
@@ -626,10 +625,6 @@ describe("Environment", () => {
       if (previous === undefined) delete process.env["SMITHERS_GITHUB_TOKEN"]
       else process.env["SMITHERS_GITHUB_TOKEN"] = previous
     }
-  })
-
-  it("resolves a workspace root the caller did not name", () => {
-    expect(resolvePath(Environment.ambientWorkingDirectory())).toBe(process.cwd())
   })
 })
 

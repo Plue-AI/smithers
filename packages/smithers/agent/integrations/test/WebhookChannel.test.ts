@@ -4,13 +4,13 @@ import { Unauthorized } from "@smthrs/control/ControlError"
 import { Effect, Layer, Redacted, Stream } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Core from "../src/core/Channel.ts"
-import { computeHmacSha256Hex } from "../src/core/Signature.ts"
-import * as GitHubWebhook from "../src/github/Webhook.ts"
+import { readHeader } from "../src/core/JsonPath.ts"
+import { computeHmacSha256Hex, GITHUB_SIGNATURE_PREFIX, verifySignature } from "../src/core/Signature.ts"
 import * as LinearWebhook from "../src/linear/Webhook.ts"
 
 const SECRET = "shared-secret-correct"
 const WRONG_SECRET = "shared-secret-wrong"
-const CREDENTIAL = Redacted.make({ id: "github-webhook", name: "github-webhook" })
+const CREDENTIAL = Redacted.make({ id: "signed-webhook", name: "signed-webhook" })
 const accepted = { _tag: "Accepted" as const, receiptId: "receipt" }
 
 /** A real `Channels` coordinator over a Control that records what it is asked. */
@@ -101,70 +101,57 @@ const ingestTwice = (
 
 const bytes = (value: string) => new TextEncoder().encode(value)
 
-const githubChannel = (secret = SECRET) =>
-  GitHubWebhook.channel({
+// A channel over the package's `sha256=` HMAC verifier, keyed by its own
+// delivery header: the shape every signed webhook channel here shares.
+const signedChannel = (secret = SECRET, route = Core.startFlow("triage")) =>
+  Core.make({
+    name: "signed",
     credential: CREDENTIAL,
     secret: Core.constantSecret(Redacted.make(secret)),
-    route: Core.startFlow("triage")
+    fingerprintHeaders: ["x-delivery"],
+    verify: (raw, value) =>
+      verifySignature({
+        payload: raw.body,
+        secret: value,
+        signature: readHeader(raw, "x-signature-256"),
+        prefix: GITHUB_SIGNATURE_PREFIX
+      }),
+    decode: (raw, payload) => ({
+      source: "signed",
+      eventName: "integration:signed:issues.opened",
+      correlationId: null,
+      payload: payload as never,
+      dedupeKey: readHeader(raw, "x-delivery") ?? "",
+      receivedAtMs: 1
+    }),
+    route
   })
 
-const githubHeaders = (signature: string, deliveryId = "delivery-1") => ({
-  "x-github-event": "issues",
-  "x-github-delivery": deliveryId,
-  "x-hub-signature-256": signature
+const signedHeaders = (signature: string, deliveryId = "delivery-1") => ({
+  "x-delivery": deliveryId,
+  "x-signature-256": signature
 })
 
-// Built the way an ingress must build one: the idempotency key comes from the
-// provider's own delivery identity, through the helper the module exports, not
-// from a literal this test invented.
-const githubDelivery = (body: string, signature: string, deliveryId = "delivery-1"): Channels.RawInbound => {
-  const raw = { body: bytes(body), headers: githubHeaders(signature, deliveryId) }
-  return { ...raw, idempotencyKey: GitHubWebhook.idempotencyKey(raw) as string }
-}
+const signedDelivery = (body: string, signature: string, deliveryId = "delivery-1"): Channels.RawInbound => ({
+  body: bytes(body),
+  headers: signedHeaders(signature, deliveryId),
+  idempotencyKey: `signed:${deliveryId}`
+})
 
-// `OWNER` because the GitHub channel gates the sender's `author_association`:
-// these cases are about signatures and idempotency, so the sender is one the
-// door admits.
 const ISSUE_BODY = JSON.stringify({
   action: "opened",
-  issue: { number: 12, author_association: "OWNER" },
+  issue: { number: 12 },
   repository: { full_name: "smithersai/smithers" }
 })
 
 // This is the requirement the 0.x end-to-end fault case `case17-webhook-bad-signature`
 // pinned against the deleted gateway. The gateway is gone; the requirement is
 // not, so it is re-pinned here against the channel that replaced it.
-describe("case 17: a WebhookChannel bound with the GitHub verifier rejects a bad signature", () => {
-  it.each([
-    ["OWNER", "User", true],
-    ["MEMBER", "User", true],
-    ["COLLABORATOR", "User", true],
-    ["NONE", "User", false],
-    ["CONTRIBUTOR", "User", false],
-    [undefined, "User", false],
-    ["OWNER", "Bot", false]
-  ])("gates a signed comment from %s / %s before planning", async (association, type, allowed) => {
-    const body = JSON.stringify({
-      action: "created",
-      issue: { number: 12, author_association: "OWNER" },
-      comment: { body: "/fix", author_association: association },
-      sender: { type },
-      repository: { full_name: "smithersai/smithers" }
-    })
-    const delivery = githubDelivery(body, `sha256=${computeHmacSha256Hex(body, SECRET)}`)
-    const calls: Array<string> = []
-    const exit = await ingest(githubChannel(), {
-      ...delivery,
-      headers: { ...delivery.headers, "x-github-event": "issue_comment" }
-    }, calls)
-    expect(exit._tag).toBe(allowed ? "Success" : "Failure")
-    expect(calls).toEqual(allowed ? ["plan", "run"] : [])
-  })
-
+describe("case 17: a WebhookChannel bound with the sha256 verifier rejects a bad signature", () => {
   it("refuses a sha256= signature computed with a different secret", async () => {
     const calls: Array<string> = []
     const signature = `sha256=${computeHmacSha256Hex(ISSUE_BODY, WRONG_SECRET)}`
-    const exit = await ingest(githubChannel(), githubDelivery(ISSUE_BODY, signature), calls)
+    const exit = await ingest(signedChannel(), signedDelivery(ISSUE_BODY, signature), calls)
     expect(exit._tag).toBe("Failure")
     // Verification is the amplification guard: nothing downstream ran.
     expect(calls).toEqual([])
@@ -172,8 +159,8 @@ describe("case 17: a WebhookChannel bound with the GitHub verifier rejects a bad
 
   it("reports the refusal as Unauthorized and names no digest", async () => {
     const exit = await ingest(
-      githubChannel(),
-      githubDelivery(ISSUE_BODY, `sha256=${computeHmacSha256Hex(ISSUE_BODY, WRONG_SECRET)}`)
+      signedChannel(),
+      signedDelivery(ISSUE_BODY, `sha256=${computeHmacSha256Hex(ISSUE_BODY, WRONG_SECRET)}`)
     )
     const failure = JSON.stringify(exit)
     expect(failure).toContain("unauthorized")
@@ -186,14 +173,14 @@ describe("case 17: a WebhookChannel bound with the GitHub verifier rejects a bad
   it("refuses a digest that differs only in its final character", async () => {
     const digest = computeHmacSha256Hex(ISSUE_BODY, SECRET)
     const tampered = `sha256=${digest.slice(0, -1)}${digest.endsWith("a") ? "b" : "a"}`
-    const exit = await ingest(githubChannel(), githubDelivery(ISSUE_BODY, tampered))
+    const exit = await ingest(signedChannel(), signedDelivery(ISSUE_BODY, tampered))
     expect(exit._tag).toBe("Failure")
   })
 
   it("refuses a delivery with no signature header at all", async () => {
-    const exit = await ingest(githubChannel(), {
+    const exit = await ingest(signedChannel(), {
       body: bytes(ISSUE_BODY),
-      headers: { "x-github-event": "issues", "x-github-delivery": "delivery-1" },
+      headers: { "x-delivery": "delivery-1" },
       idempotencyKey: "delivery-1"
     })
     expect(exit._tag).toBe("Failure")
@@ -202,7 +189,7 @@ describe("case 17: a WebhookChannel bound with the GitHub verifier rejects a bad
   it("accepts the correctly signed delivery and starts the flow", async () => {
     const calls: Array<string> = []
     const signature = `sha256=${computeHmacSha256Hex(ISSUE_BODY, SECRET)}`
-    const exit = await ingest(githubChannel(), githubDelivery(ISSUE_BODY, signature), calls)
+    const exit = await ingest(signedChannel(), signedDelivery(ISSUE_BODY, signature), calls)
     expect(exit._tag).toBe("Success")
     expect(calls).toEqual(["plan", "run"])
   })
@@ -216,24 +203,22 @@ describe("redelivery", () => {
   it("applies a correctly signed delivery once and reports the retry as AlreadyApplied", async () => {
     const calls: Array<string> = []
     const signature = `sha256=${computeHmacSha256Hex(ISSUE_BODY, SECRET)}`
-    const receipts = await ingestTwice(githubChannel(), githubDelivery(ISSUE_BODY, signature), calls)
-    // The second delivery carries the same `x-github-delivery`, and
-    // `GitHubWebhook.idempotencyKey` derives the key from that header, so it
-    // is the same key and must not start a second run.
+    const receipts = await ingestTwice(signedChannel(), signedDelivery(ISSUE_BODY, signature), calls)
+    // The second delivery carries the same delivery id, so it is the same
+    // key and must not start a second run.
     expect(calls).toEqual(["plan", "run"])
     expect(receipts[0]?._tag).toBe("Accepted")
     expect(receipts[1]?._tag).toBe("AlreadyApplied")
   })
 
-  // The second delivery differs only in `x-github-delivery`, so the two keys
-  // have to differ because the package derived them, not because the test
-  // wrote a different literal into the second one.
+  // The second delivery differs only in its delivery id, so the two keys
+  // differ.
   it("treats a different delivery id as a new delivery", async () => {
     const calls: Array<string> = []
     const signature = `sha256=${computeHmacSha256Hex(ISSUE_BODY, SECRET)}`
-    const channel = githubChannel()
-    const first = githubDelivery(ISSUE_BODY, signature)
-    const second = githubDelivery(ISSUE_BODY, signature, "delivery-2")
+    const channel = signedChannel()
+    const first = signedDelivery(ISSUE_BODY, signature)
+    const second = signedDelivery(ISSUE_BODY, signature, "delivery-2")
     expect(second.idempotencyKey).not.toBe(first.idempotencyKey)
     const receipts = await Effect.runPromise(
       Effect.gen(function*() {
@@ -249,71 +234,6 @@ describe("redelivery", () => {
     )
     expect(calls).toEqual(["plan", "run", "plan", "run"])
     expect(receipts.map((receipt) => receipt._tag)).toEqual(["Accepted", "Accepted"])
-  })
-})
-
-describe("GitHub channel", () => {
-  it("refuses a verified delivery whose GitHub headers are missing", async () => {
-    const calls: Array<string> = []
-    const exit = await ingest(githubChannel(), {
-      body: bytes(ISSUE_BODY),
-      headers: { "x-hub-signature-256": `sha256=${computeHmacSha256Hex(ISSUE_BODY, SECRET)}` },
-      idempotencyKey: "delivery-1"
-    }, calls)
-    expect(exit._tag).toBe("Failure")
-    expect(JSON.stringify(exit)).toContain("X-GitHub-Event")
-    expect(calls).toEqual([])
-  })
-
-  it("refuses a verified delivery whose body is not JSON", async () => {
-    const body = "not json"
-    const exit = await ingest(
-      githubChannel(),
-      githubDelivery(body, `sha256=${computeHmacSha256Hex(body, SECRET)}`)
-    )
-    expect(exit._tag).toBe("Failure")
-  })
-
-  it("signals an addressed run when the route says so", async () => {
-    const calls: Array<string> = []
-    const channel = GitHubWebhook.channel({
-      credential: CREDENTIAL,
-      secret: Core.constantSecret(Redacted.make(SECRET)),
-      route: Core.signalRun("run-1")
-    })
-    const exit = await ingest(
-      channel,
-      githubDelivery(ISSUE_BODY, `sha256=${computeHmacSha256Hex(ISSUE_BODY, SECRET)}`),
-      calls
-    )
-    expect(exit._tag).toBe("Success")
-    expect(calls).toEqual(["signal"])
-  })
-
-  it("takes a channel name and projects nothing by default", () => {
-    const channel = GitHubWebhook.channel({
-      name: "github-enterprise",
-      credential: CREDENTIAL,
-      secret: Core.constantSecret(Redacted.make(SECRET)),
-      route: Core.startFlow("triage")
-    })
-    expect(channel.name).toBe("github-enterprise")
-    const projection = channel.project(
-      { runId: "r", flowId: "f", status: "running", createdAt: 1, updatedAt: 2 },
-      undefined
-    )
-    expect(projection).toEqual({ cursor: "2", operation: "noop", message: null })
-  })
-
-  it("uses the projection a caller supplies", () => {
-    const channel = GitHubWebhook.channel({
-      credential: CREDENTIAL,
-      secret: Core.constantSecret(Redacted.make(SECRET)),
-      route: Core.startFlow("triage"),
-      project: (run) => ({ cursor: String(run.updatedAt), operation: "post", message: { status: run.status } })
-    })
-    expect(channel.project({ runId: "r", flowId: "f", status: "running", createdAt: 1, updatedAt: 2 }, undefined))
-      .toEqual({ cursor: "2", operation: "post", message: { status: "running" } })
   })
 })
 
@@ -410,7 +330,7 @@ describe("secret resolution", () => {
       revoke: () => Effect.die("unused")
     })
     const secret = await Effect.runPromise(resolver(CREDENTIAL))
-    expect(Redacted.value(secret)).toBe("secret-for-github-webhook")
+    expect(Redacted.value(secret)).toBe("secret-for-signed-webhook")
   })
 
   it("reports an unresolvable credential as Unauthorized", async () => {
@@ -431,12 +351,6 @@ describe("secret resolution", () => {
 // the whole redelivery guarantee. Nothing derives the key for the caller, so
 // each provider exports the derivation an ingress has to use.
 describe("idempotency keys", () => {
-  it("derives a GitHub key from the delivery header", () => {
-    expect(GitHubWebhook.idempotencyKey({ headers: githubHeaders("sha256=x") })).toBe("github:delivery-1")
-    expect(GitHubWebhook.idempotencyKey({ headers: {} })).toBeUndefined()
-    expect(GitHubWebhook.idempotencyKey({ headers: { "x-github-delivery": "" } })).toBeUndefined()
-  })
-
   it("prefers Linear's delivery header and falls back to the delivery's own identity", () => {
     const body = linearBody(1_700_000_000_000)
     const payload = JSON.parse(body) as unknown
@@ -456,7 +370,7 @@ describe("idempotency keys", () => {
 describe("a channel refuses rather than dies", () => {
   const raw = (): Channels.RawInbound => ({
     body: bytes(ISSUE_BODY),
-    headers: githubHeaders(`sha256=${computeHmacSha256Hex(ISSUE_BODY, SECRET)}`),
+    headers: signedHeaders(`sha256=${computeHmacSha256Hex(ISSUE_BODY, SECRET)}`),
     idempotencyKey: "delivery-1"
   })
 

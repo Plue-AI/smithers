@@ -40,6 +40,8 @@ describe("explicit public entrypoints", () => {
     assert.equal(baseline.packages.length, 48)
     assert.deepEqual(baseline.removed.map(({ name, subpath }) => `${name}${subpath.slice(1)}`), [
       "@smthrs/integrations/core/migrations/0001_integration_cursors",
+      "@smthrs/integrations/github/Webhook",
+      "@smthrs/integrations/github/ListenerRegistry",
       "@smthrs/build-cli/effect-resolution.d",
       "@smthrs/plan/Migrations",
       "@smthrs/plan/PlanStore",
@@ -68,7 +70,7 @@ describe("explicit public entrypoints", () => {
       }
       retained += previous.subpaths.length - removed.length
     }
-    assert.equal(retained, 770)
+    assert.equal(retained, 768)
   })
 
   it("admits only explicitly reviewed additions without rewriting the original surface", () => {

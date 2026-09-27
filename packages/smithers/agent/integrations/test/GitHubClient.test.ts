@@ -25,14 +25,12 @@ describe("GitHub config", () => {
     const env = {
       SMITHERS_GITHUB_TOKEN: "smithers",
       GITHUB_TOKEN: "github",
-      SMITHERS_GITHUB_API_BASE_URL: "https://ghe.example/api/v3",
-      SMITHERS_GITHUB_WEBHOOK_SECRET: "hook"
+      SMITHERS_GITHUB_API_BASE_URL: "https://ghe.example/api/v3"
     }
     expect(resolve({ token: "explicit" }, env).token).toBe("explicit")
     expect(resolve({}, env).token).toBe("smithers")
     expect(resolve({}, { GITHUB_TOKEN: "github" }).token).toBe("github")
     expect(resolve({}, env).apiBaseUrl).toBe("https://ghe.example/api/v3")
-    expect(resolve({}, env).webhookSecret).toBe("hook")
     expect(resolve({}, {}).apiBaseUrl).toBe(DEFAULT_API_BASE_URL)
     expect(resolve({}, {}).maxRetries).toBe(3)
   })

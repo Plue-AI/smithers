@@ -10537,10 +10537,6 @@
       },
       {
         "kind": "file",
-        "path": "packages/smithers/agent/integrations/src/github/ListenerRegistry.ts"
-      },
-      {
-        "kind": "file",
         "path": "packages/smithers/agent/integrations/src/github/Payload.ts"
       },
       {
@@ -10550,10 +10546,6 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/integrations/src/github/Sync.ts"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/agent/integrations/src/github/Webhook.ts"
       },
       {
         "kind": "file",

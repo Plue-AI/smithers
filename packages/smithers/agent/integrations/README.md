@@ -10,9 +10,10 @@ the Smithers control plane.
 Smithers is a durable control plane for long-running agents: work runs as a
 flow whose every step is journaled, so a crash resumes where it stopped
 instead of starting over. This package is the outward-facing half of that.
-Each provider gets a typed client, a webhook door that verifies the delivery's
-signature before anything else runs, one normalized event shape, and one
-durable action a flow calls to comment, file an issue, or send a message.
+Each provider gets a typed client, one durable action a flow calls to
+comment, file an issue, or send a message, and, where the provider signs its
+deliveries, a webhook door that verifies the signature before anything else
+runs. GitHub webhooks enter through the Smithers backend instead.
 
 What an event _means_ stays yours. Which flow a pull request starts, and which
 run an issue comment signals, is application logic. The adapters stop at
@@ -77,14 +78,14 @@ A webhook door is library code, not a server setting. A provider builds a
 
 ```ts
 import * as Channels from "@smthrs/control/Channels"
-import { Core, GitHub } from "@smthrs/integrations"
+import { Core, Linear } from "@smthrs/integrations"
 import { Effect, Redacted } from "effect"
 
-const webhookSecret = process.env.SMITHERS_GITHUB_WEBHOOK_SECRET?.trim()
-if (!webhookSecret) throw new Error("SMITHERS_GITHUB_WEBHOOK_SECRET is required")
+const webhookSecret = process.env.SMITHERS_LINEAR_WEBHOOK_SECRET?.trim()
+if (!webhookSecret) throw new Error("SMITHERS_LINEAR_WEBHOOK_SECRET is required")
 
-const channel = GitHub.Webhook.channel({
-  credential: Redacted.make({ id: "github-webhook", name: "github-webhook" }),
+const channel = Linear.Webhook.channel({
+  credential: Redacted.make({ id: "linear-webhook", name: "linear-webhook" }),
   secret: Core.Channel.constantSecret(Redacted.make(webhookSecret)),
   route: Core.Channel.startFlow("triage")
 })
@@ -94,13 +95,16 @@ const register = Effect.flatMap(Channels.Channels, (channels) => channels.regist
 
 `Channels.ingest` drops a replayed `idempotencyKey`, which is what makes a
 provider redelivery safe to accept. That key is yours to put on the
-`RawInbound`: `GitHub.Webhook.idempotencyKey`, `Linear.Webhook.idempotencyKey`,
-and `Telegram.Source.idempotencyKey` derive it from the provider's own delivery
+`RawInbound`: `Linear.Webhook.idempotencyKey` and
+`Telegram.Source.idempotencyKey` derive it from the provider's own delivery
 identity. An ingress that leaves the field unset has no redelivery protection.
 
-The [GitHub receiver example](https://integrations.smithers.sh/guides/github/#receive-webhooks)
+The [Linear receiver example](https://integrations.smithers.sh/guides/linear/#receive-webhooks)
 enforces a 1 MiB body limit while streaming, before calling `Channels.ingest`.
-The Linear guide uses the same limit.
+
+GitHub webhooks enter through the Smithers backend (`POST /webhooks/github`),
+which decides whether an event may start work; this package has no GitHub
+webhook channel.
 
 Telegram, which has no webhook signature to verify, ships a `getUpdates`
 long-poll source instead.
@@ -146,9 +150,8 @@ same client is the intended way to reach an endpoint these three do not cover.
 
 | Variable                                               | Used by                                      |
 | ------------------------------------------------------ | -------------------------------------------- |
-| `SMITHERS_GITHUB_TOKEN`, then `GITHUB_TOKEN`           | `GitHub.GitHubClient`, `ListenerRegistry`    |
+| `SMITHERS_GITHUB_TOKEN`, then `GITHUB_TOKEN`           | `GitHub.GitHubClient`                        |
 | `SMITHERS_GITHUB_API_BASE_URL`                         | GitHub Enterprise or a fixture server        |
-| `SMITHERS_GITHUB_WEBHOOK_SECRET`                       | `GitHub.Config.resolve`                      |
 | `SMITHERS_LINEAR_API_KEY`                              | `Linear.LinearClient`                        |
 | `SMITHERS_LINEAR_WEBHOOK_SECRET`                       | `Linear.Config.resolve`                      |
 | `SMITHERS_LINEAR_API_BASE_URL`                         | A fixture server                             |
@@ -159,11 +162,10 @@ same client is the intended way to reach an endpoint these three do not cover.
 | `SMITHERS_SLACK_TEAM_IDS`, `_USER_IDS`, `_CHANNEL_IDS` | `Slack.Config.policy`                        |
 | `SMITHERS_GOOGLE_*`                                    | `GoogleCalendar.Config.resolve`              |
 
-`GitHub.Config.resolve` and `Linear.Config.resolve` read the corresponding
-`SMITHERS_*_WEBHOOK_SECRET` variables. Webhook channels require an explicit
+`Linear.Config.resolve` reads `SMITHERS_LINEAR_WEBHOOK_SECRET`. Webhook channels require an explicit
 secret resolver. The host must pass the resolved non-empty secret through
 `Core.Channel.constantSecret`, or use `Core.Channel.credentialSecret` with
-its credential store. The example above reads the GitHub variable directly.
+its credential store. The example above reads the Linear variable directly.
 
 Explicit configuration always wins. Every client, and `Telegram.Source`, takes
 an `env` argument that _replaces_ the ambient environment rather than layering

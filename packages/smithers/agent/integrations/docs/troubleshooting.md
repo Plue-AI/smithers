@@ -15,13 +15,11 @@ where they surface.
 
 ## Credentials
 
-### `credentials-missing` on a client call or reconciliation
+### `credentials-missing` on a client call
 
 A call that needs a credential found none. The Linear client fails its first
 `query` this way when neither `config.apiKey` nor `SMITHERS_LINEAR_API_KEY`
-is set. GitHub listener reconciliation fails the same way when it has neither
-a token nor an injected client, and when a listener's `secretEnv` variable is
-unset. Set the documented variable or pass the field explicitly.
+is set. Set the documented variable or pass the field explicitly.
 
 ### `INVALID_INPUT`: "No Telegram bot token configured"
 
@@ -53,65 +51,18 @@ widen `maxTimestampSkewMs` only within the one-hour cap.
 
 ### Deliveries fail `InvalidInput` after verifying
 
-The provider's own headers are missing or unreadable. GitHub deliveries
-without `X-GitHub-Event` or `X-GitHub-Delivery` cannot be decoded, which in
-practice means something other than GitHub is POSTing to the endpoint. Check
-what is actually sending the traffic.
+The provider's own headers or payload are missing or unreadable, which in
+practice means something other than the provider is POSTing to the endpoint.
+Check what is actually sending the traffic.
 
 ### Redeliveries start second flows
 
 The `RawInbound` reached `ingest` without an `idempotencyKey`. Nothing
 derives one for you. Build the key with the provider's helper:
-`GitHub.Webhook.idempotencyKey(raw)`,
-`Linear.Webhook.idempotencyKey(raw, payload)`, or
+`Linear.Webhook.idempotencyKey(raw, payload)` or
 `Telegram.Source.idempotencyKey(event)`.
 [How adapters sit on the control plane](./concepts/control-plane.md) shows
 the wiring.
-
-## GitHub reconciliation
-
-### `permission-denied` while listing hooks
-
-The token cannot administer webhooks for the repository. It needs
-fine-grained Webhooks read/write permission or classic `admin:repo_hook`
-access. The failure message says the same thing; reconciliation maps a 401,
-403, or 404 on the hook list to this reason.
-
-### `listener-conflict`: an unowned hook uses a declared callback URL
-
-A hook on the declared URL exists, but its numeric id is not in this
-workspace's state file, and a matching URL proves nothing about ownership.
-Smithers will not modify it. Adopt the hook manually in the repository
-settings, delete it there, or choose a different callback URL. This refusal
-is the safety property working, not a bug.
-
-### `listener-conflict`: the workspace lock is held
-
-Another process is applying against the same workspace. Wait for it to
-finish. A lock is reclaimed immediately when a PID liveness check reports
-`ESRCH` (the holder no longer exists). Permission errors do not prove the
-holder is dead. Records older than a day remain reclaimable as a fallback.
-An empty or malformed record is held for a five-second initialization grace
-period before it can be reclaimed. Replacement records are checked before
-removal.
-
-### `delivery-failed`: more webhooks than one reconciliation can read
-
-The repository's hook list is longer than the ten-page reconciliation budget,
-so any plan would be built from an incomplete list and could emit a `create`
-for an owned hook it did not see. Reduce the number of hooks on the
-repository.
-
-### `invalid-config` on the declaration or the state file
-
-A declaration that fails validation fails with every problem listed in the
-message: unknown fields, a callback URL that is not HTTPS or whose path is
-not `/webhooks/<flowId>`, a duplicate listener id, or two listeners naming
-one repository and one callback URL. Fix the declaration, not the code. A
-state file that exists but cannot be parsed is fatal on purpose: reconciling
-without knowing what the workspace owns is how somebody else's hook gets
-deleted. Restore the file from a backup, or remove it knowing that every hook
-the workspace created then reads as unowned.
 
 ## Writes and ambiguous outcomes
 

@@ -4,6 +4,10 @@
 
 ### Removed
 
+- **Breaking:** `smthrs integrations reconcile` and its `.smithers/listeners.json`
+  declarations are removed. GitHub webhooks enter through the Smithers
+  backend's GitHub webhook (`POST /webhooks/github`), which decides whether an
+  event may start work.
 - The Jev harness is retired
   ([#1654](https://github.com/smithersai/smithers/issues/1654)). The
   `smithers opencode` verb, the `@smthrs/opencode` package it served through,

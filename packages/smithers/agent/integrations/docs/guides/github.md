@@ -1,6 +1,6 @@
 ---
 title: "GitHub"
-description: "Configure the GitHub adapter: credentials, REST calls, verified webhook ingress, declared webhook reconciliation, and the comment action."
+description: "Configure the GitHub adapter: credentials, REST calls, and the comment action."
 sidebar:
   order: 1
 ---
@@ -14,19 +14,11 @@ The client reads its token from explicit configuration first, then
 `SMITHERS_GITHUB_TOKEN`, then `GITHUB_TOKEN`. The REST endpoint reads
 `SMITHERS_GITHUB_API_BASE_URL` for GitHub Enterprise.
 
-`GitHub.Config.resolve` reads `SMITHERS_GITHUB_WEBHOOK_SECRET` when no
-explicit secret is supplied. The webhook channel requires an explicit secret
-resolver: the host must pass the resolved non-empty `webhookSecret` through
-`Core.Channel.constantSecret`, or use `Core.Channel.credentialSecret` with
-its credential store.
-
 ```bash
 export SMITHERS_GITHUB_TOKEN=TOKEN
-export SMITHERS_GITHUB_WEBHOOK_SECRET=SECRET
 ```
 
-Replace `TOKEN` with a personal access or installation token, and `SECRET`
-with the webhook signing secret.
+Replace `TOKEN` with a personal access or installation token.
 
 Passing an `env` record as the second argument to `make`, `layer`, or
 `resolve` replaces the ambient environment rather than layering over it, so
@@ -97,213 +89,11 @@ The throwing form, `GitHub.Repository.repositoryPath`, raises an
 `IntegrationError` with reason `invalid-config`; the `require*` forms put the
 same failure in the Effect channel.
 
-## Receive webhooks
+## Webhooks
 
-Construct a channel with the signing secret and a route, register it with
-`Channels`, and hand every incoming POST to `Channels.ingest`. The example
-uses a Node HTTP server with a 1 MiB (1,048,576 byte) body limit. It counts
-streamed bytes before ingestion, including chunked requests, and responds
-413 above the limit. It stops reading, clears buffered chunks, and destroys
-the request after flushing the response. Aborted and failed requests also
-release their buffered chunks. Any transport must bound the raw body before
-calling `Channels.ingest`.
-
-```ts
-import * as Channels from "@smthrs/control/Channels"
-import { Core, GitHub } from "@smthrs/integrations"
-import { Effect, Redacted } from "effect"
-import { createServer } from "node:http"
-
-const channel = GitHub.Webhook.channel({
-  credential: Redacted.make({ id: "github-webhook", name: "github-webhook" }),
-  secret: Core.Channel.constantSecret(Redacted.make(webhookSecret)),
-  route: Core.Channel.startFlow("triage")
-})
-
-const maxBodyBytes = 1024 * 1024
-const server = createServer((request, response) => {
-  const chunks: Array<Uint8Array> = []
-  let receivedBytes = 0
-  let stopped = false
-  const discard = () => {
-    stopped = true
-    chunks.length = 0
-  }
-  request.on("aborted", discard)
-  request.on("error", () => {
-    discard()
-    response.destroy()
-  })
-  request.on("data", (chunk: Uint8Array) => {
-    if (stopped) return
-    receivedBytes += chunk.byteLength
-    if (receivedBytes > maxBodyBytes) {
-      discard()
-      request.pause()
-      response.writeHead(413, { Connection: "close" }).end(() => request.destroy())
-      return
-    }
-    chunks.push(chunk)
-  })
-  request.on("end", () => {
-    if (stopped) return
-    const body = Buffer.concat(chunks)
-    discard()
-    const program = Effect.gen(function*() {
-      const channels = yield* Channels.Channels
-      const raw = {
-        body,
-        headers: request.headers as Record<string, string | undefined>
-      }
-      return yield* channels.ingest({
-        channel: "github",
-        raw: { ...raw, idempotencyKey: GitHub.Webhook.idempotencyKey(raw) as string }
-      })
-    })
-    Effect.runPromise(Effect.provide(program, channelsLayer)).then(
-      () => response.writeHead(200).end(),
-      () => response.writeHead(401).end()
-    )
-  })
-})
-```
-
-Replace `webhookSecret` with the non-empty secret from
-`GitHub.Config.resolve().webhookSecret`, and `channelsLayer` with
-the layer that provides `Channels` over your control plane (see
-[the control API](/api/control)).
-
-Three details are load-bearing:
-
-- The body is the exact bytes GitHub sent. The signature covers those bytes,
-  so parsing first and re-serializing breaks verification.
-- The `idempotencyKey` comes from `GitHub.Webhook.idempotencyKey`, which
-  reads `X-GitHub-Delivery`. `ingest` drops a replayed key, which is what
-  makes GitHub's redelivery after a timeout safe to accept. Leave it unset
-  and a redelivery starts a second flow.
-- A refused delivery fails `Unauthorized` before the decoder or the control
-  plane runs. Only the refusal crosses; the digest detail stays in the log.
-
-### Who is allowed to start work
-
-A verified HMAC authenticates the delivery, but public-repository comments
-can come from untrusted accounts. The channel requires the event author's
-`author_association` to match `OWNER`, `MEMBER`, or `COLLABORATOR` by default,
-and always refuses `sender.type === "Bot"`.
-
-Configure the list per channel:
-
-```ts
-const channel = GitHub.Webhook.channel({
-  credential: Redacted.make({ id: "github-webhook", name: "github-webhook" }),
-  secret: Core.Channel.constantSecret(Redacted.make(webhookSecret)),
-  route: Core.Channel.startFlow("triage"),
-  allowedAssociations: ["OWNER", "MEMBER"]
-})
-```
-
-An empty list admits nobody. Associations are compared without regard to
-case. A comment or review uses its own association, never its parent issue
-or pull request's association. Missing associations fail closed; this also
-refuses event types such as `push` that do not supply an author association.
-
-`GitHub.Webhook.senderRefusal` returns a `SenderRefused` error with reason
-`permission-denied` and a typed `skipReason`: `bot-sender`,
-`missing-association`, or `association-not-allowed`. `decode` throws that
-error. The channel reports it as `InvalidInput` and never calls the route or
-control plane. An ingress that needs to acknowledge a skipped delivery can
-inspect `senderRefusal` after verifying its HMAC.
-
-[How adapters sit on the control plane](../concepts/control-plane.md)
-explains the full contract, including `signalRun` for signaling a waiting run
-instead of starting a flow.
-
-## Declare and reconcile webhooks
-
-`GitHub.ListenerRegistry` keeps a repository's hooks in line with a
-declaration the workspace owns, `.smithers/listeners.json`:
-
-```json
-{
-  "version": 1,
-  "listeners": [
-    {
-      "id": "triage",
-      "provider": "github",
-      "repository": "OWNER/REPO",
-      "events": ["issues", "issue_comment", "pull_request"],
-      "flowId": "triage",
-      "callbackUrl": "https://HOST/webhooks/triage",
-      "secretEnv": "SMITHERS_GITHUB_WEBHOOK_SECRET",
-      "active": true
-    }
-  ]
-}
-```
-
-Replace `OWNER/REPO` with the repository, `HOST` with your ingress host, and
-`triage` with the flow id where both differ. The callback path must be
-exactly `/webhooks/<flowId>`, and the URL must be HTTPS without embedded
-credentials, query parameters, or a fragment. `events` accepts `issues`,
-`issue_comment`, `pull_request`, `pull_request_review`, and
-`pull_request_review_comment`. `secretEnv` names the environment variable
-holding this listener's signing secret.
-
-Plan first. `reconcile` without `apply` performs no mutation:
-
-```ts
-import { GitHub } from "@smthrs/integrations"
-import { Effect } from "effect"
-
-const program = Effect.gen(function*() {
-  const result = yield* GitHub.ListenerRegistry.reconcile({})
-  return result.actions
-})
-```
-
-Then apply, and only then allow deletes:
-
-```ts
-// Create and update hooks to match the declaration.
-yield * GitHub.ListenerRegistry.reconcile({ apply: true })
-// Also delete owned hooks the declaration no longer names.
-yield * GitHub.ListenerRegistry.reconcile({ apply: true, allowDelete: true })
-```
-
-The token needs fine-grained Webhooks read/write permission or classic
-`admin:repo_hook` access; reconciliation maps a 401, 403, or 404 on the hook
-list to `permission-denied` saying exactly that.
-
-The safety rules, all enforced rather than documented:
-
-- **Ownership.** A hook is owned only when its numeric GitHub id is in
-  `.smithers/listeners.state.json`. An unowned hook on a declared callback
-  URL is a `conflict`, and `apply` fails with `listener-conflict` rather than
-  adopting or modifying it. Adopt the hook manually or choose a different
-  callback URL.
-- **Deletes are opt-in.** Without `allowDelete`, a delete is skipped, and so
-  is the create half of a repository move, because applying it alone would
-  leave two live hooks for one listener.
-- **Crash convergence.** A create is recorded as pending before the POST and
-  confirmed after. A run that dies in between adopts its own hook next time
-  instead of reporting a permanent conflict against its own work. The record
-  expires after a day and is dropped the moment the declaration changes.
-- **One hook per pair.** Two listeners naming one repository and one callback
-  URL are refused at parse time: that pair is a single GitHub hook, and
-  declaring it twice doubles every overlapping delivery. The same URL in a
-  different repository is fine; one flow can be fed by several repositories.
-- **State file integrity.** A state file that exists but cannot be parsed is
-  fatal, because reconciling without knowing what the workspace owns is how
-  somebody else's hook gets deleted. An apply holds `.smithers/listeners.lock`
-  against a second concurrent apply. State writes refuse symbolic links at
-  `.smithers` or `listeners.state.json`. Each write exclusively creates a
-  random temporary file with mode `0600`, syncs it, and atomically replaces
-  the state file.
-
-A repository with more hooks than one reconciliation can read (ten pages of
-100) fails `delivery-failed` rather than planning against a truncated list,
-because the plan would emit a `create` for an owned hook it simply did not
-see.
+GitHub webhooks enter through the Smithers backend (`POST /webhooks/github`),
+which decides whether an event may start work. This package has no GitHub
+webhook channel.
 
 ## Comment on an issue from a flow
 

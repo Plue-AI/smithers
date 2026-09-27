@@ -25,6 +25,15 @@
   connections, token sources, source records, and the sync driver, with
   public subpaths.
 
+### Removed
+
+- **Breaking:** `GitHub.Webhook` (the GitHub webhook channel and its
+  `author_association` sender gate), `GitHub.ListenerRegistry`,
+  `GitHub.Config`'s `webhookSecret`, and `Environment.ambientWorkingDirectory`.
+  GitHub webhooks enter through the Smithers backend, which decides whether an
+  event may start work. The `smithers integrations reconcile` command is
+  removed with the registry.
+
 ### Changed
 
 - `Telegram.Approval.decision` returns an `Outcome`: `Decided` only for an

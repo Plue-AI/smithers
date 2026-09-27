@@ -70,7 +70,7 @@ declared request's kind, options, and schema to shape the answer.
 | `memory` | `list/get/set/rm`, `recall`, `notes list/get/add/status/supersede`, `threads list/create/show/rm`, `messages list/add`, and `compact`. |
 | `credentials` | `list/add/rotate/revoke`; encrypted secrets are supplied through `--secret-env` or `--secret-file`, and output contains references only. |
 | `triggers` | `list/show/register/enable/disable/fire/serve`; registration accepts flags or `--file`, and `fire` queues an occurrence for the scheduler. |
-| `integrations` | `list`, `doctor [--offline]`, and `reconcile`; GitHub reconciliation plans by default and writes only with `--apply`. |
+| `integrations` | `list` and `doctor [--offline]`. |
 | `eval` | `list/run/baseline/compare`; discover `evals/**/*.eval.ts` modules exporting `suite` and `executor`, and compare saved results with committed baselines. |
 
 Memory defaults to `--namespace user:cli` and accepts `kind:id` or a bare kind
@@ -92,8 +92,7 @@ selects among host-authorized pairings rather than creating them: an entry may
 name only its provider's own credential variables plus any listed in
 `SMITHERS_INTEGRATION_TOKEN_ENV`, and only its provider's public API origin plus
 the one named by `SMITHERS_GITHUB_API_BASE_URL`, `SMITHERS_LINEAR_API_BASE_URL`,
-or `SMITHERS_TELEGRAM_API_BASE_URL`. GitHub hook declarations live in
-`.smithers/listeners.json`; deletion additionally requires `--allow-delete`.
+or `SMITHERS_TELEGRAM_API_BASE_URL`.
 
 `serve` (also available as `gateway`) hosts the trigger scheduler; `triggers serve` runs it separately.
 Scheduled and manual occurrences preserve approval requirements. Disabling a
