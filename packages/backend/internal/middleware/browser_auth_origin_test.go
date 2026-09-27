@@ -21,6 +21,9 @@ func TestCanonicalBrowserAuthOrigin(t *testing.T) {
 		{"foreign header", "http://api.internal/api/auth/github", "evil.example", "https", "GET", "https://app.example/api/auth/github", false},
 		{"forwarded list", "http://api.internal/api/auth/github", "evil.example, app.example", "https", "GET", "https://app.example/api/auth/github", false},
 		{"wrong scheme", "http://app.example/api/auth/github", "", "", "GET", "https://app.example/api/auth/github", false},
+		{"TLS-terminating load balancer", "http://app.example/api/auth/github", "", "https", "GET", "", true},
+		{"load balancer native", "http://app.example/api/auth/github/cli?callback_port=41523", "", "https", "GET", "", true},
+		{"load balancer plain HTTP", "http://app.example/api/auth/github", "", "http", "GET", "https://app.example/api/auth/github", false},
 		{"token API unchanged", "https://api.example/api/oauth2/token", "", "", "POST", "", true},
 		{"callback unchanged", "https://api.example/api/auth/github/callback?code=fixture", "", "", "GET", "", true},
 	} {

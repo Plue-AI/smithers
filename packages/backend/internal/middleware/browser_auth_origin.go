@@ -25,15 +25,20 @@ func CanonicalBrowserAuthOrigin(callbackURL string) func(http.Handler) http.Hand
 				http.Error(w, "OAuth callback origin is not configured", http.StatusServiceUnavailable)
 				return
 			}
+			// These headers only suppress a redirect to a fixed configured origin.
+			// They never select a destination or establish identity/authorization.
+			// The edge replaces caller headers with its actual request origin; a
+			// TLS-terminating load balancer on the callback host sends only the
+			// scheme, and without it every start redirected to itself.
+			forwardedProto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
 			scheme := "http"
 			if r.TLS != nil {
 				scheme = "https"
+			} else if forwardedProto != "" {
+				scheme = forwardedProto
 			}
 			onOrigin := strings.EqualFold(r.Host, callback.Host) && scheme == callback.Scheme
-			// These headers only suppress a redirect to a fixed configured origin.
-			// They never select a destination or establish identity/authorization.
-			// The edge replaces caller headers with its actual request origin.
-			proxied := strings.EqualFold(r.Header.Get("X-Forwarded-Host"), callback.Host) && r.Header.Get("X-Forwarded-Proto") == callback.Scheme
+			proxied := strings.EqualFold(r.Header.Get("X-Forwarded-Host"), callback.Host) && forwardedProto == callback.Scheme
 			if onOrigin || proxied {
 				next.ServeHTTP(w, r)
 				return
