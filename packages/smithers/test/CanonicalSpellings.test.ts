@@ -63,12 +63,22 @@ const sources = (): ReadonlyArray<string> => {
 /** A substitution the scan cannot read; it ends a command path like any positional. */
 const hole = "\u2026"
 
+/** The text with `\uXXXX`, `\u{…}` and `\xXX` escapes decoded, as a string literal reads. */
+const decodeEscapes = (text: string): string =>
+  text.replace(
+    /\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})/g,
+    (_: string, braced?: string, unicode?: string, hex?: string) =>
+      String.fromCodePoint(Number.parseInt(braced ?? unicode ?? hex ?? "0", 16))
+  )
+
 const printedTexts = (file: string): ReadonlyArray<{ readonly line: number; readonly text: string }> => {
   const contents = readFileSync(file, "utf8")
   // Every finding needs a literal spelling `smthrs`, so a file that never
   // spells it has nothing to read. Parsing only the files that do keeps the
   // scan of ~2,000 sources inside the test budget on a loaded runner.
-  if (!contents.includes("smthrs")) return []
+  // A literal can spell it through an escape (`sm\u0074hrs`), which the
+  // compiler decodes, so the check reads the text with escapes decoded.
+  if (!decodeEscapes(contents).includes("smthrs")) return []
   const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true)
   const texts: Array<{ line: number; text: string }> = []
   const literal = (node: ts.Node): string | undefined =>
@@ -89,6 +99,14 @@ const printedTexts = (file: string): ReadonlyArray<{ readonly line: number; read
   visit(source)
   return texts
 }
+
+describe("the spelling prefilter", () => {
+  it("reads a literal that spells smthrs through escapes", () => {
+    expect(decodeEscapes("\"sm\\u0074hrs status\"")).toContain("smthrs status")
+    expect(decodeEscapes("\"\\x73mthrs\"")).toContain("smthrs")
+    expect(decodeEscapes("\"\\u{73}mthrs\"")).toContain("smthrs")
+  })
+})
 
 describe("printed command spellings", () => {
   it("name only canonical, non-hidden commands and their declared options", async () => {
