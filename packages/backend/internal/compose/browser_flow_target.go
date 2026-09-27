@@ -44,6 +44,8 @@ func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, tar
 	}
 	return flowhost.Authority{
 		Target: target, RepositoryID: repository.ID, UserID: userID, WorkspaceID: workspace.ID,
-		CatalogKey: flowhost.CatalogCoding, Repository: target.BindingID,
+		// Like every other coding-host caller, name no repository: it is part
+		// of the host's service identity, and the box's host is shared.
+		CatalogKey: flowhost.CatalogCoding,
 	}, nil
 }

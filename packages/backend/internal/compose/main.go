@@ -803,7 +803,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		repoGatewayService = services.NewRepoGatewayService(runtimeStores.RepoGateways,
 			services.WithRepoGatewayWorkspaces(workspaceService),
 			services.WithRepoGatewaySandboxClient(repoGatewaySandbox),
-			services.WithRepoGatewaySandboxMetrics(smithersMetrics),
 			services.WithRepoGatewaySecretCodec(webhookSecretCodec),
 			services.WithRepoGatewayGitBaseURL(publicBaseURL),
 			// Reaper-driven authorization sweep: tear down gateways whose user lost

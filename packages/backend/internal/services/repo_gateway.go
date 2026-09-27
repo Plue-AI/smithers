@@ -144,16 +144,19 @@ func (s *RepoGatewayService) AuthorizeRelay(ctx context.Context, gatewayID, toke
 	if gateway.Status != "running" || strings.TrimSpace(gateway.VmID) == "" {
 		return RepoGatewayRelayTarget{}, pkgerrors.Conflict("repo gateway is not running")
 	}
-	if gateway.WorkspaceID.Valid {
-		workspace, err := s.loadGatewayWorkspace(ctx, gateway.WorkspaceID.String(), gateway.RepositoryID, gateway.UserID)
-		if err != nil {
-			return RepoGatewayRelayTarget{}, err
-		}
-		if workspace.VmID != gateway.VmID || workspace.Status != "running" {
-			return RepoGatewayRelayTarget{}, pkgerrors.Conflict("bound workspace is not running at the recorded VM")
-		}
-		_ = s.workspaces.q.TouchWorkspaceActivity(ctx, workspace.ID)
+	// A box-less row is a retired product gateway (#2194): it relays nothing
+	// while the reaper removes it.
+	if !gateway.WorkspaceID.Valid {
+		return RepoGatewayRelayTarget{}, pkgerrors.Conflict("repo gateway is not running")
 	}
+	workspace, err := s.loadGatewayWorkspace(ctx, gateway.WorkspaceID.String(), gateway.RepositoryID, gateway.UserID)
+	if err != nil {
+		return RepoGatewayRelayTarget{}, err
+	}
+	if workspace.VmID != gateway.VmID || workspace.Status != "running" {
+		return RepoGatewayRelayTarget{}, pkgerrors.Conflict("bound workspace is not running at the recorded VM")
+	}
+	_ = s.workspaces.q.TouchWorkspaceActivity(ctx, workspace.ID)
 	_ = s.q.TouchRepoGatewayActivity(ctx, gateway.ID)
 	return RepoGatewayRelayTarget{GatewayID: gateway.ID, Domain: gatewayIngressDomain(gateway), UserID: gateway.UserID, RepositoryID: gateway.RepositoryID, WorkspaceID: gatewayWorkspaceID(gateway), SandboxID: gateway.VmID}, nil
 }
@@ -222,13 +225,12 @@ type RepoGatewayConnectionInfo struct {
 
 // RepoGatewayService provisions and resumes the coding host of a box.
 type RepoGatewayService struct {
-	revocations    revocation.Publisher
-	q              RepoGatewayQuerier
-	sandbox        RepoGatewayVMClient
-	workspaces     *WorkspaceService
-	sandboxMetrics SandboxMetricsRecorder
-	secretCodec    webhook.SecretCodec
-	gitBaseURL     string
+	revocations revocation.Publisher
+	q           RepoGatewayQuerier
+	sandbox     RepoGatewayVMClient
+	workspaces  *WorkspaceService
+	secretCodec webhook.SecretCodec
+	gitBaseURL  string
 	// accessQuerier backs the reaper's access-revocation sweep (nil disables it).
 	accessQuerier RepoGatewayAccessQuerier
 	// healthProbeBaseURL enables the resume-time liveness probe when non-empty
@@ -270,13 +272,6 @@ type RepoGatewayServiceOption func(*RepoGatewayService)
 func WithRepoGatewaySandboxClient(client RepoGatewayVMClient) RepoGatewayServiceOption {
 	return func(s *RepoGatewayService) {
 		s.sandbox = client
-	}
-}
-
-// WithRepoGatewaySandboxMetrics wires VM lifecycle metrics.
-func WithRepoGatewaySandboxMetrics(metrics SandboxMetricsRecorder) RepoGatewayServiceOption {
-	return func(s *RepoGatewayService) {
-		s.sandboxMetrics = metrics
 	}
 }
 
@@ -591,13 +586,6 @@ func (s *RepoGatewayService) discardGateway(ctx context.Context, gateway runtime
 		if err := s.sandbox.DeleteSandbox(ctx, gateway.VmID); err != nil {
 			slog.Warn("failed to delete unrecoverable gateway vm", "vm_id", gateway.VmID, "error", err)
 		}
-	}
-	// Return the +1 this row received when it reached 'running' exactly once,
-	// even when DeleteSandbox 404s because sandbox provider already reclaimed the VM (the +1
-	// still has to be given back). 'starting'/'pending' rows never got a +1, so
-	// discarding a race-loser must not drive the gauge negative.
-	if !gateway.WorkspaceID.Valid && gateway.Status == "running" && s.sandboxMetrics != nil {
-		s.sandboxMetrics.AddSandboxActiveVMs("gateway", -1)
 	}
 	if _, err := s.q.SoftDeleteRepoGateway(ctx, gateway.ID); err != nil {
 		slog.Warn("failed to tombstone unrecoverable gateway row", "gateway_id", gateway.ID, "error", err)

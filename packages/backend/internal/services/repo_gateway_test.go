@@ -319,9 +319,6 @@ func TestRepoGatewayService_Reaper_ReclaimsStaleRows(t *testing.T) {
 		{ID: "gw-pending", VmID: "", Status: "pending"},
 		*bound,
 	}
-	delta := 0.0
-	svc.sandboxMetrics = &mockSandboxMetricsRecorder{addActiveVMsFn: func(_ string, d float64) { delta += d }}
-
 	svc.sweepStaleGateways(context.Background())
 
 	assert.Equal(t, []string{"vm-abandoned"}, vm.deletedVMIDs, "only the retired gateway's own VM is deleted")
@@ -329,7 +326,6 @@ func TestRepoGatewayService_Reaper_ReclaimsStaleRows(t *testing.T) {
 	require.Len(t, vm.execAwaitReqs, 1)
 	assert.Contains(t, vm.execAwaitReqs[0].Command, workspaceGatewayServiceName(*bound))
 	assert.ElementsMatch(t, []string{"gw-starting", "gw-pending", bound.ID}, q.getSoftDeleted())
-	assert.Zero(t, delta, "rows that never reached running never counted in the gauge")
 	assert.Equal(t, int64(repoGatewayStaleProvisionAge/time.Second), q.getStaleAgeSeconds())
 }
 
@@ -387,9 +383,6 @@ func TestRepoGatewayService_SweepWidowed(t *testing.T) {
 			return sandbox.Sandbox{}, errors.New("provider transport blip")
 		}
 	}
-	delta := 0.0
-	svc.sandboxMetrics = &mockSandboxMetricsRecorder{addActiveVMsFn: func(_ string, d float64) { delta += d }}
-
 	svc.sweepWidowedGateways(context.Background())
 
 	assert.ElementsMatch(t, []string{"gw-retired", "gw-gone", "gw-stale-gen", "gw-stale-stopped", "gw-vm-replaced", "gw-box-deleted"}, q.getSoftDeleted(),
@@ -398,7 +391,6 @@ func TestRepoGatewayService_SweepWidowed(t *testing.T) {
 	assert.Contains(t, vm.unmappedDomains, repoGatewayDomain("vm-product"))
 	assert.Contains(t, vm.unmappedDomains, repoGatewayDomain("gw-gone"))
 	assert.NotContains(t, vm.getVMRequestedIDs, "vm-product", "a retired row needs no provider evidence")
-	assert.Equal(t, -1.0, delta, "the retired running gateway returns its gauge slot")
 }
 
 func TestRepoGatewayService_StartReaper(t *testing.T) {
@@ -562,4 +554,33 @@ func (c *staticTestCodec) DecryptString(ciphertext string) (string, error) {
 		return "", c.decryptErr
 	}
 	return strings.TrimPrefix(ciphertext, c.prefix), nil
+}
+
+// boxlessRelayStore serves one retired, box-less gateway row to the relay.
+type boxlessRelayStore struct {
+	*fakeRepoGatewayQuerier
+	row runtimeports.RepoGateway
+}
+
+func (s boxlessRelayStore) GetRepoGatewayByID(context.Context, string) (runtimeports.RepoGateway, error) {
+	return s.row, nil
+}
+
+// A retired product gateway still holding a valid token relays nothing
+// (#2194): every relayed gateway belongs to a box.
+func TestRepoGatewayService_AuthorizeRelayRefusesBoxlessGateway(t *testing.T) {
+	t.Parallel()
+
+	token := "smithers_gateway_retired"
+	sum := sha256.Sum256([]byte(token))
+	q := &fakeRepoGatewayQuerier{}
+	store := boxlessRelayStore{fakeRepoGatewayQuerier: q, row: runtimeports.RepoGateway{
+		ID: "gw-retired", VmID: "vm-retired", Status: "running", AuthTokenHash: hex.EncodeToString(sum[:]),
+	}}
+	svc := NewRepoGatewayService(store, WithRepoGatewaySandboxClient(&fakeRepoGatewayVMClient{}))
+	_, err := svc.AuthorizeRelay(context.Background(), "gw-retired", token)
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 409, apiErr.Status)
+	assert.Empty(t, q.touched, "a refused relay must not keep the retired row active")
 }
