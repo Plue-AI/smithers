@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+
 import * as BoundedJson from "@smthrs/canonical/BoundedJson"
 import { isRecord } from "@smthrs/canonical/Record"
 import { errorCode, syncDirectory } from "@smthrs/targets/SafeFs"

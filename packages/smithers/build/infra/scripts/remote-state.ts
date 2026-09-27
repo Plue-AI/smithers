@@ -17,6 +17,7 @@
  *
  * @since 0.1.0
  */
+
 import { errorCode } from "@smthrs/targets/SafeFs"
 import { AwsClient } from "aws4fetch"
 import { createHash } from "node:crypto"
