@@ -8,7 +8,7 @@ import { ControllerTestProvider } from "../ControllerContext"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppController as AppControllerType } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { backend, json, memoryStorage, settled, silentAgent } from "./TestFixtures"
+import { backend, memoryStorage, settled, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers({ pluginLibrary: true })
 
@@ -69,16 +69,9 @@ const mount = (controller: AppControllerType): View => {
 const byTestId = (host: HTMLElement, id: string): HTMLElement | null =>
   host.querySelector<HTMLElement>(`[data-testid="${id}"]`)
 
-const localController = async (harnesses: ReadonlyArray<unknown> = []) => {
+const localController = async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const controller = createAppController(store, silentAgent, {
-    bootstrap: localBootstrap,
-    ...backend({
-      "/api/harnesses": json(200, { harnesses }),
-      "/api/repos": json(200, { repos: [] })
-    })
-  })
-  await controller.loadHarnesses()
+  const controller = createAppController(store, silentAgent, { bootstrap: localBootstrap, ...backend({}) })
   await settled()
   return { store, controller }
 }

@@ -317,10 +317,9 @@ describe("the repository's flows are slash leaves", () => {
   test("on the local host a checkout opened after boot is the target: its remote names the repository, the projection is read, and /review is its leaf, signed out", async () => {
     /*
      * The native app never dispatches repositories.loaded or repo.selected
-     * to make a checkout the target: ControllerBoot's loadRepos() at boot
-     * and targets.ts after repo.open both dispatch repos.loaded, after the
-     * controller subscribed. Review finding on 9ab275caf5: a hand-kept
-     * transition list missed it, so the local host never had leaves.
+     * to make a checkout the target: a checkout arrives as repos.loaded,
+     * after the controller subscribed. Review finding on 9ab275caf5: a
+     * hand-kept transition list missed it, so the local host never had leaves.
      */
     const checkout = "smithersai/smithers"
     const seen: Array<Seen> = []

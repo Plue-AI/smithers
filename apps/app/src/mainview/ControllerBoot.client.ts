@@ -150,10 +150,12 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     // The awaited branch above has its identity answer here; the non-blocking
     // one does not, so this call is its own no-op and the `.then()` decides.
     if (requested === null) yield* Effect.sync(() => selectFirstRunRepository(store, controller.settleFirstRunTarget))
+    /*
+     * The built-in roles into the app-agents mirror. The local repository and
+     * harness lists retired with the local backend (LOCAL-BACKEND-RETIREMENT.md):
+     * no host serves `/api/repos` or `/api/harnesses`, so nothing probes them.
+     */
     if (bootstrap.host === "local" && bootstrap.sandbox !== null) {
-      yield* Effect.sync(() => void controller.loadRepos())
-      yield* Effect.sync(() => void controller.loadHarnesses())
-      // Agents as data (custom-agents.md): the app-agents mirror loads beside the harness list.
       yield* Effect.sync(() => void controller.loadAgents())
     }
     // An assigned seat this host cannot answer surfaces unasked (controller/models.ts).

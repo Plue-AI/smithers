@@ -1,10 +1,4 @@
-import {
-  HarnessesResponseSchema,
-  PtyCreateResponseSchema,
-  PtyOutputResponseSchema,
-  PtySessionSchema,
-  ReposResponseSchema
-} from "@smthrs/rpc/LocalApp"
+import { PtyCreateResponseSchema, PtyOutputResponseSchema } from "@smthrs/rpc/LocalApp"
 import { agentRoleTitle, findAgentRole } from "@smthrs/rpc/AgentRoles"
 import type { AgentRoleId } from "@smthrs/rpc/AgentRoles"
 import { currentAgentRoles, loadAgents } from "./agents"
@@ -13,14 +7,15 @@ import type { PinnedRepo, Repo, TabRow } from "../AppState"
 import type { CommandResult } from "../../flows/Flows"
 import type { ControllerContext } from "./context"
 import { knowledgeCardAvailable } from "../KnowledgeFeatures"
-import { z } from "zod"
 
 /*
  * The local-app tabs (docs/LOCAL-APP.md "Tabs"): opening a terminal, a
  * harness, or a card in a tab; selecting and closing tabs; the `+` menu; and
  * the repository chip's data. Every state change goes through the store's
  * dispatcher with the actor recorded; the server is reached only for what
- * it owns (PTY sessions, the harness list, the repository list).
+ * it owns (PTY sessions). The local repository and harness lists retired with
+ * the local backend (docs/LOCAL-BACKEND-RETIREMENT.md): `repos.loaded` and
+ * `harnesses.loaded` are persisted event kinds no host dispatches any more.
  */
 
 export interface TabsController {
@@ -65,8 +60,6 @@ export interface TabsController {
   readonly selectRepo: (repoKey: string) => Promise<string | void>
   /** Forget a pinned repository; its open session and tabs stay until closed. */
   readonly unpinRepo: (repoKey: string) => string | void
-  readonly loadHarnesses: () => Promise<void>
-  readonly loadRepos: () => Promise<void>
   /** A `pty.exit` frame reached a tab: record the code so closing no longer asks. */
   readonly notePtyExit: (sessionId: string, code: number | null) => void
   /** The repository new terminals start in; undefined means the server's home directory. */
@@ -173,7 +166,6 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
   }
 
   const openHarnessTab: TabsController["openHarnessTab"] = async (harnessId, launch) => {
-    if (collections.harnesses.size === 0) await loadHarnesses()
     /*
      * A role (AgentRoles.ts), built-in, names its harness and its
      * model; the server resolves the role against the same agents store to
@@ -385,69 +377,6 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     store.dispatch({ type: "tab.close.asked", actor: "user", id: null })
   }
 
-  const loadHarnesses: TabsController["loadHarnesses"] = async () => {
-    try {
-      const response = await ctx.boundedFetch(`${baseUrl}/api/harnesses`)
-      if (!response.ok) return
-      const parsed = HarnessesResponseSchema.safeParse(await response.json())
-      if (!parsed.success) return
-      store.dispatch({ type: "harnesses.loaded", actor: "system", harnesses: parsed.data.harnesses })
-    } catch {
-      // No server behind /api/harnesses (pure web, a test) leaves the menu with Terminal alone.
-    }
-  }
-
-  const loadRepos: TabsController["loadRepos"] = async () => {
-    try {
-      const response = await ctx.boundedFetch(`${baseUrl}/api/repos`)
-      if (!response.ok) return
-      const parsed = ReposResponseSchema.safeParse(await response.json())
-      if (!parsed.success) return
-      store.dispatch({ type: "repos.loaded", actor: "system", repos: parsed.data.repos })
-      await restoreSessions()
-    } catch {
-      // Same as the harnesses: an absent seam means no repository, not a failure.
-    }
-  }
-
-  let restoredSessions = false
-  const restoreSessions = async (): Promise<void> => {
-    if (restoredSessions) return
-    const response = await ctx.boundedFetch(`${baseUrl}/api/pty`)
-    if (!response.ok) return
-    const parsed = z.object({ sessions: z.array(PtySessionSchema) }).safeParse(await response.json())
-    if (!parsed.success) return
-    restoredSessions = true
-    const sessions = new Map(parsed.data.sessions.map((session) => [session.sessionId, session]))
-    for (const tab of orderedTabs()) {
-      if (!isProcessTab(tab) || (tab.kind === "terminal" && tab.workspaceId !== undefined)) continue
-      const session = sessions.get(tab.sessionId)
-      if (session?.alive !== true && tab.exitCode === undefined) notePtyExit(tab.sessionId, session?.exitCode ?? null)
-    }
-    // A create may have committed in the owner just before the renderer quit,
-    // before it could persist the returned id. Recover those owned sessions too.
-    const selected = store.session().activeTabId ?? MAIN_TAB_ID
-    for (const session of sessions.values()) {
-      if (orderedTabs().some((tab) => isProcessTab(tab) && tab.sessionId === session.sessionId)) continue
-      const repo = [...collections.repos.values()].find((repo) => repo.path === session.cwd)
-      const common = {
-        id: session.sessionId, sessionId: session.sessionId, cwd: session.cwd,
-        title: tabTitleFor(session.kind === "terminal" ? "Terminal" : session.harnessId ?? "Agent", repo),
-        ...repoKeyFor(repo), ...(session.alive ? {} : { exitCode: session.exitCode ?? null })
-      }
-      if (session.kind === "harness" && session.harnessId !== undefined) {
-        store.dispatch({ type: "tab.opened", actor: "system", tab: { ...common, kind: "harness", harnessId: session.harnessId,
-          ...(session.roleId === undefined ? {} : { roleId: session.roleId }) } })
-      } else if (session.kind === "terminal") {
-        store.dispatch({ type: "tab.opened", actor: "system", tab: { ...common, kind: "terminal" } })
-      }
-    }
-    for (const session of sessions.values()) if (session.status !== undefined) {
-      store.dispatch({ type: "pty.status.observed", actor: "system", sessionId: session.sessionId, status: session.status })
-    }
-    if (store.session().activeTabId !== selected) store.dispatch({ type: "tab.selected", actor: "system", id: selected })
-  }
-
   const toggleTabMenu: TabsController["toggleTabMenu"] = async (repoKey) => {
     if (repoKey !== undefined) {
       const refusal = await selectRepo(repoKey)
@@ -456,7 +385,6 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     }
     const open = store.session().tabMenuOpen !== true
     store.dispatch({ type: "tab.menu.toggled", actor: ctx.commandActor, open })
-    if (open) void loadHarnesses()
   }
 
   const selectRepo: TabsController["selectRepo"] = async (repoKey) => {
@@ -518,8 +446,6 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
     toggleTabMenu,
     selectRepo,
     unpinRepo,
-    loadHarnesses,
-    loadRepos,
     notePtyExit,
     activeRepo,
     installKeyboard

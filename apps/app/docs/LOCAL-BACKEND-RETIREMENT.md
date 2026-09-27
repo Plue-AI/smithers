@@ -134,14 +134,16 @@ cloud-only host had to say `identityUpstream: null` out loud.
 
 ## Follow-ups this cut did not take either
 
-- `state/controller/tabs.ts` still posts `/api/pty`, reads `/api/pty/:id/output`
-  and loads `/api/harnesses` and `/api/repos`. No host serves any of them, so
-  `openTerminalTab` and `openHarnessTab` refuse with the fetch's own failure
-  rather than a worded refusal, and no terminal or harness tab can be created.
-  Cutting them means cutting the `+` menu rows, the `tab.terminal`,
-  `tab.harness` and `tab.read` flows, and the `pty.exited` /
-  `pty.status.observed` transitions in `AppProjection.ts` — persisted event
-  kinds, so it is a migration like the card schemas.
+- `state/controller/tabs.ts` still posts `/api/pty` and reads
+  `/api/pty/:id/output`. No host serves either, so `openTerminalTab` and
+  `openHarnessTab` refuse with the fetch's own failure rather than a worded
+  refusal, and no terminal or harness tab can be created. (The boot-time
+  `/api/repos`, `/api/harnesses` and `/api/pty` inventory reads are gone: they
+  404'd on every host, the self-hosted backend included.) Cutting the rest
+  means cutting the `+` menu rows, the `tab.terminal`, `tab.harness` and
+  `tab.read` flows, and the `pty.exited` / `pty.status.observed` transitions
+  in `AppProjection.ts` — persisted event kinds, so it is a migration like the
+  card schemas. Tracked in smithersai/smithers#2229.
 - `state/controller/tutorialChange.ts` `post()` calls
   `/api/tutorial/change/{plan,preflight,receipt}`, which now 404 instead of
   501. The practice-repository path beside it is bundled and needs no host, so

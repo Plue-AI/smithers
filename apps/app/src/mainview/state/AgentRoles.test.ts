@@ -76,11 +76,7 @@ const boot = async () => {
   const recorder = recordingAgent()
   const controller = createAppController(store, recorder.agent, {
     bootstrap,
-    fetchImpl: async (input) => {
-      const url = String(input)
-      if (url.endsWith("/api/harnesses")) return new Response(JSON.stringify({ harnesses: HARNESSES }), { status: 200 })
-      return new Response(JSON.stringify({ error: { code: "absent", message: "no seam" } }), { status: 404 })
-    }
+    fetchImpl: async () => new Response(JSON.stringify({ error: { code: "absent", message: "no seam" } }), { status: 404 })
   })
   store.dispatch({ type: "harnesses.loaded", actor: "system", harnesses: [...HARNESSES] })
   return { store, controller, recorder }

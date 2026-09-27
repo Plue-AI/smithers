@@ -354,7 +354,6 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly toggleRepoTree: SidebarController["toggleRepoTree"]
   readonly renameWorkspace: SidebarController["renameWorkspace"]
   readonly toggleWorkspaceRename: SidebarController["toggleWorkspaceRename"]
-  readonly loadHarnesses: TabsController["loadHarnesses"]
   /* Agents as data (docs/workbench-lanes/custom-agents.md); see controller/agents.ts. */
   readonly loadAgents: AgentsController["loadAgents"]
   readonly listAgents: AgentsController["listAgents"]
@@ -382,7 +381,6 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly setModelQuestion: ModelCallController["setModelQuestion"]
   readonly setModelOption: ModelCallController["setModelOption"]
   readonly fixtureModel: ModelCallController["fixtureModel"]
-  readonly loadRepos: TabsController["loadRepos"]
   readonly notePtyExit: TabsController["notePtyExit"]
   /** Lane citc: the cloud-workspace terminal transport (one socket per workspace session). */
   readonly cloudTerminal: CloudTerminalClient
@@ -1100,8 +1098,6 @@ export const createAppController = (
     toggleTabMenu,
     selectRepo,
     unpinRepo,
-    loadHarnesses,
-    loadRepos,
     notePtyExit,
     installKeyboard
   } = actors.pair(ctx, (context) => createTabsController(context))
@@ -1785,7 +1781,6 @@ export const createAppController = (
     toggleRepoTree,
     renameWorkspace,
     toggleWorkspaceRename,
-    loadHarnesses,
     loadAgents,
     listAgents,
     renderFlowForm,
@@ -1809,7 +1804,6 @@ export const createAppController = (
     setModelQuestion,
     setModelOption,
     fixtureModel,
-    loadRepos,
     notePtyExit,
     cloudTerminal,
     toggleDevtools,
