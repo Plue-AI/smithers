@@ -359,6 +359,26 @@ describe("factory homepage", () => {
     expect(lastRunOf(cards.values(), "org/repo", "release")).toBeUndefined()
   })
 
+  test("a tile with no run and no Wiki claims no state (#2330)", () => {
+    const controller = { stackSnapshots: { get: () => ({ stack: { repository: "org/repo", state: "active" as const, generation: 1, mainBehind: false,
+      changes: [], items: [], lanes: [], limits: { maxParallel: 1 } }, error: null }), subscribe: () => () => {} }, commands: { find: () => undefined },
+      store: { collections: { cards: { values: () => [], subscribeChanges: () => ({ unsubscribe: () => {} }) } } } } as unknown as AppController
+    const card = home([
+      { type: "app", flow: "issue.implement", title: "Fix an issue", picture: "issue" },
+      { type: "app", flow: "pr-triage", title: "Review a PR", picture: "review" },
+      { type: "app", flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" },
+      { type: "app", flow: "triggers.register", title: "Run it every night", picture: "schedule" }
+    ])
+    // Signed out (no controller) and signed in with a stack that has no Wiki: pictures only.
+    for (const markup of [
+      renderToStaticMarkup(<RepositoryHomeCard card={card} onRunCommand={() => {}} />),
+      renderToStaticMarkup(<ControllerTestProvider controller={controller}><RepositoryHomeCard card={card} onRunCommand={() => {}} /></ControllerTestProvider>)
+    ]) {
+      expect(markup.match(/data-picture=/g)).toHaveLength(4)
+      for (const claim of ["✓", "…", "ready", "Approve", "current", "app-stamp", "app-tile-wiki", "app-tile-preview"]) expect(markup).not.toContain(claim)
+    }
+  })
+
   test("the wiki tile wears the repository Wiki's state once the stack answers", () => {
     const stack = { repository: "org/repo", state: "active" as const, generation: 1, mainBehind: false, changes: [],
       items: [], lanes: [{ index: 0, state: "idle" as const }], limits: { maxParallel: 1 }, wiki: { state: "current" as const, pages: 12, edited: 0 } }

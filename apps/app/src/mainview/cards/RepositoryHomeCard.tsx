@@ -69,7 +69,7 @@ const HomePrompt = ({ flow, placeholder, onRunCommand }: {
     }} />
 }
 
-/* The static pictures: what each app makes, drawn, never said (aria-hidden). */
+/* The static pictures: what each app makes, drawn, never said (aria-hidden). They claim no state: status comes only from a run or the Wiki. */
 const Picture = ({ kind }: { readonly kind: HomeApp["picture"] }) => {
   switch (kind) {
     case "issue":
@@ -78,7 +78,6 @@ const Picture = ({ kind }: { readonly kind: HomeApp["picture"] }) => {
           <span className="app-picture-row"><span className="app-chip" data-tone="danger">#42</span><span className="app-line" /></span>
           <span className="app-picture-flow"><span>Plan</span><span>Fix</span><span>Check</span><span>PR</span></span>
         </span>
-        <span className="app-chip app-stamp" data-tone="success">✓ ready</span>
       </>
     case "review":
       return <>
@@ -87,7 +86,6 @@ const Picture = ({ kind }: { readonly kind: HomeApp["picture"] }) => {
           <code data-diff="add">+ const t = timeout()</code>
           <code data-diff="add">+ test("timeout")</code>
         </span>
-        <span className="app-chip app-stamp" data-tone="success">Approve · 2 notes</span>
       </>
     case "wiki":
       return <span className="app-picture-card app-picture-page">
@@ -100,9 +98,9 @@ const Picture = ({ kind }: { readonly kind: HomeApp["picture"] }) => {
       return <>
         <span className="app-clock"><span className="app-clock-hour" /><span className="app-clock-minute" /></span>
         <span className="app-days">
-          <span className="app-chip" data-tone="success">Mon ✓</span>
-          <span className="app-chip" data-tone="success">Tue ✓</span>
-          <span className="app-chip" data-tone="brand">Wed …</span>
+          <span className="app-chip">Mon</span>
+          <span className="app-chip">Tue</span>
+          <span className="app-chip">Wed</span>
         </span>
       </>
   }
@@ -152,8 +150,7 @@ const AppTilePicture = ({ app, repo, workflow }: { readonly app: HomeApp; readon
   }
   return <span className="app-tile-picture" data-picture={app.picture} aria-hidden="true">
     <Picture kind={app.picture} />
-    {wiki === undefined ? app.picture === "wiki" ? <span className="app-chip app-stamp" data-tone="info">current · main</span> : null
-      : <span className="app-chip app-stamp" data-tone={wikiTone(wiki.state)} data-testid="app-tile-wiki">{wikiRow(wiki).state} · main</span>}
+    {wiki !== undefined && <span className="app-chip app-stamp" data-tone={wikiTone(wiki.state)} data-testid="app-tile-wiki">{wikiRow(wiki).state} · main</span>}
   </span>
 }
 

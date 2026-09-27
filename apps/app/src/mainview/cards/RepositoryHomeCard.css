@@ -82,6 +82,7 @@
 .app-picture-diff > code[data-diff="add"] { background: var(--success-soft); color: var(--success); }
 .app-picture-diff > code[data-diff="del"] { background: var(--danger-soft); color: var(--danger); }
 .app-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: var(--fs-small); font-weight: 650; line-height: 1.3; white-space: nowrap; }
+.app-chip:not([data-tone]) { box-shadow: inset 0 0 0 1px var(--border-strong); color: var(--text-muted); }
 .app-chip[data-tone="success"] { background: var(--success-soft); color: var(--success); }
 .app-chip[data-tone="danger"] { background: var(--danger-soft); color: var(--danger); }
 .app-chip[data-tone="info"] { background: var(--info-soft); color: var(--info); }
