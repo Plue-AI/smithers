@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
@@ -103,6 +104,13 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	}
 	if strings.TrimSpace(value) == "" {
 		return Binding{}, ports.ErrModelCredentialMissing
+	}
+	// A subscription login stored before the save refusal, or a repository
+	// secret overriding the credential, is not an API key: the turn fails as
+	// a missing credential to replace. The error names the credential, never
+	// its value (#2222).
+	if subscriptiontoken.Holds(model.Credential, value) {
+		return Binding{}, fmt.Errorf("model credential %s holds a Claude or ChatGPT subscription token; replace it with an API key: %w", model.Credential, ports.ErrModelCredentialMissing)
 	}
 	binding := Binding{Model: input.Model, CredentialName: model.Credential, CredentialValue: value}
 	if !builtinCredential(model.Credential) {

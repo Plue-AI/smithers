@@ -94,3 +94,11 @@ FROM organization_variables
 WHERE id > sqlc.arg(after_id)
 ORDER BY id
 LIMIT sqlc.arg(page_size);
+
+-- name: ListOwnerModelCredentialValuesAfter :many
+SELECT user_id, name, value_encrypted::text AS value_encrypted
+FROM owner_model_credentials
+WHERE value_encrypted IS NOT NULL
+  AND (user_id, name) > (sqlc.arg(after_user_id)::bigint, sqlc.arg(after_name)::text)
+ORDER BY user_id, name
+LIMIT sqlc.arg(page_size);

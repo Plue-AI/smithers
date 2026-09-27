@@ -270,6 +270,47 @@ func (q *Queries) ListOrganizationRepositoryIDs(ctx context.Context, organizatio
 	return items, nil
 }
 
+const listOwnerModelCredentialValuesAfter = `-- name: ListOwnerModelCredentialValuesAfter :many
+SELECT user_id, name, value_encrypted::text AS value_encrypted
+FROM owner_model_credentials
+WHERE value_encrypted IS NOT NULL
+  AND (user_id, name) > ($1::bigint, $2::text)
+ORDER BY user_id, name
+LIMIT $3
+`
+
+type ListOwnerModelCredentialValuesAfterParams struct {
+	AfterUserID int64  `json:"after_user_id"`
+	AfterName   string `json:"after_name"`
+	PageSize    int32  `json:"page_size"`
+}
+
+type ListOwnerModelCredentialValuesAfterRow struct {
+	UserID         int64  `json:"user_id"`
+	Name           string `json:"name"`
+	ValueEncrypted string `json:"value_encrypted"`
+}
+
+func (q *Queries) ListOwnerModelCredentialValuesAfter(ctx context.Context, arg ListOwnerModelCredentialValuesAfterParams) ([]ListOwnerModelCredentialValuesAfterRow, error) {
+	rows, err := q.db.Query(ctx, listOwnerModelCredentialValuesAfter, arg.AfterUserID, arg.AfterName, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOwnerModelCredentialValuesAfterRow{}
+	for rows.Next() {
+		var i ListOwnerModelCredentialValuesAfterRow
+		if err := rows.Scan(&i.UserID, &i.Name, &i.ValueEncrypted); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRepositorySecretValuesAfter = `-- name: ListRepositorySecretValuesAfter :many
 SELECT id, repository_id, name, value_encrypted
 FROM repository_secrets

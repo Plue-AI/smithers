@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
@@ -172,6 +173,13 @@ func (s OwnerModels) Credential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Action != "remove" && (strings.TrimSpace(input.Value) == "" || len(input.Value) > 8192 || strings.ContainsAny(input.Value, "\r\n\x00")) {
+		modelJSON(w, http.StatusOK, credentialFailure("invalid", "value"))
+		return
+	}
+	// A model credential is an API key. A Claude or ChatGPT subscription
+	// login is never one; where a deployment allows them, they belong to the
+	// provider connections pool (#2222).
+	if input.Action != "remove" && subscriptiontoken.Holds(input.Name, input.Value) {
 		modelJSON(w, http.StatusOK, credentialFailure("invalid", "value"))
 		return
 	}

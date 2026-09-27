@@ -47,6 +47,11 @@ func TestStoredSubscriptionTokenScanFlagsRowsOnce(t *testing.T) {
 	exec(`INSERT INTO repository_agent_environments(repository_id,setup_script,environment_variables) VALUES(3,'npm ci','[]'),(4,'export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x','[]')`)
 	exec(`INSERT INTO repository_agent_environment_secrets(repository_id,name,value_encrypted) VALUES(5,'CODEX',$1),(3,'FINE',$2)`,
 		seal(`{"auth_mode":"chatgpt","tokens":{"refresh_token":"r"}}`), seal("fine"))
+	// Model credentials belong to the account: counted, nothing to mark.
+	// The token sorts after a first page of 500 clean credentials.
+	exec(`INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) SELECT 1,'K'||lpad(n::text,4,'0'),'https://models.example',$1 FROM generate_series(1,600) n`, string(seal("sk-proj-fine")))
+	exec(`INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) VALUES(1,'Z_KEY','https://models.example',$1),(1,'CUSTOM_KEY','https://models.example',NULL)`,
+		string(seal("sk-ant-oat01-model")))
 	exec(`INSERT INTO workspaces(repository_id,user_id,status) VALUES(1,1,'running'),(2,1,'suspended'),(3,1,'running'),(4,1,'running'),(5,1,'failed'),(6,1,'suspended')`)
 	exec(`INSERT INTO workspaces(repository_id,user_id,status,deleted_at) VALUES(1,1,'stopped',now())`)
 	exec(`INSERT INTO workspace_snapshots(repository_id,user_id,name) VALUES(1,1,'s1'),(3,1,'s3')`)
@@ -65,7 +70,7 @@ func TestStoredSubscriptionTokenScanFlagsRowsOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ran)
 	assert.Equal(t, services.StoredSubscriptionTokenScanCounts{
-		RepositorySecrets: 1, OrganizationSecrets: 1, AgentEnvironmentSecrets: 1, AgentEnvironments: 1, Variables: 1,
+		RepositorySecrets: 1, OrganizationSecrets: 1, AgentEnvironmentSecrets: 1, AgentEnvironments: 1, Variables: 1, ModelCredentials: 1,
 		Workspaces: 5, Snapshots: 1,
 	}, counts)
 

@@ -24,23 +24,26 @@ type StoredSubscriptionTokenScanCounts struct {
 	AgentEnvironmentSecrets int64 `json:"agent_environment_secrets"`
 	AgentEnvironments       int64 `json:"agent_environments"`
 	// Variables are plain text and refused on use; they carry no flag.
-	Variables  int64 `json:"variables"`
-	Workspaces int64 `json:"workspaces"`
-	Snapshots  int64 `json:"snapshots"`
+	Variables int64 `json:"variables"`
+	// ModelCredentials are an account's and refused on use; they carry no
+	// flag and mark nothing.
+	ModelCredentials int64 `json:"model_credentials"`
+	Workspaces       int64 `json:"workspaces"`
+	Snapshots        int64 `json:"snapshots"`
 	// Unreadable counts secrets that did not decrypt; they are not flagged.
 	Unreadable int64 `json:"unreadable,omitempty"`
 }
 
-// ScanStoredSubscriptionTokens runs once per database (#2206). Secrets and
-// variables saved
-// before the hosted refusal are checked with the same detector the write and
-// use paths apply: each one holding a subscription token is flagged for
-// reconnecting, and every live workspace and snapshot of a repository that
-// held one (an organization secret or variable: every repository of the
-// organization) is
-// marked rebuild-required. The receipt row makes later runs no-ops; replicas
-// racing at startup serialize on an advisory lock and the loser returns
-// ran=false. Only a deployment that refuses subscription tokens runs it.
+// ScanStoredSubscriptionTokens runs once per database (#2206). Secrets,
+// variables and model credentials saved before the hosted refusal are checked
+// with the same detector the write and use paths apply. Each secret holding a
+// subscription token is flagged for reconnecting, and every live workspace and
+// snapshot of a repository that held one (an organization secret or variable:
+// every repository of the organization) is marked rebuild-required; variables
+// and model credentials are only counted. The receipt row makes later runs
+// no-ops; replicas racing at startup serialize on an advisory lock and the
+// loser returns ran=false. Only a deployment that refuses subscription tokens
+// runs it.
 func ScanStoredSubscriptionTokens(ctx context.Context, pool interface {
 	Begin(context.Context) (pgx.Tx, error)
 }, codec webhook.SecretCodec) (counts StoredSubscriptionTokenScanCounts, ran bool, err error) {
@@ -200,6 +203,26 @@ func ScanStoredSubscriptionTokens(ctx context.Context, pool interface {
 		}
 	}
 
+	// Model credentials are checked on every read (#2222) and belong to an
+	// account, not a repository: the scan only counts them.
+	for afterUser, afterName := int64(0), ""; ; {
+		rows, err := q.ListOwnerModelCredentialValuesAfter(ctx, db.ListOwnerModelCredentialValuesAfterParams{
+			AfterUserID: afterUser, AfterName: afterName, PageSize: storedSubscriptionTokenScanPage,
+		})
+		if err != nil {
+			return counts, false, fmt.Errorf("list model credentials: %w", err)
+		}
+		for _, row := range rows {
+			afterUser, afterName = row.UserID, row.Name
+			if holds(row.Name, []byte(row.ValueEncrypted)) {
+				counts.ModelCredentials++
+			}
+		}
+		if len(rows) < storedSubscriptionTokenScanPage {
+			break
+		}
+	}
+
 	for repositoryID := range repositories {
 		workspaces, snapshots, err := markRepositoryRebuildRequiredCount(ctx, q, repositoryID)
 		if err != nil {
@@ -241,6 +264,7 @@ func RunStoredSubscriptionTokenScan(ctx context.Context, pool interface {
 			"agent_environment_secrets", counts.AgentEnvironmentSecrets,
 			"agent_environments", counts.AgentEnvironments,
 			"variables", counts.Variables,
+			"model_credentials", counts.ModelCredentials,
 			"workspaces", counts.Workspaces,
 			"snapshots", counts.Snapshots,
 			"unreadable", counts.Unreadable,

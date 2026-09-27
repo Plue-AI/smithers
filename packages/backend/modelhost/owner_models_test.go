@@ -161,3 +161,61 @@ func TestResolveChatModelCredentialSources(t *testing.T) {
 	defaults := f.call(t, f.handlers.Default, http.MethodGet, nil)
 	require.Equal(t, "OPENAI_API_KEY", defaults["model"].(map[string]any)["credential"])
 }
+
+// #2222: a model credential is an API key. A Claude or ChatGPT subscription
+// token is refused on save and on read, with the detector secrets use, on
+// every deployment; subscription logins belong to the provider connections
+// pool.
+func TestOwnerModelCredentialsRefuseSubscriptionTokens(t *testing.T) {
+	f := newOwnerModelsFixture(t)
+	ctx := context.Background()
+	anthropic := "https://api.anthropic.com"
+	invalidField := func(result map[string]any) string {
+		failure, _ := result["failure"].(map[string]any)
+		field, _ := failure["field"].(string)
+		return failureCode(result) + ":" + field
+	}
+
+	require.Equal(t, "invalid:value", invalidField(f.credential(t, "enroll", "enroll-2001", "ANTHROPIC_API_KEY", anthropic, "sk-ant-oat01-subscription")))
+	require.Equal(t, "invalid:value", invalidField(f.credential(t, "enroll", "enroll-2002", "CLAUDE_CODE_OAUTH_TOKEN", anthropic, "anything")))
+	require.Equal(t, true, f.credential(t, "enroll", "enroll-2003", "ANTHROPIC_API_KEY", anthropic, "sk-ant-api03-key")["ok"])
+	require.Equal(t, "invalid:value", invalidField(f.credential(t, "rotate", "rotate-2001", "ANTHROPIC_API_KEY", "", "sk-ant-ort01-subscription")))
+
+	resolver, err := modelhost.NewOwnerSecretResolver(func() string { return f.url }, func() string { return ownerModelsSecretKey })
+	require.NoError(t, err)
+	t.Cleanup(resolver.Close)
+	request, err := json.Marshal(map[string]any{"model": map[string]string{"protocol": "anthropic-messages", "modelId": "m", "credential": "ANTHROPIC_API_KEY"}})
+	require.NoError(t, err)
+	binding, err := resolver.ResolveChatModel(ctx, f.owner, f.repo, request)
+	require.NoError(t, err)
+	require.Equal(t, "sk-ant-api03-key", binding.CredentialValue)
+
+	// A repository secret overriding the owner's API key with a token is
+	// refused as a missing credential, naming the credential, not the value.
+	codec, err := webhook.NewSecretCodec(ownerModelsSecretKey)
+	require.NoError(t, err)
+	seal := func(value string) string {
+		sealed, err := codec.EncryptString(value)
+		require.NoError(t, err)
+		return sealed
+	}
+	_, err = f.pool.Exec(ctx, `INSERT INTO repository_secrets (repository_id,name,value_encrypted) VALUES ($1,'ANTHROPIC_API_KEY',$2)`, f.repo, []byte(seal("sk-ant-oat01-repository")))
+	require.NoError(t, err)
+	_, err = resolver.ResolveChatModel(ctx, f.owner, f.repo, request)
+	require.ErrorIs(t, err, ports.ErrModelCredentialMissing)
+	require.ErrorContains(t, err, "ANTHROPIC_API_KEY holds a Claude or ChatGPT subscription token")
+	require.NotContains(t, err.Error(), "sk-ant-oat01")
+
+	// An owner credential stored before the save refusal is refused on read.
+	_, err = f.pool.Exec(ctx, `UPDATE owner_model_credentials SET value_encrypted=$2 WHERE user_id=$1 AND name='ANTHROPIC_API_KEY'`, f.owner, seal("sk-ant-oat01-stored"))
+	require.NoError(t, err)
+	_, err = resolver.ResolveChatModel(ctx, f.owner, 0, request)
+	require.ErrorIs(t, err, ports.ErrModelCredentialMissing)
+	require.NotContains(t, err.Error(), "sk-ant-oat01")
+
+	// Replacing it with an API key is the recovery.
+	require.Equal(t, true, f.credential(t, "rotate", "rotate-2002", "ANTHROPIC_API_KEY", "", "sk-ant-api03-new")["ok"])
+	binding, err = resolver.ResolveChatModel(ctx, f.owner, 0, request)
+	require.NoError(t, err)
+	require.Equal(t, "sk-ant-api03-new", binding.CredentialValue)
+}
