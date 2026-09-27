@@ -69,14 +69,14 @@ export interface WorldData {
   readonly chat: { readonly channels: ReadonlyArray<Channel>; readonly messages: ReadonlyArray<ChatMessage> }
   readonly issues: ReadonlyArray<Issue>
   /**
-   * Scripted test results for `run_tests`, first match wins: every `match`
+   * Scripted test results for `run_tests`, the most specific match wins: every `match`
    * term must appear in the filter the role passed (an empty `match` is the
    * default). A world without `tests` has no test runner.
    */
   readonly tests?: ReadonlyArray<TestResult> | undefined
   /**
    * Scripted results for `ops_run` (deploy, roll back, restart, rotate...),
-   * first match wins: the entry's `action`, when set, must equal the action
+   * the most specific match wins: the entry's `action`, when set, must equal the action
    * the role asked for, and every `match` term must appear in its target (an
    * entry with neither is the default). A world without `ops` has no
    * operations workspace.
@@ -325,16 +325,23 @@ const issueView = (world: World, issue: Issue) => ({ ...issue, url: urlOf.issue(
 const nextNumber = (issues: ReadonlyArray<Issue>): number =>
   issues.reduce((max, issue) => Math.max(max, issue.number), 0) + 1
 
+/** The most specific entry wins (most `match` terms, then an `action`); ties go to the first, so a case's entries beat the world's defaults. */
+const mostSpecific = <A>(entries: ReadonlyArray<A> | undefined, matches: (entry: A) => boolean, weight: (entry: A) => number): A | undefined =>
+  entries?.reduce<A | undefined>((best, entry) => matches(entry) && (best === undefined || weight(entry) > weight(best)) ? entry : best, undefined)
+
 const testsFor = (world: World, filter: string): TestResult | undefined => {
   const lower = filter.toLowerCase()
-  return world.data.tests?.find((entry) => entry.match.every((term) => lower.includes(term.toLowerCase())))
+  return mostSpecific(world.data.tests, (entry) => entry.match.every((term) => lower.includes(term.toLowerCase())), (entry) => entry.match.length)
 }
 
 const opsFor = (world: World, action: string, target: string): OpsResult | undefined => {
   const lower = target.toLowerCase()
-  return world.data.ops?.find((entry) =>
-    (entry.action === undefined || entry.action.toLowerCase() === action.toLowerCase()) &&
-    (entry.match ?? []).every((term) => lower.includes(term.toLowerCase()))
+  return mostSpecific(
+    world.data.ops,
+    (entry) =>
+      (entry.action === undefined || entry.action.toLowerCase() === action.toLowerCase()) &&
+      (entry.match ?? []).every((term) => lower.includes(term.toLowerCase())),
+    (entry) => (entry.match ?? []).length * 2 + (entry.action === undefined ? 0 : 1)
   )
 }
 

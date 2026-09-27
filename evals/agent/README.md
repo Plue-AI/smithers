@@ -211,12 +211,12 @@ passes means the case can't see that failure.
 
 Work is simulated against the world's fixtures, so a case can assert that a
 role did it instead of saying it can't: `repo_read` and `repo_search` read
-`repo/`; `run_tests` answers from the world's `tests` list (the first entry
-whose `match` terms all appear in the filter wins, an empty `match` is the
+`repo/`; `run_tests` answers from the world's `tests` list (of the entries whose
+`match` terms all appear in the filter, the one with the most terms wins, an empty `match` is the
 default, and a world without `tests` has no runner); `ops_run` (deploy, roll
 back, restart, rotate and other operational commands) answers from the world's
-`ops` list (the first entry whose `action`, when set, equals the action and
-whose `match` terms all appear in the target wins, and a world without `ops`
+`ops` list (of the entries whose `action`, when set, equals the action and
+whose `match` terms all appear in the target, the most specific wins, and a world without `ops`
 has no operations workspace), so a case can assert that a role deployed or
 rolled back, or that it didn't; `pr_open`,
 `issue_create`, `issue_comment` and `issue_update` (state, labels, assignee,

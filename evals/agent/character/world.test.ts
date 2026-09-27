@@ -34,7 +34,7 @@ describe("work tools", () => {
   const world = World.load(example)
   const role = "assistant"
 
-  test("run_tests answers from the scripted results, first match wins, and says when nothing is scripted", () => {
+  test("run_tests answers from the scripted results, the most specific match wins, and says when nothing is scripted", () => {
     const state = World.initialState(world)
     expect(World.call(world, role, state, "run_tests", { filter: "src/signup.test.ts" })).toMatchObject({
       status: "failed",
@@ -48,9 +48,13 @@ describe("work tools", () => {
     expect(World.call(strict, role, World.initialState(strict), "run_tests", { filter: "signup" })).toEqual({
       error: "No tests match \"signup\"."
     })
+    // A case's entries append after the world's default; the more specific entry still wins.
+    const appended = World.load(example, { set: { tests: [{ match: [], status: "passed", passed: 41, failed: 0, output: "41 passed" }] }, add: { tests: [{ match: ["sync"], status: "failed", passed: 0, failed: 1, output: "FAIL sync" }] } })
+    expect(World.call(appended, role, World.initialState(appended), "run_tests", { filter: "sync" })).toMatchObject({ status: "failed" })
+    expect(World.call(appended, role, World.initialState(appended), "run_tests", {})).toMatchObject({ status: "passed", passed: 41 })
   })
 
-  test("ops_run answers from the scripted results by action and target, and first match wins", () => {
+  test("ops_run answers from the scripted results by action and target, and the most specific match wins", () => {
     const state = World.initialState(world)
     expect(World.call(world, role, state, "ops_run", { action: "Rollback", target: "api to 1.4.1" })).toEqual({
       action: "Rollback",
@@ -65,6 +69,8 @@ describe("work tools", () => {
     expect(World.call(bare, role, World.initialState(bare), "ops_run", { action: "deploy", target: "1.5.0" })).toEqual({
       error: "No operations workspace is set up for this world."
     })
+    const appended = World.load(example, { set: { ops: [{ status: "started", output: "Running" }] }, add: { ops: [{ action: "deploy", match: ["1.5.0"], status: "failed", output: "no" }] } })
+    expect(World.call(appended, role, World.initialState(appended), "ops_run", { action: "deploy", target: "1.5.0" })).toMatchObject({ status: "failed" })
     const strict = World.load(example, { set: { ops: [{ action: "deploy", match: ["1.5.0"], status: "failed", output: "no" }] } })
     const strictState = World.initialState(strict)
     expect(World.call(strict, role, strictState, "ops_run", { action: "deploy", target: "1.5.0" })).toMatchObject({ status: "failed" })
