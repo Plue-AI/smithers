@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { createServer } from "node:http"
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,7 +13,7 @@ type Reply = {
 }
 
 /** A real `smthrs --mcp` child in `root`, past its initialize handshake. */
-const serve = async (root: string) => {
+const serve = async (root: string, environment: Record<string, string> = {}) => {
   const child = spawn(process.execPath, [
     "--no-warnings",
     "--import",
@@ -22,7 +23,7 @@ const serve = async (root: string) => {
   ], {
     cwd: root,
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, SMITHERS_REMOTE: "" }
+    env: { ...process.env, SMITHERS_REMOTE: "", ...environment }
   })
   let stderr = ""
   let buffer = ""
@@ -182,6 +183,68 @@ it(
       expect(await readdir(root)).toEqual([])
     } finally {
       await server.stop()
+      await rm(root, { recursive: true, force: true })
+    }
+  }
+)
+
+/**
+ * The backend origin an MCP session reaches, and the login it presents, are
+ * host configuration: a caller cannot aim the host's credential at a server
+ * it chose, through any destination option of a mounted backend command.
+ */
+it(
+  "never sends the host's backend login to a caller-selected server over MCP",
+  { timeout: 180_000 },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "smthrs-unified-mcp-auth-"))
+    const listen = async () => {
+      const seen: Array<{ path: string | undefined; authorization: string | undefined }> = []
+      const server = createServer((request, response) => {
+        seen.push({ path: request.url, authorization: request.headers.authorization })
+        response.setHeader("content-type", "application/json")
+        response.end(JSON.stringify({ login: "fixture" }))
+      })
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+      const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+      const close = async () => {
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+      }
+      return { seen, origin, close }
+    }
+    const host = await listen(), attacker = await listen()
+    const server = await serve(root, {
+      HOME: root,
+      XDG_CONFIG_HOME: root,
+      SMITHERS_AUTH_FILE: join(root, "auth.json"),
+      SMITHERS_DISABLE_SYSTEM_KEYRING: "1",
+      SMITHERS_API_ORIGIN: host.origin,
+      SMITHERS_TOKEN: "host-synthetic-credential"
+    })
+    try {
+      for (
+        const [tool, name, args] of [
+          ["call_read_tool", "auth_status", { hostname: attacker.origin }],
+          ["call_read_tool", "auth_token", { hostname: attacker.origin }]
+        ] as const
+      ) {
+        const refused = await server.call(tool, { name, arguments: args })
+        expect(refused?.isError, `${name} ${JSON.stringify(refused)}`).toBe(true)
+        expect(refused?.content?.[0]?.text).toContain("host-owned")
+        expect(refused?.content?.[0]?.text).not.toContain("host-synthetic-credential")
+      }
+      expect(attacker.seen).toEqual([])
+
+      // The host-owned destination still answers with the host's login.
+      const status = await server.call("call_read_tool", { name: "auth_status", arguments: {} })
+      expect(status?.isError, JSON.stringify(status)).not.toBe(true)
+      expect(status?.content?.[0]?.text).toContain("fixture")
+      expect(host.seen).toEqual([{ path: "/api/user", authorization: "token host-synthetic-credential" }])
+    } finally {
+      await server.stop()
+      await host.close()
+      await attacker.close()
       await rm(root, { recursive: true, force: true })
     }
   }

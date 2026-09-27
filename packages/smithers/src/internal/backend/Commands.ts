@@ -37,6 +37,8 @@ export const handlers: Record<string, Handler> = {
   "workspace cp": copy,
   completion: async (_c, a) => Completions.register(a.shell as "bash" | "zsh" | "fish", "smithers")
 }
+// Options that choose which backend receives the saved login.
+const destinations = ["hostname", "host"] as const
 /** @private
  * @since 1.0.0
  */
@@ -115,12 +117,16 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
             ...(context.args.flow ? { workflow: context.args.flow } : {})
           }
         return Presentation.guard(context, async () => {
-          if (
-            context.request !== undefined ||
-            context.agent && context.formatExplicit && !Object.keys(context.globals ?? {}).length
-          ) {
+          // The backend an MCP session reaches, and the login it presents, are
+          // host configuration: a caller never aims the host's credential elsewhere.
+          if (Presentation.current()?.transport === "mcp") {
             if (["api", "auth login", "config set"].includes(name)) {
               throw new Error("Login and API destination configuration are host-owned over MCP")
+            }
+            for (const flag of destinations) {
+              if (options[flag] !== undefined && options[flag] !== "") {
+                throw new Error(`--${flag} is not accepted over MCP; the backend destination is host-owned`)
+              }
             }
           }
           const client = new Client(runtime, !Presentation.policy(context, runtime).structured)
