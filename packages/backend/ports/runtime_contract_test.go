@@ -140,7 +140,12 @@ func (externalProvisioning) ClaimReady(context.Context, string) ([]provisioning.
 	return nil, nil
 }
 
+// A deployment's workspace store embeds the product operations and adds
+// only fleet repairs, so Product must carry every WorkspaceQuerier method.
+type externalWorkspaces struct{ productstore.Product }
+
 var _ = ports.RuntimeStores{
+	Workspaces:        externalWorkspaces{},
 	GoldenSnapshots:   externalGoldenSnapshots{},
 	WorkflowScheduler: externalWorkflowScheduler{},
 	EnvironmentImages: externalEnvironmentImages{},

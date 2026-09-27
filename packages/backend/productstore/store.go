@@ -15,6 +15,7 @@ type DBTX = db.DBTX
 // Product includes the optional capabilities used by workspace and workflow
 // services as well as their base interfaces, so wrapping it cannot erase them.
 type Product interface {
+	SealOutsiderWorkspaceEgress(ctx context.Context, workspaceID string) error
 	StampAgentSessionRevisionsWorkspaceSnapshot(ctx context.Context, arg db.StampAgentSessionRevisionsWorkspaceSnapshotParams) (int64, error)
 	ListNeverStartedAgentSessions(ctx context.Context, cutoff time.Time) ([]db.AgentSession, error)
 	FailNeverStartedAgentSession(ctx context.Context, arg db.FailNeverStartedAgentSessionParams) (db.AgentSession, error)
@@ -108,6 +109,8 @@ type Product interface {
 	InsertAuditLog(ctx context.Context, arg db.InsertAuditLogParams) error
 	InsertWorkflowRunLogNextSequence(ctx context.Context, arg db.InsertWorkflowRunLogNextSequenceParams) (db.InsertWorkflowRunLogNextSequenceRow, error)
 	IsOrgOwnerForRepoUser(ctx context.Context, arg db.IsOrgOwnerForRepoUserParams) (bool, error)
+	IsOutsiderWorkspace(ctx context.Context, workspaceID string) (bool, error)
+	IsOutsiderWorkspaceEgressSealed(ctx context.Context, workspaceID string) (bool, error)
 	ListExpiredLFSUploadReservationsByOwner(ctx context.Context, repositoryID int64) ([]db.LfsUploadReservation, error)
 	ListIdleWorkspaceSessions(ctx context.Context) ([]db.WorkspaceSession, error)
 	ListIdleWorkspaces(ctx context.Context) ([]db.Workspace, error)
@@ -132,6 +135,7 @@ type Product interface {
 	ListWorkspacesByRepo(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error)
 	MarkWorkflowTaskTerminalByID(ctx context.Context, arg db.MarkWorkflowTaskTerminalByIDParams) (int64, error)
 	MarkWorkflowTaskVMRunning(ctx context.Context, arg db.MarkWorkflowTaskVMRunningParams) (int64, error)
+	MarkOutsiderWorkspace(ctx context.Context, repositoryID int64, workspaceID string) error
 	MarkWorkspaceResumed(ctx context.Context, arg db.MarkWorkspaceResumedParams) error
 	MarkWorkspaceSessionRunning(ctx context.Context, id string) (db.WorkspaceSession, error)
 	NotifyWorkflowRunEvent(ctx context.Context, arg db.NotifyWorkflowRunEventParams) error
