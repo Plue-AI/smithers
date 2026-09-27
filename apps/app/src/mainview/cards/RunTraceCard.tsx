@@ -13,7 +13,8 @@ import { codingEvidenceOf } from "./CodingPlan"
 import { FlowRunGraph, runGraphOfCard } from "./FlowRunGraph"
 import { CodingPlanBody } from "./CodingPlanCard"
 import { RunTraceSummary } from "./RunTraceSummary"
-import { launchSourceOf } from "../state/WorkflowLaunch"
+import { runTriggersOf, runTriggerWords } from "./RunTrigger"
+import { AgentMark } from "../AgentMark"
 import { StepList, stepFacts } from "./RunTraceSteps"
 import { traceSteps } from "./TraceSteps"
 import { CodingPocBody } from "./CodingPocCard"
@@ -231,9 +232,8 @@ export const RunTraceBody = ({
     ran.calls > 0 ? count(ran.calls, "call") : undefined,
     whole.counts.spans > 0 ? durationWords(ran.wall) : undefined
   ].filter((fact) => fact !== undefined)
-  /* What started the run, as the launch recorded it: a pushed ref's name, else the flow the input named. Never inferred. */
-  const launchSource = launchSourceOf(card)
-  const trigger = launchSource !== undefined ? `from ${launchSource} · ${card.payload.workflow}` : undefined
+  /* What started the run, as it was recorded (RunTrigger.ts): the pinned pushed ref, the schedule, each approval decision. Never inferred. */
+  const triggers = runTriggersOf(card)
   const scrub = card.payload.liveTail === false ? (
     <span className="run-trace-scrub">
       {card.payload.cursorSeq !== undefined ? <span className="run-trace-cursor">At #{card.payload.cursorSeq}</span> : null}
@@ -295,15 +295,23 @@ export const RunTraceBody = ({
             {scrub}
           </div>
           <PhaseStrip model={whole} records={card.payload.events ?? []} runId={runId} cursorSeq={card.payload.cursorSeq} onRunCommand={onRunCommand} />
-          {/* The trigger as its own row (DESIGN §3.4): only what the launch recorded — its source ref, the flow it ran. */}
-          {trigger === undefined ? null : (
-            <div className="run-trigger" data-testid={`run-trigger-${runId}`}>
-              <span className="agent-trigger-glyph" aria-hidden>⚡</span>
-              <span className="run-step-time">{model.extent.start > 0 ? timeLabel(model.extent.start) : ""}</span>
-              <span className="run-step-type">trigger</span>
-              <span className="run-trigger-text">{trigger}</span>
-            </div>
-          )}
+          {/* The triggers as their own rows (DESIGN §3.4, #2115): one per recorded source — the pushed ref, the schedule, each approval decision with who made it. */}
+          {triggers.map((trigger, index) => {
+            const at = trigger.kind === "approval" && trigger.at !== undefined ? trigger.at : model.extent.start
+            return (
+              <div key={index} className="run-trigger" data-testid={`run-trigger-${runId}-${trigger.kind}`} data-trigger={trigger.kind}>
+                <span className="agent-trigger-glyph" aria-hidden>⚡</span>
+                <span className="run-step-time">{at > 0 ? timeLabel(at) : ""}</span>
+                <span className="run-step-type">trigger</span>
+                <span className="run-trigger-text">
+                  {runTriggerWords(trigger, card.payload.workflow)}
+                  {trigger.kind === "approval" && trigger.principal !== undefined
+                    ? <> <AgentMark persona={{ id: trigger.principal, name: trigger.principal }} size={16} onRunCommand={onRunCommand} /></>
+                    : null}
+                </span>
+              </div>
+            )
+          })}
           <StepList model={model} runId={runId} selected={card.payload.selection} cardId={card.id} onRunCommand={onRunCommand}
             detail={<SpanPane span={selected} model={model} runId={runId} />} />
           {model.counts.spans === 0 ? (

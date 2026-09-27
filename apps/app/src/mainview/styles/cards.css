@@ -2536,7 +2536,8 @@
 .run-steps > li[data-step-open="true"] { background: var(--surface-2); }
 .run-step {
 	display: grid;
-	grid-template-columns: 4.5rem 4rem minmax(0, 1fr) 4rem 4rem;
+	/* The time takes what it needs: a run older than today carries its date. */
+	grid-template-columns: max-content 4rem minmax(0, 1fr) 4rem 4rem;
 	align-items: baseline;
 	gap: var(--sp-2);
 	width: 100%;
@@ -2580,7 +2581,7 @@
 }
 .run-trigger {
 	display: grid;
-	grid-template-columns: 1.25rem 4.5rem 4rem minmax(0, 1fr);
+	grid-template-columns: 1.25rem max-content 4rem minmax(0, 1fr);
 	align-items: baseline;
 	gap: var(--sp-2);
 	padding: 0.3rem var(--sp-3);
