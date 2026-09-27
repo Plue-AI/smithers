@@ -500,7 +500,9 @@ const ci = Smithers.GithubCiGen({
       id: "apps-e2e",
       name: "apps e2e (Playwright T1)",
       runsOn: ubuntu,
-      timeoutMinutes: 30,
+      // Setup ~2 min, check 1, unit tests 7, conformance 1, then the browser suites 13-19 min (Deploy
+      // apps timings) and the TUI; run 36345818568 was cancelled at 30 inside browserE2e.
+      timeoutMinutes: 60,
       toolchain: Smithers.CiToolchain.Needs({
         cargoBinaries: nativeFilesystem,
         runtimes: [node, bun],
