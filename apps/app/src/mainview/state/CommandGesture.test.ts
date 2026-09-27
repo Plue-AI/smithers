@@ -23,7 +23,7 @@ const gate = () => {
   return { resolve, promise }
 }
 const fixture = async (services: AppServices = {}, reject = false) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   if (services.bootstrap?.host === "local" || services.bootstrap?.authFlow === "native-handoff") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
   const held = gate()
   const observed: AppStore = { ...store, dispatch: transition => {
@@ -111,7 +111,7 @@ test("failed preference storage rolls back the local mode and reports failure", 
   let reject = false
   const store = await createAppStore({ kind: "localStorage", storage: { ...storage,
     setItem: (key, value) => { if (reject) throw new Error("disk full"); storage.setItem(key, value) }
-  } }, { seedWiki: false })
+  } })
   const controller = createAppController(store, silentAgent)
   controllers.push(controller)
   await store.settled?.()

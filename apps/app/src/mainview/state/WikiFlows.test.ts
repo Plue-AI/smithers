@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { memoryStorage, silentAgent } from "./TestFixtures"
+import { addWorldNote, memoryStorage, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -21,6 +21,7 @@ const setup = async () => {
   const controller = createAppController(store, silentAgent, {
     fetchImpl: async () => new Response("{}", { status: 200 })
   })
+  await addWorldNote(store)
   await store.dispatch({
     type: "world.document.upserted",
     actor: "user",

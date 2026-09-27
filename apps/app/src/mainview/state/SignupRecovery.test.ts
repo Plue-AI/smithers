@@ -22,7 +22,7 @@ for (const accepted of [false, true]) test(`signup edits survive a crash ${accep
   let store: AppStore | undefined, restored: AppStore | undefined
   const pending: Array<Promise<unknown>> = []
   try {
-    store = await createAppStore({ kind: "localStorage", storage: storageFor(values) }, { seedWiki: false })
+    store = await createAppStore({ kind: "localStorage", storage: storageFor(values) })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
     const active = store
     const controller = controllerFor({ ...active, dispatch: transition => {
@@ -46,7 +46,7 @@ for (const accepted of [false, true]) test(`signup edits survive a crash ${accep
     await Promise.all(pending)
     await controller.dispose()
     host.localStorage = storageFor(frozenRecovery)
-    restored = await createAppStore({ kind: "localStorage", storage: storageFor(frozen) }, { seedWiki: false })
+    restored = await createAppStore({ kind: "localStorage", storage: storageFor(frozen) })
     expect(restored.session().signup).toMatchObject({ stage: "account", question: 0, answers: {}, account: "old-owner",
       draft: { name: "Private Old Name", account: "intentional-slug", more: "" } })
     expect(restored.session().signup?.name).toBeUndefined()
@@ -63,7 +63,7 @@ const withRecovery = async (body: (store: AppStore, recovery: StorageApi, reopen
   const prior = Object.getOwnPropertyDescriptor(globalThis, "window")
   const storage = storageFor(new Map()), recovery = storageFor(new Map()), stores: AppStore[] = []
   Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: recovery, matchMedia: () => ({ matches: false }) } })
-  const open = async () => { const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false }); stores.push(store); return store }
+  const open = async () => { const store = await createAppStore({ kind: "localStorage", storage }); stores.push(store); return store }
   try {
     const store = await open()
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise

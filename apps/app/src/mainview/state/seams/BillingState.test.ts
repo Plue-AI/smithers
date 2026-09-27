@@ -17,7 +17,7 @@ const signIn = (store: AppStore, login: string) => store.dispatch({ type: "ident
   state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
 
 test("billing reads wait for the account receipt before publishing a card or result, then reopen identically", async () => {
-  const storage = memoryStorage(), store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const storage = memoryStorage(), store = await createAppStore({ kind: "localStorage", storage })
   const hold = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
   const ctx = context(store)
   const seam = createBillingSeam({ ...ctx, dispatch: transition => {
@@ -40,7 +40,7 @@ test("billing reads wait for the account receipt before publishing a card or res
     const proof = await store.verifyState()
     expect(proof.valid).toBe(true)
     await store.dispose?.()
-    const reopened = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+    const reopened = await createAppStore({ kind: "localStorage", storage })
     try {
       expect(reopened.collections.cards.get("billing-plans")).toMatchObject({ payload: { planKey: "free" } })
       expect((await reopened.verifyState()).actualHash).toBe(proof.actualHash)
@@ -54,7 +54,7 @@ test.each(["plans", "limit"] as const)("failed %s persistence cannot report a sa
   const store = await createAppStore({ kind: "localStorage", storage: { ...storage, setItem: (key, value) => {
     if (fail && key === ENVELOPE_STORAGE_KEY) throw new Error("billing disk failure")
     storage.setItem(key, value)
-  } } }, { seedWiki: false })
+  } } })
   try {
     const before = await store.eventHistory()
     fail = true
@@ -68,7 +68,7 @@ test.each(["plans", "limit"] as const)("failed %s persistence cannot report a sa
 })
 
 test.each(["account", "dispose"] as const)("late plan and checkout answers cannot cross %s", async change => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await signIn(store, "first-account")
   let disposed = false
   const hold = Promise.withResolvers<void>()
@@ -90,7 +90,7 @@ test.each(["account", "dispose"] as const)("late plan and checkout answers canno
 })
 
 test.each([[undefined, "pro"], ["pro", "pro"]] as const)("checkout with plan %p asks the server for %p", async (plan, expected) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const bodies: unknown[] = []
   try {
     await signIn(store, "ada")

@@ -12,7 +12,7 @@ const until = async (condition: () => Promise<boolean>) => {
 
 test("idle checkpoint bounds reopen replay while retaining documents and later edits", async () => {
   const storage = memoryStorage()
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage })
   try {
     await store.dispatch({ type: "world.document.upserted", actor: "user", document: {
       id: "kept", path: "kept.md", title: "Kept", body: "Preserve my work", links: [], tags: [], sources: [], confidence: 1
@@ -29,7 +29,7 @@ test("idle checkpoint bounds reopen replay while retaining documents and later e
     expect((await store.verifyState()).valid).toBe(true)
     await store.dispatch({ type: "composer.changed", actor: "user", draft: "Continue after checkpoint" }).isPersisted.promise
   } finally { await store.dispose?.() }
-  const reopened = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const reopened = await createAppStore({ kind: "localStorage", storage })
   try {
     expect(reopened.collections.worldDocuments.get("kept")?.body).toBe("Preserve my work")
     expect(reopened.session().draft).toBe("Continue after checkpoint")
@@ -46,7 +46,7 @@ test("failed automatic checkpoint retains its suffix and retries after a committ
     if (rejectWrites) { refused++; throw new Error("disk unavailable") }
     durable.setItem(key, value)
   } }
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage })
   try {
     for (let index = 0; index < 65; index++) {
       await store.dispatch({ type: "tab.menu.toggled", actor: "user", open: index % 2 === 0 }).isPersisted.promise

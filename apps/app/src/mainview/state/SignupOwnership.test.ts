@@ -5,7 +5,7 @@ import { type PrivacyStorage, readPrivacyRetirement } from "../chain/PrivacyReti
 import { PERSISTENCE_BACKEND_STORAGE_KEY } from "../chain/SchemaVersion"
 
 const open = async (storage: PrivacyStorage) => createAppStore({ backend: { kind: "localStorage", storage }, mode: "localStorage", degraded: false,
-  privacy: { record: storage, eraseInactiveDatabase: async () => {} } }, { seedWiki: false })
+  privacy: { record: storage, eraseInactiveDatabase: async () => {} } })
 const identity = (store: AppStore, login: string, provider: "github" | "local" = "github") =>
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, provider,
     allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise

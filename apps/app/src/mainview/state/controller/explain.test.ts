@@ -203,7 +203,7 @@ describe("the explainer seat", () => {
   const MINE = { id: "mine", protocol: "openai-chat", baseUrl: "https://api.cerebras.ai", modelId: "qwen-3-coder-480b", credential: "CEREBRAS_API_KEY" } as const
 
   const seated = async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const launches: StartAgentTurnRequest[] = []
     const agent: AgentPort = {
       available: true,
@@ -251,7 +251,7 @@ describe("the explainer seat", () => {
 })
 
 test("the Explainer posts a journal turn and projects the HTTP delivery into its card", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let posted: StartAgentTurnRequest | undefined
   const agent = createWebAgent({ fetchImpl: async (input, init) => {
     if (String(input) === "/api/agent/turn/retire") return Response.json({ status: "retired" })
@@ -282,7 +282,7 @@ test("the Explainer posts a journal turn and projects the HTTP delivery into its
 })
 
 test("disposing a journal Explainer cancels its side turn and ignores later output", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const cancelled: string[] = []
   let request: StartAgentTurnRequest | undefined
   let deliver: ((delivery: import("@smthrs/rpc/AgentTurnJournal").AgentTurnJournalDelivery) => Promise<void>) | undefined

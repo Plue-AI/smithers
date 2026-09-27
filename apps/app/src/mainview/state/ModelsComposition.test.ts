@@ -34,7 +34,7 @@ const modelsCard = (store: Awaited<ReturnType<typeof createAppStore>>) => {
 
 test("the model flows run through the registry, and a requested test survives a reload", async () => {
   const storage = memoryStorage()
-  const first = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const first = await createAppStore({ kind: "localStorage", storage })
   // A host that never answers the test: the request is all the first session leaves behind.
   const silent = createAppController(first, unavailableAgent, {
     fetchImpl: (input) => new URL(input instanceof Request ? input.url : String(input), "http://local.test").pathname === MODEL_TEST_PATH
@@ -48,7 +48,7 @@ test("the model flows run through the registry, and a requested test survives a 
   await silent.dispose()
   await first.dispose?.()
 
-  const second = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const second = await createAppStore({ kind: "localStorage", storage })
   expect(modelsCard(second)?.payload.testing).toEqual(["mine"])
   const answering = host()
   const reloaded = createAppController(second, unavailableAgent, { fetchImpl: answering.fetchImpl })
@@ -61,7 +61,7 @@ test("the model flows run through the registry, and a requested test survives a 
 })
 
 test("a user command restores the transcript before rendering over a stale maximized card", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const answering = host()
   const controller = createAppController(store, unavailableAgent, { fetchImpl: answering.fetchImpl })
 
@@ -78,7 +78,7 @@ test("a user command restores the transcript before rendering over a stale maxim
 })
 
 test("chrome commands and the card's own history keep a maximized card in place", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const answering = host()
   const controller = createAppController(store, unavailableAgent, { fetchImpl: answering.fetchImpl })
 

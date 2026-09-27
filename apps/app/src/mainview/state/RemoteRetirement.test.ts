@@ -27,7 +27,7 @@ const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
 const open = async (storage: PrivacyStorage, eraseTurn?: EraseRemoteTurn) => {
   const store = await createAppStore({ backend: { kind: "localStorage", storage }, mode: "localStorage", degraded: false,
-    privacy: { record: storage, eraseInactiveDatabase: async () => {} } }, { seedWiki: false, eraseTurn })
+    privacy: { record: storage, eraseInactiveDatabase: async () => {} } }, { eraseTurn })
   cleanups.push(async () => { await store.dispose?.() })
   return store
 }

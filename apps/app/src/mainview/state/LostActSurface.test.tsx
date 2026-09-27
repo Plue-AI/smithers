@@ -40,7 +40,7 @@ test("a bug in the staged form preparation reaches the person as a bug, not as s
   const unhandled: Array<unknown> = []
   const watch = (reason: unknown) => { unhandled.push(reason) }
   process.on("unhandledRejection", watch)
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   /*
    * Everything real but the one step under test: the store, its transactional
    * storage host, the controller, the registry and the card. `stagePendingCardInput`

@@ -9,6 +9,7 @@ import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import { initialSetup, REPOSITORY_JOB_TITLES, type RepositoryJob } from "@smthrs/rpc/RepositorySetup"
 import { CHAT_INSTRUCTIONS_CAP_BYTES, CODE_INTEL_LINE, INSTRUCTIONS_BUDGET_BYTES, INSTRUCTIONS_HEADROOM_BYTES, instructionStageOf, smithersInstructions } from "./Instructions"
 import { WORLD_BODY_BUDGET, WORLD_BODY_PER_DOCUMENT } from "./WorldContext"
+import { addWorldNote } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -53,6 +54,8 @@ const CLOUD_HOST = {
 /** The largest session the app builds a prompt for: a repository open, every local capability on, and whatever the test adds to the store. */
 const capturedTurn = async (prepare: (store: Awaited<ReturnType<typeof createAppStore>>) => void, host: typeof NATIVE_EVERYTHING | typeof CLOUD_HOST = NATIVE_EVERYTHING, message = "hi") => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  // The selected note a person keeps, which the budget spends room on first.
+  await addWorldNote(store, true)
   // A cloud session has no local checkout to list; only a native host does.
   if ((host.capabilities as readonly string[]).includes("local.repositories")) store.dispatch({
     type: "repos.loaded",

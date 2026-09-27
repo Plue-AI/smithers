@@ -27,7 +27,7 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 const open = async (storage: StorageApi) => {
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage })
   opened.push(store)
   return store
 }
@@ -51,7 +51,7 @@ const sqliteStore = async (path: string, beforeCommit?: () => Promise<void>) => 
       statement.run(...params as []); return []
     }, close: () => db.close()
   }, { collections: PERSISTED_COLLECTION_SPECS, schemaVersion: APP_SCHEMA_VERSION })
-  const store = await createAppStore({ kind: "opfs", ...adapter, storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } }, { seedWiki: false })
+  const store = await createAppStore({ kind: "opfs", ...adapter, storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } })
   return { store, db }
 }
 
@@ -467,7 +467,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 18, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 19, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "harnesses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
@@ -476,6 +476,36 @@ describe("the live store's authoritative event path", () => {
       "runtimeRuns", "seats", "sessions", "starredTargets", "tabs", "toasts", "toolCalls", "transitions", "workingCopies",
       "workspaces", "worldDocuments"
     ] })
+  })
+
+  test("version 18 upgrade retires the untouched World starter note and keeps a person's notes", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "composer.changed", actor: "user", draft: "kept" }).isPersisted.promise
+    await store.dispatch({ type: "world.document.upserted", actor: "user", select: false, document: {
+      id: "plans", path: "Plans.md", title: "Plans", body: "# Plans", links: [], tags: [], sources: [], confidence: 1
+    } }).isPersisted.promise
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    const stub = { id: "world-home", path: "World.md", title: "World", body: "# World\n\n", links: [], tags: [],
+      sources: ["system:bootstrap"], confidence: 1, updatedAt: 1, updatedBy: "system", revision: 0 }
+    const snapshot = { ...structuredClone(old.checkpoint.snapshot), worldDocuments: [...old.checkpoint.snapshot.worldDocuments!, stub] }
+    const head = { ...old.head, projectorVersion: 18 }
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 18, snapshot }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    editEnvelope(storage, entries => {
+      for (const [id, data] of [["app-event-heads", head], ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+      const notes = JSON.parse(entries["smithers-mvp.world-documents"]!)
+      notes["s:world-home"] = { versionKey: "fixture", data: stub }
+      entries["smithers-mvp.world-documents"] = JSON.stringify(notes)
+    })
+    const restored = await open(storage)
+    expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
+    expect((await restored.verifyState()).valid).toBe(true)
+    expect(restored.session().draft).toBe("kept")
+    expect([...restored.collections.worldDocuments.keys()]).toEqual(["plans"])
   })
 
   test("version 12 upgrade preserves a signed-in stream recorded before identity advanced signup", async () => {
@@ -649,7 +679,7 @@ describe("the live store's authoritative event path", () => {
       inner.setItem(key, value)
     } }
     const boot = () => createAppStore({ backend: { kind: "localStorage", storage }, mode: "localStorage", degraded: false,
-      privacy: { record: storage, eraseInactiveDatabase: async () => {} } }, { seedWiki: false })
+      privacy: { record: storage, eraseInactiveDatabase: async () => {} } })
     await expect(boot()).rejects.toThrow("marker unavailable")
     failMarker = false
     const restored = await boot(); opened.push(restored)

@@ -31,7 +31,7 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
         statement.run(...params as []); return []
       }, close: () => db.close()
     }, { collections: PERSISTED_COLLECTION_SPECS, schemaVersion: APP_SCHEMA_VERSION })
-    return createAppStore({ kind: "opfs", ...adapter, close: async () => { try { await adapter.close() } catch (error) { if (!failed) throw error } }, storageEventApi: { addEventListener() {}, removeEventListener() {} } }, { seedWiki: false })
+    return createAppStore({ kind: "opfs", ...adapter, close: async () => { try { await adapter.close() } catch (error) { if (!failed) throw error } }, storageEventApi: { addEventListener() {}, removeEventListener() {} } })
   }
   let store: AppStore | undefined, restored: AppStore | undefined
   try {
@@ -77,7 +77,7 @@ test("a recoverable localStorage refusal does not stop the controller or require
   const store = await createAppStore({ kind: "localStorage", storage: { ...bytes, setItem: (key, value) => {
     if (fail && key === STAGED_ENVELOPE_STORAGE_KEY) throw new Error("temporary refusal")
     bytes.setItem(key, value)
-  } } }, { seedWiki: false })
+  } } })
   const controller = controllerFor(store, silentAgent, {})
   try {
     await store.settled?.()
@@ -108,7 +108,7 @@ test("a queued privacy retirement still closes reads after an earlier SQLite wri
     getItem: (key: string) => bytes.get(key) ?? null, setItem: (key: string, value: string) => { bytes.set(key, value) },
     removeItem: (key: string) => { bytes.delete(key) } }
   const store = await createAppStore({ backend: { kind: "opfs", ...adapter, storageEventApi: { addEventListener() {}, removeEventListener() {} } },
-    mode: "opfs", degraded: false, privacy: { record, eraseInactiveDatabase: async () => {} } }, { seedWiki: false })
+    mode: "opfs", degraded: false, privacy: { record, eraseInactiveDatabase: async () => {} } })
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
     const failures: Error[] = []

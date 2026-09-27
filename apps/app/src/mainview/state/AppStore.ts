@@ -970,7 +970,6 @@ const nextOrdinal = (collections: Pick<StoredCollections, "messages" | "cards">)
  */
 export interface AppStoreOptions {
   readonly eraseTurn?: EraseRemoteTurn
-  readonly seedWiki?: boolean | Promise<boolean>
 }
 
 export const createAppStore = async (
@@ -1203,7 +1202,7 @@ const initializeAppStore = async (
     installedProjection = write.state.snapshot
   }
 
-  const seedContext = { createdAt: Date.now(), theme: preferredTheme(), seedWiki: await (options.seedWiki ?? true) }
+  const seedContext = { createdAt: Date.now(), theme: preferredTheme() }
   const savedHead = storedRow(collections.appEventHeads.get("current"))
   const savedCheckpoint = storedRow(collections.appEventCheckpoints.get("current"))
   let initial: StreamWrite

@@ -7,7 +7,7 @@ for (const overview of [false, true]) for (const plans of [false, true])
 for (const checkout of [false, true]) for (const portal of [false, true]) {
   test(`billing routes are independent: ${JSON.stringify({ overview, plans, checkout, portal })}`, async () => {
     const storage = memoryStorage()
-    const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+    const store = await createAppStore({ kind: "localStorage", storage })
     const calls: string[] = []
     const seam = createBillingSeam({ store, dispatch: store.dispatch, baseUrl: "", actor: () => "user", nextOrdinal: store.nextOrdinal,
       http: async path => {
@@ -37,7 +37,7 @@ for (const checkout of [false, true]) for (const portal of [false, true]) {
       expect(calls).toEqual(portal ? ["/api/billing/portal"] : [])
       const hash = (await store.verifyState()).actualHash
       await store.dispose?.()
-      const reopened = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+      const reopened = await createAppStore({ kind: "localStorage", storage })
       try {
         expect((await reopened.verifyState()).actualHash).toBe(hash)
         if (plans) expect(reopened.collections.cards.get("billing-plans")).toMatchObject({ payload: { planKey: "pro", checkout } })
@@ -47,7 +47,7 @@ for (const checkout of [false, true]) for (const portal of [false, true]) {
 }
 
 test.each(["/api/billing", "/api/billing/plans"])("a configured %s failure stays visible and publishes no card", async failurePath => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   try {
     const seam = createBillingSeam({ store, dispatch: store.dispatch, baseUrl: "", actor: () => "user", nextOrdinal: store.nextOrdinal,
       http: async path => path === failurePath ? new Response("failure", { status: 503 }) : Response.json({ plans: [], current_plan_key: "pro" })

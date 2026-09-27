@@ -22,7 +22,7 @@ const fixture = async (options: {
   readonly fetch?: FetchLike
 } = {}) => {
   const storage = memoryStorage()
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn("alice"), scopesPlain: null }).isPersisted.promise
   const launches: StartAgentTurnRequest[] = [], cancellations: string[] = []
   const listeners = new Set<(frame: AgentTurnFrame) => void>()

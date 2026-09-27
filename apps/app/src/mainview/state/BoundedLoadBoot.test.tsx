@@ -33,7 +33,7 @@ test("an oversized app refuses with recovery actions and leaves complete authori
     ...(budgetBytes === undefined ? {} : { budgetBytes })
   })
   const boot = async (budgetBytes?: number) => createAppStore({ kind: "opfs", ...await open(budgetBytes),
-    storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } }, { seedWiki: false })
+    storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } })
   const element = document.createElement("div")
   document.body.append(element)
   const root = createRoot(element)

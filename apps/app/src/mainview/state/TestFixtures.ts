@@ -2,6 +2,7 @@ import type { StorageApi } from "@tanstack/db"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
 import type { AgentPort } from "../runtime/AgentPort"
+import type { AppStore } from "./AppStore"
 
 /**
  * Fixtures shared by the state tests. A test that needs a different double
@@ -80,6 +81,13 @@ export const scriptedToolAgent = (
     }
   }
 }
+
+/** A person's "World" Wiki note (id `world-home`), which link and graph tests point at. */
+export const addWorldNote = (store: AppStore, select = false): Promise<unknown> =>
+  store.dispatch({
+    type: "world.document.upserted", actor: "user", select,
+    document: { id: "world-home", path: "World.md", title: "World", body: "# World\n\n", links: [], tags: [], sources: [], confidence: 1 }
+  }).isPersisted.promise
 
 /** One macrotask: lets queued microtasks and a zero-delay timer run. */
 export const settled = () => new Promise((resolve) => setTimeout(resolve, 0))

@@ -28,7 +28,7 @@ const open = async (path: string, beforeCommit?: () => Promise<void>) => {
       statement.run(...params as []); return []
     }, close: () => db.close()
   }, { collections: PERSISTED_COLLECTION_SPECS, schemaVersion: APP_SCHEMA_VERSION })
-  return createAppStore({ kind: "opfs", ...adapter, storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } }, { seedWiki: false })
+  return createAppStore({ kind: "opfs", ...adapter, storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } })
 }
 
 for (const journal of [false, true]) for (const refusedSave of [false, true]) {
@@ -40,7 +40,7 @@ for (const journal of [false, true]) for (const refusedSave of [false, true]) {
     const store = refusedSave ? await createAppStore({ kind: "localStorage", storage: { ...storage, setItem: (key, value) => {
       if (hold) { hold = false; entered.resolve(); throw new Error("disk full") }
       storage.setItem(key, value)
-    } } }, { seedWiki: false }) : await open(path, async () => {
+    } } }) : await open(path, async () => {
       if (!hold) return
       hold = false
       entered.resolve(); await release.promise
@@ -82,7 +82,7 @@ for (const journal of [false, true]) for (const refusedSave of [false, true]) {
       }
       flushSync(() => root.unmount()); host.remove()
       await controller.dispose()
-      const reopened = refusedSave ? await createAppStore({ kind: "localStorage", storage }, { seedWiki: false }) : await open(path)
+      const reopened = refusedSave ? await createAppStore({ kind: "localStorage", storage }) : await open(path)
       try {
         expect((await reopened.verifyState()).valid).toBe(true)
         if (!refusedSave) {

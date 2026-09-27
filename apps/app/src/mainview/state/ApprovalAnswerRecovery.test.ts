@@ -29,7 +29,7 @@ const withFixture = async (body: (h: {
   const prior = Object.getOwnPropertyDescriptor(globalThis, "window")
   const recovery = memoryStorage(), storage = memoryStorage(), stores: AppStore[] = []
   Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: recovery, matchMedia: () => ({ matches: false }) } })
-  const open = async () => { const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false }); stores.push(store); return store }
+  const open = async () => { const store = await createAppStore({ kind: "localStorage", storage }); stores.push(store); return store }
   try {
     const store = await open()
     await store.dispatch({ type: "gateway.approvals.observed", actor: "system", scope, rows: [request()] }).isPersisted.promise
@@ -105,7 +105,7 @@ describe("pending HumanTask answer recovery", () => {
         expect(outcomes.every(outcome => "receipt" in outcome)).toBe(true)
         await store.dispose?.()
         Object.defineProperty(window, "localStorage", { configurable: true, value: crashedRecovery })
-        restored = await createAppStore({ kind: "localStorage", storage: crashed }, { seedWiki: false })
+        restored = await createAppStore({ kind: "localStorage", storage: crashed })
         expect(restored.collections.runtimeApprovals.get(id)?.answerDraft).toEqual({ question: input.question, text: "latest keystroke" })
         expect(readEntityRecoveries(crashedRecovery)).toEqual([])
         expect((await restored.verifyState()).valid).toBe(true)
@@ -135,7 +135,7 @@ describe("pending HumanTask answer recovery", () => {
     Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: recovery, matchMedia: () => ({ matches: false }) } })
     let store: AppStore | undefined, reopened: AppStore | undefined
     try {
-      store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+      store = await createAppStore({ kind: "localStorage", storage })
       await store.dispatch({ type: "gateway.approvals.observed", actor: "system", scope, rows: [request()] }).isPersisted.promise
       fail = true
       const receipt = store.dispatch({ type: "approval.answer.changed", actor: "user", id, question: approvalQuestionKey(request())!, text: "Unsaved answer" })
@@ -144,7 +144,7 @@ describe("pending HumanTask answer recovery", () => {
       expect(store.collections.runtimeApprovals.get(id)?.answerDraft).toBeUndefined()
       fail = false
       await store.dispose?.()
-      reopened = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+      reopened = await createAppStore({ kind: "localStorage", storage })
       expect(reopened.collections.runtimeApprovals.get(id)?.answerDraft).toBeUndefined()
       expect((await reopened.verifyState()).valid).toBe(true)
     } finally {

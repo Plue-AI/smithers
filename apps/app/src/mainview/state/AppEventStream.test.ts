@@ -10,7 +10,7 @@ import {
   type AppEventRecord, type AppStreamState
 } from "./AppEventStream"
 
-const fixture = () => initializeAppStream(seedAppProjection(emptyAppProjection(), { createdAt: 100, theme: "light", seedWiki: true }), "stream-a", "created")
+const fixture = () => initializeAppStream(seedAppProjection(emptyAppProjection(), { createdAt: 100, theme: "light" }), "stream-a", "created")
 const append = (state: AppStreamState, transition: AppTransition) => appendAppEvent(state, { kind: "transition", transition }, {
   eventId: `event-${state.head.sequence + 1}`, createdAt: 101 + state.head.sequence, persistenceMode: "localStorage"
 })!

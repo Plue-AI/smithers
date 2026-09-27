@@ -25,12 +25,12 @@ const fixture = async () => {
   return { db, statements, backend: { kind: "opfs" as const, ...storage, storageEventApi: { addEventListener() {}, removeEventListener() {} } } }
 }
 
-test("a fresh store commits all ten seed collections in one SQLite transaction", async () => {
+test("a fresh store commits all nine seed collections in one SQLite transaction", async () => {
   const { db, statements, backend } = await fixture()
   try {
     const store = await createAppStore(backend)
     expect(statements.filter((sql) => /^BEGIN/i.test(sql))).toHaveLength(1)
-    expect(db.query(`SELECT DISTINCT collection_id FROM ${ROW_TABLE_NAME}`).all()).toHaveLength(10)
+    expect(db.query(`SELECT DISTINCT collection_id FROM ${ROW_TABLE_NAME}`).all()).toHaveLength(9)
     expect(store.session().id).toBe("main")
     await store.dispose?.()
   } finally { db.close() }

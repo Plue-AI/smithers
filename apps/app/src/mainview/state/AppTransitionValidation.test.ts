@@ -3,7 +3,7 @@ import ts from "typescript"
 import { APP_TRANSITION_SCHEMAS, validateAppTransition } from "./AppTransitionValidation"
 import { APP_TRANSITION_TYPES, emptyAppProjection, projectAppEvent, seedAppProjection } from "./AppProjection"
 
-const fixture = () => seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light", seedWiki: false })
+const fixture = () => seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light" })
 
 test("every transition has a payload schema and top-level contract fields cannot silently drift", async () => {
   expect(Object.keys(APP_TRANSITION_SCHEMAS).sort()).toEqual(Object.keys(APP_TRANSITION_TYPES).sort())

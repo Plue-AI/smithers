@@ -11,7 +11,7 @@ import { cardFrameId,DEFAULT_BRANCH_ID,parseRepoSelection,repoKeyOf } from "./Ap
 import type { RepositoryNotification } from "./RepositoryNotifications"
 import { workspaceCardFacts } from "./WorkspaceViews"
 
-const boot = () => seedAppProjection(emptyAppProjection(), { createdAt: 100, theme: "dark", seedWiki: true })
+const boot = () => seedAppProjection(emptyAppProjection(), { createdAt: 100, theme: "dark" })
 const apply = (state: AppProjectionSnapshot, transition: AppTransition, createdAt = 200): AppProjectionSnapshot =>
   projectAppEvent(state, { transition, createdAt, revision: state.sessions[0]!.revision + 1, persistenceMode: "memory" })
 const freeze = <T>(value: T): T => {
@@ -111,7 +111,7 @@ describe("pure app event projection", () => {
     } finally { Date.now = now }
     expect(initial.cloudSessions[0]!.updatedAt).toBe(100)
     expect(initial.identitySessions[0]!.updatedAt).toBe(100)
-    expect(initial.worldDocuments[0]!.updatedAt).toBe(100)
+    expect(initial.worldDocuments).toEqual([])
     expect(initial.workspaces[0]!.createdAt).toBe(100)
     expect(projected.workingCopies[0]!.updatedAt).toBe(222)
     expect(projected.sessions[0]!.theme).toBe("light")
@@ -311,12 +311,12 @@ describe("pure app event projection", () => {
       { id: "flow", description: "A flow", summary: null, featured: false, modelInvocable: true }
     ] })
     expect(state.repoTree).toHaveLength(1)
-    const seeded = seedAppProjection(freeze(state), { createdAt: 500, theme: "light", seedWiki: true })
+    const seeded = seedAppProjection(freeze(state), { createdAt: 500, theme: "light" })
     expect(seeded.repoTree).toEqual([])
     expect(seeded.repositoryFlows).toEqual([])
     expect(seeded.worldDocuments).toBe(state.worldDocuments)
     expect(seeded.sessions[0]!.theme).toBe("dark")
-    expect(seedAppProjection(state, { createdAt: 500, theme: "light", seedWiki: true })).toEqual(seeded)
+    expect(seedAppProjection(state, { createdAt: 500, theme: "light" })).toEqual(seeded)
   })
 
   test("reset clears the explicit projection roster and can be booted again", () => {
@@ -326,7 +326,7 @@ describe("pure app event projection", () => {
       if (name !== "sessions" && name !== "transitions") expect(state[name]).toEqual([])
     }
     expect(state.sessions[0]).toMatchObject({ theme: "light", revision: 2 })
-    state = seedAppProjection(state, { createdAt: 800, theme: "dark", seedWiki: false })
+    state = seedAppProjection(state, { createdAt: 800, theme: "dark" })
     expect(state.tabs).toHaveLength(1)
     expect(state.frames).toHaveLength(1)
     expect(state.cloudSessions[0]!.updatedAt).toBe(800)

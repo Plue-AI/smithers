@@ -16,6 +16,7 @@ import { createAppController } from "../AppController"
 import type { AppStore } from "../AppStore"
 import { createAppStore } from "../AppStore"
 import { ASK_PROPOSED,NO_FOCUSED_FILE } from "./SearchSeam"
+import { addWorldNote } from "../TestFixtures"
 
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
@@ -220,7 +221,8 @@ describe("the palette's rows (the button door) come from what the store holds", 
   })
 
   test("wiki: lists the Wiki pane's notes; / hands over to the slash tree; ? lists every prefix", async () => {
-    const { controller } = await ready()
+    const { store, controller } = await ready()
+    await addWorldNote(store)
     const wiki = controller.searchPalette("wiki:")
     expect(wiki.groups.map((group) => group.label)).toEqual(["Notes"])
     expect(wiki.groups[0]?.items[0]?.item.actions[0]).toMatchObject({ flow: "wiki.select", role: "open" })

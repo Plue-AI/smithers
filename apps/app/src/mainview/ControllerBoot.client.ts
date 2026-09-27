@@ -49,9 +49,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     const http = client.fetch
     const bootstrapRead = warmBootstrap(http)
     const { bootstrap, store } = yield* promiseEffect("prepare runtime and persisted state", () =>
-      loadControllerBootInputs(() => bootstrapRead, () => createAppStore(undefined, {
-        seedWiki: bootstrapRead.then(bootstrap => bootstrap.host !== "cloud", () => false), eraseTurn: createTurnEraser(http)
-      })))
+      loadControllerBootInputs(() => bootstrapRead, () => createAppStore(undefined, { eraseTurn: createTurnEraser(http) })))
     const repositoryEntryId = yield* Effect.sync(() => beginRepositoryEntry(store, requested))
     const runtime = yield* Effect.sync(() => createRuntime({
       bootstrap,

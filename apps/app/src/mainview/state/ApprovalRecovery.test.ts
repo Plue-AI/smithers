@@ -52,7 +52,7 @@ test("approval action identities preserve punctuation and bind all three identif
 
 describe("approval observation recovery", () => {
   test("reset removes a decided observation whose insert has not committed", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     try {
       const observation = store.dispatch({ type: "gateway.approvals.observed", actor: "system",
         scope: { repo, workspaceId: workspaceA, runId: "run" }, rows: [row("run", "deploy", "approved")] })
@@ -66,7 +66,7 @@ describe("approval observation recovery", () => {
 
   for (const decision of ["approved", "denied"] as const) test(`${decision} is visible only after its local receipt survives reload`, async () => {
     const storage = memoryStorage()
-    const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+    const store = await createAppStore({ kind: "localStorage", storage })
     const scope = { repo, workspaceId: workspaceA, runId: "run" }
     const id = runtimeApprovalKey(scope, "deploy", "sha256:reviewed")
     try {
@@ -87,7 +87,7 @@ describe("approval observation recovery", () => {
       expect(afterInput.decision).toBeUndefined()
       expect(read(store, "a").payload.decision).toBe(decision)
       await store.dispose?.()
-      const restored = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+      const restored = await createAppStore({ kind: "localStorage", storage })
       try {
         expect(read(restored, "a").payload.decision).toBe(decision)
         expect((await restored.verifyState()).valid).toBe(true)
@@ -100,7 +100,7 @@ describe("approval observation recovery", () => {
     let rejectWrites = false
     const store = await createAppStore({ kind: "localStorage", storage: { ...storage,
       setItem: (key, value) => { if (rejectWrites) throw new Error("disk full"); storage.setItem(key, value) }
-    } }, { seedWiki: false })
+    } })
     const scope = { repo, workspaceId: workspaceA, runId: "run" }
     const id = runtimeApprovalKey(scope, "deploy", "sha256:reviewed")
     const displayed: string[] = []

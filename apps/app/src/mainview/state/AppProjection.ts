@@ -77,7 +77,6 @@ initialCloudSession,
 initialConnectorOperation,
 initialIdentitySession,
 initialSession,
-initialWorldDocuments,
 mainTab,
 parseRepoSelection,
 repoIdFromRemote,
@@ -332,7 +331,6 @@ export interface AppProjectionEventContext {
 export interface AppProjectionSeedContext {
   readonly createdAt: number
   readonly theme: Session["theme"]
-  readonly seedWiki: boolean
 }
 
 /** A single key contract shared by replay, persistence and verification. */
@@ -927,7 +925,7 @@ const projectNotificationObservation = (collections: ProjectionCollections, obse
 
 /** Explicit, versioned boot inputs make seed/migration behavior replayable. */
 export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppProjectionSeedContext): AppProjectionSnapshot => {
-  const { createdAt, theme, seedWiki } = context
+  const { createdAt, theme } = context
   if (!Number.isFinite(createdAt)) throw new Error("Invalid app boot context")
   const draft = projectionDraft(previous)
   const { collections } = draft
@@ -1006,16 +1004,15 @@ export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppP
       collections.connectorOperations
         .insert(initialConnectorOperation(createdAt))
     }
-    if (seedWiki && collections.worldDocuments.size === 0) {
-      collections.worldDocuments.insert([...initialWorldDocuments(createdAt)])
-    } else if (!seedWiki) {
-      // Only the untouched bootstrap placeholder is retired. User notes keep their content and identity.
+    {
+      // The retired World starter note: only the untouched placeholder goes. User notes keep their content and identity.
       const stub = collections.worldDocuments.get("world-home")
       if (stub?.path === "World.md" && stub.title === "World" && stub.body === "# World\n\n" &&
         stub.updatedBy === "system" && stub.revision === 0 && stub.sources.length === 1 && stub.sources[0] === "system:bootstrap") {
         collections.worldDocuments.delete(stub.id)
       }
-      if (!collections.worldDocuments.has(collections.sessions.get(SESSION_ID)?.selectedWorldDocumentId ?? "")) {
+      const selected = collections.sessions.get(SESSION_ID)?.selectedWorldDocumentId
+      if (selected != null && !collections.worldDocuments.has(selected)) {
         collections.sessions.update(SESSION_ID, draft => { draft.selectedWorldDocumentId = null })
       }
     }

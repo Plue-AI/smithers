@@ -15,7 +15,7 @@ const bootstrap = (host: AppBootstrap["host"]): AppBootstrap =>
   ({ apiVersion: 1, host, version: "test", buildSha: "test", capabilities: ["agent"], authFlow: "redirect", sandbox: null })
 
 const fixture = async (host?: AppBootstrap["host"]) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   cleanups.push(async () => { await store.dispose?.() })
   for (const model of [MINE, JEV]) await store.dispatch({ type: "model.saved", actor: "user", model }).isPersisted.promise
   return { store, ctx: { store, services: host === undefined ? {} : { bootstrap: bootstrap(host) } } }

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { json, memoryStorage, scriptedToolAgent, settled, silentAgent } from "./TestFixtures"
+import { addWorldNote, json, memoryStorage, scriptedToolAgent, settled, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -56,6 +56,7 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>): Promise<void
 describe("wave 10 — the embed law's in-app half (§2c″)", () => {
   test("'what is in world?' through the tool double: the answer + an embedded card; the surface NEVER changes", async () => {
     const store = await webStore()
+    await addWorldNote(store)
     const { agent } = scriptedToolAgent([
       () => [
         {

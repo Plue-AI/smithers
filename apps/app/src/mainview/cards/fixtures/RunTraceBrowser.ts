@@ -96,7 +96,7 @@ const events = scenario === "interleaved" ? [
   ...(scenario === "chat" ? [] : [stamp(17, "run.completed", 9000)])
 ]
 
-const store = await createAppStore({ kind: "localStorage", storage: localStorage }, { seedWiki: false })
+const store = await createAppStore({ kind: "localStorage", storage: localStorage })
 const cardId = "flow-run-strip-browser"
 if (!store.collections.cards.has(cardId)) {
   const card: Extract<Card, { kind: "run-trace" }> = {

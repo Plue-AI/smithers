@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import type { Card, WorkingCopy } from "../state/AppState"
 import { createAppStore } from "../state/AppStore"
 import { ENVELOPE_STORAGE_KEY, parseStorageEnvelope, STAGED_ENVELOPE_STORAGE_KEY } from "./TransactionalStorage"
+import { addWorldNote } from "../state/TestFixtures"
 import {
   APP_SCHEMA_VERSION,
   enforceSchemaVersion,
@@ -303,6 +304,7 @@ describe("a real store across a schema version bump", () => {
   test("a boot over an older stamp keeps invalid rows out and preserves compatible state", async () => {
     const storage = memoryStorage()
     const first = await createAppStore({ kind: "localStorage", storage })
+    await addWorldNote(first)
     await first.dispatch({ type: "composer.changed", actor: "user", draft: "written before the bump" })
       .isPersisted.promise
     storage.setItem(

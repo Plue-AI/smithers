@@ -1792,7 +1792,7 @@ export const initialSession = (theme: Session["theme"]): Session => ({
   palette: DEFAULT_PALETTE,
   composerOwner: "user",
   surface: "chat",
-  selectedWorldDocumentId: "world-home",
+  selectedWorldDocumentId: null,
   maximizedCardId: null,
   activeWorkspaceId: DEFAULT_WORKSPACE_ID,
   activeBranchId: DEFAULT_BRANCH_ID,
@@ -1811,22 +1811,6 @@ export const initialSession = (theme: Session["theme"]): Session => ({
   activeRepoKey: null,
   revision: 0
 })
-
-export const initialWorldDocuments = (createdAt = Date.now()): ReadonlyArray<WorldDocument> => [
-  {
-    id: "world-home",
-    path: "World.md",
-    title: "World",
-    body: "# World\n\n",
-    links: [],
-    tags: [],
-    sources: ["system:bootstrap"],
-    confidence: 1,
-    updatedAt: createdAt,
-    updatedBy: "system",
-    revision: 0
-  }
-]
 
 export const initialConnectorOperation = (createdAt = Date.now()): ConnectorOperation => ({
   id: "connector-operation",

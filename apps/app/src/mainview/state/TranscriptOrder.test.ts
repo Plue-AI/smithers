@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Card } from "./AppState"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
-import { memoryStorage } from "./TestFixtures"
+import { addWorldNote, memoryStorage } from "./TestFixtures"
 
 /*
  * §7.5: the transcript is ONE ordered list of messages and cards. Numbering a
@@ -45,6 +45,7 @@ describe("a pending question never survives a restart", () => {
   test("an unanswered /world.delete confirm is dropped at boot, not re-asked", async () => {
     const storage = memoryStorage()
     const first = await createAppStore({ kind: "localStorage", storage })
+    await addWorldNote(first)
     const note = [...first.collections.worldDocuments.values()][0]
     expect(note).toBeDefined()
     await first.dispatch({ type: "world.delete.asked", actor: "user", id: note?.id ?? "" }).isPersisted.promise

@@ -30,7 +30,7 @@ const stores: AppStore[] = []
 afterEach(async () => { for (const store of stores.splice(0)) await Promise.resolve(store.dispose?.()).catch(() => {}) })
 const open = async (storage: PrivacyStorage, eraseInactiveDatabase: () => Promise<void> = async () => {}) => {
   const store = await createAppStore({ backend: { kind: "localStorage", storage }, mode: "localStorage", degraded: false,
-    privacy: { record: storage, eraseInactiveDatabase } }, { seedWiki: false })
+    privacy: { record: storage, eraseInactiveDatabase } })
   stores.push(store)
   return store
 }
@@ -139,7 +139,7 @@ describe("durable privacy retirement", () => {
     const store = await createAppStore({ backend: { kind: "opfs", ...adapter,
       storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } }, mode: "opfs", degraded: false,
       privacy: { record: storage, eraseInactiveDatabase: async () => { throw new Error("active DB must not be retired as inactive") } }
-    }, { seedWiki: false })
+    })
     try {
       await fill(store)
       db.query("INSERT INTO smithers_collection_rows VALUES (?, ?, ?, ?)").run("unknown", "s:old", "v", secret)
@@ -245,7 +245,7 @@ describe("durable privacy retirement", () => {
     storage.setItem(PERSISTENCE_BACKEND_STORAGE_KEY, "opfs")
     const transient = memory().storage
     const store = await createAppStore({ backend: { kind: "localStorage", storage: transient }, mode: "memory", degraded: true,
-      privacy: { record: storage, eraseInactiveDatabase: async () => { throw new Error("unavailable") } } }, { seedWiki: false })
+      privacy: { record: storage, eraseInactiveDatabase: async () => { throw new Error("unavailable") } } })
     stores.push(store)
     await fill(store)
     expect(() => store.dispatch({ type: "identity.session.cleared", actor: "user" })).toThrow("cleanup")

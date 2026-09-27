@@ -17,7 +17,7 @@ const fixture = async (options: {
   start?: (request: StartAgentTurnRequest) => Promise<StartAgentTurnResult>
 } = {}) => {
   const storage = options.storage ?? memoryStorage()
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage })
   const launches: StartAgentTurnRequest[] = [], steers: string[] = []
   const listeners = new Set<(frame: AgentTurnFrame) => void>()
   const agent: AgentPort = {

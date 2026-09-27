@@ -129,7 +129,7 @@ describe("resetLocalBrowserStorage", () => {
       received.resolve()
       return reply.promise
     })
-    const store = await createAppStore(undefined, { seedWiki: false, eraseTurn: erase })
+    const store = await createAppStore(undefined, { eraseTurn: erase })
     try {
       await received.promise
       expect(store.privacyRetirementStatus()).toEqual({ phase: "remote-pending", remotePending: 1 })

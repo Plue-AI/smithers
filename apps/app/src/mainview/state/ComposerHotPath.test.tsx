@@ -10,7 +10,7 @@ import { scopedControllers } from "./ControllerTestScope"
 import type { AppController as AppControllerType } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { isMaterialTransition } from "./Recommend"
-import { memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
+import { addWorldNote, memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
 
 /*
  * The composer hot path.
@@ -62,6 +62,7 @@ interface Counted {
 /** Mount App behind a controller whose registry read counts the shell's renders. */
 const mountCounted = async (): Promise<Counted> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await addWorldNote(store)
   const real = createAppController(store, unavailableAgent, { recommender: { debounceMs: 0 } })
   // Initial onboarding now crosses a durable command receipt. Finish that
   // material update before measuring renders caused by later keystrokes.

@@ -93,7 +93,7 @@ describe("durable frame navigation", () => {
     expect(store.collections.cards.get(card.id)?.title).toBe("Original")
     expect(store.collections.worldDocuments.get("fork-note")).toBeUndefined()
     expect(store.collections.messages.get("message-fork-turn-user")).toBeUndefined()
-    expect(store.session().selectedWorldDocumentId).toBe("world-home")
+    expect(store.session().selectedWorldDocumentId).toBeNull()
     expect(store.session().draft).toBe("")
     controller.frameForward()
     await settle()

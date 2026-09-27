@@ -25,8 +25,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
  */
 // v14 associates tool acts with their turn; v15 clears dismissed card navigation.
 // v16 removes the unused chain journal projections; v17 narrows signup to the GitHub door.
-// v18 retires signup details with their account.
-export const APP_PROJECTOR_VERSION = 18
+// v18 retires signup details with their account; v19 retires the World starter note.
+export const APP_PROJECTOR_VERSION = 19
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)
@@ -39,7 +39,7 @@ const HashSchema = z.string().regex(/^[0-9a-f]{64}$/)
 const PositionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const VersionFields = { formatVersion: z.literal(APP_EVENT_FORMAT_VERSION), projectorVersion: z.literal(APP_PROJECTOR_VERSION) }
 const ModeSchema = z.enum(["opfs", "localStorage", "memory"])
-const BootSchema = z.object({ createdAt: z.number().finite(), theme: z.enum(["light", "dark"]), seedWiki: z.boolean() }).strict()
+const BootSchema = z.object({ createdAt: z.number().finite(), theme: z.enum(["light", "dark"]) }).strict()
 
 /** These are private authority rows, not a reactive public card or diagnostic tail. */
 export const AppEventRecordSchema = z.object({

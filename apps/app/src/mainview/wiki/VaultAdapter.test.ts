@@ -1,6 +1,7 @@
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 import { createAppStore } from "../state/AppStore"
+import { addWorldNote } from "../state/TestFixtures"
 import { createVaultAdapter, linkGraphOf, linksOf, neighbourhoodOf, resolveLink } from "./VaultAdapter"
 
 const memoryStorage = (): StorageApi => {
@@ -85,6 +86,7 @@ describe("linksOf and linkGraphOf", () => {
 describe("createVaultAdapter over the store", () => {
   test("tree lists the notes without the missing nodes, read answers a body, links answers the rail", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    await addWorldNote(store)
     await upsert(store, "n1", "Untitled 1.md", "See [[World]] and [[Ghost]]", ["World", "Ghost"])
     const vault = createVaultAdapter(store)
     const tree = await vault.tree()
@@ -96,6 +98,7 @@ describe("createVaultAdapter over the store", () => {
 
   test("write updates a note's body and links through the dispatcher, and creates a note at a new path", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    await addWorldNote(store)
     const vault = createVaultAdapter(store)
     const written = await vault.write("World.md", "# World\n\nNow links to [[Plans]].")
     const home = store.collections.worldDocuments.get("world-home")

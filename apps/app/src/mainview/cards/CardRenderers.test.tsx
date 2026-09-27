@@ -289,7 +289,7 @@ describe("factory homepage", () => {
 
   test("prompt submits through chat.send and flow button uses the repository slash leaf", async () => {
     GlobalRegistrator.register()
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     store.dispatch({ type: "composer.changed", actor: "user", draft: "Change it" })
     const controller = { store, changeDraft: (draft: string) => { store.dispatch({ type: "composer.changed", actor: "user", draft }) } } as unknown as AppController
     const calls: Array<[string, string | undefined]> = []

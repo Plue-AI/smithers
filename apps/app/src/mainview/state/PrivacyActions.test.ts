@@ -19,7 +19,7 @@ const fixture = async (fails = false) => {
     privacy: { record: storage, eraseInactiveDatabase: async () => {
       entered.resolve(); await release.promise
       if (fails) throw new Error("PRIVATE CLEANUP ERROR")
-    } } }, { seedWiki: false })
+    } } })
   const identity = (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in",
     login, provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   await identity("old-owner")
@@ -69,7 +69,7 @@ test("refused actions never replay when the owner changes again or the app reloa
     expect(t.store.session().draft).toBe("")
     await t.dispose()
     const restored = await createAppStore({ backend: { kind: "localStorage", storage: t.storage }, mode: "localStorage", degraded: false,
-      privacy: { record: t.storage, eraseInactiveDatabase: async () => {} } }, { seedWiki: false })
+      privacy: { record: t.storage, eraseInactiveDatabase: async () => {} } })
     try {
       expect(restored.collections.identitySessions.get("identity")?.login).toBe("third-owner")
       expect(restored.collections.cards.get("account")).toBeUndefined()
@@ -118,7 +118,7 @@ test("a failed real cleanup stops the controller before saved reads close and re
     expect(await t.controller.submitCommand({ name: "toast.dismiss", actor: "user", payload: { toastId: "toast-privacy-write" } })).toMatchObject({ status: "failed" })
     await t.dispose()
     const restored = await createAppStore({ backend: { kind: "localStorage", storage: t.storage }, mode: "localStorage", degraded: false,
-      privacy: { record: t.storage, eraseInactiveDatabase: async () => {} } }, { seedWiki: false })
+      privacy: { record: t.storage, eraseInactiveDatabase: async () => {} } })
     try {
       expect(restored.privacyWriteState()).toBe("ready")
       expect(restored.collections.cards.get("account")).toBeUndefined()

@@ -18,7 +18,7 @@ const params = new URLSearchParams(location.search)
 document.documentElement.dataset.theme = params.get("theme") === "dark" ? "dark" : "light"
 const only = params.get("card")
 
-const store = await createAppStore({ kind: "localStorage", storage: localStorage }, { seedWiki: false })
+const store = await createAppStore({ kind: "localStorage", storage: localStorage })
 // The store seeds a few cards of its own (the agents roster among them); the fixture's rows replace them.
 for (const card of fixtureCards()) {
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise

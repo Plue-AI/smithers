@@ -8,7 +8,7 @@ import type { AppController as AppControllerType } from "./AppController"
 import type { AppStore } from "./AppStore"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { memoryStorage, settled, settle, unavailableAgent } from "./TestFixtures"
+import { addWorldNote, memoryStorage, settled, settle, unavailableAgent } from "./TestFixtures"
 
 
 /*
@@ -88,6 +88,7 @@ const renderApp = (controller: AppControllerType): string => mount(controller).m
 
 const harness = async (): Promise<{ store: AppStore; controller: AppControllerType }> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await addWorldNote(store)
   const controller = createAppController(store, unavailableAgent)
 
   return { store, controller }

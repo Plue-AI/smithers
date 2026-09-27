@@ -58,7 +58,7 @@ const open = async (path?: string) => {
   }, { collections: PERSISTED_COLLECTION_SPECS, schemaVersion: APP_SCHEMA_VERSION })
   const store = await createAppStore({ kind: "opfs", ...adapter,
     storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} }
-  }, { seedWiki: false })
+  })
   stores.push(store)
   const footprint = () => ({
     rowBytes: (db.query(`SELECT SUM(LENGTH(CAST(value AS BLOB))) AS bytes FROM ${ROW_TABLE_NAME}`).get() as { bytes: number }).bytes,

@@ -27,7 +27,7 @@ const event = (type: "diagnostics" | "waiting" | "closed"): CloudLspEvent => {
 }
 const setup = async (options: { readFile?: CodeIntelSeamOptions["readFile"]; missingFile?: boolean; startingAfterMs?: number } = {}) => {
   const data = new Map<string, string>()
-  const store = await createAppStore({ kind: "localStorage", storage: { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) } } }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) } } })
   stores.push(store)
   await store.dispatch(identity("first")).isPersisted.promise
   await store.dispatch(cloud("first")).isPersisted.promise

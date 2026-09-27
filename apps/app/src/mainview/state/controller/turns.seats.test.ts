@@ -20,7 +20,7 @@ const JEV = { id: "jev", protocol: "evaluation", modelId: "typesafe-ai/jev", cre
 const MINE = { id: "mine", protocol: "openai-chat", baseUrl: "https://api.cerebras.ai", modelId: "qwen-3-coder-480b", credential: "CEREBRAS_API_KEY" } as const
 
 const fixture = async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   for (const model of [JEV, MINE]) await store.dispatch({ type: "model.saved", actor: "user", model }).isPersisted.promise
   const launches: StartAgentTurnRequest[] = []

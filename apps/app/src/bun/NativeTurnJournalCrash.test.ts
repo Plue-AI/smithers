@@ -50,7 +50,7 @@ describe("native HTTP journal survives an actual killed writer", () => {
       getItem: key => bytes.get(key) ?? null,
       setItem: (key, value) => { bytes.set(key, value) },
       removeItem: key => { bytes.delete(key) }
-    } }, { seedWiki: false })
+    } })
     let reopened: LocalServer | undefined
     let response: Response | undefined
     try {

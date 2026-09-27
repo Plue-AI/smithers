@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { createAppStore } from "./state/AppStore"
 import { scopedControllers } from "./state/ControllerTestScope"
-import { memoryStorage, silentAgent } from "./state/TestFixtures"
+import { addWorldNote, memoryStorage, silentAgent } from "./state/TestFixtures"
 import { pendingWikiDeleteDocument } from "./WikiDeleteDialog"
 
 const createAppController = scopedControllers()
@@ -9,6 +9,7 @@ const createAppController = scopedControllers()
 test("the delete question keeps its exact target through cancel and confirm", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent)
+  await addWorldNote(store)
   const note = store.collections.worldDocuments.get("world-home")!
   await controller.commands.run("wiki.delete", note.id)
   expect(pendingWikiDeleteDocument(store.session(), [...store.collections.worldDocuments.values()])?.id).toBe(note.id)

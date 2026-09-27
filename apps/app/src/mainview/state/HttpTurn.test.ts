@@ -25,7 +25,7 @@ const batchOf = (cursor: AgentTurnCursor, frames: AgentTurnFrame[]): AgentTurnBa
   return { ...body, hash: digest(agentTurnJournalDigestInput("batch", body)) }
 }
 const cursorOf = (batch: AgentTurnBatch): AgentTurnCursor => ({ version: 1, runId: batch.runId, legId: batch.legId, batch: batch.batch, position: batch.from + batch.frames.length - 1, hash: batch.hash })
-const boot = () => seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light", seedWiki: false })
+const boot = () => seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light" })
 const step = (snapshot: ReturnType<typeof boot>, transition: AppTransition) => projectAppEvent(snapshot, { transition, revision: snapshot.sessions[0]!.revision + 1, createdAt: 2, persistenceMode: "localStorage" })
 const started = (text = "Hello") => step(boot(), { type: "http.turn.started", actor: "user", attemptId: "attempt", turnId: "turn", text, retry: false, journal: { version: 1, legId: "leg", token } })
 const accepted = (text = "Hello") => step(started(text), { type: "http.leg.accepted", actor: "system", attemptId: "attempt", legId: "leg", cursor: initialCursor() })
@@ -152,7 +152,7 @@ const stores: AppStore[] = [], controllers: AppController[] = []
 afterEach(async () => { for (const controller of controllers.splice(0)) await Promise.resolve(controller.dispose()).catch(() => {}); for (const store of stores.splice(0)) await Promise.resolve(store.dispose?.()).catch(() => {}) })
 const until = async (predicate: () => boolean) => { for (let i = 0; i < 100 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 5)); expect(predicate()).toBe(true) }
 const open = async (storage = memoryStorage()) => {
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false }); stores.push(store)
+  const store = await createAppStore({ kind: "localStorage", storage }); stores.push(store)
 
   return store
 }

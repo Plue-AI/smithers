@@ -26,7 +26,7 @@ const deferred = () => {
   return { resolve, promise }
 }
 const open = async (storage: StorageApi = memoryStorage()) => {
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false })
+  const store = await createAppStore({ kind: "localStorage", storage })
   stores.push(store)
   return store
 }
@@ -66,7 +66,7 @@ describe("durable command intent at the active shared door", () => {
   })
 
   test("pure replay refuses duplicate accepts and mismatched settlements", () => {
-    const baseline = seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light", seedWiki: false })
+    const baseline = seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light" })
     const accept = { type: "command.intent.accepted", actor: "smithers", id: "call", name: "repo.update", source: "command" } as const
     const accepted = projectAppEvent(baseline, { transition: accept, revision: 1, createdAt: 2, persistenceMode: "memory" })
     expect(baseline.commandIntents).toEqual([])

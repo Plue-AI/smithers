@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client"
 import { ControllerContext } from "./ControllerContext"
 import type { AppController } from "./state/AppController"
 import { createAppStore } from "./state/AppStore"
-import { memoryStorage } from "./state/TestFixtures"
+import { addWorldNote, memoryStorage } from "./state/TestFixtures"
 import { WorldSurface } from "./WorldSurface"
 
 GlobalRegistrator.register()
@@ -20,6 +20,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 25))
  */
 test("the Wiki pane registers its editor for store pushes, not only for heading scrolls", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await addWorldNote(store)
   await store.dispatch({ type: "input.mode.changed", actor: "user", mode: "vim" }).isPersisted.promise
   const documents = [...store.collections.worldDocuments.values()]
   const attached: Array<[id: string, slot: string, editor: unknown]> = []

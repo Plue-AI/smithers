@@ -85,7 +85,7 @@ test("mounted repository updates derive versioned reads and current tags for sav
   const rows = new Map<string, string>()
   const store = await createAppStore({ kind: "localStorage", storage: {
     getItem: key => rows.get(key) ?? null, setItem: (key, value) => { rows.set(key, value) }, removeItem: key => { rows.delete(key) }
-  } }, { seedWiki: false })
+  } })
   const reactEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const previousActEnvironment = reactEnvironment.IS_REACT_ACT_ENVIRONMENT
   reactEnvironment.IS_REACT_ACT_ENVIRONMENT = true

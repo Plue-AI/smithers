@@ -20,7 +20,7 @@ describe("createAppStore with the localStorage fallback backend", () => {
     // the honest boot state — the first message is whatever the session
     // actually produces (the auth state signed out, the digest signed in).
     expect(store.collections.messages.size).toBe(0)
-    expect(store.collections.worldDocuments.size).toBeGreaterThan(0)
+    expect(store.collections.worldDocuments.size).toBe(0)
   })
 
   test("dispatches transitions and journals them", async () => {
@@ -616,20 +616,26 @@ test("card updates never rewrite the conversation a maximized frame recorded", a
 })
 
 
-test("web boot leaves the wiki empty and removes only the untouched legacy World stub", async () => {
-  const data = new Map<string, string>()
-  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } }
-  const backend = { kind: "localStorage" as const, storage }
-  const web = await createAppStore(backend, { seedWiki: false })
-  expect(web.collections.worldDocuments.size).toBe(0)
-  const legacy = await createAppStore(backend)
-  expect(legacy.collections.worldDocuments.has("world-home")).toBe(true)
-  const migrated = await createAppStore(backend, { seedWiki: false })
+test("boot seeds no wiki note and retires only the untouched legacy World stub", async () => {
+  const { memoryStorage, writeLegacyCollection } = await import("./TestFixtures")
+  const { initialSession } = await import("./AppState")
+  expect((await createAppStore({ kind: "localStorage", storage: memoryStorage() })).collections.worldDocuments.size).toBe(0)
+  const stub = {
+    id: "world-home", path: "World.md", title: "World", body: "# World\n\n", links: [], tags: [],
+    sources: ["system:bootstrap"], confidence: 1, updatedAt: 1, updatedBy: "system", revision: 0
+  }
+  const legacy = (document: typeof stub) => {
+    const storage = memoryStorage()
+    const session = { ...initialSession("dark"), selectedWorldDocumentId: "world-home" }
+    writeLegacyCollection(storage, "app-sessions", [session])
+    writeLegacyCollection(storage, "world-documents", [document])
+    return { kind: "localStorage" as const, storage }
+  }
+  const migrated = await createAppStore(legacy(stub))
   expect(migrated.collections.worldDocuments.size).toBe(0)
   expect(migrated.session().selectedWorldDocumentId).toBeNull()
-  const edited = await createAppStore(backend)
-  await edited.dispatch({ type: "world.document.upserted", actor: "user", document: { ...edited.collections.worldDocuments.get("world-home")!, body: "# World\n\nMy notes" } }).isPersisted.promise
-  const retained = await createAppStore(backend, { seedWiki: false })
+  const retained = await createAppStore(legacy({ ...stub, body: "# World\n\nMy notes", updatedBy: "user", revision: 1 }))
   expect(retained.collections.worldDocuments.get("world-home")?.body).toContain("My notes")
+  expect(retained.session().selectedWorldDocumentId).toBe("world-home")
 })
 

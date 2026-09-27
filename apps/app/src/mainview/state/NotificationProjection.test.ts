@@ -24,7 +24,7 @@ const project = (store: AppStore, card: ReturnType<typeof activity>) => projectR
 
 test("read receipts and tags join current and historical cards without copying mutations", async () => {
   const storage = memoryStorage()
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false }); stores.push(store)
+  const store = await createAppStore({ kind: "localStorage", storage }); stores.push(store)
   await observe(store, notice())
   await store.dispatch({ type: "card.upsert", actor: "system", card: activity() }).isPersisted.promise
   await store.dispatch({ type: "card.upsert", actor: "system", card: { ...activity(), id: "current" } }).isPersisted.promise
@@ -51,7 +51,7 @@ test("read receipts and tags join current and historical cards without copying m
   expect(store.collections.notificationReceipts.size).toBe(2)
   expect((await store.verifyState()).valid).toBe(true)
   await store.dispose?.()
-  const restored = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false }); stores.push(restored)
+  const restored = await createAppStore({ kind: "localStorage", storage }); stores.push(restored)
   expect(project(restored, saved).payload.items[0]).toMatchObject({ read: true, tags: ["original", "follow-up"] })
   expect(project(restored, activity("v2")).payload.items[0]?.read).toBe(true)
   expect(notificationReadVersion(notice("v2"), restored.collections.notificationReceipts)).toBe("v2")
@@ -65,7 +65,7 @@ test("legacy baseline retains observed current and historical read facts without
   writeLegacyCollection(storage, "app-repository-notifications", [legacyNotice])
   writeLegacyCollection(storage, "app-cards", [activity("v2", false)])
   writeLegacyCollection(storage, "app-card-histories", [legacyHistory])
-  const store = await createAppStore({ kind: "localStorage", storage }, { seedWiki: false }); stores.push(store)
+  const store = await createAppStore({ kind: "localStorage", storage }); stores.push(store)
   expect([...store.collections.notificationReceipts.values()].map(row => row.version).sort()).toEqual(["v0", "v1"])
   expect([...store.collections.notificationReceipts.values()].every(row => Object.keys(row).filter(key => !key.startsWith("$" )).sort().join(",") === "id,notificationId,version")).toBe(true)
   expect(store.collections.repositoryNotifications.get("notice")?.readVersion).toBeUndefined()
@@ -76,14 +76,14 @@ test("legacy baseline retains observed current and historical read facts without
 })
 
 test("pure boot also normalizes read evidence held only by archived frame or branch snapshots", () => {
-  const baseline = seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light", seedWiki: false })
+  const baseline = seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light" })
   const snapshot = (card: ReturnType<typeof activity>) => ({ revision: 1, messages: [], cards: [card], worldDocuments: [], draft: "" })
   const prior = { ...baseline,
     frames: baseline.frames.map(row => ({ ...row, snapshot: snapshot(activity("frame-version", true)) })),
     branches: baseline.branches.map(row => ({ ...row, snapshot: snapshot(activity("branch-version", true)) })) }
   const before = structuredClone(prior)
-  const seeded = seedAppProjection(prior, { createdAt: 2, theme: "light", seedWiki: false })
+  const seeded = seedAppProjection(prior, { createdAt: 2, theme: "light" })
   expect(prior).toEqual(before)
   expect(seeded.notificationReceipts.map(row => row.version).sort()).toEqual(["branch-version", "frame-version"])
-  expect(seedAppProjection(seeded, { createdAt: 3, theme: "light", seedWiki: false }).notificationReceipts).toEqual(seeded.notificationReceipts)
+  expect(seedAppProjection(seeded, { createdAt: 3, theme: "light" }).notificationReceipts).toEqual(seeded.notificationReceipts)
 })

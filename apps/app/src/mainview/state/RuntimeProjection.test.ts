@@ -188,7 +188,7 @@ describe("normalized runtime observations", () => {
   })
 
   test("a conflicting batch cannot partially update summary, gates, or app revision", () => {
-    const seeded = seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "dark", seedWiki: false })
+    const seeded = seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "dark" })
     const state = projectAppEvent(seeded, { transition: { type: "gateway.approvals.observed", actor: "system", scope, rows: [gate("approved")] }, revision: 1, createdAt: 10, persistenceMode: "memory" })
     const bytes = canonicalEventValue(state)
     expect(() => projectAppEvent(state, { transition: { type: "gateway.approvals.observed", actor: "system", scope, rows: [{ ...gate(), requestId: "unrelated" }, gate("denied")] }, revision: 2, createdAt: 11, persistenceMode: "memory" })).toThrow(RuntimeProjectionIntegrityError)

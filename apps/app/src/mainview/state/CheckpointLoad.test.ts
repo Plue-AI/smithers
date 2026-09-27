@@ -38,7 +38,7 @@ const open = async (path: string, budgetBytes: number) => {
     collections: PERSISTED_COLLECTION_SPECS, schemaVersion: APP_SCHEMA_VERSION, budgetBytes
   })
   const store = await createAppStore({ kind: "opfs", ...adapter,
-    storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } }, { seedWiki: false })
+    storageEventApi: { addEventListener: () => {}, removeEventListener: () => {} } })
   opened.push(store)
   return store
 }
