@@ -17,11 +17,9 @@ const underlying = new Agent()
 underlying.dispatch = underlying.dispatch.bind(underlying)
 const mock = new MockAgent({ agent: underlying })
 mock.disableNetConnect()
-mock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "POST" }).reply(() => {
-  appendFileSync(`${directory}/requests.jsonl`, `${JSON.stringify({ pid: process.pid })}\n`)
-  const cell = `\`\`\`cell\n${readFileSync(`${directory}/cell.txt`, "utf8")}\n\`\`\``
+const stream = (text) => {
   const events = [
-    { type: "response.output_text.delta", item_id: "msg_1", delta: cell },
+    { type: "response.output_text.delta", item_id: "msg_1", delta: text },
     { type: "response.output_text.done", item_id: "msg_1" },
     { type: "response.completed", response: { id: "resp_1" } }
   ]
@@ -30,26 +28,30 @@ mock.get("https://api.openai.com").intercept({ path: "/v1/responses", method: "P
     data: events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),
     responseOptions: { headers: { "content-type": "text/event-stream" } }
   }
-})
-mock.get("https://ai-gateway.vercel.sh").intercept({ path: "/v4/ai/evaluation-model", method: "POST" }).reply(({ body }) => {
-  const request = JSON.parse(typeof body === "string" ? body : Buffer.from(body).toString("utf8"))
+}
+// Completion judgments run on the agent's subscription seat (ade54a831f), so
+// the seat answers the judge's system prompt with a recorded verdict.
+const judge = (request) => {
+  const prompt = request.input.find((item) => item.role === "user").content[0].text
   const questions = Object.fromEntries(
-    Object.entries(request.questions).map(([id, question]) => [id, question.type])
+    Object.entries(JSON.parse(prompt).questions).map(([id, question]) => [id, question.type])
   )
   deepStrictEqual(questions, { complete: "boolean", overclaims: "boolean", invented: "boolean" })
   appendFileSync(`${directory}/evaluations.jsonl`, `${JSON.stringify({ pid: process.pid, questions })}\n`)
-  return {
-    statusCode: 200,
-    data: JSON.stringify({
-      answers: {
-        complete: { type: "boolean", probability: 0.99 },
-        overclaims: { type: "boolean", probability: 0.01 },
-        invented: { type: "boolean", probability: 0.01 }
-      }
-    }),
-    responseOptions: { headers: { "content-type": "application/json" } }
-  }
-})
+  return stream(JSON.stringify({
+    answers: {
+      complete: { type: "boolean", probability: 0.99 },
+      overclaims: { type: "boolean", probability: 0.01 },
+      invented: { type: "boolean", probability: 0.01 }
+    }
+  }))
+}
+mock.get("https://model-proxy.recorded.invalid").intercept({ path: "/chatgpt/codex/responses", method: "POST" }).reply(({ body }) => {
+  const request = JSON.parse(typeof body === "string" ? body : Buffer.from(body).toString("utf8"))
+  if (request.instructions?.startsWith("Judge the supplied evidence")) return judge(request)
+  appendFileSync(`${directory}/requests.jsonl`, `${JSON.stringify({ pid: process.pid })}\n`)
+  return stream(`\`\`\`cell\n${readFileSync(`${directory}/cell.txt`, "utf8")}\n\`\`\``)
+}).persist()
 Agent.prototype.dispatch = function(options, handler) {
   return mock.dispatch(options, handler)
 }

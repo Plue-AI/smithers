@@ -29,11 +29,10 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
   const environment: NodeJS.ProcessEnv = {
     NODE_OPTIONS: `--import=${preload}`,
     SMITHERS_TEST_RECORDING: recording,
-    SMITHERS_OPENAI_AUTH: "api-key",
-    OPENAI_API_KEY: "recorded-fixture-not-a-real-key",
-    // The host refuses to start without a judge, and the recorded provider
-    // answers the gateway's evaluation the same way it answers the model's.
-    AI_GATEWAY_API_KEY: "recorded-fixture-not-a-real-key"
+    // The recorded model proxy serves the ChatGPT seat and its judge.
+    SMITHERS_OPENAI_AUTH: "chatgpt",
+    SMITHERS_MODEL_PROXY_URL: "https://model-proxy.recorded.invalid",
+    OPENAI_API_KEY: "recorded-fixture-not-a-real-key"
   }
   for (const key of ["PATH", "TMPDIR", "SystemRoot", "WINDIR", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]) {
     if (process.env[key] !== undefined) environment[key] = process.env[key]

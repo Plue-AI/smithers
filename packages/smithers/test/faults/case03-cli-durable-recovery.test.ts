@@ -22,9 +22,11 @@ const recover = async (mode: "approval" | "timer" | "checkpoint") => {
   Object.assign(environment, {
     NODE_OPTIONS: `--import=${preload}`,
     SMITHERS_TEST_RECORDING: recording,
-    SMITHERS_OPENAI_AUTH: "api-key",
-    OPENAI_API_KEY: "recorded-fixture-not-a-real-key",
-    AI_GATEWAY_API_KEY: "recorded-fixture-not-a-real-key"
+    // Completion judgments run only on subscription seats (ade54a831f), so the
+    // agent and its judge share the ChatGPT seat behind the recorded model proxy.
+    SMITHERS_OPENAI_AUTH: "chatgpt",
+    SMITHERS_MODEL_PROXY_URL: "https://model-proxy.recorded.invalid",
+    OPENAI_API_KEY: "recorded-fixture-not-a-real-key"
   })
   const invoke = (...args: Array<string>) => {
     const result = spawnSync(process.execPath, [executable, ...args, "--json"], {
@@ -276,7 +278,7 @@ it("blocks unrecorded provider requests in the child-process fixture", () => {
       "import assert from \"node:assert/strict\"",
       "const agent = new Agent()",
       "try {",
-      "  for (const origin of [\"https://api.openai.com\", \"https://ai-gateway.vercel.sh\", \"https://unexpected.invalid\"]) {",
+      "  for (const origin of [\"https://model-proxy.recorded.invalid\", \"https://api.openai.com\", \"https://unexpected.invalid\"]) {",
       "    await assert.rejects(agent.request({ origin, path: \"/unrecorded\", method: \"GET\" }),",
       "      { code: \"UND_MOCK_ERR_MOCK_NOT_MATCHED\" })",
       "  }",
