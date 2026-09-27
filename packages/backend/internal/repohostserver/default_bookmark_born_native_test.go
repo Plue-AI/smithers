@@ -154,6 +154,6 @@ func TestDefaultBookmarkBornBackfill(t *testing.T) {
 	nativeGit(t, true, "--git-dir", h.gitDir(), "update-ref", "refs/heads/main", "refs/heads/feature")
 	_ = os.Remove(filepath.Join(h.gitDir(), defaultBookmarkBornFile))
 	require.False(t, defaultBookmarkBorn(h.gitDir(), "main"))
-	h.srv.backfillDefaultBookmarkBorn(context.Background())
+	h.srv.sweepAllRepositories(context.Background())
 	require.True(t, defaultBookmarkBorn(h.gitDir(), "main"))
 }

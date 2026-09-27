@@ -216,6 +216,9 @@ func (s *Server) stageProvisionRepo(w http.ResponseWriter, r *http.Request) erro
 		}
 		err = copyDir(sourcePath, stagedPath)
 	}
+	if err == nil {
+		err = disableAutoMaintenance(context.WithoutCancel(r.Context()), repoGitDir(stagedPath))
+	}
 	if err != nil {
 		return internalError("failed to build staged repository", err)
 	}
@@ -449,6 +452,11 @@ func (s *Server) lockStagedImportRepository(r *http.Request) (string, string, fu
 	if !stagedExists || liveExists {
 		unlockPaths()
 		return "", "", nil, conflict("repository provisioning stage is not hidden and writable")
+	}
+	// A stage built before automatic maintenance was turned off at creation.
+	if err := disableAutoMaintenance(context.WithoutCancel(r.Context()), repoGitDir(stagedPath)); err != nil {
+		unlockPaths()
+		return "", "", nil, internalError("failed to configure staged repository", err)
 	}
 	releaseStage = false
 	return stagedPath, filepath.Join(stagedPath, ".jj", "repo", "store", "git"), func() {

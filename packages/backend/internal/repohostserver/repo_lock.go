@@ -14,8 +14,9 @@ import (
 )
 
 // staleGitLockAge is how old a git lock file must be before repo-host treats
-// its writer as gone. Git and jj hold a ref lock for milliseconds; the margin
-// covers a detached `gc --auto` packing refs outside the repository lock.
+// its writer as gone. Git and jj hold a ref lock for milliseconds, and every
+// ref lock writer, maintenance included (maintenance.go), holds the repository
+// lock, so the age only guards against a writer outside repo-host.
 const staleGitLockAge = 2 * time.Minute
 
 // repoGitDir is the git backend of the jj repository at repoPath.
@@ -32,7 +33,7 @@ func repoGitDir(repoPath string) string {
 //     exists;
 //   - on release, jj's view is exported to git unless it already was at the
 //     current operation head (warmGitRefs), and the default bookmark is
-//     recorded born again.
+//     recorded born again; the repository is then queued for maintenance.
 //
 // A default bookmark that any write created, a push, a landing, an import or
 // the bookmark API, is therefore born before its lock is released: a push can
@@ -47,6 +48,7 @@ func (s *Server) lockRepo(repoPath string) func() {
 		if _, err := os.Stat(gitDir); err == nil {
 			s.warmGitRefs(repoPath)
 			s.recordDefaultBookmarkBorn(gitDir)
+			s.markMaintenanceDue(repoPath)
 		}
 	}
 }
@@ -69,40 +71,6 @@ func (s *Server) recordDefaultBookmarkBorn(gitDir string) {
 	}
 	if err := markDefaultBookmarkBorn(gitDir, bookmark); err != nil && s.logger != nil {
 		s.logger.Error("failed to record the default bookmark", "git_dir", gitDir, "error", err)
-	}
-}
-
-// startDefaultBookmarkBackfill runs backfillDefaultBookmarkBorn once in the
-// background, stopped by Shutdown.
-func (s *Server) startDefaultBookmarkBackfill() {
-	ctx, cancel := context.WithCancel(context.Background())
-	s.stopBackfill = cancel
-	s.background.Add(1)
-	go func() {
-		defer s.background.Done()
-		s.backfillDefaultBookmarkBorn(ctx)
-	}()
-}
-
-// backfillDefaultBookmarkBorn records, under each repository's lock, the
-// default bookmark of repositories that predate the marker. It exports
-// nothing: the first read of each repository still does.
-func (s *Server) backfillDefaultBookmarkBorn(ctx context.Context) {
-	gitDirs, err := filepath.Glob(filepath.Join(s.config.StoragePath, "*", "*", ".jj", "repo", "store", "git"))
-	if err != nil {
-		return
-	}
-	for _, gitDir := range gitDirs {
-		if ctx.Err() != nil {
-			return
-		}
-		repoPath := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(gitDir))))
-		if strings.HasSuffix(repoPath, wikiRepoSuffix) || strings.HasSuffix(repoPath, docsRepoSuffix) {
-			continue
-		}
-		unlock := s.locks.Lock(repoPath)
-		s.recordDefaultBookmarkBorn(gitDir)
-		unlock()
 	}
 }
 

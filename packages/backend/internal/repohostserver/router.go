@@ -56,8 +56,10 @@ type Server struct {
 	pushOutbox *pushHookOutbox
 	stopReplay context.CancelFunc
 	stopSweep  context.CancelFunc
-	// stopBackfill stops the startup default-bookmark backfill.
-	stopBackfill context.CancelFunc
+	// stopMaintenance stops repository maintenance (maintenance.go).
+	stopMaintenance context.CancelFunc
+	maintenanceMu   sync.Mutex
+	maintenanceDue  map[string]struct{}
 }
 
 type loadableFFIClient interface {
@@ -126,7 +128,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	server.startPushHookReplay(pushHookReplayInterval)
 	server.startUserRefSweep(userRefSweepInterval)
-	server.startDefaultBookmarkBackfill()
+	server.startMaintenance(maintenanceInterval)
 	return server, nil
 }
 
@@ -278,8 +280,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.stopSweep != nil {
 		s.stopSweep()
 	}
-	if s.stopBackfill != nil {
-		s.stopBackfill()
+	if s.stopMaintenance != nil {
+		s.stopMaintenance()
 	}
 	done := make(chan struct{})
 	go func() {
@@ -416,6 +418,9 @@ func (s *Server) initRepo(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if err := disableAutoMaintenance(context.WithoutCancel(r.Context()), repoGitDir(repoPath)); err != nil {
+		return internalError("failed to configure repository", err)
+	}
 	if !req.AutoInit && req.DefaultBookmark != "" {
 		if err := setGitDefaultBookmark(r.Context(), s.config.GitBackendPath(req.Owner, req.Repo), req.DefaultBookmark); err != nil {
 			return internalError("failed to set default bookmark", err)
@@ -528,6 +533,10 @@ func (s *Server) forkRepo(w http.ResponseWriter, r *http.Request) error {
 	if err := dropUserRefs(r.Context(), s.config.GitBackendPath(req.DstOwner, req.DstRepo)); err != nil {
 		_ = os.RemoveAll(dstPath)
 		return internalError("failed to copy repository", err)
+	}
+	if err := disableAutoMaintenance(context.WithoutCancel(r.Context()), repoGitDir(dstPath)); err != nil {
+		_ = os.RemoveAll(dstPath)
+		return internalError("failed to configure repository", err)
 	}
 
 	return writeJSON(w, http.StatusCreated, map[string]string{
@@ -1072,6 +1081,7 @@ func (s *Server) initWikiRepo(w http.ResponseWriter, r *http.Request) error {
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
 	unlock := s.locks.Lock(wikiRepoPath)
 	defer unlock()
+	defer s.markMaintenanceDue(wikiRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
@@ -1079,6 +1089,9 @@ func (s *Server) initWikiRepo(w http.ResponseWriter, r *http.Request) error {
 	created, err := s.ffi.InitWikiRepo(wikiRepoPath)
 	if err != nil {
 		return err
+	}
+	if err := disableAutoMaintenance(context.WithoutCancel(r.Context()), repoGitDir(wikiRepoPath)); err != nil {
+		return internalError("failed to configure repository", err)
 	}
 	if created {
 		return writeJSON(w, http.StatusCreated, map[string]bool{"created": true})
@@ -1098,6 +1111,7 @@ func (s *Server) initDocsRepo(w http.ResponseWriter, r *http.Request) error {
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
 	unlock := s.locks.Lock(docsRepoPath)
 	defer unlock()
+	defer s.markMaintenanceDue(docsRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
@@ -1105,6 +1119,9 @@ func (s *Server) initDocsRepo(w http.ResponseWriter, r *http.Request) error {
 	created, err := s.ffi.InitDocsRepo(docsRepoPath)
 	if err != nil {
 		return err
+	}
+	if err := disableAutoMaintenance(context.WithoutCancel(r.Context()), repoGitDir(docsRepoPath)); err != nil {
+		return internalError("failed to configure repository", err)
 	}
 	if created {
 		return writeJSON(w, http.StatusCreated, map[string]bool{"created": true})
@@ -1129,6 +1146,7 @@ func (s *Server) commitWikiPage(w http.ResponseWriter, r *http.Request) error {
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
 	unlock := s.locks.Lock(wikiRepoPath)
 	defer unlock()
+	defer s.markMaintenanceDue(wikiRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
@@ -1168,6 +1186,7 @@ func (s *Server) commitDoc(w http.ResponseWriter, r *http.Request) error {
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
 	unlock := s.locks.Lock(docsRepoPath)
 	defer unlock()
+	defer s.markMaintenanceDue(docsRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
@@ -1319,6 +1338,7 @@ func (s *Server) deleteWikiPage(w http.ResponseWriter, r *http.Request) error {
 	wikiRepoPath := s.config.WikiRepoPath(owner, repo)
 	unlock := s.locks.Lock(wikiRepoPath)
 	defer unlock()
+	defer s.markMaintenanceDue(wikiRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
@@ -1356,6 +1376,7 @@ func (s *Server) deleteDoc(w http.ResponseWriter, r *http.Request) error {
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
 	unlock := s.locks.Lock(docsRepoPath)
 	defer unlock()
+	defer s.markMaintenanceDue(docsRepoPath)
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
