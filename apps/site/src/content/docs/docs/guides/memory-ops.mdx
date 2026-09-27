@@ -14,32 +14,18 @@ The store itself (facts, threads, notes, and recall) is a concept; [Memory](/doc
 - You have a project with a `.flows/control.db`, the control database the memory store lives in.
 - You have facts to inspect, for example written by a flow that ran `Flows.remember`. For the maintenance step, `@smthrs/memory` ([Installation](/docs/installation/#use-the-libraries)).
 
-## 1. Inspect facts
+## 1. Inspect and edit facts
 
 ```bash
 smthrs memory list --namespace flow:deploy-status
 smthrs memory get deploy-target --namespace flow:deploy-status
-```
-
-- `list` returns up to 100 facts by default; use `--limit` to change the limit. Each entry includes `key`, `value`, and `updatedAtMs`. To narrow the listing, pass `--prefix deploy-`: only facts whose key starts with the prefix return.
-- `get` returns the full `Fact` record: `namespace`, `key`, `value`, `provenance`, `createdAtMs`, `updatedAtMs`, and optional `tags` and `ttlMs`. A key the namespace does not hold exits 1.
-- Without `--namespace`, every subcommand works in `user:cli`.
-- `--json` selects machine-readable JSON output; `get` includes the full record with the stored value in its `value` field.
-
-## 2. Set and delete facts by hand
-
-```bash
 smthrs memory set deploy-target staging --namespace flow:deploy-status
 smthrs memory rm deploy-target --namespace flow:deploy-status
 ```
 
-- A value that parses as JSON is stored as JSON; anything else is stored as the string as typed.
-- `set` returns `{ "key": "deploy-target", "namespace": { "kind": "flow", "id": "deploy-status" }, "stored": true }` for the example above. Writing an existing key replaces its value.
-- `rm` returns `{ "key": "deploy-target", "deleted": true }` if the fact existed, or `deleted: false` if it did not.
+Seed a fact before a run starts or remove one afterwards. Without `--namespace`, every subcommand works in `user:cli`. The [`smthrs memory` reference](/docs/reference/cli/memory/) lists each subcommand's flags and output.
 
-Reach for these to seed a fact before a run starts or to remove one afterwards. The command never reads or writes run history; `smthrs gc` handles that.
-
-## 3. Choose the namespace
+## 2. Choose the namespace
 
 Select a namespace with `--namespace <kind:id>` or `--namespace <kind> --id <id>`, where the kind is `flow`, `agent`, `user`, or `global`. For example, `--namespace flow:deploy-status` and `--namespace flow --id deploy-status` select the same namespace. Do not combine `kind:id` with `--id`. An invalid kind, an empty id, an id containing control characters, or combining both spellings exits 1.
 
@@ -49,7 +35,7 @@ The kind is a stable lifetime, so pick it by who the fact belongs to:
 - Write `flow:<id>` when you seed state for one flow tree. A flow's memory policy names the namespace that tree reads and writes, so match the id the run's policy uses.
 - Write `global:<id>` for facts that belong to no single flow, agent, or user. The store's own fallback history thread lives at `global:history`.
 
-## 4. Run maintenance
+## 3. Run maintenance
 
 `@smthrs/memory`'s `Maintenance` module holds the finite maintenance effects, intended for explicit schedules. Nothing runs them on its own; you run a pass from a script over your store layer, or from a scheduled flow.
 
@@ -70,7 +56,7 @@ What each pass does:
 - `Maintenance.limitHistory` deletes the oldest messages in every thread until the configured approximate token budget is met: `maxTokens`, with `charsPerToken` defaulting to 4. It returns `{ deletedMessages }`.
 - `Maintenance.compact` summarizes old history through an injected summarizer and atomically replaces the source messages with the summary, keeping the two most recent messages unless you pass `keepRecent`. The summarizer runs before the write transaction, so a failure or interruption leaves the source messages intact. It returns `{ compactedThreads, deletedMessages }`.
 
-## 5. Back up memory with the rest of the project
+## 4. Back up memory with the rest of the project
 
 Facts live in `.flows/control.db`, so the project backup in [Back up, gc, and retain run state](/docs/guides/retention/) covers the memory store.
 

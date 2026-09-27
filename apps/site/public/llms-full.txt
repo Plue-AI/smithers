@@ -1119,22 +1119,13 @@ https://smithers.sh/docs/tutorials/first-flow/
 
 In this tutorial you'll build the smallest complete Smithers program: one action, one flow that names it, an implementation attached as a layer, and two runs of that flow, first on the in-memory engine and then on the durable engine over a SQLite journal.
 
-Time: about 20 minutes. You need Node.js and pnpm.
-
 ## Before you begin
 
-- You have Node.js 26.4.0 or later. The durable engine runs on Node only.
-- You have pnpm for installing packages.
-- The [CLI quickstart](/docs/cli-quickstart/) is a useful warm-up, but this tutorial starts from an empty directory.
+- Node.js 26.4.0 or later.
 
 ## 1. Set up the project
 
 Create a `first-flow` directory and link the libraries into it as described in [Installation](/docs/installation/#use-the-libraries). Every program here runs with `node <file>.ts`.
-
-```text
-You should see: pnpm writes a package.json and a lockfile and installs the
-packages into node_modules. Nothing from Smithers has run yet.
-```
 
 ## 2. Declare the action
 
@@ -1330,8 +1321,6 @@ https://smithers.sh/docs/tutorials/crash-and-resume/
 
 In this tutorial you'll build a run that survives a crash: a flow whose step waits on a durable deferred, a first drive that suspends and drops the engine, and a second drive that completes the wait and finishes the run without re-executing the work the first drive recorded.
 
-Time: about 15 minutes. You need the project from the first tutorial.
-
 ## Before you begin
 
 - You have completed [Build your first durable flow](/docs/tutorials/first-flow/).
@@ -1483,11 +1472,9 @@ https://smithers.sh/docs/tutorials/retry-policy/
 
 In this tutorial you'll build a retry around a flaky action: a `RetryPolicy` value, its backoff ladder read straight off the data, an upload that fails twice and succeeds on the third attempt, and a durable run that records every attempt.
 
-Time: about 15 minutes. You need the project from the first tutorial.
-
 ## Before you begin
 
-- You have completed [Crash and resume a run](/docs/tutorials/crash-and-resume/) or the [CLI quickstart](/docs/cli-quickstart/).
+- You have completed [Crash and resume a run](/docs/tutorials/crash-and-resume/).
 - You have the project from [Build your first durable flow](/docs/tutorials/first-flow/), including `durable-layer.ts` and its installed packages.
 - You have Node.js 26.4.0 or later.
 
@@ -1661,11 +1648,9 @@ https://smithers.sh/docs/tutorials/human-approval/
 
 In this tutorial you'll build a flow that asks a person before it finishes: a human task that parks the run on a confirmation, a prose answer the task refuses and re-asks within its attempt budget, and the boolean answer that completes the run.
 
-Time: about 20 minutes. You need the project from the first tutorial.
-
 ## Before you begin
 
-- You have completed [Retry a flaky action](/docs/tutorials/retry-policy/) or the [CLI quickstart](/docs/cli-quickstart/).
+- You have completed [Retry a flaky action](/docs/tutorials/retry-policy/).
 - You have the project from [Build your first durable flow](/docs/tutorials/first-flow/), including `durable-layer.ts` and its installed packages.
 - You have Node.js 26.4.0 or later.
 
@@ -1820,7 +1805,7 @@ boolean.
 # Fork and rewind a run
 https://smithers.sh/docs/tutorials/time-travel/
 
-In this tutorial you'll build a small release flow, finish a run, fork it at a journal frame so a copy can publish to a different channel, and then rewind a second run to an earlier frame and re-derive a view from what remains. It takes about 30 minutes.
+In this tutorial you'll build a small release flow, finish a run, fork it at a journal frame so a copy can publish to a different channel, and then rewind a second run to an earlier frame and re-derive a view from what remains.
 
 Fork copies a run's history up to one frame so the copy can diverge from its parent, rewind trims the run's own history back to a frame, and compensation is the per-effect undo a rewind performs on what the trimmed suffix did. [Time travel](/docs/concepts/time-travel/) explains all three. This tutorial uses the library API to show the operation directly. For existing CLI runs, use `smthrs runs inspect/replay/fork/rewind` as described in [time travel](/docs/concepts/time-travel/). The full operation and error tables live in the [time-travel API reference](/docs/reference/api/time-travel/).
 
@@ -2463,11 +2448,9 @@ through the write tool, and every call ran inside the sandbox budget.
 # Pass typed outputs between agent steps
 https://smithers.sh/docs/tutorials/agent-outputs/
 
-In this tutorial you'll build a two-step research-then-write flow. The first step's answer must decode against a schema you declare, and the second reads its typed fields. You will run the chain in memory, then persist it over SQLite. It takes about 15 minutes and needs no provider key: the model responses and evidence-based completion judge are scripted.
+In this tutorial you'll build a two-step research-then-write flow. The first step's answer must decode against a schema you declare, and the second reads its typed fields. You will run the chain in memory, then persist it over SQLite. The model responses and completion judge are scripted, so it needs no provider key.
 
 A declared `output` schema is rendered into the step's system teaching as JSON Schema. The model's final answer is decoded against it, with one correction re-prompt before the step fails. [Agent runtime](/docs/concepts/agent-runtime/) explains the loop.
-
-The offline host explicitly binds `ScriptedJudge.layer`, which reads completion evidence and rejects unrecorded command claims. A live host selects `Evaluator.layerFromEnvironment(process.env, "my host")` before opening resources, or deliberately scripts every classifier it uses. A missing gateway key now prevents that host from booting.
 
 ## Before you begin
 
@@ -2799,11 +2782,9 @@ This program drives the engine directly. `smthrs runs output` reads the control 
 # Remember facts across runs
 https://smithers.sh/docs/tutorials/memory/
 
-In this tutorial you'll build a notebook step that records three facts in one run, recalls them in a later run, and then lists the namespace with the Smithers CLI. It takes about 20 minutes.
+In this tutorial you'll build a notebook step that records three facts in one run, recalls them in a later run, and then lists the namespace with the Smithers CLI..
 
 A memory policy decides which banks a flow tree reads and writes, whether recall runs at all, the budget recall answers within, and whether writes are kept. It is attached to the flow declaration with `WithMemory.withMemory`, and every flow that declaration names inherits it. [Memory](/docs/concepts/memory/) explains the model.
-
-The offline host explicitly binds `ScriptedJudge.layer`, which reads completion evidence and rejects unrecorded command claims. A live host selects `Evaluator.layerFromEnvironment(process.env, "my host")` before opening resources, or deliberately scripts every classifier it uses. A missing gateway key now prevents that host from booting.
 
 ## Before you begin
 
@@ -3127,7 +3108,7 @@ Use these guides when you know what you want to do. For a complete worked projec
 - [Tools](/docs/guides/tools/): give an agent a typed tool implementation.
 - [MCP setup](/docs/guides/mcp-setup/): expose Smithers commands to another agent.
 - [Agent policies](/docs/guides/agent-policies/): bound an agent's work and review its decisions.
-- [Sandboxes](/docs/guides/sandboxes/): choose where code executes.
+- [Place work on a sandbox provider](/docs/guides/sandboxes/): choose where code executes.
 
 ## Run and inspect work
 
@@ -3255,7 +3236,7 @@ The name is one path segment of letters, digits, `-`, and `_`; omit it to defaul
 
 To add another flow, use `smthrs generate flow <name>`. `smthrs init` also initializes workspace and target declarations; use it when setting up a new workspace.
 
-The scaffold's `model:` line comes from the first provider credential the environment sets, in the order `smthrs doctor` reports them: `ANTHROPIC_API_KEY` resolves `anthropic:claude-sonnet-4-5`, `OPENAI_API_KEY` resolves `openai:gpt-6-sol`, and `OPENROUTER_API_KEY` resolves `openrouter:anthropic/claude-sonnet-4.5`. Moonshot, Gemini (including `GOOGLE_API_KEY`), and Cerebras follow; the [init reference](/docs/reference/cli/init/) lists every default. With no credential set, the scaffold still declares the default and a frontmatter comment names the key to set, because a flow without a `model:` line is not launchable at all.
+The scaffold's `model:` line comes from the first provider credential the environment sets; see [Configure model seats](/docs/guides/model-seats/).
 
 ## 2. Set the frontmatter
 
@@ -3881,18 +3862,40 @@ The string holds no credential, endpoint, or client. At launch the CLI's seat re
 
 | Seat prefix | Credential the resolver reads | Route it builds |
 | --- | --- | --- |
-| `anthropic:` | `ANTHROPIC_API_KEY` | Anthropic Messages at `https://api.anthropic.com/v1/messages` |
+| `anthropic:` | `ANTHROPIC_API_KEY`, then the Claude subscription tokens `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` | Anthropic Messages at `https://api.anthropic.com/v1/messages` |
 | `openai:` | `OPENAI_API_KEY`, or the ChatGPT session (step 3) | OpenAI Responses at `https://api.openai.com/v1/responses` |
 | `openrouter:` | `OPENROUTER_API_KEY` | OpenRouter through its configured model route. |
 | `moonshot:` | `MOONSHOT_API_KEY` | OpenAI-compatible Chat Completions at Moonshot. |
 | `gemini:` | `GEMINI_API_KEY`, then `GOOGLE_API_KEY` | Gemini's OpenAI-compatible Chat Completions endpoint. |
 | `cerebras:` | `CEREBRAS_API_KEY` | OpenAI-compatible Chat Completions at Cerebras. |
 
-OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider.
+OpenRouter seats spell the model as `openrouter:vendor/model`, for example `openrouter:anthropic/claude-sonnet-4.5`. A seat with no `:` reads as a bare model id on the Anthropic route. Any other provider prefix declines the launch: the resolver reports that no route is configured for that provider. A Smithers account pool (`SMITHERS_ACCOUNT_POOL_URL`, `SMITHERS_ACCOUNT_POOL_KEY`, `SMITHERS_ACCOUNT_POOL_PROVIDERS`) signs `anthropic:` and `openai:` seats ahead of these credentials.
 
-:::note
-`smthrs init` writes the scaffold's `model:` line from the first provider credential your environment sets, in the order `smthrs doctor` reports them: `ANTHROPIC_API_KEY` gives `anthropic:claude-sonnet-4-5`, `OPENAI_API_KEY` gives `openai:gpt-6-sol`, and `OPENROUTER_API_KEY` gives `openrouter:anthropic/claude-sonnet-4.5`. Moonshot, Gemini, and Cerebras follow. See the [init reference](/docs/reference/cli/init/) for the full order.
-:::
+These aliases expand to a full seat; the run records the alias:
+
+| Alias | Seat |
+| --- | --- |
+| `sol` | `openai:gpt-6-sol` |
+| `astra` | `openai:gpt-6-astra` |
+| `luna` | `openai:gpt-6-luna` |
+| `opus` | `anthropic:claude-opus-5-5` |
+| `fable` | `anthropic:claude-fable-5-1` |
+| `qwen` | `cerebras:qwen-3.8-27b` |
+
+`jev` is the decision seat; it answers classifier questions and cannot run an agent turn.
+
+### Starter seats
+
+`smthrs init` writes the scaffold's `model:` line from the first provider credential the environment sets, in the order `smthrs doctor` reports them:
+
+- `ANTHROPIC_API_KEY` resolves `anthropic:claude-sonnet-4-5`.
+- `OPENAI_API_KEY` resolves `openai:gpt-6-sol`. The ChatGPT session `SMITHERS_OPENAI_AUTH=chatgpt` resolves the same seat.
+- `OPENROUTER_API_KEY` resolves `openrouter:anthropic/claude-sonnet-4.5`.
+- `MOONSHOT_API_KEY` resolves `moonshot:kimi-k3`.
+- `GEMINI_API_KEY`, then `GOOGLE_API_KEY`, resolves `gemini:gemini-2.5-pro`.
+- `CEREBRAS_API_KEY` resolves `cerebras:qwen-3.8-27b`.
+
+With no credential set, the scaffold still declares the default (`anthropic:claude-sonnet-4-5`), and the frontmatter comment names the key to set. A scaffold without a `model:` line would not be launchable at all.
 
 [Agent runtime](/docs/concepts/agent-runtime/) explains the two halves of a seat and what `SeatResolver` does with them.
 
@@ -4372,7 +4375,7 @@ Through Effect's own `FileSystem` and `ChildProcessSpawner` services the same fa
 
 ---
 
-# Run work in a sandbox
+# Place work on a sandbox provider
 https://smithers.sh/docs/guides/sandboxes/
 
 Place an action body, or a whole child flow, on a provisioned machine while the engine and journal stay on the local SQLite composition.
@@ -4829,7 +4832,7 @@ return collected.output
 
 - [@smthrs/flow API reference](/docs/reference/api/flow/): `call`, `child`, `to`, execution identity, and the `Interpreter`.
 - [Wait durably](/docs/guides/durable-waits/): the primitives a parked child (or the parent waiting on it) suspends on.
-- [Run work in a sandbox](/docs/guides/sandboxes/): place a child flow's own code inside a provisioned machine.
+- [Place work on a sandbox provider](/docs/guides/sandboxes/): place a child flow's own code inside a provisioned machine.
 
 ---
 
@@ -5105,25 +5108,9 @@ From the project root:
 smthrs serve
 ```
 
-The server binds `127.0.0.1:3000` by default and keeps serving until the process is interrupted. A loopback bind (`127.0.0.1`, `::1`, or `localhost`) needs no bearer. It accepts only loopback Host values and, when a browser supplies `Origin`, loopback HTTP(S) origins; Origin-less CLI requests remain accepted. To change the bind, pass `--host` and `--port`; to suppress the listening banner, pass `--quiet`.
+The server binds `127.0.0.1:3000` and needs no bearer on loopback. The [`smthrs serve` reference](/docs/reference/cli/serve/) lists its flags and bind rules, and the [HTTP API reference](/docs/reference/http-api/) lists its routes.
 
-The server mounts these routes:
-
-| Path | Protocol | Serves |
-| --- | --- | --- |
-| `/rpc` | http | control rpc |
-| `/rpc/ws` | ws | control rpc, including watch |
-| `/projections` | http | projection snapshots |
-| `/projections/ws` | ws | projection subscriptions |
-| `/sync` | http | journal sync |
-| `/sync/ws` | ws | journal sync stream |
-| `/health` | http | workspace identity |
-
-`GET /health` is unauthenticated. The [HTTP API reference](/docs/reference/http-api/) documents what each route answers; the [journal sync stream](/docs/guides/sync-followers/) on `/sync/ws` is what a read-only follower consumes.
-
-## 2. Bind a non-loopback address safely
-
-The bind rule is strict: loopback needs no bearer but rejects foreign Host and browser Origin values, and anything else needs both `--listen` and a bearer token. An unauthenticated control plane on a network address can launch agents with your credentials, so the server refuses both half-measures.
+## 2. Bind a non-loopback address
 
 Supply `SMITHERS_API_KEY` through your secret manager or parent process environment, then pass `--listen`:
 
@@ -5131,19 +5118,7 @@ Supply `SMITHERS_API_KEY` through your secret manager or parent process environm
 smthrs serve --host 0.0.0.0 --port 3000 --listen
 ```
 
-`smthrs serve` speaks plain HTTP only. For network access, terminate TLS at a trusted reverse proxy in front of this port, or reach it through an encrypted tunnel such as SSH, so the bearer token never crosses the network in cleartext.
-
-`SMITHERS_API_KEY` is the preferred credential channel. The compatibility flag `--credential` warns on stderr, even under `--quiet`, because its value is visible in process listings and can be saved in shell history. The warning never prints the value. A non-loopback bind without `--listen` exits 1:
-
-```text
-Refusing to bind <host>: pass --listen to serve on a non-loopback address.
-```
-
-A non-loopback bind with no bearer token exits 1:
-
-```text
-Refusing to bind <host> without a bearer token: set SMITHERS_API_KEY (preferred) or pass --credential.
-```
+`smthrs serve` speaks plain HTTP only. Terminate TLS at a trusted reverse proxy, or reach the port through an encrypted tunnel such as SSH, so the bearer never crosses the network in cleartext.
 
 ## 3. Point clients at the server
 
@@ -5521,32 +5496,18 @@ The store itself (facts, threads, notes, and recall) is a concept; [Memory](/doc
 - You have a project with a `.flows/control.db`, the control database the memory store lives in.
 - You have facts to inspect, for example written by a flow that ran `Flows.remember`. For the maintenance step, `@smthrs/memory` ([Installation](/docs/installation/#use-the-libraries)).
 
-## 1. Inspect facts
+## 1. Inspect and edit facts
 
 ```bash
 smthrs memory list --namespace flow:deploy-status
 smthrs memory get deploy-target --namespace flow:deploy-status
-```
-
-- `list` returns up to 100 facts by default; use `--limit` to change the limit. Each entry includes `key`, `value`, and `updatedAtMs`. To narrow the listing, pass `--prefix deploy-`: only facts whose key starts with the prefix return.
-- `get` returns the full `Fact` record: `namespace`, `key`, `value`, `provenance`, `createdAtMs`, `updatedAtMs`, and optional `tags` and `ttlMs`. A key the namespace does not hold exits 1.
-- Without `--namespace`, every subcommand works in `user:cli`.
-- `--json` selects machine-readable JSON output; `get` includes the full record with the stored value in its `value` field.
-
-## 2. Set and delete facts by hand
-
-```bash
 smthrs memory set deploy-target staging --namespace flow:deploy-status
 smthrs memory rm deploy-target --namespace flow:deploy-status
 ```
 
-- A value that parses as JSON is stored as JSON; anything else is stored as the string as typed.
-- `set` returns `{ "key": "deploy-target", "namespace": { "kind": "flow", "id": "deploy-status" }, "stored": true }` for the example above. Writing an existing key replaces its value.
-- `rm` returns `{ "key": "deploy-target", "deleted": true }` if the fact existed, or `deleted: false` if it did not.
+Seed a fact before a run starts or remove one afterwards. Without `--namespace`, every subcommand works in `user:cli`. The [`smthrs memory` reference](/docs/reference/cli/memory/) lists each subcommand's flags and output.
 
-Reach for these to seed a fact before a run starts or to remove one afterwards. The command never reads or writes run history; `smthrs gc` handles that.
-
-## 3. Choose the namespace
+## 2. Choose the namespace
 
 Select a namespace with `--namespace <kind:id>` or `--namespace <kind> --id <id>`, where the kind is `flow`, `agent`, `user`, or `global`. For example, `--namespace flow:deploy-status` and `--namespace flow --id deploy-status` select the same namespace. Do not combine `kind:id` with `--id`. An invalid kind, an empty id, an id containing control characters, or combining both spellings exits 1.
 
@@ -5556,7 +5517,7 @@ The kind is a stable lifetime, so pick it by who the fact belongs to:
 - Write `flow:<id>` when you seed state for one flow tree. A flow's memory policy names the namespace that tree reads and writes, so match the id the run's policy uses.
 - Write `global:<id>` for facts that belong to no single flow, agent, or user. The store's own fallback history thread lives at `global:history`.
 
-## 4. Run maintenance
+## 3. Run maintenance
 
 `@smthrs/memory`'s `Maintenance` module holds the finite maintenance effects, intended for explicit schedules. Nothing runs them on its own; you run a pass from a script over your store layer, or from a scheduled flow.
 
@@ -5577,7 +5538,7 @@ What each pass does:
 - `Maintenance.limitHistory` deletes the oldest messages in every thread until the configured approximate token budget is met: `maxTokens`, with `charsPerToken` defaulting to 4. It returns `{ deletedMessages }`.
 - `Maintenance.compact` summarizes old history through an injected summarizer and atomically replaces the source messages with the summary, keeping the two most recent messages unless you pass `keepRecent`. The summarizer runs before the write transaction, so a failure or interruption leaves the source messages intact. It returns `{ compactedThreads, deletedMessages }`.
 
-## 5. Back up memory with the rest of the project
+## 4. Back up memory with the rest of the project
 
 Facts live in `.flows/control.db`, so the project backup in [Back up, gc, and retain run state](/docs/guides/retention/) covers the memory store.
 
@@ -47668,16 +47629,7 @@ smthrs init [name] [--root <directory>]
 
 `smthrs init` creates a `WORKSPACE.ts`, a starter `PACKAGE.ts`, a Markdown flow at `flows/<name>/flow.mdx`, and the `.flows/` state directory. A missing `package.json` is scaffolded with a Node/Pnpm toolchain; an existing supported Yarn, Bun, or Pnpm declaration is reused. Existing declarations and flows are preserved; an existing `.smithers/WORKSPACE.ts` also counts as the workspace declaration. In a git or jj repository it adds `.flows/` to `.gitignore`. Use `--root` to choose the directory and `generate flow <name>` to add another flow later. Seats resolve from provider configuration; the old `init --global` flag remains unsupported.
 
-The scaffolded flow declares a `model:` seat chosen from the first provider credential the environment sets, in the order `smthrs doctor` reports them:
-
-- `ANTHROPIC_API_KEY` resolves `anthropic:claude-sonnet-4-5`.
-- `OPENAI_API_KEY` resolves `openai:gpt-6-sol`. The ChatGPT session `SMITHERS_OPENAI_AUTH=chatgpt` resolves the same seat.
-- `OPENROUTER_API_KEY` resolves `openrouter:anthropic/claude-sonnet-4.5`.
-- `MOONSHOT_API_KEY` resolves `moonshot:kimi-k3`.
-- `GEMINI_API_KEY`, then `GOOGLE_API_KEY`, resolves `gemini:gemini-2.5-pro`.
-- `CEREBRAS_API_KEY` resolves `cerebras:qwen-3.8-27b`.
-
-With no credential set, the scaffold still declares the default (`anthropic:claude-sonnet-4-5`), and the frontmatter comment names the key to set. A scaffold without a `model:` line would not be launchable at all.
+The scaffolded flow's `model:` seat comes from the first provider credential the environment sets; see [Configure model seats](/docs/guides/model-seats/#starter-seats).
 
 The starter requests `fs:read:**`, `fs:write:**`, and `proc:spawn:*` for its file-editing and test-running instructions. Narrow these capabilities before running a smaller task; process spawning permits shell commands. Its directory supplies the flow name, so the frontmatter contains no ignored `name:` key.
 

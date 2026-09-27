@@ -59,7 +59,7 @@
 - [Give a flow tools](https://smithers.sh/docs/guides/tools/): Call the std tool library from a module flow, attach external MCP servers with --mcp-config or SMITHERS_MCP_CONFIG, and grant the capabilities the tools declare.
 - [Drive Smithers from your agent](https://smithers.sh/docs/guides/mcp-setup/): Connect an MCP client to Smithers, discover its tools, and verify access to the intended project.
 - [Declare and grant capabilities](https://smithers.sh/docs/guides/capabilities/): Declare the host authority a flow needs in its frontmatter, grant it with smthrs approvals approve --scope, and read the typed denial when a run exceeds its grant.
-- [Run work in a sandbox](https://smithers.sh/docs/guides/sandboxes/): Compose a sandbox provider to place one action's host services, or a whole child flow, on a provisioned machine.
+- [Place work on a sandbox provider](https://smithers.sh/docs/guides/sandboxes/): Compose a sandbox provider to place one action's host services, or a whole child flow, on a provisioned machine.
 - [Wait durably: sleep, poll, deferreds, queues](https://smithers.sh/docs/guides/durable-waits/): Pick the durable wait primitive that matches what you are waiting for, and compose it so the wait survives a process restart.
 - [Compose child flows](https://smithers.sh/docs/guides/child-flows/): Split work across durable runs with .child, join the results, cancel a parent and reach its children, and detach children that outlive the parent.
 - [Undo work with compensation](https://smithers.sh/docs/guides/compensation/): Declare how a failed run undoes the work it already did: flow-scope rollbacks, compensable actions with Jj pre-images, and rewind-time handlers.

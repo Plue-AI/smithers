@@ -20,25 +20,9 @@ From the project root:
 smthrs serve
 ```
 
-The server binds `127.0.0.1:3000` by default and keeps serving until the process is interrupted. A loopback bind (`127.0.0.1`, `::1`, or `localhost`) needs no bearer. It accepts only loopback Host values and, when a browser supplies `Origin`, loopback HTTP(S) origins; Origin-less CLI requests remain accepted. To change the bind, pass `--host` and `--port`; to suppress the listening banner, pass `--quiet`.
+The server binds `127.0.0.1:3000` and needs no bearer on loopback. The [`smthrs serve` reference](/docs/reference/cli/serve/) lists its flags and bind rules, and the [HTTP API reference](/docs/reference/http-api/) lists its routes.
 
-The server mounts these routes:
-
-| Path | Protocol | Serves |
-| --- | --- | --- |
-| `/rpc` | http | control rpc |
-| `/rpc/ws` | ws | control rpc, including watch |
-| `/projections` | http | projection snapshots |
-| `/projections/ws` | ws | projection subscriptions |
-| `/sync` | http | journal sync |
-| `/sync/ws` | ws | journal sync stream |
-| `/health` | http | workspace identity |
-
-`GET /health` is unauthenticated. The [HTTP API reference](/docs/reference/http-api/) documents what each route answers; the [journal sync stream](/docs/guides/sync-followers/) on `/sync/ws` is what a read-only follower consumes.
-
-## 2. Bind a non-loopback address safely
-
-The bind rule is strict: loopback needs no bearer but rejects foreign Host and browser Origin values, and anything else needs both `--listen` and a bearer token. An unauthenticated control plane on a network address can launch agents with your credentials, so the server refuses both half-measures.
+## 2. Bind a non-loopback address
 
 Supply `SMITHERS_API_KEY` through your secret manager or parent process environment, then pass `--listen`:
 
@@ -46,19 +30,7 @@ Supply `SMITHERS_API_KEY` through your secret manager or parent process environm
 smthrs serve --host 0.0.0.0 --port 3000 --listen
 ```
 
-`smthrs serve` speaks plain HTTP only. For network access, terminate TLS at a trusted reverse proxy in front of this port, or reach it through an encrypted tunnel such as SSH, so the bearer token never crosses the network in cleartext.
-
-`SMITHERS_API_KEY` is the preferred credential channel. The compatibility flag `--credential` warns on stderr, even under `--quiet`, because its value is visible in process listings and can be saved in shell history. The warning never prints the value. A non-loopback bind without `--listen` exits 1:
-
-```text
-Refusing to bind <host>: pass --listen to serve on a non-loopback address.
-```
-
-A non-loopback bind with no bearer token exits 1:
-
-```text
-Refusing to bind <host> without a bearer token: set SMITHERS_API_KEY (preferred) or pass --credential.
-```
+`smthrs serve` speaks plain HTTP only. Terminate TLS at a trusted reverse proxy, or reach the port through an encrypted tunnel such as SSH, so the bearer never crosses the network in cleartext.
 
 ## 3. Point clients at the server
 
