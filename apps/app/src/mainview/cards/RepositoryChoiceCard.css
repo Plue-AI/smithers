@@ -1,0 +1,14 @@
+.repository-choice { display: grid; gap: 12px; max-width: 560px; }
+.repository-choice * { min-width: 0; }
+.repository-choice-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.repository-choice-row { display: flex; width: 100%; justify-content: space-between; gap: 12px; border: 1px solid transparent; text-align: left; }
+.repository-choice-row[aria-pressed="true"] { border-color: var(--brand-border); background: var(--brand-soft); color: var(--text); font-weight: 600; }
+.repository-choice-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repository-choice-date { flex: none; color: var(--text-muted); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; font-weight: 400; }
+.repository-choice-error { margin: 2px 0 0; color: var(--danger); font-size: var(--fs-small); }
+.repository-choice-all { display: grid; gap: 8px; }
+.repository-choice-all[open] > summary { margin-bottom: 8px; }
+.repository-choice-all > summary { cursor: pointer; color: var(--text-muted); font-size: var(--fs-small); }
+.repository-choice-all > .sui-input { margin-bottom: 8px; }
+.repository-choice-count { margin: 4px 0 0; color: var(--text-muted); font-size: var(--fs-caption); }
+.repository-choice-create { justify-self: start; }
