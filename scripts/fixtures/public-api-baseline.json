@@ -1985,7 +1985,7 @@
         "internal/NodeControlHost.d.ts": "5a6aa65fb698d20cc630491085fcab8b023c682774720c4a27936a207ac1978a",
         "internal/NodeWebSocket.d.ts": "b58f00a49881df364cb0372314edcd81b924af66ccd019bcc40ea74bc73ba079",
         "internal/NodeWorkspaceObservation.d.ts": "87cadba649d73e8e5d72d68c34cc9fcdd50ee789a49ba56016035f84a6d47372",
-        "internal/RoleProfile.d.ts": "2c6dae4ab1ddccf6313b93a2ecbc72698ee743cbbcff13e9d407690caa39eda5",
+        "internal/RoleProfile.d.ts": "025eeeca1eb3f129cef4e47704d0acc186c2ea41888071a0af3c23965503cd9a",
         "internal/SourceRevision.d.ts": "b11a30db31eb0fdb50b26381fe0404bab829ec6ee69f88ad108f08055ca952a3",
         "internal/SqliteTable.d.ts": "7f9a0b7d48e42c0f8b26730e1aa505adfeb6fd3073090380bcfe782d02eddcdf",
         "internal/SupervisorMemory.d.ts": "b8cdf1e74a6c5243ae67aa310b8e385a6dba8a8123019ffc41d75bf5c93a6c53",

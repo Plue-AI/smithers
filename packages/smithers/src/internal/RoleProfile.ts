@@ -25,6 +25,7 @@
  *
  * @since 0.1.0
  */
+
 import * as Capability from "@smthrs/capability/Capability"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import { Effect, FileSystem, Option } from "effect"
@@ -32,7 +33,13 @@ import { createHash } from "node:crypto"
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
-/** The runtime's description of a turn. */
+/**
+ * The runtime's description of a turn: the first system segment of every
+ * composed profile.
+ *
+ * @since 0.1.0
+ * @category constants
+ */
 export const turnContract = [
   "# How this runtime works",
   "",
@@ -44,10 +51,20 @@ export const turnContract = [
   "- Chat supports Slack-style formatting: *bold*, bullets, and links written <url|label> or [label](url)."
 ].join("\n")
 
-/** Byte caps per part. */
+/**
+ * Byte caps per part: the shared instructions, the charter, and each skill.
+ *
+ * @since 0.1.0
+ * @category constants
+ */
 export const limits = { common: 8_192, charter: 12_288, skill: 16_384 } as const
 
-/** One composed profile. */
+/**
+ * One composed profile: its identity, seat, and system segments.
+ *
+ * @since 0.1.0
+ * @category models
+ */
 export interface Composed {
   readonly role: string
   readonly name: string
@@ -60,6 +77,13 @@ export interface Composed {
   readonly bytes: { readonly common: number; readonly charter: number; readonly skills: number }
 }
 
+/**
+ * Strips a leading `---` frontmatter block and returns the body, or the whole
+ * text when it has none.
+ *
+ * @since 0.1.0
+ * @category utils
+ */
 export const splitFrontmatter = (text: string): { readonly body: string } => ({
   body: /^(?:\uFEFF)?---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/.exec(text)?.[1] ?? text
 })
@@ -73,7 +97,14 @@ const capped = (part: string, text: string, cap: number): string => {
   return text
 }
 
-/** Composes a profile's system segments, or throws naming the part that is missing or too large. */
+/**
+ * What {@link compose} reads: the org directory holding the shared
+ * instructions and `Skills/`, the role, its flow body and frontmatter, and an
+ * optional reader that replaces direct file reads.
+ *
+ * @since 0.1.0
+ * @category models
+ */
 export interface Source {
   readonly org: string
   readonly role: string
@@ -83,6 +114,13 @@ export interface Source {
   readonly read?: ((path: string) => string) | undefined
 }
 
+/**
+ * Composes a profile's system segments, or throws naming the part that is
+ * missing or too large.
+ *
+ * @since 0.1.0
+ * @category constructors
+ */
 export const compose = (source: Source): Composed => {
   const read = source.read ?? ((path: string) => readFileSync(path, "utf8"))
   const { body, meta } = source
@@ -129,7 +167,14 @@ export const compose = (source: Source): Composed => {
 const attempt = <A>(run: () => A) =>
   Effect.try({ try: run, catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)) })
 
-/** Compose a declared shared page and optional skills through the guarded filesystem. */
+/**
+ * Composes a declared shared page and optional skills through the guarded
+ * filesystem. Returns no segments when the run grants no shared page and
+ * lists no skills.
+ *
+ * @since 0.1.0
+ * @category constructors
+ */
 export const forRun = (
   root: string,
   descriptor: { readonly name: string; readonly frontmatter: Readonly<Record<string, unknown>> },
