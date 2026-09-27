@@ -9,7 +9,7 @@ import versions from "../../../data/versions.json"
 ## Requirements
 
 - Node.js <code>{versions.nodeRange}</code>. The durable engine runs on Node only.
-- pnpm 11.25.0 and Git.
+- pnpm 11.25.0, Git, and Rust 1.98.0 (`rustup toolchain install 1.98.0`).
 - No database server. Run state is local SQLite in the project's `.flows/` directory.
 
 See the [RC support matrix](/docs/reference/support-matrix/) for engine ranges, platforms, and hosting limits.
@@ -22,11 +22,12 @@ These docs describe <code>{versions.cli}</code>. It is not published to npm: npm
 git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
 export PATH="$PWD/node_modules/.bin:$PATH"
 smthrs --version
 ```
 
-`smthrs --version` prints <code>{versions.cli}</code>. The PATH line puts this checkout's `smthrs` (and its alias `smithers`) on the current shell. It needs no build step. Change to your own project directory before running `smthrs init`. Target commands such as `smthrs build` and `smthrs test` run with this CLI in any directory; they load `WORKSPACE.ts` and `PACKAGE.ts` against the checkout's own Effect and Smithers packages.
+`smthrs --version` prints <code>{versions.cli}</code>. The `cargo` line builds the filesystem helper flow commands require. The PATH line puts this checkout's `smthrs` (and its alias `smithers`) on the current shell. Change to your own project directory before running `smthrs init`. Target commands such as `smthrs build` and `smthrs test` run with this CLI in any directory; they load `WORKSPACE.ts` and `PACKAGE.ts` against the checkout's own Effect and Smithers packages.
 
 :::caution[declaration_dependency_mismatch]
 Target declarations and the CLI must resolve the same physical Effect and Smithers packages. A second, separately installed CLI fails with `declaration_dependency_mismatch` even when its versions match. Use one CLI.
@@ -63,6 +64,7 @@ smthrs doctor
 ```bash
 git pull
 pnpm install
+cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export
 ```
 
 `smthrs update` reads npm's dist-tags for `@smthrs/cli` and never installs anything.
