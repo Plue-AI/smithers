@@ -9789,6 +9789,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/home.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/host.ts"
       },
       {

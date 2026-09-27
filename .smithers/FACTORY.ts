@@ -1,7 +1,7 @@
 /**
  * The factory that develops smithersai/smithers: what this repository
- * features, what its Dispatcher listens for, who writes `main`, and the home
- * pane a visitor sees first. Declared here beside WORKSPACE.ts, never in a
+ * features, what its Dispatcher listens for, who writes `main`, and the app
+ * home a visitor sees first. Declared here beside WORKSPACE.ts, never in a
  * PACKAGE.ts; a target it needs is named by label, `S.label("//:ci")`, never
  * imported. `//:factoryProjection` projects this file into
  * `.smithers/factory.json` and `.smithers/home.json`, the files smithers.sh
@@ -89,20 +89,16 @@ export const factory = S.Factory({
 })
 
 // --- homepage --------------------------------------------------------------
-// The first message in this repository's workspace chat, projected as data.
+// The app home (PRODUCT.md D-18): one question, the composer, and the apps.
+// An app is a featured flow with a picture; opening one renders that flow's
+// form, then the run card. Other repositories declare their own.
 export const home = S.Factory.Home({
   blocks: [
-    S.Home.Prompt({ placeholder: "Change Smithers…" }),
-    S.Home.Flows({ title: "Try first" }),
-    S.Home.Stack({ title: "Stack" }),
-    S.Home.Markdown({ path: "README.md" }),
-    S.Home.Links({
-      title: "Read more",
-      links: [
-        { label: "Source on GitHub", url: "https://github.com/smithersai/smithers" },
-        { label: "smithers.sh", url: "https://smithers.sh" }
-      ]
-    })
+    S.Home.Prompt({ title: "What should we work on?", placeholder: "Ask Smithers…" }),
+    S.Home.App({ flow: "issue.implement", title: "Fix an issue", picture: "issue" }),
+    S.Home.App({ flow: "prs.triage", title: "Review a PR", picture: "review" }),
+    S.Home.App({ flow: "wiki.ask", title: "Ask the codebase", picture: "wiki" }),
+    S.Home.App({ flow: "triggers.register", title: "Run it every night", picture: "schedule" })
   ]
 })
 // --- end homepage ----------------------------------------------------------

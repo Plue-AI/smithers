@@ -2,33 +2,32 @@
   "blocks": [
     {
       "type": "prompt",
-      "placeholder": "Change Smithers…"
+      "title": "What should we work on?",
+      "placeholder": "Ask Smithers…"
     },
     {
-      "type": "flows",
-      "title": "Try first"
+      "type": "app",
+      "flow": "issue.implement",
+      "title": "Fix an issue",
+      "picture": "issue"
     },
     {
-      "type": "stack",
-      "title": "Stack"
+      "type": "app",
+      "flow": "prs.triage",
+      "title": "Review a PR",
+      "picture": "review"
     },
     {
-      "type": "markdown",
-      "path": "README.md"
+      "type": "app",
+      "flow": "wiki.ask",
+      "title": "Ask the codebase",
+      "picture": "wiki"
     },
     {
-      "type": "links",
-      "title": "Read more",
-      "links": [
-        {
-          "label": "Source on GitHub",
-          "url": "https://github.com/smithersai/smithers"
-        },
-        {
-          "label": "smithers.sh",
-          "url": "https://smithers.sh"
-        }
-      ]
+      "type": "app",
+      "flow": "triggers.register",
+      "title": "Run it every night",
+      "picture": "schedule"
     }
   ]
 }
