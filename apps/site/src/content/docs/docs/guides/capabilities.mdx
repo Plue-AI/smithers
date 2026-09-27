@@ -47,8 +47,8 @@ smthrs approvals approve @approval.json --scope run
 
 | Scope | The grant covers |
 | --- | --- |
-| `once` | this ask only (the default) |
-| `run` | matching requests in this run |
+| `once` | this ask only |
+| `run` | matching requests in this run (the default) |
 | `remembered` | later requests that match the remembered policy |
 
 Submit the payload unchanged: the digest inside it is what the grant binds to, so an edited payload is a different ask, not an approved one. `smthrs approvals deny` records the opposite decision.
@@ -70,7 +70,7 @@ Through Effect's own `FileSystem` and `ChildProcessSpawner` services the same fa
 
 - Declare reads without writes when the flow only reads files. A broad `proc:spawn:*` grant can still launch programs that modify files; filesystem grants do not make arbitrary subprocesses read-only.
 - Name the program in a spawn grant. The resource of a `proc:spawn` check is the rendered command line, and a trailing ` *` also matches the bare program: `proc:spawn:git *` covers `git diff` and bare `git`, and nothing else, where `proc:spawn:*` covers every command.
-- Use the default `--scope once` for one request. Choose `run` for matching requests during this run, or `remembered` for a policy that should persist.
+- The default `--scope run` covers matching requests during this run. Choose `once` for one request, or `remembered` for a policy that should persist.
 - Keep writes inside the workspace. An `fs:write` inside the workspace root is `compensable`; one that escapes it is `irreversible`. A workspace write grant does not cover the system temporary directory, which the kernel authorizes under a sentinel outside the workspace root.
 - Never build a pattern by concatenating agent-supplied text. Derive it with `Capability.patternFromCapability`, which returns `Option.none()` for a resource the grammar cannot express exactly.
 - Treat an `https` grant as host-only: the resource is the lowercased URL host, and a grant for the host never authorizes a cleartext `http` downgrade. GET and HEAD check as `net:get`; every other method checks as `net:post`.

@@ -82,7 +82,7 @@ const dispatches = yield* Metric.value(EngineStoreMetrics.dispatch.Success)
 
 The same run is legible through three independent read paths:
 
-1. The CLI. `smthrs runs show deploy-status-1` prints the diagnosis card: a `Verdict` line, a `Run` line, an `Activity` line, token totals, refusals, and a `Next` pointer at `smthrs runs logs`. See [`smthrs runs show`](/docs/reference/cli/status/).
+1. The CLI. `smthrs runs show deploy-status-1` prints the diagnosis card: a `Verdict` line, a `Run` line, an `Activity` line, token totals, refusals, and a `Next` pointer at `smthrs runs logs`. See [`smthrs runs show`](/docs/reference/cli/runs/).
 2. The OTLP trace. Every span the packages open posts to `/v1/traces`: the flow lifecycle, the engine dispatch, run claims and heartbeats, journal writes, down to individual `sql.execute` statements. Filter your collector on `service.name` equal to the `serviceName` you passed.
 3. The journal projection. `Journal.entries` reads the run's lifecycle events in-process, no collector involved:
 
@@ -99,6 +99,6 @@ const eventTypes = page.entries.map((entry) => entry.eventType)
 
 ## See also
 
-- [Inspect runs](/docs/guides/inspecting-runs/): the CLI read path across `ps`, `status`, and `logs`.
-- [`smthrs runs show`](/docs/reference/cli/status/): the diagnosis card reference.
+- [Inspect runs](/docs/guides/inspecting-runs/): the CLI read path across `runs list`, `runs show`, and `runs logs`.
+- [`smthrs runs`](/docs/reference/cli/runs/): the diagnosis card reference.
 - [Examples](/docs/examples/): `10-telemetry-export.ts` records exactly what the collector received.

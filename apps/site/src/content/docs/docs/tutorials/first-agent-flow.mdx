@@ -1,6 +1,6 @@
 ---
 title: "Build your first agent flow"
-description: "Author a markdown agent flow, run it with smthrs up, then give a model-backed step real tools and a sandbox."
+description: "Give a model-backed step real file tools and a sandbox in a module flow."
 sidebar:
   order: 6
 ---
@@ -8,94 +8,18 @@ sidebar:
 import { CardGrid, LinkCard } from "@astrojs/starlight/components"
 import versions from "../../../../data/versions.json"
 
-In this tutorial you'll build an agent flow two ways. First, a markdown flow that reviews the uncommitted change in your repository and runs on your provider key. Then, a module flow whose model-backed step gets real file tools and runs the code it writes inside a sandbox. It takes about 20 minutes.
+Give a model-backed step real file tools and run the code it writes inside a sandbox. To write and run a markdown agent flow from the CLI first, use the [CLI quickstart](/docs/cli-quickstart/).
 
 ## Before you begin
 
-- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
-- A provider credential in the environment: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. [Configure model seats](/docs/guides/model-seats/) explains how a seat resolves from environment keys.
-- `AI_GATEWAY_API_KEY` for Jev, the completion judge. The CLI refuses to boot without it. The offline module below deliberately binds a scripted judge instead.
-- A git repository to work in. Part 2 reviews its uncommitted change.
-- Node.js {versions.node} or later for part 3.
+- Node.js {versions.node} or later, and Jujutsu (`jj`) on your PATH.
+- The libraries, linked as described in [Installation](/docs/installation/#use-the-libraries).
 
-## 1. Author a markdown flow
-
-Scaffold the flow from the repository root:
-
-```bash
-smthrs init reviewer
-```
-
-The scaffold creates `flows/reviewer/flow.mdx`, the `.flows/` state directory, and workspace declarations when absent. To add only a flow to an existing workspace, use `smthrs generate flow reviewer`. Rewrite the flow file to this review:
-
-```md
----
-description: Reviews the uncommitted change in this repository and returns a verdict with the reasons behind it.
-capabilities: ["fs:read:**", "proc:spawn:*"]
-model: anthropic:claude-sonnet-4-5
----
-
-# Review the working-copy change
-
-Review the uncommitted change in this repository.
-
-## Read the change
-
-Run `git diff --stat` and then `git diff` for the paths in scope through the
-`bash` tool; that is the only way to run a command here. Read enough of
-each changed file to understand the change in context. Do not call other flows.
-
-## Judge it
-
-Look for behavior changes without a test, an error swallowed instead of
-surfaced, a public export without a JSDoc block, and a name that says less
-than the code does.
-
-## Verdict
-
-Finish with one line, `approve` or `request-changes`, followed by at most five
-findings. Each finding names the file, the line, and the fix in one sentence.
-```
-
-Keep the `model:` line `smthrs init` wrote for you: it chose the seat from the first provider credential in your environment, so with `OPENAI_API_KEY` the line reads `openai:gpt-6-sol`. The body is one prompt. Headings organize the instructions; they do not create durable action boundaries or enforce execution order. [Markdown flows](/docs/guides/markdown-flows/) covers every field the frontmatter accepts.
-
-```text
-You should see: init reports the flow file it created, the project's state
-directory, and the seat it wrote. After your edit, the flow declares the
-review's description, capabilities, and model, with its instructions
-organized under headings.
-```
-
-## 2. Run the flow with smthrs up
-
-The flow reviews the uncommitted change in the repository, so make one first: edit any tracked file and leave the change uncommitted. Then launch:
-
-```bash
-smthrs up reviewer
-```
-
-`up` plans the flow, approves the plan, and launches the run in one command, staying attached until the run settles. The launch receipt's `runId` names the run. Read the verdict back, substituting that id:
-
-```bash
-smthrs output <run-id> result
-```
-
-The reserved node id `result` names the run's final assistant output.
-
-```text
-You should see: a launch receipt carrying the run id, and up stays attached
-until the run reaches a terminal status. output prints the outcome line for
-result and then the verdict: one line, approve or request-changes, followed
-by at most five findings.
-```
-
-## 3. Give a step real tools and a sandbox
+## Declare the step
 
 A markdown flow hands the whole task to one agent. A module flow declares each step in TypeScript: what the author declares is the seat, the system teaching, the prompt built from the step payload, and the output schema. The model answers with a fenced `cell` block, the block is evaluated inside a QuickJS sandbox with an explicit budget and no ambient host access, and the only way out is a call to a declared flow through `ctx.call`. [Agent runtime](/docs/concepts/agent-runtime/) explains the cell loop this runs in.
 
-Link the libraries into the project as described in [Installation](/docs/installation/#use-the-libraries).
-
-This part also needs Jujutsu (`jj`) on your PATH. Initialize a separate repository for the files the tools will edit:
+Initialize a separate repository for the files the tools will edit:
 
 ```bash
 jj git init sandbox-work

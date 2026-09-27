@@ -127,7 +127,7 @@ To finish the run, a second drive completes the deferred and re-executes the flo
     )
 ```
 
-`deferredDone` records the completion the first drive was waiting on. The second `execute` re-drives the run, and the re-drive replays the journal: the recorded `ReadDocument` result comes back without dispatching the action again. From the CLI, [`smthrs run <run-id> --resume`](/docs/reference/cli/run/) re-drives a parked run the same way.
+`deferredDone` records the completion the first drive was waiting on. The second `execute` re-drives the run, and the re-drive replays the journal: the recorded `ReadDocument` result comes back without dispatching the action again. From the CLI, [`smthrs runs resume <run-id>`](/docs/reference/cli/runs/) re-drives a parked run the same way.
 
 
 ## 5. Confirm the recorded step ran once

@@ -11,15 +11,11 @@ server's tools from the same command definitions and Zod schemas used by
 `smthrs`, covering targets, durable flow control, and operator commands.
 
 ```sh
-smthrs mcp add --agent claude-code
-smthrs mcp doctor
+smthrs mcp add --agent claude
+smthrs mcp add --agent codex
 ```
 
-| Option | Purpose |
-| --- | --- |
-| `--agent <id>` | Select a supported MCP client, such as `claude-code` or `cursor`. |
-| `--command <command>`, `-c` | Override the command the client launches. |
-| `--no-global` | Install project-local configuration instead of global configuration. |
+`--agent` takes `claude` (writes `~/.claude.json`) or `codex` (writes `~/.codex/mcp.json`). Omit it to configure both.
 
 The client starts `smthrs --mcp` and communicates over stdio until the
 connection closes. Long-running commands marked `mcp: false`, such as

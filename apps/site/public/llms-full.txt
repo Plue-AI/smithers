@@ -1442,7 +1442,7 @@ To finish the run, a second drive completes the deferred and re-executes the flo
     )
 ```
 
-`deferredDone` records the completion the first drive was waiting on. The second `execute` re-drives the run, and the re-drive replays the journal: the recorded `ReadDocument` result comes back without dispatching the action again. From the CLI, [`smthrs run <run-id> --resume`](/docs/reference/cli/run/) re-drives a parked run the same way.
+`deferredDone` records the completion the first drive was waiting on. The second `execute` re-drives the run, and the re-drive replays the journal: the recorded `ReadDocument` result comes back without dispatching the action again. From the CLI, [`smthrs runs resume <run-id>`](/docs/reference/cli/runs/) re-drives a parked run the same way.
 
 ## 5. Confirm the recorded step ran once
 
@@ -1755,7 +1755,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
 
 With `discard: true`, `execute` returns once the park is durable, and the run waits at waiting-approval: its row reads parked with the `approval` waiting reason and the current attempt's token. A human task is the one wait that routinely outlives the process holding it; a reviewer answers tomorrow, and whatever asked them is long gone.
 
-Two different waits answer to two different tools. A plan approval, or an in-run ask raised through the control plane, journals a `control.approval.requested` event whose `payload` field is the exact argument for [`smthrs approve`](/docs/reference/cli/approve/); [Plan, approve, run](/docs/guides/plan-approve-run/) walks that gate end to end. A `system/human-task` wait is different: the run parks with the `approval` waiting reason and the attempt's token, and the only thing that completes it is `HumanTask.answer` against that exact token (`packages/smithers/flows/flow/src/HumanTask.ts`). `smthrs approve` does not resolve a human-task token, which is why this tutorial answers programmatically and keeps the whole lifecycle in one file.
+Two different waits answer to two different tools. A plan approval, or an in-run ask raised through the control plane, journals a `control.approval.requested` event whose `payload` field is the exact argument for [`smthrs approvals approve`](/docs/reference/cli/approvals/); [Plan, approve, run](/docs/guides/plan-approve-run/) walks that gate end to end. A `system/human-task` wait is different: the run parks with the `approval` waiting reason and the attempt's token, and the only thing that completes it is `HumanTask.answer` against that exact token (`packages/smithers/flows/flow/src/HumanTask.ts`). `smthrs approvals approve` does not resolve a human-task token, which is why this tutorial answers programmatically and keeps the whole lifecycle in one file.
 
 ## 4. Refuse an answer and re-ask
 
@@ -2218,7 +2218,7 @@ prints the audit row's status for the rewind.
 
 ## Next steps
 
-  - [Build your first agent flow](/docs/tutorials/first-agent-flow/): Author a markdown flow, run it with smthrs up, and give a step tools and a sandbox.
+  - [Build your first agent flow](/docs/tutorials/first-agent-flow/): Give a model-backed step real file tools and a sandbox.
   - [Time travel](/docs/concepts/time-travel/): Frames, lineages, and how fork, rewind, and compensation differ.
 
 ---
@@ -2226,94 +2226,18 @@ prints the audit row's status for the rewind.
 # Build your first agent flow
 https://smithers.sh/docs/tutorials/first-agent-flow/
 
-In this tutorial you'll build an agent flow two ways. First, a markdown flow that reviews the uncommitted change in your repository and runs on your provider key. Then, a module flow whose model-backed step gets real file tools and runs the code it writes inside a sandbox. It takes about 20 minutes.
+Give a model-backed step real file tools and run the code it writes inside a sandbox. To write and run a markdown agent flow from the CLI first, use the [CLI quickstart](/docs/cli-quickstart/).
 
 ## Before you begin
 
-- The Smithers CLI ([Installation](/docs/installation/#install-the-cli)).
-- A provider credential in the environment: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. [Configure model seats](/docs/guides/model-seats/) explains how a seat resolves from environment keys.
-- `AI_GATEWAY_API_KEY` for Jev, the completion judge. The CLI refuses to boot without it. The offline module below deliberately binds a scripted judge instead.
-- A git repository to work in. Part 2 reviews its uncommitted change.
-- Node.js 26.4.0 or later for part 3.
+- Node.js 26.4.0 or later, and Jujutsu (`jj`) on your PATH.
+- The libraries, linked as described in [Installation](/docs/installation/#use-the-libraries).
 
-## 1. Author a markdown flow
-
-Scaffold the flow from the repository root:
-
-```bash
-smthrs init reviewer
-```
-
-The scaffold creates `flows/reviewer/flow.mdx`, the `.flows/` state directory, and workspace declarations when absent. To add only a flow to an existing workspace, use `smthrs generate flow reviewer`. Rewrite the flow file to this review:
-
-```md
----
-description: Reviews the uncommitted change in this repository and returns a verdict with the reasons behind it.
-capabilities: ["fs:read:**", "proc:spawn:*"]
-model: anthropic:claude-sonnet-4-5
----
-
-# Review the working-copy change
-
-Review the uncommitted change in this repository.
-
-## Read the change
-
-Run `git diff --stat` and then `git diff` for the paths in scope through the
-`bash` tool; that is the only way to run a command here. Read enough of
-each changed file to understand the change in context. Do not call other flows.
-
-## Judge it
-
-Look for behavior changes without a test, an error swallowed instead of
-surfaced, a public export without a JSDoc block, and a name that says less
-than the code does.
-
-## Verdict
-
-Finish with one line, `approve` or `request-changes`, followed by at most five
-findings. Each finding names the file, the line, and the fix in one sentence.
-```
-
-Keep the `model:` line `smthrs init` wrote for you: it chose the seat from the first provider credential in your environment, so with `OPENAI_API_KEY` the line reads `openai:gpt-6-sol`. The body is one prompt. Headings organize the instructions; they do not create durable action boundaries or enforce execution order. [Markdown flows](/docs/guides/markdown-flows/) covers every field the frontmatter accepts.
-
-```text
-You should see: init reports the flow file it created, the project's state
-directory, and the seat it wrote. After your edit, the flow declares the
-review's description, capabilities, and model, with its instructions
-organized under headings.
-```
-
-## 2. Run the flow with smthrs up
-
-The flow reviews the uncommitted change in the repository, so make one first: edit any tracked file and leave the change uncommitted. Then launch:
-
-```bash
-smthrs up reviewer
-```
-
-`up` plans the flow, approves the plan, and launches the run in one command, staying attached until the run settles. The launch receipt's `runId` names the run. Read the verdict back, substituting that id:
-
-```bash
-smthrs output <run-id> result
-```
-
-The reserved node id `result` names the run's final assistant output.
-
-```text
-You should see: a launch receipt carrying the run id, and up stays attached
-until the run reaches a terminal status. output prints the outcome line for
-result and then the verdict: one line, approve or request-changes, followed
-by at most five findings.
-```
-
-## 3. Give a step real tools and a sandbox
+## Declare the step
 
 A markdown flow hands the whole task to one agent. A module flow declares each step in TypeScript: what the author declares is the seat, the system teaching, the prompt built from the step payload, and the output schema. The model answers with a fenced `cell` block, the block is evaluated inside a QuickJS sandbox with an explicit budget and no ambient host access, and the only way out is a call to a declared flow through `ctx.call`. [Agent runtime](/docs/concepts/agent-runtime/) explains the cell loop this runs in.
 
-Link the libraries into the project as described in [Installation](/docs/installation/#use-the-libraries).
-
-This part also needs Jujutsu (`jj`) on your PATH. Initialize a separate repository for the files the tools will edit:
+Initialize a separate repository for the files the tools will edit:
 
 ```bash
 jj git init sandbox-work
@@ -2860,7 +2784,7 @@ reads the completed article-1 result from article.sqlite.
 
 To start a new durable run, choose another execution id. Keep `article.sqlite` to retain the recorded actions and their outcomes.
 
-This program drives the engine directly. `smthrs output` reads the control plane's run list and will not find `article-1`. To inspect node outputs through that command, launch a markdown agent flow through `smthrs up` or supply an application host that integrates module execution with the control plane. See [module flows](/docs/guides/module-flows/) and the [output reference](/docs/reference/cli/output/).
+This program drives the engine directly. `smthrs runs output` reads the control plane's run list and will not find `article-1`. To inspect node outputs through that command, launch a markdown agent flow through `smthrs flow start` or supply an application host that integrates module execution with the control plane. See [module flows](/docs/guides/module-flows/) and the [runs reference](/docs/reference/cli/runs/).
 
 ## Next steps
 
@@ -3389,17 +3313,17 @@ smthrs flow start review
 smthrs flow start review --data '{"args":"src/flows"}'
 ```
 
-To iterate, edit `flow.mdx` and run `smthrs flow start` again. When a run misbehaves, `smthrs status <run-id>` diagnoses it, and `smthrs doctor` reports discovery warnings such as an unknown frontmatter key or a malformed budget.
+To iterate, edit `flow.mdx` and run `smthrs flow start` again. When a run misbehaves, `smthrs runs show <run-id>` diagnoses it, and `smthrs doctor` reports discovery warnings such as an unknown frontmatter key or a malformed budget.
 
 ## Verify it worked
 
 - `smthrs flow list` prints one item per discovered flow with its `flowId` and `description`; the scaffolded flow appears under its directory name, `review`.
-- `smthrs flow start review` prints an `Accepted` receipt whose `runId` names the run, and `smthrs status <run-id>` prints the run's diagnosis card.
+- `smthrs flow start review` prints an `Accepted` receipt whose `runId` names the run, and `smthrs runs show <run-id>` prints the run's diagnosis card.
 
 ## See also
 
 - [Write a module flow](/docs/guides/module-flows/): the typed TypeScript authoring model, for when prose and one `args` string are not enough.
-- [Build your first agent flow](/docs/tutorials/first-agent-flow/): the guided tutorial version of this path.
+- [CLI quickstart](/docs/cli-quickstart/): the guided version of this path.
 
 ---
 
@@ -3572,7 +3496,7 @@ export default Flow.make("example/Greeting", {
 })
 ```
 
-The default export is the flow that runs: `smthrs up greeting --data '{"name":"Ada"}'` executes this body. What discovery does not install is the code behind the actions the body names, so the host still provides `Greet.toLayer(...)`; without it the run fails with an unresolved-action failure rather than executing an empty step. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
+The default export is the flow that runs: `smthrs flow start greeting --data '{"name":"Ada"}'` executes this body. What discovery does not install is the code behind the actions the body names, so the host still provides `Greet.toLayer(...)`; without it the run fails with an unresolved-action failure rather than executing an empty step. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
 
 ## Verify failures
 
@@ -3706,7 +3630,7 @@ Review a flow's plan before launching it. If you already trust the plan and want
 
 ## Choose an approval scope
 
-The explicit approval command defaults to `once`. The one-command `flow start` path grants `run` scope.
+Both `approvals approve` and the one-command `flow start` path default to `run` scope.
 
 | Scope | Use it for |
 | --- | --- |
@@ -3772,10 +3696,10 @@ Choose the command by the change you need: `cancel` stops the run, `signal` deli
 
 | To... | Use |
 | --- | --- |
-| End one run, including one parked at `waiting-approval` | [`smthrs runs cancel`](/docs/reference/cli/cancel/) |
-| Deliver a JSON value a named wait consumes | [`smthrs runs signal`](/docs/reference/cli/signal/) |
-| Redirect the agent mid-run with a text message | [`smthrs runs steer`](/docs/reference/cli/steer/) |
-| End every non-terminal run in the project | [`smthrs runs cancel-all`](/docs/reference/cli/down/) |
+| End one run, including one parked at `waiting-approval` | [`smthrs runs cancel`]/docs/reference/cli/runs/ |
+| Deliver a JSON value a named wait consumes | [`smthrs runs signal`]/docs/reference/cli/runs/ |
+| Redirect the agent mid-run with a text message | [`smthrs runs steer`]/docs/reference/cli/runs/ |
+| End every non-terminal run in the project | [`smthrs runs cancel-all`]/docs/reference/cli/runs/ |
 
 A signal and a steering message are not interchangeable. A signal completes a wait point the flow declared by name; a flow with no matching wait cannot take it. A steering message reaches the agent at its next turn boundary whether or not the run parked. [Durable waits](/docs/guides/durable-waits/) covers the wait-point model.
 
@@ -4029,7 +3953,7 @@ Declare a token and latency budget on a markdown flow. In a module composition, 
 
 ## Before you start
 
-- The Smithers CLI and a project with an agent flow. [Build your first agent flow](/docs/tutorials/first-agent-flow/) produces one.
+- The Smithers CLI and a project with an agent flow. The [CLI quickstart](/docs/cli-quickstart/) produces one.
 - A provider credential for the flow's seat. [Configure model seats](/docs/guides/model-seats/) covers the keys.
 - For durable quota waits and schema corrections, an application host composing `AgentAction` on the durable engine. [Schema-enforced agent outputs](/docs/tutorials/agent-outputs/) shows that composition.
 
@@ -4300,26 +4224,17 @@ This is the server direction: an external agent calls Smithers. To give a Smithe
 
 ## Before you start
 
-- Install the [Smithers CLI](/docs/installation/).
+- Install the [Smithers CLI](/docs/installation/#install-the-cli).
 - Choose the project the agent should operate. Verify it with `smthrs flow list --root <project>`.
 - Use an agent client that supports stdio MCP servers.
 
-## Register the launch command
+## Register the server
 
-In your client's MCP settings, add a stdio server with executable `smthrs` and argument `--mcp`. For clients that use a JSON `mcpServers` map, the entry is:
-
-```json
-{
-  "mcpServers": {
-    "smithers": {
-      "command": "smthrs",
-      "args": ["--mcp"]
-    }
-  }
-}
+```bash
+smthrs mcp add --agent claude
 ```
 
-Merge the entry into your existing configuration using your client's documented format. If the client cannot find global npm executables, use the absolute path returned by `command -v smthrs`.
+Use `--agent codex` for Codex, or omit `--agent` to configure both. The entry launches this CLI's own Node executable and entry with `--mcp`. For another client, add a stdio server that runs `smthrs --mcp`.
 
 The client starts and owns the server process. A manual `smthrs --mcp` launch waits for protocol input; it does not open an interactive prompt. Keep stdout available for protocol messages.
 
@@ -4348,7 +4263,7 @@ Have the agent call `flow_plan` and show you the work and approval payload. Appr
 
 The MCP server never makes approval decisions: `flow start`, `approvals approve`, and `approvals deny` are not MCP tools.
 
-Apply tool approval policies in the agent client. The old `--surface` and `--read-only` examples belong to the earlier semantic MCP server and do not configure the current default entry point.
+Apply tool approval policies in the agent client.
 
 ## Verify the connection
 
@@ -4414,8 +4329,8 @@ smthrs approvals approve @approval.json --scope run
 
 | Scope | The grant covers |
 | --- | --- |
-| `once` | this ask only (the default) |
-| `run` | matching requests in this run |
+| `once` | this ask only |
+| `run` | matching requests in this run (the default) |
 | `remembered` | later requests that match the remembered policy |
 
 Submit the payload unchanged: the digest inside it is what the grant binds to, so an edited payload is a different ask, not an approved one. `smthrs approvals deny` records the opposite decision.
@@ -4437,7 +4352,7 @@ Through Effect's own `FileSystem` and `ChildProcessSpawner` services the same fa
 
 - Declare reads without writes when the flow only reads files. A broad `proc:spawn:*` grant can still launch programs that modify files; filesystem grants do not make arbitrary subprocesses read-only.
 - Name the program in a spawn grant. The resource of a `proc:spawn` check is the rendered command line, and a trailing ` *` also matches the bare program: `proc:spawn:git *` covers `git diff` and bare `git`, and nothing else, where `proc:spawn:*` covers every command.
-- Use the default `--scope once` for one request. Choose `run` for matching requests during this run, or `remembered` for a policy that should persist.
+- The default `--scope run` covers matching requests during this run. Choose `once` for one request, or `remembered` for a policy that should persist.
 - Keep writes inside the workspace. An `fs:write` inside the workspace root is `compensable`; one that escapes it is `irreversible`. A workspace write grant does not cover the system temporary directory, which the kernel authorizes under a sentinel outside the workspace root.
 - Never build a pattern by concatenating agent-supplied text. Derive it with `Capability.patternFromCapability`, which returns `Option.none()` for a resource the grammar cannot express exactly.
 - Treat an `https` grant as host-only: the resource is the lowercased URL host, and a grant for the host never authorizes a cleartext `http` downgrade. GET and HEAD check as `net:get`; every other method checks as `net:post`.
@@ -5488,7 +5403,7 @@ const dispatches = yield* Metric.value(EngineStoreMetrics.dispatch.Success)
 
 The same run is legible through three independent read paths:
 
-1. The CLI. `smthrs runs show deploy-status-1` prints the diagnosis card: a `Verdict` line, a `Run` line, an `Activity` line, token totals, refusals, and a `Next` pointer at `smthrs runs logs`. See [`smthrs runs show`](/docs/reference/cli/status/).
+1. The CLI. `smthrs runs show deploy-status-1` prints the diagnosis card: a `Verdict` line, a `Run` line, an `Activity` line, token totals, refusals, and a `Next` pointer at `smthrs runs logs`. See [`smthrs runs show`](/docs/reference/cli/runs/).
 2. The OTLP trace. Every span the packages open posts to `/v1/traces`: the flow lifecycle, the engine dispatch, run claims and heartbeats, journal writes, down to individual `sql.execute` statements. Filter your collector on `service.name` equal to the `serviceName` you passed.
 3. The journal projection. `Journal.entries` reads the run's lifecycle events in-process, no collector involved:
 
@@ -5505,8 +5420,8 @@ const eventTypes = page.entries.map((entry) => entry.eventType)
 
 ## See also
 
-- [Inspect runs](/docs/guides/inspecting-runs/): the CLI read path across `ps`, `status`, and `logs`.
-- [`smthrs runs show`](/docs/reference/cli/status/): the diagnosis card reference.
+- [Inspect runs](/docs/guides/inspecting-runs/): the CLI read path across `runs list`, `runs show`, and `runs logs`.
+- [`smthrs runs`](/docs/reference/cli/runs/): the diagnosis card reference.
 - [Examples](/docs/examples/): `10-telemetry-export.ts` records exactly what the collector received.
 
 ---
@@ -7569,7 +7484,7 @@ smthrs runs signal run-3 '{"name":"coding-clarification","payload":"the schedule
 
 ## approve
 
-Accepts a serialized payload or `@file`. The default scope is `once`; `run` extends the grant through the run, and `remembered` can apply to matching future requests.
+Accepts a serialized payload or `@file`. The default scope is `run`, which extends the grant through the run; `once` covers this request only, and `remembered` can apply to matching future requests.
 
 ```text
 smthrs approvals approve — Approve the exact serialized payload or @file
@@ -46053,7 +45968,7 @@ The parser accepts exactly these keys, in the order the run reads them.
 | --- | --- | --- | --- | --- |
 | `name` | string | no | the directory path below `flows/` | A project's flows take their id from the directory path, so a `name` key is ignored with a `name_field_ignored` discovery warning. |
 | `description` | string | yes | none | One line describing the flow. A flow with a missing or empty description is not discovered; one over 1024 characters earns an `invalid_description` warning. |
-| `model` | string | no | none | The model seat the flow runs on, for example `openai:gpt-6-sol`. An empty value reads as absent, and `smthrs up` cannot launch a prompt flow that declares no seat. |
+| `model` | string | no | none | The model seat the flow runs on, for example `openai:gpt-6-sol`. An empty value reads as absent, and `smthrs flow start` cannot launch a prompt flow that declares no seat. |
 | `capabilities` | string array | no | `["*"]` | The capability patterns that bound what the run may do. A space-separated string is accepted with a warning. Any other non-array value earns an `invalid_capabilities` warning that names the value, and the flow is not discovered. An absent key grants `"*"`, which as an envelope pattern matches every capability; `smthrs up` refuses to approve a `"*"` envelope, so review it with `smthrs plan` and sign it with `smthrs approve`. Declare only the patterns the task requires. |
 | `budget` | object | no | none (unbounded) | The ceilings a control plane approves for one run: `tokens` and `milliseconds`, each a positive safe integer. An absent key is no ceiling, not zero; a malformed budget is dropped with a warning rather than tightened. |
 | `flows` | string array | no | none | Flow ids this flow may delegate to. A space-separated string is also accepted. When both spellings are present, `flows` wins over `allowed-tools`. |
@@ -46125,7 +46040,7 @@ const factoryProjection = Smithers.FactoryProjection({})
 - `smithers-build target //:factoryProjection --write` regenerates the file, beside `.smithers/home.json` when the factory exports a `home`.
 - `smithers-build ci //:factoryProjection` fails on drift, the same way the generated `ci.yml` does.
 - A declaration whose `flow` names no discovered flow fails the write with the id in the message. A recommendation for a flow that does not exist is never written.
-- `smthrs ls` reads the projection when it is present and marks featured flows with a leading `*` in its human output.
+- `smthrs flow list` reads the projection when it is present and marks featured flows with a leading `*` in its human output.
 
 ## See also
 
@@ -46694,7 +46609,7 @@ Global Options:
 
 ## See also
 
-- [`smthrs status`](/docs/reference/cli/status/): the diagnosis card computed from the same event digest.
+- [`smthrs runs show`](/docs/reference/cli/runs/): the diagnosis card computed from the same event digest.
 - [`smthrs doctor`](/docs/reference/cli/doctor/): check registry, database, runtime, and provider readiness before reporting.
 
 ---
@@ -47035,7 +46950,7 @@ Global Options:
 
 ## See also
 
-- [smthrs ls](/docs/reference/cli/ls/): list the flows the `registry` check counts.
+- [smthrs flow list](/docs/reference/cli/flow/): list the flows the `registry` check counts.
 - [smthrs init](/docs/reference/cli/init/): scaffold the `flows/` directory an empty registry points at.
 - [Model seats](/docs/guides/model-seats/): the provider keys and seat strings the `providers` check feeds.
 - [Doctor reports a provider problem](/docs/troubleshooting/doctor-provider/): fixes when the `providers` check warns or fails.
@@ -47166,8 +47081,8 @@ Global Options:
 
 ## See also
 
-- [`smthrs ps`](/docs/reference/cli/ps/): list the runs a sweep considers.
-- [`smthrs down`](/docs/reference/cli/down/): cancel runs that are still live.
+- [`smthrs runs list`](/docs/reference/cli/runs/): list the runs a sweep considers.
+- [`smthrs runs cancel-all`](/docs/reference/cli/runs/): cancel runs that are still live.
 - [Manage retention](/docs/guides/retention/): retention end to end.
 
 ---
@@ -47414,15 +47329,11 @@ server's tools from the same command definitions and Zod schemas used by
 `smthrs`, covering targets, durable flow control, and operator commands.
 
 ```sh
-smthrs mcp add --agent claude-code
-smthrs mcp doctor
+smthrs mcp add --agent claude
+smthrs mcp add --agent codex
 ```
 
-| Option | Purpose |
-| --- | --- |
-| `--agent <id>` | Select a supported MCP client, such as `claude-code` or `cursor`. |
-| `--command <command>`, `-c` | Override the command the client launches. |
-| `--no-global` | Install project-local configuration instead of global configuration. |
+`--agent` takes `claude` (writes `~/.claude.json`) or `codex` (writes `~/.codex/mcp.json`). Omit it to configure both.
 
 The client starts `smthrs --mcp` and communicates over stdio until the
 connection closes. Long-running commands marked `mcp: false`, such as
@@ -48071,7 +47982,7 @@ Global Options:
 
 ## See also
 
-- [smthrs ps](/docs/reference/cli/ps/): pass `--remote` to act on a served control plane from another terminal.
+- [smthrs runs](/docs/reference/cli/runs/): pass `--remote` to act on a served control plane from another terminal.
 - [Control plane](/docs/guides/control-plane/): run the control plane for a team.
 - [HTTP API](/docs/reference/http-api/): the routes `serve` mounts.
 - [MCP tools](/docs/reference/mcp-tools/): `list_pending_approvals` and `resolve_approval` answer approvals against the same control plane, over the agent's stdio connection.

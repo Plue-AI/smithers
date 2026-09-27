@@ -82,14 +82,14 @@ smthrs flow start review
 smthrs flow start review --data '{"args":"src/flows"}'
 ```
 
-To iterate, edit `flow.mdx` and run `smthrs flow start` again. When a run misbehaves, `smthrs status <run-id>` diagnoses it, and `smthrs doctor` reports discovery warnings such as an unknown frontmatter key or a malformed budget.
+To iterate, edit `flow.mdx` and run `smthrs flow start` again. When a run misbehaves, `smthrs runs show <run-id>` diagnoses it, and `smthrs doctor` reports discovery warnings such as an unknown frontmatter key or a malformed budget.
 
 ## Verify it worked
 
 - `smthrs flow list` prints one item per discovered flow with its `flowId` and `description`; the scaffolded flow appears under its directory name, `review`.
-- `smthrs flow start review` prints an `Accepted` receipt whose `runId` names the run, and `smthrs status <run-id>` prints the run's diagnosis card.
+- `smthrs flow start review` prints an `Accepted` receipt whose `runId` names the run, and `smthrs runs show <run-id>` prints the run's diagnosis card.
 
 ## See also
 
 - [Write a module flow](/docs/guides/module-flows/): the typed TypeScript authoring model, for when prose and one `args` string are not enough.
-- [Build your first agent flow](/docs/tutorials/first-agent-flow/): the guided tutorial version of this path.
+- [CLI quickstart](/docs/cli-quickstart/): the guided version of this path.

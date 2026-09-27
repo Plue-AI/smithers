@@ -11,26 +11,17 @@ This is the server direction: an external agent calls Smithers. To give a Smithe
 
 ## Before you start
 
-- Install the [Smithers CLI](/docs/installation/).
+- Install the [Smithers CLI](/docs/installation/#install-the-cli).
 - Choose the project the agent should operate. Verify it with `smthrs flow list --root <project>`.
 - Use an agent client that supports stdio MCP servers.
 
-## Register the launch command
+## Register the server
 
-In your client's MCP settings, add a stdio server with executable `smthrs` and argument `--mcp`. For clients that use a JSON `mcpServers` map, the entry is:
-
-```json
-{
-  "mcpServers": {
-    "smithers": {
-      "command": "smthrs",
-      "args": ["--mcp"]
-    }
-  }
-}
+```bash
+smthrs mcp add --agent claude
 ```
 
-Merge the entry into your existing configuration using your client's documented format. If the client cannot find global npm executables, use the absolute path returned by `command -v smthrs`.
+Use `--agent codex` for Codex, or omit `--agent` to configure both. The entry launches this CLI's own Node executable and entry with `--mcp`. For another client, add a stdio server that runs `smthrs --mcp`.
 
 The client starts and owns the server process. A manual `smthrs --mcp` launch waits for protocol input; it does not open an interactive prompt. Keep stdout available for protocol messages.
 
@@ -59,7 +50,7 @@ Have the agent call `flow_plan` and show you the work and approval payload. Appr
 
 The MCP server never makes approval decisions: `flow start`, `approvals approve`, and `approvals deny` are not MCP tools.
 
-Apply tool approval policies in the agent client. The old `--surface` and `--read-only` examples belong to the earlier semantic MCP server and do not configure the current default entry point.
+Apply tool approval policies in the agent client.
 
 ## Verify the connection
 

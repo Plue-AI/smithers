@@ -87,7 +87,7 @@ export default Flow.make("example/Greeting", {
 })
 ```
 
-The default export is the flow that runs: `smthrs up greeting --data '{"name":"Ada"}'` executes this body. What discovery does not install is the code behind the actions the body names, so the host still provides `Greet.toLayer(...)`; without it the run fails with an unresolved-action failure rather than executing an empty step. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
+The default export is the flow that runs: `smthrs flow start greeting --data '{"name":"Ada"}'` executes this body. What discovery does not install is the code behind the actions the body names, so the host still provides `Greet.toLayer(...)`; without it the run fails with an unresolved-action failure rather than executing an empty step. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
 
 ## Verify failures
 

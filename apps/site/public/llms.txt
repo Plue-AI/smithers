@@ -39,7 +39,7 @@
 - [Retry a flaky action](https://smithers.sh/docs/tutorials/retry-policy/): Declare a retry policy, inspect its backoff ladder, and retry an action that fails twice before it succeeds.
 - [Add a human approval](https://smithers.sh/docs/tutorials/human-approval/): Park a durable run on a HumanTask question, refuse an answer within the attempt budget, and answer it to completion.
 - [Fork and rewind a run](https://smithers.sh/docs/tutorials/time-travel/): Fork a finished run at a journal frame, drive the copy to a different outcome, and rewind a run to an earlier frame.
-- [Build your first agent flow](https://smithers.sh/docs/tutorials/first-agent-flow/): Author a markdown agent flow, run it with smthrs up, then give a model-backed step real tools and a sandbox.
+- [Build your first agent flow](https://smithers.sh/docs/tutorials/first-agent-flow/): Give a model-backed step real file tools and a sandbox in a module flow.
 - [Pass typed outputs between agent steps](https://smithers.sh/docs/tutorials/agent-outputs/): Declare output schemas on model-backed steps, chain one step's typed output into the next, and read the recorded outputs back.
 - [Remember facts across runs](https://smithers.sh/docs/tutorials/memory/): Record facts in one run, recall them in a later run under one memory policy, and inspect the namespace with the CLI.
 

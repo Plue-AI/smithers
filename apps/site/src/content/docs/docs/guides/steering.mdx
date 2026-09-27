@@ -16,10 +16,10 @@ Choose the command by the change you need: `cancel` stops the run, `signal` deli
 
 | To... | Use |
 | --- | --- |
-| End one run, including one parked at `waiting-approval` | [`smthrs runs cancel`](/docs/reference/cli/cancel/) |
-| Deliver a JSON value a named wait consumes | [`smthrs runs signal`](/docs/reference/cli/signal/) |
-| Redirect the agent mid-run with a text message | [`smthrs runs steer`](/docs/reference/cli/steer/) |
-| End every non-terminal run in the project | [`smthrs runs cancel-all`](/docs/reference/cli/down/) |
+| End one run, including one parked at `waiting-approval` | [`smthrs runs cancel`]/docs/reference/cli/runs/ |
+| Deliver a JSON value a named wait consumes | [`smthrs runs signal`]/docs/reference/cli/runs/ |
+| Redirect the agent mid-run with a text message | [`smthrs runs steer`]/docs/reference/cli/runs/ |
+| End every non-terminal run in the project | [`smthrs runs cancel-all`]/docs/reference/cli/runs/ |
 
 A signal and a steering message are not interchangeable. A signal completes a wait point the flow declared by name; a flow with no matching wait cannot take it. A steering message reaches the agent at its next turn boundary whether or not the run parked. [Durable waits](/docs/guides/durable-waits/) covers the wait-point model.
 
