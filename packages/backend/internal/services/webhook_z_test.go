@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -149,23 +148,10 @@ func TestWebhook_Z_TestWebhookErrorBranches(t *testing.T) {
 	assert.Equal(t, "failed", failedStatus)
 }
 
-func TestWebhook_Z_VerifyAndResolveBranches(t *testing.T) {
+func TestWebhook_Z_ResolveBranches(t *testing.T) {
 	ctx := context.Background()
-	payload := []byte(`{"ok":true}`)
 
-	err := newWebhookService(t, webhookQuerier()).VerifyInboundWebhookSignature(ctx, "", "demo", 1, payload, "sig")
-	require.Error(t, err)
-	assert.Equal(t, http.StatusBadRequest, apiStatus(t, err))
-
-	q := webhookQuerier()
-	q.getRepoWebhookByOwnerAndRepoFn = func(context.Context, db.GetRepoWebhookByOwnerAndRepoParams) (db.Webhook, error) {
-		return db.Webhook{}, pgx.ErrNoRows
-	}
-	err = newWebhookService(t, q).VerifyInboundWebhookSignature(ctx, "alice", "demo", 1, payload, "sig")
-	require.Error(t, err)
-	assert.Equal(t, http.StatusNotFound, apiStatus(t, err))
-
-	_, err = newWebhookService(t, webhookQuerier()).resolveRepoByOwnerAndName(ctx, "owner", "")
+	_, err := newWebhookService(t, webhookQuerier()).resolveRepoByOwnerAndName(ctx, "owner", "")
 	require.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, apiStatus(t, err))
 }

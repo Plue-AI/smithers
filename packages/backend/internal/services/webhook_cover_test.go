@@ -2,9 +2,6 @@ package services
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -200,50 +197,18 @@ func TestWebhook_Cov_DeliveriesRedeliveryAndTestWebhook(t *testing.T) {
 	assert.Equal(t, "success", finalStatus)
 }
 
-func TestWebhook_Cov_InboundSignatureAndPermissions(t *testing.T) {
+func TestWebhook_Cov_HelpersAndPermissions(t *testing.T) {
 	ctx := context.Background()
 	_, actor := ownerRepo()
-	payload := []byte(`{"ok":true}`)
-	hook := sampleWebhook()
-	hook.Secret = "top-secret"
-
-	q := webhookQuerier()
-	q.getRepoWebhookByOwnerAndRepoFn = func(context.Context, db.GetRepoWebhookByOwnerAndRepoParams) (db.Webhook, error) {
-		return hook, nil
-	}
-	svc := newWebhookService(t, q)
-	require.NoError(t, svc.VerifyInboundWebhookSignature(ctx, "alice", "demo", 1, payload, webhookCovSignature("top-secret", payload)))
-
-	err := svc.VerifyInboundWebhookSignature(ctx, "alice", "demo", 0, payload, "")
-	require.Error(t, err)
-	assert.Equal(t, 400, apiStatus(t, err))
-	err = svc.VerifyInboundWebhookSignature(ctx, "alice", "demo", 1, payload, "")
-	require.Error(t, err)
-	assert.Equal(t, 401, apiStatus(t, err))
-	err = svc.VerifyInboundWebhookSignature(ctx, "alice", "demo", 1, payload, "sha256=deadbeef")
-	require.Error(t, err)
-	assert.Equal(t, 401, apiStatus(t, err))
-
-	decryptSvc := NewWebhookService(q, &mockWebhookSecretCodec{
-		decryptFn: func(string) (string, error) { return "", assert.AnError },
-	})
-	err = decryptSvc.VerifyInboundWebhookSignature(ctx, "alice", "demo", 1, payload, webhookCovSignature("top-secret", payload))
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
+	svc := newWebhookService(t, webhookQuerier())
 
 	assert.Equal(t, redactedWebhookSecret, redactWebhookSecret(db.Webhook{Secret: "x"}).Secret)
 	assert.Equal(t, int32(202), toNullableInt4(202).Int32)
 	assert.False(t, toNullableInt4(0).Valid)
 	require.NoError(t, svc.requireAdminAccess(ctx, webhookCovSampleRepo(), actor))
-	err = svc.requireAdminAccess(ctx, webhookCovSampleRepo(), nil)
+	err := svc.requireAdminAccess(ctx, webhookCovSampleRepo(), nil)
 	require.Error(t, err)
 	assert.Equal(t, 401, apiStatus(t, err))
-}
-
-func webhookCovSignature(secret string, payload []byte) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(payload)
-	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func webhookCovSampleRepo() db.Repository {

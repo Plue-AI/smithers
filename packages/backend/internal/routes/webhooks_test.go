@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -27,7 +26,6 @@ type mockWebhookRouteService struct {
 	updateWebhookFn         func(ctx context.Context, actor *db.User, owner, repo string, webhookID int64, req services.UpdateWebhookInput) (db.Webhook, error)
 	deleteWebhookFn         func(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) error
 	testWebhookFn           func(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) (*services.TestWebhookResult, error)
-	verifyInboundSigFn      func(ctx context.Context, owner, repo string, webhookID int64, payload []byte, signature string) error
 	listWebhookDeliveriesFn func(ctx context.Context, actor *db.User, owner, repo string, webhookID int64, page, perPage int) ([]db.WebhookDelivery, error)
 	redeliverWebhookFn      func(ctx context.Context, actor *db.User, owner, repo string, webhookID, deliveryID int64) (db.WebhookDelivery, error)
 }
@@ -72,13 +70,6 @@ func (m *mockWebhookRouteService) TestWebhook(ctx context.Context, actor *db.Use
 		return m.testWebhookFn(ctx, actor, owner, repo, webhookID)
 	}
 	return nil, nil
-}
-
-func (m *mockWebhookRouteService) VerifyInboundWebhookSignature(ctx context.Context, owner, repo string, webhookID int64, payload []byte, signature string) error {
-	if m.verifyInboundSigFn != nil {
-		return m.verifyInboundSigFn(ctx, owner, repo, webhookID, payload, signature)
-	}
-	return nil
 }
 
 func (m *mockWebhookRouteService) ListWebhookDeliveries(ctx context.Context, actor *db.User, owner, repo string, webhookID int64, page, perPage int) ([]db.WebhookDelivery, error) {
@@ -372,57 +363,6 @@ func TestWebhookHandler_TestWebhook(t *testing.T) {
 		h.TestWebhook(rec, req)
 		require.Equal(t, http.StatusNotFound, rec.Code)
 	})
-}
-
-func TestWebhook_RejectUnsignedPayload(t *testing.T) {
-	t.Parallel()
-
-	h := WebhookHandler{Service: &mockWebhookRouteService{}}
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/hooks/1", strings.NewReader(`{"event":"issues"}`))
-	req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "id": "1"})
-	rec := httptest.NewRecorder()
-
-	h.ReceiveWebhook(rec, req)
-
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-}
-
-func TestWebhook_RejectInvalidSignature(t *testing.T) {
-	t.Parallel()
-
-	h := WebhookHandler{Service: &mockWebhookRouteService{
-		verifyInboundSigFn: func(ctx context.Context, owner, repo string, webhookID int64, payload []byte, signature string) error {
-			return pkgerrors.Unauthorized("invalid webhook signature")
-		},
-	}}
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/hooks/1", strings.NewReader(`{"event":"issues"}`))
-	req.Header.Set(webhookSignatureHeader, "sha256=deadbeef")
-	req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "id": "1"})
-	rec := httptest.NewRecorder()
-
-	h.ReceiveWebhook(rec, req)
-
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-}
-
-func TestWebhook_OversizePayloadReturns413(t *testing.T) {
-	t.Parallel()
-
-	h := WebhookHandler{Service: &mockWebhookRouteService{
-		verifyInboundSigFn: func(context.Context, string, string, int64, []byte, string) error {
-			t.Error("signature verification must not run on a truncated payload")
-			return nil
-		},
-	}}
-	body := strings.Repeat("x", int(middleware.MaxRequestBodySize)+1)
-	req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/hooks/1", strings.NewReader(body))
-	req.Header.Set(webhookSignatureHeader, "sha256=deadbeef")
-	req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "id": "1"})
-	rec := httptest.NewRecorder()
-
-	h.ReceiveWebhook(rec, req)
-
-	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }
 
 // --- List Webhook Deliveries ---

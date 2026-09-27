@@ -17,41 +17,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-func TestWebhooks_Cov_ReceiveAndDeliveryBranches(t *testing.T) {
+func TestWebhooks_Cov_DeliveryBranches(t *testing.T) {
 	t.Parallel()
-
-	t.Run("receive webhook verifies signature and payload", func(t *testing.T) {
-		t.Parallel()
-		handler := WebhookHandler{Service: &mockWebhookRouteService{
-			verifyInboundSigFn: func(ctx context.Context, owner, repo string, webhookID int64, payload []byte, signature string) error {
-				assert.Equal(t, "alice", owner)
-				assert.Equal(t, "demo", repo)
-				assert.Equal(t, int64(5), webhookID)
-				assert.JSONEq(t, `{"event":"issues"}`, string(payload))
-				assert.Equal(t, "sha256=abc", signature)
-				return nil
-			},
-		}}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/hooks/5", strings.NewReader(`{"event":"issues"}`))
-		req.Header.Set(webhookSignatureHeader, "  sha256=abc  ")
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "id": "5"})
-		rec := httptest.NewRecorder()
-		handler.ReceiveWebhook(rec, req)
-
-		assert.Equal(t, http.StatusNoContent, rec.Code)
-	})
-
-	t.Run("receive webhook rejects invalid webhook id", func(t *testing.T) {
-		t.Parallel()
-		handler := WebhookHandler{Service: &mockWebhookRouteService{}}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/hooks/nope", strings.NewReader(`{}`))
-		req.Header.Set(webhookSignatureHeader, "sha256=abc")
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "id": "nope"})
-		rec := httptest.NewRecorder()
-		handler.ReceiveWebhook(rec, req)
-
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
 
 	t.Run("delivery pagination caps cursor limit", func(t *testing.T) {
 		t.Parallel()

@@ -14,10 +14,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-type webhookFErrReader struct{}
-
-func (webhookFErrReader) Read([]byte) (int, error) { return 0, stderrors.New("boom") }
-
 // TestWebhooks_F_GuardBranches drives the remaining owner/name, auth, id-param
 // and service-error guards across every webhook handler.
 func TestWebhooks_F_GuardBranches(t *testing.T) {
@@ -112,23 +108,6 @@ func TestWebhooks_F_GuardBranches(t *testing.T) {
 		req = withAuth(req, 7, "alice")
 		rec := httptest.NewRecorder()
 		h.TestWebhook(rec, req)
-		require.Equal(t, http.StatusBadRequest, rec.Code)
-	})
-
-	t.Run("ReceiveWebhook missing repo params", func(t *testing.T) {
-		h := WebhookHandler{Service: &mockWebhookRouteService{}}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos//hooks/1/deliver", strings.NewReader(`{}`))
-		rec := httptest.NewRecorder()
-		h.ReceiveWebhook(rec, req)
-		require.Equal(t, http.StatusBadRequest, rec.Code)
-	})
-
-	t.Run("ReceiveWebhook body read error", func(t *testing.T) {
-		h := WebhookHandler{Service: &mockWebhookRouteService{}}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/hooks/1/deliver", webhookFErrReader{})
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "id": "1"})
-		rec := httptest.NewRecorder()
-		h.ReceiveWebhook(rec, req)
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 

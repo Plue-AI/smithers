@@ -623,44 +623,6 @@ func TestWebhookService_TestWebhook(t *testing.T) {
 	})
 }
 
-func TestWebhookService_VerifyInboundWebhookSignature(t *testing.T) {
-	t.Parallel()
-
-	_, _ = ownerRepo()
-	hook := sampleWebhook()
-	hook.Secret = "ciphertext-secret"
-
-	mock := webhookQuerier()
-	mock.getRepoWebhookByOwnerAndRepoFn = func(ctx context.Context, arg db.GetRepoWebhookByOwnerAndRepoParams) (db.Webhook, error) {
-		assert.Equal(t, int64(1), arg.WebhookID)
-		return hook, nil
-	}
-	codec := &mockWebhookSecretCodec{
-		decryptFn: func(ciphertext string) (string, error) {
-			assert.Equal(t, "ciphertext-secret", ciphertext)
-			return "plain-secret", nil
-		},
-	}
-	svc := NewWebhookService(mock, codec)
-
-	payload := []byte(`{"action":"opened"}`)
-	validSig := "sha256=ef88a45295a0e782135919dc5bd34a01130443484a1b582c14d6f11f84ef931e"
-	// Ensure signature corresponds to secret/payload used by this test.
-	require.NoError(t, svc.VerifyInboundWebhookSignature(context.Background(), "alice", "demo", 1, payload, validSig))
-
-	err := svc.VerifyInboundWebhookSignature(context.Background(), "alice", "demo", 1, payload, "sha256=deadbeef")
-	require.Error(t, err)
-	var apiErr *pkgerrors.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 401, apiErr.Status)
-
-	err = svc.VerifyInboundWebhookSignature(context.Background(), "alice", "demo", 1, payload, "")
-	require.Error(t, err)
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 401, apiErr.Status)
-
-}
-
 // --- ListWebhookDeliveries ---
 
 func TestWebhookService_ListWebhookDeliveries(t *testing.T) {

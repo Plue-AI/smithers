@@ -545,42 +545,6 @@ func (s *WebhookService) TestWebhook(ctx context.Context, actor *db.User, owner,
 	}, nil
 }
 
-func (s *WebhookService) VerifyInboundWebhookSignature(ctx context.Context, owner, repo string, webhookID int64, payload []byte, signature string) error {
-	if webhookID <= 0 {
-		return pkgerrors.BadRequest("invalid webhook id")
-	}
-	if strings.TrimSpace(signature) == "" {
-		return pkgerrors.Unauthorized("missing webhook signature")
-	}
-
-	if _, err := s.resolveRepoByOwnerAndName(ctx, owner, repo); err != nil {
-		return err
-	}
-
-	hook, err := s.queries.GetRepoWebhookByOwnerAndRepo(ctx, db.GetRepoWebhookByOwnerAndRepoParams{
-		WebhookID: webhookID,
-		Owner:     owner,
-		Repo:      repo,
-	})
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return pkgerrors.NotFound("webhook not found")
-		}
-		return pkgerrors.Internal("failed to load webhook").WithCause(err)
-	}
-
-	hook, err = s.decryptWebhookSecret(hook)
-	if err != nil {
-		return err
-	}
-
-	if !webhook.VerifyPayloadSignature(hook.Secret, payload, signature) {
-		return pkgerrors.Unauthorized("invalid webhook signature")
-	}
-
-	return nil
-}
-
 // --- permission helpers (same pattern as issue/label services) ---
 
 func (s *WebhookService) resolveRepoByOwnerAndName(ctx context.Context, owner, repo string) (db.Repository, error) {

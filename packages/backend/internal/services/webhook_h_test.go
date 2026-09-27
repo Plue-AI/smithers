@@ -70,7 +70,7 @@ func TestWebhook_H_QueryAndCodecErrorBranches(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }
 
-func TestWebhook_H_UpdateDeleteAndVerifyErrorBranches(t *testing.T) {
+func TestWebhook_H_UpdateDeleteErrorBranches(t *testing.T) {
 	ctx := context.Background()
 	_, actor := ownerRepo()
 
@@ -122,27 +122,6 @@ func TestWebhook_H_UpdateDeleteAndVerifyErrorBranches(t *testing.T) {
 		return 0, errors.New("delete failed")
 	}
 	err = webhookHService(q).DeleteWebhook(ctx, actor, "alice", "demo", 1)
-	require.Error(t, err)
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	err = webhookHService(webhookQuerier()).VerifyInboundWebhookSignature(ctx, "alice", "demo", 0, []byte("{}"), "sig")
-	require.Error(t, err)
-	assert.Equal(t, http.StatusBadRequest, apiStatus(t, err))
-
-	q = webhookQuerier()
-	q.getRepoWebhookByOwnerAndRepoFn = func(context.Context, db.GetRepoWebhookByOwnerAndRepoParams) (db.Webhook, error) {
-		return db.Webhook{}, errors.New("load failed")
-	}
-	err = webhookHService(q).VerifyInboundWebhookSignature(ctx, "alice", "demo", 1, []byte("{}"), "sig")
-	require.Error(t, err)
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	svc = NewWebhookService(webhookQuerier(), &mockWebhookSecretCodec{decryptFn: func(string) (string, error) { return "", errors.New("decrypt failed") }})
-	q = svc.queries.(*mockWebhookQuerier)
-	q.getRepoWebhookByOwnerAndRepoFn = func(context.Context, db.GetRepoWebhookByOwnerAndRepoParams) (db.Webhook, error) {
-		return sampleWebhook(), nil
-	}
-	err = svc.VerifyInboundWebhookSignature(ctx, "alice", "demo", 1, []byte("{}"), "sig")
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }

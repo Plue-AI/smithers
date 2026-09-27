@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"strings"
 
@@ -19,12 +18,9 @@ type WebhookRouteService interface {
 	UpdateWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64, req services.UpdateWebhookInput) (db.Webhook, error)
 	DeleteWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) error
 	TestWebhook(ctx context.Context, actor *db.User, owner, repo string, webhookID int64) (*services.TestWebhookResult, error)
-	VerifyInboundWebhookSignature(ctx context.Context, owner, repo string, webhookID int64, payload []byte, signature string) error
 	ListWebhookDeliveries(ctx context.Context, actor *db.User, owner, repo string, webhookID int64, page, perPage int) ([]db.WebhookDelivery, error)
 	RedeliverWebhookDelivery(ctx context.Context, actor *db.User, owner, repo string, webhookID, deliveryID int64) (db.WebhookDelivery, error)
 }
-
-const webhookSignatureHeader = "X-Smithers-Signature-256"
 
 type WebhookHandler struct {
 	Service WebhookRouteService
@@ -193,42 +189,6 @@ func (h *WebhookHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	errors.WriteJSON(w, http.StatusOK, result)
-}
-
-func (h *WebhookHandler) ReceiveWebhook(w http.ResponseWriter, r *http.Request) {
-	owner, repo, err := repoOwnerAndName(r)
-	if err != nil {
-		errors.WriteError(w, err.(*errors.APIError))
-		return
-	}
-	id, err := parseInt64RouteParam(r, "id", "webhook id is required", "invalid webhook id")
-	if err != nil {
-		errors.WriteError(w, err.(*errors.APIError))
-		return
-	}
-
-	payload, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
-	if readErr != nil {
-		if middleware.IsMaxBytesError(readErr) {
-			errors.WriteError(w, errors.RequestEntityTooLarge("webhook payload too large"))
-			return
-		}
-		errors.WriteError(w, errors.BadRequest("invalid webhook payload"))
-		return
-	}
-
-	signature := strings.TrimSpace(r.Header.Get(webhookSignatureHeader))
-	if signature == "" {
-		errors.WriteError(w, errors.Unauthorized("missing webhook signature"))
-		return
-	}
-
-	if err := h.Service.VerifyInboundWebhookSignature(r.Context(), owner, repo, id, payload, signature); err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *WebhookHandler) ListWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
