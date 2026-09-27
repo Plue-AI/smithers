@@ -1,24 +1,6 @@
 {
   "entries": [
     {
-      "label": "//:fmt",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
-    },
-    {
-      "label": "//:version",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36205719266 (2026-09-26); not triaged. The job is advisory.",
-      "expires": "2026-10-10"
-    },
-    {
       "label": "//packages/smithers:test",
       "platforms": [
         "win32"

@@ -336,7 +336,12 @@ describe("ci conformance", () => {
       }
     })
     assert.equal(job["runs-on"], "${{ matrix.os }}")
-    assert.equal(job["timeout-minutes"], 60)
+    // The bound is declared once, on the `packages` job in PACKAGE.ts; pin the
+    // rendered job to it so raising the declaration cannot strand this test.
+    const declared = readFileSync(new URL("../../PACKAGE.ts", import.meta.url), "utf8")
+      .match(/id: "packages",[\s\S]*?timeoutMinutes: (\d+),/)?.[1]
+    assert.notEqual(declared, undefined)
+    assert.equal(job["timeout-minutes"], Number(declared))
     assert.equal(job["continue-on-error"], "${{ matrix.advisory }}")
     assert.equal(Object.values(ci.jobs).flatMap((row) => row.steps)
       .filter((step) => step.run?.startsWith("pnpm exec smthrs test '//packages/...'")).length, 1)
