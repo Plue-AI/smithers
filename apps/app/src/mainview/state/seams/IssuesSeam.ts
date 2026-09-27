@@ -3,6 +3,8 @@ import { readRepositoryDetail } from "../RepositoryReadReceipts"
 import { readRepositoryListError,repositoryListRead,type RepositoryForm } from "./RepositoryListSeam"
 
 import type { Card } from "../AppState"
+import { actorSharedState } from "../ActorBindings"
+import { TOAST_SUPERSEDED } from "../controller/failures"
 import type { FieldOption } from "@smthrs/ui/flow-form"
 import { repositoryCiConfigured } from "../RepositoryJobs"
 import { resolveTargetRepo } from "../RepoContext"
@@ -48,6 +50,16 @@ type IssueListPayload = Extract<Card, { kind: "issue-list" }>["payload"]
 type IssueListRow = IssueListPayload["issues"][number]
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 type IssueCommentRow = IssuePayload["comments"][number]
+type ResolutionRequest = NonNullable<NonNullable<IssuePayload["sync"]>["resolution"]>
+type ResolutionFlight = {
+  readonly repo: string
+  readonly number: number
+  readonly request: ResolutionRequest
+  readonly ownerValid: () => boolean
+  admission?: Promise<void>
+  admitting: boolean
+  started: boolean
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -763,14 +775,36 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     }).finally(() => { active!.delete(cardId); if (currentOwner()) drainComments(cardId) })
   }
 
-  const resolvingSync = new Set<string>()
+  const resolvingSync = actorSharedState(ctx, "issues.resolutions", () => new Map<string, ResolutionFlight>())
+  const ownsResolution = (cardId: string, flight: ResolutionFlight) => resolvingSync.get(cardId) === flight && flight.ownerValid()
+  const matchesResolution = (card: Card | undefined, flight: ResolutionFlight): boolean => {
+    if (card?.kind !== "issue" || card.payload.repo !== flight.repo || card.payload.number !== flight.number) return false
+    const sync = card.payload.sync, request = sync?.resolution, wanted = flight.request
+    return sync?.state === "outcome_unknown" && sync.deliveryId === wanted.deliveryId && sync.resolutionToken === wanted.expectedToken &&
+      request?.status === "requested" && request.owner === wanted.owner && request.deliveryId === wanted.deliveryId &&
+      request.expectedToken === wanted.expectedToken && request.action === wanted.action && request.evidence === wanted.evidence && request.messageId === wanted.messageId
+  }
+  const resolutionFlight = (card: Extract<Card, { kind: "issue" }>, request: ResolutionRequest, admitting: boolean): ResolutionFlight => ({
+    repo: card.payload.repo, number: card.payload.number, request, ownerValid: captureCloudOwner(ctx, false), admitting, started: false
+  })
   const drainResolution = (cardId: string) => {
     const card = ctx.store.collections.cards.get(cardId)
     const request = card?.kind === "issue" ? card.payload.sync?.resolution : undefined
-    if (card?.kind !== "issue" || request?.status !== "requested" || request.owner !== signedInOwner() || resolvingSync.has(cardId)) return
-    resolvingSync.add(cardId)
-    const valid = captureCloudOwner(ctx, false)
+    if (ctx.isDisposed?.() || card?.kind !== "issue" || request?.status !== "requested" || request.owner !== signedInOwner()) return
+    let flight = resolvingSync.get(cardId)
+    if (flight && ownsResolution(cardId, flight) && matchesResolution(card, flight)) {
+      if (flight.admitting || flight.started) return
+    } else {
+      flight = resolutionFlight(card, request, false)
+      if (!matchesResolution(card, flight)) return
+      resolvingSync.set(cardId, flight)
+    }
+    const mine = flight
+    mine.started = true
+    const valid = () => ownsResolution(cardId, mine)
+    const current = () => valid() && matchesResolution(ctx.store.collections.cards.get(cardId), mine)
     const work = async () => {
+      if (!current()) return TOAST_SUPERSEDED
       let failure: string | undefined
       try {
         const response = await ctx.http(`${issuesPath(card.payload.repo)}/sync/deliveries/${request.deliveryId}`, {
@@ -780,13 +814,27 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         if (!response.ok) failure = await readErrorMessage(response, `Resolution failed (${response.status})`)
         else await response.body?.cancel().catch(() => {})
       } catch (error) { failure = `Resolution unconfirmed: ${errorText(error)}` }
-      if (!valid()) return
+      if (!current()) return TOAST_SUPERSEDED
       await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: failure ? { ...request, status: "failed", error: failure } : undefined } }), "system")
-      if (!failure) await refreshDetail("Delivery resolved", card.payload.repo, card.payload.number)
-      return failure
+      const before = ctx.store.collections.cards.get(cardId)
+      if (!valid() || before?.kind !== "issue" || before.payload.repo !== mine.repo || before.payload.number !== mine.number ||
+          before.payload.sync?.deliveryId !== request.deliveryId || before.payload.sync.resolutionToken !== request.expectedToken) return TOAST_SUPERSEDED
+      if (failure) return failure
+      // A successful write still needs an authoritative read. A newer request
+      // or card edit owns the projection while this read is outstanding.
+      const snapshot = JSON.stringify(before.payload)
+      const result = await readIssue(mine.repo, mine.number)
+      const latest = ctx.store.collections.cards.get(cardId)
+      if (!valid() || latest?.kind !== "issue" || JSON.stringify(latest.payload) !== snapshot) return TOAST_SUPERSEDED
+      if (typeof result === "string") return `Delivery resolved, but refreshing the card failed: ${result}`
+      if (result.card.kind === "issue") await ctx.dispatch({ type: "card.view.loaded", actor: "system", card: {
+        ...latest, title: result.card.title, payload: { ...result.card.payload,
+          conversation: latest.payload.conversation, commentDraft: latest.payload.commentDraft, pendingComments: latest.payload.pendingComments }
+      } }).isPersisted.promise
+      if (!valid()) return TOAST_SUPERSEDED
     }
     void (ctx.withToast ? ctx.withToast(`issue.resolve:${cardId}`, "Resolving delivery", "Delivery resolved", work, false, valid, cardId) : work())
-      .finally(() => resolvingSync.delete(cardId))
+      .finally(() => { if (resolvingSync.get(cardId) === mine) resolvingSync.delete(cardId) })
   }
 
   // Remote issue comments are authoritative. Restored cards reconnect through
@@ -937,8 +985,38 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       if (!card.payload.sync.resolutionToken) return "Refresh the delivery before resolving."
       const expectedToken = card.payload.sync.resolutionToken
       if (!evidence.trim() || evidence.length > 4096 || (action === "sent" && !messageId.trim())) return "Add evidence and a message ID for sent."
-      if (card.payload.sync.resolution?.status === "requested") return "Resolution requested."
-      await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: { deliveryId, expectedToken, action, evidence, messageId, owner, status: "requested" } } }))
+      const existing = card.payload.sync.resolution
+      if (existing?.status === "requested" && existing.owner === owner && existing.deliveryId === deliveryId && existing.expectedToken === expectedToken) {
+        const flight = resolvingSync.get(cardId)
+        if (flight?.admitting && ownsResolution(cardId, flight) && matchesResolution(card, flight)) {
+          await flight.admission
+          if (!ownsResolution(cardId, flight)) return "Resolution is no longer current."
+        }
+        drainResolution(cardId)
+        return "Resolution requested."
+      }
+      const request: ResolutionRequest = { deliveryId, expectedToken, action, evidence, messageId, owner, status: "requested" }
+      const flight = resolutionFlight(card, request, true)
+      const admission = Promise.withResolvers<void>()
+      flight.admission = admission.promise
+      void admission.promise.catch(() => {})
+      // Reserve admission before the optimistic card wakes either actor's
+      // subscription. Only its successful persistence receipt permits launch.
+      resolvingSync.set(cardId, flight)
+      try {
+        await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: request } }))
+      } catch (error) {
+        if (resolvingSync.get(cardId) === flight) resolvingSync.delete(cardId)
+        admission.reject(error)
+        throw error
+      }
+      if (!ownsResolution(cardId, flight) || !matchesResolution(ctx.store.collections.cards.get(cardId), flight)) {
+        if (resolvingSync.get(cardId) === flight) resolvingSync.delete(cardId)
+        admission.resolve()
+        return "Resolution is no longer current."
+      }
+      flight.admitting = false
+      admission.resolve()
       drainResolution(cardId)
       return "Resolution requested."
     },
