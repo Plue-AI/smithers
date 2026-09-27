@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join, relative, resolve } from "node:path"
 import test from "node:test"
 
-import { findPins, guardedGroups, guardedPackages, notesPath, undocumentedPins } from "./check-test-pins.mjs"
+import { findPins, guardedGroups, guardedPackages, notesPath, suppliedEnv, undocumentedPins } from "./check-test-pins.mjs"
 import { repoRoot } from "./workspace-packages.mjs"
 
 test("finds every outright pin form, whatever the runner prefix", () => {
@@ -77,6 +77,33 @@ test("an environment-variable gate is a pin, inline or through a const", () => {
     `describe.skipIf(token === undefined)("live aliased", () => {})`
   ].join("\n")
   assert.deepEqual(findPins(bracketedAlias).map((pin) => pin.title), ["live aliased"])
+})
+
+test("a variable the package's own test program sets is not a pin", () => {
+  const gated = `describe.skipIf(!process.env.SMITHERS_TEST_PG_URL)("real database", () => {})`
+  assert.deepEqual(findPins(gated, new Set(["SMITHERS_TEST_PG_URL"])), [])
+  assert.deepEqual(findPins(gated, new Set(["OTHER"])).map((pin) => pin.title), ["real database"])
+
+  const fixtureRoot = mkdtempSync(join(repoRoot, "scripts", ".check-test-pins-"))
+  try {
+    const program = join(fixtureRoot, "matrix.mjs")
+    writeFileSync(
+      program,
+      [
+        `const { DROPPED: ignored, ...environment } = process.env`,
+        `run({ ...environment, ...(lane ? { SUPPLIED_URL: url } : {}) })`
+      ].join("\n")
+    )
+    writeFileSync(
+      join(fixtureRoot, "PACKAGE.ts"),
+      `const x = Build({ testProgram: Smithers.file("//${relative(repoRoot, program)}") })\n`
+    )
+    assert.deepEqual([...suppliedEnv(fixtureRoot)], ["SUPPLIED_URL"])
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+  assert.deepEqual([...suppliedEnv(join(repoRoot, "packages", "smithers"))], [])
+  assert.ok(suppliedEnv(join(repoRoot, "packages", "smithers", "flows", "database")).has("SMITHERS_TEST_PG_URL"))
 })
 
 /**

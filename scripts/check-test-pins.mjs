@@ -12,7 +12,9 @@
  *
  * A `.skipIf`/`.runIf` on `process.platform`, on an installed binary, or on a
  * built artifact is a capability gate, not a pin: it runs on the supported
- * configuration.
+ * configuration. So is one on a variable the package's own `test` target
+ * supplies: `flows/database` declares a `testProgram` that starts PostgreSQL
+ * and sets `SMITHERS_TEST_PG_URL`, so its PostgreSQL suite runs in that target.
  *
  * Group membership comes from `smthrs.group`, the same authority the release
  * train uses, so a new package is covered without being listed here. The 1.0
@@ -83,7 +85,11 @@ const conditionalTitlePattern = /\s*\(\s*(["'`])((?:[^\\]|\\.)*?)\1/y
  * environment variable through a helper defined elsewhere reads as a
  * capability gate. That is a deliberate floor, not a claim of completeness.
  */
-const readsOptInEnv = (text) => /process\.env(?:\.(?!CI\b)[A-Za-z_]|\[["'](?!CI["'])[A-Za-z_])/.test(text)
+const envReads = (text) =>
+  Array.from(text.matchAll(/process\.env(?:\.([A-Za-z_]\w*)|\[["']([A-Za-z_]\w*)["']\])/g), (read) => read[1] ?? read[2])
+
+const readsOptInEnv = (text, supplied) =>
+  envReads(text).some((name) => name !== "CI" && !supplied.has(name))
 
 /**
  * Resolves every identifier in a condition against a `const` in the same file,
@@ -92,13 +98,30 @@ const readsOptInEnv = (text) => /process\.env(?:\.(?!CI\b)[A-Za-z_]|\[["'](?!CI[
  * condition: `skipIf(token === undefined)` gates on `token` just as
  * `skipIf(!slowTests)` gates on `slowTests`.
  */
-const isOptIn = (condition, source) => {
-  if (readsOptInEnv(condition)) return true
+const isOptIn = (condition, source, supplied) => {
+  if (readsOptInEnv(condition, supplied)) return true
   for (const identifier of condition.matchAll(/[A-Za-z_$][\w$]*/g)) {
     const binding = source.match(new RegExp(`\\bconst\\s+${identifier[0]}\\s*=([^\\n]*)`))
-    if (binding !== null && readsOptInEnv(binding[1])) return true
+    if (binding !== null && readsOptInEnv(binding[1], supplied)) return true
   }
   return false
+}
+
+/**
+ * The environment variables a package's `test` target sets for its tests.
+ *
+ * Only a package whose PACKAGE.ts declares a `testProgram` sets any; a name
+ * counts when the program writes it as an object key. Destructuring patterns
+ * are removed first, because `const { NAME: ignored, ...rest } = process.env`
+ * is how such a program drops an inherited value, not how it supplies one.
+ */
+export const suppliedEnv = (packageDirectory, root = repoRoot) => {
+  const manifest = join(packageDirectory, "PACKAGE.ts")
+  if (!existsSync(manifest)) return new Set()
+  const program = readFileSync(manifest, "utf8").match(/\btestProgram:\s*Smithers\.file\(\s*["']\/\/([^"']+)["']/)
+  if (program === null) return new Set()
+  const text = readFileSync(join(root, program[1]), "utf8").replace(/\{[^{}]*\}\s*=(?![=>])/g, "")
+  return new Set(Array.from(text.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:/g), (key) => key[1]))
 }
 
 /** Directory names never worth walking for tests. */
@@ -144,7 +167,7 @@ const testFilesUnder = (directory, collected = [], root = directory) => {
  * Exported so the unit test can drive it against fixtures rather than against
  * whatever the tree happens to contain.
  */
-export const findPins = (source) => {
+export const findPins = (source, supplied = new Set()) => {
   const lineOf = (index) => source.slice(0, index).split("\n").length
   const pins = []
   for (const match of source.matchAll(pinPattern)) {
@@ -153,7 +176,7 @@ export const findPins = (source) => {
   for (const match of source.matchAll(conditionalStartPattern)) {
     const openIndex = match.index + match[0].length - 1
     const condition = readParenthesized(source, openIndex)
-    if (condition === undefined || !isOptIn(condition.text, source)) continue
+    if (condition === undefined || !isOptIn(condition.text, source, supplied)) continue
     conditionalTitlePattern.lastIndex = condition.closeIndex + 1
     const title = conditionalTitlePattern.exec(source)
     if (title === null) continue
@@ -191,8 +214,9 @@ export const undocumentedPins = (notes = readFileSync(notesPath, "utf8"), packag
   const documented = survivingPins(notes)
   for (const packageDirectory of packages) {
     const packageName = relative(join(repoRoot, "packages"), packageDirectory)
+    const supplied = suppliedEnv(packageDirectory)
     for (const file of testFilesUnder(packageDirectory)) {
-      for (const pin of findPins(readFileSync(file, "utf8"))) {
+      for (const pin of findPins(readFileSync(file, "utf8"), supplied)) {
         if (documented.has(`${packageName}\u0000${pin.title}`)) continue
         unexplained.push({ ...pin, file: relative(repoRoot, file) })
       }
