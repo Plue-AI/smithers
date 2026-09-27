@@ -81,7 +81,7 @@ export const detect = (environment: NodeJS.ProcessEnv): Available => {
   return {
     models,
     defaultSeat: environment.SMITHERS_TUI_SEAT ?? models.find((model) => model.seat.startsWith("cerebras:"))?.seat ??
-      models[0]?.seat,
+      models.find((model) => model.seat === delegateModels.sol)?.seat ?? models[0]?.seat,
     workerSeat: environment.SMITHERS_TUI_WORKER_SEAT ??
       models.find((model) => !model.seat.startsWith("cerebras:"))?.seat ?? models[0]?.seat,
     environment: {
