@@ -24,7 +24,7 @@ import { crepeThemeCss } from "./crepeTheme.generated";
  *  - EXTERNAL updates (multiplayer, resets, programmatic seeds) apply through
  *    the imperative {@link MarkdownEditorHandle.setMarkdown}, which applies changed
  *    ProseMirror ranges and suppresses the resulting
- *    `markdownUpdated` echo so it never loops back out as a local edit.
+ *    transaction echo so it never loops back out as a local edit.
  *
  * Because the Crepe editor is a heavy `@milkdown/*` dependency it lives in the
  * `adapters/` layer and is imported through the explicit
@@ -90,8 +90,8 @@ export type MarkdownEditorError = {
 export type MarkdownEditorModule = {
   readonly Crepe: new(options: { root: HTMLElement; defaultValue: string }) => CrepeInstance;
   readonly replaceAll: (markdown: string) => unknown;
-  /** Register a ProseMirror transaction listener before the editor is created. */
-  readonly listenImmediately?: (editor: CrepeInstance, handler: (markdown: string) => void) => void;
+  /** Register the synchronous document listener before creation; no debounced snapshots. */
+  readonly listenImmediately: (editor: CrepeInstance, handler: (markdown: string) => void) => void;
 };
 
 export type MarkdownEditorProps = {
@@ -236,15 +236,9 @@ const noRichTextOnServer = (): boolean => false;
 /** The editor state machine: loading the modules, running, or fallen back. */
 type EditorState = "loading" | "ready" | "failed";
 
-type CrepeListener = {
-  readonly listeners?: { markdownUpdated: Array<(_ctx: unknown, markdown: string) => void> };
-  markdownUpdated: (handler: (_ctx: unknown, markdown: string) => void) => void;
-};
-
 type CrepeInstance = {
   editor: { action: (command: unknown) => unknown; use?: (plugin: unknown) => unknown };
   getMarkdown?: () => string;
-  on: (configure: (listener: CrepeListener) => void) => unknown;
   create: () => Promise<unknown>;
   destroy: () => Promise<unknown>;
   setReadonly: (readOnly: boolean) => unknown;
@@ -407,11 +401,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         try {
           crepe.editor.action(replaceAll(markdown));
         } finally {
-          // Release on the next tick — replaceAll's markdownUpdated fires
-          // synchronously within the action, but be tolerant of async flushes.
-          setTimeout(() => {
-            suppressEchoRef.current = Math.max(0, suppressEchoRef.current - 1);
-          }, 0);
+          // The document listener runs within dispatch. End suppression before
+          // the next human transaction, even in the same event-loop turn.
+          suppressEchoRef.current -= 1;
         }
       },
       scrollToLine: (line: number) => {
@@ -462,7 +454,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     let released = false;
     let crepe: CrepeInstance | null = null;
     let creating: Promise<unknown> | undefined;
-    let detachListener: (() => void) | undefined;
 
     /** Stop callbacks immediately, then destroy once creation has settled. */
     const release = (): void => {
@@ -471,7 +462,6 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       readyRef.current = false;
       crepeRef.current = null;
       replaceAllRef.current = null;
-      detachListener?.();
       const editor = crepe;
       crepe = null;
       if (editor) {
@@ -514,24 +504,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         const editor = new Crepe({ root: host, defaultValue: seed });
         crepe = editor;
         crepeRef.current = editor;
-        editor.on((listener: CrepeListener) => {
-          if (released) return;
-          const updated = (_ctx: unknown, markdown: string): void => {
-            if (released || !readyRef.current) return;
-            if (markdown === lastMarkdownRef.current) return;
-            lastMarkdownRef.current = markdown;
-            if (suppressEchoRef.current > 0) return; // programmatic replaceAll echo
-            onChangeRef.current?.(markdown);
-          };
-          // Milkdown exposes its subscriber arrays, but has no unsubscribe method.
-          detachListener = () => {
-            const handlers = listener.listeners?.markdownUpdated;
-            const index = handlers?.indexOf(updated) ?? -1;
-            if (index >= 0) handlers!.splice(index, 1);
-          };
-          listener.markdownUpdated(updated);
-        });
-        listenImmediately?.(editor, (markdown) => {
+        // Milkdown's debounced listener can retain a pre-peer transaction:
+        // addToHistory=false replacements do not update its pending snapshot.
+        // Publish solely from the current ProseMirror document during dispatch.
+        listenImmediately(editor, (markdown) => {
           if (released || !readyRef.current || suppressEchoRef.current > 0 || markdown === lastMarkdownRef.current) return;
           lastMarkdownRef.current = markdown;
           onChangeRef.current?.(markdown);
@@ -545,9 +521,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           try {
             editor.editor.action(replaceAll(lastMarkdownRef.current));
           } finally {
-            setTimeout(() => {
-              suppressEchoRef.current = Math.max(0, suppressEchoRef.current - 1);
-            }, 0);
+            suppressEchoRef.current -= 1;
           }
         }
         readyRef.current = true;

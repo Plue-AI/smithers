@@ -295,8 +295,7 @@ function lifecycleEditor() {
   const loading = Promise.withResolvers<MarkdownEditorModule>();
   const creating = Promise.withResolvers<void>();
   const destroying = Promise.withResolvers<void>();
-  const handlers: Array<(ctx: unknown, markdown: string) => void> = [];
-  let retainedHandler: (ctx: unknown, markdown: string) => void = () => {};
+  let retainedHandler: (markdown: string) => void = () => {};
   let destroyed = 0;
   let constructed = 0;
   const replaced: string[] = [];
@@ -311,18 +310,9 @@ function lifecycleEditor() {
           const markdown = String(command);
           this.options.root.textContent = markdown;
           replaced.push(markdown);
-          handlers.forEach((handler) => handler(undefined, markdown));
+          retainedHandler(markdown);
         },
       };
-      on(configure: Parameters<InstanceType<MarkdownEditorModule["Crepe"]>["on"]>[0]) {
-        configure({
-          listeners: { markdownUpdated: handlers },
-          markdownUpdated: (handler: typeof retainedHandler) => {
-            handlers.push(handler);
-            retainedHandler = handler;
-          },
-        } as Parameters<typeof configure>[0]);
-      }
       create() { return creating.promise; }
       destroy() {
         destroyed++;
@@ -331,11 +321,12 @@ function lifecycleEditor() {
       setReadonly() {}
     },
     replaceAll: (markdown) => markdown,
+    listenImmediately: (_editor, handler) => { retainedHandler = handler; },
   };
   return {
-    module, loading, creating, destroying, handlers, replaced,
+    module, loading, creating, destroying, replaced,
     load: () => loading.promise,
-    emitStale: (markdown: string) => retainedHandler(undefined, markdown),
+    emitStale: (markdown: string) => retainedHandler(markdown),
     get destroyed() { return destroyed; },
     get constructed() { return constructed; },
   };
@@ -392,7 +383,6 @@ describe("MarkdownEditor asynchronous lifecycle", () => {
     expect(ref.current!.getMarkdown()).toBe("fallback edit");
     expect(editor().value).toBe("fallback edit");
     expect(stub.destroyed).toBe(1);
-    expect(stub.handlers).toHaveLength(0);
     expect(errors).toEqual([{ code: "editor-create-failed", cause }]);
     stub.destroying.reject(new Error("teardown failed"));
     const mounted = root!;
@@ -428,11 +418,10 @@ describe("MarkdownEditor asynchronous lifecycle", () => {
     const stub = lifecycleEditor();
     const cause = new Error("listener setup failed");
     const errors: unknown[] = [];
-    stub.module.Crepe.prototype.on = () => { throw cause; };
     stub.destroying.resolve();
     await render(<MarkdownEditor value="seed" fallback={false} loadEditor={stub.load}
       onError={(error) => errors.push(error)} />);
-    await act(async () => { stub.loading.resolve(stub.module); });
+    await act(async () => { stub.loading.resolve({ ...stub.module, listenImmediately: () => { throw cause; } }); });
     expect(editor().getAttribute("data-mode")).toBe("failed");
     expect(stub.destroyed).toBe(1);
     expect(errors).toEqual([{ code: "editor-create-failed", cause }]);

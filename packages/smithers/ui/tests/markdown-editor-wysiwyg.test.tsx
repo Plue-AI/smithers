@@ -74,6 +74,7 @@ function stubEditor() {
           const markdown = (command as { markdown: string }).markdown;
           liveMarkdown = markdown;
           replaced.push(markdown);
+          immediate?.(markdown);
           emit?.(markdown);
           return undefined;
         },
@@ -117,8 +118,10 @@ function stubEditor() {
     load: async () => module,
     typeInEditor: (markdown: string) => {
       liveMarkdown = markdown;
+      immediate?.(markdown);
       emit?.(markdown);
     },
+    emitDebounced: (markdown: string) => emit?.(markdown),
     changeWithoutEmit: (markdown: string) => {
       liveMarkdown = markdown;
       immediate?.(markdown);
@@ -206,6 +209,43 @@ describe("MarkdownEditor (WYSIWYG path)", () => {
       stub.typeInEditor("three");
     });
     expect(changes).toEqual(["three"]);
+  });
+
+  test("a delayed local snapshot cannot overwrite a newer peer document", async () => {
+    const stub = stubEditor();
+    const changes: string[] = [];
+    let handle: MarkdownEditorHandle | null = null;
+    await render(<MarkdownEditor ref={(value) => { handle = value; }} value="start"
+      fallback={false} loadEditor={stub.load} onChange={(markdown) => changes.push(markdown)} />);
+    const api = handle as unknown as MarkdownEditorHandle;
+
+    stub.changeWithoutEmit("local draft");
+    await act(async () => api.setMarkdown("peer before\n\nlocal draft\n\npeer after"));
+    // Milkdown's delayed listener retains the last local transaction because
+    // external transactions have addToHistory=false. Deliver that snapshot
+    // after the old timer-based suppression window has ended.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    stub.emitDebounced("local draft");
+    expect(changes).toEqual(["local draft"]);
+    expect(api.getMarkdown()).toBe("peer before\n\nlocal draft\n\npeer after");
+
+    // A stale callback must not poison the comparison used by setMarkdown.
+    await act(async () => api.setMarkdown("local draft"));
+    expect(api.getMarkdown()).toBe("local draft");
+    expect(changes).toEqual(["local draft"]);
+  });
+
+  test("a local edit immediately after a peer replacement is published", async () => {
+    const stub = stubEditor();
+    const changes: string[] = [];
+    let handle: MarkdownEditorHandle | null = null;
+    await render(<MarkdownEditor ref={(value) => { handle = value; }} value="start"
+      fallback={false} loadEditor={stub.load} onChange={(markdown) => changes.push(markdown)} />);
+    await act(async () => {
+      (handle as unknown as MarkdownEditorHandle).setMarkdown("peer content");
+      stub.changeWithoutEmit("peer content and local input");
+    });
+    expect(changes).toEqual(["peer content and local input"]);
   });
 
   test("readOnly is applied to the editor and re-applied when it changes", async () => {
@@ -377,6 +417,7 @@ describe("MarkdownEditor failure reporting", () => {
         setReadonly() {}
       } as unknown as MarkdownEditorModule["Crepe"],
       replaceAll: (markdown: string) => ({ markdown }),
+      listenImmediately: () => {},
     };
 
     await render(
