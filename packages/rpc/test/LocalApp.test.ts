@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest"
 import * as LocalApp from "../src/LocalApp.ts"
-import {
-  HarnessSchema,
-  RepoFilesResponseSchema,
-  RepoSchema,
-  splitLabel,
-  TargetSchema
-} from "../src/LocalApp.ts"
+import { HarnessSchema, RepoFilesResponseSchema, RepoSchema, splitLabel, TargetSchema } from "../src/LocalApp.ts"
 
 /*
  * The local-app wire model (apps/app/docs/LOCAL-APP.md "Targets: load and

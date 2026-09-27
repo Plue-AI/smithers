@@ -105,7 +105,11 @@ describe("localCapabilities (the Bun server, host local)", () => {
   })
 
   test("native.shell is emitted last, only when the desktop shell started the host", () => {
-    expect(localCapabilities({ agent: true, identity: false, cloud: false, nativeShell: true })).toEqual(["agent", "model.turn", "native.shell"])
+    expect(localCapabilities({ agent: true, identity: false, cloud: false, nativeShell: true })).toEqual([
+      "agent",
+      "model.turn",
+      "native.shell"
+    ])
     for (const agent of booleans) {
       for (const identity of booleans) {
         for (const cloud of booleans) {
