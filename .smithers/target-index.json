@@ -9849,6 +9849,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/rooted.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/run.tsx"
       },
       {
