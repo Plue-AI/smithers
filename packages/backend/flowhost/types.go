@@ -143,6 +143,11 @@ type HostLaunch struct {
 	Authority  Authority
 	Catalog    Catalog
 	Credential string
+	// Environment is the per-start environment a launcher decorator adds
+	// (the box's landing credential). It is minted for each start, so it is
+	// not part of the host's service identity, and it never replaces a
+	// reserved name.
+	Environment map[string]string
 }
 
 // Connection is a private bridge transport. Isolated adapters use HTTPClient

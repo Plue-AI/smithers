@@ -31,7 +31,7 @@ type flowComposition struct {
 	stopper    flowhost.RetirementStopper
 }
 
-func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, setupServices ...*services.RepositorySetupService) (*flowComposition, error) {
+func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, setupServices ...*services.RepositorySetupService) (*flowComposition, error) {
 	if options.FlowHostRegistry == nil {
 		return nil, nil
 	}
@@ -99,7 +99,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, err
 	}
-	launcher = admitted
+	launcher = newBoxHostLauncher(admitted, boxes)
 	stopper, ok := launcher.(flowhost.RetirementStopper)
 	if !ok {
 		return nil, errors.New("Flow workspace launcher cannot stop retired hosts")

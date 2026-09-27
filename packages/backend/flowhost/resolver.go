@@ -29,7 +29,9 @@ var reservedEnvironment = map[string]struct{}{
 	"SMITHERS_OWNER_GENERATION": {}, "SMITHERS_FLOW_ARTIFACT_SHA256": {},
 	"SMITHERS_SOURCE_REVISION": {}, "SMITHERS_REPO": {},
 	"SMITHERS_CODING_IMPLEMENT_MODEL": {},
-	AccountPoolURLEnv:                 {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
+	// The box's landing credential is minted per start (HostLaunch.Environment).
+	"SMITHERS_JJHUB_TOKEN": {}, "SMITHERS_JJHUB_API_URL": {},
+	AccountPoolURLEnv: {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
 }
 
 // A host shares its workspace with repository commands, so a database

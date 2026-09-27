@@ -7,6 +7,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 // Admission is rechecked by the worker immediately before a managed host start.
@@ -41,4 +43,67 @@ func (l *admittedFlowLauncher) StartFlowHost(ctx context.Context, launch flowhos
 		return flowhost.Connection{}, err
 	}
 	return l.Launcher.StartFlowHost(ctx, launch)
+}
+
+// boxHostPreparer readies a box for its coding host and holds the host's
+// per-start credential (services.WorkspaceService).
+type boxHostPreparer interface {
+	PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error)
+	RetireBoxHostCredential(ctx context.Context, hostID string, userID int64)
+}
+
+// boxHostLauncher gives the box's coding host what the box's own services
+// need before it starts (#2198): the source publisher, the landing binding
+// and a landing credential minted for this start. Every stop, replacement and
+// failed start revokes the credential.
+type boxHostLauncher struct {
+	flowhost.Launcher
+	flowhost.SourceResolver
+	stopper flowhost.RetirementStopper
+	boxes   boxHostPreparer
+}
+
+func newBoxHostLauncher(launcher interface {
+	flowhost.Launcher
+	flowhost.SourceResolver
+	flowhost.RetirementStopper
+}, boxes boxHostPreparer) *boxHostLauncher {
+	return &boxHostLauncher{Launcher: launcher, SourceResolver: launcher, stopper: launcher, boxes: boxes}
+}
+
+func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	environment, err := l.boxes.PrepareBoxHost(ctx, launch.Binding.ID, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID)
+	if err != nil {
+		return flowhost.Connection{}, err
+	}
+	launch.Environment = environment
+	connection, err := l.Launcher.StartFlowHost(ctx, launch)
+	if err != nil {
+		l.boxes.RetireBoxHostCredential(context.WithoutCancel(ctx), launch.Binding.ID, launch.Authority.UserID)
+	}
+	return connection, err
+}
+
+func (l *boxHostLauncher) StopFlowHost(ctx context.Context, binding flowhost.Binding) error {
+	if err := l.stopper.StopFlowHost(ctx, binding); err != nil {
+		return err
+	}
+	l.boxes.RetireBoxHostCredential(ctx, binding.ID, binding.UserID)
+	return nil
+}
+
+// boxHostCallbacks authorizes a repository-job callback from the box's coding
+// host, then from a box gateway started before it.
+type boxHostCallbacks struct {
+	hosts    *services.FlowHostCallbacks
+	gateways services.RepositoryJobGateway
+}
+
+func (callbacks boxHostCallbacks) AuthorizeRelay(ctx context.Context, id, token string) (services.RepoGatewayRelayTarget, error) {
+	target, err := callbacks.hosts.AuthorizeRelay(ctx, id, token)
+	var refusal *pkgerrors.APIError
+	if err == nil || callbacks.gateways == nil || !errors.As(err, &refusal) || refusal.Code != pkgerrors.CodeUnauthorized {
+		return target, err
+	}
+	return callbacks.gateways.AuthorizeRelay(ctx, id, token)
 }

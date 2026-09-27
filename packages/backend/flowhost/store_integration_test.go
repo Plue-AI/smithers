@@ -390,3 +390,34 @@ func TestPostgresReadDuringAStartIsBusyNotBlocked(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, read.Close())
 }
+
+// The box's coding host calls the backend back with its binding ID and control
+// credential; only a starting or running binding is accepted (#2198).
+func TestPostgresHostCredentialAuthorizesOnlyTheLiveBinding(t *testing.T) {
+	pool := hostTestPool(t)
+	ctx := context.Background()
+	authority, catalog := hostFixture(t, pool)
+	store, err := NewStore(pool, testCodec{})
+	require.NoError(t, err)
+	held, err := store.Acquire(ctx, authority, catalog)
+	require.NoError(t, err)
+	id, credential := held.Binding().ID, held.Credential()
+	_, err = VerifyHostCredential(ctx, pool, id, credential)
+	require.ErrorIs(t, err, ErrHostCredentialInvalid, "a pending binding has no host to call back")
+	_, err = held.PrepareStart(ctx, false)
+	require.NoError(t, err)
+	require.NoError(t, held.MarkRunning(ctx))
+	require.NoError(t, held.Close())
+
+	binding, err := VerifyHostCredential(ctx, pool, id, credential)
+	require.NoError(t, err)
+	require.Equal(t, CredentialBinding{ID: id, UserID: authority.UserID, RepositoryID: authority.RepositoryID, WorkspaceID: authority.WorkspaceID}, binding)
+	for _, refused := range [][2]string{{id, credential + "x"}, {id, ""}, {uuid.NewString(), credential}, {"not-a-uuid", credential}} {
+		_, err = VerifyHostCredential(ctx, pool, refused[0], refused[1])
+		require.ErrorIs(t, err, ErrHostCredentialInvalid)
+	}
+	_, err = pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='retired' WHERE id=$1`, id)
+	require.NoError(t, err)
+	_, err = VerifyHostCredential(ctx, pool, id, credential)
+	require.ErrorIs(t, err, ErrHostCredentialInvalid)
+}

@@ -1,0 +1,98 @@
+package services
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/sandbox"
+)
+
+type boxHostTestQuerier struct {
+	*workspaceHeadTestQuerier
+	shared  bool
+	tokens  []db.AccessToken
+	deleted []int64
+}
+
+func (q *boxHostTestQuerier) HasWritableWorkspaceShares(context.Context, string) (bool, error) {
+	return q.shared, nil
+}
+func (q *boxHostTestQuerier) ListAccessTokensByUserID(context.Context, int64) ([]db.AccessToken, error) {
+	return q.tokens, nil
+}
+func (q *boxHostTestQuerier) CreateAccessToken(_ context.Context, arg db.CreateAccessTokenParams) (db.AccessToken, error) {
+	token := db.AccessToken{ID: int64(len(q.tokens) + 100), UserID: arg.UserID, Name: arg.Name, Scopes: arg.Scopes}
+	q.tokens = append(q.tokens, token)
+	return token, nil
+}
+func (q *boxHostTestQuerier) DeleteAccessToken(_ context.Context, arg db.DeleteAccessTokenParams) error {
+	q.deleted = append(q.deleted, arg.ID)
+	return nil
+}
+
+// The box's coding host gets the box's landing binding and a repository-scoped
+// landing credential for each start; the previous one is revoked (#2198).
+func TestPrepareBoxHostMintsTheLandingCredentialPerStart(t *testing.T) {
+	prepareRuntimeTestHelper(t)
+	workspace := db.Workspace{ID: "workspace-2198", RepositoryID: 77, UserID: 9, VmID: "vm-2198", Status: "running", TargetBookmark: "main"}
+	q := &boxHostTestQuerier{workspaceHeadTestQuerier: &workspaceHeadTestQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{
+		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) { return workspace, nil },
+	}}}
+	q.tokens = []db.AccessToken{{ID: 7, UserID: 9, Name: "flow-host-landing-host-1"}, {ID: 8, UserID: 9, Name: "other"}}
+	probes := 0
+	vm := &mockWorkspaceSandboxVMClient{
+		execAwaitFn: func(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+			probes++
+			status := int32(0)
+			if probes == 2 {
+				return sandbox.ExecResult{StatusCode: &status, Stdout: runtimeTestReceipt(t, workspace, "unchanged")}, nil
+			}
+			return sandbox.ExecResult{StatusCode: &status}, nil
+		},
+	}
+	svc := newWorkspaceServiceForTests(q, WithWorkspaceGitBaseURL("https://api.jjhub.tech/"), WithWorkspaceSandboxClient(vm),
+		WithWorkspaceAgentEnvironment(boxHostTestEnvironment{}))
+
+	environment, err := svc.PrepareBoxHost(context.Background(), "host-1", workspace.ID, 77, 9)
+	require.NoError(t, err)
+	require.Equal(t, "https://api.jjhub.tech/api", environment["SMITHERS_JJHUB_API_URL"])
+	require.Equal(t, "production", environment["NODE_ENV"])
+	require.Equal(t, sandbox.EgressProxyPlaceholder("NPM_TOKEN"), environment["NPM_TOKEN"], "a secret is its egress placeholder")
+	require.NotContains(t, environment, "PATH")
+	require.NotContains(t, environment, "NEVER", "a plaintext setup secret never reaches the host")
+	require.NotContains(t, environment, "SMITHERS_GATEWAY_ID")
+	require.NotEmpty(t, environment["SMITHERS_JJHUB_TOKEN"])
+	require.Equal(t, []int64{7}, q.deleted, "the previous start's credential is revoked")
+	minted := q.tokens[len(q.tokens)-1]
+	require.Equal(t, "flow-host-landing-host-1", minted.Name)
+	require.Equal(t, workspaceGatewayLandingTokenScopes(77, workspace.ID), minted.Scopes)
+	require.Equal(t, 2, probes, "the source publisher and landing binding are checked first")
+
+	svc.RetireBoxHostCredential(context.Background(), "host-1", 9)
+	require.Equal(t, []int64{7, 7, minted.ID}, q.deleted)
+
+	q.shared = true
+	environment, err = svc.PrepareBoxHost(context.Background(), "host-1", workspace.ID, 77, 9)
+	require.NoError(t, err)
+	require.NotContains(t, environment, "SMITHERS_JJHUB_TOKEN", "a box with write shares gets no credential")
+	require.Equal(t, "production", environment["NODE_ENV"])
+
+	unprovisioned := newWorkspaceServiceForTests(q, WithWorkspaceGitBaseURL("https://api.jjhub.tech"))
+	environment, err = unprovisioned.PrepareBoxHost(context.Background(), "host-1", workspace.ID, 77, 9)
+	require.NoError(t, err)
+	require.Empty(t, environment, "a runtime without the landing binding gets no credential")
+}
+
+type boxHostTestEnvironment struct{}
+
+func (boxHostTestEnvironment) LoadForProvisioning(context.Context, int64) (AgentEnvironmentProvisioningConfig, error) {
+	return AgentEnvironmentProvisioningConfig{
+		Env: []AgentEnvironmentVariable{{Name: "NODE_ENV", Value: "production"}, {Name: "PATH", Value: "/evil"},
+			{Name: "SMITHERS_GATEWAY_ID", Value: "spoofed"}},
+		Secrets:    map[string]string{"NEVER": "plaintext"},
+		ProxyBound: []string{"NPM_TOKEN"},
+	}, nil
+}

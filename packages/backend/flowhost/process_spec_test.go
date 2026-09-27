@@ -44,6 +44,22 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
 	require.NoError(t, err)
 	assert.NotContains(t, spec.Environment, "SMITHERS_CODING_IMPLEMENT_MODEL")
+
+	// A start's landing credential reaches the host but not its identity, so
+	// an inspection without it still matches the live host (#2198).
+	landing := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer",
+		Environment: map[string]string{"SMITHERS_JJHUB_TOKEN": "landing", "SMITHERS_JJHUB_API_URL": "https://api.example/api"}}
+	withLanding, err := BuildProcessSpec(landing, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	assert.Equal(t, "landing", withLanding.Environment["SMITHERS_JJHUB_TOKEN"])
+	assert.Equal(t, "https://api.example/api", withLanding.Environment["SMITHERS_JJHUB_API_URL"])
+	assert.Equal(t, spec.Identity, withLanding.Identity)
+	landing.Environment = map[string]string{"SMITHERS_API_KEY": "stolen"}
+	_, err = BuildProcessSpec(landing, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.Error(t, err)
+	catalog.Environment = map[string]string{"SMITHERS_JJHUB_TOKEN": "static"}
+	_, err = validateCatalog(catalog)
+	require.Error(t, err, "a catalog never carries a landing credential")
 }
 
 func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {

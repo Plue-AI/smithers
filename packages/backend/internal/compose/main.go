@@ -1145,15 +1145,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.AdminRoutes != nil && options.topology.servesHTTP() {
 		deploymentAdminRoutes = options.AdminRoutes(services.NewAdminOperationLog(queries))
 	}
-	var repositoryJobGateway services.RepositoryJobGateway
+	// The box's coding host calls repository jobs back with its flowhost
+	// binding (#2198); a box gateway still running from before is accepted
+	// until the gateways are retired.
+	var repositoryJobGateway services.RepositoryJobGateway = boxHostCallbacks{hosts: services.NewFlowHostCallbacks(pool, queries)}
 	if repoGatewayService != nil {
-		repositoryJobGateway = repoGatewayService
+		repositoryJobGateway = boxHostCallbacks{hosts: services.NewFlowHostCallbacks(pool, queries), gateways: repoGatewayService}
 	}
 	repositoryJobService := services.NewRepositoryJobService(queries, repositoryJobGateway, pool)
 	gitHubMainPullService.SetFactoryReconciler(repositoryJobService.ReconcileFactoryRules)
 	repositoryJobService.SetGitHubReadAccess(gitHubUserReposService)
 	repositorySetupService := services.NewRepositorySetupService(pool, repositoryJobService, workspaceService)
-	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, repositorySetupService)
+	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, repositorySetupService)
 	if err != nil {
 		return err
 	}

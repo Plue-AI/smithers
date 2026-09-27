@@ -37,8 +37,17 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	if net.ParseIP(host) == nil {
 		return ProcessSpec{}, errors.New("flow host bind address must be an adapter-selected IP")
 	}
-	environment := make(map[string]string, len(launch.Catalog.Environment)+8)
+	environment := make(map[string]string, len(launch.Catalog.Environment)+len(launch.Environment)+8)
 	for name, value := range launch.Catalog.Environment {
+		environment[name] = value
+	}
+	for name, value := range launch.Environment {
+		_, reserved := reservedEnvironment[name]
+		_, database := databaseEnvironment[name]
+		landing := name == "SMITHERS_JJHUB_TOKEN" || name == "SMITHERS_JJHUB_API_URL"
+		if (reserved && !landing) || database || name == "" || strings.ContainsAny(name, "=\x00") || strings.IndexByte(value, 0) >= 0 {
+			return ProcessSpec{}, errors.New("flow host start environment names a reserved or invalid variable")
+		}
 		environment[name] = value
 	}
 	if launch.Catalog.ModelProxyURL != "" && len(launch.Catalog.ModelSeats) > 0 {
