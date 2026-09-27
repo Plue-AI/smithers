@@ -85,21 +85,23 @@ Ctrl+O read it.
 | Shift+Tab                                             | Cycle reasoning effort                                                                                                                                                                                                                                                                                                 |
 | Ctrl+O                                                | Expand cell code, output, diffs, and the key list                                                                                                                                                                                                                                                                      |
 | Ctrl+T                                                | Inspect the run timeline; arrows scrub, [ ] or Shift+Left/Right step milestones, Home/End jump, Esc returns to live                                                                                                                                                                                                    |
-| Ctrl+S                                                | Open summary / switch focus between the view and chat                                                                                                                                                                                                                                                                  |
+| Ctrl+S                                                | Open Summary / switch focus between the view and chat. With workers it is the overview: the worker tree beside the selected branch's cards (Chat heads the tree and shows the conversation review). Tab switches pane, arrows or hjkl move, Enter opens, Esc closes |
 | Ctrl+], Ctrl+\\, Ctrl+Right, Ctrl+Left                | Next, previous tab: Chat, Summary, worker tabs, trees, and custom views. Click a tab to open it                                                                                                                                                                                                                        |
+| Ctrl+Y                                                | In a worker tab: back to its parent worker, or the chat for a top-level worker |
 | Ctrl+\\ or `/chat`                                    | Return to full chat from a main view                                                                                                                                                                                                                                                                                   |
 | hjkl or arrows                                        | In a view: move between rows, collapse/expand details                                                                                                                                                                                                                                                                  |
 | Enter                                                 | In a view: toggle the selected row's details                                                                                                                                                                                                                                                                           |
 | d, v                                                  | In a view: toggle the selected turn's diff; toggle split/unified                                                                                                                                                                                                                                                       |
 | u                                                     | In the Summary view or a worker tab: undo the selected row's captured file changes (confirm first)                                                                                                                                                                                                                     |
-| Tab                                                   | In a view: next tab. In the chat with the editor empty: focus the newest card; Up/Down move, Enter opens it, Esc returns                                                                                                                                                                                               |
+| Tab                                                   | In a view: next tab. In the chat with the editor empty: focus the newest card; arrows move between cards, Enter opens it, Esc returns                                                                                                                                                                                               |
 | Esc, i                                                | In a view: focus the composer without stopping background work                                                                                                                                                                                                                                                         |
 | a                                                     | Activate the selected row's action, if present                                                                                                                                                                                                                                                                         |
 | Contributed keys                                      | Keys a repository or a cell adds (`alt+r`); listed in the hints and the `?` popup under their owner                                                                                                                                                                                                                    |
 | r, x                                                  | In a worker or flow tab: resume / stop. A worker resumes with its prior steps on its original model                                                                                                                                                                                                                    |
 | m, w                                                  | In a failed worker tab: choose a model for resume / wait for reset                                                                                                                                                                                                                                                     |
-| s, c                                                  | In a worker tab: steer it from the composer (Esc returns) / show its lane in the chat                                                                                                                                                                                                                                  |
+| s                                                     | In a worker tab: steer it from the composer (Esc returns) |
 | a                                                     | In a flow tab: approve or fill in                                                                                                                                                                                                                                                                                      |
+| x, s, r, m, w, f                                      | On a focused subagent card: the worker keys its status allows (shown on the card), and `f` its changed files |
 | Tab/Down, Shift+Tab/Up, Space, Left/Right, Enter, Esc | In a flow form: next, previous field, toggle, choose, run, close (the run stays parked)                                                                                                                                                                                                                                |
 | Ctrl+G                                                | Edit the prompt in `$VISUAL` / `$EDITOR`                                                                                                                                                                                                                                                                               |
 | PageUp, PageDown                                      | Scroll                                                                                                                                                                                                                                                                                                                 |
@@ -221,10 +223,16 @@ resumes a failed, stopped, or parked tab on its requested model.
 Up to six workers can run at once (`SMITHERS_TUI_WORKERS` overrides the pool);
 later requests queue FIFO. They share the working directory, so
 independent tasks should name disjoint files. Worker transcripts persist in
-separate session files, and the chat interleaves their rows by time inside a
-colored rail titled `↳ <worker>`. `/filter` shows or hides the chat, each
-worker, and each kind of row; `/grep <text>` keeps rows containing the text and
-`/grep` alone clears it. Chat receives every unsettled worker and the newest
+separate session files. The chat shows the workers a cell delegated as
+subagent cards after that cell (`@smthrs/rpc/SubagentCard`, shared with the
+GUI): `◐ Running 3 subagents (1/3)` and a `▰` bar, then equal-height cards,
+one column below 69 columns, up to four across. A card has its lane-colored
+`▌` rail, glyph and title, `… +N earlier`, its last five steps (`├ Read x ✓`,
+`└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · sol` or
+`Done 1m 04s · sol`. A focused card shows its worker keys (`[x Stop] [s Steer]`).
+A worker tab's own children show the same way. `◉ <worker> finished` marks
+where a worker settled. `/filter` shows or hides each kind of row;
+`/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
 while workers run. Progress uses the shared toast stack,
 with a 300 ms delay and real completion/failure as its end. A `tree:<rootId>`
@@ -236,11 +244,13 @@ wider, shows the status glyph subagent cards share (`@smthrs/rpc/SubagentCard`):
 the color of its state (running, waiting for queued, parked or children, done,
 failed, stopped), its model and its clock. Tabs are
 never shortened: when they overflow, `‹ n` and `n ›` count and open the hidden
-ones. Click a tab or a worker to open it. A worker's tab heads its transcript,
-drawn with the chat's own cells, with its status, model, clock and tokens, and
-buttons for the actions its status allows: **x** Stop, **r** Resume, **m**
-Switch model, **w** Wait for reset, **s** Steer, **c** Open in chat. **j**/**k**
-pick a row and **u** undoes its changes.
+ones. Click a tab, a worker or a card to open it. A worker's tab starts with
+`▌ Subagent · <title>` in its lane color and `Back (ctrl+y)`, then its status,
+model, clock and tokens, and buttons for the actions its status allows:
+**x** Stop, **r** Resume, **m** Switch model, **w** Wait for reset, **s**
+Steer. Its transcript is drawn with the chat's own cells. **j**/**k** pick a
+row and **u** undoes its changes. A worker's toast reads like its card
+(`◐ title · 42s`) with Stop and Steer.
 
 Workers run locally. Restarting the TUI restores their transcripts and
 auto-relaunches running and waiting workers; parked workers relaunch at reset.

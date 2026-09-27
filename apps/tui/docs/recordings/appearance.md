@@ -9,7 +9,7 @@ Press Enter
 Wait for answer "Ready."
 Type "/filter"
 Press Enter
-Capture "Choose which lanes and row kinds appear in chat."
+Capture "Choose which row kinds appear in chat."
 Press Escape
 Type "/grep Ready"
 Press Enter
