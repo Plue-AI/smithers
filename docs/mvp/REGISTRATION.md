@@ -87,6 +87,10 @@ individual people, results private by default.
   through `packages/backend` (#2157). The relay discovers persisted workspace
   hosts, exposes only registration review and decline-note waits, and requires
   an admin person; run credentials cannot read or answer these reviews.
+  Listing is a read: it never wakes a box or starts its host. A box that is
+  asleep or not answering is reported unread, its earlier inbox card stands,
+  and the inbox counts it as not checked rather than failing or claiming no
+  reviews (#2341).
   Answers use the existing `Approval.Submit` and durable resume path. No
   registration table or second approval model is added. Deployment verification
   remains required before removing the closed-alpha gate (#2145).

@@ -256,11 +256,14 @@ export const createFailureController = (ctx: ControllerContext): FailureControll
     // Other outcomes are success
     // (true, or a value the caller consumes — e.g. the browser tool's read).
     const ok = typeof outcome !== "string"
+    // Success may name one fact the person needs beside the done title (a partial read's count).
+    const named: unknown = ok && typeof outcome === "object" && outcome !== null ? (outcome as { toastDetail?: unknown }).toastDetail : undefined
+    const detail = typeof named === "string" ? named : ""
     // Settled work states its result, never the running sentence: an ok
     // toast reads as done for the seconds before it dismisses itself, and
     // a failure keeps the attempt's title with the honest line under it.
     resolveToast(key, outcome === TOAST_CANCELLED ? { status: "cancelled", title, detail: "Cancelled" }
-      : ok ? { status: "ok", title: doneTitle, detail: "" } : { status: "failed", detail: outcome as string })
+      : ok ? { status: "ok", title: doneTitle, detail } : { status: "failed", detail: outcome as string })
     // The run is over either way, so its counter entry is terminal and
     // leaves now. The ok toast's self-dismissal is guarded by the toast's
     // own state in resolveToast, so no stale timer can claim the slot a

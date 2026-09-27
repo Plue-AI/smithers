@@ -3229,3 +3229,42 @@ test("admin inbox reads another account in the background and answers its existi
     expect(refreshed?.kind === "approvals-inbox" && refreshed.payload.approvals).toEqual([])
   } finally { held.resolve() }
 })
+
+test("an admin inbox with an unread registration box keeps the readable reviews and says one box went unchecked", async () => {
+  const store = await webStore()
+  const double = relay()
+  const readableBox = "88888888-1111-4111-8111-111111111111"
+  const sleepingBox = "88888888-2222-4222-8222-222222222222"
+  const question = {
+    ...approvalRow("foreign-run", "register-repository/review#1", "Register other/repo?"),
+    waitRunId: "foreign-wait",
+    request: { name: "register-repository/review", kind: "select", prompt: "Register other/repo?", options: ["Approve", "Decline"] }
+  }
+  const originalFetch = double.services.fetchImpl!
+  const held = Promise.withResolvers<void>()
+  const controller = createAppController(store, silentAgent, { ...double.services, toastDebounceMs: 0, toastAutoDismissMs: 60_000, fetchImpl: async (input, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+    if (body?.procedure === "Registration.Reviews") {
+      // Held past the toast's debounce so the toast is on screen to settle.
+      await held.promise
+      return json(200, { ok: true, payload: { inboxes: [
+        { repo: "other/repo", workspaceId: readableBox, rows: [question] },
+        { repo: "asleep/repo", workspaceId: sleepingBox, rows: [], error: "Registration reviews unavailable. Retry." }
+      ], next: "" } })
+    }
+    return originalFetch(input, init)
+  } })
+  await signIn(store)
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+  expect(said(await controller.commands.run("approvals.list"))).toBe("Approvals requested.")
+  await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.key.startsWith("approvals.list.") && toast.status === "running"))
+  held.resolve()
+  await waitFor(() => inboxRequests(store).length === 0)
+  const readable = [...store.collections.cards.values()].find(card => card.kind === "approvals-inbox" && card.payload.repo === "other/repo")
+  expect(readable?.kind === "approvals-inbox" && readable.payload.approvals.map(row => row.runId)).toEqual(["foreign-run"])
+  expect([...store.collections.cards.values()].some(card => card.kind === "approvals-inbox" && card.payload.repo === "asleep/repo")).toBe(false)
+  await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.key.startsWith("approvals.list.") && toast.status !== "running"))
+  const toast = [...store.collections.toasts.values()].find(entry => entry.key.startsWith("approvals.list."))!
+  expect(toast.status).toBe("ok")
+  expect(toast.detail).toBe("1 box not checked")
+})

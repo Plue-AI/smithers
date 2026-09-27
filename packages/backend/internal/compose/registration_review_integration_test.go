@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -51,6 +52,14 @@ func (d *registrationHostDispatcher) CallRPC(ctx context.Context, target flowrun
 }
 func (d *registrationHostDispatcher) StartHost(context.Context, flowruntime.Target) (bool, error) {
 	return true, nil
+}
+
+// registrationResumes counts box resumes: listing reviews must never ask for one.
+type registrationResumes struct{ calls int }
+
+func (b *registrationResumes) ResumeWorkspace(context.Context, string, int64, int64) (services.WorkspaceResponse, error) {
+	b.calls++
+	return services.WorkspaceResponse{}, nil
 }
 
 func startRegistrationHost(t *testing.T, root string) (*runtimebridge.Client, func()) {
@@ -130,9 +139,19 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Symlink(modules, filepath.Join(root, "node_modules")))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"type":"module"}`), 0600))
+	// A second registrant box that sleeps. Its host binding stays, so the list
+	// sees it; reading it must not wake it (#2341).
+	sleeping := uuid.NewString()
+	var sleepingRepo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name,is_public,default_bookmark) VALUES ($1,'asleep','asleep',false,'main') RETURNING id`, owner.ID).Scan(&sleepingRepo))
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,vm_id,status) VALUES($1,$2,$3,'fixture-sleeping','suspended')`, sleeping, sleepingRepo, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO flow_runtime_host_bindings(id,tenant_id,principal_id,binding_kind,binding_id,repository_id,user_id,workspace_id,catalog_key,service_name,runtime_artifact_digest,source_revision,owner_generation,credential_ciphertext,credential_hash,state) VALUES($1,$2,$3,'browser-flow','registrant/asleep',$4,$5,$6,'coding','coding-host',$7,$8,1,'fixture',decode(repeat('01',32),'hex'),'running')`, uuid.NewString(), fmt.Sprintf("repository:%d", sleepingRepo), fmt.Sprintf("user:%d", owner.ID), sleepingRepo, owner.ID, sleeping, strings.Repeat("a", 64), strings.Repeat("b", 40))
+	require.NoError(t, err)
+	resumes := &registrationResumes{}
 	client, stop := startRegistrationHost(t, root)
 	dispatcher := &registrationHostDispatcher{client: client, target: flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner.ID), WorkspaceID: workspace, BindingKind: "browser-flow", BindingID: "registrant/repo"}}
-	api := &browserFlowAPI{registrationPool: pool, dispatcher: dispatcher}
+	api := &browserFlowAPI{registrationPool: pool, dispatcher: dispatcher, boxes: resumes}
 	list := func() []registrationInbox {
 		// The app's own Inbox body (gateway.ts registrationInboxes): the admin's
 		// selected box and repository ride along, and the first page's cursor is "".
@@ -144,10 +163,24 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 			} `json:"payload"`
 		}
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+		// The sleeping box is answered unread and left asleep; the running box's
+		// reviews are listed beside it.
+		read := []registrationInbox{}
 		for _, inbox := range result.Payload.Inboxes {
+			if inbox.WorkspaceID == sleeping {
+				require.NotEmpty(t, inbox.Error)
+				require.Empty(t, inbox.Rows)
+				continue
+			}
 			require.Empty(t, inbox.Error)
+			read = append(read, inbox)
 		}
-		return result.Payload.Inboxes
+		require.Len(t, result.Payload.Inboxes, len(read)+1)
+		require.Zero(t, resumes.calls)
+		var status string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1`, sleeping).Scan(&status))
+		require.Equal(t, "suspended", status)
+		return read
 	}
 	answer := func(row json.RawMessage, value string) *bytes.Buffer {
 		var item struct {
@@ -214,7 +247,7 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 			stop()
 			client, stop = startRegistrationHost(hostTest, root)
 			dispatcher.client = client
-			api = &browserFlowAPI{registrationPool: restartedPool, dispatcher: dispatcher}
+			api = &browserFlowAPI{registrationPool: restartedPool, dispatcher: dispatcher, boxes: resumes}
 			inbox = list()
 			require.Len(t, inbox, 1)
 			var original, recovered struct {

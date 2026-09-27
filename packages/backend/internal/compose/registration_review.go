@@ -273,6 +273,9 @@ func sameRegistrationJSON(a, b json.RawMessage) bool {
 	return string(l) == string(rr)
 }
 
+// errRegistrationUnread marks a registration box the list could not read.
+var errRegistrationUnread = errors.New("registration box not read")
+
 func (api *browserFlowAPI) registrationList(w http.ResponseWriter, r *http.Request, payload json.RawMessage) {
 	var input struct {
 		After string `json:"after"`
@@ -316,8 +319,11 @@ func (api *browserFlowAPI) registrationList(w http.ResponseWriter, r *http.Reque
 	inbox := []registrationInbox{}
 	for _, id := range ids {
 		destination, target, workspace, err := api.registrationTarget(r.Context(), id)
-		if err == nil {
-			err = api.registrationReady(r.Context(), target, workspace)
+		// Listing is a read: it never resumes a sleeping box or starts a host
+		// (#2341). A box that is not running is answered unread, with the error
+		// the app counts, never as a box with no reviews.
+		if err == nil && workspace.Status != "running" {
+			err = errRegistrationUnread
 		}
 		item := registrationInbox{registrationDestination: destination, Rows: []json.RawMessage{}}
 		if err == nil {

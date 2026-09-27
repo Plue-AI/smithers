@@ -1011,15 +1011,18 @@ export const createRunsController = (
         if (!current()) return TOAST_SUPERSEDED
         if ("error" in binding) return await settle(binding.error) ? binding.error : TOAST_SUPERSEDED
         let registrationCount = 0
-        let registrationError: string | undefined
+        // Boxes whose registration reviews could not be read (asleep or not
+        // answering, #2341): their earlier cards stand, and the answer says how
+        // many went unread instead of failing or claiming none are pending.
+        let unread = 0
         if (store.collections.identitySessions.get("identity")?.admin === true) {
           const registrations = await gateway.registrationInboxes(request.repo, binding)
           if (!current()) return TOAST_SUPERSEDED
           if (registrations.status !== "ok") return await settle(registrations.message) ? registrations.message : TOAST_SUPERSEDED
           for (const inbox of registrations.value) {
-            if (inbox.error !== undefined) { registrationError = inbox.error; continue }
             // This repository's ordinary inbox below includes its registration waits.
             if (inbox.workspaceId === binding.workspaceId) continue
+            if (inbox.error !== undefined) { unread += 1; continue }
             const old = store.collections.cards.get(inboxCardIdFor(inbox.repo, inbox.workspaceId))
             if (inbox.rows.length === 0 && old?.kind !== "approvals-inbox") continue
             const runIds = new Set([...inbox.rows.map(row => row.runId), ...(old?.kind === "approvals-inbox" ? old.payload.approvals.map(row => row.runId) : [])])
@@ -1042,9 +1045,13 @@ export const createRunsController = (
           if (!current()) return TOAST_SUPERSEDED
         }
         const pending = registrationCount + await publishInbox(request.repo, binding, inbox.value)
-        if (registrationError !== undefined) return await settle(registrationError) ? registrationError : TOAST_SUPERSEDED
         if (!await settle()) return TOAST_SUPERSEDED
-        return { value: pending === 0 ? `No approvals are pending on ${request.repo}.` : registrationCount > 0 ? `${pending} approval${pending === 1 ? "" : "s"} pending.` : `${pending} approval${pending === 1 ? "" : "s"} pending on ${request.repo}.` }
+        const approvals = `${pending} approval${pending === 1 ? "" : "s"} pending`
+        if (unread > 0) {
+          const unchecked = `${unread} box${unread === 1 ? "" : "es"} not checked`
+          return { value: `${approvals}; ${unchecked}.`, toastDetail: unchecked }
+        }
+        return { value: pending === 0 ? `No approvals are pending on ${request.repo}.` : registrationCount > 0 ? `${approvals}.` : `${approvals} on ${request.repo}.` }
       } catch (error) {
         if (!current()) return TOAST_SUPERSEDED
         const message = error instanceof Error ? error.message : String(error)
