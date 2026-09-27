@@ -162,6 +162,13 @@ only.
 | `smithers/build/build-cli` | `answers the envelope contract through a real codex session` | `it.skipIf(SMTHRS_CODEX_SMOKE !== "1")` |
 | `smithers/agent/std` | `streams a file larger than available memory (skipped: a hermetic test cannot exhaust its runner)` | `it.skip` |
 | `testing` | `registers a skipped layered Effect body` | `test.skip` |
+| `smithers/flows/database` | `PostgreSQL adapter (independent pools)` | `describe.skipIf(SMITHERS_TEST_PG_URL absent)` |
+| `smithers` | `reads and reconciles PostgreSQL history without SQLite files` | `it.skipIf(SMITHERS_TEST_PG_URL absent)` |
+
+**PostgreSQL storage.** The two PostgreSQL cases run against a real database
+named by `SMITHERS_TEST_PG_URL`. No target supplies one yet, so they skip
+everywhere; giving them a declared Postgres service is
+[#2154](https://github.com/smithersai/smithers/issues/2154).
 
 **`migrate`: apply against a real model.** The three cases in
 `packages/smithers/migrate/test/flow/MigrateFlow.live.e2e.test.ts` drive the migration

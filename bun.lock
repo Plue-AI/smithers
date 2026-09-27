@@ -995,6 +995,7 @@
       "name": "@smthrs/eval-agent",
       "version": "0.0.0",
       "dependencies": {
+        "@effect/platform-node": "4.0.0-rc.115",
         "@smthrs/agent": "workspace:*",
         "@smthrs/core": "workspace:*",
         "@smthrs/engine": "workspace:*",
@@ -1006,6 +1007,7 @@
         "@smthrs/registry": "workspace:*",
         "@smthrs/scorers": "workspace:*",
         "effect": "4.0.0-rc.115",
+        "yaml": "2.9.0",
       },
       "devDependencies": {
         "@smthrs/targets": "workspace:*",
@@ -1260,6 +1262,7 @@
         "@effect/language-service": "0.87.2",
         "@effect/platform-node": "4.0.0-rc.115",
         "@effect/platform-node-shared": "4.0.0-rc.115",
+        "@effect/sql-pg": "4.0.0-rc.115",
         "@effect/sql-sqlite-node": "4.0.0-rc.115",
         "@effect/vitest": "4.0.0-rc.115",
         "@eslint/js": "9.39.5",
@@ -1281,8 +1284,12 @@
         "vitest": "5.0.0",
       },
       "peerDependencies": {
+        "@effect/sql-pg": "4.0.0-rc.115",
         "@effect/sql-sqlite-node": "4.0.0-rc.115",
       },
+      "optionalPeers": [
+        "@effect/sql-pg",
+      ],
     },
     "packages/smithers/agent": {
       "name": "@smthrs/agent",
@@ -1505,6 +1512,7 @@
         "@smthrs/errors": "1.0.0-rc.1",
         "@smthrs/flow": "1.0.0-rc.1",
         "@smthrs/notifications": "1.0.0-rc.1",
+        "@smthrs/plan": "1.0.0-rc.1",
       },
       "devDependencies": {
         "@effect/language-service": "0.87.2",
@@ -2245,6 +2253,7 @@
       "version": "1.0.0-rc.1",
       "devDependencies": {
         "@effect/language-service": "0.87.2",
+        "@effect/sql-pg": "4.0.0-rc.115",
         "@effect/sql-sqlite-bun": "4.0.0-rc.115",
         "@effect/sql-sqlite-node": "4.0.0-rc.115",
         "@effect/vitest": "4.0.0-rc.115",
@@ -2266,11 +2275,13 @@
         "vitest": "5.0.0",
       },
       "peerDependencies": {
+        "@effect/sql-pg": "4.0.0-rc.115",
         "@effect/sql-sqlite-bun": "4.0.0-rc.115",
         "@effect/sql-sqlite-node": "4.0.0-rc.115",
         "effect": "4.0.0-rc.115",
       },
       "optionalPeers": [
+        "@effect/sql-pg",
         "@effect/sql-sqlite-bun",
         "@effect/sql-sqlite-node",
       ],
@@ -3580,6 +3591,8 @@
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.115", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.3" }, "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-rcBwhDIfb82akJoTv7Vwh8K5x9vC/XfuePS7JjOr+z+dORXzsmKqI1BUQF27ARCN9fTAbDh7I6YvBlWhLjnqNg=="],
 
     "@effect/sql-d1": ["@effect/sql-d1@4.0.0-rc.115", "", { "dependencies": { "@cloudflare/workers-types": "^5.20260905.1" }, "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-o2JkGjN02NBMxwDtJbwcC4teyMiOApqN085fdVMid4FUC6ixj/WyKyPpe51QGOMQQTTl2BkXccA/IwDIywGXlA=="],
+
+    "@effect/sql-pg": ["@effect/sql-pg@4.0.0-rc.115", "", { "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-TLdzqBvGF/HwAKpWTw/5ih7JqVkkakVSb4aD6amzMaavFfFl4vsqqeKjSBijwuzbOMANNN0HqnEt/9fgjTsFEA=="],
 
     "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@4.0.0-rc.115", "", { "peerDependencies": { "effect": "^4.0.0-rc.115" } }, "sha512-CypwmCPAUSOOhopcnSI9ocgpKHfpgOdERpei3GuXZm5cCGP31pk2NUETqNaYhonhr2bWd+6Rc8atctnEbIYKYQ=="],
 
