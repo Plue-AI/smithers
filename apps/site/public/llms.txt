@@ -59,7 +59,6 @@
 
 ## Tutorials
 
-- [Run a target and hit the cache](https://smithers.sh/docs/tutorials/first-target/): Declare a file input and a test target, run it twice, then change the input to see the target execute again.
 - [Build your first durable flow](https://smithers.sh/docs/tutorials/first-flow/): Declare an action and a flow, attach an implementation, and run the flow in memory and durably over SQLite.
 - [Crash and resume a run](https://smithers.sh/docs/tutorials/crash-and-resume/): Suspend a durable run at a wait, drop the engine, and resume from durable state without re-executing recorded steps.
 - [Retry a flaky action](https://smithers.sh/docs/tutorials/retry-policy/): Declare a retry policy, inspect its backoff ladder, and retry an action that fails twice before it succeeds.
@@ -68,6 +67,7 @@
 - [Build your first agent flow](https://smithers.sh/docs/tutorials/first-agent-flow/): Give a model-backed step real file tools and a sandbox in a module flow.
 - [Pass typed outputs between agent steps](https://smithers.sh/docs/tutorials/agent-outputs/): Declare output schemas on model-backed steps, chain one step's typed output into the next, and read the recorded outputs back.
 - [Remember facts across runs](https://smithers.sh/docs/tutorials/memory/): Record facts in one run, recall them in a later run under one memory policy, and inspect the namespace with the CLI.
+- [Run a target and hit the cache](https://smithers.sh/docs/tutorials/first-target/): Declare a file input and a test target, run it twice, then change the input to see the target execute again.
 
 ## How-to guides
 
@@ -102,7 +102,6 @@
 
 ## Concepts
 
-- [How target caching works](https://smithers.sh/docs/concepts/target-caching/): What target keys include, how output restoration works, and how to diagnose unexpected hits or misses.
 - [Durable execution](https://smithers.sh/docs/concepts/durable-execution/): What a run records, what resume reuses, and which work can execute again after a crash.
 - [Flows, actions, and plans](https://smithers.sh/docs/concepts/flows-actions-plans/): How action declarations, flow bodies, and approved plans fit together.
 - [Content addressing](https://smithers.sh/docs/concepts/content-addressing/): How declared inputs determine step keys, which changes invalidate results, and where the identity contract stops.
@@ -114,6 +113,7 @@
 - [The agent runtime](https://smithers.sh/docs/concepts/agent-runtime/): How @smthrs/agent runs a model-driven cell loop as durable work on the engine.
 - [Memory](https://smithers.sh/docs/concepts/memory/): Retain facts, conversation history, and reviewed notes across runs, then recall them under an explicit policy.
 - [Why Effect](https://smithers.sh/docs/concepts/why-effect/): Why flows are Effect programs, why implementations attach as layers, and why the Effect version is pinned.
+- [How target caching works](https://smithers.sh/docs/concepts/target-caching/): What target keys include, how output restoration works, and how to diagnose unexpected hits or misses.
 
 ## Reference
 

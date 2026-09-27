@@ -2640,110 +2640,6 @@ Signed out, you can read a public repository's home, guide files, and rules. Eve
 
 ---
 
-# Run a target and hit the cache
-https://smithers.sh/docs/tutorials/first-target/
-
-Build a small target graph and observe its cache behavior. You will run a JavaScript program, reuse its result, and then change a declared input to make it run again. This tutorial does not call a model.
-
-You need the [Smithers CLI](/docs/installation/#install-the-cli) and Git.
-
-## Create the workspace
-
-1. **Initialize an empty project.**
-
-   ```bash
-   mkdir cache-demo
-   cd cache-demo
-   git init
-   smthrs init cache-demo
-   mkdir src
-   ```
-
-   `init` creates workspace and package declarations, plus a starter flow. This tutorial uses the target declarations; the starter flow does not run.
-
-2. **Create an input file.**
-
-   ```js title="src/message.js"
-   console.log("Hello from the target.")
-   ```
-
-3. **Replace the generated `PACKAGE.ts` with these targets.**
-
-   ```ts title="PACKAGE.ts"
-   import { Smithers as S } from "@smthrs/targets"
-
-   const sources = S.Filegroup({ srcs: S.glob(["src/**"]) })
-   const greeting = S.Shell.Test({
-     shell: "node src/message.js",
-     data: [sources]
-   })
-
-   export const Package = S.Package({ targets: { sources, greeting } })
-   ```
-
-   `sources` names the files the command reads. `greeting` is a test target that depends on those files. The root package gives it the label `//:greeting`.
-
-## Preview the work
-
-Plan the test without executing its command:
-
-```bash
-smthrs test '//:greeting' --plan
-```
-
-The plan includes the selected target, its dependencies, and cache information. If the target is missing, check that the root `PACKAGE.ts` exports `Package` and includes `greeting` in `targets`.
-
-## Run twice
-
-Run the test:
-
-```bash
-smthrs test '//:greeting'
-```
-
-The first run executes `node src/message.js` and records a successful result. Run the same command again:
-
-```bash
-smthrs test '//:greeting'
-```
-
-The second run reports a cache hit. The command does not need to execute because its declared inputs and execution environment have not changed.
-
-## Change an input
-
-Change the text in `src/message.js`:
-
-```js title="src/message.js"
-console.log("Hello after an input change.")
-```
-
-Run the target again. It executes because `sources` includes that file and `greeting` consumes `sources`. The changed file produces a different key for the work.
-
-```bash
-smthrs test '//:greeting'
-smthrs explain '//:greeting'
-```
-
-`explain` shows the planned key and local cache decision. Use it when a hit or miss is unexpected.
-
-:::caution[Declare what the command reads]
-Smithers can only track inputs represented in the target declaration and its environment. A command that reads an undeclared file can appear unchanged when that file changes. Add the file to `data` or the appropriate rule input before relying on the cache.
-:::
-
-## Check the failure path
-
-Temporarily replace `src/message.js` with `process.exit(1)`, then run the test. The target fails and the CLI returns a nonzero exit status. Restore the successful program before continuing.
-
-To force execution for one invocation, use `--no-cache`. It bypasses cache reads and still publishes the new result; it does not delete all stored results.
-
-## Next steps
-
-- [Run selected and affected targets](/docs/guides/build-targets/) to narrow work by package, kind, or changed files.
-- [How target caching works](/docs/concepts/target-caching/) to understand inputs, outputs, and shared cache boundaries.
-- [Build your first durable flow](/docs/tutorials/first-flow/) to coordinate work that needs persistent execution state.
-
----
-
 # Build your first durable flow
 https://smithers.sh/docs/tutorials/first-flow/
 
@@ -4715,6 +4611,110 @@ JSON object with a content field holding the fact's text.
 
 ---
 
+# Run a target and hit the cache
+https://smithers.sh/docs/tutorials/first-target/
+
+Build a small target graph and observe its cache behavior. You will run a JavaScript program, reuse its result, and then change a declared input to make it run again. This tutorial does not call a model.
+
+You need the [Smithers CLI](/docs/installation/#install-the-cli) and Git.
+
+## Create the workspace
+
+1. **Initialize an empty project.**
+
+   ```bash
+   mkdir cache-demo
+   cd cache-demo
+   git init
+   smthrs init cache-demo
+   mkdir src
+   ```
+
+   `init` creates workspace and package declarations, plus a starter flow. This tutorial uses the target declarations; the starter flow does not run.
+
+2. **Create an input file.**
+
+   ```js title="src/message.js"
+   console.log("Hello from the target.")
+   ```
+
+3. **Replace the generated `PACKAGE.ts` with these targets.**
+
+   ```ts title="PACKAGE.ts"
+   import { Smithers as S } from "@smthrs/targets"
+
+   const sources = S.Filegroup({ srcs: S.glob(["src/**"]) })
+   const greeting = S.Shell.Test({
+     shell: "node src/message.js",
+     data: [sources]
+   })
+
+   export const Package = S.Package({ targets: { sources, greeting } })
+   ```
+
+   `sources` names the files the command reads. `greeting` is a test target that depends on those files. The root package gives it the label `//:greeting`.
+
+## Preview the work
+
+Plan the test without executing its command:
+
+```bash
+smthrs test '//:greeting' --plan
+```
+
+The plan includes the selected target, its dependencies, and cache information. If the target is missing, check that the root `PACKAGE.ts` exports `Package` and includes `greeting` in `targets`.
+
+## Run twice
+
+Run the test:
+
+```bash
+smthrs test '//:greeting'
+```
+
+The first run executes `node src/message.js` and records a successful result. Run the same command again:
+
+```bash
+smthrs test '//:greeting'
+```
+
+The second run reports a cache hit. The command does not need to execute because its declared inputs and execution environment have not changed.
+
+## Change an input
+
+Change the text in `src/message.js`:
+
+```js title="src/message.js"
+console.log("Hello after an input change.")
+```
+
+Run the target again. It executes because `sources` includes that file and `greeting` consumes `sources`. The changed file produces a different key for the work.
+
+```bash
+smthrs test '//:greeting'
+smthrs explain '//:greeting'
+```
+
+`explain` shows the planned key and local cache decision. Use it when a hit or miss is unexpected.
+
+:::caution[Declare what the command reads]
+Smithers can only track inputs represented in the target declaration and its environment. A command that reads an undeclared file can appear unchanged when that file changes. Add the file to `data` or the appropriate rule input before relying on the cache.
+:::
+
+## Check the failure path
+
+Temporarily replace `src/message.js` with `process.exit(1)`, then run the test. The target fails and the CLI returns a nonzero exit status. Restore the successful program before continuing.
+
+To force execution for one invocation, use `--no-cache`. It bypasses cache reads and still publishes the new result; it does not delete all stored results.
+
+## Next steps
+
+- [Run selected and affected targets](/docs/guides/build-targets/) to narrow work by package, kind, or changed files.
+- [How target caching works](/docs/concepts/target-caching/) to understand inputs, outputs, and shared cache boundaries.
+- [Build your first durable flow](/docs/tutorials/first-flow/) to coordinate work that needs persistent execution state.
+
+---
+
 # Guides
 https://smithers.sh/docs/guides/
 
@@ -4731,6 +4731,7 @@ Use these guides when you know what you want to do. For a complete worked projec
 - [Module flows](/docs/guides/module-flows/): define a flow in TypeScript.
 - [Organize flows](/docs/guides/flow-discovery/): choose directory names and find the project root.
 - [Test flows](/docs/guides/testing-flows/): test implementations without calling a live model.
+- [Undo work with compensation](/docs/guides/compensation/): roll back what a failed run already did.
 
 ## Connect an agent
 
@@ -4738,6 +4739,8 @@ Use these guides when you know what you want to do. For a complete worked projec
 - [Tools](/docs/guides/tools/): give an agent a typed tool implementation.
 - [MCP setup](/docs/guides/mcp-setup/): expose Smithers commands to another agent.
 - [Agent policies](/docs/guides/agent-policies/): bound an agent's work and review its decisions.
+- [Declare and grant capabilities](/docs/guides/capabilities/): grant the host authority a flow needs.
+- [Review pull requests](/docs/guides/pr-review-action/): run agent reviews from a PR comment.
 - [Place work on a sandbox provider](/docs/guides/sandboxes/): choose where code executes.
 
 ## Run and inspect work
@@ -4756,6 +4759,7 @@ Use these guides when you know what you want to do. For a complete worked projec
 - [Artifacts and cache](/docs/guides/artifacts-cache/): store output bytes and share sealed results.
 - [Retention](/docs/guides/retention/): back up state and remove data you no longer need.
 - [Sync followers](/docs/guides/sync-followers/): build a read-only projection of run history.
+- [Export traces, logs, and metrics](/docs/guides/observability/): attach an OTLP exporter to a run.
 - [Memory operations](/docs/guides/memory-ops/): retain facts and maintain conversation history.
 
 For a run that is already failing or waiting, use [Troubleshooting](/docs/troubleshooting/).
@@ -7642,72 +7646,6 @@ There is no `smthrs webhooks` verb. `Webhook.make` builds a verified webhook doo
 
 ---
 
-# How target caching works
-https://smithers.sh/docs/concepts/target-caching/
-
-A cached target reuses a previous result instead of executing its command. Smithers derives its key from the declaration, file inputs, dependencies, and execution environment. A cache hit is valid only when those inputs describe everything that can affect the result.
-
-This page covers `PACKAGE.ts` targets. The durable engine's [step cache](/docs/guides/artifacts-cache/) is a separate API for sharing eligible action results.
-
-**A target cache lookup**
-
-Smithers derives a key from declared work and its environment, then looks it up. A hit restores the recorded result and declared outputs. A miss executes the target and records its result.
-
-## What changes the key
-
-The key covers more than source-file bytes:
-
-| Material | Examples |
-| --- | --- |
-| Target body | Rule identity, effective mode, working directory, declared output roots. |
-| Inputs | Attributes, expanded file inputs, and dependency keys. |
-| Ambient environment | Node version, platform, architecture, lockfile, and executor implementation fingerprint. |
-| Resolved layers | Environment declarations such as a Nix closure. |
-| Capabilities | The authority declared for the target. |
-
-A changed dependency also changes its consumers' keys. An independent target can keep its cached result. Changes to the executor or shared environment can invalidate many targets at once.
-
-## Inputs are an authoring contract
-
-Declare the files and dependencies the target reads. A file hidden from the declaration can change without changing the key. Likewise, a command whose result depends on an unrepresented external service may need caching disabled or a rule that explicitly models that dependency.
-
-The [first target tutorial](/docs/tutorials/first-target/) demonstrates a file edit that causes a miss. [Run selected and affected targets](/docs/guides/build-targets/) explains how change selection and execution fit together.
-
-## Results and output bytes
-
-The target cache records results and captures declared `outDir` trees or `outFile` files into its content-addressed artifact store. During restoration, it checks blob digests and confines restored paths to the target's declared outputs.
-
-The workspace cache directory comes from `--cache-dir`, then the workspace's `S.Cache({ directory })`, then `.flows`. Keep it out of version control. Its contents are excluded from input discovery.
-
-## Local and remote lookup
-
-A local hit avoids a network request. When configured, a remote hit fills the local cache for later reads. Remote failures warn and disable the remote for the rest of that process; the build can continue with local execution.
-
-Separate read access from publication credentials when untrusted jobs can consume trusted results but must not publish them. [Configure a shared target cache](/docs/guides/remote-cache/) in the workspace declaration. The [build CLI package reference](/docs/reference/api/build-cli/) links to its complete workspace and transport contract.
-
-## Diagnose an unexpected result
-
-Start with the exact target:
-
-```bash
-smthrs explain '//apps/site:build'
-smthrs build '//apps/site:build' --plan
-```
-
-Replace the label with one in your workspace. Check these causes before clearing anything:
-
-| Symptom | Check |
-| --- | --- |
-| A source edit still hits the cache | Is the file included in the target's declared inputs? |
-| The same code misses on another machine | Do Node version, platform, architecture, lockfile, and environment match? |
-| Many targets miss after a tool upgrade | Did the executor implementation fingerprint change? |
-| A result restores without an expected file | Is the file inside the target's declared output roots? |
-| The remote is unavailable | Read the warning; confirm local execution still completes. |
-
-`--no-cache` bypasses reads for one invocation and still publishes its result. Use it to compare fresh execution with a cached result. Cache deletion alone does not repair a missing input declaration.
-
----
-
 # Durable execution
 https://smithers.sh/docs/concepts/durable-execution/
 
@@ -8413,6 +8351,72 @@ Smithers vendors Effect's workflow surface and extends it with explicit executio
 - [Installation](/docs/installation/): the pinned install line and repair commands.
 - [Durable execution](/docs/concepts/durable-execution/): what the journaled program buys you.
 - [Module flows](/docs/guides/module-flows/): the authoring surface these layers serve.
+
+---
+
+# How target caching works
+https://smithers.sh/docs/concepts/target-caching/
+
+A cached target reuses a previous result instead of executing its command. Smithers derives its key from the declaration, file inputs, dependencies, and execution environment. A cache hit is valid only when those inputs describe everything that can affect the result.
+
+This page covers `PACKAGE.ts` targets. The durable engine's [step cache](/docs/guides/artifacts-cache/) is a separate API for sharing eligible action results.
+
+**A target cache lookup**
+
+Smithers derives a key from declared work and its environment, then looks it up. A hit restores the recorded result and declared outputs. A miss executes the target and records its result.
+
+## What changes the key
+
+The key covers more than source-file bytes:
+
+| Material | Examples |
+| --- | --- |
+| Target body | Rule identity, effective mode, working directory, declared output roots. |
+| Inputs | Attributes, expanded file inputs, and dependency keys. |
+| Ambient environment | Node version, platform, architecture, lockfile, and executor implementation fingerprint. |
+| Resolved layers | Environment declarations such as a Nix closure. |
+| Capabilities | The authority declared for the target. |
+
+A changed dependency also changes its consumers' keys. An independent target can keep its cached result. Changes to the executor or shared environment can invalidate many targets at once.
+
+## Inputs are an authoring contract
+
+Declare the files and dependencies the target reads. A file hidden from the declaration can change without changing the key. Likewise, a command whose result depends on an unrepresented external service may need caching disabled or a rule that explicitly models that dependency.
+
+The [first target tutorial](/docs/tutorials/first-target/) demonstrates a file edit that causes a miss. [Run selected and affected targets](/docs/guides/build-targets/) explains how change selection and execution fit together.
+
+## Results and output bytes
+
+The target cache records results and captures declared `outDir` trees or `outFile` files into its content-addressed artifact store. During restoration, it checks blob digests and confines restored paths to the target's declared outputs.
+
+The workspace cache directory comes from `--cache-dir`, then the workspace's `S.Cache({ directory })`, then `.flows`. Keep it out of version control. Its contents are excluded from input discovery.
+
+## Local and remote lookup
+
+A local hit avoids a network request. When configured, a remote hit fills the local cache for later reads. Remote failures warn and disable the remote for the rest of that process; the build can continue with local execution.
+
+Separate read access from publication credentials when untrusted jobs can consume trusted results but must not publish them. [Configure a shared target cache](/docs/guides/remote-cache/) in the workspace declaration. The [build CLI package reference](/docs/reference/api/build-cli/) links to its complete workspace and transport contract.
+
+## Diagnose an unexpected result
+
+Start with the exact target:
+
+```bash
+smthrs explain '//apps/site:build'
+smthrs build '//apps/site:build' --plan
+```
+
+Replace the label with one in your workspace. Check these causes before clearing anything:
+
+| Symptom | Check |
+| --- | --- |
+| A source edit still hits the cache | Is the file included in the target's declared inputs? |
+| The same code misses on another machine | Do Node version, platform, architecture, lockfile, and environment match? |
+| Many targets miss after a tool upgrade | Did the executor implementation fingerprint change? |
+| A result restores without an expected file | Is the file inside the target's declared output roots? |
+| The remote is unavailable | Read the warning; confirm local execution still completes. |
+
+`--no-cache` bypasses reads for one invocation and still publishes its result. Use it to compare fresh execution with a cached result. Cache deletion alone does not repair a missing input declaration.
 
 ---
 
