@@ -1,9 +1,19 @@
-import { test as base } from "@playwright/test"
+import { test as base, type Page } from "@playwright/test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 export * from "@playwright/test"
+
+// macOS WebKit uses Option-Tab to include links and controls without changing
+// the user's keyboard preferences. Keep this explicit at traversal call sites.
+// https://developer.apple.com/documentation/webkit/wkpreferences/tabfocuseslinks
+export const controlTabKey = (page: Page, backwards = false): string => {
+  const key = backwards ? "Shift+Tab" : "Tab"
+  return process.platform === "darwin" && page.context().browser()?.browserType().name() === "webkit"
+    ? `Alt+${key}`
+    : key
+}
 
 // WebKit's private contexts cannot open OPFS. Each durable-app test gets its
 // own temporary profile; Chromium keeps Playwright's standard context.

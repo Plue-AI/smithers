@@ -1,4 +1,4 @@
-import { expect,test,type Page } from "./browserTest"
+import { controlTabKey, expect,test,type Page } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 
 /*
@@ -239,14 +239,14 @@ for (const sample of [
 
   let reachedRailButtons = 0
   for (let presses = 0; presses < 100 && reachedRailButtons < await railButtons.count(); presses++) {
-    await page.keyboard.press("Tab")
+    await page.keyboard.press(controlTabKey(page))
     if (await railButtons.nth(reachedRailButtons).evaluate(node => node === document.activeElement)) reachedRailButtons++
   }
   expect(reachedRailButtons).toBe(await railButtons.count())
-  await page.keyboard.press("Shift+Tab")
+  await page.keyboard.press(controlTabKey(page, true))
   await expect(railButtons.nth((await railButtons.count()) - 2)).toBeFocused()
   const theme = page.getByRole("button", { name: "Toggle light and dark mode" })
-  await page.keyboard.press("Tab")
+  await page.keyboard.press(controlTabKey(page))
   await expect(theme).toBeFocused()
   await page.keyboard.press("Enter")
   await expect(page.locator("html")).toHaveAttribute("data-theme", sample.dark ? "light" : "dark")

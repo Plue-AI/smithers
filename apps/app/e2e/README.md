@@ -7,6 +7,14 @@
 | Real | `pnpm --filter smithers-app test:e2e:real` | `scripts/run-real-e2e.ts` | `real/**/*.spec.ts` |
 | Showcase | `pnpm --dir apps/app showcase [id...]` | `playwright.showcase.config.ts` | `showcase/cases/*.case.ts` |
 
+Keyboard traversal uses `controlTabKey(page)` from `playwright/browserTest.ts`:
+Tab elsewhere, Option-Tab in macOS WebKit; pass `true` for reverse traversal.
+This uses the browser's native control traversal without changing personal
+preferences or injecting focus. Keep focus and activation assertions intact.
+`browser-keyboard.spec.ts` verifies links, buttons, text fields, editable content,
+reverse order, and disabled controls before relying on the app paths. See
+[Apple's traversal preference](https://developer.apple.com/documentation/webkit/wkpreferences/tabfocuseslinks).
+
 T1 builds the SPA through `playwright/webserver.ts`, runs
 `scripts/browser-test-host.ts` on port 47311 with `SMITHERS_CHAT_STUB=1`,
 and drives it with headless Chromium. Individual specs use `page.route`
