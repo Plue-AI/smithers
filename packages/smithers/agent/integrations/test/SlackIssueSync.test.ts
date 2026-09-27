@@ -1,4 +1,6 @@
+import { Schema } from "effect"
 import { describe, expect, it } from "vitest"
+import * as Actions from "../src/slack/Actions.ts"
 import * as IssueSync from "../src/slack/IssueSync.ts"
 
 const policy = {
@@ -256,7 +258,10 @@ it.each(["comment.created", "comment.edited", "comment.deleted", "comment.reacti
     const { sync, receipts } = drainFixture([
       row({
         event,
-        payload: { comment: { id: 7, persona: { username: "Builder" } }, reaction: { name: "eyes", active: false } }
+        payload: {
+          comment: { id: 7, body: "hello", persona: { username: "Builder" } },
+          reaction: { name: "eyes", active: false }
+        }
       })
     ], executor({ post: capture, update: capture, delete: capture, react: capture }))
     expect(await sync.drain()).toBe(1)
@@ -266,7 +271,7 @@ it.each(["comment.created", "comment.edited", "comment.deleted", "comment.reacti
       expect(calls[0]).toMatchObject({
         threadTs: "100.000001",
         persona: { username: "Builder" },
-        text: ""
+        text: "hello"
       })
     }
     expect(receipts).toEqual([{ state: "sent", token: "token", message_id: "100.000001" }])
@@ -531,3 +536,49 @@ it("acknowledges refused messages and reactions without waking the host", async 
   ).toBe("ignored")
   expect(wakes).toEqual([])
 })
+it.each(["comment.created", "comment.edited"])(
+  "fits a %s over Slack's text limit instead of blocking the issue",
+  async (event) => {
+    const texts: string[] = []
+    const decode = <S extends Schema.Top>(schema: S) => (p: unknown) => {
+      const valid = Schema.decodeUnknownSync(schema as any)(p) as any
+      texts.push(valid.text)
+      return valid
+    }
+    const body = "a".repeat(Actions.MAX_TEXT_LENGTH - 2) + "😀" + "tail"
+    const plain = "b".repeat(Actions.MAX_TEXT_LENGTH + 1)
+    const { sync, receipts } = drainFixture(
+      [
+        row({ event, payload: { comment: { id: 7, body } } }),
+        row({ id: 2, event, payload: { comment: { id: 8, body: plain } } })
+      ],
+      executor({
+        post: async (p) => ({ ...decode(Actions.PostMessagePayload)(p), ts: "100.000001" }),
+        update: async (p) => ({ ...decode(Actions.UpdateMessagePayload)(p) })
+      })
+    )
+    expect(await sync.drain()).toBe(2)
+    expect(receipts[0]).toMatchObject({ state: "sent" })
+    expect(texts).toEqual([
+      "a".repeat(Actions.MAX_TEXT_LENGTH - 2) + "…",
+      "b".repeat(Actions.MAX_TEXT_LENGTH - 1) + "…"
+    ])
+  }
+)
+it.each(["comment.created", "comment.edited"])(
+  "settles a %s Slack would refuse as failed, never unknown",
+  async (event) => {
+    const calls: any[] = []
+    const capture = async (p: any) => {
+      calls.push(p)
+      return { ...p, ts: "100.000001" }
+    }
+    const { sync, receipts } = drainFixture(
+      [row({ event, payload: { comment: { id: 7 } } })],
+      executor({ post: capture, update: capture })
+    )
+    expect(await sync.drain()).toBe(0)
+    expect(calls).toEqual([])
+    expect(receipts[0]).toMatchObject({ state: "failed" })
+  }
+)

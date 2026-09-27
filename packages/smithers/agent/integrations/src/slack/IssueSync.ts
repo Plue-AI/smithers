@@ -10,6 +10,7 @@ import { isRecord } from "@smthrs/canonical/Record"
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Schema } from "effect"
+import { IntegrationFailure } from "../core/ActionFailure.ts"
 import * as IssueSync from "../core/IssueSync.ts"
 import * as Actions from "./Actions.ts"
 import * as Payload from "./Payload.ts"
@@ -102,6 +103,17 @@ export interface Options {
     ) => Promise<void>)
     | undefined
 }
+// Slack truncates beyond MAX_TEXT_LENGTH and the action refuses it; cut on a code point and mark the cut.
+const fit = (body: string) => {
+  if (body.length <= Actions.MAX_TEXT_LENGTH) return body
+  const cut = Actions.MAX_TEXT_LENGTH - 1
+  return `${body.slice(0, /[\uD800-\uDBFF]/.test(body[cut - 1]!) ? cut - 1 : cut)}…`
+}
+// A payload the action would refuse was provably never sent: settle it failed, not unknown.
+const admit = <S extends Schema.Top>(schema: S, payload: S["Type"]): S["Type"] => {
+  if (Schema.is(schema)(payload)) return payload
+  throw new IntegrationFailure({ reason: "delivery-failed", message: "Slack refuses this message", retryable: false })
+}
 /** Slack connector over the shared issue sync mechanism.
  * @category constructors
  * @since 1.0.0
@@ -130,17 +142,23 @@ export const make = (options: Options) => {
         let ts = d.message_id
         if (d.event === "comment.created") {
           const persona = Schema.decodeUnknownOption(Actions.Persona)(d.payload.comment.persona)
-          const posted = await options.execute.post({
-            ...common(d),
-            ...thread(d),
-            key: `issue-sync:${d.key}`,
-            text: d.payload.comment.body ?? "",
-            ...(persona._tag === "Some" ? { persona: persona.value } : {})
-          }, run)
+          const posted = await options.execute.post(
+            admit(Actions.PostMessagePayload, {
+              ...common(d),
+              ...thread(d),
+              key: `issue-sync:${d.key}`,
+              text: fit(d.payload.comment.body ?? ""),
+              ...(persona._tag === "Some" ? { persona: persona.value } : {})
+            }),
+            run
+          )
           ts = posted.ts
         } else if (ts === "") throw new Error("No Slack identity for issue comment")
         else if (d.event === "comment.edited") {
-          await options.execute.update({ ...common(d), ts, text: d.payload.comment.body ?? "" }, run)
+          await options.execute.update(
+            admit(Actions.UpdateMessagePayload, { ...common(d), ts, text: fit(d.payload.comment.body ?? "") }),
+            run
+          )
         } else if (d.event === "comment.deleted") {
           await options.execute.delete({ ...common(d), ts }, run)
         } else if (d.event === "comment.reaction" && d.payload.reaction !== undefined) {

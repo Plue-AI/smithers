@@ -221,7 +221,8 @@ acknowledges. Its host admission must durably deduplicate `event.dedupeKey`.
 This callback wakes the agent conversation without another agent loop.
 
 Events the backend refuses, such as an unmapped channel or a disallowed user,
-are acknowledged and return `"ignored"`.
+are acknowledged and return `"ignored"`. Comments over Slack's 40,000-character
+limit are cut at the limit and end with `…`.
 
 Outgoing changes have PostgreSQL claims and random reconcile keys. Lost answers
 remain `outcome_unknown`; restart searches metadata and never blindly reposts.
