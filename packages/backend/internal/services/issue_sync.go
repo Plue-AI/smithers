@@ -253,6 +253,23 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 	if _, err = tx.Exec(ctx, `SELECT set_config('smithers.issue_origin',$1,true)`, in.Provider); err != nil {
 		return 0, err
 	}
+	// A reaction can beat the receipt for a bot post. Refuse acknowledgment only
+	// while this admitted conversation has a create whose outcome is unsettled;
+	// SocketSource/Telegram Source retain the event identity and retry intake.
+	unmappedReaction := func() error {
+		if !reactionName.MatchString(in.Reaction) {
+			return IssueSyncIgnored{"invalid reaction"}
+		}
+		var awaiting bool
+		e := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM issue_sync_deliveries d JOIN issue_events e ON e.id=d.event_id JOIN issue_sync_threads t ON t.issue_id=d.issue_id JOIN issues i ON i.id=d.issue_id WHERE t.owner_id=$1 AND i.repository_id=$2 AND t.provider=$3 AND t.connection_id=$4 AND t.scope_id=$5 AND t.conversation_id=$6 AND e.event_type='comment.created' AND d.state IN ('dispatching','outcome_unknown'))`, actor.ID, r.ID, in.Provider, in.ConnectionID, in.ScopeID, in.ConversationID).Scan(&awaiting)
+		if e != nil {
+			return e
+		}
+		if awaiting {
+			return api.Conflict("outgoing message receipt pending; retry reaction")
+		}
+		return IssueSyncIgnored{"external message not mapped"}
+	}
 	root := in.root(in.MessageID, in.UserID)
 	var issueID int64
 	err = tx.QueryRow(ctx, `SELECT t.issue_id FROM issue_sync_threads t JOIN issues i ON i.id=t.issue_id WHERE t.owner_id=$1 AND t.connection_id=$2 AND t.scope_id=$3 AND t.conversation_id=$4 AND t.thread_id=$5 AND i.repository_id=$6 AND t.provider=$7 FOR UPDATE`, actor.ID, in.ConnectionID, in.ScopeID, in.ConversationID, root, r.ID, in.Provider).Scan(&issueID)
@@ -271,7 +288,7 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 			return 0, IssueSyncIgnored{"user not allowed"}
 		}
 		if in.Kind == "reaction_add" || in.Kind == "reaction_remove" {
-			return 0, IssueSyncIgnored{"external message not mapped"}
+			return 0, unmappedReaction()
 		}
 		title := []rune(strings.TrimSpace(in.Body))
 		if len(title) > 80 {
@@ -306,8 +323,11 @@ func (s *IssueService) IngestIssueSync(ctx context.Context, actor *db.User, owne
 			return 0, IssueSyncIgnored{"invalid reaction"}
 		}
 		var cid int64
-		if err = tx.QueryRow(ctx, `SELECT comment_id FROM issue_external_messages WHERE issue_id=$1 AND message_id=$2 AND NOT deleted`, issueID, in.MessageID).Scan(&cid); err != nil {
-			return 0, IssueSyncIgnored{"external message not mapped"}
+		if err = tx.QueryRow(ctx, `SELECT comment_id FROM issue_external_messages WHERE issue_id=$1 AND $2=ANY(string_to_array(message_id,',')) AND NOT deleted AND comment_id IS NOT NULL`, issueID, in.MessageID).Scan(&cid); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return 0, unmappedReaction()
+			}
+			return 0, err
 		}
 		who := in.Provider + ":" + in.ScopeID + ":" + in.UserID
 		active := in.Kind == "reaction_add"

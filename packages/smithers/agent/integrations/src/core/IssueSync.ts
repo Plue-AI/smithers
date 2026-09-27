@@ -110,7 +110,20 @@ export const make = (options: Options) => {
     }
   }
   const ingest = async (body: unknown, event?: ExternalEvent): Promise<"ignored" | "applied"> => {
-    const receipt = await request("/events", "POST", body)
+    let receipt: unknown
+    for (let attempt = 0;; attempt++) {
+      try {
+        receipt = await request("/events", "POST", body)
+        break
+      } catch (error) {
+        // A post can reach the provider before its backend receipt commits.
+        // Keep the same intake identity during this short race. Exhaustion
+        // fails the source without acknowledging, preserving provider retry.
+        const reaction = isRecord(body) && (body["kind"] === "reaction_add" || body["kind"] === "reaction_remove")
+        if (!reaction || !isRecord(error) || error["status"] !== 409 || attempt === 3) throw error
+        await new Promise<void>((resolve) => setTimeout(resolve, 100 * 2 ** attempt))
+      }
+    }
     // A routine refusal (unmapped conversation, disallowed user) is acknowledged, not retried.
     if (isRecord(receipt) && typeof receipt["ignored"] === "string") return "ignored"
     if (
