@@ -2,7 +2,7 @@
  * @since 1.0.0
  */
 import { isRecord } from "@smthrs/canonical/Record"
-import { Flow } from "@smthrs/flow"
+import { Flow, type FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect } from "effect"
 import type { ExternalEvent } from "../core/ExternalEvent.ts"
@@ -41,24 +41,6 @@ export const Delete = Flow.make("integrations/telegram/issue-delete", {
   error: Actions.DeleteIssueMessage.errorSchema,
   body: Node.capture({ action: Actions.DeleteIssueMessage.name }, (p) => Actions.DeleteIssueMessage.call(p))
 })
-/** Execute registered flows using the supplied durable run identity.
- * @category models
- * @since 1.0.0
- */
-export interface Executor {
-  post(
-    payload: typeof Actions.IssueMessagePayload.Type,
-    executionId: string
-  ): Promise<typeof Actions.IssueMessageResult.Type>
-  update(
-    payload: typeof Actions.IssueMessagePayload.Type,
-    executionId: string
-  ): Promise<typeof Actions.IssueMessageResult.Type>
-  delete(
-    payload: typeof Actions.IssueMessagePayload.Type,
-    executionId: string
-  ): Promise<typeof Actions.IssueMessageResult.Type>
-}
 /** Explicit admission policy; botId namespaces Telegram's message identities.
  * @category models
  * @since 1.0.0
@@ -68,7 +50,7 @@ export interface Options extends Omit<IssueSync.Options, "connector"> {
   readonly botId: string
   readonly allowedChatIds: ReadonlyArray<string>
   readonly allowedUserIds?: ReadonlyArray<string>
-  readonly execute: Executor
+  readonly runtime: FlowRuntime.FlowRuntime["Service"]
 }
 const numeric = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0
@@ -79,6 +61,15 @@ const personaText = (body: string, persona: unknown) =>
  * @since 1.0.0
  */
 export const make = (options: Options) => {
+  IssueSync.requireDurableRuntime(options.runtime)
+  const execute = {
+    post: (payload: typeof Post.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(Post, { payload, executionId })),
+    update: (payload: typeof Update.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(Update, { payload, executionId })),
+    delete: (payload: typeof Delete.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(Delete, { payload, executionId }))
+  }
   if (!/^[1-9][0-9]*$/.test(options.botId) || options.allowedChatIds.length === 0) {
     throw new IntegrationError("invalid-config", "Telegram issue sync requires a bot id and allowed chats")
   }
@@ -104,10 +95,10 @@ export const make = (options: Options) => {
         }
         let result: typeof Actions.IssueMessageResult.Type
         if (d.event === "comment.created") {
-          result = await options.execute.post(payload, run)
+          result = await execute.post(payload, run)
         } else if (payload.messageIds.length === 0) throw new Error("No Telegram identity for issue comment")
-        else if (d.event === "comment.edited") result = await options.execute.update(payload, run)
-        else if (d.event === "comment.deleted") result = await options.execute.delete(payload, run)
+        else if (d.event === "comment.edited") result = await execute.update(payload, run)
+        else if (d.event === "comment.deleted") result = await execute.delete(payload, run)
         else throw new Error("Unsupported issue event")
         return { messageId: result.messageIds.join(",") }
       }

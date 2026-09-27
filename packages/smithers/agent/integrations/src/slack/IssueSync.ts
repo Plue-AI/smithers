@@ -7,7 +7,7 @@
  * @since 1.0.0
  */
 import { isRecord } from "@smthrs/canonical/Record"
-import { Flow } from "@smthrs/flow"
+import { Flow, type FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Schema } from "effect"
 import { IntegrationFailure } from "../core/ActionFailure.ts"
@@ -68,23 +68,6 @@ export const Reconcile = Flow.make("integrations/slack/issue-reconcile", {
   body: Node.capture({ action: Actions.Reconcile.name }, (p) => Actions.Reconcile.call(p))
 })
 
-/** Run on the host's registered Flow runtime, using executionId as the run identity.
- * @category models
- * @since 1.0.0
- */
-export interface Executor {
-  post(payload: typeof Actions.PostMessagePayload.Type, executionId: string): Promise<typeof Actions.Posted.Type>
-  update(payload: typeof Actions.UpdateMessagePayload.Type, executionId: string): Promise<typeof Actions.Updated.Type>
-  delete(
-    payload: typeof Actions.DeleteMessage.payloadSchema.Type,
-    executionId: string
-  ): Promise<typeof Actions.Updated.Type>
-  react(
-    payload: typeof Actions.SetReaction.payloadSchema.Type,
-    executionId: string
-  ): Promise<typeof Actions.SetReaction.successSchema.Type>
-  reconcile(payload: typeof Actions.ReconcilePayload.Type, executionId: string): Promise<typeof Actions.Reconciled.Type>
-}
 /** Authenticated product HTTP transport; credentials never enter action payloads.
  * @category models
  * @since 1.0.0
@@ -95,7 +78,7 @@ export interface Options {
   readonly owner: string
   readonly repo: string
   readonly request: (path: string, init?: RequestInit) => Promise<Response>
-  readonly execute: Executor
+  readonly runtime: FlowRuntime.FlowRuntime["Service"]
   /** Dispatch to the host's durable signal/flow admission, keyed by event.dedupeKey. */
   readonly onMessage?:
     | ((
@@ -119,6 +102,19 @@ const admit = <S extends Schema.Top>(schema: S, payload: S["Type"]): S["Type"] =
  * @since 1.0.0
  */
 export const make = (options: Options) => {
+  IssueSync.requireDurableRuntime(options.runtime)
+  const execute = {
+    post: (payload: typeof Post.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(Post, { payload, executionId })),
+    update: (payload: typeof Update.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(Update, { payload, executionId })),
+    delete: (payload: typeof Delete.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(Delete, { payload, executionId })),
+    react: (payload: typeof React.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(React, { payload, executionId })),
+    reconcile: (payload: typeof Reconcile.payloadSchema.Type, executionId: string) =>
+      Effect.runPromise(options.runtime.execute(Reconcile, { payload, executionId }))
+  }
   const policy = Payload.requirePolicy(options.policy, "Slack.IssueSync")
   const common = (d: typeof IssueSync.Delivery.Type) => ({
     connectionId: options.connectionId,
@@ -135,14 +131,14 @@ export const make = (options: Options) => {
         ((policy.allowedChannelIds ?? []).includes(m.conversation_id) ||
           (m.conversation_id.startsWith("D") && (policy.allowedUserIds?.length ?? 0) > 0)),
       reconcile: async (d, run) => {
-        const found = await options.execute.reconcile({ ...common(d), ...thread(d), key: `issue-sync:${d.key}` }, run)
+        const found = await execute.reconcile({ ...common(d), ...thread(d), key: `issue-sync:${d.key}` }, run)
         return found.status === "found" && found.ts !== null ? found.ts : undefined
       },
       deliver: async (d, run) => {
         let ts = d.message_id
         if (d.event === "comment.created") {
           const persona = Schema.decodeUnknownOption(Actions.Persona)(d.payload.comment.persona)
-          const posted = await options.execute.post(
+          const posted = await execute.post(
             admit(Actions.PostMessagePayload, {
               ...common(d),
               ...thread(d),
@@ -155,14 +151,14 @@ export const make = (options: Options) => {
           ts = posted.ts
         } else if (ts === "") throw new Error("No Slack identity for issue comment")
         else if (d.event === "comment.edited") {
-          await options.execute.update(
+          await execute.update(
             admit(Actions.UpdateMessagePayload, { ...common(d), ts, text: fit(d.payload.comment.body ?? "") }),
             run
           )
         } else if (d.event === "comment.deleted") {
-          await options.execute.delete({ ...common(d), ts }, run)
+          await execute.delete({ ...common(d), ts }, run)
         } else if (d.event === "comment.reaction" && d.payload.reaction !== undefined) {
-          const result = await options.execute.react({ ...common(d), ts, ...d.payload.reaction }, run)
+          const result = await execute.react({ ...common(d), ts, ...d.payload.reaction }, run)
           if (result.status === "unsupported") {
             return { messageId: ts, unsupported: "Slack reactions:write scope missing" }
           }

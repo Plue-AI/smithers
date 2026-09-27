@@ -268,15 +268,17 @@ const sync = Telegram.IssueSync.make({
   allowedChatIds: [chatId],
   allowedUserIds: [userId],
   request,
-  execute,
+  runtime,
   onMessage: ({ issueId, event }) => admitMessage(issueId, event, event.dedupeKey)
 })
 const intake = sync.run(source)
 await sync.drain()
 ```
 
-`execute.post/update/delete(payload, executionId)` run the registered flows
-with the supplied identity. The runtime must be durable: a claim held for over
+`runtime` is the registered `FlowRuntime` service from `EngineStore.layer`
+(or `NodeRuntime`/`BunRuntime`) over persistent storage. Construction refuses
+`FlowEngine.layerMemory` or an unmarked runtime. The connector preserves the
+claim's execution identity: a claim held for over
 10 minutes is re-executed under that identity, which replays the journaled
 result instead of sending again. `request` is authenticated as the issue owner.
 Events the backend refuses, such as an unmapped chat, are acknowledged and
@@ -293,7 +295,7 @@ Edits update, add or remove chunks; deletion removes every known chunk subject
 to Telegram permissions and time limits. Partial changes and unreadable success
 receipts stay `outcome_unknown`, including the known chunk IDs. Restart never
 reposts them. Telegram has no arbitrary-message history lookup or send request
-key: settle an unknown receipt only with actual provider or durable flow evidence.
+key: confirming delivery as sent requires actual provider or durable flow evidence.
 
 Ordinary Bot API updates do not report message deletions, so deleting a human
 message in Telegram cannot delete its issue comment. Business-account deletion
@@ -301,3 +303,9 @@ updates are a separate integration capability. Reactions currently settle as
 `unsupported` ([tracked work](https://github.com/smithersai/smithers/issues/2110)).
 The [Bot API reference](https://core.telegram.org/bots/api#update) defines these
 provider limits; fixture tests are not a live Telegram receipt.
+
+The issue card's **Resolve** action lets its owner mark an unconfirmed delivery
+sent with message IDs and evidence, skip it with a reason, or explicitly retry
+accepting duplicate risk. Each action resolves one delivery through the existing
+receipt endpoint and records evidence in the issue history. Skipped deliveries
+remain visible and allow later comments to proceed.

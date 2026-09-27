@@ -60,7 +60,7 @@ func TestIssueSlackLive(t *testing.T) {
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, "bun", "run", "test/SlackIssueLive.ts")
 	cmd.Dir = filepath.Join(root, "packages/smithers/agent/integrations")
-	cmd.Env = append(os.Environ(), "ISSUE_TEST_URL="+server.URL)
+	cmd.Env = append(os.Environ(), "ISSUE_TEST_URL="+server.URL, "SMITHERS_SLACK_LIVE_ENGINE_DB="+filepath.Join(t.TempDir(), "engine.sqlite"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	require.NoError(t, cmd.Run())

@@ -2995,6 +2995,15 @@ importers:
       '@smthrs/engine':
         specifier: 1.0.0-rc.1
         version: link:../../flows/engine
+      '@smthrs/flows':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows
+      '@smthrs/platform-bun':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/platform-bun
+      '@smthrs/platform-node':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/platform-node
       '@types/node':
         specifier: 26.4.1
         version: 26.4.1

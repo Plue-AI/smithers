@@ -58,6 +58,8 @@ export type DeferredDoneIfWaitingOutcome = "Completed" | "Existing" | "NotWaitin
 export class FlowRuntime extends Context.Service<
   FlowRuntime,
   {
+    /** Storage capability advertised by the runtime implementation. Absence is volatile. */
+    readonly durability?: "durable" | undefined
     /**
      * Register a flow with the runtime.
      */

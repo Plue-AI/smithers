@@ -1,8 +1,11 @@
 /** Explicit opt-in live test runner invoked by backend TestIssueSlackLive. */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import { FlowEngine } from "@smthrs/engine"
-import { Action, Interpreter } from "@smthrs/flow"
-import { Effect, Fiber, Layer } from "effect"
+import { Action, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { EngineStore } from "@smthrs/flows"
+import * as BunRuntime from "@smthrs/flows/BunRuntime"
+import { BunHost } from "@smthrs/platform-bun"
+import { HostLiveness } from "@smthrs/platform-node"
+import { Effect, Fiber, Layer, ManagedRuntime } from "effect"
 import { spawnSync } from "node:child_process"
 import { readFileSync, writeFileSync } from "node:fs"
 import * as Actions from "../src/slack/Actions.ts"
@@ -21,20 +24,34 @@ const team = process.env["SMITHERS_SLACK_LIVE_TEAM"]!
 const human = process.env["SMITHERS_SLACK_LIVE_USER"]!
 const policy = { allowedTeamIds: [team], allowedChannelIds: [channel], allowedUserIds: [human] }
 const connection = Connections.fromEnvironment({ containers: [channel] }, env)
-const executor = async (flow: any, payload: any, executionId: string): Promise<any> => {
-  const layer = Layer.mergeAll(Actions.layer, Interpreter.layer(flow)).pipe(
-    Layer.provideMerge(Action.layerImplementations),
-    Layer.provideMerge(Layer.mergeAll(FlowEngine.layerMemory, Connections.layer([connection]), NodeCrypto.layer))
-  )
-  return Effect.runPromise(flow.execute(payload, { executionId }).pipe(Effect.provide(layer), Effect.scoped))
+const filename = process.env["SMITHERS_SLACK_LIVE_ENGINE_DB"]
+if (!filename || filename === ":memory:") {
+  throw new Error("SMITHERS_SLACK_LIVE_ENGINE_DB must name a durable engine store")
 }
-const execute: IssueSync.Executor = {
-  post: (p, id) => executor(IssueSync.Post, p, id),
-  update: (p, id) => executor(IssueSync.Update, p, id),
-  delete: (p, id) => executor(IssueSync.Delete, p, id),
-  react: (p, id) => executor(IssueSync.React, p, id),
-  reconcile: (p, id) => executor(IssueSync.Reconcile, p, id)
-}
+const registration = Layer.mergeAll(
+  Interpreter.layer(IssueSync.Post),
+  Interpreter.layer(IssueSync.Update),
+  Interpreter.layer(IssueSync.Delete),
+  Interpreter.layer(IssueSync.React),
+  Interpreter.layer(IssueSync.Reconcile)
+).pipe(
+  Layer.provideMerge(Actions.layer),
+  Layer.provideMerge(Action.layerImplementations)
+)
+const hostRuntime = ManagedRuntime.make(
+  BunRuntime.layer(
+    {
+      filename,
+      workspaceRoot: process.cwd(),
+      owner: { hostId: "slack-issue-sync-live" },
+      isAlive: HostLiveness.isAlive({ hostId: "slack-issue-sync-live" })
+    },
+    EngineStore.StepBoundary.layer,
+    EngineStore.WorkspaceSandbox.layerFileSystem(),
+    registration
+  ).pipe(Layer.provide(Layer.mergeAll(BunHost.layer, NodeCrypto.layer, Connections.layer([connection]))))
+)
+const runtime = await hostRuntime.runPromise(FlowRuntime.FlowRuntime)
 const origin = process.env["ISSUE_TEST_URL"]!
 const request = (path: string, init?: RequestInit) => fetch(origin + path, init)
 const api = async (path: string, method = "GET", body?: unknown): Promise<any> => {
@@ -51,13 +68,14 @@ const options = {
   owner: "sync_test",
   repo: "sync-test",
   request,
-  execute
+  runtime
 }
 let bridge = IssueSync.make(options)
 if (process.argv.includes("--restart-check")) {
   const resent = await bridge.drain()
   if (resent !== 0) throw new Error("A fresh process repeated a settled delivery")
   console.log("Fresh process: zero repeated deliveries")
+  await hostRuntime.dispose()
   process.exit(0)
 }
 const issue = await api("", "POST", { title: "sync test", kind: "chat" })
@@ -177,4 +195,5 @@ try {
   }
 } finally {
   await Effect.runPromise(Fiber.interrupt(fiber))
+  await hostRuntime.dispose()
 }

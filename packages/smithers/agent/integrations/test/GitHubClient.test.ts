@@ -488,7 +488,8 @@ describe("text GitHub or the transport wrote", () => {
 
   it("reaches the journal with the token removed when fetch itself reports it", async () => {
     const realFetch = globalThis.fetch
-    globalThis.fetch = (() => Promise.reject(new Error(`proxy rejected authorization ${TOKEN}`))) as typeof fetch
+    globalThis.fetch =
+      (() => Promise.reject(new Error(`proxy rejected authorization ${TOKEN}`))) as unknown as typeof fetch
     try {
       const failure = await Effect.runPromise(
         Effect.flip(

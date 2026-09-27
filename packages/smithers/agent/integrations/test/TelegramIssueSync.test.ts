@@ -1,5 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
+import type { FlowRuntime } from "@smthrs/flow"
 import { Action, Interpreter } from "@smthrs/flow"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { expect, it } from "vitest"
@@ -10,8 +11,26 @@ import * as Sync from "../src/telegram/IssueSync.ts"
 import * as Source from "../src/telegram/Source.ts"
 import * as Client from "../src/telegram/TelegramClient.ts"
 import { json, startFixture } from "./Fixture.ts"
+/** Execute registered flows using the supplied durable run identity.
+ * @category models
+ * @since 1.0.0
+ */
+interface Executor {
+  post(
+    payload: typeof Actions.IssueMessagePayload.Type,
+    executionId: string
+  ): Promise<typeof Actions.IssueMessageResult.Type>
+  update(
+    payload: typeof Actions.IssueMessagePayload.Type,
+    executionId: string
+  ): Promise<typeof Actions.IssueMessageResult.Type>
+  delete(
+    payload: typeof Actions.IssueMessagePayload.Type,
+    executionId: string
+  ): Promise<typeof Actions.IssueMessageResult.Type>
+}
 const options = { connectionId: "bot", botId: "123", allowedChatIds: ["-100"], owner: "owner", repo: "repo" }
-const executor = (patch: Partial<Sync.Executor> = {}): Sync.Executor => ({
+const executor = (patch: Partial<Executor> = {}): Executor => ({
   post: async () => ({ messageIds: [10, 11] }),
   update: async (p) => ({ messageIds: p.messageIds }),
   delete: async (p) => ({ messageIds: p.messageIds }),
@@ -34,7 +53,7 @@ const row = (patch: any = {}) => ({
 const fixture = (rows: any[], execute = executor(), extra: any = {}) => {
   const receipts: any[] = []
   const calls: any[] = []
-  const sync = Sync.make({
+  const sync = makeSync({
     ...options,
     execute,
     request: async (path, init) => {
@@ -52,7 +71,7 @@ it("normalizes replies, topics and same-second edits to durable identities acros
   const bodies: any[] = []
   const wakes: string[] = []
   const make = () =>
-    Sync.make({
+    makeSync({
       ...options,
       execute: executor(),
       request: async (_, init) => {
@@ -182,7 +201,7 @@ it("refuses foreign routes and never reposts a partial or unknown send", async (
     return Response.json({})
   }
   const make = () =>
-    Sync.make({
+    makeSync({
       ...options,
       request,
       execute: executor({
@@ -339,7 +358,7 @@ it.each([null, {}, "not json", { ok: true, result: {} }])(
     }
   }
 )
-const durable = (server: { origin: string }) => {
+const memoryReplay = (server: { origin: string }) => {
   const client = Client.make({ botToken: "fixture", apiBaseUrl: server.origin }, {})
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
@@ -356,14 +375,14 @@ const durable = (server: { origin: string }) => {
     runtime.runPromise((flow.execute(payload, { executionId }) as Effect.Effect<any, any, any>).pipe(Effect.scoped))
   return {
     runtime,
-    execute: { post: run(Sync.Post), update: run(Sync.Update), delete: run(Sync.Delete) } as Sync.Executor
+    execute: { post: run(Sync.Post), update: run(Sync.Update), delete: run(Sync.Delete) } as Executor
   }
 }
 it.each(["comment.created", "comment.edited", "comment.deleted"])(
   "recovers a completed %s whose receipt was lost, without resending",
   async (event) => {
     const server = await startFixture((_req, res) => json(res, 200, { ok: true, result: { message_id: 20 } }))
-    const { runtime, execute } = durable(server)
+    const { runtime, execute } = memoryReplay(server)
     try {
       let state = "pending", token = "", lost = true
       const receipts: any[] = []
@@ -382,11 +401,11 @@ it.each(["comment.created", "comment.edited", "comment.deleted"])(
         state = r.state
         return Response.json({})
       }
-      await Sync.make({ ...options, request, execute }).drain().catch(() => undefined)
+      await makeSync({ ...options, request, execute }).drain().catch(() => undefined)
       expect(state).toBe("dispatching")
       const sends = server.requests.length
       lost = false
-      expect(await Sync.make({ ...options, request, execute }).drain()).toBe(1)
+      expect(await makeSync({ ...options, request, execute }).drain()).toBe(1)
       expect(server.requests.length).toBe(sends)
       expect(receipts).toEqual([expect.objectContaining({ state: "sent", token: "claim" })])
     } finally {
@@ -408,7 +427,7 @@ it("acknowledges a refused event without waking the host", async () => {
 })
 it("lets a stale worker finish quietly after a lapsed claim was replayed and settled", async () => {
   const server = await startFixture((_req, res) => json(res, 200, { ok: true, result: { message_id: 20 } }))
-  const { runtime, execute } = durable(server)
+  const { runtime, execute } = memoryReplay(server)
   try {
     let state = "pending", lapsed = false
     const receipts: any[] = []
@@ -428,14 +447,14 @@ it("lets a stale worker finish quietly after a lapsed claim was replayed and set
     }
     let resume!: () => void
     const paused = new Promise<void>((resolve) => (resume = resolve))
-    const hung = Sync.make({
+    const hung = makeSync({
       ...options,
       request,
       execute: { ...execute, post: async (p, id) => (await paused, execute.post(p, id)) }
     }).drain()
     await new Promise((resolve) => setTimeout(resolve, 10))
     lapsed = true
-    expect(await Sync.make({ ...options, request, execute }).drain()).toBe(1)
+    expect(await makeSync({ ...options, request, execute }).drain()).toBe(1)
     resume()
     expect(await hung).toBe(0)
     expect(server.requests).toHaveLength(1)
@@ -445,3 +464,17 @@ it("lets a stale worker finish quietly after a lapsed claim was replayed and set
     await server.close()
   }
 })
+
+// Transport unit tests substitute the runtime, never a production host executor.
+const makeSync = (options: Omit<Sync.Options, "runtime"> & { execute: Executor }) =>
+  Sync.make({
+    ...options,
+    runtime: {
+      durability: "durable",
+      execute: (flow: { _tag: string }, input: { payload: any; executionId: string }) =>
+        Effect.tryPromise(() => {
+          const method = flow._tag.split("issue-")[1] as keyof Executor
+          return (options.execute[method] as (p: any, id: string) => Promise<any>)(input.payload, input.executionId)
+        })
+    } as unknown as FlowRuntime.FlowRuntime["Service"]
+  })

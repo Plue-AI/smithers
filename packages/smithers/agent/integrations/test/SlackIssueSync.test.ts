@@ -1,8 +1,26 @@
-import { Schema } from "effect"
+import type { FlowRuntime } from "@smthrs/flow"
+import { Effect, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Actions from "../src/slack/Actions.ts"
 import * as IssueSync from "../src/slack/IssueSync.ts"
 
+/** Run on the host's registered Flow runtime, using executionId as the run identity.
+ * @category models
+ * @since 1.0.0
+ */
+interface Executor {
+  post(payload: typeof Actions.PostMessagePayload.Type, executionId: string): Promise<typeof Actions.Posted.Type>
+  update(payload: typeof Actions.UpdateMessagePayload.Type, executionId: string): Promise<typeof Actions.Updated.Type>
+  delete(
+    payload: typeof Actions.DeleteMessage.payloadSchema.Type,
+    executionId: string
+  ): Promise<typeof Actions.Updated.Type>
+  react(
+    payload: typeof Actions.SetReaction.payloadSchema.Type,
+    executionId: string
+  ): Promise<typeof Actions.SetReaction.successSchema.Type>
+  reconcile(payload: typeof Actions.ReconcilePayload.Type, executionId: string): Promise<typeof Actions.Reconciled.Type>
+}
 const policy = {
   allowedTeamIds: ["T001"],
   allowedChannelIds: ["C001"],
@@ -10,7 +28,7 @@ const policy = {
   selfUserIds: ["UBOT"]
 }
 const callback = (event: object, id = "E001") => ({ type: "event_callback", team_id: "T001", event_id: id, event })
-const executor = (overrides: Partial<IssueSync.Executor> = {}): IssueSync.Executor => ({
+const executor = (overrides: Partial<Executor> = {}): Executor => ({
   post: async (p) => ({ connectionId: p.connectionId, channel: p.channel, ts: "100.000001", key: p.key }),
   update: async (p) => ({ connectionId: p.connectionId, channel: p.channel, ts: p.ts }),
   delete: async (p) => ({ connectionId: p.connectionId, channel: p.channel, ts: p.ts }),
@@ -34,7 +52,7 @@ describe("issue sync", () => {
       bodies.push(JSON.parse(String(init?.body)))
       return Response.json({ issue_id: 42 })
     }
-    const make = () => IssueSync.make({ ...options, request, execute: executor() })
+    const make = () => makeSync({ ...options, request, execute: executor() })
     expect(
       await make().ingest(callback({ type: "message", channel: "C001", ts: "100.000001", user: "UBOT", text: "echo" }))
     ).toBe("ignored")
@@ -115,10 +133,10 @@ describe("issue sync", () => {
         throw new Error("Slack accepted; response lost")
       }
     })
-    await IssueSync.make({ ...options, request, execute }).drain()
+    await makeSync({ ...options, request, execute }).drain()
     expect(state).toBe("outcome_unknown")
-    await IssueSync.make({ ...options, request, execute }).drain()
-    await IssueSync.make({ ...options, request, execute }).drain()
+    await makeSync({ ...options, request, execute }).drain()
+    await makeSync({ ...options, request, execute }).drain()
     expect(state).toBe("sent")
     expect(posts).toBe(1)
     expect(receipts.at(-1)).toMatchObject({ state: "sent", message_id: "100.000001" })
@@ -152,14 +170,14 @@ describe("issue sync", () => {
         },
         reconcile: async (p) => ({ ...p, status, ts: null, pagesSearched: 1 })
       })
-      expect(await IssueSync.make({ ...options, request, execute }).drain()).toBe(0)
+      expect(await makeSync({ ...options, request, execute }).drain()).toBe(0)
       expect(posts).toBe(0)
     }
   )
 
   it("hands committed ingress to durable host dispatch with the same key on replay", async () => {
     const received: string[] = []
-    const bridge = IssueSync.make({
+    const bridge = makeSync({
       ...options,
       request: async () => Response.json({ issue_id: 42 }),
       execute: executor(),
@@ -200,7 +218,7 @@ const drainFixture = (
 ) => {
   const receipts: any[] = []
   const requests: string[] = []
-  const sync = IssueSync.make({
+  const sync = makeSync({
     ...options,
     execute,
     request: async (path, init) => {
@@ -239,10 +257,10 @@ it("replays a lapsed claim under its original execution id after a lost receipt"
     receipts.push(JSON.parse(String(init?.body)))
     return Response.json({})
   }
-  await expect(IssueSync.make({ ...options, request, execute }).drain()).rejects.toThrow()
+  await expect(makeSync({ ...options, request, execute }).drain()).rejects.toThrow()
   lost = false
   token = "claim"
-  expect(await IssueSync.make({ ...options, request, execute }).drain()).toBe(1)
+  expect(await makeSync({ ...options, request, execute }).drain()).toBe(1)
   expect([...journal.keys()]).toEqual(["issue-sync:1:claim"])
   expect(edits).toBe(1)
   expect(receipts).toEqual([{ state: "sent", token: "claim", message_id: "100.000001" }])
@@ -389,7 +407,7 @@ it("reconciles a thread and rejects HTTP failures", async () => {
 })
 it("normalizes mentions, removed reactions and ignores non-message events", async () => {
   const bodies: any[] = []
-  const bridge = IssueSync.make({
+  const bridge = makeSync({
     ...options,
     execute: executor(),
     request: async (_, init) => {
@@ -436,7 +454,7 @@ it("normalizes mentions, removed reactions and ignores non-message events", asyn
 it("uses SocketSource's existing acknowledged batch runner", async () => {
   const { Effect } = await import("effect")
   const bodies: unknown[] = []
-  const sync = IssueSync.make({
+  const sync = makeSync({
     ...options,
     execute: executor(),
     request: async (_, init) => {
@@ -453,7 +471,7 @@ it("uses SocketSource's existing acknowledged batch runner", async () => {
 })
 it.each([null, { issue_id: "42" }])("does not wake the host for an invalid commit receipt %s", async (receipt) => {
   let wakes = 0
-  const bridge = IssueSync.make({
+  const bridge = makeSync({
     ...options,
     execute: executor(),
     request: async () => Response.json(receipt),
@@ -486,7 +504,7 @@ it("drains later pages even when an earlier page belongs to another connection",
     (_, n) => row({ id: n + 1, mapping: { ...row().mapping, connection_id: "other" } })
   )
   let posted = 0
-  const sync = IssueSync.make({
+  const sync = makeSync({
     ...options,
     execute: executor({
       post: async (p) => {
@@ -511,7 +529,7 @@ it("rejects a backend cursor that does not advance", async () => {
 })
 it("acknowledges refused messages and reactions without waking the host", async () => {
   const wakes: string[] = []
-  const bridge = IssueSync.make({
+  const bridge = makeSync({
     ...options,
     execute: executor(),
     request: async () => Response.json({ ignored: "external message not mapped" }),
@@ -591,3 +609,17 @@ it("leaves a reconciled row to the worker that already settled it", async () => 
   })
   expect(await sync.drain()).toBe(0)
 })
+
+// Transport unit tests substitute the runtime, never a production host executor.
+const makeSync = (options: Omit<IssueSync.Options, "runtime"> & { execute: Executor }) =>
+  IssueSync.make({
+    ...options,
+    runtime: {
+      durability: "durable",
+      execute: (flow: { _tag: string }, input: { payload: any; executionId: string }) =>
+        Effect.tryPromise(() => {
+          const method = flow._tag.split("issue-")[1] as keyof Executor
+          return (options.execute[method] as (p: any, id: string) => Promise<any>)(input.payload, input.executionId)
+        })
+    } as unknown as FlowRuntime.FlowRuntime["Service"]
+  })

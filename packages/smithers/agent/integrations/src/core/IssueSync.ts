@@ -2,6 +2,7 @@
  * @since 1.0.0
  */
 import { isRecord } from "@smthrs/canonical/Record"
+import type { FlowRuntime } from "@smthrs/flow"
 import { Schema } from "effect"
 import { IntegrationFailure } from "./ActionFailure.ts"
 import type { ExternalEvent } from "./ExternalEvent.ts"
@@ -66,6 +67,15 @@ export interface Options {
   readonly onMessage?:
     | ((receipt: { readonly issueId: number; readonly event: ExternalEvent }) => Promise<void>)
     | undefined
+}
+/** Refuse volatile runtimes before intake or outbound claims can be acknowledged.
+ * @category guards
+ * @since 1.0.0
+ */
+export const requireDurableRuntime = (runtime: FlowRuntime.FlowRuntime["Service"]): void => {
+  if (runtime?.durability !== "durable") {
+    throw new Error("Issue sync requires a durable engine store; FlowEngine.layerMemory cannot replay after restart")
+  }
 }
 const failureOf = (value: unknown): IntegrationFailure | undefined => {
   const pending = [value]

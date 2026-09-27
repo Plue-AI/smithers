@@ -461,7 +461,7 @@ const makeWithEngineJj = (
       // and the journal offers no committed cross-process subscription.
       resumeSignal: (_flow, executionId) => wakeBus.awaitWake(executionId)
     }
-    const service = FlowEngine.makeUnsafe(encoded)
+    const service = { ...FlowEngine.makeUnsafe(encoded), durability: "durable" as const }
     yield* Deferred.succeed(engine, service)
     return service
   })

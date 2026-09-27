@@ -192,8 +192,10 @@ channel. An explicit DM mapping also requires `external_user_id`. Settings conta
 routing identities; secrets remain in the connection credential broker.
 
 Register `IssueSync.Post`, `Update`, `Delete`, `React`, and `Reconcile` with the
-host's existing Flow runtime and `Slack.Actions.layer`. Supply their bound
-`execute` methods as the adapter's executor; retain the provided execution ID.
+host's durable Flow runtime and `Slack.Actions.layer`. Pass the registered
+`FlowRuntime` service as `runtime`; the connector preserves each claim's execution ID.
+Construction refuses `FlowEngine.layerMemory` or an unmarked runtime. Use
+`EngineStore.layer` (or `NodeRuntime`/`BunRuntime`) over persistent storage.
 The runtime must be durable: a claim held for over 10 minutes is re-executed
 under that ID, which replays the journaled result instead of posting again.
 The `request` port calls the backend authenticated as the issue owner:
@@ -205,7 +207,7 @@ const sync = Slack.IssueSync.make({
   connectionId: connection.id,
   policy,
   request,
-  execute,
+  runtime,
   onMessage: async ({ issueId, event }) => {
     await dispatchIssueMessage(issueId, event, event.dedupeKey)
   }
@@ -226,7 +228,7 @@ limit are cut at the limit and end with `…`.
 Outgoing changes have PostgreSQL claims and random reconcile keys. Lost answers
 remain `outcome_unknown`; restart searches metadata and never blindly reposts.
 An absent lookup cannot prove a crashed request is no longer in flight, so it
-also retains the unknown claim. Delivery reads use ascending batches of100
+also retains the unknown claim. Delivery reads use ascending batches of 100
 with `after_id`; the adapter follows every page so earlier unresolved work
 does not hide independent conversations. A known refusal is `failed`; an explicit
 `PUT /sync/deliveries/{id}` with `{state:"pending"}` retries only that state.
@@ -243,7 +245,7 @@ and [reaction scopes](https://docs.slack.dev/reference/methods/reactions.add/).
 ## Issue sync verification
 
 `test/SlackIssueSync.test.ts` covers ingress, echoes, lost responses, restart
-reconciliation and host dispatch identities. Backend `TestIssueSlackDurableRoundTrip`
+reconciliation and host dispatch identities. Backend `TestIssueSyncDurableRoundTrip`
 uses real isolated PostgreSQL for atomic ingress, edits, deletions and claims.
 
 Opt-in backend `TestIssueSlackLive` invokes `test/SlackIssueLive.ts`. Supply
@@ -262,8 +264,8 @@ Both Slack and Telegram use `core/IssueSync` and the connector-neutral
 `/issues/sync` API. Mapping keys are `provider:"slack"`, `connection_id`,
 `scope_id` (workspace), `conversation_id` (channel), `thread_id` (timestamp), and
 `external_user_id`. Canonical events and receipts use `message_id`; the transport
-uses `/sync/events` and `/sync/deliveries`. Migration 38 creates the generic
-`issue_sync_*` and `issue_external_*` tables directly; migration 39 adds comment
+uses `/sync/events` and `/sync/deliveries`. Migration 39 creates the generic
+`issue_sync_*` and `issue_external_*` tables directly; migration 40 adds comment
 facts to the existing journal.
 
 `GET …/issues/{number}/comments?idempotency_key=<key>` looks up the authenticated
@@ -274,3 +276,15 @@ contains persona and request key; deletion has only identity. Persist the page
 cursor when consuming owner-filtered pages: hidden positions are skipped. Comment
 coverage begins with the comment-facts migration, so list existing comments for
 an initial snapshot. The underlying issue journal continues its existing history.
+
+A reaction that beats an outgoing message receipt returns HTTP 409 through intake
+while the post is unsettled. Intake makes up to four attempts with the same
+provider identity over a bounded backoff. If the receipt still has not committed,
+Socket Mode fails without acknowledging it; host supervision can reconnect and
+receive its redelivery. Drain outgoing receipts independently of intake.
+
+An owner can resolve an unconfirmed delivery from **Resolve** on the issue card:
+mark sent with its message ID and evidence, skip with a reason, or explicitly
+retry accepting duplicate risk. Resolution uses the existing receipt endpoint,
+records the previous outcome and evidence in the issue history, and applies to
+one delivery. A skip remains visible; later deliveries can proceed.
