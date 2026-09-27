@@ -200,9 +200,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				return fmt.Errorf("auth.mode=%q requires an isolated workspace runtime", cfg.Auth.Mode)
 			}
 		case workspace.IsolationSandboxed:
-			if !options.topology.hosted() {
-				return fmt.Errorf("a sandboxed workspace runtime requires auth.mode=%q, got %q", config.AuthModeMultitenant, cfg.Auth.Mode)
-			}
+			// Hosted deployments require it; a single-owner installation may
+			// choose it (SMITHERS_WORKSPACE_ISOLATION=microvm) and then never
+			// executes workspace work on the host.
 		default:
 			return fmt.Errorf("unsupported workspace isolation %q", isolation)
 		}
@@ -721,6 +721,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	)
 	landingService.SetAgentTurnDispatcher(agentService)
 
+	if binder, ok := options.Workspace.(workspace.SourceFilesBinder); ok {
+		binder.BindSourceFiles(repositorySourceFiles{client: repoHostClient})
+	}
 	workspaceService := services.NewWorkspaceService(runtimeStores.Workspaces,
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceCapabilityTransactions(pool),

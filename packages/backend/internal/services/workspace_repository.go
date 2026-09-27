@@ -196,6 +196,18 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	if err != nil {
 		return err
 	}
+	// An isolated runtime finishes its prepared environment offline against
+	// the checkout (for example linking dependencies from a prepared store)
+	// before the receipt makes the workspace usable.
+	if linker, ok := s.runtime.(workspaceapi.WorkspaceEnvironmentLinker); ok {
+		linkCtx, err := s.runtimeRepositoryContext(ctx, row, requesterID, "link-environment")
+		if err != nil {
+			return err
+		}
+		if err := linker.LinkWorkspaceEnvironment(linkCtx, row.ID); err != nil {
+			return pkgerrors.Internal("prepare workspace environment: " + err.Error())
+		}
+	}
 	receipt := workspaceRepositoryReceipt{
 		Version: workspaceRepositoryReceiptVersion, WorkspaceID: row.ID, RepositoryID: row.RepositoryID,
 		CloneURL: cloneURL, SourceBookmark: bookmark, SourceRevision: revision, InitializedAt: time.Now().UTC(),

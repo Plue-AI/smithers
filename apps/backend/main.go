@@ -23,7 +23,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/native"
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/postgres"
-	"github.com/smithersai/smithers/packages/backend/process"
 )
 
 func main() {
@@ -88,15 +87,16 @@ func run(ctx context.Context, args []string) (runErr error) {
 	}()
 
 	dataRoot := os.Getenv("SMITHERS_DATA_ROOT")
-	workspaceRuntime, err := process.New(process.Config{Root: filepath.Join(dataRoot, "workspaces")})
+	runtimes, err := openExecutionRuntimes(ctx, dataRoot)
 	if err != nil {
-		return fmt.Errorf("start local workspace runtime: %w", err)
+		return err
 	}
-	// app.Run normally owns this close. Retain a final close for migration or
-	// startup failures before app.Run gets control of the adapter.
-	defer func() { cleanupErr = errors.Join(cleanupErr, workspaceRuntime.Close()) }()
+	workspaceRuntime := runtimes.workspace
+	// app.Run normally owns the workspace runtime's close. Retain a final
+	// close for migration or startup failures before app.Run gets control.
+	defer func() { cleanupErr = errors.Join(cleanupErr, runtimes.Close()) }()
 	launcher, err := modelhost.NewLocalLauncher(modelhost.LocalConfig{
-		Runtime:    workspaceRuntime,
+		Runtime:    runtimes.control,
 		NodeBinary: strings.TrimSpace(os.Getenv("SMITHERS_NODE_BINARY")),
 		BundlePath: strings.TrimSpace(os.Getenv("SMITHERS_MODEL_HOST_BUNDLE")),
 	})

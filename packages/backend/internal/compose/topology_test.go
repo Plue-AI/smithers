@@ -53,10 +53,10 @@ func TestCompositionDerivesTopologyFromIdentityAndRuntime(t *testing.T) {
 		{name: "unknown duties", mode: "selfhost", options: Options{Duties: "cron"}, want: `unsupported backend duties "cron"`},
 		{name: "multitenant identity over a trusted process runtime", mode: "multitenant",
 			options: Options{Workspace: isolatedRuntime{isolation: workspace.IsolationTrustedProcess}}, want: `auth.mode="multitenant" requires an isolated workspace runtime`},
-		{name: "single owner identity over a sandboxed runtime", mode: "selfhost",
-			options: Options{Workspace: isolatedRuntime{isolation: workspace.IsolationSandboxed}}, want: `sandboxed workspace runtime requires auth.mode="multitenant"`},
-		{name: "workers duty keeps the identity check", mode: "selfhost",
-			options: Options{Duties: DutiesWorkers, Workspace: isolatedRuntime{isolation: workspace.IsolationSandboxed}}, want: `sandboxed workspace runtime requires auth.mode="multitenant"`},
+		{name: "workers duty keeps the identity check", mode: "multitenant",
+			options: Options{Duties: DutiesWorkers, Workspace: isolatedRuntime{isolation: workspace.IsolationTrustedProcess}}, want: `auth.mode="multitenant" requires an isolated workspace runtime`},
+		{name: "unknown isolation class", mode: "selfhost",
+			options: Options{Workspace: isolatedRuntime{isolation: "container"}}, want: `unsupported workspace isolation "container"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("SMITHERS_AUTH_MODE", tc.mode)

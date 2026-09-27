@@ -149,6 +149,23 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunning(ctx context.Context, ro
 // caller enters the per-workspace critical section. A request may have loaded
 // a running row before a concurrent suspend, stop, or delete completed; using
 // that stale row could restart execution without restoring the product state.
+// runtimeWorkspaceSpec names the repository revision the checkout will hold,
+// so an isolated runtime can boot the matching prepared environment. The
+// source is a hint for environment selection only; checkout authority stays
+// in ensureRuntimeWorkspaceRepository.
+func (s *WorkspaceService) runtimeWorkspaceSpec(ctx context.Context, row db.Workspace) workspaceapi.WorkspaceSpec {
+	spec := workspaceapi.WorkspaceSpec{ID: row.ID}
+	if row.RepositoryID <= 0 {
+		return spec
+	}
+	slug, err := s.workspaceRepoSlug(ctx, row.RepositoryID)
+	if err != nil {
+		return spec
+	}
+	spec.Source = &workspaceapi.WorkspaceSource{Repository: slug, Revision: targetWorkspaceBookmark(row.TargetBookmark)}
+	return spec
+}
+
 func (s *WorkspaceService) currentRuntimeWorkspaceLocked(ctx context.Context, expected db.Workspace) (db.Workspace, error) {
 	current, err := s.q.GetWorkspace(ctx, expected.ID)
 	if err != nil {
@@ -189,7 +206,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		if contextErr != nil {
 			return row, contextErr
 		}
-		observed, err = s.runtime.CreateWorkspace(createCtx, workspaceapi.WorkspaceSpec{ID: row.ID})
+		observed, err = s.runtime.CreateWorkspace(createCtx, s.runtimeWorkspaceSpec(ctx, row))
 	} else {
 		observed, err = s.runtime.InspectWorkspace(operationCtx, row.ID)
 	}
