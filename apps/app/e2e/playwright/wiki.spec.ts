@@ -43,6 +43,11 @@ const wikiFixture = async (page: Page) => {
     const { body: _body, ...index } = bootstrap().page
     return route.fulfill(json([index]))
   })
+  // The Wiki pane reads its space's navigation index since 8efb1a0e6a.
+  await page.route(`**/api/repos/${repo}/wiki/navigation/index?*`, (route) => {
+    const { body: _body, ...row } = bootstrap().page
+    return route.fulfill(json({ pages: [{ ...row, metadata: {} }], folders: [], tags: [] }))
+  })
   await page.route(
     `**/api/repos/${repo}/wiki/architecture/document?*`,
     (route) => route.fulfill(json(bootstrap()))
@@ -93,12 +98,15 @@ test("collaborative Wiki stays embedded, edits through the flow, and restores th
   await page.getByTestId("composer-input").press("Escape")
   await index.getByRole("button", { name: "Open page", exact: true }).click()
   const card = page.getByTestId(`card-${cardId}`)
+  // A cloud page opens in its reading view; Outline and Edit are its other views (e9b13a036c).
+  await expect(card.getByRole("button", { name: "Document", exact: true })).toHaveAttribute("aria-pressed", "true")
+  await card.getByRole("button", { name: "Outline", exact: true }).click()
   await expect(card.getByRole("list", { name: "Page outline" })).toContainText("Runtime")
   await expect(page.getByTestId("composer-input")).toBeHidden()
   await expect(card.locator(".world-card-sidebar")).not.toContainText("wiki:")
   await page.screenshot({ path: testInfo.outputPath("smithers-wiki-outline.png"), fullPage: true })
   await testInfo.attach("smithers-wiki-outline.png", { path: testInfo.outputPath("smithers-wiki-outline.png"), contentType: "image/png" })
-  await card.getByRole("button", { name: "Document", exact: true }).click()
+  await card.getByRole("button", { name: "Edit", exact: true }).click()
   const editor = card.locator(".ProseMirror[contenteditable=\"true\"]")
   await expect(editor).toBeVisible()
   await editor.click()
@@ -111,7 +119,7 @@ test("collaborative Wiki stays embedded, edits through the flow, and restores th
 
   await page.reload()
   await expect(card).toBeVisible()
-  await expect(card.getByRole("button", { name: "Document", exact: true })).toHaveAttribute("aria-pressed", "true")
+  await expect(card.getByRole("button", { name: "Edit", exact: true })).toHaveAttribute("aria-pressed", "true")
   await expect(card).toContainText("This is a saved copy")
   await expect(card.locator(".ProseMirror")).toContainText("Collaboration works.")
   await card.getByRole("button", { name: "Refresh", exact: true }).click()
@@ -138,7 +146,7 @@ for (const target of ["caret", "selection", "chat"] as const) {
     await page.getByTestId("composer-input").press("Escape")
     await index.getByRole("button", { name: "Open page", exact: true }).click()
     const card = page.getByTestId(`card-${cardId}`)
-    await card.getByRole("button", { name: "Document", exact: true }).click()
+    await card.getByRole("button", { name: "Edit", exact: true }).click()
     const editor = card.locator('.ProseMirror[contenteditable="true"]')
     await expect(editor).toBeVisible()
     await editor.click()
