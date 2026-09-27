@@ -76,20 +76,42 @@ func TestGit_Cov_RunGitRPCBufferedSuccessAndFailure(t *testing.T) {
 	}
 }
 
-// lateEOFReader ends the request body only after git has exited: it waits
-// for the marker git writes as its last act, so exec's own post-exit close
-// of git's stdin comes first.
-type lateEOFReader struct{ marker string }
-
-func (r lateEOFReader) Read([]byte) (int, error) {
+// awaitGitExit waits for the marker git writes as its last act, then long
+// enough for git to have exited.
+func awaitGitExit(marker string) {
 	for {
-		if _, err := os.Stat(r.marker); err == nil {
+		if _, err := os.Stat(marker); err == nil {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
 	time.Sleep(100 * time.Millisecond)
+}
+
+// lateEOFReader ends the request body only after git has exited, so exec's
+// own post-exit close of git's stdin comes first.
+type lateEOFReader struct{ marker string }
+
+func (r lateEOFReader) Read([]byte) (int, error) {
+	awaitGitExit(r.marker)
 	return 0, io.EOF
+}
+
+// lateBodyReader yields its body only after git has exited, so exec's write
+// of it into git's stdin always breaks the pipe.
+type lateBodyReader struct {
+	marker string
+	body   string
+	sent   bool
+}
+
+func (r *lateBodyReader) Read(p []byte) (int, error) {
+	if r.sent {
+		return 0, io.EOF
+	}
+	awaitGitExit(r.marker)
+	r.sent = true
+	return copy(p, r.body), nil
 }
 
 // Issue #2266: git exiting before the request body ends is a successful RPC,
@@ -119,6 +141,22 @@ func TestGit_Cov_StreamGitRPCReportsUnreadBody(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stream request body to git receive-pack") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Issue #2266: an upload-pack that exits 0 before its body reaches it has
+// answered; only receive-pack refuses a body.
+func TestGit_Cov_StreamGitRPCUploadPackIgnoresUnreadBody(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "exited")
+	installGitStub(t, "#!/bin/sh\nprintf done\n: > '"+marker+"'\nexit 0\n")
+
+	var out strings.Builder
+	err := streamGitRPC(context.Background(), t.TempDir(), "upload-pack", &lateBodyReader{marker: marker, body: "0000"}, &out)
+	if err != nil {
+		t.Fatalf("streamGitRPC returned error: %v", err)
+	}
+	if out.String() != "done" {
+		t.Fatalf("output = %q", out.String())
 	}
 }
 

@@ -193,9 +193,10 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	if stdin != nil && stdin.err != nil {
 		return fmt.Errorf("stream request body to git %s: %w", command, stdin.err)
 	}
-	if stdin != nil && !stdin.eof {
+	if command == "receive-pack" && stdin != nil && !stdin.eof {
 		// exec ignores the broken pipe of a git that exits 0 without reading
-		// the whole body, as receive-pack does past receive.maxInputSize.
+		// the whole body, as receive-pack does past receive.maxInputSize. An
+		// upload-pack that exits 0 has answered, however much it read.
 		return fmt.Errorf("stream request body to git %s: %w", command, errBodyUnread)
 	}
 	if waitErr != nil {
@@ -207,7 +208,8 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 	return nil
 }
 
-// errBodyUnread reports a git that exited before reading the whole body.
+// errBodyUnread reports a receive-pack that exited before reading the whole
+// body.
 var errBodyUnread = errors.New("git exited before reading the whole body")
 
 // bodyReader records how the request body ended. Wait drops a read error
