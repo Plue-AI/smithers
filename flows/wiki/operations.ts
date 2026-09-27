@@ -239,7 +239,19 @@ export const operations = (
           const sourceLinks = evidence.sources.map((source) =>
             `- [${source.path}](../sources/${source.path}) — \`${source.digest}\``
           ).join("\n")
-          const body = header + notice + evidence.markdown +
+          // These are the citations already assessed against each section, not
+          // another model pass. Keep them beside the prose in every projection.
+          const explained = review === null ? evidence.markdown : evidence.sections.map((section, index) => {
+            const citations = [
+              ...new Set(
+                review.sections[index]!.citations.map(({ path, line }) =>
+                  `[${path}:${line}](../sources/${path}#L${line})`
+                )
+              )
+            ].join(" · ")
+            return section.markdown + (citations ? `\n\n${citations}` : "")
+          }).join("\n\n") + "\n"
+          const body = header + notice + explained +
             `\n## Related pages\n\n${links}\n\n## Exact source inputs\n\n${sourceLinks}\n`
           return {
             id: evidence.spec.id,

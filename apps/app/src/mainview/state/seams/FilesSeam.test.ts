@@ -656,6 +656,14 @@ describe("files seam — the line anchor", () => {
 const REVISION = "b".repeat(40)
 
 describe("files seam — reading at a revision", () => {
+  test("the citation command preserves the revision and line through admission into the embedded file", async () => {
+    const { store, controller, requests } = await freshController()
+    await ready(store)
+    const result = await controller.commands.run("files.read", `README.md:1 will/flows --ref ${REVISION}`)
+    expect(result.status).toBe("executed")
+    expect(requests.map((request) => request.url)).toEqual([`/api/repos/will/flows/contents/README.md?ref=${REVISION}`])
+    expect(fileCard(store, `file-will/flows-README.md@${REVISION}`)?.payload).toMatchObject({ ref: REVISION, line: 1, content: README_TEXT })
+  })
   test("asks the contents route for that revision, and keeps it on its own card", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)

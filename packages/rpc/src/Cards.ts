@@ -945,7 +945,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         })
       ),
       selectedDocumentId: z.string().optional(),
-      view: z.enum(["outline", "document"]).optional(),
+      view: z.enum(["outline", "read", "document"]).optional(),
       index: z.object({
         repo: z.string(),
         page: z.number().int().positive(),

@@ -212,6 +212,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                 {selected.cloud?.error == null ? null : <p className="world-document-notice" role="status">{selected.cloud.error}</p>}
                 {reading && repo !== null ? <div className="world-reading-region">
                   <WikiPageView body={selected.body} links={pageLinksOf(index, selected.cloud?.pageId)} index={index} repo={repo} space={space}
+                    onRunCommand={controller.runCommand}
                     focusHeading={pendingHeading?.id === selected.id ? pendingHeading.heading : undefined}
                     onFocused={() => setPendingHeading(null)} onOpen={followLink} />
                 </div> :

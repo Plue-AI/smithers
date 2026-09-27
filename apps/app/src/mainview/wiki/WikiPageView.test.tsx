@@ -1,7 +1,19 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
+import { GlobalRegistrator } from "@happy-dom/global-registrator"
+import { flushSync } from "react-dom"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { WikiIndexRow } from "../state/AppState"
-import { readWikiHref, resolveWikiLink, UNRESOLVED_HREF, WikiPageView, wikiLinkHref, wikiPageSegments } from "./WikiPageView"
+import { readWikiHref, readWikiSourceHref, resolveWikiLink, UNRESOLVED_HREF, WikiPageView, wikiLinkHref, wikiPageSegments } from "./WikiPageView"
+import { payloadFor } from "../flows/SlashPayload"
+import { WorldCardBody } from "../cards/ConversationCards"
+import type { Card, WorldDocument } from "../state/AppState"
+
+GlobalRegistrator.register()
+afterAll(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  await GlobalRegistrator.unregister()
+})
 
 /*
  * The reading view (#1922): wikilinks render as links to the page the
@@ -33,6 +45,53 @@ const links = index.pages[0]!.links
 const body = "# Home\n\nSee [[Guides/Start#Install|start]] and ![[assets/logo.png]].\n\nAlso [[Nowhere]], ![[Guides/Start]] and ![[notes.pdf]].\n\n`[[Guides/Start]]` stays code.\n\n[[#Install]] scrolls here.\n"
 
 describe("wiki page view", () => {
+  test("source navigation accepts only this repository's immutable content and a valid line", () => {
+    const prefix = "/api/repos/org/repo/contents/", ref = "a".repeat(40)
+    expect(readWikiSourceHref(`${prefix}src/a.ts?ref=${ref}`, "org/repo")).toEqual({ path: "src/a.ts", repo: "org/repo", ref })
+    for (const href of [
+      `${prefix}src/a.ts?ref=main#L1`, `${prefix}src/a.ts?ref=${ref}#L0`,
+      `${prefix}%2e%2e/secret?ref=${ref}`, `${prefix}src/%ZZ?ref=${ref}`,
+      `${prefix}src/a.ts?ref=${ref}#L999999999999999999999`,
+      `/api/repos/other/repo/contents/src/a.ts?ref=${ref}#L1`
+    ]) expect(readWikiSourceHref(href, "org/repo")).toBeUndefined()
+  })
+  test("an embedded Wiki card displays the same explained page and citation doors", () => {
+    const ref = "a".repeat(40)
+    const note = {
+      id: "wiki:org/repo:7", title: "Answer", path: "generated-answer.md",
+      body: `# Answer\n\nThe answer is 42.\n\n[src/answer.ts:2](/api/repos/org/repo/contents/src/answer.ts?ref=${ref}#L2)`,
+      sources: [], cloud: { repo: "org/repo", slug: "generated-answer", pageId: 7, phase: "live", pending: [], error: null }
+    } as unknown as WorldDocument
+    const card = { id: "wiki-open", kind: "world", payload: { view: "read", documents: [{ id: note.id, path: note.path, title: note.title, confidence: 1 }] } } as Extract<Card, { kind: "world" }>
+    const calls: unknown[] = []
+    const host = document.createElement("div"), root = createRoot(host)
+    try {
+      flushSync(() => root.render(<WorldCardBody card={card} worldDocuments={[note]} onChangeWorldDocument={() => {}}
+        onRunCommand={(name, args) => { calls.push({ name, ...payloadFor(name, args) }) }} />))
+      expect(host.querySelector('[data-testid="wiki-page"]')?.textContent).toContain("The answer is 42.")
+      host.querySelector<HTMLAnchorElement>('.wiki-page a')!.click()
+      expect(calls).toEqual([{ name: "files.read", payload: { path: "src/answer.ts", repo: "org/repo", ref, line: 2 } }])
+      const edit = [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === "Edit")!
+      edit.click()
+      expect(calls[1]).toEqual({ name: "wiki.card.view", payload: { cardId: card.id, view: "document" } })
+    } finally { flushSync(() => root.unmount()) }
+  })
+  test("a generated citation opens the existing embedded file flow at its reviewed revision and line", () => {
+    const ref = "a".repeat(40)
+    const calls: unknown[] = []
+    const host = document.createElement("div")
+    const root = createRoot(host)
+    try {
+      flushSync(() => root.render(<WikiPageView
+        body={`---\nsmithers_generated: true\n---\n\n# Answer\n\nThe answer is 42.\n\n[src/answer.ts:2](/api/repos/org/repo/contents/src/answer.ts?ref=${ref}#L2)`}
+        links={[]} index={undefined} repo="org/repo" space="public" onOpen={() => {}}
+        onRunCommand={(name, args) => { calls.push({ name, ...payloadFor(name, args) }) }} />))
+      expect(host.textContent).toContain("The answer is 42.")
+      expect(host.textContent).not.toContain("smithers_generated")
+      host.querySelector<HTMLAnchorElement>("a")!.click()
+      expect(calls).toEqual([{ name: "files.read", payload: { path: "src/answer.ts", repo: "org/repo", ref, line: 2 } }])
+    } finally { flushSync(() => root.unmount()) }
+  })
   test("resolves each occurrence through the index's links, never by its own rules", () => {
     expect(resolveWikiLink(links, index, { target: "Guides/Start", heading: "Install", alias: "start", embed: false })?.id).toBe(2)
     expect(resolveWikiLink(links, index, { target: "assets/logo.png", heading: "", alias: "", embed: true })?.id).toBe(3)

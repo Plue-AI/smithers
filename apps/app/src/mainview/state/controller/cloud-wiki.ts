@@ -547,7 +547,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           payload: {
             documents: [{ id, path: document.path, title: document.title, confidence: document.confidence }],
             selectedDocumentId: id,
-            view: previous?.kind === "world" ? previous.payload.view : "outline"
+            view: previous?.kind === "world" ? previous.payload.view ?? "read" : "read"
           }
         }
         yield* Effect.tryPromise({

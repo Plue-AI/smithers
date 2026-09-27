@@ -1196,7 +1196,13 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "files.read": (args) => {
     const parsed = parseFileArgs(args)
     if ("error" in parsed) return parsed
-    const tokens = parsed.tokens
+    const tokens = [...parsed.tokens]
+    const refAt = tokens.indexOf("--ref")
+    const ref = refAt === -1 ? undefined : tokens[refAt + 1]
+    if (refAt !== -1) {
+      if (refAt !== tokens.length - 2 || !ref) return no("files.read --ref needs a revision")
+      tokens.splice(refAt, 2)
+    }
     const [token, repo] = tokens
     if (token === undefined) return no("files.read needs a file path")
     if (tokens.length > 2) return no("files.read takes a path and optionally an owner/repo")
@@ -1210,6 +1216,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
       path,
       ...(line === undefined ? {} : { line }),
       ...(column === undefined ? {} : { column }),
+      ...(ref === undefined ? {} : { ref }),
       ...(repo === undefined ? {} : { repo })
     })
   },

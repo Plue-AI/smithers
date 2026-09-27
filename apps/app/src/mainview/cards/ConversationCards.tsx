@@ -5,7 +5,7 @@ import { flowAction, flowProps } from "../flows/FlowAction"
 import { Badge, Button, FileTree } from "@smthrs/ui"
 import { ExternalLink, GitPullRequest, Hash, ListChecks, Server } from "lucide-react"
 import { ageLabel } from "../Timestamps"
-import { Suspense, useId, useContext, type ReactNode } from "react"
+import { Suspense, useId, useContext, useSyncExternalStore, type ReactNode } from "react"
 import { parseOutline } from "@smthrs/ui/vault"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
 import type { Card, WorldDocument } from "../state/AppState"
@@ -15,6 +15,7 @@ import { ControllerContext } from "../ControllerContext"
 import { activeRepositoryId } from "../state/RepoContext"
 import { settledPill } from "./CardFamily"
 import { WikiTree, useWikiScope } from "../wiki/WikiNavigation"
+import { pageLinksOf, WikiPageView } from "../wiki/WikiPageView"
 
 
 
@@ -152,10 +153,10 @@ export const WorldCardBody = ({
         <div className="world-card-meta">
           <span className="world-card-path">{document?.path ?? entry.path}</span>
           <div className="wiki-card-views" aria-label="Wiki view">
-            {(["outline", "document"] as const).map((mode) => <Button key={mode} size="sm" variant="ghost"
+            {(cloud === undefined ? ["outline", "document"] as const : ["outline", "read", "document"] as const).map((mode) => <Button key={mode} size="sm" variant="ghost"
               aria-pressed={view === mode} 
               {...flowAction(onRunCommand, "wiki.card.view", flowArgs("wiki.card.view", { cardId: card.id, view: mode }))}>
-              {mode === "outline" ? "Outline" : "Document"}
+              {mode === "outline" ? "Outline" : mode === "document" && cloud !== undefined ? "Edit" : "Document"}
             </Button>)}
           </div>
         </div>
@@ -181,7 +182,7 @@ export const WorldCardBody = ({
               {cloud === undefined ? <p>Saved by {document.updatedBy} at app revision {document.revision}.</p> :
                 <p>Page {cloud.pageId} in {cloud.repo}. Recorded at {cloud.remoteUpdatedAt}.</p>}
             </details>
-          </div> : <Suspense fallback={<ViewSkeleton />}>
+          </div> : view === "read" && cloud !== undefined ? <WikiCardPage document={document} onRunCommand={onRunCommand} /> : <Suspense fallback={<ViewSkeleton />}>
             <MarkdownEditorSurface
               value={document.body}
               resetKey={document.id}
@@ -196,6 +197,22 @@ export const WorldCardBody = ({
     </div>
   )
 }
+
+/** The card and pane render the same published Markdown and source links. */
+const WikiCardPage = ({ document, onRunCommand }: { readonly document: WorldDocument; readonly onRunCommand: RunCommand }) => {
+  const controller = useContext(ControllerContext)
+  const cloud = document.cloud!, space = cloud.visibility ?? "public"
+  const indexes = controller?.wikiIndexes
+  const index = useSyncExternalStore(indexes?.subscribe ?? noWikiSubscription,
+    () => indexes?.get(cloud.repo, space), () => indexes?.get(cloud.repo, space))
+  return <WikiPageView body={document.body} links={pageLinksOf(index, cloud.pageId)} index={index}
+    repo={cloud.repo} space={space} onRunCommand={onRunCommand} onOpen={(path) => {
+      const page = index?.pages.find((page) => page.path === path)
+      if (page !== undefined) onRunCommand("wiki.cloud.open", flowArgs("wiki.cloud.open", { slug: page.slug, repo: cloud.repo, space }))
+    }} />
+}
+
+const noWikiSubscription = () => () => {}
 
 /** The index card's tree: the space's navigation index when it is read, else the listing the card carries. */
 const WikiCardTree = ({ space, documents, selectedId, onRunCommand, fallback }: {

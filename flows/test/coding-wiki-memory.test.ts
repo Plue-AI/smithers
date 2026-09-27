@@ -93,12 +93,13 @@ test("a stack request plans only with supplied wiki pages whose inputs still has
   }
 })
 
-test("cloud wiki bodies link pages by slug and name sources by path", () => {
+test("cloud wiki bodies link pages by slug and preserve exact source citations", () => {
   const titles = new Map([["runtime", "Runtime"], ["flows", "Flows"]])
-  const body = "See [Flows](./flows.md) · [Gone](./gone.md)\n\n- [runtime.ts](../sources/runtime.ts) — `abc`\n"
+  const body =
+    "See [Flows](./flows.md) · [Gone](./gone.md)\n\n[runtime.ts:1](../sources/runtime.ts#L1)\n\n- [runtime.ts](../sources/runtime.ts) — `abc`\n"
   assert.equal(
     cloudWikiBody(body, titles),
-    "See [[generated-flows|Flows]] · [Gone](./gone.md)\n\n- `runtime.ts` — `abc`\n"
+    "See [[generated-flows|Flows]] · [Gone](./gone.md)\n\n[runtime.ts:1](../sources/runtime.ts#L1)\n\n- [runtime.ts](../sources/runtime.ts) — `abc`\n"
   )
 })
 

@@ -3,6 +3,8 @@ import { noteHref, parseWikilinks, pathFromHref } from "@smthrs/ui/vault"
 import { useCallback, type ReactNode } from "react"
 import type { WikiIndexPage, WikiIndexRow, WikiSpace } from "../state/AppState"
 import { attachmentUrl } from "./WikiNavigation"
+import type { RunCommand } from "../cards/CardFamily"
+import { flowArgs } from "../flows/FlowArgs"
 
 /*
  * The reading view of a wiki page (#1922): the Markdown rendered, every
@@ -62,6 +64,7 @@ type Segment = { readonly kind: "markdown"; readonly text: string } | { readonly
  * block. Pure, so the tests read the same rewrite the view renders.
  */
 export const wikiPageSegments = (body: string, links: ReadonlyArray<WikiPageLink>, index: WikiIndexRow | undefined): ReadonlyArray<Segment> => {
+  body = body.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")
   const segments: Array<Segment> = []
   let markdown = ""
   let cursor = 0
@@ -95,7 +98,7 @@ export const wikiPageSegments = (body: string, links: ReadonlyArray<WikiPageLink
 /** Whether a rendered heading is the one a link names: the text, case and outer spaces aside. */
 const sameHeading = (rendered: string | null, wanted: string): boolean => (rendered ?? "").trim().toLowerCase() === wanted.trim().toLowerCase()
 
-export const WikiPageView = ({ body, links, index, repo, space, focusHeading, onOpen, onFocused }: {
+export const WikiPageView = ({ body, links, index, repo, space, focusHeading, onOpen, onFocused, onRunCommand }: {
   readonly body: string
   readonly links: ReadonlyArray<WikiPageLink>
   readonly index: WikiIndexRow | undefined
@@ -106,6 +109,7 @@ export const WikiPageView = ({ body, links, index, repo, space, focusHeading, on
   /** A wikilink was activated: the page it names (by path) and the heading, if any. */
   readonly onOpen: (path: string, heading?: string) => void
   readonly onFocused?: () => void
+  readonly onRunCommand?: RunCommand
 }) => {
   const segments = wikiPageSegments(body, links, index)
   const scrollTo = (root: HTMLElement, heading: string): boolean => {
@@ -121,6 +125,11 @@ export const WikiPageView = ({ body, links, index, repo, space, focusHeading, on
     if (scrollTo(root, focusHeading)) onFocused?.()
   }, [focusHeading, onFocused])
   const onLinkClick = (href: string, event: { readonly currentTarget: HTMLAnchorElement }) => {
+    const source = readWikiSourceHref(href, repo)
+    if (source !== undefined && onRunCommand !== undefined) {
+      onRunCommand("files.read", flowArgs("files.read", source))
+      return
+    }
     const named = readWikiHref(href)
     if (named === undefined) { window.open(href, "_blank", "noopener"); return }
     if ("unresolved" in named) return
@@ -140,6 +149,21 @@ export const WikiPageView = ({ body, links, index, repo, space, focusHeading, on
         : <Markdown key={at} className="wiki-page-markdown" content={segment.text} onLinkClick={onLinkClick} />)}
     </div>
   )
+}
+
+/** Only a same-repository, immutable contents link is a source-navigation door. */
+export const readWikiSourceHref = (href: string, repo: string) => {
+  const prefix = `/api/repos/${repo.split("/").map(encodeURIComponent).join("/")}/contents/`
+  if (!href.startsWith(prefix)) return undefined
+  const match = /^([^?#]+)\?ref=([a-f0-9]{40}|[a-f0-9]{64})(?:#L([1-9][0-9]*))?$/.exec(href.slice(prefix.length))
+  if (match === null) return undefined
+  try {
+    const path = decodeURIComponent(match[1]!)
+    if (path.split("/").some((part) => part === "" || part === "." || part === "..") || /[\\\x00-\x1f]/.test(path)) return undefined
+    const line = match[3] === undefined ? undefined : Number(match[3])
+    if (line !== undefined && !Number.isSafeInteger(line)) return undefined
+    return { path, repo, ref: match[2]!, ...(line === undefined ? {} : { line }) }
+  } catch { return undefined }
 }
 
 /** The links of one index page in the view's shape, or none while the index has not listed it. */

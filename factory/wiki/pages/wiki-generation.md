@@ -32,6 +32,8 @@ The configured coding host keys that reuse on the identity of its review task: a
 
 Cloud publication belongs to the mythical stack worker. After every fold it runs `coding/wiki` on the folded main, accepts only a verified result, and publishes each page as `generated-<id>` with an expected revision. A page a person edited, renamed or deleted is kept and counted as edited. Its receipt records how many pages were reviewed cold and how many reused an earlier review.
 
+Each explained section carries the exact source-line citations from its accepted review. The standalone snapshot links its captured sources; Cloud binds those links to repository contents at the folded main commit, whose tree was reviewed. The app's Wiki pane and embedded reading card open these citations through the existing file reader at that commit and line. Related pages retain their stable generated slugs.
+
 Planning reads the published pages and never generates the wiki.
 
 ## Optional semantic check

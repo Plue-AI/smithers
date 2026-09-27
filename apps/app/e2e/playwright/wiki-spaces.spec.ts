@@ -181,6 +181,33 @@ const wikiFixture = async (page: Page) => {
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
+test("a generated Wiki citation opens an embedded source at the published revision by keyboard", async ({ page }) => {
+  const fixture = await wikiFixture(page)
+  const ref = "b".repeat(40)
+  fixture.bodies.public["generated-home"] = `---\nsmithers_generated: true\n---\n\n# Home\n\nThe answer is 42.\n\n[src/answer.ts:2](/api/repos/${repo}/contents/src/answer.ts?ref=${ref}#L2)`
+  const reads: string[] = []
+  await page.route(`**/api/repos/${repo}/contents/src/answer.ts?*`, (route) => {
+    reads.push(route.request().url())
+    return route.fulfill(json({ type: "file", path: "src/answer.ts", content: "// Source\nexport const answer = 42\n", encoding: "utf-8" }))
+  })
+  await page.goto("/")
+  await expect(page.getByTestId("app-tile")).toHaveCount(4)
+  await slash(page, `/repo.select ${repo}`)
+  await slash(page, `/wiki.cloud.open generated-home ${repo}`)
+  const view = page.locator(".world-card-workspace").getByTestId("wiki-page")
+  await expect(view).toContainText("The answer is 42.")
+  await expect(view).not.toContainText("smithers_generated")
+  const citation = view.getByRole("link", { name: "src/answer.ts:2", exact: true })
+  await citation.focus()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => reads.length).toBe(1)
+  expect(new URL(reads[0]!).searchParams.get("ref")).toBe(ref)
+  await expect(page.locator('.world-card-panel[data-line="2"]')).toContainText("export const answer = 42")
+  expect(page.context().pages()).toHaveLength(1)
+  await page.keyboard.press("Control+k")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
+
 test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, rename conflict, new page", async ({ page }) => {
   const fixture = await wikiFixture(page)
   await page.goto("/")

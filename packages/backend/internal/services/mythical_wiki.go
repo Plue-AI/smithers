@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ import (
 // as generated-<id> through the wiki store, keeping any page a person edited.
 
 var mythicalWikiPageID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,80}$`)
+var mythicalWikiSourceLink = regexp.MustCompile(`\]\(\.\./sources/([A-Za-z0-9_./@-]+)(#L[1-9][0-9]*)?\)`)
 
 const (
 	mythicalWikiFlow        = "coding/wiki"
@@ -435,6 +437,23 @@ func mythicalWikiDigest(body string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// Bind the generator's archived-source links to immutable repository content.
+// The retained stack tip has the folded main's tree, but main is the durable
+// source address after the refresh workspace and later stack tips are retired.
+func mythicalWikiBody(body, owner, repo, commit string) string {
+	return mythicalWikiSourceLink.ReplaceAllStringFunc(body, func(link string) string {
+		parts := mythicalWikiSourceLink.FindStringSubmatch(link)
+		path := strings.Split(parts[1], "/")
+		for i, part := range path {
+			if part == "" || part == "." || part == ".." {
+				return link
+			}
+			path[i] = url.PathEscape(part)
+		}
+		return "](/api/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/contents/" + strings.Join(path, "/") + "?ref=" + url.QueryEscape(commit) + parts[2] + ")"
+	})
+}
+
 func mythicalWikiNotFound(err error) bool {
 	var api *pkgerrors.APIError
 	return errors.As(err, &api) && api.Status == 404
@@ -468,6 +487,7 @@ func (s *MythicalService) publishWiki(ctx context.Context, r *mythicalRun, row d
 	declared := map[string]bool{}
 	for _, page := range result.Pages {
 		declared[page.ID] = true
+		page.Body = mythicalWikiBody(page.Body, r.owner, r.repo, row.CommitID)
 		slug := mythicalWikiSlugPrefix + page.ID
 		title := strings.TrimSpace(page.Title)
 		digest := mythicalWikiDigest(page.Body)

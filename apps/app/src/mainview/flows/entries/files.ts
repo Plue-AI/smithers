@@ -5,6 +5,7 @@
  */
 import { Schema } from "effect"
 import { fileArgs } from "../FileArgs"
+import { flowArgs } from "../FlowArgs"
 import { text } from "@smthrs/ui/flow-form"
 import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
@@ -44,22 +45,27 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
        * keystroke on the way to one.
        */
       fields: { path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } },
-      args: (payload) => fileArgs([text(payload, "path"), text(payload, "line"), text(payload, "column")].filter((part) => part !== undefined).join(":"), text(payload, "repo"))
+      args: (payload) => flowArgs("files.read", {
+        path: text(payload, "path") ?? "", repo: text(payload, "repo"), ref: text(payload, "ref"),
+        ...(payload.line === undefined ? {} : { line: Number(payload.line) }),
+        ...(payload.column === undefined ? {} : { column: Number(payload.column) })
+      })
     },
     summary: "Read a file from a repository",
     runtimeAny: ["cloud"],
     /* `:line[:col]` (docs/code-intel/PLAN.md §1): the card scrolls to and marks the line; the parser strips it off the path token. */
-    args: "<path>[:<line>[:<col>]] [owner/repo]",
+    args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]",
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({
       path: Schema.String,
       repo: Schema.optional(Schema.String),
       line: Schema.optional(Schema.Number),
-      column: Schema.optional(Schema.Number)
+      column: Schema.optional(Schema.Number),
+      ref: Schema.optional(Schema.String)
     }),
-    prepare: ({ path, repo, line, column }) => actions.readFile.preload?.(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }),
-    handler: ({ path, repo, line, column }) =>
-      actions.readFile(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) })
+    prepare: ({ path, repo, line, column, ref }) => actions.readFile.preload?.(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref),
+    handler: ({ path, repo, line, column, ref }) =>
+      actions.readFile(path, repo, line === undefined ? undefined : { line, ...(column === undefined ? {} : { column }) }, ref)
   })
 ]
 

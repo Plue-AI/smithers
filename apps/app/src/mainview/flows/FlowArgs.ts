@@ -20,6 +20,7 @@ import type { SetupManualRequest } from "@smthrs/rpc/RepositorySetup"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
   readonly "agent.session.view": { readonly sessionId: string; readonly repo: string }
   readonly "agent.session.stop": { readonly sessionId: string; readonly repo: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
@@ -270,6 +271,11 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "approvals.open": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId")),
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),
   "files.open-diff": (payload) => JSON.stringify(payload),
+  "files.read": (payload) => fileArgs(
+    [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),
+    payload.repo as string | undefined,
+    ...(payload.ref === undefined ? [] : ["--ref", String(payload.ref)])
+  ),
   "issues.view": (payload) => line(token(payload, "number"), token(payload, "repo"), payload.source ? `--source ${payload.source}` : undefined),
   "prs.view": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "prs.tab": (payload) => line(token(payload, "cardId"), token(payload, "tab")),

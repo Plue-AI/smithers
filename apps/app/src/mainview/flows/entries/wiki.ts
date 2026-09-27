@@ -112,8 +112,8 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     name: "wiki.card.view",
     summary: "Show a Wiki page outline or its Markdown document",
     hidden: true,
-    args: "<cardId> <outline|document>",
-    input: Schema.Struct({ cardId: Schema.String, view: Schema.Literals(["outline", "document"]) }),
+    args: "<cardId> <outline|read|document>",
+    input: Schema.Struct({ cardId: Schema.String, view: Schema.Literals(["outline", "read", "document"]) }),
     handler: ({ cardId, view }) => actions.setWikiCardView(cardId, view)
   }),
   flow({

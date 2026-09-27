@@ -241,7 +241,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly wikiIndexes: WikiIndexStore
   readonly attachWorldEditor: (id: string, slot: string, editor: MarkdownEditorHandle | null) => void
   readonly selectWikiCardDocument: (cardId: string, documentId: string) => string | void
-  readonly setWikiCardView: (cardId: string, view: "outline" | "document") => string | void
+  readonly setWikiCardView: (cardId: string, view: "outline" | "read" | "document") => string | void
   readonly createWorldDocument: () => void
   /** Ask whether to delete a note; the answer is `world.delete.confirm|cancel`. */
   readonly removeWorldDocument: (id: string) => string | void

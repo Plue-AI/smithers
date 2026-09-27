@@ -24,7 +24,7 @@ export const PublishedWikiPage = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   kind: Schema.Literals(["current", "intent"]),
-  /** Markdown for the cloud wiki: related pages as `[[generated-<id>|Title]]`, sources as path and digest. */
+  /** Markdown for the cloud wiki: related pages by slug, exact source links bound by the publisher. */
   body: Schema.String.check(Schema.isMaxLength(256 * 1024)),
   inputDigest: Schema.String,
   contentDigest: Schema.String,
@@ -77,14 +77,13 @@ const Snapshot = Schema.Struct({
 
 /**
  * Snapshot pages link each other and their archived sources by relative
- * path; a cloud page links pages by slug and names each source with its digest.
+ * path; a cloud page links pages by slug. The mythical publisher binds source
+ * links to the folded main commit, whose tree the refresh reviewed.
  */
 export const cloudWikiBody = (body: string, titles: ReadonlyMap<string, string>): string =>
   body
     .replace(/\[([^\]\n]*)\]\(\.\/([A-Za-z0-9._-]+)\.md\)/g, (whole, label: string, id: string) =>
       titles.has(id) ? `[[generated-${id}|${label || titles.get(id)}]]` : whole)
-    .replace(/\[([^\]\n]*)\]\(\.\.\/sources\/[^)\n]*\)/g, (_whole, label: string) =>
-      `\`${label}\``)
 
 /** How many snapshot pages the reviewer read this refresh and how many reused an earlier review. */
 export const reviewCounts = (

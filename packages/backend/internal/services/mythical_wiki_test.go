@@ -166,6 +166,39 @@ func (o *mythicalOrchestration) declareWiki() string {
 	return o.publish()
 }
 
+func TestMythicalWikiPublishesCitationsAtFoldedMain(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}
+	o.service.SetWiki(store)
+	main := o.declareWiki()
+	stack := o.wake()
+	request := o.launcher.last(mythicalWikiFlow)
+	body := "# Runtime\n\nExplained behavior.\n\n[.smithers/coding-project.json:1](../sources/.smithers/coding-project.json#L1)\n"
+	o.project(request, jobs.StateCompleted, "wiki-citations", wikiResult(stack.TipCommit, `null`, "runtime", body))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	expected := strings.ReplaceAll(body, "../sources/.smithers/coding-project.json#L1", "/api/repos/smithers-canary/smithers/contents/.smithers/coding-project.json?ref="+main+"#L1")
+	assert.Equal(t, expected, store.body("generated-runtime"))
+	assert.Equal(t, wikiProject, o.git(o.work, "show", main+":.smithers/coding-project.json"))
+	assert.NotContains(t, store.body("generated-runtime"), stack.TipCommit)
+	var pages []mythicalWikiPage
+	require.NoError(t, json.Unmarshal(o.wiki().Pages, &pages))
+	require.Len(t, pages, 1)
+	assert.Equal(t, expected, pages[0].Body)
+	assert.Equal(t, mythicalWikiDigest(expected), pages[0].BodyDigest)
+
+	// An unchanged explanation refreshes its citation revision in the same page.
+	o.commit("✨ feat: more source", "more.txt", "more\n")
+	nextMain := o.publish()
+	nextStack := o.wake()
+	o.project(o.launcher.last(mythicalWikiFlow), jobs.StateCompleted, "wiki-citations-2", wikiResult(nextStack.TipCommit, `null`, "runtime", body))
+	o.wake()
+	require.Equal(t, "idle", o.wiki().State, o.wiki().Error)
+	assert.Equal(t, strings.ReplaceAll(expected, main, nextMain), store.body("generated-runtime"))
+	assert.Equal(t, int64(2), store.pages["generated-runtime"].Revision)
+	assert.Len(t, store.pages, 1)
+}
+
 func TestMythicalWikiRefreshesAfterEveryFoldAndKeepsEdits(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	store := &fakeWikiStore{pages: map[string]WikiPageResponse{}}

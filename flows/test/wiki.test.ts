@@ -48,6 +48,20 @@ const supported = (evidence: ReviewedPage["evidence"]): Review => ({
 /** One evidence judge dispatches citation and completion questions for this host. */
 const citationsSupported = makeHostJudge().layer
 
+test("verified pages publish the assessed citations beside each explained section", async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, "page.md"), "# Answer\n\nThe answer is 42.\n\n## Export\n\nThe answer is exported.\n")
+  const evidence = await run(f.ops.collect(f.spec))
+  await run(f.ops.write([{ evidence, review: supported(evidence), reviewer: "scripted-test" }], "verified"))
+  const snapshot = JSON.parse(await readFile(join(f.output, "current.json"), "utf8"))
+  const body = snapshot.pages[0].body as string
+  const citation = "[src/answer.ts:1](../sources/src/answer.ts#L1)"
+  assert.ok(body.indexOf(citation) > body.indexOf("The answer is 42."))
+  assert.ok(body.indexOf(citation) < body.indexOf("## Export"))
+  assert.ok(body.lastIndexOf(citation) > body.indexOf("The answer is exported."))
+  assert.equal((await run(f.ops.check([f.spec], true))).verification, "verified")
+})
+
 test("host-owned wiki operations retain their injected filesystem under a different action context", async (t) => {
   const f = await fixture(t), fs = await run(FileSystem.FileSystem)
   const ops = operations({ root: f.root, output: f.output, fs })

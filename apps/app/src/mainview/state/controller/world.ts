@@ -37,7 +37,7 @@ export interface WorldController {
   readonly changeWorldDocument: (id: string, body: string) => Promise<string | void>
   readonly prepareWorldDocument: (id: string, body: string) => PreparedWikiEdit | undefined
   readonly selectWikiCardDocument: (cardId: string, documentId: string) => string | void
-  readonly setWikiCardView: (cardId: string, view: "outline" | "document") => string | void
+  readonly setWikiCardView: (cardId: string, view: "outline" | "read" | "document") => string | void
   readonly createWorldDocument: () => void
   readonly removeWorldDocument: (id: string) => string | void
   readonly confirmWorldDelete: () => string | void
@@ -357,7 +357,7 @@ export const createWorldController = (
     ctx.store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: cardId, patch: { kind: "world", payload: { selectedDocumentId: documentId } } })
   }
 
-  const setWikiCardView = (cardId: string, view: "outline" | "document"): string | void => {
+  const setWikiCardView = (cardId: string, view: "outline" | "read" | "document"): string | void => {
     const card = ctx.store.collections.cards.get(cardId)
     if (card?.kind !== "world") return "This Wiki card is no longer available."
     ctx.store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: cardId, patch: { kind: "world", payload: { view } } })
