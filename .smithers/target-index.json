@@ -38387,7 +38387,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:releasePack"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }

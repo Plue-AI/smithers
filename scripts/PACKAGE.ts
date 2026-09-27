@@ -248,9 +248,10 @@ const releasePack = Smithers.NodeBinary({
  * Every public package's declarations hash to the reviewed
  * `scripts/fixtures/public-api-baseline.json`.
  *
- * The same `lib` edge as {@link releasePack}, so on CI the libraries this
- * reads are the ones the pack already built, and a declaration change that
- * skips the baseline review fails on the push that made it, not at release.
+ * Depends on {@link releasePack}, which removes and rebuilds every package
+ * `dist`, so this reads the clean release build after it settles instead of
+ * racing it, and a declaration change that skips the baseline review fails on
+ * the push that made it, not at release.
  *
  * @since 1.0.0
  * @category test
@@ -258,7 +259,7 @@ const releasePack = Smithers.NodeBinary({
 const apiBaseline = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("//scripts/check-api-baseline.mjs")),
   srcs: sources,
-  deps: [Smithers.Target.subtree("//packages/...", "lib")]
+  deps: [releasePack]
 })
 
 /**
