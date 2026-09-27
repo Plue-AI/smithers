@@ -86,4 +86,4 @@ Cards, panes, toasts, and lessons carry the fewest words needed to act. No expla
 
 ## Product words (Will, 2026-09-26)
 
-User-facing docs and visible UI labels say Chat or conversation, issue, flow, run, change, review comment, wiki, and request, never internal model terms such as thread, task, HumanTask, principal, grant set, or charter. Those terms belong only in type and module names and on pages deliberately about implementation (reference, concepts, package docs).
+Docs and visible UI copy use product words, not internal modeling terms such as thread or task; [D-16](docs/mvp/PRODUCT.md) is the rule.

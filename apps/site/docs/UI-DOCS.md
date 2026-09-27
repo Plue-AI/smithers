@@ -15,13 +15,9 @@ Separate task guides from technical reference.
 
 ## Product words
 
-User guides, the quickstart, the overview, and visible UI labels use the
-words a user sees: Chat or conversation, issue, flow, run, change, review
-comment, wiki, and request. Internal model terms such as thread, task,
-`HumanTask`, principal, grant set, and charter leak how Smithers models
-things; use them only on pages deliberately about implementation (reference,
-concepts, package and API docs) and in type or module names. For example, the
-concept page on memory threads and `smthrs memory threads` keep the word.
+Guides and captions use product words, not internal modeling terms such as
+thread or task, except on pages deliberately about implementation (reference,
+concepts, package docs). [D-16](../../../docs/mvp/PRODUCT.md) is the rule.
 
 ## Product facts
 
