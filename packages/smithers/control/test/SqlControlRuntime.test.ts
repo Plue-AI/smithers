@@ -1155,7 +1155,7 @@ it("commits the run and its idempotency receipt before handing it to the executo
             const receipts = yield* peer`SELECT receipt_json FROM control_mutations`
             expect(receipts.some((row) => JSON.parse(String(row.receipt_json)).runId === run.runId)).toBe(true)
             return "accepted" as const
-          })
+          }).pipe(Effect.orDie)
       })
       const services = yield* Layer.build(durable({ database: fileBundle(filename), executor }))
       const control = Context.get(services, Control)

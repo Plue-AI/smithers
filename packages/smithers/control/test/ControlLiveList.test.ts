@@ -1046,7 +1046,7 @@ describe("ControlLive executor acceptance", () => {
             Effect.gen(function*() {
               yield* runtime.writeStatus(run.runId, yield* runtime.claimFence(run.runId), status)
               return "accepted" as const
-            })
+            }).pipe(Effect.orDie)
         })
       })
     )
