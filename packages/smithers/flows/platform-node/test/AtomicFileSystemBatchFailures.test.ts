@@ -49,7 +49,9 @@ beforeAll(async () => {
   await promisify(execFile)(process.execPath, ["--build-sea", config], { timeout: 60_000 })
 }, 60_000)
 afterAll(async () => {
-  if (launcherDirectory !== undefined) await rm(launcherDirectory, { recursive: true, force: true })
+  if (launcherDirectory !== undefined) {
+    await rm(launcherDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  }
 })
 
 const roots: Array<string> = []
@@ -58,8 +60,10 @@ const temporary = async () => {
   roots.push(root)
   return root
 }
+// Windows keeps a just-exited helper.exe locked for a moment (the image
+// mapping and the runner's malware scan), so removal waits it out there.
 afterEach(async () => {
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
+  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 const guarded = (root: string, host = AtomicFileSystem.layer) =>
   KernelFileSystem.layer.pipe(
