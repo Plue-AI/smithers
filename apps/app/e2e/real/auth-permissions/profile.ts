@@ -327,8 +327,14 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
   trace: "off",
   video: "off",
   profileEnvironment: [undefined, { option: true }],
-  context: async ({ playwright, browser, browserName, profileEnvironment }, use, testInfo) => {
-    if (browserName !== "chromium") throw new Error("The authenticated profile fixture requires Chromium.")
+  context: async ({ playwright, browser, browserName, context: inheritedContext, profileEnvironment }, use, testInfo) => {
+    const authKind = realAuthKind()
+    const chromiumProfile = authKind === "browser-profile" ||
+      (authKind === "application-token" && Boolean(process.env.SMITHERS_E2E_PROFILE?.trim())) ||
+      (authKind === "owner-session" && Boolean(process.env.SMITHERS_REAL_OWNER_PROFILE_DIR?.trim()))
+    if (browserName !== "chromium" && (chromiumProfile || process.env.SMITHERS_REAL_NATIVE_CDP_ENDPOINT)) {
+      throw new Error("Persisted Chromium profiles and native CDP targets require Chromium.")
+    }
     const baseURL = testInfo.project.use.baseURL
     if (typeof baseURL !== "string") throw new Error("The authenticated profile fixture requires a configured baseURL.")
     if (process.env.SMITHERS_REAL_NATIVE_CDP_ENDPOINT) {
@@ -351,7 +357,7 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
           ? await playwright.chromium.launchPersistentContext(profile.path, {
               baseURL, headless: process.env.SMITHERS_REAL_HEADED !== "1", viewport: { width: 1280, height: 900 }
             })
-          : await browser.newContext({ baseURL, viewport: { width: 1280, height: 900 } })
+          : inheritedContext
         const origin = new URL(baseURL).origin
         await context.addInitScript(({ origin, token }) => {
           if (location.origin !== origin) return
@@ -363,7 +369,9 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
         }, { origin, token })
         await use(context)
       } finally {
-        try { await context?.close() } finally { await profile?.lease.release() }
+        if (profile) {
+          try { await context?.close() } finally { await profile.lease.release() }
+        }
       }
       return
     }
@@ -390,15 +398,10 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
         }
         return
       }
-      const browser = await playwright.chromium.launch({ headless: process.env.SMITHERS_REAL_HEADED !== "1" })
-      const context = await browser.newContext({ baseURL, viewport: { width: 1280, height: 900 } })
-      try {
-        await context.addCookies(ownerSessions.read(ownerSessionScope(baseURL)))
-        await use(context)
-      } finally {
-        await context.close()
-        await browser.close()
-      }
+      // The base fixture owns browser selection, WebKit's isolated OPFS
+      // profile, and teardown. Authentication only adds the owner's cookies.
+      await inheritedContext.addCookies(ownerSessions.read(ownerSessionScope(baseURL)))
+      await use(inheritedContext)
       return
     }
     if (process.env.SMITHERS_REAL_E2E_HOST !== "production") {
