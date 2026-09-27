@@ -1,6 +1,6 @@
 import { Context, Data, Effect, Layer, Semaphore } from "effect"
 import { z } from "zod"
-import { RepositoryJobSchema, SetupHostInputSchema, SetupOperationResponseSchema, SetupReceiptSchema, type SetupHostInput, type RepositoryJob } from "@smthrs/rpc/RepositorySetup"
+import { BudgetTokensSchema, RepositoryJobSchema, SetupDraftSchema, SetupHostInputSchema, SetupOperationResponseSchema, SetupReceiptSchema, type SetupHostInput, type RepositoryJob } from "@smthrs/rpc/RepositorySetup"
 import { workerFailureCode, type WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
 import { DurableStorage, namespaceCall, type NativeNamespace } from "./DurableStorage"
 import { readBoundedJson, readJsonOrUndefined } from "./Http"
@@ -10,7 +10,8 @@ import { refuse } from "./Responses"
 export class SetupStoreError extends Data.TaggedError("SetupStoreError")<{ readonly message: string; readonly status?: number; readonly code?: WorkerFailureCode; readonly cause?: unknown }> {}
 export const SetupPlanSchema = z.object({ planId: z.string().min(1), flowId: z.literal("repository/setup"), digest: z.string().min(1),
   executionDigest: z.string().min(1), envelope: z.object({ capabilities: z.array(z.string()), flows: z.array(z.string()),
-    budget: z.object({ tokens: z.number().int().positive().max(200_000), milliseconds: z.number().int().positive().max(7_200_000) }), host: z.string().optional() }) })
+    budget: z.object({ tokens: BudgetTokensSchema,
+      milliseconds: z.number().int().positive().max(SetupDraftSchema.shape.budgetMinutes.maxValue! * 60_000) }), host: z.string().optional() }) })
 const instant = () => z.number().int().nonnegative().optional()
 export const SetupRecordSchema = z.object({ version: z.number().int().nonnegative(), input: SetupHostInputSchema,
   workspaceId: z.string().uuid().optional(),
