@@ -8,6 +8,7 @@ afterEach(() => vi.restoreAllMocks())
 it("bounds agent log pulls, closes the iterator, and retains the connection in its next-page command", async () => {
   let consumed = 0
   let closed = false
+  vi.spyOn(Bridge, "hasRecords").mockReturnValue(true)
   vi.spyOn(Bridge, "events").mockImplementation(() =>
     (async function*() {
       try {

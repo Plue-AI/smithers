@@ -293,7 +293,60 @@ const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: 
     return workspace
   })
 
+const readOnly = (filename: string) => NodeDatabase.layer({ filename, sqlite: { readonly: true, disableWAL: true } })
+
+/** Both stores opened read-only, for a scan that must not write. */
+const readClients = (root: string) =>
+  Effect.gen(function*() {
+    const control = Context.get(yield* Layer.build(readOnly(NodeControl.databasePath(root))), SqlClient)
+    const engine = Context.get(yield* Layer.build(readOnly(requireDatabase(root))), SqlClient)
+    return { engine, control }
+  })
+
+/** Committed engine history the control projection has not caught up with. */
+const gaps = (engine: SqlClient, control: SqlClient) =>
+  Effect.gen(function*() {
+    // An unmigrated control.db projects nothing yet: every fork edge and
+    // completed audit is pending, so the writable pass migrates and rescans.
+    const projected = yield* hasTable(control, "flows_runs")
+    const forks: Array<{ child_run_id: string; parent_run_id: string }> = []
+    if (yield* hasTable(engine, "flows_time_travel_edges")) {
+      for (
+        const fork of yield* engine<
+          { child_run_id: string; parent_run_id: string }
+        >`SELECT child_run_id,parent_run_id FROM flows_time_travel_edges WHERE kind='fork' ORDER BY rowid`
+      ) {
+        if (!projected) {
+          forks.push(fork)
+          continue
+        }
+        if ((yield* control`SELECT 1 FROM flows_runs WHERE run_id=${fork.child_run_id}`).length > 0) continue
+        if ((yield* control`SELECT 1 FROM flows_runs WHERE run_id=${fork.parent_run_id}`).length === 0) continue
+        forks.push(fork)
+      }
+    }
+    const audits: Array<{ id: string; run_id: string }> = []
+    if (yield* hasTable(engine, "flows_time_travel_audits")) {
+      // A control.db from before the history rung has no ledger: every audit is pending.
+      const ledger = projected && (yield* hasTable(control, "smthrs_history_applied"))
+      for (
+        const audit of yield* engine<
+          { id: string; run_id: string }
+        >`SELECT id,run_id FROM flows_time_travel_audits WHERE status='completed' ORDER BY rowid`
+      ) {
+        if (ledger && (yield* control`SELECT 1 FROM smthrs_history_applied WHERE audit_id=${audit.id}`).length > 0) {
+          continue
+        }
+        audits.push(audit)
+      }
+    }
+    return { forks, audits }
+  })
+
 /** Repairs committed engine history and its durable control projection.
+ *
+ * The stores are scanned read-only first; a writable connection, and the
+ * control migrations it runs, are opened only when a gap is pending.
  * @category constructors
  * @since 1.0.0
  */
@@ -302,34 +355,26 @@ export const reconcile = async (root: string): Promise<void> => {
     !DatabaseLocation.exists(NodeControl.executionDatabasePath(root)) ||
     !DatabaseLocation.exists(NodeControl.databasePath(root))
   ) return
-  await runEffect(Effect.scoped(Effect.gen(function*() {
-    const { engine, control } = yield* clients(root)
-    yield* control.withTransaction(Effect.gen(function*() {
-      if (yield* hasTable(engine, "flows_time_travel_edges")) {
-        const forks = yield* engine<
-          { child_run_id: string; parent_run_id: string }
-        >`SELECT child_run_id,parent_run_id FROM flows_time_travel_edges WHERE kind='fork' ORDER BY rowid`
-        for (const fork of forks) {
-          if ((yield* control`SELECT 1 FROM flows_runs WHERE run_id=${fork.child_run_id}`).length > 0) continue
-          if ((yield* control`SELECT 1 FROM flows_runs WHERE run_id=${fork.parent_run_id}`).length === 0) continue
-          yield* linkFork(engine, control, root, fork.child_run_id, fork.parent_run_id)
-        }
-      }
-      if (yield* hasTable(engine, "flows_time_travel_audits")) {
-        const audits = yield* engine<
-          { id: string; run_id: string }
-        >`SELECT id,run_id FROM flows_time_travel_audits WHERE status='completed' ORDER BY rowid`
+  await runEffect(Effect.gen(function*() {
+    const pending = yield* Effect.scoped(
+      Effect.flatMap(readClients(root), ({ control, engine }) => gaps(engine, control))
+    )
+    if (pending.forks.length === 0 && pending.audits.length === 0) return
+    yield* Effect.scoped(Effect.gen(function*() {
+      const { engine, control } = yield* clients(root)
+      yield* control.withTransaction(Effect.gen(function*() {
+        const { forks, audits } = yield* gaps(engine, control)
+        for (const fork of forks) yield* linkFork(engine, control, root, fork.child_run_id, fork.parent_run_id)
         for (const audit of audits) {
-          if ((yield* control`SELECT 1 FROM smthrs_history_applied WHERE audit_id=${audit.id}`).length > 0) continue
           const [row] = yield* engine<{ status: string }>`SELECT status FROM flows_runs WHERE run_id=${audit.run_id}`
           if (row?.status === "suspended") {
             yield* parkControl(control, audit.run_id, yield* controlSummary(control, audit.run_id))
           }
           yield* control`INSERT INTO smthrs_history_applied(audit_id) VALUES(${audit.id})`
         }
-      }
+      }))
     }))
-  })))
+  }))
 }
 
 /** Fork or rewind a run and reconcile its durable control identity.

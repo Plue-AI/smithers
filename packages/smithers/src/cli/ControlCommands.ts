@@ -35,9 +35,26 @@ const afterDecision = Presentation.runs({
 
 const dataArgs = (data: string | undefined) => data === undefined ? [] : ["--data", data]
 
-/** Whether this invocation targets a remote control plane. */
-const remote = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>
-  Bridge.configuration(connection, runtime).remote !== undefined
+/** The notices and backend refusal every local verb applies before it reads. */
+const checks = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>
+  Globals.guard({ credential: connection.credential, environment: runtime.environment ?? process.env })
+
+/** The project's discovered flows, after the local checks. */
+const discovered = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>
+  Effect.andThen(checks(connection, runtime), FlowCatalog.discovered)
+
+/** An observing verb's answer: `empty` when there are no records to read. */
+const observe = async <A>(
+  connection: Bridge.ConnectionOptions,
+  runtime: Bridge.Runtime,
+  empty: A,
+  read: () => Promise<A>
+): Promise<A> =>
+  Bridge.hasRecords(connection, runtime)
+    ? read()
+    : Bridge.project(Effect.as(checks(connection, runtime), empty), connection, runtime)
+
+const unknownRun = (runId: string) => new Error(`Unknown run ${runId}`)
 
 /**
  * The flow catalog and explicit plan/start lifecycle.
@@ -58,15 +75,11 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
         guard(
           c,
           () =>
-            remote(c.options, runtime)
+            Bridge.isRemote(c.options, runtime)
               ? Bridge.invoke(["ls"], c.options, runtime)
               : Bridge.local(
                 Effect.gen(function*() {
-                  yield* Globals.guard({
-                    credential: c.options.credential,
-                    environment: runtime.environment ?? process.env
-                  })
-                  return FlowCatalog.listing((yield* FlowCatalog.discovered).items, yield* Project.ProjectRoot)
+                  return FlowCatalog.listing((yield* discovered(c.options, runtime)).items, yield* Project.ProjectRoot)
                 }),
                 c.options,
                 runtime
@@ -104,9 +117,9 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       options,
       run: (c) =>
         guard(c, async () => {
-          const { items } = remote(c.options, runtime)
+          const { items } = Bridge.isRemote(c.options, runtime)
             ? await Bridge.query(Effect.flatMap(Control.Control, FlowCatalog.read), c.options, runtime)
-            : await Bridge.local(FlowCatalog.discovered, c.options, runtime)
+            : await Bridge.local(discovered(c.options, runtime), c.options, runtime)
           const flow = items.find((entry) => entry.flowId === c.args.flow)
           if (flow === undefined) throw new Error(`Unknown flow ${c.args.flow}`)
           return flow
@@ -167,18 +180,19 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       mcp: { annotations: { readOnlyHint: true } },
       options: options.extend({ flow: z.string().optional(), status: z.enum(statuses).optional() }),
       run: (c) =>
-        guard(c, async () => {
-          await reconcileHistory(c.options, runtime)
-          return Bridge.invoke(
-            [
-              "ps",
-              ...(c.options.flow ? ["--flow", c.options.flow] : []),
-              ...(c.options.status ? ["--status", c.options.status] : [])
-            ],
-            c.options,
-            runtime
-          )
-        }, { next: Presentation.runs({ otherwise: [runsList] }) })
+        guard(c, () =>
+          observe<unknown>(c.options, runtime, { _tag: "runs", items: [] }, async () => {
+            await reconcileHistory(c.options, runtime)
+            return Bridge.invoke(
+              [
+                "ps",
+                ...(c.options.flow ? ["--flow", c.options.flow] : []),
+                ...(c.options.status ? ["--status", c.options.status] : [])
+              ],
+              c.options,
+              runtime
+            )
+          }), { next: Presentation.runs({ otherwise: [runsList] }) })
     })
     .command("show", {
       description: "Show a run's current status and diagnosis",
@@ -187,13 +201,17 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       options,
       run: (c) =>
         guard(c, async () => {
+          if (!Bridge.hasRecords(c.options, runtime)) {
+            await Bridge.project(checks(c.options, runtime), c.options, runtime)
+            throw unknownRun(c.args.run)
+          }
           await reconcileHistory(c.options, runtime)
           return Bridge.query(
             Effect.gen(function*() {
               const control = yield* Control.Control
               const page = yield* control.list({ _tag: "runs", filters: { runId: c.args.run } })
               const run = page._tag === "runs" ? page.items.find((row) => row.runId === c.args.run) : undefined
-              if (run === undefined) throw new Error(`Unknown run ${c.args.run}`)
+              if (run === undefined) throw unknownRun(c.args.run)
               const events = yield* BoundedEvents.collect(control.watch({ runId: run.runId, follow: false }), {
                 operation: "run diagnosis",
                 subject: run.runId
@@ -227,6 +245,10 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
         let count = 0
         let after = c.options.after
         try {
+          if (!Bridge.hasRecords(c.options, runtime)) {
+            await Bridge.project(checks(c.options, runtime), c.options, runtime)
+            return
+          }
           for await (
             const event of Bridge.events(c.args.run, c.options.follow, c.options, runtime, c.options.after)
           ) {
@@ -400,7 +422,12 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       mcp: { annotations: { readOnlyHint: true } },
       options: options.extend({ run: z.string().optional() }),
       run: (c) =>
-        guard(c, () => Bridge.query(pendingApprovals(c.options.run), c.options, runtime), { next: afterDecision })
+        guard(
+          c,
+          () =>
+            observe(c.options, runtime, [], () => Bridge.query(pendingApprovals(c.options.run), c.options, runtime)),
+          { next: afterDecision }
+        )
     })
     .command("approve", {
       description: "Approve the exact serialized payload or @file",

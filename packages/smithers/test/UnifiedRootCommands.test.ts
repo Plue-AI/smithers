@@ -201,6 +201,13 @@ describe("unified root command dispatch", () => {
     expect(JSON.parse(result.stdout)).toMatchObject(healthy)
   })
 
+  it("routes doctor to the control plane SMITHERS_REMOTE selects", async () => {
+    const result = await invoke(["doctor", "--json"], { environment: { SMITHERS_REMOTE: "https://fixture.invalid" } })
+    expect(ports.query).toHaveBeenCalledOnce()
+    expect(ports.project).not.toHaveBeenCalled()
+    expect(JSON.parse(result.stdout)).toMatchObject(healthy)
+  })
+
   it("keeps a failing doctor report available to scripts on its nonzero exit", async () => {
     ports.doctorFromRegistry.mockReturnValue(Effect.succeed(failing))
     const result = await invoke(["doctor", "--json"])

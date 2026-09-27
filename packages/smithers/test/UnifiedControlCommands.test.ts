@@ -16,6 +16,7 @@ const ports = vi.hoisted(() => ({
   query: vi.fn(),
   local: vi.fn(),
   events: vi.fn(),
+  hasRecords: vi.fn(),
   list: vi.fn(),
   cancel: vi.fn(),
   watch: vi.fn(),
@@ -31,7 +32,8 @@ vi.mock("../src/cli/ControlBridge.ts", async (load) => ({
   invoke: ports.invoke,
   query: ports.query,
   local: ports.local,
-  events: ports.events
+  events: ports.events,
+  hasRecords: ports.hasRecords
 }))
 vi.mock("../src/history/History.ts", async (load) => ({
   ...await load<typeof import("../src/history/History.ts")>(),
@@ -74,6 +76,7 @@ beforeEach(() => {
   )
   ports.watch.mockReturnValue(Stream.empty)
   ports.events.mockImplementation(async function*() {})
+  ports.hasRecords.mockReturnValue(true)
   ports.localRoot.mockImplementation((options) => options.root ?? process.cwd())
   ports.prepare.mockReturnValue({ executionRoot: "/isolated-child" })
   ports.progress.mockReturnValue({ event: ports.event, close: ports.close })
@@ -275,6 +278,22 @@ describe("unified control dispatch", () => {
     expect(ports.local).toHaveBeenCalledTimes(2)
     expect(ports.invoke).not.toHaveBeenCalled()
     expect(ports.query).not.toHaveBeenCalled()
+  })
+
+  it("answers observing verbs empty without opening a store the project does not have", async () => {
+    const root = await mkdtemp(join(tmpdir(), "smthrs-observe-empty-"))
+    directories.push(root)
+    ports.hasRecords.mockReturnValue(false)
+    const at = ["--root", root, "--json"]
+    expect(JSON.parse((await invoke(["runs", "list", ...at])).stdout)).toMatchObject({ _tag: "runs", items: [] })
+    expect(JSON.parse((await invoke(["approvals", "list", ...at])).stdout)).toEqual([])
+    const shown = await invoke(["runs", "show", "absent", ...at])
+    expect(shown.codes).toEqual([1])
+    expect(shown.stdout).toContain("Unknown run absent")
+    expect(JSON.parse((await invoke(["runs", "logs", "absent", ...at])).stdout)).toEqual([])
+    for (const port of [ports.invoke, ports.query, ports.events, ports.reconcile]) {
+      expect(port).not.toHaveBeenCalled()
+    }
   })
 
   it.each([false, true])("reconciles local history before listing with filters=%s", async (filtered) => {

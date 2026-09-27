@@ -244,6 +244,24 @@ describe("canonical verb ownership", processBudget, () => {
   })
 })
 
+describe("observing verbs", processBudget, () => {
+  it.each(
+    [
+      [["runs", "list"], 0, { items: [] }],
+      [["runs", "show", "absent-run"], 1, { code: "command_failed" }],
+      [["runs", "logs", "absent-run"], 0, []],
+      [["approvals", "list"], 0, []]
+    ] as const
+  )("%j creates no files in an empty project", (args, status, body) => {
+    inEmptyDirectory((cwd) => {
+      const result = runIn(cwd, [...args, "--json"], { SMITHERS_REMOTE: "" })
+      expect(result.status, result.stdout + result.stderr).toBe(status)
+      expect(JSON.parse(result.stdout)).toMatchObject(body)
+      expect(readdirSync(cwd)).toEqual([])
+    })
+  })
+})
+
 describe("legacy fork routing", processBudget, () => {
   it.each([
     ["resume", "fork-run", "--silent"],
@@ -857,8 +875,15 @@ describe("the SQLite-only database contract", processBudget, () => {
     expect(result.stderr.trim()).toBe(Environment.unsupportedBackendMessage)
   })
 
-  it("refuses SMITHERS_BACKEND=mysql, which a script exports rather than passes", () => {
-    const result = run(["flow", "list", "--json"], { SMITHERS_BACKEND: "mysql" })
+  it.each([
+    ["flow", "list"],
+    ["flow", "show", "absent"],
+    ["runs", "list"],
+    ["runs", "show", "absent"],
+    ["runs", "logs", "absent"],
+    ["approvals", "list"]
+  ])("refuses SMITHERS_BACKEND=mysql, which a script exports rather than passes (%s %s)", (...args) => {
+    const result = run([...args, "--json"], { SMITHERS_BACKEND: "mysql", SMITHERS_REMOTE: "" })
 
     expect(result.status).toBe(1)
     expect(JSON.parse(result.stdout).message).toBe(Environment.unsupportedBackendMessage)
@@ -1958,6 +1983,9 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
       try {
         const environment = { ...withoutSeats(), SMITHERS_HOME: home }
         expect(smithers(cwd, ["init", "hello", "--json"], environment).status).toBe(0)
+        // Observing verbs open the host only over an existing store.
+        mkdirSync(join(cwd, ".flows"), { recursive: true })
+        new DatabaseSync(join(cwd, ".flows", "control.db")).close()
         const missing = join(home, "no-such-smithers-jj-export")
         const result = smithers(cwd, [...verb, "--format", "json"], {
           ...environment,

@@ -3,7 +3,7 @@ import { ApprovalAuthority, Control } from "@smthrs/control"
 import { Unavailable } from "@smthrs/control/ControlError"
 import { Console, Effect, Layer, Logger, References, Stream } from "effect"
 import { getEventListeners } from "node:events"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -129,6 +129,23 @@ afterEach(() => {
 })
 
 describe("control bridge configuration and routing", () => {
+  it("has records only over a remote plane or an existing local control store", () => {
+    const root = mkdtempSync(join(tmpdir(), "smthrs-bridge-records-"))
+    try {
+      const options = { root, quiet: false }
+      expect(Bridge.hasRecords(options, { environment: {} })).toBe(false)
+      expect(Bridge.isRemote(options, { environment: {} })).toBe(false)
+      const remote = { environment: { SMITHERS_REMOTE: "https://control.invalid" } }
+      expect(Bridge.hasRecords(options, remote)).toBe(true)
+      expect(Bridge.isRemote(options, remote)).toBe(true)
+      mkdirSync(join(root, ".flows"))
+      writeFileSync(join(root, ".flows", "control.db"), "")
+      expect(Bridge.hasRecords(options, { environment: {} })).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("binds MCP transport identity independently of display preferences and forwards only host policy", async () => {
     const approvalAuthority = ApprovalAuthority.local
     const host = { ...runtime, approvalAuthority }

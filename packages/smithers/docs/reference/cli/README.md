@@ -113,7 +113,8 @@ a waiting plan prevents its launch.
 
 Control, memory, credentials, and triggers share `.flows/control.db`.
 Execution history is in `.flows/engine.db`; `runs inspect/replay` read it
-without executing actions. `runs fork <run> --at <sequence>` requires an
+without executing actions. `runs list/show/logs` and `approvals list` never
+create these stores: in a project without them they answer empty or unknown. `runs fork <run> --at <sequence>` requires an
 eligible parked/terminal agent run, its approved plan, and `jj`, and retains
 an isolated workspace under `.flows/forks/`. Resume the returned child run
 with `runs resume`.

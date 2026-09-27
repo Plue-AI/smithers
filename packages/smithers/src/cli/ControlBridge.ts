@@ -19,6 +19,7 @@ import { cli as legacyCli } from "../Command.ts"
 import * as ExecutionTarget from "../history/ExecutionTarget.ts"
 import * as HistoryWorkspace from "../history/History.ts"
 import * as CommandStatus from "../internal/CommandStatus.ts"
+import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
 import * as NodeControl from "../NodeControl.ts"
 import { layerTriggerScheduler } from "../operator/Triggers.ts"
 import * as Project from "../Project.ts"
@@ -105,17 +106,20 @@ const hostConnection = (options: ConnectionOptions): ConnectionOptions => {
   return options
 }
 
+const resolved = (options: ConnectionOptions, runtime: Runtime) =>
+  NodeControl.makeConfig(
+    connectionArguments(hostConnection(options)),
+    runtime.environment ?? process.env,
+    process.cwd()
+  )
+
 /**
  * Resolves transport and execution roots for an adapted command.
  * @category constructors
  * @since 1.0.0
  */
 export const configuration = (options: ConnectionOptions, runtime: Runtime) => {
-  const config = NodeControl.makeConfig(
-    connectionArguments(hostConnection(options)),
-    runtime.environment ?? process.env,
-    process.cwd()
-  )
+  const config = resolved(options, runtime)
   if (config.remote === undefined) Project.assertRoot(config.root ?? process.cwd())
   return {
     ...config,
@@ -124,6 +128,27 @@ export const configuration = (options: ConnectionOptions, runtime: Runtime) => {
     approvalAuthority: runtime.approvalAuthority,
     principal: Presentation.current()?.transport === "mcp" ? { id: "mcp", kind: "agent" as const } : undefined
   }
+}
+
+/**
+ * Whether this invocation targets a remote control plane.
+ * @category predicates
+ * @since 1.0.0
+ */
+export const isRemote = (options: ConnectionOptions, runtime: Runtime): boolean =>
+  resolved(options, runtime).remote !== undefined
+
+/**
+ * Whether there are durable records to observe: a remote control plane, or a
+ * local project whose control store exists. Observing verbs answer empty
+ * without opening, and so creating, a local store that does not.
+ * @category predicates
+ * @since 1.0.0
+ */
+export const hasRecords = (options: ConnectionOptions, runtime: Runtime): boolean => {
+  const config = configuration(options, runtime)
+  return config.remote !== undefined ||
+    DatabaseLocation.exists(NodeControl.databasePath(config.root ?? process.cwd()))
 }
 
 /** The display policy one invocation renders progress and prompts under. */

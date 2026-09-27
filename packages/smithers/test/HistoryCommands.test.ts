@@ -4,7 +4,7 @@ import { forkWorkspaceName } from "@smthrs/time-travel/TimeTravel"
 import { Effect } from "effect"
 import { Cli } from "incur"
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -365,6 +365,39 @@ describe("history boundaries and refusal postconditions", () => {
       expect(db.prepare("SELECT 1 FROM smthrs_history_applied").get()).toBeUndefined()
     })
     expect(await Workspace.workspaceFor(root, "child")).toBeUndefined()
+  })
+
+  it("writes nothing when no crash gap is pending", async () => {
+    const root = await fixture()
+    editDatabase(root, "engine", (db) => {
+      db.exec("CREATE TABLE flows_time_travel_audits(id TEXT,run_id TEXT,status TEXT)")
+      db.exec("INSERT INTO flows_time_travel_audits VALUES('audit-1','run-1','completed')")
+    })
+    await History.reconcile(root)
+    // A concurrent writer holds both stores; a read-only scan needs no write lock.
+    const writers = ["engine", "control"].map((kind) => new DatabaseSync(join(root, ".flows", `${kind}.db`)))
+    for (const writer of writers) writer.exec("BEGIN IMMEDIATE")
+    try {
+      await expect(History.reconcile(root)).resolves.toBeUndefined()
+    } finally {
+      for (const writer of writers) writer.close()
+    }
+  })
+
+  it("migrates an empty control database before reconciling pending history", async () => {
+    const root = await fixture()
+    editDatabase(root, "engine", (db) => {
+      db.exec("CREATE TABLE flows_time_travel_edges(child_run_id TEXT,parent_run_id TEXT,kind TEXT)")
+      db.exec("INSERT INTO flows_time_travel_edges VALUES('child','run-1','fork')")
+      db.exec("CREATE TABLE flows_time_travel_audits(id TEXT,run_id TEXT,status TEXT)")
+      db.exec("INSERT INTO flows_time_travel_audits VALUES('audit-1','absent','completed')")
+    })
+    await rm(join(root, ".flows", "control.db"))
+    await writeFile(join(root, ".flows", "control.db"), "")
+    await History.reconcile(root)
+    editDatabase(root, "control", (db) => {
+      expect(db.prepare("SELECT audit_id FROM smthrs_history_applied").all()).toEqual([{ audit_id: "audit-1" }])
+    })
   })
 
   it("owns the applied-audit table through the control migration ledger, including pre-history databases", async () => {
