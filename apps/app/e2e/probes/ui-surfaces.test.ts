@@ -88,7 +88,6 @@ test("the surfaces answer the keyboard: a conversation row opens on Enter, a ste
     await page.keyboard.press("Enter")
     await page.waitForFunction(() => window.uiSurfaces.commands.some((command) => command.name === "runs.list"))
     expect(await page.evaluate(() => window.uiSurfaces.commands.find((command) => command.name === "runs.list")?.args)).toContain("engineer")
-    expect(await page.locator(".run-outcome-condition[data-condition='runaway']").first().textContent()).toContain("Runaway")
     expect(errors).toEqual([])
   } finally { await page.close() }
 }, 60_000)

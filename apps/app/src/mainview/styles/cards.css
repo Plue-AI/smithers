@@ -2578,7 +2578,6 @@
 	.run-step-duration,
 	.run-step-tokens { text-align: left; }
 }
-.run-outcome-condition[data-condition="runaway"] { color: var(--danger); font-weight: 600; }
 .run-trigger {
 	display: grid;
 	grid-template-columns: 1.25rem 4.5rem 4rem minmax(0, 1fr);

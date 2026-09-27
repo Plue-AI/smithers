@@ -65,24 +65,15 @@ describe("traceSteps", () => {
   })
 })
 
-describe("the runaway condition", () => {
-  test("a park on a budget or time guard is Runaway until the run resumes", () => {
+describe("a park", () => {
+  test("an ordinary park is Blocked until the run resumes, and an approval outranks it", () => {
     const records = [
       event(1, "agent.turn-opened"),
       event(2, "agent.cell-call-started", { callId: "c1", flowName: "read", input: { path: "README.md" } }),
-      event(3, "run.parked", { reason: "budget" })
+      event(3, "run.parked", { reason: "timer" })
     ]
-    expect(traceStatus(model(records))).toMatchObject({ activity: "Reading README.md", condition: "runaway", action: "resume", guard: "budget" })
+    expect(traceStatus(model(records))).toMatchObject({ activity: "Reading README.md", condition: "blocked", action: "resume" })
     expect(traceStatus(model([...records, event(4, "run.resumed")]))).not.toHaveProperty("condition")
-    expect(traceStatus(model([event(1, "agent.turn-opened"), event(2, "run.parked", { reason: "time-limit" })]))).toMatchObject({ condition: "runaway", guard: "time" })
-  })
-
-  test("an ordinary park stays Blocked and an approval still outranks a guard", () => {
-    expect(traceStatus(model([event(1, "agent.turn-opened"), event(2, "run.parked", { reason: "timer" })]))).toMatchObject({ condition: "blocked" })
-    expect(traceStatus(model([
-      event(1, "agent.turn-opened"),
-      event(2, "run.parked", { reason: "budget" }),
-      event(3, "approval.requested", { requestId: "g1" })
-    ]))).toMatchObject({ condition: "approval", guard: "budget" })
+    expect(traceStatus(model([...records, event(4, "approval.requested", { requestId: "g1" })]))).toMatchObject({ condition: "approval" })
   })
 })

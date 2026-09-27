@@ -1,8 +1,8 @@
 /*
  * Fixture cards for the surfaces smithers-ui-DESIGN.md extends: a threads
  * list with chat and task rows, one chat issue as a conversation, the agent
- * profiles, a run in its Steps view under a runaway guard, the inbox, and
- * the connect card's integration rows. Invented values over the
+ * profiles, a run in its Steps view parked on a timer, the inbox, and the
+ * connect card's integration rows. Invented values over the
  * real payload shapes, for tests and screenshots only; nothing here reaches a
  * production path.
  */
@@ -22,7 +22,7 @@ const stamp = (sequence: number, kind: string, at: number, payload: Record<strin
   sequence, kind: `control.${kind}`, occurredAt: T0 + at, payload: { ...payload, at: T0 + at }
 })
 
-/** A run whose journal shows a model turn, a read, a failing test and a budget guard park. */
+/** A run whose journal shows a model turn, a read, a failing test and a timer park. */
 export const runEvents = () => [
   stamp(1, "agent.turn-opened", 0, { seat: "openai:model-a" }),
   stamp(2, "agent.model-settled", 8_000, { text: "Reading the vault page first.", usage: { inputTokens: 2_100, outputTokens: 340 } }),
@@ -36,7 +36,7 @@ export const runEvents = () => [
   stamp(10, "agent.cell-call-settled", 63_000, { callId: "c2", flowName: "bash", outcome: "failure", error: "1 failed" }),
   stamp(11, "agent.cell-call-started", 63_500, { callId: "c3", flowName: "write", input: { path: "apps/app/src/mainview/wiki/search.ts", content: "…" } }),
   stamp(12, "agent.cell-call-settled", 64_200, { callId: "c3", flowName: "write", outcome: "success" }),
-  stamp(13, "run.parked", 65_000, { reason: "budget" })
+  stamp(13, "run.parked", 65_000, { reason: "timer" })
 ]
 
 export const fixtureCards = (): ReadonlyArray<Card> => [
@@ -47,16 +47,15 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
       issues: [
         {
           number: 2104, title: "#team", state: "open", author: "owner", comments: 12, updatedAt: iso(-2), source: "smithers-cloud",
-          kind: "chat", synced: true, last: { persona: ENGINEER, text: "Opened PR #2101 for the wiki fix.", at: iso(-2) }
+          kind: "chat"
         },
         {
           number: 2101, title: "Fix wiki staleness banner", state: "fixed", author: "owner", comments: 5, updatedAt: iso(-45), source: "smithers-cloud",
-          kind: "chat", task: { fixedBy: ENGINEER },
-          last: { persona: ENGINEER, text: "Tests pass.", at: iso(-45) }
+          kind: "chat", task: { fixedBy: ENGINEER }
         },
         {
           number: 2103, title: "Owner ↔ Assistant", state: "open", author: "owner", comments: 3, updatedAt: iso(-90), source: "smithers-cloud",
-          kind: "chat", last: { persona: PA, text: "Tomorrow's 1:1s are booked 9:00–14:00.", at: iso(-90) }
+          kind: "chat"
         },
         {
           number: 2095, title: "Flaky CI on shard 3", state: "closed", author: "owner", comments: 1, updatedAt: iso(-24 * 60), source: "github",
@@ -75,7 +74,7 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
       sync: { provider: "slack", connectionId: "slack", scopeId: "T0000000000", conversationId: "C0000000000", threadId: "1700000000.000100", state: "synced" },
       comments: [
         { id: 9001, author: "smithers-bot", persona: { username: "assistant" }, commentBody: "The owner asked for the staleness banner fix. Taking it.", createdAt: iso(-60 * 24 + 12), reactions: [] },
-        { id: 9002, author: "smithers-bot", persona: { username: "engineer" }, commentBody: "On it. Plan: reproduce, then fix `wiki/search.ts`.", createdAt: iso(-60 * 24 + 14), origin: "slack", reactions: [] },
+        { id: 9002, author: "smithers-bot", persona: { username: "engineer" }, commentBody: "On it. Plan: reproduce, then fix `wiki/search.ts`.", createdAt: iso(-60 * 24 + 14), reactions: [] },
         { id: 9003, author: "smithers-bot", persona: { username: "engineer" }, commentBody: "Tests pass. PR [#2101](https://github.com/example/app/pull/2101).", createdAt: iso(-60 * 24 + 16), reactions: [{ name: "👀", actor: "owner", active: true }, { name: "✅", actor: "U0000000000", active: true }] },
         { id: 9004, author: "owner", commentBody: "Ship it.", createdAt: iso(-40), reactions: [] }
       ],
@@ -104,8 +103,8 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
     payload: {
       repo: REPO,
       approvals: [
-        { runId: "run-post-digest", requestId: "gate-1", title: "slack.post #team", approval: { _tag: "ApprovalTarget.Node", node: "call-3" }, requestedAt: T0 - 12 * 60_000, agent: PA, thread: `${REPO}#2104` },
-        { runId: "run-eval-suite", requestId: "gate-2", title: "Which suite owns the flaky test?", approval: {}, requestedAt: T0 - 60 * 60_000, agent: QA, question: { kind: "ask", prompt: "Which suite owns the flaky test?" } }
+        { runId: "run-post-digest", requestId: "gate-1", title: "slack.post #team", approval: { _tag: "ApprovalTarget.Node", node: "call-3" }, requestedAt: T0 - 12 * 60_000 },
+        { runId: "run-eval-suite", requestId: "gate-2", title: "Which suite owns the flaky test?", approval: {}, requestedAt: T0 - 60 * 60_000, question: { kind: "ask", prompt: "Which suite owns the flaky test?" } }
       ]
     }
   },

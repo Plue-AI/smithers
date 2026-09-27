@@ -13,7 +13,6 @@ import { flowAction, flowProps } from "../flows/FlowAction"
 import { flowArgs } from "../flows/FlowArgs"
 import { Button, Markdown } from "@smthrs/ui"
 import { useState } from "react"
-import { Monogram } from "../AgentMark"
 import { ageLabel } from "../Timestamps"
 import { commentPersona, IssueThreadBody, stateActions, TaskStrip } from "./IssueThread"
 import type { Card } from "../state/AppState"
@@ -43,23 +42,18 @@ export interface IssueCardActions {
 type IssueRow = Extract<Card, { kind: "issue-list" }>["payload"]["issues"][number]
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 
-/** A conversation's row (smithers-ui-DESIGN.md §3.1): the last poster's mark, the title, the issue strip, the sync mark, the age and the last line. */
+/** A conversation's row (smithers-ui-DESIGN.md §3.1): the title, the issue strip and the age. */
 const ThreadListRow = ({ repo, issue, onRunCommand }: { readonly repo: string; readonly issue: IssueRow } & IssueCardActions) => (
   <li className="world-card-row ghc-row thread-row" data-issue={issue.number} data-state={issue.state} data-kind={issue.task === undefined ? "conversation" : "issue"}>
     <button type="button" className="thread-row-btn" {...flowAction(onRunCommand, "issues.view", flowArgs("issues.view", { number: issue.number, repo, source: issue.source }))}>
-      {issue.last === undefined ? <span className="agent-mark" data-size="28" aria-hidden /> : <Monogram persona={issue.last.persona} size={28} />}
       <span className="thread-row-main">
         <span className="thread-row-head">
           <span className="thread-row-title">{issue.title}</span>
           <TaskStrip thread={{ ...issue, repo }} onRunCommand={onRunCommand} compact />
           <span className="thread-row-meta">
-            {issue.synced === true ? <span className="thread-slack">synced</span> : null}
             {issue.updatedAt === null ? null : <time dateTime={issue.updatedAt}>{ageLabel(issue.updatedAt)}</time>}
           </span>
         </span>
-        {issue.last === undefined ? null : (
-          <span className="thread-row-last"><span className="thread-row-who">{issue.last.persona.name}:</span> {issue.last.text.split("\n")[0]}</span>
-        )}
       </span>
     </button>
   </li>

@@ -435,7 +435,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * approvals inbox's two decision acts (approval.approve / approval.deny
        * through the delegated onDecideApproval).
        */
-      "../cards/RunsCards.tsx": 12, // + the inbox rows' run and thread references.
+      "../cards/RunsCards.tsx": 11, // + the inbox rows' run reference.
       "../cards/SearchResultsCard.tsx": 2,
       "../cards/SecretsCard.tsx": 5,
       /* 8 = the Stack card's Backfill, fewer/more lanes, a row's Retry, a failure's Retry, Bootstrap, and the Wiki row's pages (wiki.cloud) and Retry (wiki.create). */
@@ -505,7 +505,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * pager's onSelect, the view-mode pickers (wiki.card.view), cloud
        * Open page, and Refresh (wiki.sync) — all through onRunCommand.
        */
-      "../cards/ConversationCards.tsx": 12, // The empty Wiki now offers wiki.create; the connect card's integration rows carry one action each.
+      "../cards/ConversationCards.tsx": 11, // The empty Wiki now offers wiki.create.
       /* The factory card: one Open per present infra file, one shared handler through onRunCommand (files.read). */
       /*
        * The dispatcher card's Register door, the button door of

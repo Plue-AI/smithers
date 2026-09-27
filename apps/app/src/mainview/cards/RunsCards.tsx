@@ -21,7 +21,6 @@ import { timeLabel as clockLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
-import { AgentMark } from "../AgentMark"
 
 /** Why a run is not moving, in words: the control plane's reason, translated. */
 const waitingWords = (waiting: string): string =>
@@ -150,32 +149,14 @@ export const RunListCardBody = ({
   )
 }
 
-/** `owner/repo#number` → the issue door's arguments, when the reference has that shape. */
-const threadArgs = (thread: string): string | undefined => {
-  const match = /^([^#\s]+)#(\d+)$/.exec(thread)
-  return match === null ? undefined : flowArgs("issues.view", { repo: match[1]!, number: Number(match[2]) })
-}
-
-/** Who asked and where: the agent's mark and the thread's door, each only when recorded. */
-const InboxRefs = ({ agent, thread, runId, onRunCommand }: {
-  readonly agent?: { readonly id: string; readonly name: string; readonly iconUrl?: string | undefined; readonly agentId?: string | undefined } | undefined
-  readonly thread?: string | undefined
-  readonly runId: string
-  readonly onRunCommand?: RunCommand | undefined
-}) => {
-  const thread_ = thread === undefined ? undefined : threadArgs(thread)
-  return (
-    <span className="inbox-refs">
-      {agent === undefined ? null : <AgentMark persona={agent} size={16} onRunCommand={onRunCommand} />}
-      <span>run {onRunCommand === undefined ? <code>{runId}</code> : (
-        <button type="button" className="thread-ref" {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { runId }))}>{runId}</button>
-      )}</span>
-      {thread_ === undefined || onRunCommand === undefined ? null : (
-        <button type="button" className="thread-ref" {...flowAction(onRunCommand, "issues.view", thread_)}>{thread}</button>
-      )}
-    </span>
-  )
-}
+/** The run that asked: its door when the card dispatches, else its id. */
+const RunRef = ({ runId, onRunCommand }: { readonly runId: string; readonly onRunCommand?: RunCommand | undefined }) => (
+  <span className="inbox-refs">
+    <span>run {onRunCommand === undefined ? <code>{runId}</code> : (
+      <button type="button" className="thread-ref" {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { runId }))}>{runId}</button>
+    )}</span>
+  </span>
+)
 
 export const ApprovalsInboxCardBody = ({
   card,
@@ -221,7 +202,7 @@ export const ApprovalsInboxCardBody = ({
               <div className="sui-approval-question">{approval.question?.prompt ?? approval.title}</div> : null}
             <ConfirmationRequest>
               <p className="sui-approval-meta">
-                <InboxRefs agent={approval.agent} thread={approval.thread} runId={approval.runId} onRunCommand={onRunCommand} /> · {clockLabel(approval.requestedAt)}
+                <RunRef runId={approval.runId} onRunCommand={onRunCommand} /> · {clockLabel(approval.requestedAt)}
               </p>
             </ConfirmationRequest>
             {approval.decision !== undefined || approval.pending === true ?

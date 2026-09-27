@@ -3,7 +3,8 @@
  * visitor with no account. Hero + GitHub door → account →
  * poll → ready → done. The stage and every answer live on the session row so
  * a reload resumes where the person stopped; `done` is what every later
- * visit reads. A session saved before this field existed has no stage: a
+ * visit reads, and it outlives sign-out as a content-free receipt
+ * (AppProjection forgetAccountState). A session saved before this field existed has no stage: a
  * signed-in visitor with none skips the onboarding, a signed-out one starts it.
  */
 import { z } from "zod"

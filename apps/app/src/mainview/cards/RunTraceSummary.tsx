@@ -29,7 +29,6 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send }: {
   const action = verdict !== undefined ? undefined : current.action ??
     (phase === "waiting-approval" || waiting === "approval" ? "approval" : waiting === undefined ? undefined : "resume")
   const condition = verdict !== undefined ? undefined : action === "approval" ? "Approval needed"
-    : current.condition === "runaway" ? `Runaway · ${current.guard === "budget" ? "budget" : "time limit"}`
     : current.condition === "thrashing" ? "Thrashing" : current.condition === "blocked" || action === "resume" ? "Blocked" : undefined
   const status = verdict ?? phase
   const activity = verdict === undefined && (phase === "running" || phase === "waiting-approval") ? current.activity : undefined

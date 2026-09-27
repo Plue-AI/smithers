@@ -108,7 +108,6 @@ const MessageRow = ({ comment, first, card, context, onRunCommand }: { readonly 
         <div className="thread-message-head">
           <AgentMark persona={persona} size={28} onRunCommand={onRunCommand} />
           {comment.createdAt === null ? null : <time className="thread-message-time" dateTime={comment.createdAt}>{timeLabel(Date.parse(comment.createdAt))}</time>}
-          {comment.origin === "slack" ? <span className="thread-slack">slack</span> : null}
         </div>
       ) : null}
       <div className="thread-message-body">

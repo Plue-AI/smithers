@@ -797,7 +797,8 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
   }
   collections.sessions.update(SESSION_ID, (draft) => {
     const branchId = draft.activeBranchId ?? DEFAULT_BRANCH_ID
-    if (draft.signup !== undefined) draft.signup = initialSignup()
+    // A completed signup stays `done` as a content-free receipt (state/Signup.ts): the name, slug, answers and drafts leave with the account, the completion does not.
+    if (draft.signup !== undefined) draft.signup = draft.signup.stage === "done" ? { ...initialSignup(), stage: "done" } : initialSignup()
     draft.draft = ""
     delete draft.queuedPrompts
     delete draft.promptQueuePaused

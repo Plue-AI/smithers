@@ -26,6 +26,14 @@ const fixture = async (stage: SignupStage | "automatic", provider: "github" | "l
   return { store, storage, bytes }
 }
 
+/*
+ * A completed signup survives every boundary as a content-free receipt: the
+ * name, slug, answers and drafts leave with the account, but `done` stays, so
+ * signing out and back in shows the first-run, never the poll again
+ * (apps/app/AGENTS.md: after Start Automating "every visit shows the first-run").
+ */
+const DONE = { stage: "done", question: 0, answers: {}, draft: {} } as const
+
 for (const stage of ["automatic", "account", "poll", "ready", "done"] as const) {
   for (const boundary of ["replacement", "sign-out", "provider replacement"] as const) {
     test(`${stage} signup belongs to its identity across ${boundary} and durable reload`, async () => {
@@ -34,11 +42,11 @@ for (const stage of ["automatic", "account", "poll", "ready", "done"] as const) 
       try {
         if (boundary === "sign-out") {
           await f.store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
-          expect(f.store.session().signup).toEqual({ stage: "sign-in", question: 0, answers: {}, draft: {} })
+          expect(f.store.session().signup).toEqual(stage === "done" ? DONE : { stage: "sign-in", question: 0, answers: {}, draft: {} })
         }
         const login = boundary === "replacement" ? "new-owner" : "old-owner"
         await identity(f.store, login)
-        const expected = { stage: "account", door: "github", account: login, question: 0, answers: {}, draft: { account: login } } as const
+        const expected = stage === "done" ? DONE : { stage: "account", door: "github", account: login, question: 0, answers: {}, draft: { account: login } } as const
         expect(f.store.session().signup).toEqual(expected)
         expect(readPrivacyRetirement(f.storage)?.phase).toBe("complete")
         expect(JSON.stringify([...f.bytes])).not.toContain("PRIVATE-SIGNUP")

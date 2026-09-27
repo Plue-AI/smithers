@@ -10,13 +10,12 @@ const issue = () => fixtureCards().find((card): card is Extract<Card, { kind: "i
 const list = () => fixtureCards().find((card): card is Extract<Card, { kind: "issue-list" }> => card.kind === "issue-list")!
 
 describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §3.1, §3.2)", () => {
-  test("messages are rows with their persona, grouped, with reactions, origin and the task strip", () => {
+  test("messages are rows with their persona, grouped, with reactions and the task strip", () => {
     const html = renderToStaticMarkup(<IssueCardBody card={issue()} onRunCommand={noop} />)
     expect(html).toContain('data-testid="conversation-2101"')
     expect(html).toContain('data-kind="issue"')
     // Two consecutive Engineer messages within five minutes share one header.
     expect(html.match(/data-continued="true"/g)?.length).toBe(1)
-    expect(html).toContain(">slack<")
     expect(html).toContain("👀 1")
     expect(html).toContain("✅ 1")
     // Without a signed-in viewer no chip is "mine"; with one, the chip the viewer set toggles off.
@@ -58,11 +57,9 @@ describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §
 })
 
 describe("the issue list carries conversations and issues", () => {
-  test("a conversation row shows the last poster, the last line, the sync mark and the compact issue strip; a GitHub row keeps its shape", () => {
+  test("a conversation row shows the compact issue strip; a GitHub row keeps its shape", () => {
     const html = renderToStaticMarkup(<IssueListCardBody card={list()} onRunCommand={noop} />)
     expect(html).toContain('data-kind="conversation"')
-    expect(html).toContain("Opened PR #2101 for the wiki fix.")
-    expect(html).toContain(">synced<")
     expect(html).toContain('data-state="fixed"')
     expect(html).toContain("ghc-row-title-text")
     // The kind chips re-invoke issues.list with the kind, in the words the person sees.

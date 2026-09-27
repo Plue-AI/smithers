@@ -45,7 +45,7 @@ import {
   RunSummarySchema,
   RunTimelineCardPayloadSchema
 } from "./TargetGraph.ts"
-import { IntegrationRowSchema, PersonaRefSchema, TaskMetaSchema } from "./Threads.ts"
+import { IntegrationRowSchema, TaskMetaSchema } from "./Threads.ts"
 
 /*
  * The targets card's table state (apps/app cards/TargetsTable.ts): the filter
@@ -1415,11 +1415,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           decidedAt: z.number().optional(),
           decisionError: z.string().optional(),
           /** A decision is in flight: the buttons hide until the server answers, so a second click cannot send a contradicting decision. */
-          pending: z.boolean().optional(),
-          /** The agent profile whose run asked, when the run is one of the configured profiles'. */
-          agent: PersonaRefSchema.optional(),
-          /** The conversation (`owner/repo#number`) the run was working, when recorded. */
-          thread: z.string().optional()
+          pending: z.boolean().optional()
         })
       )
     })
@@ -1460,15 +1456,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         z.object({
           number: z.number().int(),
           kind: z.enum(["issue", "chat"]).optional(),
-          /*
-           * Conversations and issues (smithers-ui-DESIGN.md §3.1, §3.2): a
-           * conversation rows with its last message, an issue with its state
-           * and intent metadata; `synced` marks a mirrored conversation. Each
-           * is present only when the read carried it.
-           */
+          /** Intent metadata (smithers-ui-DESIGN.md §3.2) when the read carried it. */
           task: TaskMetaSchema.optional(),
-          last: z.object({ persona: PersonaRefSchema, text: z.string(), at: z.string() }).optional(),
-          synced: z.boolean().optional(),
           title: z.string(),
           /** The backend's states: an issue moves open → fixed → verified → closed; a conversation opens and closes. */
           state: z.enum(["open", "fixed", "verified", "closed"]),
@@ -1562,8 +1551,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           reactions: z.array(z.object({ name: z.string(), actor: z.string(), active: z.boolean() })).optional(),
           persona: z.object({ username: z.string(), iconEmoji: z.string().optional(), iconUrl: z.string().optional() })
             .optional(),
-          /** Where the record says the message came from; absent until the backend carries it. */
-          origin: z.enum(["app", "slack", "telegram"]).optional(),
           commentBody: z.string(),
           createdAt: z.string().nullable(),
           authorAvatar: z.string().optional()

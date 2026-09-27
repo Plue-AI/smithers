@@ -903,8 +903,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
           state: "error",
           detail: "ENG",
           error: "token revoked",
-          lastSyncAt: "2026-09-26T09:40:00Z",
-          action: { label: "Sync ops", flow: "sync.ops", args: "smithersai/smithers" }
+          lastSyncAt: "2026-09-26T09:40:00Z"
         }]
       }
     }
@@ -1187,9 +1186,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         decision: "denied",
         decidedAt: 1_757_000_060_000,
         decisionError: "the gateway refused (503)",
-        pending: true,
-        agent: { id: "assistant", name: "Assistant", agentId: "assistant" },
-        thread: "example/app#2101"
+        pending: true
       }]
     }
   },
@@ -1232,17 +1229,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
             agentId: "assistant"
           }
         },
-        last: {
-          persona: {
-            id: "assistant",
-            name: "Assistant",
-            iconUrl: "https://example.com/assistant.png",
-            agentId: "assistant"
-          },
-          text: "Tests pass.",
-          at: "2026-09-26T09:40:00Z"
-        },
-        synced: true
       }],
       github: {
         source: "synced",
@@ -1299,8 +1285,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         author: null,
         persona: { username: "Reviewer", iconEmoji: ":robot_face:", iconUrl: "https://example.com/avatar.png" },
         commentBody: "reproduced",
-        createdAt: "2026-09-05T09:00:00Z",
-        origin: "slack"
+        createdAt: "2026-09-05T09:00:00Z"
       }],
       createdAt: "2026-09-04T08:00:00Z",
       assignees: [{ login: "ada", avatar: "https://avatars.githubusercontent.com/u/1" }],

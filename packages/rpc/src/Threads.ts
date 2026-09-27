@@ -69,7 +69,7 @@ export const TaskMetaSchema = z.object({
 export type TaskMeta = z.infer<typeof TaskMetaSchema>
 
 /**
- * One integration row on the connect card: what it syncs and its one action.
+ * One integration row on the connect card: what it syncs and its state.
  *
  * @since 1.0.0
  * @category schemas
@@ -83,8 +83,7 @@ export const IntegrationRowSchema = z.object({
   /** The server's error, verbatim. */
   error: z.string().optional(),
   /** ISO. */
-  lastSyncAt: z.string().optional(),
-  action: z.object({ label: z.string(), flow: z.string(), args: z.string().optional() }).optional()
+  lastSyncAt: z.string().optional()
 })
 /**
  * One integration row on the connect card.

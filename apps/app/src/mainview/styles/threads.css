@@ -6,7 +6,7 @@
  */
 .thread-row-btn {
 	display: grid;
-	grid-template-columns: 28px minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1fr);
 	align-items: start;
 	gap: var(--sp-2);
 	width: 100%;
@@ -34,8 +34,6 @@
 	color: var(--text-faint);
 	white-space: nowrap;
 }
-.thread-row-last { color: var(--text-muted); font-size: var(--fs-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-row-who { color: var(--text); }
 .thread-slack {
 	font-family: var(--font-mono);
 	font-size: var(--fs-caption);

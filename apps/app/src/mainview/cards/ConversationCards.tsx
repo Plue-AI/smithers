@@ -1,7 +1,7 @@
 import { ViewSkeleton } from "../ViewSkeleton"
 import { MarkdownEditorSurface } from "../ViewModules"
 import { flowArgs } from "../flows/FlowArgs"
-import { dynamicFlowAction, flowAction, flowProps } from "../flows/FlowAction"
+import { flowAction, flowProps } from "../flows/FlowAction"
 import { Badge, Button, FileTree } from "@smthrs/ui"
 import { BookOpen, ExternalLink, GitPullRequest, Hash, ListChecks, Server } from "lucide-react"
 import { ageLabel } from "../Timestamps"
@@ -78,9 +78,6 @@ export const ConnectCardBody = ({
           : row.state === "unavailable" ? <Badge variant="outline">Unavailable</Badge>
           : row.state === "error" ? <Badge variant="destructive">Error</Badge>
           : null}
-        {row.action === undefined ? null : (
-          <Button size="sm" variant="outline" {...dynamicFlowAction(onRunCommand as (name: string, args?: string) => void, row.action.flow, row.action.args)}>{row.action.label}</Button>
-        )}
       </li>
     ))}
   </ul>
