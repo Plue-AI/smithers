@@ -4,9 +4,9 @@ import { installCloudFixture } from "./cloudFixture.ts"
 
 /*
  * Lane citc T1 (docs/workbench-lanes/citc.md "Exit", ADR 0002): against a
- * fake cloud upstream the app opens a workspace, the card streams
- * starting→running (the seam's settle watch), the workspace facets show what
- * the upstream answered, and a degraded sign-in refuses a workspace act with
+ * fake cloud upstream the app opens a box, the card streams
+ * starting→running (the seam's settle watch), the box facets show what
+ * the upstream answered, and a degraded sign-in refuses a box act with
  * the exact "sign in again to enable" wording.
  *
  * The server is a double: the shared cloud fixture (cloudFixture.ts) answers
@@ -107,14 +107,19 @@ test("T1: /box.open renders the card, streams starting→running, and exposes it
   expect(fileReads).toEqual(["my docs/read me.txt"])
 })
 
-test("T1: a degraded sign-in refuses a workspace act with the exact enable wording", async ({ page }) => {
+test("T1: a degraded sign-in refuses a box act with the exact enable wording", async ({ page }) => {
   await installCloudFixture(page, { degraded: true })
   await page.goto("/")
 
   await fillComposer(page, "/box.list")
+  const listRequests: string[] = []
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/api/user/workspaces") listRequests.push(request.method())
+  })
   await page.getByTestId("composer-send").click()
 
   const toast = page.locator(".toast-stack .toast-detail")
   await expect(toast).toContainText("sign in again to enable", { timeout: 15_000 })
-  await expect(toast).toContainText("This Smithers Cloud sign-in can't use workspaces")
+  await expect(toast).toContainText("This Smithers Cloud sign-in can't use boxes")
+  expect(listRequests).toEqual([])
 })
