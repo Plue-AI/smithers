@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 import { appendFileSync, readFileSync } from "node:fs";
-import { gateEvent } from "./gateEvent.ts";
+import { gateEvent, permissionReaderFromEnv } from "./gateEvent.ts";
 
 /**
  * Composite step 1 entrypoint. Reads the event payload, decides run vs skip,
  * and writes `should-run` to GITHUB_OUTPUT so later
  * steps can gate on it. Skips print `::notice::` so the reason is visible in
- * the workflow run summary instead of failing the job.
+ * the workflow run summary instead of failing the job; a skip because GitHub
+ * did not answer a permission read prints `::warning::` (it fails closed).
  */
 function setOutput(key: string, value: string): void {
   const output = process.env.GITHUB_OUTPUT;
@@ -28,11 +29,11 @@ if (eventPath) {
   }
 }
 
-const decision = gateEvent({ eventName, payload });
+const decision = await gateEvent({ eventName, payload, permissionOf: permissionReaderFromEnv() });
 if (decision.run) {
   setOutput("should-run", "true");
   console.log(`smithers review: ${decision.eventName} #${decision.prNumber} eligible — continuing`);
 } else {
   setOutput("should-run", "false");
-  console.log(`::notice::smithers review skipped: ${decision.reason}`);
+  console.log(`::${decision.unavailable ? "warning" : "notice"}::smithers review skipped: ${decision.reason}`);
 }

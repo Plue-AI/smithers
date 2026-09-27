@@ -66,7 +66,7 @@ Comment on any pull request:
 @smithers review
 ```
 
-Only owners, members, and collaborators can trigger reviews. Repositories registered in `auto` mode skip the comment and review every non-draft PR push; `comment` mode is the default. The mode is a server-side setting on your registration, so switching never touches your workflow file.
+Only accounts with write, maintain, or admin permission on the repository can trigger reviews; comments posted by bots or through GitHub Apps never do. The action reads the commenter's permission with the job's `GITHUB_TOKEN`, so the workflow needs no extra permission, and skips with a warning if GitHub does not answer. Repositories registered in `auto` mode skip the comment and review every non-draft PR push; `comment` mode is the default. The mode is a server-side setting on your registration, so switching never touches your workflow file.
 
 Subscriptions meter reviewed PRs as a monthly per-repo allotment, and the status comment shows remaining quota. Re-reviewing a PR that already counted this month is free. When the quota is spent, the action skips with a notice instead of failing your checks.
 

@@ -84,7 +84,7 @@ describe.skipIf(!enabled)("the gate against a live GitHub pull request", () => {
 
   test("reviews a real same-repo pull request and reports its number", async () => {
     const pr = await livePullRequest();
-    const decision = gateEvent({
+    const decision = await gateEvent({
       eventName: "pull_request",
       payload: { action: "synchronize", pull_request: pr },
     });
@@ -97,7 +97,7 @@ describe.skipIf(!enabled)("the gate against a live GitHub pull request", () => {
 
   test("skips the same real pull request when the action does not change the diff", async () => {
     const pr = await livePullRequest();
-    const decision = gateEvent({ eventName: "pull_request", payload: { action: "labeled", pull_request: pr } });
+    const decision = await gateEvent({ eventName: "pull_request", payload: { action: "labeled", pull_request: pr } });
     expect(decision.run).toBe(false);
     if (!decision.run) expect(decision.reason).toContain("labeled");
   }, 120_000);

@@ -66,20 +66,23 @@ describe("the app's documentation describes rc.0", () => {
 const siteGuide = "../../site/src/content/docs/docs/guides/pr-review-action.mdx";
 
 describe("documented review commands", () => {
-  test("the guide's comment commands match the action trigger and start a review", () => {
+  test("the guide's comment commands match the action trigger and start a review", async () => {
     const trigger = read("../action/src/gateEvent.ts").match(/const MAGIC_PHRASE = "([^"]+)";/)?.[1];
     if (!trigger) throw new Error("The action trigger constant was not found");
     const commands = read(siteGuide).match(/@[\w-]+ review/g) ?? [];
     expect(commands.length).toBeGreaterThanOrEqual(2);
     for (const command of commands) {
       expect(command).toBe(trigger);
-      expect(gateEvent({
+      const maintainer = { login: "octocat", type: "User" };
+      expect(await gateEvent({
         eventName: "issue_comment",
         payload: {
           action: "created",
           issue: { number: 42, pull_request: {} },
-          comment: { body: command, author_association: "MEMBER" },
+          comment: { body: command, user: maintainer },
+          sender: maintainer,
         },
+        permissionOf: async () => ({ status: 200, permission: "write" }),
       })).toEqual({ run: true, eventName: "issue_comment", prNumber: 42 });
     }
   });

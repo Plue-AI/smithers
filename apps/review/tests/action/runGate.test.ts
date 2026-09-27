@@ -26,6 +26,28 @@ function spawnGate(env: Record<string, string>): SpawnResult {
   };
 }
 
+/** A GitHub API answering every collaborator-permission read with `answer`. */
+function serveGitHubPermissions(answer: { status: number; permission?: string }) {
+  const reads: { path: string; authorization: string | null }[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      reads.push({ path: new URL(request.url).pathname, authorization: request.headers.get("authorization") });
+      return answer.status === 200
+        ? Response.json({ permission: answer.permission })
+        : new Response("", { status: answer.status });
+    },
+  });
+  return { url: `http://127.0.0.1:${server.port}`, reads, stop: () => server.stop(true) };
+}
+
+/** Spawns the gate without blocking, so this process's GitHub API answers. */
+async function spawnGateAsync(env: Record<string, string>): Promise<SpawnResult> {
+  const child = Bun.spawn(["bun", RUN_GATE], { cwd: PKG_ROOT, env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
+  const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+  return { stdout, exitCode };
+}
+
 describe("runGate (subprocess)", () => {
   let tmp = "";
   let outputFile = "";
@@ -146,5 +168,84 @@ describe("runGate (subprocess)", () => {
     expect(result.exitCode).toBe(0);
     const out = await readOutput(outputFile);
     expect(out["should-run"]).toBe("false");
+  });
+
+  const commenter = { login: "alice", type: "User" };
+  const commentPayload = {
+    action: "created",
+    issue: { number: 7, pull_request: {} },
+    comment: { body: "@smithers review", user: commenter, performed_via_github_app: null },
+    sender: commenter,
+  };
+
+  for (const [permission, shouldRun] of [["write", "true"], ["admin", "true"], ["read", "false"]] as const) {
+    test(`reads the commenter's permission with the job token: ${permission} → should-run=${shouldRun}`, async () => {
+      const { outputFile, tmp } = await setup();
+      const eventPath = join(tmp, "event.json");
+      await writeFile(eventPath, JSON.stringify(commentPayload));
+      const github = serveGitHubPermissions({ status: 200, permission });
+      try {
+        const result = await spawnGateAsync({
+          GITHUB_EVENT_NAME: "issue_comment",
+          GITHUB_EVENT_PATH: eventPath,
+          GITHUB_OUTPUT: outputFile,
+          GITHUB_API_URL: github.url,
+          GITHUB_REPOSITORY: "octo/widgets",
+          GH_TOKEN: "job-token",
+        });
+        expect(result.exitCode).toBe(0);
+        expect(await readOutput(outputFile)).toEqual({ "should-run": shouldRun });
+        expect(github.reads).toEqual([
+          { path: "/repos/octo/widgets/collaborators/alice/permission", authorization: "Bearer job-token" },
+        ]);
+        if (shouldRun === "false") {
+          expect(result.stdout).toContain(
+            `::notice::smithers review skipped: @alice's repository permission is "read"; write, maintain, or admin is required`,
+          );
+        }
+      } finally {
+        github.stop();
+      }
+    });
+  }
+
+  test("fails closed with a warning when GitHub does not answer the permission read", async () => {
+    const { outputFile, tmp } = await setup();
+    const eventPath = join(tmp, "event.json");
+    await writeFile(eventPath, JSON.stringify(commentPayload));
+    const github = serveGitHubPermissions({ status: 502 });
+    try {
+      const result = await spawnGateAsync({
+        GITHUB_EVENT_NAME: "issue_comment",
+        GITHUB_EVENT_PATH: eventPath,
+        GITHUB_OUTPUT: outputFile,
+        GITHUB_API_URL: github.url,
+        GITHUB_REPOSITORY: "octo/widgets",
+        GH_TOKEN: "job-token",
+      });
+      expect(result.exitCode).toBe(0);
+      expect(await readOutput(outputFile)).toEqual({ "should-run": "false" });
+      expect(result.stdout).toContain(
+        "::warning::smithers review skipped: could not read @alice's permission (GitHub answered 502); failing closed",
+      );
+    } finally {
+      github.stop();
+    }
+  });
+
+  test("fails closed with a warning without a job token", async () => {
+    const { outputFile, tmp } = await setup();
+    const eventPath = join(tmp, "event.json");
+    await writeFile(eventPath, JSON.stringify(commentPayload));
+    const result = spawnGate({
+      GITHUB_EVENT_NAME: "issue_comment",
+      GITHUB_EVENT_PATH: eventPath,
+      GITHUB_OUTPUT: outputFile,
+      GITHUB_REPOSITORY: "octo/widgets",
+      GH_TOKEN: "",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await readOutput(outputFile)).toEqual({ "should-run": "false" });
+    expect(result.stdout).toContain("::warning::smithers review skipped: no GitHub token");
   });
 });

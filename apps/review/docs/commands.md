@@ -1,7 +1,8 @@
 # Review commands
 
 Comment `@smithers review` on an open pull request to trigger the action.
-The commenter must be an owner, member, or collaborator.
+The commenter needs write, maintain, or admin permission on the repository;
+comments from bots or GitHub Apps never trigger.
 
 For a local walkthrough without model calls:
 

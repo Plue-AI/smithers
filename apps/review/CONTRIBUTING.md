@@ -67,7 +67,11 @@ metered inference and it passes no provider key. It stays on
 `action/src/runAction.ts` runs these steps:
 
 1. `action/src/gateEvent.ts` skips drafts, fork PRs, and comments other than
-   `@smithers review` from an owner, member, or collaborator.
+   `@smithers review` from a maintainer: an account whose permission is
+   write, maintain, or admin (read with the job's `GITHUB_TOKEN`), never a bot
+   or GitHub App. `../../docs/api/github-maintainer-comment.vectors.json` specifies
+   the rule for the action and the backend alike; a read GitHub does not
+   answer skips with a warning.
 2. The job's GitHub OIDC token is exchanged for a review session at
    `/api/sessions` (`action/src/createSession.ts`). An unregistered repo, a
    spent monthly quota, or a `pull_request` event on a `comment`-mode

@@ -30,6 +30,7 @@ runs:
       env:
         GITHUB_EVENT_NAME: ${{ github.event_name }}
         GITHUB_EVENT_PATH: ${{ github.event_path }}
+        GH_TOKEN: ${{ github.token }}
         SMITHERS_ACTION_PATH: ${{ github.action_path }}
       run: bun "$SMITHERS_ACTION_PATH/src/runGate.ts"
 

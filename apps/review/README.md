@@ -64,7 +64,11 @@ or repository access. Keep the job on the less-privileged PR event.
 @smithers review
 ```
 
-Only owners, members, and collaborators can trigger reviews. Repos
+Only accounts with write, maintain, or admin permission on the repository
+can trigger reviews; comments posted by bots or through GitHub Apps never do.
+The action reads the commenter's permission with the job's `GITHUB_TOKEN`
+(no extra workflow permission) and skips with a warning if GitHub does not
+answer. Only new comments trigger; editing a comment does not. Repos
 registered in `auto` mode skip the comment and review every non-draft PR
 push. Registration requires an explicit `auto` or `comment` mode. It is set on
 your registration, so switching never touches your workflow file.

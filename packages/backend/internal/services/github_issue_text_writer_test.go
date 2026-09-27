@@ -23,7 +23,10 @@ type fakeIssueTextGitHub struct {
 	title, body, author     string
 	titleWriter, bodyWriter *gitHubGraphQLActor // nil: never changed
 	permissions             map[string]string
-	permissionReads         map[string]int
+	// permissionStatus answers a login's permission read with this status,
+	// or drops the connection (permissionConnectionFails).
+	permissionStatus map[string]int
+	permissionReads  map[string]int
 	// labelsViaApp are logins whose label applications a GitHub App made
 	// for them; every other login applied its labels itself.
 	labelsViaApp map[string]bool
@@ -32,6 +35,9 @@ type fakeIssueTextGitHub struct {
 	status      int
 	reads       int
 }
+
+// permissionConnectionFails is a permissionStatus that drops the connection.
+const permissionConnectionFails = -1
 
 type fakeIssueTextTokens struct{}
 
@@ -105,6 +111,15 @@ func newFakeIssueTextGitHub(t *testing.T) (*fakeIssueTextGitHub, *GitHubTextStam
 		}
 		if login, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/repos/Acme/demo/collaborators/"), "/permission"); ok {
 			fake.permissionReads[login]++
+			if status := fake.permissionStatus[login]; status == permissionConnectionFails {
+				if connection, _, err := w.(http.Hijacker).Hijack(); err == nil {
+					_ = connection.Close()
+				}
+				return
+			} else if status != 0 {
+				w.WriteHeader(status)
+				return
+			}
 			permission, known := fake.permissions[login]
 			if !known {
 				w.WriteHeader(http.StatusNotFound)

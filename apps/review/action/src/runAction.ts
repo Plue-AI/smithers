@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createSession } from "./createSession.ts";
 import { fetchOidcToken } from "./fetchOidcToken.ts";
-import { gateEvent } from "./gateEvent.ts";
+import { gateEvent, permissionReaderFromEnv } from "./gateEvent.ts";
 import { materializeInferenceCredentials } from "./materializeInferenceCredentials.ts";
 import { resolveInferenceEnv } from "./resolveInferenceEnv.ts";
 import { failureDetail, finishedStatus, readSummary, type ReviewSummary } from "./reviewSummary.ts";
@@ -87,9 +87,9 @@ async function main(): Promise<void> {
   }
   const payload = JSON.parse(readFileSync(eventPath, "utf8")) as unknown;
 
-  const decision = gateEvent({ eventName, payload });
+  const decision = await gateEvent({ eventName, payload, permissionOf: permissionReaderFromEnv() });
   if (!decision.run) {
-    console.log(`::notice::smithers review skipped: ${decision.reason}`);
+    console.log(`::${decision.unavailable ? "warning" : "notice"}::smithers review skipped: ${decision.reason}`);
     return;
   }
 
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
   const runLink = runUrl ? ` — [run](${runUrl})` : "";
 
   if (decision.eventName === "issue_comment") {
-    // gateEvent is pure and the issue_comment payload carries no head-repo
+    // gateEvent reads no pull request and the issue_comment payload carries no head-repo
     // info, so resolve the PR here: a comment-triggered review of a fork PR
     // would check out the untrusted fork tree with inference credentials in
     // the environment. Fail closed — if gh cannot tell us, do not review.

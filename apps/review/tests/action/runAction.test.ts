@@ -115,43 +115,69 @@ describe("runAction (subprocess)", () => {
     expect(result.stdout).toMatch(/skipped/i);
   });
 
+  const commenter = { login: "alice", type: "User" };
   const commentPayload = {
     action: "created",
     issue: { number: 7, pull_request: { url: "https://api.github.com/repos/octo/widgets/pulls/7" } },
-    comment: { body: "@smithers review", author_association: "OWNER" },
+    comment: { body: "@smithers review", user: commenter, performed_via_github_app: null },
+    sender: commenter,
   };
 
-  function spawnCommentAction(ghEnv: Record<string, string>, eventPath: string): SpawnResult {
+  /** Runs the action on commentPayload; the GitHub API answers alice's permission. */
+  async function spawnCommentAction(
+    ghEnv: Record<string, string>,
+    eventPath: string,
+    permission = "write",
+  ): Promise<SpawnResult> {
     const env: Record<string, string> = { ...(process.env as Record<string, string>) };
-    // No repository → status comments are a no-op; no OIDC vars → a run that
-    // passes the fork check fails deterministically at fetchOidcToken.
-    delete env.GITHUB_REPOSITORY;
+    // No OIDC vars → a run that passes the fork check fails deterministically
+    // at fetchOidcToken. Status comments go to the fake gh.
     delete env.ACTIONS_ID_TOKEN_REQUEST_URL;
     delete env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    const result = Bun.spawnSync(["bun", RUN_ACTION], {
-      cwd: PKG_ROOT,
-      env: {
-        ...env,
-        GITHUB_EVENT_NAME: "issue_comment",
-        GITHUB_EVENT_PATH: eventPath,
-        GITHUB_WORKSPACE: PKG_ROOT,
-        SMITHERS_GH_BIN: FAKE_GH,
-        ...ghEnv,
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    return {
-      stdout: result.stdout.toString(),
-      stderr: result.stderr.toString(),
-      exitCode: result.exitCode ?? 1,
-    };
+    const github = Bun.serve({ port: 0, fetch: () => Response.json({ permission }) });
+    try {
+      // Async spawn: the GitHub API answers from this process's event loop.
+      const child = Bun.spawn(["bun", RUN_ACTION], {
+        cwd: PKG_ROOT,
+        env: {
+          ...env,
+          GITHUB_EVENT_NAME: "issue_comment",
+          GITHUB_EVENT_PATH: eventPath,
+          GITHUB_WORKSPACE: PKG_ROOT,
+          GITHUB_REPOSITORY: "octo/widgets",
+          GITHUB_API_URL: `http://127.0.0.1:${github.port}`,
+          GH_TOKEN: "job-token",
+          SMITHERS_GH_BIN: FAKE_GH,
+          ...ghEnv,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      return { stdout, stderr, exitCode };
+    } finally {
+      github.stop(true);
+    }
   }
+
+  test("skips a comment from an account without write access before any gh call", async () => {
+    const eventPath = join(tmp, "event.json");
+    const ghLog = join(tmp, "gh.log");
+    await writeFile(eventPath, JSON.stringify(commentPayload));
+    const result = await spawnCommentAction({ SMITHERS_FAKE_GH_LOG: ghLog }, eventPath, "read");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`::notice::smithers review skipped: @alice's repository permission is "read"`);
+    expect(await Bun.file(ghLog).exists()).toBe(false);
+  });
 
   test("exits 0 with a skip notice when a comment-triggered PR is a fork", async () => {
     const eventPath = join(tmp, "event.json");
     await writeFile(eventPath, JSON.stringify(commentPayload));
-    const result = spawnCommentAction({ SMITHERS_FAKE_GH_STDOUT: '{"isCrossRepository":true}' }, eventPath);
+    const result = await spawnCommentAction({ SMITHERS_FAKE_GH_STDOUT: '{"isCrossRepository":true}' }, eventPath);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("::notice::");
     expect(result.stdout).toContain("fork pull requests are not reviewed");
@@ -160,7 +186,7 @@ describe("runAction (subprocess)", () => {
   test("continues past the fork check for a same-repo comment-triggered PR", async () => {
     const eventPath = join(tmp, "event.json");
     await writeFile(eventPath, JSON.stringify(commentPayload));
-    const result = spawnCommentAction({ SMITHERS_FAKE_GH_STDOUT: '{"isCrossRepository":false}' }, eventPath);
+    const result = await spawnCommentAction({ SMITHERS_FAKE_GH_STDOUT: '{"isCrossRepository":false}' }, eventPath);
     // Fork check passed → the next step (fetchOidcToken) fails without OIDC vars.
     expect(result.exitCode).not.toBe(0);
     expect(result.stdout).not.toContain("fork pull requests are not reviewed");
@@ -170,7 +196,7 @@ describe("runAction (subprocess)", () => {
   test("fails closed when the PR's fork status cannot be resolved", async () => {
     const eventPath = join(tmp, "event.json");
     await writeFile(eventPath, JSON.stringify(commentPayload));
-    const result = spawnCommentAction({ SMITHERS_FAKE_GH_EXIT: "7" }, eventPath);
+    const result = await spawnCommentAction({ SMITHERS_FAKE_GH_EXIT: "7" }, eventPath);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("could not determine whether PR #7 is a fork PR");
   });
