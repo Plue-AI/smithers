@@ -117,7 +117,11 @@ export const layer = (input: {
   }
   const database = file === undefined ? input.stores! : input.database(file).pipe(
     Layer.tap((context) =>
-      Context.get(context, SqlClient).unsafe(`PRAGMA busy_timeout = ${busyTimeoutMs}`).pipe(Effect.orDie)
+      Context.get(context, SqlClient).onDialectOrElse({
+        pg: () => Effect.void,
+        orElse: () =>
+          Context.get(context, SqlClient).unsafe(`PRAGMA busy_timeout = ${busyTimeoutMs}`).pipe(Effect.orDie)
+      })
     )
   )
   const store = MemoryStore.layer.pipe(Layer.provide(database), Layer.provide(input.crypto), Layer.orDie)

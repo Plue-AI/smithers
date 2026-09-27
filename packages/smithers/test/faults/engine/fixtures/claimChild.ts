@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * A control plane with an identity of its own, for the claim-fence race.
  *
@@ -46,7 +47,7 @@ const owner = { hostId, pid: Number(pidArg), nonce: `${hostId}-boot` }
 
 const database = Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))
 const migrated = Layer.provideMerge(
-  Layer.merge(JournalMigrations.layer, RunStoreMigrations.layer),
+  DatabaseMigrations.layer([JournalMigrations.set, RunStoreMigrations.set]),
   database
 )
 const stores = Layer.mergeAll(

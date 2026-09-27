@@ -83,6 +83,7 @@ describe("the database-backend refusal", () => {
     expect(Environment.unsupportedBackend(undefined)).toBeUndefined()
     expect(Environment.unsupportedBackend("")).toBeUndefined()
     expect(Environment.unsupportedBackend("sqlite")).toBeUndefined()
+    expect(Environment.unsupportedBackend("postgres")).toBeUndefined()
   })
 
   it("uses the database contract's sentence verbatim for every other value", () => {
@@ -91,12 +92,11 @@ describe("the database-backend refusal", () => {
     // 1.0.0-rc.0" and never named the fix — is a contract change. The literal
     // is repeated here rather than read off the module, so a rewritten
     // constant fails instead of agreeing with itself.
-    const expected = "unsupported_database: 1.0.0-rc.0 supports local SQLite only. " +
-      "PostgreSQL and PGlite are not available. Unset SMITHERS_BACKEND or set it to sqlite. " +
-      "See https://smithers.sh/migration/1.0#databases"
+    const expected =
+      "unsupported_database: choose sqlite or postgres. PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL. See https://smithers.sh/migration/1.0#databases."
 
     expect(Environment.unsupportedBackendMessage).toBe(expected)
-    for (const backend of ["pglite", "postgres", "mysql"]) {
+    for (const backend of ["pglite", "mysql"]) {
       expect(Environment.unsupportedBackend(backend)).toBe(expected)
     }
   })

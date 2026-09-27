@@ -255,7 +255,9 @@ describe("legacy fork routing", processBudget, () => {
       const workspace = join(cwd, "missing-fork-workspace")
       const database = new DatabaseSync(join(cwd, ".flows", "engine.db"))
       try {
-        database.exec("CREATE TABLE smthrs_history_workspaces(run_id TEXT PRIMARY KEY, workspace TEXT NOT NULL)")
+        database.exec(
+          "CREATE TABLE flows_migrations (migration_id INTEGER PRIMARY KEY, created_at TEXT, name TEXT NOT NULL); CREATE TABLE smthrs_history_workspaces(run_id TEXT PRIMARY KEY, workspace TEXT NOT NULL)"
+        )
         database.prepare("INSERT INTO smthrs_history_workspaces VALUES (?, ?)").run("fork-run", workspace)
       } finally {
         database.close()
@@ -843,15 +845,16 @@ describe("the SQLite-only database contract", processBudget, () => {
     expect(result.stderr.trim()).toBe(Environment.unsupportedBackendMessage)
   })
 
-  it("refuses SMITHERS_BACKEND=postgres, which a script exports rather than passes", () => {
-    const result = run(["flow", "list", "--json"], { SMITHERS_BACKEND: "postgres" })
+  it("refuses SMITHERS_BACKEND=mysql, which a script exports rather than passes", () => {
+    const result = run(["flow", "list", "--json"], { SMITHERS_BACKEND: "mysql" })
 
     expect(result.status).toBe(1)
     expect(JSON.parse(result.stdout).message).toBe(Environment.unsupportedBackendMessage)
   })
 
-  it("says once that a PostgreSQL environment is ignored, and still succeeds", () => {
+  it("recognizes PostgreSQL configuration and announces only unused test configuration", () => {
     const result = run(["--json", "ls"], {
+      SMITHERS_BACKEND: "sqlite",
       SMITHERS_POSTGRES_URL: "postgres://localhost/smithers",
       SMITHERS_TEST_PG_URL: "postgres://localhost/test"
     })
@@ -861,8 +864,7 @@ describe("the SQLite-only database contract", processBudget, () => {
     expect(result.status).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({ _tag: "flows" })
     expect(result.stderr.split("\n").filter((line) => line.startsWith("ignored: "))).toEqual([
-      "ignored: SMITHERS_POSTGRES_URL has no effect in 1.0.0-rc.1 (SQLite only)",
-      "ignored: SMITHERS_TEST_PG_URL has no effect in 1.0.0-rc.1 (SQLite only)"
+      "ignored: SMITHERS_TEST_PG_URL has no effect in 1.0.0-rc.1 (use SMITHERS_POSTGRES_URL to select PostgreSQL)"
     ])
   })
 

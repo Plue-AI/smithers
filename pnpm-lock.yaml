@@ -2406,6 +2406,9 @@ importers:
       '@effect/platform-node-shared':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)
+      '@effect/sql-pg':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@effect/sql-sqlite-node':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)

@@ -307,51 +307,55 @@ describe("unified historical command dispatch", () => {
   })
 })
 
-describe("normal run history routing", () => {
-  it("uses the host environment when called without runtime options", () => {
-    reconcileHistory({ root: directory, quiet: false })
+describe("normal run history routing", async () => {
+  it("uses the host environment when called without runtime options", async () => {
+    await reconcileHistory({ root: directory, quiet: false })
     expect(ports.reconcile).toHaveBeenCalledExactlyOnceWith(directory)
-    expect(prepareHistoryRun("child", { root: directory, quiet: false })).toEqual({ executionRoot: "/fixture/child" })
+    expect(await prepareHistoryRun("child", { root: directory, quiet: false })).toEqual({
+      executionRoot: "/fixture/child"
+    })
     expect(ports.prepare).toHaveBeenCalledExactlyOnceWith(directory, "child")
   })
 
-  it("honors the host's remote environment when no runtime override is provided", () => {
+  it("honors the host's remote environment when no runtime override is provided", async () => {
     vi.stubEnv("SMITHERS_REMOTE", "https://control.invalid")
-    reconcileHistory({ root: directory, quiet: false })
-    expect(prepareHistoryRun("child", { root: directory, quiet: false })).toEqual({})
+    await reconcileHistory({ root: directory, quiet: false })
+    expect(await prepareHistoryRun("child", { root: directory, quiet: false })).toEqual({})
     expect(ports.reconcile).not.toHaveBeenCalled()
     expect(ports.prepare).not.toHaveBeenCalled()
   })
 
-  it("uses an explicit local environment instead of inheriting the host's remote target", () => {
+  it("uses an explicit local environment instead of inheriting the host's remote target", async () => {
     vi.stubEnv("SMITHERS_REMOTE", "https://control.invalid")
-    reconcileHistory({ root: directory, quiet: false }, { environment: {} })
-    expect(prepareHistoryRun("child", { root: directory, quiet: false }, { environment: {} })).toEqual({
+    await reconcileHistory({ root: directory, quiet: false }, { environment: {} })
+    expect(await prepareHistoryRun("child", { root: directory, quiet: false }, { environment: {} })).toEqual({
       executionRoot: "/fixture/child"
     })
     expect(ports.reconcile).toHaveBeenCalledExactlyOnceWith(directory)
     expect(ports.prepare).toHaveBeenCalledExactlyOnceWith(directory, "child")
   })
 
-  it("treats an empty remote environment variable as absent", () => {
-    reconcileHistory({ root: directory, quiet: false }, { environment: { SMITHERS_REMOTE: "" } })
-    expect(prepareHistoryRun("child", { root: directory, quiet: false }, { environment: { SMITHERS_REMOTE: "" } }))
+  it("treats an empty remote environment variable as absent", async () => {
+    await reconcileHistory({ root: directory, quiet: false }, { environment: { SMITHERS_REMOTE: "" } })
+    expect(
+      await prepareHistoryRun("child", { root: directory, quiet: false }, { environment: { SMITHERS_REMOTE: "" } })
+    )
       .toEqual({ executionRoot: "/fixture/child" })
     expect(ports.reconcile).toHaveBeenCalledExactlyOnceWith(directory)
     expect(ports.prepare).toHaveBeenCalledExactlyOnceWith(directory, "child")
   })
 
-  it("does not query or resume when local reconciliation or worktree resolution fails", () => {
+  it("does not query or resume when local reconciliation or worktree resolution fails", async () => {
     ports.reconcile.mockImplementation(() => {
       throw new Error("unreconciled audit")
     })
     ports.prepare.mockImplementation(() => {
       throw new Error("unlinked child")
     })
-    expect(() => reconcileHistory({ root: directory, quiet: false }, { environment: {} })).toThrow(
+    await expect(reconcileHistory({ root: directory, quiet: false }, { environment: {} })).rejects.toThrow(
       "unreconciled audit"
     )
-    expect(() => prepareHistoryRun("child", { root: directory, quiet: false }, { environment: {} })).toThrow(
+    await expect(prepareHistoryRun("child", { root: directory, quiet: false }, { environment: {} })).rejects.toThrow(
       "unlinked child"
     )
   })

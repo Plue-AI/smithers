@@ -60,7 +60,9 @@ export const storage = (filename: string, workspaceRoot?: string) => {
     : decodeField("workspaceRoot", Schema.NonEmptyString, workspaceRoot, nonEmpty)
   return Layer.unwrap(Effect.gen(function*() {
     const path = yield* Path.Path
-    const databaseRoot = path.dirname(path.resolve(configuredFilename))
+    const databaseRoot = /^postgres(?:ql)?:\/\//.test(configuredFilename)
+      ? path.join(path.resolve(configuredRoot ?? "."), ".flows")
+      : path.dirname(path.resolve(configuredFilename))
     const resolvedWorkspaceRoot = configuredRoot === undefined ? databaseRoot : path.resolve(configuredRoot)
     const database = Layer.provideMerge(Migrations.layer, DurableWriter.layer())
     return Layer.mergeAll(

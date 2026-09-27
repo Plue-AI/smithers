@@ -12,6 +12,7 @@ import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { Cause, Console, Effect, Exit, Logger, References, Runtime } from "effect"
+import * as Layer from "effect/Layer"
 import { CliError as EffectCliError, Command } from "effect/unstable/cli"
 import * as CliError from "../CliError.ts"
 import { cli } from "../Command.ts"
@@ -211,34 +212,35 @@ const main = Effect.gen(function*() {
       parsing ? pending.push(() => terminal.error(...args)) : terminal.error(...args)
   })
   yield* Command.run(
-    Command.provide(cli, () => {
-      flush()
-      // This callback is reached only after successful parsing. Preserve
-      // help/usage's file-free contract and never inspect local state for a
-      // remote invocation. Flat transition aliases use the same worktree as
-      // their canonical runs/approvals equivalents.
-      const runId = applicationConfig.remote === undefined ? ExecutionTarget.executionRunId(parsed) : undefined
-      const config = runId === undefined ? applicationConfig : {
-        ...applicationConfig,
-        ...History.prepare(Project.root(applicationConfig.root, process.cwd()), runId)
-      }
-      // The legacy gateway alias has the same local-only approval default as
-      // ControlBridge.host; configuring authentication does not delegate it.
-      //
-      // The verb also decides whether this host composes an executor, and so
-      // whether it needs a completion judge before it opens a store. Five
-      // verbs start or resume a run; the rest read, record a durable request,
-      // or never touch a run, and refusing those for want of a judge refused
-      // `ls`, `ps`, `status` and `logs` in every project with no gateway key.
-      // The catalog answers the question and answers an unrecognized word
-      // `true`, so drift can only bring the refusal back, never lose it.
-      return NodeControl.layer({
-        ...config,
-        startsRuns: Verb.startsRuns(Argv.words(parsed)),
-        approvalChannel: ["serve", "gateway"].includes(Argv.words(parsed)[0] ?? ""),
-        approvalAuthority: config.approvalAuthority ?? ApprovalAuthority.local
-      })
-    }),
+    Command.provide(cli, () =>
+      Layer.unwrap(Effect.gen(function*() {
+        flush()
+        // This callback is reached only after successful parsing. Preserve
+        // help/usage's file-free contract and never inspect local state for a
+        // remote invocation. Flat transition aliases use the same worktree as
+        // their canonical runs/approvals equivalents.
+        const runId = applicationConfig.remote === undefined ? ExecutionTarget.executionRunId(parsed) : undefined
+        const config = runId === undefined ? applicationConfig : {
+          ...applicationConfig,
+          ...yield* Effect.promise(() => History.prepare(Project.root(applicationConfig.root, process.cwd()), runId))
+        }
+        // The legacy gateway alias has the same local-only approval default as
+        // ControlBridge.host; configuring authentication does not delegate it.
+        //
+        // The verb also decides whether this host composes an executor, and so
+        // whether it needs a completion judge before it opens a store. Five
+        // verbs start or resume a run; the rest read, record a durable request,
+        // or never touch a run, and refusing those for want of a judge refused
+        // `ls`, `ps`, `status` and `logs` in every project with no gateway key.
+        // The catalog answers the question and answers an unrecognized word
+        // `true`, so drift can only bring the refusal back, never lose it.
+        return NodeControl.layer({
+          ...config,
+          startsRuns: Verb.startsRuns(Argv.words(parsed)),
+          approvalChannel: ["serve", "gateway"].includes(Argv.words(parsed)[0] ?? ""),
+          approvalAuthority: config.approvalAuthority ?? ApprovalAuthority.local
+        })
+      }))),
     { version: packageVersion }
   ).pipe(
     Effect.provideService(Console.Console, parsedConsole),

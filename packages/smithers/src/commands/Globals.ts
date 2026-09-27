@@ -35,7 +35,7 @@ const preface = (options: Options) =>
     // rc.0 ignores them and says so, once per invocation, because a silently
     // ignored connection string is how a project ends up running against SQLite
     // while believing it runs against PostgreSQL. A notice, not a refusal: the
-    // exit code and the command's result do not move (the SQLite-only runtime
+    // exit code and the command's result do not move (the runtime
     // names and the sentence are @smthrs/database's, pinned per name in
     // packages/smithers/flows/database/test/UnsupportedBackend.test.ts).
     for (const name of UnsupportedBackend.ignoredNames(options.environment ?? process.env)) {

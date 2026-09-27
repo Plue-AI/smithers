@@ -20,6 +20,7 @@ import { Cause, Effect, Layer } from "effect"
 import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import * as CliError from "./CliError.ts"
+import * as DatabaseLocation from "./internal/DatabaseLocation.ts"
 import * as NodeControl from "./NodeControl.ts"
 
 /**
@@ -69,7 +70,7 @@ export const duration = (value: string): number | undefined => {
  */
 export const databases = (root: string): ReadonlyArray<string> =>
   [NodeControl.databasePath(root), NodeControl.executionDatabasePath(root)]
-    .filter((file) => existsSync(file))
+    .filter((file) => DatabaseLocation.exists(file))
 
 /**
  * The content-addressed objects directory the engine spills large outputs
@@ -182,7 +183,7 @@ export const sweep = (
     // finishes.
     const engine = NodeControl.executionDatabasePath(root)
     const objects = objectsDirectory(root)
-    if (retained.failures.length > 0 || !existsSync(engine) || !existsSync(objects)) return retained
+    if (retained.failures.length > 0 || !DatabaseLocation.exists(engine) || !existsSync(objects)) return retained
     const artifacts = yield* Effect.gen(function*() {
       const collector = yield* ArtifactGc.ArtifactGc
       return yield* collector.gc({ dryRun: options.dryRun })

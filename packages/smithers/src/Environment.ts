@@ -46,7 +46,7 @@ export const names: ReadonlyArray<Name> = [
   entry("TEST_TIMEOUT_MS", "Wall-clock budget for one `test` invocation"),
   entry("BASH_CONTAINER", "The one container `bash` may reach; host commands and host file flows are refused"),
   entry("ASKS", "`park` (the default) or `refuse`: whether an in-run `ask` waits for an operator or fails at once"),
-  entry("BACKEND", "Database backend; only `sqlite` is supported"),
+  entry("BACKEND", "Database backend: `sqlite` or `postgres`"),
   entry("MEMORY_DB", "Path of a separate SQLite file for the memory store, shared across runs that name it"),
   entry("SUPERVISOR_STANCE", "`careful` (the default) or `paranoid`, the static stance a judged run is taught"),
   entry("BUG_ENDPOINT", "Where `smthrs bug` posts its report"),
@@ -122,13 +122,12 @@ export const readInteger = (environment: Source, name: string): number | undefin
  * @since 1.0.0
  */
 export const unsupportedBackendMessage: string =
-  "unsupported_database: 1.0.0-rc.0 supports local SQLite only. PostgreSQL and PGlite are not available. " +
-  "Unset SMITHERS_BACKEND or set it to sqlite. See https://smithers.sh/migration/1.0#databases"
+  "unsupported_database: choose sqlite or postgres. PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL. See https://smithers.sh/migration/1.0#databases."
 
 /**
  * The database-backend refusal.
  *
- * `sqlite` and an unset value are the supported configuration; every other
+ * `sqlite`, `postgres`, and an unset value are supported; every other
  * value names a backend that does not ship, and saying so is the whole
  * contract — a silent fallback to SQLite would run a project's flows against
  * a database it did not ask for.
@@ -137,4 +136,6 @@ export const unsupportedBackendMessage: string =
  * @since 1.0.0
  */
 export const unsupportedBackend = (value: string | undefined): string | undefined =>
-  value === undefined || value === "" || value === "sqlite" ? undefined : unsupportedBackendMessage
+  value === undefined || value === "" || (value === "sqlite" || value === "postgres")
+    ? undefined
+    : unsupportedBackendMessage

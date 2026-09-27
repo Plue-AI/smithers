@@ -789,9 +789,16 @@
     "@effect/platform-node": "4.0.0-rc.115",
     "@effect/platform-node-shared": "4.0.0-rc.115",
     "effect": "4.0.0-rc.115",
-    "fast-check": "4.9.0"
+    "fast-check": "4.9.0",
+    "@effect/sql-pg": "4.0.0-rc.115"
   },
   "peerDependencies": {
-    "@effect/sql-sqlite-node": "4.0.0-rc.115"
+    "@effect/sql-sqlite-node": "4.0.0-rc.115",
+    "@effect/sql-pg": "4.0.0-rc.115"
+  },
+  "peerDependenciesMeta": {
+    "@effect/sql-pg": {
+      "optional": true
+    }
   }
 }

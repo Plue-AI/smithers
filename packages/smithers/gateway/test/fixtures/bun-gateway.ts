@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { NodeWS } from "@effect/platform-node/NodeSocket"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
@@ -23,7 +24,7 @@ const health = { workspaceHash: "bun-workspace", gatewayId: "bun-gateway", proto
 const storage = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }), RunStore.layer).pipe(
   Layer.provideMerge(
     Layer.provideMerge(
-      Layer.merge(Migrations.layer, RunMigrations.layer),
+      DatabaseMigrations.layer([Migrations.set, RunMigrations.set]),
       Layer.provideMerge(DurableWriter.layer(), Database.layer({ filename: ":memory:" }))
     )
   )

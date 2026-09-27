@@ -81,13 +81,14 @@ export const makeNative = (platform: NativePlatform) => {
     const configured = validateRuntime(options, platform.name)
     return {
       ...configured,
-      filename: resolve(configured.filename),
+      filename: /^postgres(?:ql)?:\/\//.test(configured.filename) ? configured.filename : resolve(configured.filename),
       workspaceRoot: resolve(configured.workspaceRoot)
     }
   }
 
   const databaseLayer = (filename: string) =>
     Layer.unwrap(Effect.gen(function*() {
+      if (/^postgres(?:ql)?:\/\//.test(filename)) return platform.database(filename)
       const directory = dirname(filename)
       const fs = yield* FileSystem.FileSystem
       // The engine database is host configuration and is never a path a model
@@ -111,7 +112,8 @@ export const makeNative = (platform: NativePlatform) => {
     }))
 
   const storage = (filename: string, workspaceRoot?: string) => {
-    const validatedFilename = resolve(decodeField("filename", Schema.NonEmptyString, filename, nonEmpty))
+    const decodedFilename = decodeField("filename", Schema.NonEmptyString, filename, nonEmpty)
+    const validatedFilename = /^postgres(?:ql)?:\/\//.test(decodedFilename) ? decodedFilename : resolve(decodedFilename)
     const root = workspaceRoot === undefined
       ? undefined
       : resolve(decodeField("workspaceRoot", Schema.NonEmptyString, workspaceRoot, nonEmpty))

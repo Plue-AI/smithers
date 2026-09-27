@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * A whole gateway over one real SQLite database.
  *
@@ -49,7 +50,7 @@ export const storage = (filename: string) =>
   Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }), RunStore.layer).pipe(
     Layer.provideMerge(
       Layer.provideMerge(
-        Layer.merge(Migrations.layer, RunStoreMigrations.layer),
+        DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
         Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))
       )
     )

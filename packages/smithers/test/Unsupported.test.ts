@@ -166,7 +166,7 @@ describe("every removed flag", () => {
 
   /** How each removed flag is spelled on its surviving parent command. */
   const invocation = (flag: Unsupported.RemovedFlag): ReadonlyArray<string> => {
-    if (flag.parent === "") return ["--backend", "postgres", "ls"]
+    if (flag.parent === "") return ["--backend", "mysql", "ls"]
     if (flag.parent === "steer") return ["steer", "run-1", "--message", "hello", "--takeover"]
     if (flag.parent === "migrate") return ["migrate", "--to", "postgres"]
     if (flag.parent === "init") return ["init", "example", "--global"]
@@ -207,7 +207,7 @@ describe("the SQLite-only backend flag", () => {
   })
 
   it("refuses every other backend with unsupported_database", async () => {
-    for (const backend of ["pglite", "postgres", "mysql"]) {
+    for (const backend of ["pglite", "mysql"]) {
       const error = await failure(["--backend", backend, "ls"])
 
       // the release policy prints one exact sentence for every rejected

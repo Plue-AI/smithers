@@ -164,8 +164,8 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       mcp: { annotations: { readOnlyHint: true } },
       options: options.extend({ flow: z.string().optional(), status: z.enum(statuses).optional() }),
       run: (c) =>
-        guard(c, () => {
-          reconcileHistory(c.options, runtime)
+        guard(c, async () => {
+          await reconcileHistory(c.options, runtime)
           return Bridge.invoke(
             [
               "ps",
@@ -183,8 +183,8 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       args: runArgs,
       options,
       run: (c) =>
-        guard(c, () => {
-          reconcileHistory(c.options, runtime)
+        guard(c, async () => {
+          await reconcileHistory(c.options, runtime)
           return Bridge.query(
             Effect.gen(function*() {
               const control = yield* Control.Control
@@ -275,8 +275,8 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       options,
       destructive: true,
       run: (c) =>
-        guard(c, () => {
-          reconcileHistory(c.options, runtime)
+        guard(c, async () => {
+          await reconcileHistory(c.options, runtime)
           return Bridge.query(cancelAll(), c.options, runtime)
         })
     })
@@ -286,10 +286,10 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       args: runArgs,
       options,
       run: (c) =>
-        guard(c, () =>
+        guard(c, async () =>
           Bridge.invoke(["resume", c.args.run], c.options, {
             ...runtime,
-            ...prepareHistoryRun(c.args.run, c.options, runtime)
+            ...await prepareHistoryRun(c.args.run, c.options, runtime)
           }))
     })
     .command("signal", {

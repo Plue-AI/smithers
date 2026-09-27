@@ -162,7 +162,7 @@ describe("history boundaries and refusal postconditions", () => {
     expect(() => History.localRoot({ root }, { SMITHERS_REMOTE: "https://example.invalid" })).toThrow(
       "--remote is not supported"
     )
-    expect(() => History.reconcile(root)).not.toThrow()
+    await expect(History.reconcile(root)).resolves.toBeUndefined()
     await expect(readFile(join(root, ".flows", "engine.db"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
@@ -247,7 +247,7 @@ describe("history boundaries and refusal postconditions", () => {
     await expect(History.mutate(root, "run-1", { sequence: 1 }, "fork")).rejects.toThrow("not a public agent flow")
     await rm(join(root, ".flows", "control.db"))
     await expect(History.mutate(root, "run-1", { sequence: 1 }, "rewind")).rejects.toThrow("approved control plan")
-    expect(() => History.reconcile(root)).not.toThrow()
+    await expect(History.reconcile(root)).resolves.toBeUndefined()
     editDatabase(root, "engine", (db) => {
       expect(db.prepare("SELECT 1 FROM sqlite_master WHERE name='flows_time_travel_audits'").get()).toBeUndefined()
     })
@@ -262,12 +262,12 @@ describe("history boundaries and refusal postconditions", () => {
     await expect(History.mutate(root, "run-1", { sequence: 1 }, "rewind")).rejects.toThrow(
       "needs history reconciliation"
     )
-    expect(() => History.prepare(root, "run-1")).toThrow("has not been linked")
+    await expect(History.prepare(root, "run-1")).rejects.toThrow("has not been linked")
     editDatabase(root, "engine", (db) => {
       db.exec("CREATE TABLE smthrs_history_workspaces(run_id TEXT PRIMARY KEY,workspace TEXT)")
       db.prepare("INSERT INTO smthrs_history_workspaces VALUES('run-1',?)").run(join(root, "missing-worktree"))
     })
-    expect(() => History.prepare(root, "run-1")).toThrow("workspace no longer exists")
+    await expect(History.prepare(root, "run-1")).rejects.toThrow("workspace no longer exists")
   })
 
   it("rolls back all control reconciliation when a later audit is still actively claimed", async () => {
@@ -283,13 +283,13 @@ describe("history boundaries and refusal postconditions", () => {
       "control",
       (db) => db.exec("UPDATE flows_runs SET claim_host_id='fixture',claim_pid=1,claim_nonce='claim',claimed_at_ms=0")
     )
-    expect(() => History.reconcile(root)).toThrow("active or claimed")
+    await expect(History.reconcile(root)).rejects.toThrow("active or claimed")
     editDatabase(root, "control", (db) => {
       expect(db.prepare("SELECT 1 FROM smthrs_history_applied").get()).toBeUndefined()
       expect(db.prepare("SELECT claim_nonce FROM flows_runs WHERE run_id='run-1'").get()?.claim_nonce).toBe("claim")
       db.exec("UPDATE flows_runs SET claim_host_id=NULL,claim_pid=NULL,claim_nonce=NULL,claimed_at_ms=NULL")
     })
-    History.reconcile(root)
+    await History.reconcile(root)
     editDatabase(root, "control", (db) => {
       expect(db.prepare("SELECT audit_id FROM smthrs_history_applied ORDER BY audit_id").all()).toEqual([
         { audit_id: "blocked" },
@@ -315,22 +315,22 @@ describe("history boundaries and refusal postconditions", () => {
         "INSERT INTO flows_runs(run_id,status,created_at_ms,parent_run_id,state_json) VALUES('grandchild','pending',0,'child','{}')"
       )
     })
-    expect(() => History.reconcile(root)).toThrow("no retained workspace")
+    await expect(History.reconcile(root)).rejects.toThrow("no retained workspace")
     editDatabase(root, "control", (db) => {
       expect(db.prepare("SELECT 1 FROM flows_runs WHERE run_id='child'").get()).toBeUndefined()
     })
     // engine.db and control.db cannot commit atomically. A surviving route is
     // only a location; it does not prove the public control identity committed.
-    expect(Workspace.workspaceFor(root, "child")).toBe(workspace)
-    expect(Workspace.canExecute(root, workspace, "child")).toBe(false)
-    expect(Workspace.canExecute(root, workspace, "grandchild")).toBe(false)
+    expect(await Workspace.workspaceFor(root, "child")).toBe(workspace)
+    expect(await Workspace.canExecute(root, workspace, "child")).toBe(false)
+    expect(await Workspace.canExecute(root, workspace, "grandchild")).toBe(false)
     editDatabase(root, "engine", (db) => db.exec("DELETE FROM flows_time_travel_edges WHERE child_run_id='unfinished'"))
-    History.reconcile(root)
-    expect(Workspace.canExecute(root, workspace, "child")).toBe(true)
-    expect(Workspace.canExecute(root, workspace, "grandchild")).toBe(true)
+    await History.reconcile(root)
+    expect(await Workspace.canExecute(root, workspace, "child")).toBe(true)
+    expect(await Workspace.canExecute(root, workspace, "grandchild")).toBe(true)
     await rm(join(root, ".flows", "control.db"))
-    expect(Workspace.canExecute(root, workspace, "child")).toBe(false)
-    expect(Workspace.canExecute(root, workspace, "grandchild")).toBe(false)
+    expect(await Workspace.canExecute(root, workspace, "child")).toBe(false)
+    expect(await Workspace.canExecute(root, workspace, "grandchild")).toBe(false)
   })
 
   it.each(["workspace", "absent", "active", "standalone"])("keeps an invalid fork unlinked (%s)", async (problem) => {
@@ -353,7 +353,7 @@ describe("history boundaries and refusal postconditions", () => {
     if (problem !== "workspace") {
       await mkdir(join(root, ".flows", "forks", forkWorkspaceName("child"), ".jj"), { recursive: true })
     }
-    expect(() => History.reconcile(root)).toThrow(
+    await expect(History.reconcile(root)).rejects.toThrow(
       problem === "workspace"
         ? "no retained workspace"
         : problem === "standalone"
@@ -364,7 +364,7 @@ describe("history boundaries and refusal postconditions", () => {
       expect(db.prepare("SELECT 1 FROM flows_runs WHERE run_id='child'").get()).toBeUndefined()
       expect(db.prepare("SELECT 1 FROM smthrs_history_applied").get()).toBeUndefined()
     })
-    expect(Workspace.workspaceFor(root, "child")).toBeUndefined()
+    expect(await Workspace.workspaceFor(root, "child")).toBeUndefined()
   })
 
   it("owns the applied-audit table through the control migration ledger, including pre-history databases", async () => {
@@ -381,7 +381,7 @@ describe("history boundaries and refusal postconditions", () => {
       db.exec("CREATE TABLE flows_time_travel_audits(id TEXT,run_id TEXT,status TEXT)")
       db.exec("INSERT INTO flows_time_travel_audits VALUES('audit-1','run-1','completed')")
     })
-    History.reconcile(root)
+    await History.reconcile(root)
     editDatabase(root, "control", (db) => {
       expect(ledger(db)).toHaveLength(1)
       expect(db.prepare("SELECT audit_id FROM smthrs_history_applied").all()).toEqual([{ audit_id: "audit-1" }])
@@ -411,7 +411,7 @@ describe("durable history CLI", () => {
         JSON.parse(String(control.prepare("SELECT state_json FROM flows_runs WHERE run_id='run-1'").get()!.state_json))
           .status
       ).toBe("parked")
-      expect(Workspace.canExecute(root, root, "run-1")).toBe(true)
+      expect(await Workspace.canExecute(root, root, "run-1")).toBe(true)
       engine.close()
       control.close()
     }
@@ -524,14 +524,14 @@ describe("durable history CLI", () => {
     control.exec(
       "UPDATE flows_runs SET status='completed',state_json=json_set(state_json,'$.status','completed') WHERE run_id='run-1'"
     )
-    expect(Workspace.canExecute(root, root, "run-1")).toBe(false)
-    History.reconcile(root)
-    expect(Workspace.canExecute(root, root, "run-1")).toBe(true)
+    expect(await Workspace.canExecute(root, root, "run-1")).toBe(false)
+    await History.reconcile(root)
+    expect(await Workspace.canExecute(root, root, "run-1")).toBe(true)
     expect(
       JSON.parse(String(control.prepare("SELECT state_json FROM flows_runs WHERE run_id='run-1'").get()!.state_json))
         .status
     ).toBe("parked")
-    History.reconcile(root)
+    await History.reconcile(root)
     expect(control.prepare("SELECT count(*) AS n FROM smthrs_history_applied").get()!.n).toBe(1)
     control.close()
     engine.close()
@@ -548,18 +548,18 @@ describe("durable history CLI", () => {
       "INSERT INTO flows_runs(run_id,status,created_at_ms,parent_run_id,state_json) VALUES('grandchild','pending',0,'child','{}')"
     )
     db.exec("INSERT INTO flows_time_travel_edges VALUES('child','run-1','fork')")
-    expect(Workspace.canExecute(root, root, "child")).toBe(false)
+    expect(await Workspace.canExecute(root, root, "child")).toBe(false)
     db.exec("CREATE TABLE smthrs_history_workspaces(run_id TEXT, workspace TEXT)")
     db.prepare("INSERT INTO smthrs_history_workspaces VALUES('child',?)").run(join(root, "branch"))
-    expect(Workspace.canExecute(root, root, "grandchild")).toBe(false)
-    expect(Workspace.canExecute(root, join(root, "branch"), "grandchild")).toBe(false)
+    expect(await Workspace.canExecute(root, root, "grandchild")).toBe(false)
+    expect(await Workspace.canExecute(root, join(root, "branch"), "grandchild")).toBe(false)
     editDatabase(root, "control", (control) => {
       control.exec(
         "INSERT INTO flows_runs(run_id,status,created_at_ms,parent_run_id,state_json) VALUES('child','suspended',0,'run-1','{}')"
       )
     })
-    expect(Workspace.canExecute(root, join(root, "branch"), "grandchild")).toBe(true)
-    expect(Workspace.canExecute(root, join(root, "branch"), "run-1")).toBe(false)
+    expect(await Workspace.canExecute(root, join(root, "branch"), "grandchild")).toBe(true)
+    expect(await Workspace.canExecute(root, join(root, "branch"), "run-1")).toBe(false)
     db.close()
   })
 
@@ -570,7 +570,7 @@ describe("durable history CLI", () => {
       const result = await History.mutate(root, "run-1", { sequence: 1 }, "fork")
       expect(result).toHaveProperty("workspace")
       const child = result.runId
-      const workspace = History.prepare(root, child).executionRoot
+      const workspace = (await History.prepare(root, child)).executionRoot
       expect(execFileSync("jj", ["--repository", workspace, "workspace", "root"], { encoding: "utf8" }).trim()).toBe(
         workspace
       )
@@ -586,8 +586,8 @@ describe("durable history CLI", () => {
         JSON.parse(String(control.prepare("SELECT state_json FROM flows_runs WHERE run_id='run-1'").get()!.state_json))
           .runId
       ).toBe("run-1")
-      expect(Workspace.canExecute(root, root, child)).toBe(false)
-      expect(Workspace.canExecute(root, workspace, child)).toBe(true)
+      expect(await Workspace.canExecute(root, root, child)).toBe(false)
+      expect(await Workspace.canExecute(root, workspace, child)).toBe(true)
       control.close()
     }
   )

@@ -41,7 +41,6 @@ describe("the shared verb pre-handler", () => {
       }).pipe(legacy(["/project/.flows/state.db", "/project/.flows/journal.db"]))
     )
     expect(written).toEqual([
-      `${UnsupportedBackend.ignoredNotice("SMITHERS_POSTGRES_URL")}\n`,
       `${UnsupportedBackend.ignoredNotice("SMITHERS_TEST_PG_URL")}\n`,
       // One digest for the whole project, off the snapshot the invocation took.
       `${Project.legacyNotice("/project/.flows/state.db")}\n`
@@ -58,7 +57,7 @@ describe("the shared verb pre-handler", () => {
   it("refuses an exported SMITHERS_BACKEND the way it refuses the flag", async () => {
     capture()
     const exported = await Effect.runPromise(
-      Effect.flip(Globals.guard({ environment: { SMITHERS_BACKEND: "postgres" } }).pipe(legacy([])))
+      Effect.flip(Globals.guard({ environment: { SMITHERS_BACKEND: "mysql" } }).pipe(legacy([])))
     )
     expect(exported.message).toBe(Environment.unsupportedBackendMessage)
     const flagged = await Effect.runPromise(
@@ -66,7 +65,7 @@ describe("the shared verb pre-handler", () => {
     )
     expect(flagged.message).toBe(Environment.unsupportedBackendMessage)
     // The refusal reaches the same place through the process environment.
-    vi.stubEnv("SMITHERS_BACKEND", "postgres")
+    vi.stubEnv("SMITHERS_BACKEND", "mysql")
     const inherited = await Effect.runPromise(Effect.flip(Globals.guard({}).pipe(legacy([]))))
     expect(inherited.message).toBe(Environment.unsupportedBackendMessage)
     vi.unstubAllEnvs()

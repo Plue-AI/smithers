@@ -215,7 +215,7 @@ export const removedFlags: ReadonlyArray<RemovedFlag> = [
   {
     parent: "migrate",
     flag: "to",
-    reason: "SQLite only; the 0.x database move is removed",
+    reason: "The 0.x database move is removed; configure PostgreSQL with SMITHERS_POSTGRES_URL",
     anchor: "databases"
   },
   {
@@ -227,7 +227,7 @@ export const removedFlags: ReadonlyArray<RemovedFlag> = [
   {
     parent: "",
     flag: "backend",
-    reason: "SQLite only (`--backend sqlite` is accepted as a no-op)",
+    reason: "Choose sqlite or postgres using SMITHERS_BACKEND and SMITHERS_POSTGRES_URL",
     anchor: "databases"
   }
 ]

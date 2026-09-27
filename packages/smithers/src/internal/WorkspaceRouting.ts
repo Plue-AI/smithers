@@ -1,8 +1,9 @@
 /**
  * Portable history admission over the control and engine SQL clients the host
- * already owns. The synchronous CLI compatibility path remains in Workspace.ts.
+ * already owns, shared by the host and native CLI.
  * @since 1.0.0
  */
+import * as Dialect from "@smthrs/database/Dialect"
 import { Effect, Option, Path, Schema } from "effect"
 import type { SqlClient } from "effect/unstable/sql/SqlClient"
 import type { SqlError } from "effect/unstable/sql/SqlError"
@@ -25,7 +26,7 @@ export class WorkspaceRoutingError
 export interface Options {
   readonly root: string
   readonly engine: SqlClient
-  readonly control: SqlClient
+  readonly control: SqlClient | undefined
 }
 
 interface ResolvedWorkspace {
@@ -34,7 +35,7 @@ interface ResolvedWorkspace {
 }
 
 const hasTable = (sql: SqlClient, name: string) =>
-  sql`SELECT 1 FROM sqlite_master WHERE type='table' AND name=${name}`.pipe(Effect.map((rows) => rows.length > 0))
+  Dialect.tables(sql).pipe(Effect.map((rows) => rows.some((row) => row.name === name)))
 
 /** Build the admission functions once in the host's existing Effect scope.
  * @since 1.0.0
@@ -83,6 +84,7 @@ export const make = ({ root, engine, control }: Options) =>
           if (Option.isSome(yield* Effect.serviceOption(engine.transactionService))) return false
           const expected = yield* resolveWorkspace(runId)
           if (expected === undefined || expected.path !== path.resolve(workspace)) return false
+          if (control === undefined) return expected.boundRunId === undefined
           const audits = (yield* hasTable(engine, "flows_time_travel_audits"))
             ? yield* engine<
               { id: string }

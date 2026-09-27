@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * What an agent run's latency budget keeps when the process that started it
  * exits.
@@ -165,7 +166,7 @@ const controlStores = (filename: string) =>
   Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }), RunStore.layer).pipe(
     Layer.provideMerge(
       Layer.provideMerge(
-        Layer.merge(Migrations.layer, RunStoreMigrations.layer),
+        DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
         Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))
       )
     )

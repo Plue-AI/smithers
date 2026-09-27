@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * A nested human wait seen from a host that runs TWO databases.
  *
@@ -230,7 +231,7 @@ const controlDatabase = Layer.mergeAll(
   SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
   RunStore.layer
 ).pipe(
-  Layer.provideMerge(Layer.merge(JournalMigrations.layer, RunStoreMigrations.layer)),
+  Layer.provideMerge(DatabaseMigrations.layer([JournalMigrations.set, RunStoreMigrations.set])),
   Layer.provideMerge(Layer.merge(TestDatabase.layer, NodeCrypto.layer))
 )
 

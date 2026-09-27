@@ -3,6 +3,7 @@
  * @since 1.0.0
  */
 import { NodeCrypto, NodeServices } from "@effect/platform-node"
+import * as Dialect from "@smthrs/database/Dialect"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
@@ -14,12 +15,12 @@ import { CacheStore } from "@smthrs/step-cache"
 import { EffectBoundary, ReadOnlyTimeTravel, SqlTimeTravelStore, TimeTravel } from "@smthrs/time-travel"
 import { forkWorkspaceName, type Position } from "@smthrs/time-travel/TimeTravel"
 import { TimeTravelStore } from "@smthrs/time-travel/TimeTravelStore"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { Cause, Context, Effect, Exit, Layer } from "effect"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
 import * as ControlDatabaseMigrations from "../internal/ControlDatabaseMigrations.ts"
-import { hasTable } from "../internal/SqliteTable.ts"
+import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
 import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
 import * as Projection from "./Projection.ts"
@@ -49,7 +50,7 @@ export { localRoot } from "../Project.ts"
 
 const requireDatabase = (root: string): string => {
   const file = NodeControl.executionDatabasePath(root)
-  if (!existsSync(file)) throw new Error(`No execution history at ${file}`)
+  if (!DatabaseLocation.exists(file)) throw new Error(`No execution history at ${file}`)
   return file
 }
 
@@ -76,7 +77,10 @@ const writerLayer = (root: string, workspace: string) => {
       ...store,
       pendingAudits: () =>
         store.pendingAudits().pipe(
-          Effect.map((audits) => audits.filter((audit) => Workspace.workspaceFor(root, audit.runId) === workspace))
+          Effect.flatMap((audits) =>
+            Effect.filter(audits, (audit) =>
+              Effect.promise(async () => await Workspace.workspaceFor(root, audit.runId) === workspace))
+          )
         )
     }
   })).pipe(Layer.provideMerge(persistent))
@@ -203,34 +207,43 @@ export const preview = async (root: string, runId: string, options: Options, sig
     signal
   )
 
-const openControl = (root: string) => {
-  const file = NodeControl.databasePath(root)
-  if (!existsSync(file)) throw new Error("This operation requires a public CLI run with an approved control plan")
-  // A control.db written before the history rung gains it through the ledger,
-  // exactly as the runtime's next open would apply it.
-  Effect.runSync(Effect.scoped(Layer.build(
-    ControlDatabaseMigrations.layer.pipe(Layer.provide(NodeDatabase.layer({ filename: file })))
-  )))
-  const db = new DatabaseSync(file)
-  db.exec("PRAGMA busy_timeout = 5000")
-  return db
-}
-const controlSummary = (db: DatabaseSync, runId: string, allowActive = false): Record<string, unknown> => {
-  const row = db.prepare("SELECT state_json,status,owner_nonce,claim_nonce FROM flows_runs WHERE run_id=?").get(runId)
-  if (row === undefined) {
-    throw new Error(`No control-plane run ${runId}; use the TimeTravel API for standalone engine executions`)
-  }
-  if (!allowActive && (row.status === "running" || row.owner_nonce !== null || row.claim_nonce !== null)) {
-    throw new Error(`Run ${runId} is active or claimed; park it before changing history`)
-  }
-  const summary = JSON.parse(String(row.state_json)) as Record<string, unknown>
-  if (typeof summary.planId !== "string" || typeof summary.flowId !== "string") {
-    throw new Error(`Run ${runId} has no approved public CLI plan`)
-  }
-  const plan = db.prepare("SELECT decision FROM control_plans WHERE plan_id=?").get(summary.planId)
-  if (plan?.decision !== "approved") throw new Error(`Run ${runId}'s plan is not approved`)
-  return summary
-}
+const clients = (root: string) =>
+  Effect.gen(function*() {
+    const file = NodeControl.databasePath(root)
+    if (!DatabaseLocation.exists(file)) {
+      throw new Error("This operation requires a public CLI run with an approved control plan")
+    }
+    const control = Context.get(
+      yield* Layer.build(
+        ControlDatabaseMigrations.layer.pipe(Layer.provideMerge(NodeDatabase.layer({ filename: file })))
+      ),
+      SqlClient
+    )
+    const engine = Context.get(yield* Layer.build(NodeDatabase.layer({ filename: requireDatabase(root) })), SqlClient)
+    return { engine, control }
+  })
+
+const hasTable = (sql: SqlClient, name: string) =>
+  Dialect.tables(sql).pipe(Effect.map((rows) => rows.some((row) => row.name === name)))
+const controlSummary = (sql: SqlClient, runId: string, allowActive = false) =>
+  Effect.gen(function*() {
+    const [row] = yield* sql<
+      { state_json: string; status: string; owner_nonce: string | null; claim_nonce: string | null }
+    >`SELECT state_json,status,owner_nonce,claim_nonce FROM flows_runs WHERE run_id=${runId}`
+    if (row === undefined) {
+      throw new Error(`No control-plane run ${runId}; use the TimeTravel API for standalone engine executions`)
+    }
+    if (!allowActive && (row.status === "running" || row.owner_nonce !== null || row.claim_nonce !== null)) {
+      throw new Error(`Run ${runId} is active or claimed; park it before changing history`)
+    }
+    const summary = JSON.parse(row.state_json) as Record<string, unknown>
+    if (typeof summary.planId !== "string" || typeof summary.flowId !== "string") {
+      throw new Error(`Run ${runId} has no approved public CLI plan`)
+    }
+    const [plan] = yield* sql<{ decision: string }>`SELECT decision FROM control_plans WHERE plan_id=${summary.planId}`
+    if (plan?.decision !== "approved") throw new Error(`Run ${runId}'s plan is not approved`)
+    return summary
+  })
 
 const parkedSummary = (summary: Record<string, unknown>, runId: string, parentRunId?: string) => ({
   ...summary,
@@ -243,90 +256,85 @@ const parkedSummary = (summary: Record<string, unknown>, runId: string, parentRu
   waitingReason: undefined
 })
 
-const parkControl = (db: DatabaseSync, runId: string, summary: Record<string, unknown>) => {
-  const changed = db.prepare(
-    "UPDATE flows_runs SET status='suspended', state_json=?, finished_at_ms=NULL, cancel_requested_at_ms=NULL, waiting_reason='history', waiting_wake_at_ms=NULL, waiting_token=NULL WHERE run_id=? AND status <> 'running' AND owner_nonce IS NULL AND claim_nonce IS NULL"
-  )
-    .run(JSON.stringify(parkedSummary(summary, runId)), runId)
-  if (changed.changes !== 1) throw new Error(`Run ${runId} acquired an owner during history reconciliation`)
-  if (hasTable(db, "control_run_resumes")) db.prepare("DELETE FROM control_run_resumes WHERE run_id=?").run(runId)
-}
+const parkControl = (sql: SqlClient, runId: string, summary: Record<string, unknown>) =>
+  Effect.gen(function*() {
+    const changed = yield* sql`UPDATE flows_runs SET status='suspended', state_json=${
+      JSON.stringify(parkedSummary(summary, runId))
+    }, finished_at_ms=NULL, cancel_requested_at_ms=NULL, waiting_reason='history', waiting_wake_at_ms=NULL, waiting_token=NULL WHERE run_id=${runId} AND status <> 'running' AND owner_nonce IS NULL AND claim_nonce IS NULL RETURNING run_id`
+    if (changed.length !== 1) throw new Error(`Run ${runId} acquired an owner during history reconciliation`)
+    if (yield* hasTable(sql, "control_run_resumes")) yield* sql`DELETE FROM control_run_resumes WHERE run_id=${runId}`
+  })
 
-const linkFork = (engine: DatabaseSync, control: DatabaseSync, root: string, childId: string, parentId: string) => {
-  const summary = controlSummary(control, parentId, true)
-  const workspace = join(Project.stateDirectory(root), "forks", forkWorkspaceName(childId))
-  if (!existsSync(join(workspace, ".jj"))) throw new Error(`Fork ${childId} has no retained workspace at ${workspace}`)
-  const existing = control.prepare("SELECT 1 FROM flows_runs WHERE run_id=?").get(childId)
-  if (existing === undefined) {
-    const row = engine.prepare("SELECT state_json,status FROM flows_runs WHERE run_id=?").get(childId)
-    if (row === undefined || row.status === "running") throw new Error(`Fork ${childId} is absent or already active`)
-    const state = JSON.parse(String(row.state_json)) as { flowName?: unknown } | null
-    if (state?.flowName !== "agent/run") {
-      throw new Error(`Fork ${childId} is not a public agent flow and cannot be resumed by this CLI`)
+const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: string, parentId: string) =>
+  Effect.gen(function*() {
+    const summary = yield* controlSummary(control, parentId, true)
+    const workspace = join(Project.stateDirectory(root), "forks", forkWorkspaceName(childId))
+    if (!existsSync(join(workspace, ".jj"))) {
+      throw new Error(`Fork ${childId} has no retained workspace at ${workspace}`)
     }
-    control.prepare(
-      "INSERT INTO flows_runs(run_id,status,created_at_ms,parent_run_id,state_json) VALUES(?,'suspended',?,?,?)"
-    )
-      .run(childId, Date.now(), parentId, JSON.stringify(parkedSummary(summary, childId, parentId)))
-  }
-  engine.exec("CREATE TABLE IF NOT EXISTS smthrs_history_workspaces(run_id TEXT PRIMARY KEY, workspace TEXT NOT NULL)")
-  engine.prepare("INSERT INTO smthrs_history_workspaces(run_id,workspace) VALUES(?,?) ON CONFLICT(run_id) DO NOTHING")
-    .run(childId, workspace)
-  return workspace
-}
+    const existing = yield* control`SELECT 1 FROM flows_runs WHERE run_id=${childId}`
+    if (existing.length === 0) {
+      const [row] = yield* engine<
+        { state_json: string; status: string }
+      >`SELECT state_json,status FROM flows_runs WHERE run_id=${childId}`
+      if (row === undefined || row.status === "running") throw new Error(`Fork ${childId} is absent or already active`)
+      const state = JSON.parse(row.state_json) as { flowName?: unknown } | null
+      if (state?.flowName !== "agent/run") {
+        throw new Error(`Fork ${childId} is not a public agent flow and cannot be resumed by this CLI`)
+      }
+      yield* control`INSERT INTO flows_runs(run_id,status,created_at_ms,parent_run_id,state_json) VALUES(${childId},'suspended',${Date.now()},${parentId},${
+        JSON.stringify(parkedSummary(summary, childId, parentId))
+      })`
+    }
+    yield* engine.withTransaction(Effect.gen(function*() {
+      yield* engine`CREATE TABLE IF NOT EXISTS smthrs_history_workspaces(run_id TEXT PRIMARY KEY, workspace TEXT NOT NULL)`
+      yield* engine`INSERT INTO smthrs_history_workspaces(run_id,workspace) VALUES(${childId},${workspace}) ON CONFLICT(run_id) DO NOTHING`
+    }))
+    return workspace
+  })
 
-/**
- * Repairs the narrow crash gap between committed engine history and its
- * control projection. Every operation is idempotent and owns the control lock.
- * @since 1.0.0
+/** Repairs committed engine history and its durable control projection.
  * @category constructors
+ * @since 1.0.0
  */
-export const reconcile = (root: string): void => {
-  if (!existsSync(NodeControl.executionDatabasePath(root)) || !existsSync(NodeControl.databasePath(root))) return
-  const engine = new DatabaseSync(NodeControl.executionDatabasePath(root))
-  const control = openControl(root)
-  try {
-    control.exec("BEGIN IMMEDIATE")
-    if (hasTable(engine, "flows_time_travel_edges")) {
-      const forks = engine.prepare(
-        "SELECT child_run_id,parent_run_id FROM flows_time_travel_edges WHERE kind='fork' ORDER BY rowid"
-      ).all()
-      for (const fork of forks) {
-        if (control.prepare("SELECT 1 FROM flows_runs WHERE run_id=?").get(String(fork.child_run_id))) continue
-        // A standalone engine fork is outside the public control adapter.
-        if (!control.prepare("SELECT 1 FROM flows_runs WHERE run_id=?").get(String(fork.parent_run_id))) continue
-        linkFork(engine, control, root, String(fork.child_run_id), String(fork.parent_run_id))
+export const reconcile = async (root: string): Promise<void> => {
+  if (
+    !DatabaseLocation.exists(NodeControl.executionDatabasePath(root)) ||
+    !DatabaseLocation.exists(NodeControl.databasePath(root))
+  ) return
+  await runEffect(Effect.scoped(Effect.gen(function*() {
+    const { engine, control } = yield* clients(root)
+    yield* control.withTransaction(Effect.gen(function*() {
+      if (yield* hasTable(engine, "flows_time_travel_edges")) {
+        const forks = yield* engine<
+          { child_run_id: string; parent_run_id: string }
+        >`SELECT child_run_id,parent_run_id FROM flows_time_travel_edges WHERE kind='fork' ORDER BY rowid`
+        for (const fork of forks) {
+          if ((yield* control`SELECT 1 FROM flows_runs WHERE run_id=${fork.child_run_id}`).length > 0) continue
+          if ((yield* control`SELECT 1 FROM flows_runs WHERE run_id=${fork.parent_run_id}`).length === 0) continue
+          yield* linkFork(engine, control, root, fork.child_run_id, fork.parent_run_id)
+        }
       }
-    }
-    if (hasTable(engine, "flows_time_travel_audits")) {
-      const audits = engine.prepare(
-        "SELECT id,run_id FROM flows_time_travel_audits WHERE status='completed' ORDER BY rowid"
-      ).all()
-      for (const audit of audits) {
-        const id = String(audit.id)
-        const runId = String(audit.run_id)
-        if (control.prepare("SELECT 1 FROM smthrs_history_applied WHERE audit_id=?").get(id)) continue
-        const row = engine.prepare("SELECT status FROM flows_runs WHERE run_id=?").get(runId)
-        if (row?.status === "suspended") parkControl(control, runId, controlSummary(control, runId))
-        control.prepare("INSERT INTO smthrs_history_applied(audit_id) VALUES(?)").run(id)
+      if (yield* hasTable(engine, "flows_time_travel_audits")) {
+        const audits = yield* engine<
+          { id: string; run_id: string }
+        >`SELECT id,run_id FROM flows_time_travel_audits WHERE status='completed' ORDER BY rowid`
+        for (const audit of audits) {
+          if ((yield* control`SELECT 1 FROM smthrs_history_applied WHERE audit_id=${audit.id}`).length > 0) continue
+          const [row] = yield* engine<{ status: string }>`SELECT status FROM flows_runs WHERE run_id=${audit.run_id}`
+          if (row?.status === "suspended") {
+            yield* parkControl(control, audit.run_id, yield* controlSummary(control, audit.run_id))
+          }
+          yield* control`INSERT INTO smthrs_history_applied(audit_id) VALUES(${audit.id})`
+        }
       }
-    }
-    control.exec("COMMIT")
-  } catch (cause) {
-    try {
-      control.exec("ROLLBACK")
-    } catch { /* The original failure is the actionable one. */ }
-    throw cause
-  } finally {
-    engine.close()
-    control.close()
-  }
+    }))
+  })))
 }
 
-/**
- * Fork or rewind a run and reconcile its durable control identity.
- * @since 1.0.0
+/** Fork or rewind a run and reconcile its durable control identity.
  * @category constructors
+ * @since 1.0.0
  */
 export const mutate = async (
   root: string,
@@ -335,78 +343,62 @@ export const mutate = async (
   operation: "fork" | "rewind",
   signal?: AbortSignal
 ) => {
-  // Resolve the frame through a genuinely read-only connection before a lock
-  // or time-travel recovery is constructed.
   const observed = await read(root, runId, options, false, signal)
   if (operation === "fork" && observed.executionFlow !== "agent/run") {
     throw new Error(`Run ${runId} is not a public agent flow; use the TimeTravel API for standalone engine forks`)
   }
-  const workspace = Workspace.workspaceFor(root, runId)
+  const workspace = await Workspace.workspaceFor(root, runId)
   if (workspace === undefined) throw new Error(`Fork ${runId} needs history reconciliation before it can be used`)
-  const control = openControl(root)
-  try {
-    control.exec("BEGIN IMMEDIATE")
-    const summary = controlSummary(control, runId)
-    if (operation === "fork") mkdirSync(join(Project.stateDirectory(root), "forks"), { recursive: true })
-    const result = await runEffect(
-      Effect.gen(function*() {
-        const service = yield* TimeTravel
-        return operation === "fork"
-          ? {
-            kind: "fork" as const,
-            result: yield* service.fork(observed.position, {
-              workspaceRoot: join(Project.stateDirectory(root), "forks"),
-              retainWorkspace: true,
-              maxHistoryEntries: options.limit ?? 10_000
-            })
+  return runEffect(
+    Effect.scoped(Effect.gen(function*() {
+      const { engine, control } = yield* clients(root)
+      return yield* control.withTransaction(Effect.gen(function*() {
+        const summary = yield* controlSummary(control, runId)
+        if (operation === "fork") mkdirSync(join(Project.stateDirectory(root), "forks"), { recursive: true })
+        const result = yield* Effect.gen(function*() {
+          const service = yield* TimeTravel
+          return operation === "fork" ?
+            {
+              kind: "fork" as const,
+              result: yield* service.fork(observed.position, {
+                workspaceRoot: join(Project.stateDirectory(root), "forks"),
+                retainWorkspace: true,
+                maxHistoryEntries: options.limit ?? 10_000
+              })
+            } :
+            {
+              kind: "rewind" as const,
+              result: yield* service.rewind(observed.position, {
+                maxHistoryEntries: options.limit ?? 10_000,
+                ...(options.wholeRepo === true ? { wholeRepo: true } : {})
+              })
+            }
+        }).pipe(Effect.provide(writerLayer(root, workspace)), Effect.scoped)
+        if (result.kind === "fork") {
+          const childWorkspace = yield* linkFork(engine, control, root, result.result.runId, runId)
+          return {
+            ...result.result,
+            workspace: childWorkspace,
+            status: "parked",
+            next: `smthrs runs resume ${result.result.runId}`
           }
-          : {
-            kind: "rewind" as const,
-            result: yield* service.rewind(observed.position, {
-              maxHistoryEntries: options.limit ?? 10_000,
-              ...(options.wholeRepo === true ? { wholeRepo: true } : {})
-            })
-          }
-      }).pipe(Effect.provide(writerLayer(root, workspace)), Effect.scoped),
-      signal
-    )
-    const engine = new DatabaseSync(NodeControl.executionDatabasePath(root))
-    try {
-      if (result.kind === "fork") {
-        const childWorkspace = linkFork(engine, control, root, result.result.runId, runId)
-        control.exec("COMMIT")
-        return {
-          ...result.result,
-          workspace: childWorkspace,
-          status: "parked",
-          next: `smthrs runs resume ${result.result.runId}`
         }
-      }
-      parkControl(control, runId, summary)
-      control.prepare("INSERT OR IGNORE INTO smthrs_history_applied(audit_id) VALUES(?)").run(result.result.auditId)
-      control.exec("COMMIT")
-      return { ...result.result, runId, status: "parked", next: `smthrs runs resume ${runId}` }
-    } finally {
-      engine.close()
-    }
-  } catch (cause) {
-    try {
-      control.exec("ROLLBACK")
-    } catch { /* Preserve the original failure. */ }
-    throw cause
-  } finally {
-    control.close()
-  }
+        yield* parkControl(control, runId, summary)
+        yield* control`INSERT INTO smthrs_history_applied(audit_id) VALUES(${result.result.auditId}) ON CONFLICT DO NOTHING`
+        return { ...result.result, runId, status: "parked", next: `smthrs runs resume ${runId}` }
+      }))
+    })),
+    signal
+  )
 }
 
-/**
- * Called before resuming so the executor binds to this run's real worktree.
- * @since 1.0.0
+/** Resolves a committed workspace before resuming execution.
  * @category constructors
+ * @since 1.0.0
  */
-export const prepare = (root: string, runId: string): { readonly executionRoot: string } => {
-  reconcile(root)
-  const workspace = Workspace.workspaceFor(root, runId)
+export const prepare = async (root: string, runId: string): Promise<{ readonly executionRoot: string }> => {
+  await reconcile(root)
+  const workspace = await Workspace.workspaceFor(root, runId)
   if (workspace === undefined) throw new Error(`Fork ${runId} has not been linked to its workspace`)
   if (!existsSync(workspace)) throw new Error(`Run workspace no longer exists: ${workspace}`)
   return { executionRoot: workspace }

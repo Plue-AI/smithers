@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * The gateway read path over a run the engine executes AND reports.
  *
@@ -494,7 +495,7 @@ const controlStorage = (filename: string) =>
   Layer.mergeAll(SqlJournal.layer({ capacity: 4096, overflow: "reject" }), RunStore.layer).pipe(
     Layer.provideMerge(
       Layer.provideMerge(
-        Layer.merge(JournalMigrations.layer, RunStoreMigrations.layer),
+        DatabaseMigrations.layer([JournalMigrations.set, RunStoreMigrations.set]),
         Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))
       )
     )

@@ -314,7 +314,7 @@ describe("the report", () => {
   it("fails on an unsupported database backend", () => {
     const report = Doctor.inspect({
       root: project(),
-      environment: { SMITHERS_BACKEND: "postgres" },
+      environment: { SMITHERS_BACKEND: "mysql" },
       nodeVersion: "26.4.0"
     })
 
@@ -328,7 +328,7 @@ describe("the report", () => {
 
   it("prints the unsupported database report and exits nonzero", async () => {
     const root = project()
-    setBackend("postgres")
+    setBackend("mysql")
 
     const observed = await Effect.runPromise(
       Effect.gen(function*() {

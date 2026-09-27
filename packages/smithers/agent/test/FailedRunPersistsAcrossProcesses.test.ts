@@ -1,3 +1,4 @@
+import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * What a failed agent run leaves on disk for the next process to find.
  *
@@ -148,7 +149,7 @@ const controlStores = (filename: string) =>
   Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }), RunStore.layer).pipe(
     Layer.provideMerge(
       Layer.provideMerge(
-        Layer.merge(Migrations.layer, RunStoreMigrations.layer),
+        DatabaseMigrations.layer([Migrations.set, RunStoreMigrations.set]),
         Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename }))
       )
     )

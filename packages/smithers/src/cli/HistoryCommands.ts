@@ -121,12 +121,15 @@ export const appendHistoryCommands = (cli: Cli.Cli, runtime: Bridge.Runtime = {}
  * @since 1.0.0
  * @category constructors
  */
-export const reconcileHistory = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime = {}): void => {
+export const reconcileHistory = async (
+  connection: Bridge.ConnectionOptions,
+  runtime: Bridge.Runtime = {}
+): Promise<void> => {
   if (
     connection.remote !== undefined ||
     Environment.read(runtime.environment ?? process.env, "SMITHERS_REMOTE") !== undefined
   ) return
-  History.reconcile(Project.localRoot(connection, runtime.environment ?? process.env))
+  await History.reconcile(Project.localRoot(connection, runtime.environment ?? process.env))
 }
 
 /**
@@ -134,11 +137,11 @@ export const reconcileHistory = (connection: Bridge.ConnectionOptions, runtime: 
  * @since 1.0.0
  * @category constructors
  */
-export const prepareHistoryRun = (
+export const prepareHistoryRun = async (
   runId: string,
   connection: Bridge.ConnectionOptions,
   runtime: Bridge.Runtime = {}
-): { executionRoot?: string } => {
+): Promise<{ executionRoot?: string }> => {
   if (
     connection.remote !== undefined ||
     Environment.read(runtime.environment ?? process.env, "SMITHERS_REMOTE") !== undefined

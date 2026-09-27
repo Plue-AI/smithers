@@ -1,5 +1,8 @@
 import { expect, it } from "@effect/vitest"
+import { Effect } from "effect"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { execFileSync, spawnSync } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,8 +15,10 @@ const bunInstalled = spawnSync("bun", ["--version"], { stdio: "ignore" }).status
 
 it.skipIf(!bunInstalled).each([["node", "bun"], ["bun", "node"]] as const)(
   "resumes a %s-created durable run in %s without repeating its completed action",
-  (first, second) => {
+  async (first, second) => {
     const directory = mkdtempSync(join(tmpdir(), "flows-native-parity-"))
+    const postgres = process.env.SMITHERS_TEST_PG_URL
+    const prefix = `test_runtime_${randomUUID().replaceAll("-", "")}`
     const run = (runtime: string, phase: string) =>
       JSON.parse(
         execFileSync(
@@ -21,7 +26,18 @@ it.skipIf(!bunInstalled).each([["node", "bun"], ["bun", "node"]] as const)(
           [fixture, runtime, directory, phase],
           // Each cold child compiles the entire native composition. Bound it
           // independently: Vitest cannot interrupt execFileSync while it runs.
-          { encoding: "utf8", timeout: 60_000, killSignal: "SIGKILL" }
+          {
+            encoding: "utf8",
+            timeout: 60_000,
+            killSignal: "SIGKILL",
+            env: {
+              ...process.env,
+              SMITHERS_BACKEND: postgres ? "postgres" : "sqlite",
+              SMITHERS_POSTGRES_URL: postgres ?? "",
+              DATABASE_URL: "",
+              SMITHERS_POSTGRES_SCHEMA: prefix
+            }
+          }
         ).trim().split("\n").at(-1)!
       )
     try {
@@ -37,6 +53,16 @@ it.skipIf(!bunInstalled).each([["node", "bun"], ["bun", "node"]] as const)(
         result: "original result:approved"
       })
     } finally {
+      if (postgres) {
+        const PostgresDatabase = await import("@smthrs/database/postgres/PostgresDatabase")
+        const schema = `${prefix}_engine_sqlite`
+        await Effect.runPromise(
+          Effect.gen(function*() {
+            const sql = yield* SqlClient
+            yield* sql`DROP SCHEMA ${sql(schema)} CASCADE`
+          }).pipe(Effect.provide(PostgresDatabase.layer({ url: postgres, schema })))
+        )
+      }
       rmSync(directory, { recursive: true, force: true })
     }
   },
