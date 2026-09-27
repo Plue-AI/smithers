@@ -2718,3 +2718,9 @@ button.registration-status { cursor: pointer; }
 	.registration *, .registration *::before, .registration *::after { animation-delay: 0s !important; }
 	.registration-shimmer { animation: none; }
 }
+
+/* The wiki spaces (#1922) in the card: the space chip on the index and the history rows. */
+.wiki-space-chip { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-caption); font-weight: 600; background: var(--info-soft); color: var(--info); }
+.wiki-space-chip[data-space="private"] { background: var(--brand-soft); color: var(--brand); }
+.wiki-history .world-card-title { font-family: var(--font-mono); font-weight: 600; }
+.wiki-history [data-deleted] .world-card-path:first-of-type { color: var(--danger); }

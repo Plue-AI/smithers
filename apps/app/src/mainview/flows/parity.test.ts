@@ -123,6 +123,8 @@ const literalBindings = (source: string): Array<{ readonly prop: string; readonl
  */
 const PRESENTATION_ONLY = [
   "setSlashMenu", // slash-menu hover highlight: local presentation state
+  "setTag(", // wiki tree tag filter: which tag narrows the tree — local presentation state
+  "fileInput.current?.click()", // wiki attach: opening the file dialog is the human's gesture; the chosen file rides wiki.attach through its gesture
   "setCopied", // copy feedback flash; the clipboard write routes via onCopy
   "setSelectedPath", // world card doc selection: which note the embedded editor shows — local presentation state
   "onDismissDrawer(", // graph card detail drawer close: local presentation state (which node is focused)
@@ -316,7 +318,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../StorageRecoveryButton.tsx": 1,
     "../SubagentGrid.tsx": 4,
       "../FlowsSurface.tsx": 2,
-      "../WorldSurface.tsx": 6,
+      "../WorldSurface.tsx": 14, // The wiki spaces (#1922): the switch, New page, Graph, History/Rename/Delete for a page and an attachment, Attach, the local note's delete, and the empty state's New page / Create Wiki.
       "../WikiDeleteDialog.tsx": 1, // The Wiki confirmation moved to the shared shell; its command remains wiki.delete.confirm.
       "../HelpBubble.tsx": 1,
       "../InputModeMenu.tsx": 2,
@@ -505,7 +507,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * pager's onSelect, the view-mode pickers (wiki.card.view), cloud
        * Open page, and Refresh (wiki.sync) — all through onRunCommand.
        */
-      "../cards/ConversationCards.tsx": 11, // The empty Wiki now offers wiki.create.
+      "../cards/ConversationCards.tsx": 13, // The empty Wiki offers wiki.create; a cloud page offers History (wiki.history); the index card's fallback tree.
       /* The factory card: one Open per present infra file, one shared handler through onRunCommand (files.read). */
       /*
        * The dispatcher card's Register door, the button door of
@@ -515,7 +517,9 @@ describe("launch-law parity: every affordance is a command", () => {
        */
       "../cards/TriggersCard.tsx": 5,
       /* Librarian L5: the rail card's Open and note rows (wiki.open) and the graph card's Refresh (wiki.graph). */
-      "../cards/WikiCards.tsx": 3,
+      "../cards/WikiCards.tsx": 5, // + the history card's Previous/Next page (wiki.history).
+      /* The wiki navigation (#1922): the space switch (wiki.space), the tree rows (wiki.select / wiki.cloud.open), the tag filter. */
+      "../wiki/WikiNavigation.tsx": 4,
       /*
        * The dock (ChromeDock.tsx): the chrome as a vertical icon rail on the
        * left edge, always on screen — Download the app (cloud host, while a

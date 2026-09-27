@@ -5,7 +5,7 @@ import { flowAction, flowProps } from "../flows/FlowAction"
 import { Badge, Button, FileTree } from "@smthrs/ui"
 import { BookOpen, ExternalLink, GitPullRequest, Hash, ListChecks, Server } from "lucide-react"
 import { ageLabel } from "../Timestamps"
-import { Suspense, useId, useContext } from "react"
+import { Suspense, useId, useContext, type ReactNode } from "react"
 import { parseOutline } from "@smthrs/ui/vault"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
 import type { Card, WorldDocument } from "../state/AppState"
@@ -14,6 +14,7 @@ import type { CardFamily, RunCommand } from "./CardFamily"
 import { ControllerContext } from "../ControllerContext"
 import { activeRepositoryId } from "../state/RepoContext"
 import { settledPill } from "./CardFamily"
+import { WikiTree, useWikiScope } from "../wiki/WikiNavigation"
 
 
 
@@ -125,14 +126,24 @@ export const WorldCardBody = ({
   return (
     <div className="world-card-workspace">
       <aside className="world-card-sidebar" aria-label={`${WIKI_DISPLAY_NAME} documents`}>
-        <FileTree
-          nodes={documents.map((row) => ({ path: treePath(row), label: row.document?.title ?? row.entry.title }))}
-          selected={treePath(selected)}
-          onSelect={(path) => {
-            const row = documents.find((candidate) => treePath(candidate) === path)
-            if (row !== undefined) onRunCommand("wiki.card.select", flowArgs("wiki.card.select", { cardId: card.id, documentId: row.document?.id ?? row.entry.id ?? row.entry.path }))
-          }}
-        />
+        {card.payload.index === undefined ? null : <span className="wiki-space-chip" data-space={card.payload.index.space ?? "public"} data-testid="wiki-card-space">{card.payload.index.space ?? "public"}</span>}
+        {/* An index card lists its space's tree (folders, pages, search, tags) once the index is read; before that, the listing's rows. */}
+        {card.payload.index !== undefined && controller !== null
+          ? <WikiCardTree space={card.payload.index.space ?? "public"} documents={worldDocuments} selectedId={document?.id} onRunCommand={onRunCommand}
+            fallback={<FileTree
+              nodes={documents.map((row) => ({ path: treePath(row), label: row.document?.title ?? row.entry.title }))}
+              selected={treePath(selected)}
+              onSelect={(path) => {
+                const row = documents.find((candidate) => treePath(candidate) === path)
+                if (row !== undefined) onRunCommand("wiki.card.select", flowArgs("wiki.card.select", { cardId: card.id, documentId: row.document?.id ?? row.entry.id ?? row.entry.path }))
+              }} />} />
+          : <FileTree
+            nodes={documents.map((row) => ({ path: treePath(row), label: row.document?.title ?? row.entry.title }))}
+            selected={treePath(selected)}
+            onSelect={(path) => {
+              const row = documents.find((candidate) => treePath(candidate) === path)
+              if (row !== undefined) onRunCommand("wiki.card.select", flowArgs("wiki.card.select", { cardId: card.id, documentId: row.document?.id ?? row.entry.id ?? row.entry.path }))
+            }} />}
         {card.payload.index === undefined ? null : <div className="wiki-card-pages">
           {card.payload.index.page <= 1 ? null : <Button size="sm" variant="ghost"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page - 1 }))}>Previous page</Button>}
           {card.payload.index.hasNext ? <Button size="sm" variant="ghost"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page + 1 }))}>Next page</Button> : null}
@@ -158,6 +169,8 @@ export const WorldCardBody = ({
             <span>{cloud.pending.length === 0 ? "No pending edits" : `${cloud.pending.length} pending edit${cloud.pending.length === 1 ? "" : "s"}`}</span>
             {cloud.phase === "deleted" ? null : <Button size="sm" variant="ghost" 
               {...flowAction(onRunCommand, "wiki.sync", document.id)}>Refresh</Button>}
+            <Button size="sm" variant="ghost" data-testid="wiki-card-history"
+              {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug: cloud.slug, repo: cloud.repo }))}>History</Button>
             {cloud.phase === "cached" ? <p>This is a saved copy. Refresh to resume collaboration.</p> : null}
             {cloud.error === null ? null : <p role="status">{cloud.error}</p>}
           </div>}
@@ -183,6 +196,18 @@ export const WorldCardBody = ({
       </div>
     </div>
   )
+}
+
+/** The index card's tree: the space's navigation index when it is read, else the listing the card carries. */
+const WikiCardTree = ({ space, documents, selectedId, onRunCommand, fallback }: {
+  readonly space: "public" | "private"
+  readonly documents: ReadonlyArray<WorldDocument>
+  readonly selectedId: string | undefined
+  readonly onRunCommand: RunCommand
+  readonly fallback: ReactNode
+}) => {
+  const scope = useWikiScope(space)
+  return scope.index === undefined ? <>{fallback}</> : <WikiTree scope={scope} documents={documents} selectedId={selectedId} onRunCommand={onRunCommand} testId="wiki-card-tree" />
 }
 
 /*

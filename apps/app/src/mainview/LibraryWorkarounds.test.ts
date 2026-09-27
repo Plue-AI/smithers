@@ -61,8 +61,11 @@ describe("landed library contracts have no host workaround left", () => {
 
   test("the Wiki pane names every flow through the rendering component's own hook", async () => {
     const surface = await readFile(new URL("./WorldSurface.tsx", import.meta.url), "utf8")
-    expect(surface).toContain('nodeProps={() => flowProps("wiki.select")}')
-    expect(surface).toContain('linkProps={(path) => flowProps("wiki.open", path)}')
+    /* The tree moved to the shared wiki navigation (#1922): its rows still name their flow through FileTree's own nodeProps. */
+    const navigation = await readFile(new URL("./wiki/WikiNavigation.tsx", import.meta.url), "utf8")
+    expect(navigation).toContain('nodeProps={() => flowProps("wiki.select")}')
+    expect(navigation).toContain('flowProps("wiki.cloud.open") : flowProps("wiki.select")')
+    expect(surface).toContain('linkProps={(path) => flowProps(')
     expect(surface).toContain("headingProps={(heading) => flowProps(\"wiki.heading\", String(heading.line))}")
     const graph = await readFile(new URL("./KnowledgeGraphSurface.tsx", import.meta.url), "utf8")
     expect(graph).toContain('nodeProps={(node) => flowProps("wiki.open", node.id)}')

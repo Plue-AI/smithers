@@ -12,6 +12,9 @@ import { flowAction } from "../flows/FlowAction"
  * listed under Unresolved with no door: there is nothing to open.
  */
 import { Button } from "@smthrs/ui"
+import { flowArgs } from "../flows/FlowArgs"
+import { timeLabel } from "../Timestamps"
+import { wikiContentPath } from "../wiki/CloudWiki"
 import { Suspense, useMemo } from "react"
 import type { Card, WorldDocument } from "../state/AppState"
 import { WIKI_DISPLAY_NAME, WIKI_GRAPH_ALL_SCOPE } from "../state/AppState"
@@ -21,6 +24,7 @@ import { settledPill } from "./CardFamily"
 
 type WikiLinksCard = Extract<Card, { kind: "wiki-links" }>
 type WikiGraphCard = Extract<Card, { kind: "wiki-graph" }>
+type WikiHistoryCard = Extract<Card, { kind: "wiki-history" }>
 
 export interface WikiCardActions {
   readonly onRunCommand: RunCommand
@@ -145,8 +149,50 @@ export const WikiGraphCardBody = ({ card, onRunCommand, worldDocuments }: { read
   )
 }
 
-/** The family slice: the two kinds this file owns. */
-export const wikiCardFamily: CardFamily<"wiki-links" | "wiki-graph"> = {
+/**
+ * A page's history (#1922): one row per revision, newest first, each the
+ * link to that revision's own bytes (the scoped content route) — so a rename
+ * or a deletion keeps every earlier version reachable.
+ */
+export const WikiHistoryCardBody = ({ card, onRunCommand }: { readonly card: WikiHistoryCard; readonly onRunCommand: RunCommand }) => {
+  const { repo, space, pageId, path, revisions, page, hasNext } = card.payload
+  const slug = path.replace(/\.md$/i, "").split("/").pop() ?? path
+  return (
+    <div className="world-card-list wiki-history" data-testid="wiki-history" data-space={space}>
+      <div className="world-card-row">
+        <span className="world-card-path" data-testid="wiki-history-path">{path}</span>
+        <span className="wiki-space-chip" data-space={space}>{space}</span>
+      </div>
+      {revisions.length === 0 ? <p className="world-card-empty">No revisions yet</p> : (
+        <ol className="search-results-items" aria-label="Revisions">
+          {revisions.map((row) => (
+            <li key={row.revision} className="search-results-item" data-testid={`wiki-revision-${row.revision}`} data-deleted={row.deleted || undefined}>
+              <div className="world-card-row">
+                <a className="world-card-title" href={`/api${wikiContentPath(repo, space, pageId, row.revision)}`} download={row.path.split("/").pop()} target="_blank" rel="noreferrer">
+                  r{row.revision}
+                </a>
+                <span className="world-card-path">{row.deleted ? "deleted" : row.path}</span>
+                <span className="world-card-path">{row.author} · <time dateTime={row.at}>{timeLabel(Date.parse(row.at))}</time></span>
+                {row.attachment === undefined ? null : <span className="world-card-path">{row.attachment.mediaType} · {row.attachment.size} B</span>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      {page > 1 || hasNext ? <div className="wiki-card-pages">
+        {page <= 1 ? null : <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug, repo, page: page - 1 }))}>Previous page</Button>}
+        {hasNext ? <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug, repo, page: page + 1 }))}>Next page</Button> : null}
+      </div> : null}
+    </div>
+  )
+}
+
+/** The family slice: the three kinds this file owns. */
+export const wikiCardFamily: CardFamily<"wiki-links" | "wiki-graph" | "wiki-history"> = {
+  "wiki-history": {
+    render: (card, actions) => <WikiHistoryCardBody card={card} onRunCommand={actions.onRunCommand} />,
+    pill: settledPill
+  },
   "wiki-links": {
     render: (card, actions) => <WikiLinksCardBody card={card} onRunCommand={actions.onRunCommand} worldDocuments={actions.projectionStore === undefined ? undefined : actions.worldDocuments} />,
     pill: settledPill
