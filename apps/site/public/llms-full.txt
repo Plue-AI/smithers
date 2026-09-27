@@ -7679,7 +7679,7 @@ Comment on any pull request:
 @smithers review
 ```
 
-Only owners, members, and collaborators can trigger reviews. Repositories registered in `auto` mode skip the comment and review every non-draft PR push; `comment` mode is the default. The mode is a server-side setting on your registration, so switching never touches your workflow file.
+Only accounts with write, maintain, or admin permission on the repository can trigger reviews; comments posted by bots or through GitHub Apps never do. The action reads the commenter's permission with the job's `GITHUB_TOKEN`, so the workflow needs no extra permission, and skips with a warning if GitHub does not answer. Repositories registered in `auto` mode skip the comment and review every non-draft PR push; `comment` mode is the default. The mode is a server-side setting on your registration, so switching never touches your workflow file.
 
 Subscriptions meter reviewed PRs as a monthly per-repo allotment, and the status comment shows remaining quota. Re-reviewing a PR that already counted this month is free. When the quota is spent, the action skips with a notice instead of failing your checks.
 
@@ -48504,7 +48504,7 @@ A Smithers workspace holds target declarations and flow sources. Runtime state l
 
 `.smithers/WORKSPACE.ts` declares workspace-wide runtime, package-manager, and cache settings. A root `WORKSPACE.ts` is also supported. A `PACKAGE.ts` declares targets for its directory; exported target keys become labels such as `//apps/site:build`.
 
-`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths })`, where `protectedPaths` adds to the configuration paths that work started from a non-maintainer's issue never changes); `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
+`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths })`, where `protectedPaths` adds to the configuration paths, and to the code main's workflows run with secrets or write permissions, that work started from a non-maintainer's issue never changes); `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
 
 These are source files to commit. Their presence does not make `.flows/` state part of the source tree. The [CLI reference](/docs/reference/cli/) distinguishes target execution from durable flow commands.
 

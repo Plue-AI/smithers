@@ -224,8 +224,9 @@ export type GithubPolicy = typeof GithubPolicy.Type
  * What a `FACTORY.ts` writes for the GitHub policy. Every field defaults to
  * the third-party posture: `mirror: "pull"`, `issues: "read"`,
  * `changes: "send-upstream"`. `protectedPaths` adds paths to the built-in
- * trust roots (CI, Smithers and agent configuration, and the `FACTORY.ts`,
- * `PACKAGE.ts` and `AGENTS.md` declarations) that a change started from an
+ * trust roots (CI, Smithers and agent configuration, the `FACTORY.ts`,
+ * `PACKAGE.ts` and `AGENTS.md` declarations, and the local actions and
+ * scripts main's workflows run with elevated trust) that a change started from an
  * outsider's issue never touches: a name without `/` matches at any depth, a
  * path with `/` matches from the repository root down.
  *

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -38,26 +39,24 @@ func (s *LandingService) recordLandingSource(ctx context.Context, landingID int6
 	return nil
 }
 
-// landingProtectedFileReader reads main's factory projection.
+// landingProtectedFileReader reads a target revision's files.
 type landingProtectedFileReader interface {
 	GetFileAtChange(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
 }
 
+// landingProtectedDirectoryReader lists a target revision's directories.
+type landingProtectedDirectoryReader interface {
+	ListDirectory(ctx context.Context, owner, repo, changeID, prefix, after string, limit int) ([]repohost.TreeEntry, error)
+}
+
 // refuseProtectedPaths refuses touched paths that the list on the target
-// revision protects. A maintainer makes such a change.
+// revision protects (protectedPathsAt). A maintainer makes such a change.
 func refuseProtectedPaths(ctx context.Context, files landingProtectedFileReader, owner, repo, targetRevision string, touched []string) error {
-	var projection []byte
-	file, err := files.GetFileAtChange(ctx, owner, repo, targetRevision, factoryProjectionPath)
-	if status, ok := repohost.IsStatusError(err); !ok || status.StatusCode != 404 {
-		if err != nil {
-			return err
-		}
-		if file.TooLarge || file.Encoding == "base64" {
-			return fmt.Errorf("%s is not readable text", factoryProjectionPath)
-		}
-		projection = []byte(file.Content)
+	directories, ok := files.(landingProtectedDirectoryReader)
+	if !ok {
+		return pkgerrors.Internal("protected path listing unavailable")
 	}
-	entries, err := protectedPaths(projection)
+	entries, err := protectedPathsAt(ctx, landingRevisionTree{reader: files, directories: directories, owner: owner, repo: repo, revision: targetRevision})
 	if err != nil {
 		return err
 	}
@@ -65,6 +64,66 @@ func refuseProtectedPaths(ctx context.Context, files landingProtectedFileReader,
 		return pkgerrors.UnprocessableEntity("a maintainer changes protected paths: " + strings.Join(refused, ", "))
 	}
 	return nil
+}
+
+// landingRevisionTree reads one revision through the repo host.
+type landingRevisionTree struct {
+	reader                landingProtectedFileReader
+	directories           landingProtectedDirectoryReader
+	owner, repo, revision string
+}
+
+func (t landingRevisionTree) read(ctx context.Context, file string) ([]byte, bool, error) {
+	content, err := t.reader.GetFileAtChange(ctx, t.owner, t.repo, t.revision, file)
+	if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == 404 {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if content.TooLarge || content.Encoding == "base64" {
+		return nil, false, fmt.Errorf("%s is not readable text", file)
+	}
+	return []byte(content.Content), true, nil
+}
+
+func (t landingRevisionTree) files(ctx context.Context, dir string) ([]string, error) {
+	var files []string
+	pending := []string{dir}
+	for len(pending) > 0 {
+		prefix := pending[0]
+		pending = pending[1:]
+		after := ""
+		for {
+			page, err := t.directories.ListDirectory(ctx, t.owner, t.repo, t.revision, prefix, after, 1000)
+			if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == 404 {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			for _, entry := range page {
+				switch entry.Kind {
+				case "dir":
+					pending = append(pending, entry.Path)
+				case "file":
+					files = append(files, entry.Path)
+				}
+				if len(files)+len(pending) > workflowTrustReadLimit {
+					return nil, errors.New(prefix + " is too large to derive protected paths from")
+				}
+			}
+			if len(page) < 1000 {
+				break
+			}
+			if next := page[len(page)-1].Path; next > after {
+				after = next
+			} else {
+				return nil, errors.New(prefix + " listing does not advance")
+			}
+		}
+	}
+	return files, nil
 }
 
 // isOutsiderLanding reports whether a workspace that ran outsider-started

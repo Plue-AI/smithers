@@ -585,19 +585,45 @@ func (g mythicalGit) changedPaths(ctx context.Context, base, head string) ([]str
 	return paths, nil
 }
 
-// protectedPaths reads the protected-path list from commit's factory
-// projection; a commit without one protects the built-in trust roots.
+// protectedPaths reads the protected-path list on commit (protectedPathsAt).
 func (g mythicalGit) protectedPaths(ctx context.Context, commit string) ([]string, error) {
-	listed, err := g.command(ctx, nil, "ls-tree", "-z", "--name-only", commit, "--", factoryProjectionPath)
+	listed, err := g.command(ctx, nil, "ls-tree", "-r", "-z", commit)
 	if err != nil {
 		return nil, err
 	}
-	if len(bytes.TrimRight(listed, "\x00")) == 0 {
-		return protectedPaths(nil)
+	tree := mythicalRevisionTree{g: g, commit: commit, blobs: map[string]bool{}}
+	for _, entry := range strings.Split(string(listed), "\x00") {
+		// "<mode> <type> <object>\t<path>"; only regular files are read.
+		meta, file, ok := strings.Cut(entry, "\t")
+		if ok && strings.Contains(meta, " blob ") && !strings.HasPrefix(meta, "120000 ") {
+			tree.blobs[file] = true
+		}
 	}
-	projection, err := g.command(ctx, nil, "cat-file", "blob", commit+":"+factoryProjectionPath)
-	if err != nil {
-		return nil, err
+	return protectedPathsAt(ctx, tree)
+}
+
+// mythicalRevisionTree reads one commit of the scratch repository.
+type mythicalRevisionTree struct {
+	g      mythicalGit
+	commit string
+	blobs  map[string]bool
+}
+
+func (t mythicalRevisionTree) read(ctx context.Context, file string) ([]byte, bool, error) {
+	if !t.blobs[file] {
+		return nil, false, nil
 	}
-	return protectedPaths(projection)
+	content, err := t.g.command(ctx, nil, "cat-file", "blob", t.commit+":"+file)
+	return content, err == nil, err
+}
+
+func (t mythicalRevisionTree) files(_ context.Context, dir string) ([]string, error) {
+	var files []string
+	for file := range t.blobs {
+		if strings.HasPrefix(file, dir+"/") {
+			files = append(files, file)
+		}
+	}
+	sort.Strings(files)
+	return files, nil
 }

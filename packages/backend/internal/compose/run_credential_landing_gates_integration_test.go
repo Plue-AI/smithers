@@ -43,6 +43,10 @@ func (h gateTestRepoHost) GetFileAtChange(context.Context, string, string, strin
 	return repohost.FileContent{}, &repohost.StatusError{StatusCode: http.StatusNotFound}
 }
 
+func (h gateTestRepoHost) ListDirectory(context.Context, string, string, string, string, string, int) ([]repohost.TreeEntry, error) {
+	return nil, &repohost.StatusError{StatusCode: http.StatusNotFound}
+}
+
 func (h gateTestRepoHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
 	return []repohost.Bookmark{{Name: "main", TargetChangeID: "mainchangezzzzzz"}}, "", nil
 }

@@ -380,6 +380,7 @@ func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
 		"workflow":   {[]string{"src/a.ts", ".github/workflows/extra.yml"}, ".github/workflows/extra.yml"},
 		"agents":     {[]string{"apps/app/AGENTS.md"}, "apps/app/AGENTS.md"},
 		"configured": {[]string{"infra/keys/prod.pem"}, "infra/keys/prod.pem"},
+		"action":     {[]string{"src/a.ts", "tools/inner/util.js"}, "tools/inner/util.js"},
 		"ordinary":   {[]string{"src/a.ts"}, ""},
 		"unstacked":  {[]string{"src/a.ts"}, "unstacked"},
 	} {
@@ -401,8 +402,36 @@ func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
 			}
 			rh.getFileAtChangeFn = func(_ context.Context, _, _, revision, path string) (repohost.FileContent, error) {
 				require.Equal(t, "main-tip", revision, "the list comes from the target, never the landing")
-				require.Equal(t, factoryProjectionPath, path)
-				return repohost.FileContent{Content: `{"github":{"protectedPaths":["infra/keys"]}}`}, nil
+				if path == factoryProjectionPath {
+					return repohost.FileContent{Content: `{"github":{"protectedPaths":["infra/keys"]}}`}, nil
+				}
+				if content, ok := workflowTrustFixture[path]; ok {
+					return repohost.FileContent{Content: content}, nil
+				}
+				return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
+			}
+			rh.listDirectoryFn = func(_ context.Context, _, _, revision, prefix, _ string, _ int) ([]repohost.TreeEntry, error) {
+				require.Equal(t, "main-tip", revision)
+				var entries []repohost.TreeEntry
+				seen := map[string]bool{}
+				for file := range workflowTrustFixture {
+					if !strings.HasPrefix(file, prefix+"/") {
+						continue
+					}
+					child, rest, nested := strings.Cut(strings.TrimPrefix(file, prefix+"/"), "/")
+					entry := repohost.TreeEntry{Path: prefix + "/" + child, Kind: "file"}
+					if nested && rest != "" {
+						entry.Kind = "dir"
+					}
+					if !seen[entry.Path] {
+						seen[entry.Path] = true
+						entries = append(entries, entry)
+					}
+				}
+				if len(entries) == 0 {
+					return nil, &repohost.StatusError{StatusCode: 404}
+				}
+				return entries, nil
 			}
 			if tc.refused == "unstacked" {
 				parents["kxyz"] = "elsewhere"

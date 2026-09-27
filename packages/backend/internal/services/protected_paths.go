@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -54,13 +55,43 @@ func protectedPaths(projection []byte) ([]string, error) {
 	return entries, nil
 }
 
+// revisionTree reads one revision of a repository.
+type revisionTree interface {
+	// read returns a file's content; found is false when it does not exist.
+	read(ctx context.Context, path string) (content []byte, found bool, err error)
+	// files lists every file under dir, at any depth; none when dir is absent.
+	files(ctx context.Context, dir string) ([]string, error)
+}
+
+// protectedPathsAt is the protected-path list on one revision: the built-in
+// trust roots, the entries its factory projection declares, and every path
+// its workflows execute with elevated trust (workflowTrustPaths).
+func protectedPathsAt(ctx context.Context, tree revisionTree) ([]string, error) {
+	projection, _, err := tree.read(ctx, factoryProjectionPath)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := protectedPaths(projection)
+	if err != nil {
+		return nil, err
+	}
+	derived, err := workflowTrustPaths(ctx, tree)
+	if err != nil {
+		return nil, err
+	}
+	return append(entries, derived...), nil
+}
+
 // protectedPathMatches reports whether path is protected by entry: an entry
-// without "/" names a file or directory at any depth; an entry with "/" is a
-// root-relative path and everything under it. Matching is case-insensitive,
-// as on the case-insensitive checkouts a change also reaches.
+// without "/" names a file or directory at any depth; an entry with "/"
+// (a leading "/" marks a root-level one) is a root-relative path and
+// everything under it. Matching is case-insensitive, as on the
+// case-insensitive checkouts a change also reaches.
 func protectedPathMatches(path, entry string) bool {
 	path, entry = strings.ToLower(strings.Trim(path, "/")), strings.ToLower(entry)
-	if !strings.Contains(entry, "/") {
+	rooted := strings.Contains(entry, "/")
+	entry = strings.Trim(entry, "/")
+	if !rooted {
 		for _, segment := range strings.Split(path, "/") {
 			if segment == entry {
 				return true

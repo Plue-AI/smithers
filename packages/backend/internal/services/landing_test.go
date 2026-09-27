@@ -628,6 +628,7 @@ type mockLandingRepoHostClient struct {
 	getChangeDiffFn      func(ctx context.Context, owner, repo, changeID string) (repohost.ChangeDiff, error)
 	getRevisionDiffFn    func(ctx context.Context, owner, repo, changeID, fromCommitID, toCommitID, path string) (repohost.ChangeDiff, error)
 	getFileAtChangeFn    func(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
+	listDirectoryFn      func(ctx context.Context, owner, repo, changeID, prefix, after string, limit int) ([]repohost.TreeEntry, error)
 	lastLandOwner        string
 	lastLandRepo         string
 	lastLandRequest      repohost.LandRequest
@@ -693,6 +694,13 @@ func (m *mockLandingRepoHostClient) GetFileAtChange(ctx context.Context, owner, 
 		return m.getFileAtChangeFn(ctx, owner, repo, changeID, path)
 	}
 	return repohost.FileContent{Path: path}, nil
+}
+
+func (m *mockLandingRepoHostClient) ListDirectory(ctx context.Context, owner, repo, changeID, prefix, after string, limit int) ([]repohost.TreeEntry, error) {
+	if m.listDirectoryFn != nil {
+		return m.listDirectoryFn(ctx, owner, repo, changeID, prefix, after, limit)
+	}
+	return nil, &repohost.StatusError{StatusCode: 404}
 }
 
 type mockLandingCreateTxManager struct {

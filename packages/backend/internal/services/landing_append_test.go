@@ -145,6 +145,9 @@ func (h *appendWorkerHost) GetChangeFiles(context.Context, string, string, strin
 func (*appendWorkerHost) GetFileAtChange(context.Context, string, string, string, string) (repohost.FileContent, error) {
 	return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
 }
+func (*appendWorkerHost) ListDirectory(context.Context, string, string, string, string, string, int) ([]repohost.TreeEntry, error) {
+	return nil, &repohost.StatusError{StatusCode: 404}
+}
 func (*appendWorkerHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {
 	return []repohost.Bookmark{{Name: "main", TargetChangeID: "main-change"}}, "", nil
 }
