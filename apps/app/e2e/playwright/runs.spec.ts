@@ -188,7 +188,7 @@ test("T1: approval counts settle with receipts and decided questions survive rel
     submitApproval: async () => ++submissions === 1 ? held : true,
   })
   try {
-    await page.goto("/")
+    await page.goto(`/${REPO}`)
     await finishGuide(page)
     await send(page, `/approvals.list ${REPO}`)
     const card = page.locator('[data-kind="approvals-inbox"]')

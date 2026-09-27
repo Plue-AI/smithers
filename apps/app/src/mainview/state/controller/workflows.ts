@@ -1060,7 +1060,7 @@ export const createWorkflowController = (
       if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
       if (answer.status !== "ok" || answer.value.decision._tag === "Terminal") {
         const observed = await gateway.approvals(repo, normalized.scope.runId, binding)
-        if (ctx.disposed) return
+        if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
         if (observed.status === "ok") await reconcileRunApprovals(store, normalized.scope, observed.value)
       }
       if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
@@ -1141,7 +1141,7 @@ export const createWorkflowController = (
       if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
       if (answer.status !== "ok" || answer.value.decision._tag === "Terminal") {
         const observed = await gateway.approvals(normalized.scope.repo, normalized.scope.runId, binding)
-        if (ctx.disposed) return
+        if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
         if (observed.status === "ok") await reconcileRunApprovals(store, normalized.scope, observed.value)
       }
       if (ctx.disposed || store.collections.runtimeApprovals.get(normalized.id)?.submissionId !== submissionId) return
