@@ -827,8 +827,8 @@ describe("completion", () => {
     const { tui } = await start()
     await tui.type("/")
     await tui.until((screen) => screen.includes("/hotkeys") || screen.includes("/model"), 5_000, "command menu")
-    await tui.type("se")
-    await tui.until((screen) => /\/session\s+Show the session file/.test(screen), 5_000, "filtered menu")
+    await tui.type("conv")
+    await tui.until((screen) => /\/conversation\s+Show the conversation file/.test(screen), 5_000, "filtered menu")
     await tui.press(key.enter)
     await tui.until((screen) => /exchanges · ↑0/.test(screen), 5_000, "session note")
   }, 60_000)
@@ -1545,7 +1545,7 @@ describe("runtime views", () => {
     await tui.type("/new")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Stop running work first"), 5_000, "refused")
-    expect(tui.screen()).not.toContain("New session started")
+    expect(tui.screen()).not.toContain("New conversation started")
     expect(readdirSync(sessions, { withFileTypes: true }).filter((entry) => entry.isDirectory())).toHaveLength(1)
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
     writeFileSync(gate, "")
@@ -1899,7 +1899,7 @@ describe("flows", () => {
       5_000,
       "new session"
     )
-    expect(screen).toContain("New session started")
+    expect(screen).toContain("New conversation started")
   }, 60_000)
 
   it("/smithers opens a Smithers tab that closes once the user moves on", async () => {
