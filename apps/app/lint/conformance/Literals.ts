@@ -443,10 +443,9 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
   const claimed = kindClaimNodes(parsed)
   // These imported helper positions declare test metadata, not product IDs.
-  // Resolve the import path, so an unrelated function named scenario/name does
+  // Resolve the import path, so an unrelated function with the same name does
   // not gain an exemption. Explicit selectors and flow calls still get checked.
   const scenarios = new Set<string>()
-  const repositories = new Set<string>()
   const fixtureComments = new Set<string>()
   const fixtureRepositories = new Set<string>()
   const fixtureAttachments = new Set<string>()
@@ -461,7 +460,6 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
     for (const binding of bindings.elements) {
       const name = binding.propertyName?.text ?? binding.name.text
       if (name === "scenario" && module.endsWith("/e2e/real/coverage/types")) scenarios.add(binding.name.text)
-      if (name === "createOwnedLocalRepo" && /\/e2e\/real\/support(?:\/(?:test|index))?$/.test(module)) repositories.add(binding.name.text)
       if (module.endsWith("/e2e/real/support/values")) {
         if (name === "fixtureCommentBody") fixtureComments.add(binding.name.text)
         if (name === "fixtureRepositoryName") fixtureRepositories.add(binding.name.text)
@@ -598,10 +596,6 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
         role === "attachment-name" && ts.isCallExpression(placement) && placement.arguments[1] === parent && importedCall(placement, attachmentSinks)
       )) return role
     }
-    if (!ts.isPropertyAssignment(parent) || parent.initializer !== node || nameTextOf(parent.name)[0] !== "name") return
-    const object = parent.parent
-    const call = object.parent
-    if (ts.isObjectLiteralExpression(object) && ts.isCallExpression(call) && call.arguments[0] === object && importedCall(call, repositories)) return "repository-name"
   }
   const found: Array<ExtractedLiteral> = []
   const record = (node: ts.Node, value: string, form: ExtractedLiteral["form"], context: ts.Node) => {

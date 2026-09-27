@@ -463,11 +463,11 @@ test("composed form test ids require both live prefixes and a registered flow", 
   }
 })
 
-test("real scenario IDs and owned repository names do not excuse product assertions", () => {
+test("real scenario IDs do not excuse product assertions", () => {
   const check = (source: string) => extractLiterals("/app/e2e/real/probe.spec.ts", source)
     .flatMap(literal => [...violationsOf(literal, vocabularies)])
-  const imports = 'import { scenario as evidence } from "./coverage/types"; import { createOwnedLocalRepo as owned } from "./support/test";'
-  expect(check(imports + 'evidence("workflow.create", { coverage: [] }); owned({name: `flow-fixture-${nonce}`});')).toEqual([])
+  const imports = 'import { scenario as evidence } from "./coverage/types";'
+  expect(check(imports + 'evidence("workflow.create", { coverage: [] });')).toEqual([])
   for (const statement of [
     'runCommand("workflow.create")',
     'page.locator("[data-flow=\\\"workflow.create\\\"]")',
@@ -478,7 +478,6 @@ test("real scenario IDs and owned repository names do not excuse product asserti
   expect(check('import { scenario } from "./unrelated"; scenario("workflow.create", {})').length).toBeGreaterThan(0)
   expect(check('import { scenario } from "./coverage/types"; scenario("case", { flow: "workflow.create" })').length).toBeGreaterThan(0)
   expect(check(imports + 'function nested(evidence) { evidence("workflow.create", {}) }').length).toBeGreaterThan(0)
-  expect(check(imports + 'function nested(owned) { owned({name: `flow-fixture-${nonce}`}) }').length).toBeGreaterThan(0)
   expect(check(imports + 'function nested() { function evidence() {} evidence("workflow.create", {}) }').length).toBeGreaterThan(0)
   expect(check(imports + 'try {} catch(evidence) { evidence("workflow.create", {}) }').length).toBeGreaterThan(0)
 })
