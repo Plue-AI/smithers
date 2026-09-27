@@ -77,8 +77,10 @@ const selectWorkspace = (login: string, record: SetupRecord) => Effect.gen(funct
 
 /** Credentials stay in the existing gateway relay; the fixed caller chooses the procedure. */
 const rpc = (login: string, record: SetupRecord, procedure: string, payload: unknown) => Effect.gen(function* () {
+  const workspaceId = record.binding?.workspaceId ?? record.workspaceId
+  if (workspaceId === undefined) return yield* Effect.fail(failure("The setup has no box to run on"))
   const outcome = yield* callGateway(login, record.input.repo, GATEWAY_PROCEDURE_MOUNTS[procedure]!, {
-    method: "POST", workspaceId: record.binding?.workspaceId ?? record.input.workspaceId, text: encodeGatewayRequest(procedure, payload),
+    method: "POST", workspaceId, text: encodeGatewayRequest(procedure, payload),
     requiredCapability: "repository-jobs/v1",
     // A later durable retry retains the persisted key; this relay never
     // repeats a consequential Run within one attempt after losing its answer.
@@ -126,7 +128,7 @@ const executeRepositorySetup = (login: string, requestId: string, observeOnly: b
       if (record.observationError) yield* requests.update(login, record, { ...record, observationError: undefined })
       return
     }
-    const gateway = yield* ensureGateway(login, record.input.repo, false, record.workspaceId, "repository-jobs/v1")
+    const gateway = yield* ensureGateway(login, record.input.repo, false, workspace.id, "repository-jobs/v1")
     if (gateway.status === "provisioning") {
       if (record.observationError) yield* requests.update(login, record, { ...record, observationError: undefined })
       return

@@ -405,8 +405,9 @@ incoming user's authority to use a workspace.
 
 Product clients use `/api/workflow/provision` and `/api/workflow/rpc`. These
 require a validated, allowlisted session, obtain the user's Cloud identity,
-resolve gateway records by that login and repository, and apply the relay's
-procedure/path allowlist. Gateway tokens remain server-side in
+resolve gateway records by that login, repository and box, and apply the relay's
+procedure/path allowlist. Every call names a box (`workspaceId`); a body without one is refused
+`request_invalid`. Gateway tokens remain server-side in
 `GATEWAY_SESSIONS`; client-supplied identity headers cannot select another user.
 Keep the identity and per-user Cloud gateway configuration described in
 `src/workerIdentity.ts`. Clients needing the gateway's native RPC/WebSocket

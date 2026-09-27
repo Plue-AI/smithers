@@ -14,9 +14,7 @@ import { discardBody, readBoundedText } from "./Http"
 import type { Transport } from "./Http"
 import { validateSession } from "./identity"
 import type { ValidatedIdentity } from "./identity"
-import { logSeamFailure } from "./RefusalLog"
 import { json, notConfigured, readBody, refuse } from "./Responses"
-import { LIST_TRIGGERS_PAYLOAD, noLiveTriggers, workflowTriggersFromFrame } from "./workflowTriggers"
 
 /*
  * Wave 11 — "make me a workflow": the per-user gateway seam, live.
@@ -145,9 +143,10 @@ export const handleWorkflowProvision = (request: Request): Effect.Effect<Respons
     if (repo === undefined) {
       return refuse("request_invalid", "Body must be { repo } as owner/repo.")
     }
+    // Every flow runs on a box; there is no repository-level gateway (#2194).
     const workspaceId = (body as { workspaceId?: unknown }).workspaceId
-    if (workspaceId !== undefined && !isGatewayWorkspaceId(workspaceId)) {
-      return refuse("request_invalid", "workspaceId must be a canonical workspace UUID.")
+    if (!isGatewayWorkspaceId(workspaceId)) {
+      return refuse("request_invalid", "Body must name a box: workspaceId.")
     }
     const outcome = yield* ensureGatewayReady(session.login, repo, workspaceId)
     switch (outcome.status) {
@@ -158,7 +157,7 @@ export const handleWorkflowProvision = (request: Request): Effect.Effect<Respons
           status: "ready",
           repo,
           gatewayId: outcome.record.gatewayId,
-          ...(outcome.record.workspaceId === undefined ? {} : { workspaceId: outcome.record.workspaceId }),
+          workspaceId: outcome.record.workspaceId,
           expiresAt: new Date(outcome.record.expiresAt).toISOString()
         })
       case "plan_limit_exceeded":
@@ -208,8 +207,8 @@ export const relayCall = (body: unknown) => {
     return refuse("request_invalid", "Body must be { repo, procedure, payload? }.")
   }
   const workspaceId = candidate?.workspaceId
-  if (workspaceId !== undefined && !isGatewayWorkspaceId(workspaceId)) {
-    return refuse("request_invalid", "workspaceId must be a canonical workspace UUID.")
+  if (!isGatewayWorkspaceId(workspaceId)) {
+    return refuse("request_invalid", "Body must name a box: workspaceId.")
   }
   const mount = Object.hasOwn(GATEWAY_PROCEDURE_MOUNTS, procedure) ? GATEWAY_PROCEDURE_MOUNTS[procedure] : undefined
   if (mount === undefined) {
@@ -249,48 +248,10 @@ export const handleWorkflowRpc = (request: Request): Effect.Effect<Response, nev
     if (selected instanceof Response) return selected
     const call = yield* callGateway(session.login, selected.repo, selected.mount, {
       method: "POST",
-      ...(selected.workspaceId === undefined ? {} : { workspaceId: selected.workspaceId }),
+      workspaceId: selected.workspaceId,
       text: selected.text,
       replayable: selected.replayable
     })
     if (call.status !== "ok") return gatewayCallResponse(call)
     return yield* relayGatewayResponse(call.response)
-  })
-
-/**
- * The live dispatchers of one repository (workflowTriggers.ts). The declared
- * rules ride the public contents route, so this route is only the box's
- * answer: a signed-in, allowlisted session that already holds a live box gets
- * that box's `List { _tag: "triggers" }` page; everyone and everything else
- * gets `live: false` with empty lists, as a 200. The relay runs with
- * `provision: false`, so a read never provisions a box, never re-mints a
- * Cloud token, and never resumes a suspended VM: no record, a record past its
- * half-life, a 401, or a tunnel failure are all just `live: false`. The
- * repository is validated before any session is checked, so a malformed name
- * is a 400 for every caller.
- */
-export const handleWorkflowTriggers = (request: Request, url: URL): Effect.Effect<Response, never, WorkflowServices> =>
-  Effect.gen(function* () {
-    const repo = parseWorkflowRepo(url.searchParams.get("repo") ?? undefined)
-    if (repo === undefined) {
-      return refuse("request_invalid", "Query must name the repository as ?repo=owner/repo.")
-    }
-    const session = yield* requireWorkflowSession(request)
-    if (session instanceof Response) return json(200, noLiveTriggers(repo))
-    const call = yield* callGateway(session.login, repo, GATEWAY_PROCEDURE_MOUNTS.List ?? "/rpc", {
-      method: "POST",
-      text: encodeGatewayRequest("List", LIST_TRIGGERS_PAYLOAD),
-      provision: false
-    })
-    if (call.status !== "ok" || call.response.status !== 200) {
-      if (call.status === "ok") yield* discardBody(call.response)
-      return json(200, noLiveTriggers(repo))
-    }
-    const read = yield* Effect.result(readBoundedText(call.response, GATEWAY_ANSWER_MAX_BYTES))
-    if (Result.isFailure(read)) {
-      // The route's answer is live:false either way; the log keeps why.
-      yield* Effect.sync(() => logSeamFailure("workspace triggers", read.failure))
-      return json(200, noLiveTriggers(repo))
-    }
-    return json(200, workflowTriggersFromFrame(repo, decodeGatewayResponse(read.success)))
   })

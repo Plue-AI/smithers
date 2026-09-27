@@ -9,6 +9,7 @@ const SETTINGS = {
   SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test"
 }
 const durable = memoryDurableObjects({ env: SETTINGS })
+const BOX = "83e75ae5-0920-4000-8000-00000000000b"
 
 afterEach(() => durable.reset())
 
@@ -20,6 +21,7 @@ describe("supported per-user workflow relay", () => {
         for (const login of ["alice", "bob"]) {
           await durable.seedGatewayRecord(login, "org/repo", {
             gatewayId: `gateway-${login}`,
+            workspaceId: BOX,
             baseUrl: `https://cloud.test/api/gateways/gateway-${login}`,
             token: `synthetic-${login}-token`,
             vmId: null,
@@ -61,7 +63,7 @@ describe("supported per-user workflow relay", () => {
             new Request(`https://app.test${path}`, {
               method: "POST",
               headers,
-              body: JSON.stringify({ repo: "org/repo", procedure: "List", payload: {}, login: forgedLogin })
+              body: JSON.stringify({ repo: "org/repo", workspaceId: BOX, procedure: "List", payload: {}, login: forgedLogin })
             }),
             { ...SETTINGS, GATEWAY_SESSIONS: durable.GATEWAY_SESSIONS, TURN_CANCELS: durable.TURN_CANCELS }
           )

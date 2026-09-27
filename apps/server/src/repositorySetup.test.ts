@@ -1085,7 +1085,7 @@ test("reconnecting a run-less setup states whether its workspace is gone or stil
 /*
  * Canary walk run 3, step B3-10: a reload while a trial ran left the card on
  * "No live workspace holds an answer for this read." with a Reconnect control.
- * The recovered watch reads through the read-only relay, and that relay record
+ * The recovered watch reads through the relay, and that relay record
  * had passed its renewal half-life while the run continued.
  */
 test("a reload mid-run reads its recorded run through a renewed relay instead of asking the person to reconnect", async () => {

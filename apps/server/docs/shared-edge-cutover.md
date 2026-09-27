@@ -46,7 +46,7 @@ exported, changed, drained or reconciled by this candidate.
 | --- | --- | --- |
 | AccountModelVault | `model-vault:v1`, login, immutable provider origins, encrypted entries, receipts | Encrypted export; verified identity mapping; import through canonical owner-model store and codec; compare provider pins/receipts/defaults |
 | TurnCancelRegistry | `state`; `turn-journal:v1:head`; `turn-journal:v1:batch:<sequence>`; seven-day expiry alarm | Drain producers; export all remaining heads/batches/tombstones; validate hash chains and owner scope; import eligible history and erasures before changing access |
-| GatewaySessionRegistry | `gateway:<repo>[NULworkspace]`; `repository-setup:request:<id>`; `repository-setup:current:<repo>:<job>`; `repository-setup:pending` | Drain setup requests and gateway activity; preserve receipts and pointers; renew canonical authority rather than copying legacy bearer tokens |
+| GatewaySessionRegistry | `gateway:<repo>NUL<workspace>` (a box-less `gateway:<repo>` row is ignored); `repository-setup:request:<id>`; `repository-setup:current:<repo>:<job>`; `repository-setup:pending` | Drain setup requests and gateway activity; preserve receipts and pointers; renew canonical authority rather than copying legacy bearer tokens |
 | IdentityDurableObject | `account:<id>`, `loginid:<login>`, `ghtoken:id:<id>`, `cloudtoken:id:<id>`, allow/deny and repository state | Export sealed; join verified numeric GitHub id to canonical OAuth account; preserve supported account settings and GitHub token state; legacy session cookies/PATs are not canonical sessions |
 | AccountDurableObject + BILLING KV + metering queue | balances, grants, reservations, settlement identities; exact inventory pending | Drain queue, reconcile reservations and ledger, prove no missing or duplicate usage; no payment writes or balance resets during preparation |
 | Recommendation/client-error logs | recommendation ring sequence and rows; `reports` | Sealed archive and agreed canonical retention/import; do not silently discard |
@@ -142,8 +142,7 @@ or history was removed while preparing this change.
 | Chat/model/recommendations | Existing canonical `/api/agent/turn*`, `/api/model/*`, `/api/recommend*`; live shared build must actually serve them |
 | GitHub installation return | Client reads authenticated `/api/user/github-repos` pages and `/api/user/github-access/<owner>/<repo>?surface=issues`; callback installation ID filters verified inventory only |
 | Generic schedules | Direct repository-jobs listing, `flow:<slug>/pause`, `flow:<slug>/approvals`; snake_case canonical DTOs and approval identity checks |
-| Live runtime triggers | Canonical RPC `List {_tag:'triggers'}` with no workspace or host provisioning on read; unsupported/missing host remains unavailable, not an empty successful state |
-| Workflow RPC | `internal/compose/browser_flow.go` allows Plan, Run, Cancel, Resume, Steer, Signal, List, Projection.Snapshot, Approval.Submit through `flowdispatch.Service`; existing read resolver must never start/rebind a host |
+| Workflow RPC | Every call names a box (`workspaceId`); `internal/compose/browser_flow.go` allows Plan, Run, Cancel, Resume, Steer, Signal, List, Projection.Snapshot, Approval.Submit through `flowdispatch.Service`; existing read resolver must never start/rebind a host |
 | Repository setup | Real required flow; not a stale client. Needs canonical durable admission/result projection and authorized coding catalog selection described below |
 | `/api/jev` | Legacy Worker feature; locate any remaining selected-client consumer before claiming full contract coverage; not implemented by an edge shim |
 
@@ -178,9 +177,8 @@ product adapter can validate SetupHostInput, admit `repository/setup` with
 the authorized coding catalog and repository/workspace target, and project
 existing durable receipts into SetupOperationResponse. Persist the repo/job
 pointer and admission in one transaction. Planning/approval/start/result
-reconciliation stays in the existing Flow dispatch worker. Browser RPC's
-current target is always the librarian catalog, which cannot run the setup
-registrar. Choose coding from the authorized operation and capability, never
+reconciliation stays in the existing Flow dispatch worker. Browser RPC
+always targets the box the call names. Choose coding from the authorized operation and capability, never
 from an unrestricted caller-supplied catalog. This backend work and its
 unresolved-launch/reload/duplicate/failure regressions are cutover gates.
 

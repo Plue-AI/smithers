@@ -4479,6 +4479,8 @@ describe("generation-scoped turn lifecycle", () => {
 describe("wave 11 — the /api/workflow/* routes", () => {
   const GATEWAY_TOKEN = "smithers_gateway_secret-operator-token"
   const CLOUD_TOKEN = "smithers_pat_cloud-identity"
+  /** Every flow call names a box (#2194). */
+  const BOX = "83e75ae5-0920-4000-8000-00000000000c"
 
   const BASE_ENV = {
     ASSETS: { fetch: async () => new Response("<html></html>", { status: 200 }) },
@@ -4561,7 +4563,8 @@ describe("wave 11 — the /api/workflow/* routes", () => {
               expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
               gateway_id: "gw-1",
               vm_id: "msb_1",
-              status: "running"
+              status: "running",
+              workspace_id: (call.body as { workspace_id?: string } | undefined)?.workspace_id
             })
         )
       }
@@ -4597,7 +4600,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       const response = await worker.fetch(
         signedIn("/api/workflow/provision", {
           method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo" })
+          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX })
         }),
         env()
       )
@@ -4625,7 +4628,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
     await withRelay({ gateway: () => (serving ? undefined : json(502, { error: "bad gateway" })) }, async (calls) => {
       const ask = () =>
         worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo" }) }),
+          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX }) }),
           env()
         )
       expect(await (await ask()).json()).toMatchObject({ status: "ready", gatewayId: "gw-1" })
@@ -4657,7 +4660,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
         const response = await worker.fetch(
           signedIn("/api/workflow/rpc", {
             method: "POST",
-            body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", procedure: "Run", payload: {} })
+            body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX, procedure: "Run", payload: {} })
           }),
           env()
         )
@@ -4677,7 +4680,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       const response = await worker.fetch(
         signedIn("/api/workflow/rpc", {
           method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", procedure: "List", payload: { _tag: "runs" } })
+          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
         }),
         env()
       )
@@ -4702,7 +4705,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       const response = await worker.fetch(
         signedIn("/api/workflow/rpc", {
           method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", procedure: "List", payload: { _tag: "runs" } })
+          body: JSON.stringify({ repo: "codeplanesmithers/smithers-demo", workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
         }),
         env()
       )
@@ -4727,7 +4730,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
         new Request("https://mvp.test/api/workflow/provision", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ repo: "will/mvp" })
+          body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX })
         }),
         env()
       )
@@ -4743,7 +4746,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       for (const procedure of ["RunShell", "constructor", "toString", "__proto__", "hasOwnProperty"]) {
         const refused = await worker.fetch(
           signedIn("/api/workflow/rpc", {
-            method: "POST", body: JSON.stringify({ repo: "will/mvp", procedure, payload: {} })
+            method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX, procedure, payload: {} })
           }), env()
         )
         expect(refused.status).toBe(400)
@@ -4752,7 +4755,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
 
       // A call that names no procedure at all is refused the same way.
       const unnamed = await worker.fetch(
-        signedIn("/api/workflow/rpc", { method: "POST", body: JSON.stringify({ repo: "will/mvp" }) }),
+        signedIn("/api/workflow/rpc", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
         env()
       )
       expect(unnamed.status).toBe(400)
@@ -4778,7 +4781,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
         const response = await worker.fetch(
           signedIn("/api/workflow/rpc", {
             method: "POST",
-            body: JSON.stringify({ repo, procedure: "List", payload: { _tag: "runs" } })
+            body: JSON.stringify({ repo, workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
           }),
           env()
         )
@@ -4801,13 +4804,13 @@ describe("wave 11 — the /api/workflow/* routes", () => {
         const rpc = await worker.fetch(
           signedIn("/api/workflow/rpc", {
             method: "POST",
-            body: JSON.stringify({ repo, procedure: "List", payload: { _tag: "runs" } })
+            body: JSON.stringify({ repo, workspaceId: BOX, procedure: "List", payload: { _tag: "runs" } })
           }),
           env()
         )
         expect(rpc.status).toBe(400)
         const provision = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo }) }),
+          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo, workspaceId: BOX }) }),
           env()
         )
         expect(provision.status).toBe(400)
@@ -4839,6 +4842,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
             method: "POST",
             body: JSON.stringify({
               repo: "will/mvp",
+              workspaceId: BOX,
               procedure: "Projection.Snapshot",
               payload: { selector: { _tag: "run-summary", runId: "run-9" } }
             })
@@ -4883,6 +4887,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
             method: "POST",
             body: JSON.stringify({
               repo: "will/mvp",
+              workspaceId: BOX,
               procedure: "Approval.Submit",
               payload: { decision: "approve" }
             })
@@ -4908,7 +4913,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
         const response = await worker.fetch(
           signedIn("/api/workflow/provision", {
             method: "POST",
-            body: JSON.stringify({ repo: "will/mvp" })
+            body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX })
           }),
           env()
         )
@@ -4929,7 +4934,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       { provision: () => json(503, { code: "no_capacity", fault: "infra", message: "no sandbox slots are free" }) },
       async (calls) => {
         const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp" }) }),
+          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
           env()
         )
         expect(response.status).toBe(200)
@@ -4945,7 +4950,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
     const refusal = { code: "plan_limit_exceeded", fault: "user", message: "Upgrade or suspend one sandbox.", plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro" }
     await withRelay({ provision: () => json(402, refusal) }, async () => {
       const response = await worker.fetch(
-        signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp" }) }), env()
+        signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }), env()
       )
       expect(response.status).toBe(402)
       expect(await response.json()).toEqual(refusal)
@@ -4957,7 +4962,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       { provision: () => json(429, { code: "quota_exceeded", message: "concurrent sandboxes limit reached" }) },
       async () => {
         const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp" }) }),
+          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
           env()
         )
         expect(response.status).toBe(200)
@@ -4973,7 +4978,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       { provision: () => json(404, { error: "not_found" }) },
       async () => {
         const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp" }) }),
+          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
           env()
         )
         expect(response.status).toBe(200)
@@ -5007,7 +5012,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       const response = await worker.fetch(
         signedIn("/api/workflow/provision", {
           method: "POST",
-          body: JSON.stringify({ repo: "codeplanesmithers/canary-sandbox" })
+          body: JSON.stringify({ repo: "codeplanesmithers/canary-sandbox", workspaceId: BOX })
         }),
         env({ UPSTREAM_TIMEOUT_MS: "150" })
       )
@@ -5026,19 +5031,19 @@ describe("wave 11 — the /api/workflow/* routes", () => {
     const second = "83e75ae5-0920-4000-8000-000000000002"
     const repo = "codeplanesmithers/smithers-demo"
     const provision = (call: RelayCall): Response => {
-      const workspaceId = (call.body as { workspace_id?: string } | undefined)?.workspace_id
+      const workspaceId = (call.body as { workspace_id: string }).workspace_id
       return json(200, {
-        base_url: `https://api.smithers-cloud.test/api/gateways/${workspaceId ?? "legacy"}`,
+        base_url: `https://api.smithers-cloud.test/api/gateways/${workspaceId}`,
         token: GATEWAY_TOKEN,
         expires_at: new Date(Date.now() + 3_600_000).toISOString(),
-        gateway_id: workspaceId ?? "legacy",
-        ...(workspaceId === undefined ? {} : { workspace_id: workspaceId })
+        gateway_id: workspaceId,
+        workspace_id: workspaceId
       })
     }
 
-    test("partitions legacy and two owning workspaces without exposing their credentials", async () => {
+    test("partitions two owning workspaces without exposing their credentials", async () => {
       await withRelay({ provision }, async (calls) => {
-        for (const workspaceId of [undefined, first, second, first, undefined]) {
+        for (const workspaceId of [first, second, first]) {
           const response = await worker.fetch(signedIn("/api/workflow/provision", {
             method: "POST", body: JSON.stringify({ repo, workspaceId })
           }), env())
@@ -5046,11 +5051,11 @@ describe("wave 11 — the /api/workflow/* routes", () => {
           const result = await response.json() as Record<string, unknown>
           expect(result.status).toBe("ready")
           expect(result.workspaceId).toBe(workspaceId)
-          expect(result.gatewayId).toBe(workspaceId ?? "legacy")
+          expect(result.gatewayId).toBe(workspaceId)
           expect(JSON.stringify(result)).not.toContain(GATEWAY_TOKEN)
         }
         const provisions = calls.filter((call) => call.url.endsWith("/gateway"))
-        expect(provisions.map((call) => call.body)).toEqual([undefined, { workspace_id: first }, { workspace_id: second }])
+        expect(provisions.map((call) => call.body)).toEqual([{ workspace_id: first }, { workspace_id: second }])
         const response = await worker.fetch(signedIn("/api/workflow/rpc", {
           method: "POST", body: JSON.stringify({ repo, workspaceId: first, procedure: "List", payload: { _tag: "flows" } })
         }), env())
@@ -5092,6 +5097,20 @@ describe("wave 11 — the /api/workflow/* routes", () => {
       )
     })
 
+    test("provision and rpc without a box answer 400 request_invalid before any upstream call", async () => {
+      await withRelay({ provision }, async (calls) => {
+        for (const [path, body] of [
+          ["/api/workflow/provision", { repo }],
+          ["/api/workflow/rpc", { repo, procedure: "List", payload: { _tag: "flows" } }]
+        ] as const) {
+          const response = await worker.fetch(signedIn(path, { method: "POST", body: JSON.stringify(body) }), env())
+          expect(response.status).toBe(400)
+          expect(await response.json()).toEqual({ status: "error", code: "request_invalid", message: "Body must name a box: workspaceId." })
+        }
+        expect(calls.map((call) => new URL(call.url).pathname)).toEqual(["/api/identity/validate", "/api/identity/validate"])
+      })
+    })
+
     test("rejects malformed bindings before provisioning", async () => {
       await withRelay({}, async (calls) => {
         for (const workspaceId of ["../other", first.toUpperCase(), "00000000-0000-0000-0000-000000000000", null]) {
@@ -5127,7 +5146,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
     test("the provision route answers 502 upstream_refused, never a bare outcome", async () => {
       await withRelay({}, async (calls) => {
         const response = await worker.fetch(
-          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp" }) }),
+          signedIn("/api/workflow/provision", { method: "POST", body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX }) }),
           env({ GATEWAY_SESSIONS: newerScript() })
         )
         expect(response.status).toBe(502)
@@ -5141,7 +5160,7 @@ describe("wave 11 — the /api/workflow/* routes", () => {
         const response = await worker.fetch(
           signedIn("/api/workflow/rpc", {
             method: "POST",
-            body: JSON.stringify({ repo: "will/mvp", procedure: "List", payload: { _tag: "flows" } })
+            body: JSON.stringify({ repo: "will/mvp", workspaceId: BOX, procedure: "List", payload: { _tag: "flows" } })
           }),
           env({ GATEWAY_SESSIONS: newerScript() })
         )

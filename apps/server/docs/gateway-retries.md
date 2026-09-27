@@ -15,8 +15,6 @@ Non-replayable calls also retain the tunnel-failure no-retry guard. HTTP 401
 can retry once because the relay rejected the credentials. Run calls use
 `replayable: false`; a lost response does not establish that a run failed.
 
-`provision: false` calls send at most once and never refresh the record.
-
 ## Relay address
 
 A gateway record's `baseUrl` is exactly

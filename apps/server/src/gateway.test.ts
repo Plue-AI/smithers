@@ -48,6 +48,8 @@ import { memoryDurableObjects } from "./memoryDurableObjects"
 
 const GATEWAY_TOKEN = "smithers_gateway_secret-operator-token"
 const CLOUD_TOKEN = "smithers_pat_cloud-identity"
+/** Every flow call names a box (#2194): the one box these tests address unless they name another. */
+const WS = "83e75ae5-0920-4000-8000-00000000000a"
 
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -107,7 +109,8 @@ const relay = (script: RelayScript = {}): { readonly calls: RelayCall[]; readonl
             expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             gateway_id: "gw-1",
             vm_id: "msb_1",
-            status: "running"
+            status: "running",
+            workspace_id: (call.body as { workspace_id?: string } | undefined)?.workspace_id
           })
       )
     }
@@ -179,6 +182,7 @@ const freshGateway = (attempt: number, extra: Record<string, unknown> = {}): Res
     token: `${GATEWAY_TOKEN}-${attempt}`,
     expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     gateway_id: `gw-${attempt}`,
+    workspace_id: WS,
     ...extra
   })
 
@@ -190,7 +194,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
   test("provisions with the user's Cloud token, adopts what comes back, and caches to the half-life", async () => {
     const { calls, fetch } = relay()
     const layer = seam(fetch)
-    const first = await run(ensureGateway("codeplanesmithers", "codeplanesmithers/smithers-demo").pipe(Effect.provide(layer)))
+    const first = await run(ensureGateway("codeplanesmithers", "codeplanesmithers/smithers-demo", false, WS).pipe(Effect.provide(layer)))
     expect(first.status).toBe("ready")
     if (first.status !== "ready") return
     expect(first.record.gatewayId).toBe("gw-1")
@@ -210,7 +214,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     expect(provision?.authorization).toBe(`Bearer ${CLOUD_TOKEN}`)
 
     // Inside the half-life a second resolve is free: no second provision.
-    const second = await run(ensureGateway("codeplanesmithers", "codeplanesmithers/smithers-demo").pipe(Effect.provide(layer)))
+    const second = await run(ensureGateway("codeplanesmithers", "codeplanesmithers/smithers-demo", false, WS).pipe(Effect.provide(layer)))
     expect(second.status).toBe("ready")
     expect(calls.filter((call) => call.url.includes("/gateway")).length).toBe(1)
   })
@@ -233,7 +237,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
       }
     }, fetch)
     const namespace: NativeNamespace = { idFromName: (name) => name, get: () => registry }
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch, { namespace }))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch, { namespace }))))
     expect(outcome).toEqual({ status: "unavailable", detail: "The gateway session store is unavailable: storage unavailable" })
     // The relay was asked, the record was minted, and it is not reported.
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(1)
@@ -249,7 +253,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
         }
       })
     }
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch, { namespace: unreachable }))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch, { namespace: unreachable }))))
     expect(outcome).toEqual({
       status: "unavailable",
       detail: "The gateway session store is unavailable: Durable Object reset because its code was updated."
@@ -259,13 +263,13 @@ describe("wave 11 — provision-or-resume (§5)", () => {
       idFromName: (name) => name,
       get: () => ({ fetch: async () => new Response("overloaded", { status: 503 }) })
     }
-    const refused = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch, { namespace: overloaded }))))
+    const refused = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch, { namespace: overloaded }))))
     expect(refused).toEqual({ status: "unavailable", detail: "The gateway session store answered HTTP 503: overloaded" })
     const odd: NativeNamespace = {
       idFromName: (name) => name,
       get: () => ({ fetch: async () => json(200, { record: null }) })
     }
-    const shapeless = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch, { namespace: odd }))))
+    const shapeless = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch, { namespace: odd }))))
     expect(shapeless).toEqual({
       status: "unavailable",
       detail: "The gateway session store answered in a shape the gateway seam did not understand."
@@ -277,15 +281,15 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // gateway; every cached URL must be rebuilt from what came back.
     const { fetch } = relay({ provision: (_call, attempt) => freshGateway(attempt, { vm_id: `msb_${attempt}` }) })
     const layer = seam(fetch)
-    const first = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
+    const first = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
     expect(first.status === "ready" && first.record.gatewayId).toBe("gw-1")
     // The renew path (what a relay 401 and a past-half-life record both take).
-    const second = await run(ensureGateway("will", "will/mvp", true).pipe(Effect.provide(layer)))
+    const second = await run(ensureGateway("will", "will/mvp", true, WS).pipe(Effect.provide(layer)))
     expect(second.status === "ready" && second.record.gatewayId).toBe("gw-2")
     expect(second.status === "ready" && second.record.token).toBe(`${GATEWAY_TOKEN}-2`)
     expect(second.status === "ready" && second.record.baseUrl).toBe("https://api.smithers-cloud.test/api/gateways/gw-2")
     // And the renewed record is what a later resolve reads back.
-    const third = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
+    const third = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
     expect(third.status === "ready" && third.record.gatewayId).toBe("gw-2")
   })
 
@@ -299,15 +303,16 @@ describe("wave 11 — provision-or-resume (§5)", () => {
           base_url: "https://api.smithers-cloud.test/api/gateways/gw-1",
           token: GATEWAY_TOKEN,
           expires_at: new Date(Date.now() + 2).toISOString(),
-          gateway_id: "gw-1"
+          gateway_id: "gw-1",
+          workspace_id: WS
         })
     })
     const layer = seam(fetch)
-    const first = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
+    const first = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
     expect(first.status === "ready" && first.record.renewAfter - Date.now()).toBeGreaterThan(30_000)
     await new Promise((resolve) => setTimeout(resolve, 5))
-    await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
-    await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
+    await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
+    await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
     expect(calls.filter((call) => call.url.includes("/gateway")).length).toBe(1)
   })
 
@@ -315,7 +320,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({
       provision: () => new Response("repo gateway provisioning is still in progress", { status: 409 })
     })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("provisioning")
     expect(outcome.status === "provisioning" && outcome.detail).toBe("The workspace for will/mvp is still being prepared.")
     // Exactly ONE provision attempt: this seam does not retry-loop.
@@ -335,7 +340,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // the object, on the deployment's clock), so it is shortened, not faked.
     const { calls, fetch } = relay({ provision: (_call, _attempt, signal) => silence(signal) })
     const outcome = await run(
-      ensureGateway("codeplanesmithers", "codeplanesmithers/canary-sandbox").pipe(
+      ensureGateway("codeplanesmithers", "codeplanesmithers/canary-sandbox", false, WS).pipe(
         Effect.provide(seam(fetch, { config: { upstreamTimeoutMs: 150 } }))
       )
     )
@@ -352,7 +357,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { fetch } = relay({ provision: (_call, _attempt, signal) => silence(signal) })
     const started = Date.now()
     const outcome = await run(
-      ensureGateway("codeplanesmithers", "codeplanesmithers/canary-sandbox").pipe(
+      ensureGateway("codeplanesmithers", "codeplanesmithers/canary-sandbox", false, WS).pipe(
         Effect.provide(seam(fetch, { config: { upstreamTimeoutMs: 150 } }))
       )
     )
@@ -385,7 +390,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // compatibility here is not legacy tolerance, it is the coexistence
     // window.
     const { calls, fetch } = relay({ provision: () => json(500, { error: "no_capacity", message: "no worker has capacity" }) })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("no_capacity")
     expect(outcome.status === "no_capacity" && outcome.detail).toContain("no free workspace capacity")
     expect(calls.filter((call) => call.url.includes("/gateway")).length).toBe(1)
@@ -399,7 +404,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({
       provision: () => json(503, { code: "no_capacity", fault: "infra", message: "no sandbox slots are free" })
     })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("no_capacity")
     expect(outcome.status === "no_capacity" && outcome.detail).toContain("no free workspace capacity")
     expect(calls.filter((call) => call.url.includes("/gateway")).length).toBe(1)
@@ -409,13 +414,13 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { fetch } = relay({
       provision: () => json(500, { error: "no_capacity", message: `no worker has capacity ${"x".repeat(4_000)}` })
     })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("no_capacity")
   })
 
   test("an unexplained 500 names this seam and its status, bounded", async () => {
     const { fetch } = relay({ provision: () => new Response(`  ${"boom ".repeat(100)}`, { status: 500 }) })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("unavailable")
     if (outcome.status !== "unavailable") return
     expect(outcome.detail).toBe("The workspace gateway is having trouble right now (HTTP 500).")
@@ -429,7 +434,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
    */
   test("a coded upstream refusal crosses as its prose, never as its body", async () => {
     const { fetch } = relay({ provision: () => json(500, { code: "internal", fault: "bug", message: "internal server error" }) })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("unavailable")
     if (outcome.status !== "unavailable") return
     expect(outcome.detail).toBe("internal server error")
@@ -439,7 +444,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
   test("402 plan limit preserves upgrade metadata and never retries provisioning", async () => {
     const refusal = { code: "plan_limit_exceeded", plan_key: "free", limit_kind: "concurrent_sandboxes", upgrade_plan_key: "pro" }
     const { calls, fetch } = relay({ provision: () => json(402, { ...refusal, message: "Upgrade or suspend a sandbox." }) })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome).toEqual({ status: "plan_limit_exceeded", detail: "Upgrade or suspend a sandbox.", refusal })
     expect(calls.filter(call => call.url.includes("/gateway"))).toHaveLength(1)
   })
@@ -456,7 +461,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({
       provision: () => json(429, { code: "quota_exceeded", message: "concurrent sandboxes limit reached" })
     })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("quota_exceeded")
     expect(outcome.status === "quota_exceeded" && outcome.detail).toBe("concurrent sandboxes limit reached")
     expect(outcome.status === "quota_exceeded" && outcome.detail).not.toContain("no free workspace capacity")
@@ -469,7 +474,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // it under a user-fault message on no evidence would blame the user for
     // the fleet.
     const { fetch } = relay({ provision: () => json(429, { message: "slow down" }) })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("no_capacity")
   })
 
@@ -478,7 +483,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // Cloud repository behind it answers 404 — a distinct, un-retryable state
     // the product states in its own words instead of leaking the status code.
     const { calls, fetch } = relay({ provision: () => json(404, { error: "not_found", message: "repository not found" }) })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("no_cloud_repo")
     expect(outcome.status === "no_cloud_repo" && outcome.detail).toContain("isn't on Smithers Cloud yet")
     // Stated once; never retry-looped.
@@ -489,7 +494,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({
       provision: (_call, attempt) => (attempt <= 2 ? new Response("unauthorized", { status: 401 }) : undefined)
     })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome).toEqual({ status: "unavailable", detail: "Smithers Cloud rejected a freshly minted identity token." })
     // One re-mint, two provision attempts — bounded, not a loop.
     expect(calls.filter((call) => call.url.endsWith("/api/identity/cloud-token")).length).toBe(2)
@@ -500,7 +505,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({
       cloudToken: () => json(200, { valid: true, found: false, cloud: { status: "no_github_token", reason: null } })
     })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("no_cloud_token")
     expect(outcome.status === "no_cloud_token" && outcome.detail).toContain("no_github_token")
     // Nothing was provisioned on a missing identity.
@@ -530,14 +535,14 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({
       cloudToken: () => json(200, { valid: true, found: false, cloud: { status: "exchange_failed", reason: "access_not_granted" } })
     })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("no_cloud_token")
     expect(calls.filter((call) => call.url.includes("/gateway")).length).toBe(0)
   })
 
   test("a door that refuses is reported with its status and first 200 characters", async () => {
     const { fetch } = relay({ cloudToken: () => new Response(" service token rejected ", { status: 403 }) })
-    const outcome = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome).toEqual({ status: "unavailable", detail: "The Cloud token door answered HTTP 403: service token rejected" })
   })
 
@@ -555,7 +560,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
       Effect.gen(function* () {
         const fibers = yield* Effect.forEach(
           [1, 2, 3],
-          () => Effect.forkChild(ensureGateway("will", "will/mvp")),
+          () => Effect.forkChild(ensureGateway("will", "will/mvp", false, WS)),
         )
         // Every caller is past the cache read and waiting on the one POST.
         yield* Effect.sleep("20 millis")
@@ -569,7 +574,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(1)
     expect(calls.filter((call) => call.url.endsWith("/api/identity/cloud-token"))).toHaveLength(1)
     // A later forced renew is its own provision again: single flight, not a permanent cache.
-    const renewed = await run(ensureGateway("will", "will/mvp", true).pipe(Effect.provide(layer)))
+    const renewed = await run(ensureGateway("will", "will/mvp", true, WS).pipe(Effect.provide(layer)))
     expect(renewed.status === "ready" && renewed.record.gatewayId).toBe("gw-2")
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(2)
   })
@@ -582,9 +587,9 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({ provision: () => gate })
     const outcome = await run(
       Effect.gen(function* () {
-        const leaver = yield* Effect.forkChild(ensureGateway("will", "will/mvp"))
+        const leaver = yield* Effect.forkChild(ensureGateway("will", "will/mvp", false, WS))
         yield* Effect.sleep("10 millis")
-        const stayer = yield* Effect.forkChild(ensureGateway("will", "will/mvp"))
+        const stayer = yield* Effect.forkChild(ensureGateway("will", "will/mvp", false, WS))
         yield* Effect.sleep("10 millis")
         yield* Fiber.interrupt(leaver)
         release(freshGateway(1))
@@ -601,7 +606,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const { calls, fetch } = relay({ provision: (_call, attempt) => attempt === 1 ? gate : freshGateway(attempt) })
     const layer = seam(fetch)
     const outcomes = await run(Effect.gen(function* () {
-      const fibers = yield* Effect.forEach([1, 2, 3], () => Effect.forkChild(ensureGateway("will", "will/mvp")))
+      const fibers = yield* Effect.forEach([1, 2, 3], () => Effect.forkChild(ensureGateway("will", "will/mvp", false, WS)))
       yield* Effect.sleep("20 millis")
       expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(1)
       release(json(200, null))
@@ -613,7 +618,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     expect(outcomes).toEqual([1, 2, 3].map(() => ({
       status: "unavailable", detail: "Provisioning answered in a shape the gateway seam did not understand."
     })))
-    const retried = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
+    const retried = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
     expect(retried.status).toBe("ready")
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(2)
   })
@@ -623,7 +628,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const logged: Array<unknown> = []
     const spy = spyOn(console, "error").mockImplementation((line: unknown) => { logged.push(line) })
     try {
-      const outcome = await run(ensureGateway("will", "will/mvp").pipe(
+      const outcome = await run(ensureGateway("will", "will/mvp", false, WS).pipe(
         Effect.timeoutOrElse({ duration: "250 millis", orElse: () => Effect.succeed("timed out" as const) }),
         Effect.provide(seam(fetch, { config: { cloudApiBaseUrl: "invalid origin" } }))
       ))
@@ -637,7 +642,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
 
   test("callGateway sets the bearer the browser cannot, and joins the relay's PATH base", async () => {
     const { calls, fetch } = relay()
-    const call = await run(callGateway("will", "will/mvp", "/rpc", { method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
+    const call = await run(callGateway("will", "will/mvp", "/rpc", { workspaceId: WS, method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
     expect(call.status).toBe("ok")
     const rpc = calls.find((entry) => entry.url.endsWith("/rpc"))
     // base_url is a PATH base — URL-joining an absolute path would drop it.
@@ -660,7 +665,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
         return json(200, { ok: true, payload: [] })
       }
     })
-    const call = await run(callGateway("will", "will/mvp", "/rpc", { method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
+    const call = await run(callGateway("will", "will/mvp", "/rpc", { workspaceId: WS, method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
     expect(call.status).toBe("ok")
     const rpcCalls = calls.filter((entry) => entry.url.endsWith("/rpc"))
     expect(rpcCalls).toHaveLength(2)
@@ -685,6 +690,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
         })
         const layer = seam(fetch)
         const launch = callGateway("will", "will/mvp", "/rpc", {
+          workspaceId: WS,
           method: "POST",
           body: { workflow: "create-workflow", input: { prompt: "x" } },
           replayable: false
@@ -713,7 +719,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
         )
         expect(calls.filter((entry) => entry.url.endsWith("/gateway"))).toHaveLength(2)
         if (!renewalFails) {
-          const next = await run(callGateway("will", "will/mvp", "/rpc", { method: "POST", body: {} }).pipe(Effect.provide(layer)))
+          const next = await run(callGateway("will", "will/mvp", "/rpc", { workspaceId: WS, method: "POST", body: {} }).pipe(Effect.provide(layer)))
           expect(next.status).toBe("ok")
           const rpcCalls = calls.filter((entry) => entry.url.endsWith("/rpc"))
           expect(rpcCalls).toHaveLength(2)
@@ -731,7 +737,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
         throw new Error("Network connection lost.")
       }
     })
-    const call = await run(callGateway("will", "will/mvp", "/rpc", { method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
+    const call = await run(callGateway("will", "will/mvp", "/rpc", { workspaceId: WS, method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
     expect(call.status).toBe("unavailable")
     // The reason is stated, never swallowed into a flat sentence.
     expect(call.status === "unavailable" && call.detail).toBe("The workspace gateway is unreachable: Network connection lost.")
@@ -747,7 +753,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
           : json(200, { ok: true, payload: [{ key: "create-workflow" }] })
     })
     const call = await run(
-      callGateway("will", "will/mvp", "/rpc", { method: "POST", body: {}, replayable }).pipe(Effect.provide(seam(fetch)))
+      callGateway("will", "will/mvp", "/rpc", { workspaceId: WS, method: "POST", body: {}, replayable }).pipe(Effect.provide(seam(fetch)))
     )
     expect(call.status).toBe("ok")
     if (call.status !== "ok") return
@@ -779,6 +785,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // behind it has since idle-suspended.
     await seed("will", "will/mvp", {
       gatewayId: "gw-0",
+      workspaceId: WS,
       baseUrl: "https://api.smithers-cloud.test/api/gateways/gw-0",
       token: `${GATEWAY_TOKEN}-0`,
       vmId: "msb_0",
@@ -787,7 +794,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
       provisionedAt: Date.now() - 60 * 60 * 1000
     })
     const call = await run(
-      callGateway("will", "will/mvp", "/rpc", { method: "POST", body: { runId: "run-1" }, replayable: true }).pipe(
+      callGateway("will", "will/mvp", "/rpc", { workspaceId: WS, method: "POST", body: { runId: "run-1" }, replayable: true }).pipe(
         Effect.provide(layer)
       )
     )
@@ -809,6 +816,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
         : json(200, { ok: true, payload: [] })
     })
     const call = await run(callGateway("will", "will/mvp", "/projections", {
+          workspaceId: WS,
       method: "POST", replayable: true
     }).pipe(Effect.provide(seam(fetch))))
     expect(call.status).toBe("ok")
@@ -821,6 +829,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     const body = { code: "conflict", message: "approval already decided" }
     const { calls, fetch } = relay({ gateway: () => json(409, body) })
     const call = await run(callGateway("will", "will/mvp", "/rpc", {
+          workspaceId: WS,
       method: "POST", replayable: true
     }).pipe(Effect.provide(seam(fetch))))
     expect(call.status).toBe("ok")
@@ -846,6 +855,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // of half-life left, and no idea that its VM went to sleep.
     await seed("will", "will/mvp", {
       gatewayId: "gw-0",
+      workspaceId: WS,
       baseUrl: "https://api.smithers-cloud.test/api/gateways/gw-0",
       token: `${GATEWAY_TOKEN}-0`,
       vmId: "msb_0",
@@ -856,19 +866,19 @@ describe("wave 11 — provision-or-resume (§5)", () => {
 
     // `ensureGateway` still answers the record, which is right for a relay
     // call: the call itself is what finds out.
-    expect((await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))).status).toBe("ready")
+    expect((await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))).status).toBe("ready")
     expect(calls).toHaveLength(0)
 
     // The readiness question asks the gateway instead, hears nothing, wakes
     // the box, and says the true thing about the wait.
-    expect(await run(ensureGatewayReady("will", "will/mvp").pipe(Effect.provide(layer))))
+    expect(await run(ensureGatewayReady("will", "will/mvp", WS).pipe(Effect.provide(layer))))
       .toEqual({ status: "workspace_starting", detail: "Your workspace isn't answering yet." })
     expect(calls.filter(entry => entry.url.endsWith("/health"))).toHaveLength(2)
     expect(calls.filter(entry => entry.url.endsWith("/gateway"))).toHaveLength(1)
 
     // And `ready` returns the moment the gateway is the one saying it.
     serving = true
-    const woken = await run(ensureGatewayReady("will", "will/mvp").pipe(Effect.provide(layer)))
+    const woken = await run(ensureGatewayReady("will", "will/mvp", WS).pipe(Effect.provide(layer)))
     expect(woken.status).toBe("ready")
     if (woken.status === "ready") expect(woken.record.gatewayId).toBe("gw-1")
   })
@@ -899,6 +909,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
       code: "conflict", message: "bound workspace is not running at the recorded VM"
     }) })
     const call = await run(callGateway("will", "will/mvp", "/rpc", {
+          workspaceId: WS,
       method: "POST", replayable: false
     }).pipe(Effect.provide(seam(fetch))))
     // Not `unavailable`: the box went to sleep, and "Something Smithers
@@ -1040,32 +1051,12 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     expect(calls.filter(call => call.url.endsWith("/rpc"))).toHaveLength(1)
   })
 
-  test("a read-only sleeping gateway neither wakes nor uses an unverified capability", async () => {
-    const workspaceId = "83e75ae5-0920-4000-8000-000000000001"
-    const { calls, fetch } = relay({ gateway: () => json(409, {
-      code: "conflict", message: "bound workspace is not running at the recorded VM"
-    }) })
-    const layer = seam(fetch)
-    await seed("alice", "org/repo", {
-      gatewayId: "gw-bound", workspaceId, baseUrl: "https://api.smithers-cloud.test/api/gateways/gw-bound",
-      token: "synthetic-alice", vmId: "bound-vm", expiresAt: Date.now() + 3_600_000,
-      renewAfter: Date.now() + 1_800_000, provisionedAt: Date.now()
-    })
-    const read = { method: "POST", workspaceId, provision: false } as const
-    expect((await run(callGateway("alice", "org/repo", "/projections", {
-      ...read, requiredCapability: "repository-jobs/v1"
-    }).pipe(Effect.provide(layer)))).status).toBe("unavailable")
-    expect(calls).toHaveLength(0)
-    expect((await run(callGateway("alice", "org/repo", "/projections", read).pipe(Effect.provide(layer)))).status).toBe("unavailable")
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.url.endsWith("/projections")).toBe(true)
-  })
-
   test("a tunnel failure never replays a call a repeat could duplicate", async () => {
     const { calls, fetch } = relay({ gateway: () => new Response("error code: 502\n", { status: 502 }) })
     const layer = seam(fetch)
     await seed("will", "will/mvp", {
       gatewayId: "gw-0",
+      workspaceId: WS,
       baseUrl: "https://api.smithers-cloud.test/api/gateways/gw-0",
       token: `${GATEWAY_TOKEN}-0`,
       vmId: null,
@@ -1075,6 +1066,7 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     })
     const call = await run(
       callGateway("will", "will/mvp", "/rpc", {
+          workspaceId: WS,
         method: "POST",
         body: { workflow: "create-workflow", input: { prompt: "x" } },
         replayable: false
@@ -1097,39 +1089,13 @@ describe("wave 11 — provision-or-resume (§5)", () => {
     // anything, and an EventSource reconnect loop must not drive one
     // provision call per retry.
     for (let index = 0; index < 4; index += 1) {
-      const call = await run(callGateway("will", "will/mvp", "/projections", { method: "GET" }).pipe(Effect.provide(layer)))
+      const call = await run(callGateway("will", "will/mvp", "/projections", { workspaceId: WS, method: "GET" }).pipe(Effect.provide(layer)))
       expect(call.status).toBe("ok")
       if (call.status === "ok") expect(call.response.status).toBe(502)
     }
     expect(calls.filter((entry) => entry.url.endsWith("/gateway"))).toHaveLength(1)
   })
 
-  test("the read-only relay asks the box the login holds and never wakes or provisions one", async () => {
-    const { calls, fetch } = relay({
-      gateway: (_call, attempt) => (attempt === 1 ? new Response("error code: 502\n", { status: 502 }) : undefined)
-    })
-    const layer = seam(fetch)
-    const read = { method: "POST", text: "{}", provision: false } as const
-    // No record at all: nothing is provisioned to answer a read.
-    const missing = await run(callGateway("will", "will/mvp", "/rpc", read).pipe(Effect.provide(layer)))
-    expect(missing).toEqual({ status: "unavailable", detail: "No live workspace holds an answer for this read." })
-    await seed("will", "will/mvp", {
-      gatewayId: "gw-0",
-      baseUrl: "https://api.smithers-cloud.test/api/gateways/gw-0",
-      token: `${GATEWAY_TOKEN}-0`,
-      vmId: null,
-      expiresAt: Date.now() + 30 * 60 * 1000,
-      renewAfter: Date.now() + 20 * 60 * 1000,
-      provisionedAt: Date.now() - 60 * 60 * 1000
-    })
-    // A tunnel failure to a read is stated; the VM is not resumed for it.
-    const asleep = await run(callGateway("will", "will/mvp", "/rpc", read).pipe(Effect.provide(layer)))
-    expect(asleep).toEqual({ status: "unavailable", detail: "The workspace gateway answered HTTP 502 to a read." })
-    const awake = await run(callGateway("will", "will/mvp", "/rpc", read).pipe(Effect.provide(layer)))
-    expect(awake.status).toBe("ok")
-    expect(calls.filter((entry) => entry.url.endsWith("/gateway"))).toHaveLength(0)
-    expect(calls.filter((entry) => entry.url.endsWith("/api/identity/cloud-token"))).toHaveLength(0)
-  })
 })
 
 describe("wave 11 — what the seam refuses on its own", () => {
@@ -1143,7 +1109,7 @@ describe("wave 11 — what the seam refuses on its own", () => {
   test("a dot-segment repo cannot steer the Cloud token off the provision route", async () => {
     const { calls, fetch } = relay()
     for (const repo of ["../admin", "../..", "owner/..", "./config", "codeplanesmithers/.", "not-a-repo", "owner/repo/extra", ""]) {
-      const direct = await run(ensureGateway("codeplanesmithers", repo).pipe(Effect.provide(seam(fetch))))
+      const direct = await run(ensureGateway("codeplanesmithers", repo, false, WS).pipe(Effect.provide(seam(fetch))))
       expect(direct).toEqual({ status: "unavailable", detail: `${repo} is not a repository this seam can address.` })
     }
     // Not one call left the Worker: no Cloud token was minted, let alone spent.
@@ -1152,7 +1118,7 @@ describe("wave 11 — what the seam refuses on its own", () => {
 
   test("a dot-PREFIXED repository name is real and stays legal", async () => {
     const { fetch } = relay()
-    const outcome = await run(ensureGateway("codeplanesmithers", "codeplanesmithers/.github").pipe(Effect.provide(seam(fetch))))
+    const outcome = await run(ensureGateway("codeplanesmithers", "codeplanesmithers/.github", false, WS).pipe(Effect.provide(seam(fetch))))
     expect(outcome.status).toBe("ready")
   })
 
@@ -1160,8 +1126,8 @@ describe("wave 11 — what the seam refuses on its own", () => {
     const { fetch } = relay({ provision: (_call, attempt) => freshGateway(attempt, { vm_id: `msb_${attempt}`, status: "running" }) })
     const layer = seam(fetch)
     // ("ab", "c/d") and ("a", "bc/d") concatenate to the same string.
-    const first = await run(ensureGateway("ab", "c/d").pipe(Effect.provide(layer)))
-    const second = await run(ensureGateway("a", "bc/d").pipe(Effect.provide(layer)))
+    const first = await run(ensureGateway("ab", "c/d", false, WS).pipe(Effect.provide(layer)))
+    const second = await run(ensureGateway("a", "bc/d", false, WS).pipe(Effect.provide(layer)))
     expect(first.status).toBe("ready")
     expect(second.status).toBe("ready")
     if (first.status !== "ready" || second.status !== "ready") return
@@ -1171,7 +1137,7 @@ describe("wave 11 — what the seam refuses on its own", () => {
   test("the relay refuses a gateway path the product does not address", async () => {
     const { calls, fetch } = relay()
     const call = await run(
-      callGateway("will", "will/mvp", "/admin/tokens", { method: "POST", text: "{}" }).pipe(Effect.provide(seam(fetch)))
+      callGateway("will", "will/mvp", "/admin/tokens", { workspaceId: WS, method: "POST", text: "{}" }).pipe(Effect.provide(seam(fetch)))
     )
     expect(call).toEqual({ status: "unavailable", detail: "/admin/tokens is not a gateway path this seam relays." })
     // Not one call left the Worker: no Cloud token was minted, let alone spent.
@@ -1186,31 +1152,31 @@ describe("owning workspace routing", () => {
   const provision = (call: RelayCall): Response => {
     const workspaceId = (call.body as { workspace_id?: string } | undefined)?.workspace_id
     return json(200, {
-      base_url: `https://api.smithers-cloud.test/api/gateways/${workspaceId ?? "legacy"}`,
+      base_url: `https://api.smithers-cloud.test/api/gateways/gw-${workspaceId?.slice(-1) ?? "none"}`,
       token: GATEWAY_TOKEN,
       expires_at: new Date(Date.now() + 3_600_000).toISOString(),
-      gateway_id: workspaceId ?? "legacy",
+      gateway_id: `gw-${workspaceId?.slice(-1) ?? "none"}`,
       ...(workspaceId === undefined ? {} : { workspace_id: workspaceId })
     })
   }
 
-  test("partitions legacy and two owning workspaces", async () => {
+  test("partitions two owning workspaces", async () => {
     const { calls, fetch } = relay({ provision })
     const layer = seam(fetch)
-    for (const workspaceId of [undefined, first, second, first, undefined]) {
+    for (const workspaceId of [first, second, first]) {
       const outcome = await run(ensureGateway("codeplanesmithers", repo, false, workspaceId).pipe(Effect.provide(layer)))
       expect(outcome.status).toBe("ready")
       if (outcome.status !== "ready") return
       expect(outcome.record.workspaceId).toBe(workspaceId)
-      expect(outcome.record.gatewayId).toBe(workspaceId ?? "legacy")
+      expect(outcome.record.gatewayId).toBe(`gw-${workspaceId.slice(-1)}`)
     }
     const provisions = calls.filter((call) => call.url.endsWith("/gateway"))
-    expect(provisions.map((call) => call.body)).toEqual([undefined, { workspace_id: first }, { workspace_id: second }])
+    expect(provisions.map((call) => call.body)).toEqual([{ workspace_id: first }, { workspace_id: second }])
     const call = await run(
       callGateway("codeplanesmithers", repo, "/rpc", { method: "POST", text: "{}", workspaceId: first }).pipe(Effect.provide(layer))
     )
     expect(call.status).toBe("ok")
-    expect(calls.at(-1)?.url).toContain(`/api/gateways/${first}/`)
+    expect(calls.at(-1)?.url).toContain("/api/gateways/gw-1/")
   })
 
   test("refuses a legacy or mismatched provision response instead of falling back to a different checkout", async () => {
@@ -1232,19 +1198,15 @@ describe("owning workspace routing", () => {
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(1)
   })
 
-  test("rejects malformed bindings before provisioning and keeps read-only requests read-only", async () => {
+  test("rejects a missing or malformed box before provisioning", async () => {
     const { calls, fetch } = relay()
     const layer = seam(fetch)
-    for (const workspaceId of ["../other", first.toUpperCase(), "00000000-0000-0000-0000-000000000000"]) {
+    for (const workspaceId of ["", "../other", first.toUpperCase(), "00000000-0000-0000-0000-000000000000"]) {
       const result = await run(ensureGateway("codeplanesmithers", repo, false, workspaceId).pipe(Effect.provide(layer)))
       expect(result.status).toBe("unavailable")
+      const call = await run(callGateway("codeplanesmithers", repo, "/rpc", { method: "POST", text: "{}", workspaceId }).pipe(Effect.provide(layer)))
+      expect(call.status).toBe("unavailable")
     }
-    const result = await run(
-      callGateway("codeplanesmithers", repo, "/rpc", { method: "POST", text: "{}", provision: false, workspaceId: first }).pipe(
-        Effect.provide(layer)
-      )
-    )
-    expect(result.status).toBe("unavailable")
     expect(calls).toHaveLength(0)
   })
 })
@@ -1270,7 +1232,7 @@ describe("the GatewaySessionRegistry Durable Object", () => {
     })
     const layer = seam(fetch, { namespace: namespaceOf(registryOver(storage, fetch)) })
     expect((await run(ensureGateway("codeplanesmithers", "o/r", false, workspaceId).pipe(Effect.provide(layer)))).status).toBe("ready")
-    expect((await run(ensureGateway("codeplanesmithers", "o/r").pipe(Effect.provide(layer)))).status).toBe("ready")
+    expect((await run(ensureGateway("codeplanesmithers", "o/r", false, WS).pipe(Effect.provide(layer)))).status).toBe("ready")
     // A new isolate: the object is gone, the storage behind it is not.
     const restarted = seam(fetch, { namespace: namespaceOf(registryOver(storage, fetch)) })
     const restored = await run(ensureGateway("codeplanesmithers", "o/r", false, workspaceId).pipe(Effect.provide(restarted)))
@@ -1278,19 +1240,34 @@ describe("the GatewaySessionRegistry Durable Object", () => {
     if (restored.status === "ready") expect(restored.record.workspaceId).toBe(workspaceId)
     expect(storage.data.size).toBe(2)
     // The persisted identities: the key format never changes.
-    expect([...storage.data.keys()].sort()).toEqual(["gateway:o/r", `gateway:o/r\u0000${workspaceId}`])
+    expect([...storage.data.keys()].sort()).toEqual([`gateway:o/r\u0000${workspaceId}`, `gateway:o/r\u0000${WS}`])
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(2)
   })
 
   test("answers its own routes: a missing record is null, an unnamed resolve is 400, anything else 404", async () => {
     const registry = new GatewaySessionRegistry({ storage: memoryStorage() })
-    const missing = await registry.fetch(new Request("https://gateway-sessions.internal/record?repo=o%2Fr"))
+    const missing = await registry.fetch(new Request(`https://gateway-sessions.internal/record?repo=o%2Fr&workspace_id=${WS}`))
     expect(await missing.json()).toEqual({ record: null })
     const unnamed = await registry.fetch(
       new Request("https://gateway-sessions.internal/resolve", { method: "POST", body: JSON.stringify({ repo: "o/r" }) })
     )
     expect(unnamed.status).toBe(400)
     expect((await registry.fetch(new Request("https://gateway-sessions.internal/other"))).status).toBe(404)
+  })
+
+  test("refuses a record read or a resolution that names no box", async () => {
+    const { calls, fetch } = relay()
+    const registry = registryOver(memoryStorage(), fetch)
+    for (const query of ["", "&workspace_id=", "&workspace_id=not-a-box", "&workspace_id=00000000-0000-0000-0000-000000000000"]) {
+      expect((await registry.fetch(new Request(`https://gateway-sessions.internal/record?repo=o%2Fr${query}`))).status).toBe(400)
+    }
+    for (const workspaceId of [undefined, "", "not-a-box", WS.toUpperCase()]) {
+      const refused = await registry.fetch(new Request("https://gateway-sessions.internal/resolve", {
+        method: "POST", body: JSON.stringify({ login: "will", repo: "o/r", force: false, ...(workspaceId === undefined ? {} : { workspaceId }) })
+      }))
+      expect(refused.status).toBe(400)
+    }
+    expect(calls).toHaveLength(0)
   })
 
   test("a storage failure answers 500 with its message; through the seam a failed read is cold and a failed write is stated", async () => {
@@ -1303,13 +1280,13 @@ describe("the GatewaySessionRegistry Durable Object", () => {
       }
     }
     const response = await new GatewaySessionRegistry({ storage: sealed }).fetch(
-      new Request("https://gateway-sessions.internal/record?repo=o%2Fr")
+      new Request(`https://gateway-sessions.internal/record?repo=o%2Fr&workspace_id=${WS}`)
     )
     expect(response.status).toBe(500)
     expect(await response.text()).toBe("storage is sealed")
     const { calls, fetch } = relay()
     const outcome = await run(
-      ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch, { namespace: namespaceOf(registryOver(sealed, fetch)) })))
+      ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch, { namespace: namespaceOf(registryOver(sealed, fetch)) })))
     )
     expect(outcome).toEqual({ status: "unavailable", detail: "The gateway session store is unavailable: storage is sealed" })
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(1)
@@ -1370,14 +1347,15 @@ describe("the gateway session registry", () => {
       base_url: `https://api.smithers-cloud.test/api/gateways/${login}-${owner}-${repo}-${attempt}`,
       token: `${GATEWAY_TOKEN}-${login}-${owner}-${repo}-${attempt}`,
       expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      gateway_id: `${login}-${owner}-${repo}-${attempt}`
+      gateway_id: `${login}-${owner}-${repo}-${attempt}`,
+      workspace_id: (call.body as { workspace_id?: string } | undefined)?.workspace_id
     })
   }
   const tokenEach = (call: RelayCall): Response =>
     json(200, { found: true, token: `cloud-${(call.body as { login: string }).login}` })
 
   const ready = async (layer: Layer.Layer<any>, login: string, repo: string, force = false): Promise<GatewayRecord> => {
-    const outcome = await run(ensureGateway(login, repo, force).pipe(Effect.provide(layer)))
+    const outcome = await run(ensureGateway(login, repo, force, WS).pipe(Effect.provide(layer)))
     expect(outcome.status).toBe("ready")
     if (outcome.status !== "ready") throw new Error(outcome.status)
     return outcome.record
@@ -1438,15 +1416,15 @@ describe("the gateway session registry", () => {
     const layer = seam(fetch, { namespace: retained.namespace })
     const now = Date.now()
     const legacy = {
-      gatewayId: "legacy", baseUrl: "https://api.smithers-cloud.test/api/gateways/legacy",
+      gatewayId: "legacy", workspaceId: WS, baseUrl: "https://api.smithers-cloud.test/api/gateways/legacy",
       token: `${GATEWAY_TOKEN}-legacy`, vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000
     }
-    retained.rowsOf("alice").set(gatewayStorageKey("org/legacy"), legacy)
+    retained.rowsOf("alice").set(gatewayStorageKey("org/legacy", WS), legacy)
     expect(await ready(layer, "alice", "org/legacy")).toEqual({ ...legacy, provisionedAt: 0 })
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(0)
 
     retained.failures.put = true
-    const unwritable = await run(ensureGateway("alice", "org/fresh").pipe(Effect.provide(layer)))
+    const unwritable = await run(ensureGateway("alice", "org/fresh", false, WS).pipe(Effect.provide(layer)))
     expect(unwritable).toEqual({ status: "unavailable", detail: "The gateway session store is unavailable: write failed" })
     retained.failures.put = false
 
@@ -1455,6 +1433,31 @@ describe("the gateway session registry", () => {
     expect(reprovisioned.gatewayId).not.toBe("legacy")
     retained.failures.get = false
     expect(await ready(layer, "alice", "org/legacy")).toEqual(reprovisioned)
+  })
+
+  test("a stored box-less gateway:<repo> row is cold: it is never served and a box provisions its own", async () => {
+    const { calls, fetch } = relay({ cloudToken: tokenEach, provision: provisionEach })
+    const retained = retainedNamespace(fetch)
+    const layer = seam(fetch, { namespace: retained.namespace })
+    const now = Date.now()
+    retained.rowsOf("alice").set("gateway:org/one", {
+      gatewayId: "boxless", baseUrl: "https://api.smithers-cloud.test/api/gateways/boxless",
+      token: `${GATEWAY_TOKEN}-boxless`, vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000, provisionedAt: now
+    })
+    const record = await ready(layer, "alice", "org/one")
+    expect(record.gatewayId).not.toBe("boxless")
+    expect(record.workspaceId).toBe(WS)
+    expect(calls.filter((call) => call.url.endsWith("/gateway")).map((call) => call.body)).toEqual([{ workspace_id: WS }])
+    // A row stored under the box's own key without naming the box is refused too.
+    retained.rowsOf("alice").set(gatewayStorageKey("org/two", WS), {
+      gatewayId: "unnamed", baseUrl: "https://api.smithers-cloud.test/api/gateways/unnamed",
+      token: `${GATEWAY_TOKEN}-unnamed`, vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000, provisionedAt: now
+    })
+    const errors = spyOn(console, "error").mockImplementation(() => {})
+    try {
+      expect((await ready(layer, "alice", "org/two")).gatewayId).not.toBe("unnamed")
+    } finally { errors.mockRestore() }
+    expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(2)
   })
 
   for (const state of ["cold", "expired"] as const) {
@@ -1484,7 +1487,7 @@ describe("the gateway session registry", () => {
     const retained = retainedNamespace(fetch)
     const layer = seam(fetch, { namespace: retained.namespace })
     const outcomes = await Promise.all(
-      Array.from({ length: 4 }, () => run(ensureGateway("alice", "org/one").pipe(Effect.provide(layer))))
+      Array.from({ length: 4 }, () => run(ensureGateway("alice", "org/one", false, WS).pipe(Effect.provide(layer))))
     )
     for (const outcome of outcomes) expect(outcome).toEqual(outcomes[0])
     expect(outcomes[0]?.status).toBe("no_capacity")
@@ -1520,7 +1523,7 @@ describe("the relay address", () => {
 
   const answering = (baseUrl: string) => relay({
     provision: () => json(200, {
-      base_url: baseUrl, token: GATEWAY_TOKEN, gateway_id: "gw-1",
+      base_url: baseUrl, token: GATEWAY_TOKEN, gateway_id: "gw-1", workspace_id: WS,
       expires_at: new Date(Date.now() + 3_600_000).toISOString()
     })
   })
@@ -1546,7 +1549,7 @@ describe("the relay address", () => {
     const { calls, fetch } = answering("https://attacker.test/api/gateways/gw-1")
     const errors = captureErrors()
     try {
-      const outcome = await run(callGateway("will", "will/mvp", "/rpc", { method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
+      const outcome = await run(callGateway("will", "will/mvp", "/rpc", { workspaceId: WS, method: "POST", body: {} }).pipe(Effect.provide(seam(fetch))))
       expect(outcome).toEqual(REFUSAL)
     } finally { errors.restore() }
     expect(calls.filter((call) => call.url.includes("/api/gateways/"))).toEqual([])
@@ -1564,7 +1567,7 @@ describe("the relay address", () => {
       const { calls, fetch } = answering(candidate)
       const errors = captureErrors()
       try {
-        expect(await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(seam(fetch))))).toEqual(REFUSAL)
+        expect(await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(seam(fetch))))).toEqual(REFUSAL)
       } finally { errors.restore() }
       expect(calls.filter((call) => call.url.includes("/api/gateways/"))).toEqual([])
       expect(durable!.gatewayRows("will").size).toBe(0)
@@ -1573,20 +1576,17 @@ describe("the relay address", () => {
     })
   }
 
-  test("a stored record outside the Cloud origin is cold: reads refuse it and the next resolution re-provisions", async () => {
+  test("a stored record outside the Cloud origin is cold: the next resolution re-provisions", async () => {
     const { calls, fetch } = relay()
     const layer = seam(fetch)
     const now = Date.now()
     await seed("will", "will/mvp", {
-      gatewayId: "gw-old", baseUrl: "https://old-cloud.test/api/gateways/gw-old", token: `${GATEWAY_TOKEN}-old`,
+      gatewayId: "gw-old", workspaceId: WS, baseUrl: "https://old-cloud.test/api/gateways/gw-old", token: `${GATEWAY_TOKEN}-old`,
       vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000, provisionedAt: now
     })
     const errors = captureErrors()
     try {
-      const read = await run(callGateway("will", "will/mvp", "/rpc", { method: "POST", text: "{}", provision: false }).pipe(Effect.provide(layer)))
-      expect(read).toEqual({ status: "unavailable", detail: "No live workspace holds an answer for this read." })
-      expect(calls).toEqual([])
-      const resolved = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
+      const resolved = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
       expect(resolved.status === "ready" && resolved.record.baseUrl).toBe(`${CLOUD}/api/gateways/gw-1`)
     } finally { errors.restore() }
     expect(calls.some((call) => call.url.includes("old-cloud.test"))).toBe(false)
@@ -1599,10 +1599,10 @@ describe("the relay address", () => {
     const { calls, fetch } = relay()
     const layer = seam(fetch)
     const now = Date.now()
-    durable!.gatewayRows("will").set("gateway:will/mvp", { gatewayId: "gw-0", vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000 })
+    durable!.gatewayRows("will").set(gatewayStorageKey("will/mvp", WS), { gatewayId: "gw-0", vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000 })
     const errors = captureErrors()
     try {
-      const resolved = await run(ensureGateway("will", "will/mvp").pipe(Effect.provide(layer)))
+      const resolved = await run(ensureGateway("will", "will/mvp", false, WS).pipe(Effect.provide(layer)))
       expect(resolved.status === "ready" && resolved.record.gatewayId).toBe("gw-1")
     } finally { errors.restore() }
     expect(calls.filter((call) => call.url.endsWith("/gateway"))).toHaveLength(1)
@@ -1612,14 +1612,14 @@ describe("the relay address", () => {
   test("the registry answers an off-origin row as no record and has no write route", async () => {
     const storage = memoryStorage()
     const now = Date.now()
-    await storage.put("gateway:o/r", {
-      gatewayId: "gw-1", baseUrl: "https://attacker.test/api/gateways/gw-1", token: GATEWAY_TOKEN,
+    await storage.put(gatewayStorageKey("o/r", WS), {
+      gatewayId: "gw-1", workspaceId: WS, baseUrl: "https://attacker.test/api/gateways/gw-1", token: GATEWAY_TOKEN,
       vmId: null, expiresAt: now + 3_600_000, renewAfter: now + 1_800_000, provisionedAt: now
     })
     const registry = registryOver(storage, relay().fetch)
     const errors = captureErrors()
     try {
-      const read = await registry.fetch(new Request("https://gateway-sessions.internal/record?repo=o%2Fr"))
+      const read = await registry.fetch(new Request(`https://gateway-sessions.internal/record?repo=o%2Fr&workspace_id=${WS}`))
       expect(await read.json()).toEqual({ record: null })
     } finally { errors.restore() }
     const write = await registry.fetch(new Request("https://gateway-sessions.internal/record", {

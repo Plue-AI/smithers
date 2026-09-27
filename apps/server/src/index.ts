@@ -23,8 +23,7 @@ import {
   TURN_RETIRE_PATH,
   TURN_ERASE_PATH,
   WORKFLOW_PROVISION_PATH,
-  WORKFLOW_RPC_PATH,
-  WORKFLOW_TRIGGERS_PATH
+  WORKFLOW_RPC_PATH
 } from "@smthrs/rpc/AgentApiRoutes"
 import { APP_API_VERSION, APP_BOOTSTRAP_PATH } from "@smthrs/rpc/AppBootstrap"
 import { AUTHENTICATED_USER_PATH } from "@smthrs/rpc/ApplicationAuth"
@@ -82,7 +81,7 @@ import {
   TurnRateLimiter
 } from "./turnLimit"
 import { handleCancel, handleModelStream, handleTurn, handleTurnJournalAccess, handleTurnJournalErasure, readStartTurn, TurnCancelRegistry } from "./turns"
-import { handleWorkflowProvision, handleWorkflowRpc, handleWorkflowTriggers } from "./workflows"
+import { handleWorkflowProvision, handleWorkflowRpc } from "./workflows"
 import { handleRepositorySetup } from "./repositorySetup"
 
 /*
@@ -438,10 +437,6 @@ export const handleRequest = (request: Request): Effect.Effect<Response, never, 
     if (url.pathname === WORKFLOW_RPC_PATH) {
       if (request.method !== "POST") return methodNotAllowed()
       return yield* handleWorkflowRpc(request)
-    }
-    if (url.pathname === WORKFLOW_TRIGGERS_PATH) {
-      if (request.method !== "GET") return methodNotAllowed()
-      return yield* handleWorkflowTriggers(request, url)
     }
     if (url.pathname === TRIGGER_REGISTRATIONS_PATH) {
       if (request.method !== "GET") return methodNotAllowed()
