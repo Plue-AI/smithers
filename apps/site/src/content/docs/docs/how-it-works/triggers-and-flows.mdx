@@ -12,7 +12,7 @@ A **trigger** is something that happens. A **flow** is the steps Smithers runs w
 | Trigger | Example | Status |
 | --- | --- | --- |
 | Schedule | Every weekday at 9:00, run the review. | Available now |
-| Issue event | An issue is labeled `smithers`. | Partly available |
+| Issue event | An issue is labeled `smithers`, or gets a comment. | Partly available |
 | Code event | A change opens, lands, or main moves. | Partly available |
 | Message | A message arrives in a chat. | Planned |
 | Manual | You run a registered rule now. | Available now |
@@ -42,11 +42,11 @@ export const factory = S.Factory({
 
 The app's **Dispatcher** lists each rule as declared.
 
-**Partly available.** Smithers runs its built-in rules: fixing issues labeled `smithers`, and refreshing history and the wiki when code lands. Other declared rules do not run yet.
+**Partly available.** When main moves, rules for `flow.mdx` flows go live: schedules, and issue, comment, pull request, and push events. Rules for `flow.ts` flows stay declared only. Smithers also runs its built-in rules: fixing issues labeled `smithers`, and refreshing history and the wiki when code lands.
 
 **Available now.** Schedules register directly: in the app with **Dispatcher**, **Register a rule**, or for a local project with `smthrs triggers register`. See [Configure an agent and a trigger](/docs/learn/agent-and-trigger/).
 
-**Planned.** Declared rules become live registrations when main moves. Message rules let a chat message start the assistant.
+**Planned.** Message rules, so a chat message starts the assistant.
 
 ## Once only
 

@@ -49,7 +49,14 @@ The answer prints to standard output. Add `--model provider:model` to pick the m
 </TabItem>
 <TabItem label="API">
 
-**Planned.** Create a chat with `POST /api/repos/{owner}/{repo}/issues` and `"kind": "chat"`, then post messages as comments ([#2111](https://github.com/smithersai/smithers/issues/2111)).
+**Partly available.** Create a private chat, then post messages as comments. An agent reply to a chat message is planned.
+
+```sh
+curl -X POST "$SMITHERS_API/api/repos/acme/app/issues" \
+  -H "Authorization: Bearer $SMITHERS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Conversation","kind":"chat","idempotency_key":"chat-1"}'
+```
 
 The app's own chat route, `POST /api/agent/turn`, needs a signed-in browser session.
 

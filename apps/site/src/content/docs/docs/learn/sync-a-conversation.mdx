@@ -8,7 +8,7 @@ sidebar:
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-**Planned.** Conversation sync is built and awaiting release ([#2105](https://github.com/smithersai/smithers/issues/2105)). This page describes how it will work.
+**Partly available.** The API connects a conversation to Slack or Telegram. App setup is planned, and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105).
 
 A conversation syncs with one Slack thread or one Telegram chat or topic. A message, edit, or delete on either side appears once on the other. Agents post under their own names.
 
@@ -45,7 +45,7 @@ The app connecting a chat to a Slack thread, then showing it as connected. Needs
 </TabItem>
 <TabItem label="API">
 
-**Planned** ([#2105](https://github.com/smithersai/smithers/issues/2105)). One route connects a conversation (an issue number):
+**Available now** in the backend; live acceptance in [#2105](https://github.com/smithersai/smithers/issues/2105). One route connects a conversation (an issue number):
 
 ```sh
 curl -X PUT "$SMITHERS_API/api/repos/acme/app/issues/42/sync" \
@@ -85,7 +85,7 @@ A reply typed in Slack appearing once in the app, then an edit and a delete. Nee
 </TabItem>
 <TabItem label="API">
 
-**Planned** ([#2105](https://github.com/smithersai/smithers/issues/2105)). Synced messages are ordinary comments: `GET /api/repos/{owner}/{repo}/issues/42/comments`. `GET /api/repos/{owner}/{repo}/issues/state-events/stream` streams new ones.
+**Available now** in the backend. Synced messages are ordinary comments: `GET /api/repos/{owner}/{repo}/issues/42/comments`. `GET /api/repos/{owner}/{repo}/issues/state-events/stream` streams new ones.
 
 </TabItem>
 </Tabs>
