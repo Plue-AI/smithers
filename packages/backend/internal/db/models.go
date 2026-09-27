@@ -1320,12 +1320,13 @@ type Organization struct {
 }
 
 type OrganizationSecret struct {
-	ID             int64     `json:"id"`
-	OrganizationID int64     `json:"organization_id"`
-	Name           string    `json:"name"`
-	ValueEncrypted []byte    `json:"value_encrypted"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                         int64              `json:"id"`
+	OrganizationID             int64              `json:"organization_id"`
+	Name                       string             `json:"name"`
+	ValueEncrypted             []byte             `json:"value_encrypted"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	UpdatedAt                  time.Time          `json:"updated_at"`
+	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
 }
 
 type OrganizationVariable struct {
@@ -1745,13 +1746,14 @@ type RepositoryAgentEnvironment struct {
 }
 
 type RepositoryAgentEnvironmentSecret struct {
-	RepositoryID   int64     `json:"repository_id"`
-	Name           string    `json:"name"`
-	ValueEncrypted []byte    `json:"value_encrypted"`
-	Hosts          []string  `json:"hosts"`
-	MatchHeaders   []string  `json:"match_headers"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	RepositoryID               int64              `json:"repository_id"`
+	Name                       string             `json:"name"`
+	ValueEncrypted             []byte             `json:"value_encrypted"`
+	Hosts                      []string           `json:"hosts"`
+	MatchHeaders               []string           `json:"match_headers"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	UpdatedAt                  time.Time          `json:"updated_at"`
+	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
 }
 
 type RepositoryCiCheckReceipt struct {
@@ -1891,12 +1893,13 @@ type RepositoryJobTrial struct {
 }
 
 type RepositorySecret struct {
-	ID             int64     `json:"id"`
-	RepositoryID   int64     `json:"repository_id"`
-	Name           string    `json:"name"`
-	ValueEncrypted []byte    `json:"value_encrypted"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                         int64              `json:"id"`
+	RepositoryID               int64              `json:"repository_id"`
+	Name                       string             `json:"name"`
+	ValueEncrypted             []byte             `json:"value_encrypted"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	UpdatedAt                  time.Time          `json:"updated_at"`
+	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
 }
 
 type RepositorySetupRequest struct {
@@ -2060,6 +2063,12 @@ type Star struct {
 	UserID       int64     `json:"user_id"`
 	RepositoryID int64     `json:"repository_id"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type StoredSubscriptionTokenScan struct {
+	ID          bool            `json:"id"`
+	CompletedAt time.Time       `json:"completed_at"`
+	Counts      json.RawMessage `json:"counts"`
 }
 
 type StripeProcessedEvent struct {
@@ -2454,6 +2463,7 @@ type Workspace struct {
 	DeletedAt               pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt               time.Time          `json:"created_at"`
 	UpdatedAt               time.Time          `json:"updated_at"`
+	RebuildRequiredAt       pgtype.Timestamptz `json:"rebuild_required_at"`
 }
 
 type WorkspaceCapabilityBinding struct {
@@ -2502,12 +2512,13 @@ type WorkspaceShare struct {
 }
 
 type WorkspaceSnapshot struct {
-	ID           string    `json:"id"`
-	RepositoryID int64     `json:"repository_id"`
-	UserID       int64     `json:"user_id"`
-	WorkspaceID  string    `json:"workspace_id"`
-	Name         string    `json:"name"`
-	SnapshotID   string    `json:"snapshot_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                string             `json:"id"`
+	RepositoryID      int64              `json:"repository_id"`
+	UserID            int64              `json:"user_id"`
+	WorkspaceID       string             `json:"workspace_id"`
+	Name              string             `json:"name"`
+	SnapshotID        string             `json:"snapshot_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	RebuildRequiredAt pgtype.Timestamptz `json:"rebuild_required_at"`
 }

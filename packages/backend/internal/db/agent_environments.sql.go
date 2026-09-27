@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteRepositoryAgentEnvironmentSecret = `-- name: DeleteRepositoryAgentEnvironmentSecret :exec
@@ -87,19 +89,20 @@ func (q *Queries) ListRepositoryAgentEnvironmentSecretValues(ctx context.Context
 }
 
 const listRepositoryAgentEnvironmentSecrets = `-- name: ListRepositoryAgentEnvironmentSecrets :many
-SELECT repository_id, name, hosts, match_headers, created_at, updated_at
+SELECT repository_id, name, hosts, match_headers, created_at, updated_at, subscription_token_flagged_at
 FROM repository_agent_environment_secrets
 WHERE repository_id = $1
 ORDER BY name
 `
 
 type ListRepositoryAgentEnvironmentSecretsRow struct {
-	RepositoryID int64     `json:"repository_id"`
-	Name         string    `json:"name"`
-	Hosts        []string  `json:"hosts"`
-	MatchHeaders []string  `json:"match_headers"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	RepositoryID               int64              `json:"repository_id"`
+	Name                       string             `json:"name"`
+	Hosts                      []string           `json:"hosts"`
+	MatchHeaders               []string           `json:"match_headers"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	UpdatedAt                  time.Time          `json:"updated_at"`
+	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
 }
 
 func (q *Queries) ListRepositoryAgentEnvironmentSecrets(ctx context.Context, repositoryID int64) ([]ListRepositoryAgentEnvironmentSecretsRow, error) {
@@ -118,6 +121,7 @@ func (q *Queries) ListRepositoryAgentEnvironmentSecrets(ctx context.Context, rep
 			&i.MatchHeaders,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SubscriptionTokenFlaggedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -188,6 +192,7 @@ DO UPDATE SET
     value_encrypted = EXCLUDED.value_encrypted,
     hosts = EXCLUDED.hosts,
     match_headers = EXCLUDED.match_headers,
+    subscription_token_flagged_at = NULL,
     updated_at = NOW()
 RETURNING repository_id, name, hosts, match_headers, created_at, updated_at
 `

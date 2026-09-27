@@ -2,11 +2,11 @@
 INSERT INTO repository_secrets (repository_id, name, value_encrypted)
 VALUES ($1, $2, $3)
 ON CONFLICT (repository_id, name)
-DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, updated_at = NOW()
+DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_flagged_at = NULL, updated_at = NOW()
 RETURNING *;
 
 -- name: ListSecrets :many
-SELECT id, repository_id, name, created_at, updated_at
+SELECT id, repository_id, name, created_at, updated_at, subscription_token_flagged_at
 FROM repository_secrets
 WHERE repository_id = $1
 ORDER BY name;
@@ -37,11 +37,11 @@ WHERE repository_id = $1 AND name = $2;
 INSERT INTO organization_secrets (organization_id, name, value_encrypted)
 VALUES ($1, $2, $3)
 ON CONFLICT (organization_id, name)
-DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, updated_at = NOW()
+DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_flagged_at = NULL, updated_at = NOW()
 RETURNING *;
 
 -- name: ListOrgSecrets :many
-SELECT id, organization_id, name, created_at, updated_at
+SELECT id, organization_id, name, created_at, updated_at, subscription_token_flagged_at
 FROM organization_secrets
 WHERE organization_id = $1
 ORDER BY name;

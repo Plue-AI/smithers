@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -92,4 +93,73 @@ func TestStoredSubscriptionTokenSecretsAreRefusedWhenUsed(t *testing.T) {
 			require.NoError(t, fn(true))
 		})
 	}
+}
+
+// A secret the one-time scan flagged is shown for reconnecting or removing;
+// replacing or deleting it is the existing write path, which clears it.
+func TestFlaggedSubscriptionTokenSecretsAskForReconnect(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	flagged := pgtype.Timestamptz{Valid: true}
+	secrets := NewSecretService(&mockSecretQuerier{
+		listSecretsFn: func(context.Context, int64) ([]db.ListSecretsRow, error) {
+			return []db.ListSecretsRow{{Name: "ANTHROPIC_AUTH_TOKEN", SubscriptionTokenFlaggedAt: flagged}, {Name: "OK"}}, nil
+		},
+		listOrgSecretsFn: func(context.Context, int64) ([]db.ListOrgSecretsRow, error) {
+			return []db.ListOrgSecretsRow{{Name: "CLAUDE", SubscriptionTokenFlaggedAt: flagged}}, nil
+		},
+	}, webhook.NoopSecretCodec{})
+	repo, err := secrets.ListSecrets(ctx, &db.User{ID: 1}, "alice", "demo")
+	require.NoError(t, err)
+	require.Len(t, repo, 2)
+	assert.True(t, repo[0].ReconnectRequired)
+	assert.False(t, repo[1].ReconnectRequired)
+	encoded, err := json.Marshal(repo)
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(string(encoded), `"reconnect_required":true`))
+	org, err := secrets.ListOrgSecrets(ctx, &db.User{ID: 1}, "acme")
+	require.NoError(t, err)
+	assert.True(t, org[0].ReconnectRequired)
+
+	store := &agentEnvironmentTestQuerier{
+		config:  &db.RepositoryAgentEnvironment{RepositoryID: 42, SetupScript: "npm ci", EnvironmentVariables: json.RawMessage(`[]`)},
+		secrets: []db.ListRepositoryAgentEnvironmentSecretsRow{{RepositoryID: 42, Name: "ANTHROPIC_AUTH_TOKEN", SubscriptionTokenFlaggedAt: flagged}},
+	}
+	codec, err := webhook.NewSecretCodec("agent-environment-unit-test-key")
+	require.NoError(t, err)
+	response, err := NewAgentEnvironmentService(store, codec).GetAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo")
+	require.NoError(t, err)
+	assert.True(t, response.ReconnectRequired)
+	require.Len(t, response.Secrets, 1)
+	assert.True(t, response.Secrets[0].ReconnectRequired)
+	// The flag is this deployment's refusal: a self-hoster who stores tokens
+	// is never asked to reconnect.
+	response, err = NewAgentEnvironmentService(store, codec, WithAgentEnvironmentSubscriptionTokens(true)).GetAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo")
+	require.NoError(t, err)
+	assert.False(t, response.ReconnectRequired)
+	assert.False(t, response.Secrets[0].ReconnectRequired)
+}
+
+// Removing a stored token from the agent environment does not remove it from
+// the workspaces its setup already ran in: saving over it marks them for a
+// rebuild, whether or not the one-time scan reached the row first.
+func TestReplacingAStoredSubscriptionTokenMarksWorkspacesForRebuild(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	codec, err := webhook.NewSecretCodec("agent-environment-unit-test-key")
+	require.NoError(t, err)
+	store := &agentEnvironmentTestQuerier{config: &db.RepositoryAgentEnvironment{
+		RepositoryID: 42, SetupScript: "export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x\nnpm ci", EnvironmentVariables: json.RawMessage(`[]`),
+	}}
+	svc := NewAgentEnvironmentService(store, codec)
+	response, err := svc.GetAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo")
+	require.NoError(t, err)
+	_, err = svc.PutAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo", PutAgentEnvironmentInput{SetupScript: response.SetupScript})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{42}, store.rebuildMarked)
+
+	// An ordinary save marks nothing.
+	_, err = svc.PutAgentEnvironment(ctx, &db.User{ID: 7}, "alice", "demo", PutAgentEnvironmentInput{SetupScript: "npm test"})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{42}, store.rebuildMarked)
 }

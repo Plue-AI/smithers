@@ -90,6 +90,10 @@ type SecretResponse struct {
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	// ReconnectRequired reports a secret found holding a Claude or ChatGPT
+	// subscription token this deployment refuses to use. Replacing or
+	// deleting it clears the flag.
+	ReconnectRequired bool `json:"reconnect_required,omitempty"`
 }
 
 func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string) (SecretResponse, error) {
@@ -182,9 +186,10 @@ func (s *SecretService) ListSecrets(ctx context.Context, actor *db.User, owner, 
 	result := make([]SecretResponse, len(rows))
 	for i, row := range rows {
 		result[i] = SecretResponse{
-			Name:      row.Name,
-			CreatedAt: row.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			UpdatedAt: row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			Name:              row.Name,
+			CreatedAt:         row.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			UpdatedAt:         row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			ReconnectRequired: row.SubscriptionTokenFlaggedAt.Valid && !s.subscriptionTokens,
 		}
 	}
 	return result, nil
@@ -322,9 +327,10 @@ func (s *SecretService) ListOrgSecrets(ctx context.Context, actor *db.User, orgN
 	result := make([]SecretResponse, len(rows))
 	for i, row := range rows {
 		result[i] = SecretResponse{
-			Name:      row.Name,
-			CreatedAt: row.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			UpdatedAt: row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			Name:              row.Name,
+			CreatedAt:         row.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			UpdatedAt:         row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			ReconnectRequired: row.SubscriptionTokenFlaggedAt.Valid && !s.subscriptionTokens,
 		}
 	}
 	return result, nil

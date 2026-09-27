@@ -192,7 +192,7 @@ VALUES (
     $13::uuid,
     COALESCE($14::integer, 1800)
 )
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type CreateWorkspaceParams struct {
@@ -269,6 +269,7 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -406,7 +407,7 @@ INSERT INTO workspace_snapshots (
     snapshot_id
 )
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at
+RETURNING id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at, rebuild_required_at
 `
 
 type CreateWorkspaceSnapshotParams struct {
@@ -436,6 +437,7 @@ func (q *Queries) CreateWorkspaceSnapshot(ctx context.Context, arg CreateWorkspa
 		&i.SnapshotID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -495,7 +497,7 @@ WHERE id = $3::uuid
       OR updated_at = $6::timestamptz
   )
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type FailProvisioningWorkspaceIfCurrentParams struct {
@@ -560,6 +562,7 @@ func (q *Queries) FailProvisioningWorkspaceIfCurrent(ctx context.Context, arg Fa
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -572,7 +575,7 @@ WHERE id = $1
   AND status = 'starting'
   AND deleted_at IS NULL
   AND updated_at < NOW() - make_interval(secs => $2::int)
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type FailStaleStartingWorkspaceParams struct {
@@ -624,6 +627,7 @@ func (q *Queries) FailStaleStartingWorkspace(ctx context.Context, arg FailStaleS
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -639,7 +643,7 @@ WHERE id = $3::uuid
   AND vm_id = $5::text
   AND updated_at = $6::timestamptz
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type FailWorkspaceIfUnchangedParams struct {
@@ -702,12 +706,13 @@ func (q *Queries) FailWorkspaceIfUnchanged(ctx context.Context, arg FailWorkspac
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getActiveWorkspaceForUserRepo = `-- name: GetActiveWorkspaceForUserRepo :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE repository_id = $1
   AND user_id = $2
@@ -768,12 +773,13 @@ func (q *Queries) GetActiveWorkspaceForUserRepo(ctx context.Context, arg GetActi
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getActiveWorkspaceForUserRepoKind = `-- name: GetActiveWorkspaceForUserRepoKind :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE repository_id = $1
   AND user_id = $2
@@ -836,6 +842,7 @@ func (q *Queries) GetActiveWorkspaceForUserRepoKind(ctx context.Context, arg Get
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -903,7 +910,7 @@ func (q *Queries) GetRepoOwnerSlugAndNameByID(ctx context.Context, repositoryID 
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE id = $1
   AND deleted_at IS NULL
@@ -953,12 +960,13 @@ func (q *Queries) GetWorkspace(ctx context.Context, id string) (Workspace, error
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getWorkspaceByAgentSession = `-- name: GetWorkspaceByAgentSession :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE agent_session_id = $1::uuid
   AND deleted_at IS NULL
@@ -1007,12 +1015,13 @@ func (q *Queries) GetWorkspaceByAgentSession(ctx context.Context, agentSessionID
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getWorkspaceByRepo = `-- name: GetWorkspaceByRepo :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE id = $1
   AND repository_id = $2
@@ -1067,12 +1076,13 @@ func (q *Queries) GetWorkspaceByRepo(ctx context.Context, arg GetWorkspaceByRepo
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getWorkspaceForUserRepo = `-- name: GetWorkspaceForUserRepo :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE id = $1
   AND repository_id = $2
@@ -1127,12 +1137,13 @@ func (q *Queries) GetWorkspaceForUserRepo(ctx context.Context, arg GetWorkspaceF
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getWorkspaceIncludingDeleted = `-- name: GetWorkspaceIncludingDeleted :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE id = $1
 `
@@ -1178,6 +1189,7 @@ func (q *Queries) GetWorkspaceIncludingDeleted(ctx context.Context, id string) (
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -1314,7 +1326,7 @@ func (q *Queries) GetWorkspaceShare(ctx context.Context, arg GetWorkspaceSharePa
 }
 
 const getWorkspaceSnapshot = `-- name: GetWorkspaceSnapshot :one
-SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at
+SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at, rebuild_required_at
 FROM workspace_snapshots
 WHERE id = $1
 `
@@ -1331,12 +1343,13 @@ func (q *Queries) GetWorkspaceSnapshot(ctx context.Context, id string) (Workspac
 		&i.SnapshotID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getWorkspaceSnapshotByRepo = `-- name: GetWorkspaceSnapshotByRepo :one
-SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at
+SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at, rebuild_required_at
 FROM workspace_snapshots
 WHERE id = $1
   AND repository_id = $2
@@ -1361,12 +1374,13 @@ func (q *Queries) GetWorkspaceSnapshotByRepo(ctx context.Context, arg GetWorkspa
 		&i.SnapshotID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
 
 const getWorkspaceSnapshotForUserRepo = `-- name: GetWorkspaceSnapshotForUserRepo :one
-SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at
+SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at, rebuild_required_at
 FROM workspace_snapshots
 WHERE id = $1
   AND repository_id = $2
@@ -1391,6 +1405,7 @@ func (q *Queries) GetWorkspaceSnapshotForUserRepo(ctx context.Context, arg GetWo
 		&i.SnapshotID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -1439,7 +1454,7 @@ func (q *Queries) ListIdleWorkspaceSessions(ctx context.Context) ([]WorkspaceSes
 }
 
 const listIdleWorkspaces = `-- name: ListIdleWorkspaces :many
-SELECT w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at
+SELECT w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at, w.rebuild_required_at
 FROM workspaces w
 WHERE w.status = 'running'
   AND w.deleted_at IS NULL
@@ -1506,6 +1521,7 @@ func (q *Queries) ListIdleWorkspaces(ctx context.Context) ([]Workspace, error) {
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RebuildRequiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1560,7 +1576,7 @@ func (q *Queries) ListPendingSessionsForWorkspace(ctx context.Context, workspace
 }
 
 const listRunningWorkspacesForUserRepoBookmark = `-- name: ListRunningWorkspacesForUserRepoBookmark :many
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE repository_id = $1
   AND user_id = $2
@@ -1628,6 +1644,7 @@ func (q *Queries) ListRunningWorkspacesForUserRepoBookmark(ctx context.Context, 
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RebuildRequiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1640,7 +1657,7 @@ func (q *Queries) ListRunningWorkspacesForUserRepoBookmark(ctx context.Context, 
 }
 
 const listStalePendingWorkspaces = `-- name: ListStalePendingWorkspaces :many
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE status IN ('pending', 'starting')
   AND vm_id = ''
@@ -1697,6 +1714,7 @@ func (q *Queries) ListStalePendingWorkspaces(ctx context.Context, staleAfterSecs
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RebuildRequiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1709,7 +1727,7 @@ func (q *Queries) ListStalePendingWorkspaces(ctx context.Context, staleAfterSecs
 }
 
 const listStaleStartingWorkspacesWithVM = `-- name: ListStaleStartingWorkspacesWithVM :many
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE status = 'starting'
   AND vm_id <> ''
@@ -1768,6 +1786,7 @@ func (q *Queries) ListStaleStartingWorkspacesWithVM(ctx context.Context, staleAf
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RebuildRequiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1975,7 +1994,7 @@ func (q *Queries) ListWorkspaceSessionsByRepo(ctx context.Context, arg ListWorks
 }
 
 const listWorkspaceSnapshotsByRepo = `-- name: ListWorkspaceSnapshotsByRepo :many
-SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at
+SELECT id, repository_id, user_id, workspace_id, name, snapshot_id, created_at, updated_at, rebuild_required_at
 FROM workspace_snapshots
 WHERE repository_id = $1
   AND user_id = $2
@@ -2013,6 +2032,7 @@ func (q *Queries) ListWorkspaceSnapshotsByRepo(ctx context.Context, arg ListWork
 			&i.SnapshotID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RebuildRequiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2025,7 +2045,7 @@ func (q *Queries) ListWorkspaceSnapshotsByRepo(ctx context.Context, arg ListWork
 }
 
 const listWorkspacesByRepo = `-- name: ListWorkspacesByRepo :many
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 FROM workspaces
 WHERE repository_id = $1
   AND user_id = $2
@@ -2093,6 +2113,7 @@ func (q *Queries) ListWorkspacesByRepo(ctx context.Context, arg ListWorkspacesBy
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RebuildRequiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2164,7 +2185,7 @@ WHERE id = $1
   AND vm_id = ''
   AND status IN ('pending', 'starting', 'failed')
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type RegisterWorkspaceVMParams struct {
@@ -2220,6 +2241,7 @@ func (q *Queries) RegisterWorkspaceVM(ctx context.Context, arg RegisterWorkspace
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2232,7 +2254,7 @@ SET vm_id = '',
     updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 // Reset a workspace whose VM is gone so a replacement can be created and
@@ -2285,6 +2307,7 @@ func (q *Queries) ResetWorkspaceForReprovision(ctx context.Context, id string) (
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2297,7 +2320,7 @@ SET status = 'running',
 WHERE id = $1
   AND status <> 'running'
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 // CAS into running from any non-running, non-deleted state. Exactly one of N
@@ -2344,6 +2367,7 @@ func (q *Queries) ResumeWorkspaceToRunning(ctx context.Context, id string) (Work
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2425,7 +2449,7 @@ const setWorkspaceIdleTimeout = `-- name: SetWorkspaceIdleTimeout :one
 UPDATE workspaces
 SET idle_timeout_secs = $1, updated_at = NOW()
 WHERE id = $2 AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type SetWorkspaceIdleTimeoutParams struct {
@@ -2474,6 +2498,7 @@ func (q *Queries) SetWorkspaceIdleTimeout(ctx context.Context, arg SetWorkspaceI
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2484,7 +2509,7 @@ SET deleted_at = COALESCE(deleted_at, NOW()),
     status = 'stopped',
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 // Ticket 0105: tombstones a workspace. Sets deleted_at = NOW() and forces
@@ -2534,6 +2559,7 @@ func (q *Queries) SoftDeleteWorkspace(ctx context.Context, id string) (Workspace
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2542,13 +2568,13 @@ const stopWorkspaceRetainingRow = `-- name: StopWorkspaceRetainingRow :one
 WITH stopped AS (
     UPDATE workspaces w SET status = 'stopped', updated_at = now()
     WHERE w.id = $1 AND w.deleted_at IS NULL
-    RETURNING w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at
+    RETURNING w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at, w.rebuild_required_at
 ), stopped_sessions AS (
     UPDATE workspace_sessions s SET status = 'stopped', updated_at = now()
     WHERE s.workspace_id IN (SELECT stopped.id FROM stopped)
       AND s.status IN ('pending', 'starting', 'running')
 )
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at FROM stopped
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at FROM stopped
 `
 
 type StopWorkspaceRetainingRowRow struct {
@@ -2589,6 +2615,7 @@ type StopWorkspaceRetainingRowRow struct {
 	DeletedAt               pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt               time.Time          `json:"created_at"`
 	UpdatedAt               time.Time          `json:"updated_at"`
+	RebuildRequiredAt       pgtype.Timestamptz `json:"rebuild_required_at"`
 }
 
 // Stop the retained workspace and its live sessions atomically. The owner has
@@ -2634,6 +2661,7 @@ func (q *Queries) StopWorkspaceRetainingRow(ctx context.Context, id string) (Sto
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2646,7 +2674,7 @@ SET status = 'suspended',
 WHERE id = $1
   AND status = 'running'
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 // CAS on the running->suspended transition. Only the caller that actually flips
@@ -2695,6 +2723,7 @@ func (q *Queries) SuspendRunningWorkspace(ctx context.Context, id string) (Works
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2713,7 +2742,7 @@ WHERE w.id = $1
       WHERE s.workspace_id = w.id
         AND s.status IN ('pending', 'starting', 'running')
   )
-RETURNING w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at
+RETURNING w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at, w.rebuild_required_at
 `
 
 // CAS from running to suspended while the workspace has no active session.
@@ -2761,6 +2790,7 @@ func (q *Queries) SuspendRunningWorkspaceIfSessionless(ctx context.Context, id s
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2824,7 +2854,7 @@ SET vm_id = $2,
     updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type UpdateWorkspaceExecutionInfoParams struct {
@@ -2874,6 +2904,7 @@ func (q *Queries) UpdateWorkspaceExecutionInfo(ctx context.Context, arg UpdateWo
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2888,7 +2919,7 @@ SET head_change_id = $1::text,
     updated_at = NOW()
 WHERE id = $5
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type UpdateWorkspaceHeadParams struct {
@@ -2946,6 +2977,7 @@ func (q *Queries) UpdateWorkspaceHead(ctx context.Context, arg UpdateWorkspaceHe
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -2956,7 +2988,7 @@ SET provisioning_stage = $1::text,
     updated_at = NOW()
 WHERE id = $2
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type UpdateWorkspaceProvisioningStageParams struct {
@@ -3005,6 +3037,7 @@ func (q *Queries) UpdateWorkspaceProvisioningStage(ctx context.Context, arg Upda
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -3093,7 +3126,7 @@ SET status = $2::text,
     updated_at = NOW()
 WHERE id = $1
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type UpdateWorkspaceStatusParams struct {
@@ -3142,6 +3175,7 @@ func (q *Queries) UpdateWorkspaceStatus(ctx context.Context, arg UpdateWorkspace
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }
@@ -3152,7 +3186,7 @@ SET target_bookmark = $1::text,
     updated_at = NOW()
 WHERE id = $2
   AND deleted_at IS NULL
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at
 `
 
 type UpdateWorkspaceTargetBookmarkParams struct {
@@ -3201,6 +3235,7 @@ func (q *Queries) UpdateWorkspaceTargetBookmark(ctx context.Context, arg UpdateW
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }

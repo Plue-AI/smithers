@@ -8,14 +8,16 @@ package db
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createOrUpdateOrgSecret = `-- name: CreateOrUpdateOrgSecret :one
 INSERT INTO organization_secrets (organization_id, name, value_encrypted)
 VALUES ($1, $2, $3)
 ON CONFLICT (organization_id, name)
-DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, updated_at = NOW()
-RETURNING id, organization_id, name, value_encrypted, created_at, updated_at
+DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_flagged_at = NULL, updated_at = NOW()
+RETURNING id, organization_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at
 `
 
 type CreateOrUpdateOrgSecretParams struct {
@@ -34,6 +36,7 @@ func (q *Queries) CreateOrUpdateOrgSecret(ctx context.Context, arg CreateOrUpdat
 		&i.ValueEncrypted,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SubscriptionTokenFlaggedAt,
 	)
 	return i, err
 }
@@ -42,8 +45,8 @@ const createOrUpdateSecret = `-- name: CreateOrUpdateSecret :one
 INSERT INTO repository_secrets (repository_id, name, value_encrypted)
 VALUES ($1, $2, $3)
 ON CONFLICT (repository_id, name)
-DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, updated_at = NOW()
-RETURNING id, repository_id, name, value_encrypted, created_at, updated_at
+DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_flagged_at = NULL, updated_at = NOW()
+RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at
 `
 
 type CreateOrUpdateSecretParams struct {
@@ -62,6 +65,7 @@ func (q *Queries) CreateOrUpdateSecret(ctx context.Context, arg CreateOrUpdateSe
 		&i.ValueEncrypted,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SubscriptionTokenFlaggedAt,
 	)
 	return i, err
 }
@@ -148,18 +152,19 @@ func (q *Queries) ListOrgSecretValues(ctx context.Context, organizationID int64)
 }
 
 const listOrgSecrets = `-- name: ListOrgSecrets :many
-SELECT id, organization_id, name, created_at, updated_at
+SELECT id, organization_id, name, created_at, updated_at, subscription_token_flagged_at
 FROM organization_secrets
 WHERE organization_id = $1
 ORDER BY name
 `
 
 type ListOrgSecretsRow struct {
-	ID             int64     `json:"id"`
-	OrganizationID int64     `json:"organization_id"`
-	Name           string    `json:"name"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                         int64              `json:"id"`
+	OrganizationID             int64              `json:"organization_id"`
+	Name                       string             `json:"name"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	UpdatedAt                  time.Time          `json:"updated_at"`
+	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
 }
 
 func (q *Queries) ListOrgSecrets(ctx context.Context, organizationID int64) ([]ListOrgSecretsRow, error) {
@@ -177,6 +182,7 @@ func (q *Queries) ListOrgSecrets(ctx context.Context, organizationID int64) ([]L
 			&i.Name,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SubscriptionTokenFlaggedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -253,18 +259,19 @@ func (q *Queries) ListSecretValuesForRepo(ctx context.Context, repositoryID int6
 }
 
 const listSecrets = `-- name: ListSecrets :many
-SELECT id, repository_id, name, created_at, updated_at
+SELECT id, repository_id, name, created_at, updated_at, subscription_token_flagged_at
 FROM repository_secrets
 WHERE repository_id = $1
 ORDER BY name
 `
 
 type ListSecretsRow struct {
-	ID           int64     `json:"id"`
-	RepositoryID int64     `json:"repository_id"`
-	Name         string    `json:"name"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                         int64              `json:"id"`
+	RepositoryID               int64              `json:"repository_id"`
+	Name                       string             `json:"name"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	UpdatedAt                  time.Time          `json:"updated_at"`
+	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
 }
 
 func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSecretsRow, error) {
@@ -282,6 +289,7 @@ func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSe
 			&i.Name,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SubscriptionTokenFlaggedAt,
 		); err != nil {
 			return nil, err
 		}

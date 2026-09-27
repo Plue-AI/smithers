@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	stdErrors "errors"
@@ -189,6 +190,30 @@ func refuseStoredSubscriptionToken(allowed bool, kind, name, value string) error
 		return nil
 	}
 	return pkgerrors.Forbidden("feature not available: " + kind + " " + name + " holds a Claude or ChatGPT subscription token; remove it and use an API key")
+}
+
+// rebuildRequiredMarker is the store surface that marks a repository's live
+// workspaces and its snapshots as built with a subscription token.
+type rebuildRequiredMarker interface {
+	MarkRepositoryWorkspacesRebuildRequired(ctx context.Context, repositoryID int64) (int64, error)
+	MarkRepositorySnapshotsRebuildRequired(ctx context.Context, repositoryID int64) (int64, error)
+}
+
+// markRepositoryRebuildRequired marks every live workspace and snapshot of
+// the repository rebuild-required and returns how many were newly marked.
+func markRepositoryRebuildRequired(ctx context.Context, q rebuildRequiredMarker, repositoryID int64) error {
+	_, _, err := markRepositoryRebuildRequiredCount(ctx, q, repositoryID)
+	return err
+}
+
+func markRepositoryRebuildRequiredCount(ctx context.Context, q rebuildRequiredMarker, repositoryID int64) (workspaces, snapshots int64, err error) {
+	if workspaces, err = q.MarkRepositoryWorkspacesRebuildRequired(ctx, repositoryID); err != nil {
+		return 0, 0, pkgerrors.Internal("mark workspaces for rebuild").WithCause(err)
+	}
+	if snapshots, err = q.MarkRepositorySnapshotsRebuildRequired(ctx, repositoryID); err != nil {
+		return 0, 0, pkgerrors.Internal("mark workspace snapshots for rebuild").WithCause(err)
+	}
+	return workspaces, snapshots, nil
 }
 
 // agentEnvironmentLoadError keeps a refusal as it is and wraps any other load

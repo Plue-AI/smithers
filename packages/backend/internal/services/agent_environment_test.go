@@ -22,6 +22,9 @@ type agentEnvironmentTestQuerier struct {
 	storedCipher  []byte
 	deletedSecret string
 	now           time.Time
+	// rebuildMarked lists the repositories whose workspaces and snapshots
+	// were marked rebuild-required.
+	rebuildMarked []int64
 }
 
 func (q *agentEnvironmentTestQuerier) GetRepoByOwnerAndLowerName(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
@@ -70,6 +73,14 @@ func (q *agentEnvironmentTestQuerier) DeleteRepositoryAgentEnvironmentSecret(_ c
 	q.secrets = nil
 	q.secretValues = nil
 	return nil
+}
+
+func (q *agentEnvironmentTestQuerier) MarkRepositoryWorkspacesRebuildRequired(_ context.Context, repositoryID int64) (int64, error) {
+	q.rebuildMarked = append(q.rebuildMarked, repositoryID)
+	return 1, nil
+}
+func (q *agentEnvironmentTestQuerier) MarkRepositorySnapshotsRebuildRequired(context.Context, int64) (int64, error) {
+	return 0, nil
 }
 
 func TestAgentEnvironmentService_WriteOnlySecretsEncryptedAtRest(t *testing.T) {

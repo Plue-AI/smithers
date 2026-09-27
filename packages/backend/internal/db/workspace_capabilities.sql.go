@@ -33,7 +33,7 @@ func (q *Queries) BindWorkspaceCapability(ctx context.Context, arg BindWorkspace
 }
 
 const getWorkspaceCapability = `-- name: GetWorkspaceCapability :one
-SELECT w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at FROM workspace_capability_bindings b JOIN workspaces w ON w.id=b.workspace_id
+SELECT w.id, w.repository_id, w.user_id, w.name, w.is_fork, w.parent_workspace_id, w.target_bookmark, w.source_snapshot_id, w.kind, w.environment_source, w.environment_revision, w.environment_closure_hash, w.agent_session_id, w.head_push_token_id, w.environment_image, w.desktop_session_id, w.desktop_session_token_hash, w.desktop_session_expires_at, w.vm_id, w.provisioning_generation, w.status, w.failure_code, w.failure_message, w.provisioning_stage, w.last_activity_at, w.idle_timeout_secs, w.suspended_at, w.started_at, w.resumed_at, w.head_change_id, w.head_commit_id, w.ahead, w.behind, w.last_accessed_at, w.deleted_at, w.created_at, w.updated_at, w.rebuild_required_at FROM workspace_capability_bindings b JOIN workspaces w ON w.id=b.workspace_id
 WHERE b.repository_id=$1 AND b.user_id=$2 AND b.required_capability=$3
 FOR SHARE OF b
 `
@@ -85,6 +85,7 @@ func (q *Queries) GetWorkspaceCapability(ctx context.Context, arg GetWorkspaceCa
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RebuildRequiredAt,
 	)
 	return i, err
 }

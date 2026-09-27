@@ -1613,6 +1613,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			launchWorker(func() { providerConnectionRefreshWorker.Start(workerCtx) })
 		}
 		launchWorker(func() { workflowLogBudgetBackfiller.Start(workerCtx) })
+		if !cfg.FeatureFlags.SubscriptionConnections {
+			// #2206: flag subscription tokens stored before the hosted
+			// refusal and the workspaces built with them, once per database.
+			launchWorker(func() { services.RunStoredSubscriptionTokenScan(workerCtx, pool, webhookSecretCodec) })
+		}
 	}
 	var gitHubImportWorker *joinedBackgroundWorker
 	if options.topology.workers() && (!options.topology.hosted() || provisioningEnforced) {

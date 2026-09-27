@@ -22,7 +22,7 @@ DO UPDATE SET
 RETURNING *;
 
 -- name: ListRepositoryAgentEnvironmentSecrets :many
-SELECT repository_id, name, hosts, match_headers, created_at, updated_at
+SELECT repository_id, name, hosts, match_headers, created_at, updated_at, subscription_token_flagged_at
 FROM repository_agent_environment_secrets
 WHERE repository_id = $1
 ORDER BY name;
@@ -53,6 +53,7 @@ DO UPDATE SET
     value_encrypted = EXCLUDED.value_encrypted,
     hosts = EXCLUDED.hosts,
     match_headers = EXCLUDED.match_headers,
+    subscription_token_flagged_at = NULL,
     updated_at = NOW()
 RETURNING repository_id, name, hosts, match_headers, created_at, updated_at;
 

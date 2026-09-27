@@ -38,6 +38,8 @@ type AgentEnvironmentQuerier interface {
 	ListRepositoryAgentEnvironmentSecretValues(ctx context.Context, repositoryID int64) ([]db.ListRepositoryAgentEnvironmentSecretValuesRow, error)
 	UpsertRepositoryAgentEnvironmentSecret(ctx context.Context, arg db.UpsertRepositoryAgentEnvironmentSecretParams) (db.UpsertRepositoryAgentEnvironmentSecretRow, error)
 	DeleteRepositoryAgentEnvironmentSecret(ctx context.Context, arg db.DeleteRepositoryAgentEnvironmentSecretParams) error
+	MarkRepositoryWorkspacesRebuildRequired(ctx context.Context, repositoryID int64) (int64, error)
+	MarkRepositorySnapshotsRebuildRequired(ctx context.Context, repositoryID int64) (int64, error)
 }
 
 type AgentEnvironmentService struct {
@@ -90,6 +92,9 @@ type AgentEnvironmentSecretMetadata struct {
 	Hosts        []string  `json:"hosts"`
 	MatchHeaders []string  `json:"match_headers"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	// ReconnectRequired reports a secret found holding a subscription token
+	// this deployment refuses to use; replacing or deleting it clears it.
+	ReconnectRequired bool `json:"reconnect_required,omitempty"`
 }
 
 // ProxyBound reports whether the secret is delivered through the egress
@@ -103,10 +108,10 @@ type AgentEnvironmentResponse struct {
 	Env         []AgentEnvironmentVariable       `json:"env"`
 	Secrets     []AgentEnvironmentSecretMetadata `json:"secrets"`
 	UpdatedAt   *time.Time                       `json:"updated_at"`
-	// ReconnectRequired reports that the stored setup script or variables
-	// held a Claude or ChatGPT subscription token this deployment refuses to
-	// use. The token is redacted from this answer and nothing runs with the
-	// environment until it is saved without one.
+	// ReconnectRequired reports that the stored setup script, variables or a
+	// secret held a Claude or ChatGPT subscription token this deployment
+	// refuses to use. The token is redacted from this answer and nothing runs
+	// with the environment until it is saved without one.
 	ReconnectRequired bool `json:"reconnect_required,omitempty"`
 }
 
@@ -230,6 +235,14 @@ func (s *AgentEnvironmentService) PutAgentEnvironment(ctx context.Context, actor
 	if err != nil {
 		return AgentEnvironmentResponse{}, pkgerrors.Internal("failed to encode agent environment").WithCause(err)
 	}
+	storedToken := false
+	if !s.subscriptionTokens {
+		stored, err := s.queries.GetRepositoryAgentEnvironment(ctx, repository.ID)
+		if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+			return AgentEnvironmentResponse{}, pkgerrors.Internal("failed to load agent environment").WithCause(err)
+		}
+		storedToken = err == nil && agentEnvironmentHoldsSubscriptionToken(stored)
+	}
 	err = guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
 		if _, err := s.queries.UpsertRepositoryAgentEnvironment(ctx, db.UpsertRepositoryAgentEnvironmentParams{
 			RepositoryID:         repository.ID,
@@ -248,6 +261,11 @@ func (s *AgentEnvironmentService) PutAgentEnvironment(ctx context.Context, actor
 			}); err != nil {
 				return pkgerrors.Internal("failed to update agent environment secret").WithCause(err)
 			}
+		}
+		if storedToken {
+			// The replaced token stays in every workspace and snapshot the
+			// setup already ran in, until they are rebuilt.
+			return markRepositoryRebuildRequired(ctx, s.queries, repository.ID)
 		}
 		return nil
 	})
@@ -478,13 +496,27 @@ func (s *AgentEnvironmentService) loadAgentEnvironmentRow(ctx context.Context, r
 	}
 	updatedAt := row.UpdatedAt
 	config := agentEnvironmentConfigRow{SetupScript: row.SetupScript, Env: normalized, UpdatedAt: &updatedAt}
-	if !s.subscriptionTokens {
-		config.SubscriptionToken = isSubscriptionToken("", config.SetupScript)
-		for _, variable := range config.Env {
-			config.SubscriptionToken = config.SubscriptionToken || isSubscriptionToken(variable.Name, variable.Value)
+	config.SubscriptionToken = !s.subscriptionTokens && agentEnvironmentHoldsSubscriptionToken(row)
+	return config, nil
+}
+
+// agentEnvironmentHoldsSubscriptionToken reports a stored setup script or
+// variable holding a Claude or ChatGPT subscription token. Variables that do
+// not decode are checked as one document.
+func agentEnvironmentHoldsSubscriptionToken(row db.RepositoryAgentEnvironment) bool {
+	if isSubscriptionToken("", row.SetupScript) {
+		return true
+	}
+	var variables []AgentEnvironmentVariable
+	if json.Unmarshal(row.EnvironmentVariables, &variables) != nil {
+		return isSubscriptionToken("", string(row.EnvironmentVariables))
+	}
+	for _, variable := range variables {
+		if isSubscriptionToken(variable.Name, variable.Value) {
+			return true
 		}
 	}
-	return config, nil
+	return false
 }
 
 func (s *AgentEnvironmentService) agentEnvironmentResponse(ctx context.Context, repositoryID int64) (AgentEnvironmentResponse, error) {
@@ -497,9 +529,13 @@ func (s *AgentEnvironmentService) agentEnvironmentResponse(ctx context.Context, 
 		return AgentEnvironmentResponse{}, pkgerrors.Internal("failed to load agent environment").WithCause(err)
 	}
 	secrets := make([]AgentEnvironmentSecretMetadata, 0, len(rows))
+	flaggedSecret := false
 	for _, row := range rows {
+		flagged := row.SubscriptionTokenFlaggedAt.Valid && !s.subscriptionTokens
+		flaggedSecret = flaggedSecret || flagged
 		secrets = append(secrets, AgentEnvironmentSecretMetadata{
 			Name: row.Name, Hosts: nonNilStrings(row.Hosts), MatchHeaders: nonNilStrings(row.MatchHeaders), UpdatedAt: row.UpdatedAt,
+			ReconnectRequired: flagged,
 		})
 	}
 	response := AgentEnvironmentResponse{
@@ -507,6 +543,8 @@ func (s *AgentEnvironmentService) agentEnvironmentResponse(ctx context.Context, 
 		Env:         config.Env,
 		Secrets:     secrets,
 		UpdatedAt:   config.UpdatedAt,
+		// A flagged secret alone leaves the script and variables as stored.
+		ReconnectRequired: flaggedSecret,
 	}
 	if config.SubscriptionToken {
 		// Never hand a refused token back. Saving this answer as-is drops the
