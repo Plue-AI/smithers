@@ -1,6 +1,7 @@
 # Register a repository
 
 Owner direction (Will, 2026-09-26). Decision D-19 in [PRODUCT.md](PRODUCT.md).
+Tracking issue: #2153.
 Target screens: `apps/site/public/images/app/register.png` and the
 Overview's "Register your repository" section.
 
