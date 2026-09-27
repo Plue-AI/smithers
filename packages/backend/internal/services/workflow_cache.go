@@ -1059,7 +1059,8 @@ func containsControlRune(s string) bool {
 //
 // The trigger is provenance the server recorded, never a caller's label: the
 // push hook records push only for a person's push or the GitHub main pull
-// (a system-issued credential's push records system_push), the scheduler
+// (a system-issued credential's push records system_push), the GitHub
+// webhook only for a person's push to the default branch, the scheduler
 // schedule, and the dispatch routes workflow_dispatch only for a person,
 // since they refuse run credentials (middleware.RefuseRunCredentials).
 // Invoke records invoke whatever its body says.

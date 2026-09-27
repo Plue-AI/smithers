@@ -207,8 +207,8 @@ type WorkflowRunService interface {
 }
 
 // DispatchForEventInput carries the trigger event details for workflow dispatch.
-// SystemPushTriggerEvent is the trigger a run records when a push by a
-// system-issued credential started it (DispatchForEventInput.SystemPush).
+// SystemPushTriggerEvent is the trigger a run records when an unreviewed
+// push started it (DispatchForEventInput.SystemPush).
 const SystemPushTriggerEvent = "system_push"
 
 // replayedEventType is the event a rerun of a run with this recorded trigger
@@ -228,8 +228,9 @@ type DispatchForEventInput struct {
 	UseLoadedDefinitions bool
 	LoadedDefinitions    []LoadedWorkflowDefinition
 	WorkflowDefinitionID *int64 // If set, only dispatch for this specific definition
-	// SystemPush marks a push event whose credential was system-issued (an
-	// agent run's or the platform's sync). Its runs record
+	// SystemPush marks a push event whose credential is not Reviewed (an
+	// agent run's, the platform's sync, an unattributed push, or a GitHub
+	// push other than a person's to the default branch). Its runs record
 	// SystemPushTriggerEvent: they restore workflow caches and save none.
 	SystemPush bool
 	// AlertRemediationBinding is set only by the trusted alert worker. The run

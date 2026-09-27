@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 const (
@@ -265,6 +266,7 @@ func (w *GitHubWebhookEventWorker) processJob(ctx context.Context, job db.Github
 				RepositoryID:         repositoryID,
 				WorkflowDefinitionID: &workflowDefinitionID,
 				Event:                event,
+				SystemPush:           event.Type == "push" && !gitHubPushCredential(payload).Reviewed(),
 			}); err != nil {
 				return fmt.Errorf("dispatch workflow definition %d: %w", workflowDefinitionID, err)
 			}
@@ -296,6 +298,27 @@ func (w *GitHubWebhookEventWorker) requestMainPull(ctx context.Context, job db.G
 		return fmt.Errorf("request main pull: %w", err)
 	}
 	return nil
+}
+
+// gitHubPushCredential classifies a signed GitHub push the way the push hook
+// classifies a Smithers push (middleware.CredentialKind), so one rule decides
+// whose push runs save workflow caches. A person's push to the GitHub
+// repository's default branch is reviewed history: GitHub accepts it only
+// from someone with write access to that branch. A push to any other branch
+// or tag, and a bot's or app's push (GitHub Actions, an app installation,
+// Smithers' own landing branches), is unattributed and saves nothing.
+func gitHubPushCredential(payload gitHubWorkflowEventPayload) middleware.CredentialKind {
+	var sender struct {
+		Type string `json:"type"`
+	}
+	if payload.Repository == nil || json.Unmarshal(payload.Sender, &sender) != nil || sender.Type != "User" {
+		return ""
+	}
+	branch := payload.Repository.DefaultBranch
+	if branch == "" || payload.Ref != "refs/heads/"+branch {
+		return ""
+	}
+	return middleware.CredentialPerson
 }
 
 // markJobDone finishes this worker's claim generation. A zero-row write means

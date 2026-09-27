@@ -428,3 +428,22 @@ func TestGitHubWebhookEventWorker_PollOnce_UntrustedIssueEventsReachTheStack(t *
 	assert.Equal(t, []int64{3}, queries.markDoneIDs)
 	assert.Empty(t, dispatcher.calls, "the trigger trust gate still drops the event")
 }
+
+func TestGitHubPushCredentialIsAPersonOnlyOnTheDefaultBranch(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload string
+		reviewed      bool
+	}{
+		{"person on default", `{"ref":"refs/heads/main","repository":{"default_branch":"main"},"sender":{"type":"User"}}`, true},
+		{"person on branch", `{"ref":"refs/heads/topic","repository":{"default_branch":"main"},"sender":{"type":"User"}}`, false},
+		{"person on tag", `{"ref":"refs/tags/main","repository":{"default_branch":"main"},"sender":{"type":"User"}}`, false},
+		{"bot on default", `{"ref":"refs/heads/main","repository":{"default_branch":"main"},"sender":{"type":"Bot"}}`, false},
+		{"no sender", `{"ref":"refs/heads/main","repository":{"default_branch":"main"}}`, false},
+		{"no default", `{"ref":"refs/heads/","repository":{},"sender":{"type":"User"}}`, false},
+		{"no repository", `{"ref":"refs/heads/main","sender":{"type":"User"}}`, false},
+	} {
+		payload, err := parseGitHubWorkflowEventPayload(json.RawMessage(tc.payload))
+		require.NoError(t, err)
+		assert.Equal(t, tc.reviewed, gitHubPushCredential(payload).Reviewed(), tc.name)
+	}
+}
