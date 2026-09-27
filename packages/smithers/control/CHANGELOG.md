@@ -4,6 +4,9 @@
 
 ### Added
 
+- `Health.makeRegistry` takes an optional third argument, `evaluator`: the
+  judge the registered `jev.session` checker asks.
+
 - `SqlControlRuntime` takes `isAlive`: with it, `resume` takes over a running
   run whose owner is gone (a host killed mid-run) once the dead owner's lease
   has expired, instead of answering `ClaimLost`; the run store verifies the
@@ -17,6 +20,12 @@
 
 ### Changed
 
+- **Breaking:** `JevSessionChecker` asks the host's `Evaluator` instead of
+  calling the Vercel AI Gateway itself. `jevEvaluationUrl`, `jevModelId` and
+  the `env`, `fetch` and `url` options are removed; `evaluator` replaces them.
+  Without an evaluator the probe fails with reason `unconfigured`.
+  `jevRequestTimeoutMs` is now 45000 (was 1500) and `jevProbeTimeoutMs` 50000
+  (was 2500).
 - A journal read that fails during `watch` answers `PersistenceError` with
   operation `watch` and the journal's error as its `cause`. It used to answer
   `Unavailable`, which reads as a missing feature. A closed journal still

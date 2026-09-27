@@ -4,6 +4,8 @@
 
 ### Added
 
+- `Evaluator.layerFromSeat` judges with an already resolved seat's `Model`;
+  malformed, truncated and unavailable judgments fail closed.
 - `ModelRequest.serverTools`: provider-run tools a call may use, today
   `{ type: "web_search", allowedDomains? }`. OpenAI Responses (API key and
   ChatGPT plan) declares it as `{ type: "web_search", filters }` even under

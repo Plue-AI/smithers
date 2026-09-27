@@ -114,6 +114,11 @@
 
 ### Changed
 
+- **Breaking:** `smthrs run` and `smthrs serve` judge completions and test
+  failures on a subscription seat, not with `AI_GATEWAY_API_KEY`.
+  `internal/NativeControl`'s `Platform.httpClient` is removed,
+  `internal/HealthHost.start` requires an `Evaluator`, and
+  `internal/NativeEquipment.layerSeatEvaluator` builds the seat judge.
 - Breaking: `history/History` `reconcile` and `prepare`, `history/Workspace`
   `workspaceFor` and `canExecute`, and `cli/HistoryCommands`
   `reconcileHistory` and `prepareHistoryRun` return Promises. History reads
