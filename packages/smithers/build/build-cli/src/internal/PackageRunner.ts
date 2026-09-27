@@ -270,10 +270,11 @@ const filesTestErrorText = (error: Compose.FilesTestError): string =>
   sampleRows("unresolved", error.unresolved.map((issue) => `${issue.file} -> ${issue.specifier}`)) +
   sampleRows("dynamic", error.dynamic.map((issue) => `${issue.file} -> ${issue.specifier}`))
 
+// Both stream tails: a command whose earlier step logs to stderr (Python's
+// unittest) and whose failing step reports on stdout (`go test`) must still
+// name the failure.
 const execErrorText = (error: Exec.ExecError): string => {
-  const stderr = error.stderr.trim()
-  const stdout = error.stdout.trim()
-  const detail = stderr !== "" ? stderr : stdout
+  const detail = [error.stderr.trim(), error.stdout.trim()].filter((stream) => stream !== "").join("\n")
   return `command failed (exit ${error.exitCode}): ${error.argv.join(" ")}${detail === "" ? "" : `\n${detail}`}`
 }
 

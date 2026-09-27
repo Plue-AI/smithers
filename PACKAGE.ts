@@ -247,8 +247,10 @@ const backendGoModules = Smithers.Go.ModDownload({
   sandbox: { network: true }
 })
 
+// `go test` streams megabytes of logs, so its failures rarely reach the
+// output tail a failed target reports; they are repeated on stderr.
 const backendGo = Smithers.Shell.Test({
-  shell: "export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; python3 -B -m unittest scripts/test_check_go_boundaries.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/...",
+  shell: "export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; python3 -B -m unittest scripts/test_check_go_boundaries.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/... >\"$log\" 2>&1; status=$?; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
   env: {
     GOFLAGS: "-buildvcs=false -mod=readonly",
     GOMAXPROCS: "2",

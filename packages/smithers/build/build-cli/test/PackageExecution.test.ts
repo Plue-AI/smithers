@@ -453,6 +453,25 @@ export const Package = S.Package({ targets: { bad } })
     expect(partialGone).toBe(true)
   })
 
+  it("names a failure reported on stdout after an earlier step wrote stderr", async () => {
+    const root = await temporaryWorkspace()
+    await write(root, "WORKSPACE.ts", workspaceModule())
+    await write(
+      root,
+      "PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+const bad = S.Shell.Test({ shell: "printf 'unittest OK\\\\n' >&2; printf -- '--- FAIL: TestOwner\\\\n'; exit 1" })
+export const Package = S.Package({ targets: { bad } })
+`
+    )
+    commitAll(root)
+    const { exitCode, output, logs } = await serve(root, ["//:bad"])
+    expect(exitCode, output + logs).toBe(1)
+    // Live tool output is capped; the failure block itself must carry both streams.
+    const failure = logs.slice(logs.indexOf("//:bad  failed"))
+    expect(failure).toContain("unittest OK\n--- FAIL: TestOwner")
+  })
+
   it("fails a tool that writes into a gitignored nested repository, which it cannot restore", async () => {
     const root = await temporaryWorkspace()
     await write(root, "WORKSPACE.ts", workspaceModule())
