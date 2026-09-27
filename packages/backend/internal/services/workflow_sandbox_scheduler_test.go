@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
@@ -1445,9 +1446,20 @@ func TestWorkflowSandboxFinalizeContext_IgnoresParentCancellation(t *testing.T) 
 // the exec, not at run start. With a run that outlives the finalize budget, the
 // old code (finalize context created at executeRun entry) marked neither success
 // nor logs because the budget had already expired by the time exec returned.
+//
+// Both durations live on synctest's fake clock. The exec's Sleep advances it;
+// the finalize writes never block, so it stands still while they run and the
+// finalize deadline can lapse only if the product minted it before the exec.
+// On the wall clock the same 20ms budget also bounded how long the host could
+// stall this goroutine between minting and the success write, which is why
+// the test failed once inside a loaded full-package run (#2259).
 func TestWorkflowSandboxSchedulerWorker_PollOnce_LongRunStillFinalizes(t *testing.T) {
 	t.Parallel()
 
+	synctest.Test(t, testWorkflowSandboxSchedulerWorkerLongRunStillFinalizes)
+}
+
+func testWorkflowSandboxSchedulerWorkerLongRunStillFinalizes(t *testing.T) {
 	var successCtxErr error
 	queries := &mockWorkflowSandboxSchedulerQuerier{
 		claimQueuedWorkflowRunsFn: func(_ context.Context, _ int32) ([]db.WorkflowRun, error) {
@@ -1481,7 +1493,8 @@ func TestWorkflowSandboxSchedulerWorker_PollOnce_LongRunStillFinalizes(t *testin
 			return sandbox.CreateResult{ID: "vm-long"}, nil
 		},
 		execAwaitFn: func(_ context.Context, _ string, _ sandbox.ExecRequest) (sandbox.ExecResult, error) {
-			// Run outlives the finalize budget set below.
+			// Run outlives the finalize budget set below. Inside the bubble this
+			// advances the fake clock by 60ms instead of sleeping on the wall clock.
 			time.Sleep(60 * time.Millisecond)
 			success := int32(0)
 			return sandbox.ExecResult{Stdout: "done\n", StatusCode: &success}, nil
