@@ -30,7 +30,10 @@ const Greet = Action.make("example/Greet", {
   success: Schema.String
 })
 
-const Greeting = Flow.make("example/Greeting", {
+const Greeting = Flow.make("greeting", {
+  description: "Greets whoever the caller names.",
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
   payload: { name: Schema.String },
   success: Schema.String,
   body: (payload) => Greet.call(payload)
@@ -75,12 +78,13 @@ The in-memory engine loses its state when the process exits. To resume after a r
 
 ## Discover the flow from `flows/<name>/flow.ts`
 
-Put the same declaration in `flows/<name>/flow.ts` as the file's `export default`, and the project registry lists it and runs it. Discovery reads the metadata without executing the module, so `description`, `payload`, `success`, and `capabilities` have to be literals in the declaration:
+Put the same declaration in `flows/<name>/flow.ts` as the file's `export default`, and the project registry lists it and runs it. Discovery reads the metadata without executing the module, so `description`, `capabilities`, `effects`, `payload`, and `success` have to be literals in the declaration, and the tag is the name the path derives:
 
 ```ts title="flows/greeting/flow.ts"
-export default Flow.make("example/Greeting", {
+export default Flow.make("greeting", {
   description: "Greets whoever the caller names.",
   capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
   payload: { name: Schema.String },
   success: Schema.String,
   body: (payload) => Greet.call(payload)

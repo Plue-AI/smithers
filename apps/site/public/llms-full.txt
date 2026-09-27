@@ -5052,7 +5052,10 @@ const Greet = Action.make("example/Greet", {
   success: Schema.String
 })
 
-const Greeting = Flow.make("example/Greeting", {
+const Greeting = Flow.make("greeting", {
+  description: "Greets whoever the caller names.",
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
   payload: { name: Schema.String },
   success: Schema.String,
   body: (payload) => Greet.call(payload)
@@ -5097,12 +5100,13 @@ The in-memory engine loses its state when the process exits. To resume after a r
 
 ## Discover the flow from `flows/<name>/flow.ts`
 
-Put the same declaration in `flows/<name>/flow.ts` as the file's `export default`, and the project registry lists it and runs it. Discovery reads the metadata without executing the module, so `description`, `payload`, `success`, and `capabilities` have to be literals in the declaration:
+Put the same declaration in `flows/<name>/flow.ts` as the file's `export default`, and the project registry lists it and runs it. Discovery reads the metadata without executing the module, so `description`, `capabilities`, `effects`, `payload`, and `success` have to be literals in the declaration, and the tag is the name the path derives:
 
 ```ts title="flows/greeting/flow.ts"
-export default Flow.make("example/Greeting", {
+export default Flow.make("greeting", {
   description: "Greets whoever the caller names.",
   capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
   payload: { name: Schema.String },
   success: Schema.String,
   body: (payload) => Greet.call(payload)
@@ -5145,7 +5149,7 @@ A Smithers project is `flows/**` sources plus `.flows/` run state. This guide or
 
 ## 2. Name flows by directory path
 
-Discovery scans the directories under `flows/` for an entry file: `flow.ts`, `flow.mdx`, or `SKILL.md`. The flow id is the directory path below `flows/`, segments joined with `/`: `flows/review/flow.mdx` is `review`, and `flows/deploy/status/flow.ts` is `deploy/status`. An entry file directly in `flows/` is refused, because a path-named source cannot contain a root-level entry, and a frontmatter `name` or a declared `Flow.make` name is ignored with a warning.
+Discovery scans the directories under `flows/` for an entry file: `flow.ts`, `flow.mdx`, or `SKILL.md`. The flow id is the directory path below `flows/`, segments joined with `/`: `flows/review/flow.mdx` is `review`, and `flows/deploy/status/flow.ts` is `deploy/status`. An entry file directly in `flows/` is refused, because a path-named source cannot contain a root-level entry, and a frontmatter `name`, or a `Flow.make` tag that differs from the path-derived id, is ignored with a `name_field_ignored` warning.
 
 Three rules decide what counts:
 
@@ -5819,9 +5823,7 @@ An `include` that names a tool the server does not offer fails the connection wi
 
 A connection requires an installed MCP server and any credentials it needs. Keep the agent execution inside the connection scope; a source returned from a closed scope cannot call the server.
 
-A host composing its own catalog in code gets the same projection from `@smthrs/mcp`: `McpFlows.connected` returns a `FlowBinding.Source` to pass to `FlowBinding.catalog` alongside `StandardFlows.filesystem(...)`, `StandardFlows.shell(...)`, and the host's other sources. The connection lives as long as its scope, and closing the scope tears down the spawned server:
-
-See [the MCP tools example](/docs/examples/22-mcp-tools/) for a complete connection, catalog, and tool call. It keeps the connection open for the call and closes it when the scoped program finishes.
+A host composing its own catalog in code gets the same projection from `@smthrs/mcp`: `McpFlows.connected` returns a `FlowBinding.Source` to pass to `FlowBinding.catalog` alongside `StandardFlows.filesystem(...)`, `StandardFlows.shell(...)`, and the host's other sources. The connection lives as long as its scope, and closing the scope tears down the spawned server. See [the MCP tools example](/docs/examples/22-mcp-tools/) for a complete connection, catalog, and tool call. It keeps the connection open for the call and closes it when the scoped program finishes.
 
 ## 4. Grant the capabilities the tools declare
 
@@ -47646,10 +47648,15 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_API_KEY` | operator | Preferred bearer credential channel for the remote control plane; avoids argv exposure. | `--credential` |
 | `SMITHERS_MCP_CONFIG` | operator | Path to the MCP server array the local executor projects into a run's flow catalog. | `--mcp-config` |
 | `SMITHERS_OPENAI_AUTH` | operator | `api-key` or `chatgpt`, selecting how `openai` seats authenticate. `chatgpt` reads the codex CLI's ChatGPT session at `$CODEX_HOME/auth.json` instead of `OPENAI_API_KEY`; any other value refuses the seat. | none |
-| `SMITHERS_BACKEND` | operator | Database backend; only `sqlite` is supported. Any other value exits 1 with `unsupported_database`. | `--backend` (hidden) |
+| `SMITHERS_BACKEND` | operator | Database backend: `sqlite` or `postgres`. Any other value exits 1 with `unsupported_database`. | `--backend` (hidden) |
+| `SMITHERS_POSTGRES_URL` | operator | PostgreSQL connection string; selects PostgreSQL (`DATABASE_URL` is the fallback). | none |
 | `SMITHERS_BUG_ENDPOINT` | operator | Where `smthrs bug` posts its report. | none |
 | `SMITHERS_JJ_PATH` | operator | Explicit path to the `jj` binary. | none |
-| `SMITHERS_PYTHON3` | operator | Absolute CPython 3 path for the Node and Bun control hosts' filesystem helper. Unset or empty uses `/usr/bin/python3`; a relative path fails startup. The hosts never search `PATH`. | none |
+| `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | operator | Absolute path to the `smithers-jj-export` filesystem helper, when it is not in a searched location. | none |
+| `SMITHERS_MEMORY_DB` | operator | Moves the memory store to its own SQLite file, shared by runs of one repository in separate workspaces. | none |
+| `SMITHERS_MODEL_PROXY_URL` | operator | Base URL of a model proxy that fronts the provider routes. | none |
+| `SMITHERS_ACCOUNT_POOL_URL` | operator | Smithers account pool that signs `anthropic:` and `openai:` seats; with `SMITHERS_ACCOUNT_POOL_KEY` and `SMITHERS_ACCOUNT_POOL_PROVIDERS`. | none |
+| `SMITHERS_TUI_BIN` | operator | The executable `smthrs tui` runs. | none |
 | `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS` | operator | How long a detached flow launch waits for the detached run's admission line. A value that is not a positive integer is ignored. | none |
 | `SMITHERS_TEST_COMMAND` | operator | The command the `test` flow runs. | none |
 | `SMITHERS_TEST_CONTAINER` | operator | The container the `test` flow runs in. | none |
@@ -47666,14 +47673,11 @@ selects destinations that bypass the proxy. If both proxy URLs are unset or
 empty, the dispatcher connects directly. Rebuilt connection pools use the
 same policy.
 
-## Variables the engine sets
-
-Set by the engine on the agent processes it spawns; never set them by hand.
+## Harness detection
 
 | Name | Set by | Purpose | CLI flag equivalent |
 | --- | --- | --- | --- |
-| `SMITHERS_INSIDE_RUN` | engine | Marks a process as an agent process inside a run. | none |
-| `SMITHERS_RUN_ID` | engine | The run an agent process belongs to. | none |
+| `SMITHERS_INSIDE_RUN` | agent harness | When set, output-audience detection treats the process as the Smithers agent harness. | none |
 
 ## Provider keys
 
@@ -47682,6 +47686,7 @@ Provider keys are read by the seat resolver, not by the CLI itself; `smthrs doct
 | Name | Read by | Purpose |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | seat resolver | Credentials `anthropic:*` seats. |
+| `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | seat resolver | Claude subscription bearer for `anthropic:*` seats when `ANTHROPIC_API_KEY` is unset. |
 | `OPENAI_API_KEY` | seat resolver | Credentials `openai:*` seats when `SMITHERS_OPENAI_AUTH` is unset or `api-key`. |
 | `OPENROUTER_API_KEY` | seat resolver | Credentials `openrouter:*` seats. |
 | `CEREBRAS_API_KEY` | seat resolver | Credentials for `cerebras:*` seats. |

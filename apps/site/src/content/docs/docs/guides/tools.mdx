@@ -124,9 +124,7 @@ An `include` that names a tool the server does not offer fails the connection wi
 
 A connection requires an installed MCP server and any credentials it needs. Keep the agent execution inside the connection scope; a source returned from a closed scope cannot call the server.
 
-A host composing its own catalog in code gets the same projection from `@smthrs/mcp`: `McpFlows.connected` returns a `FlowBinding.Source` to pass to `FlowBinding.catalog` alongside `StandardFlows.filesystem(...)`, `StandardFlows.shell(...)`, and the host's other sources. The connection lives as long as its scope, and closing the scope tears down the spawned server:
-
-See [the MCP tools example](/docs/examples/22-mcp-tools/) for a complete connection, catalog, and tool call. It keeps the connection open for the call and closes it when the scoped program finishes.
+A host composing its own catalog in code gets the same projection from `@smthrs/mcp`: `McpFlows.connected` returns a `FlowBinding.Source` to pass to `FlowBinding.catalog` alongside `StandardFlows.filesystem(...)`, `StandardFlows.shell(...)`, and the host's other sources. The connection lives as long as its scope, and closing the scope tears down the spawned server. See [the MCP tools example](/docs/examples/22-mcp-tools/) for a complete connection, catalog, and tool call. It keeps the connection open for the call and closes it when the scoped program finishes.
 
 ## 4. Grant the capabilities the tools declare
 
