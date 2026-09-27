@@ -343,6 +343,13 @@ function AppContent() {
    * jobs and the host's opening diagnostic while it renders.
    */
   const appsHome = homeCard !== undefined && homeApps(homeCard.payload.home).length > 0
+  /*
+   * The home alone (MINIMAL TEXT): while the apps home is all the transcript
+   * holds, the chat controls strip stays away — the home's own composer names
+   * ⌘K, which still summons Chat from anywhere. Only a chosen Vim mode keeps
+   * its indicator, because the keys under the person's hands changed.
+   */
+  const homeOnly = appsHome && messages.length === 0 && conversationCards.length === 0 && !typing
   // A cloud repository opens on its Welcome actions. Selection is durable and
   // precedes that card's load, so the technical success read never flashes first.
   // Native host diagnostics and stored failures keep their existing presentation.
@@ -606,14 +613,15 @@ function AppContent() {
       <div className="composer-overlay" data-testid="composer-overlay" hidden={session.paletteOpen !== true}>
         {composerWrap}
       </div>
-      <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls">
-        <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
+      <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
+        hidden={homeOnly && session.inputMode !== "vim"}>
+        {homeOnly ? null : <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
           controller.runCommand("chat.open")
           // Focus an already-open input now; Composer owns focus on opening.
           composerWrapRef.current?.querySelector("textarea")?.focus()
-        }}>Chat</GuideButton></FirstSightHint>
-        <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />
-        <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />
+        }}>Chat</GuideButton></FirstSightHint>}
+        {homeOnly && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
+        {homeOnly ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />}
       </footer>
       </div>
 
