@@ -130,6 +130,9 @@ export default showcase({
     // The import is the registration's own step: no card of its own, no job id anywhere.
     await expect(page.locator('[data-kind="repo-import"]')).toHaveCount(0)
     await expect(page.getByText("job-1")).toHaveCount(0)
+    // The report is the registrant's one view: no run card, and no admin action they cannot take.
+    await expect(page.locator('[data-kind="run-trace"]')).toHaveCount(0)
+    await expect(page.getByText("Review approval")).toHaveCount(0)
     await live.evaluate((element) => element.scrollIntoView({ block: "start" }))
     await app.beat(1500)
     // The whole report fits the 1440×900 frame.
