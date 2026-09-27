@@ -1849,12 +1849,14 @@ Read the files in your checkout.
 
 Register a repository; we review it. You can register one at a time.
 
+Paste the repository's link. Smithers analyzes it while you watch, answering each question itself, and gives you a report: license, how checks run, contributors, agent readiness, and chores worth automating. The report is yours to keep. Then we review the registration and set Smithers up.
+
 **GUI**
 
-**Planned**, being built now. Sign in with GitHub on [smithers.sh](https://smithers.sh/smithersai/smithers), then select **Register a repository** on [the home page](https://smithers.sh/?register=1), or enter `/repository.register`. Answer a few questions; the registration card shows where it is.
+**Planned.** Sign in with GitHub on [smithers.sh](https://smithers.sh/smithersai/smithers), then select **Register a repository** on [the home page](https://smithers.sh/?register=1), or enter `/repository.register`. Paste the link. Smithers' own choices animate as it makes them. A row in the sidebar shows where it is: Analyzing, In review, Setting up, Ready.
 
 :::note[Capture needed]
-Registering a repository in the real app, from the question to the In review card. Needs `/repository.register` on main.
+A GIF of registering a repository in the real app: the link, the analysis choosing its answers, the report, and the In review row. Needs `/repository.register` on main.
 :::
 
 **TUI**
