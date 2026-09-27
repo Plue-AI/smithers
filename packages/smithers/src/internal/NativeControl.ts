@@ -795,7 +795,16 @@ export const make = (
               )
           })
         })
-      ).pipe(Layer.provide([stores, native.crypto, registry]), Layer.orDie)
+      ).pipe(
+        Layer.provide([stores, native.crypto]),
+        // The registry builds first, alone. Built beside `stores`, whose build
+        // `materializeEngine` shares, a registry that dies interrupts that
+        // shared build, and effect 4.0.0-rc.115 then reports only the
+        // interruption: every command failed "All fibers interrupted without
+        // error" instead of naming the discovery failure (#1924).
+        Layer.provide(registry),
+        Layer.orDie
+      )
     return {
       runtime,
       journal: stores,

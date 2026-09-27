@@ -1935,6 +1935,34 @@ describe("the smthrs init scaffold, launched as written", processBudget, () => {
     }
   })
 
+  // A registry that cannot discover flows dies while the control host's stores
+  // are still opening. The failure must reach the operator as the discovery
+  // error, not as the interruption of the stores it cut short (#1924).
+  it.each([["flow", "list"], ["runs", "list"]])(
+    "`%s %s` names a missing smithers-jj-export",
+    (...verb) => {
+      const cwd = stageEmptyProject()
+      const home = mkdtempSync(join(tmpdir(), "smithers-helper-home-"))
+      try {
+        const environment = { ...withoutSeats(), SMITHERS_HOME: home }
+        expect(smithers(cwd, ["init", "hello", "--json"], environment).status).toBe(0)
+        const missing = join(home, "no-such-smithers-jj-export")
+        const result = smithers(cwd, [...verb, "--format", "json"], {
+          ...environment,
+          SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: missing
+        })
+        expect(result.status).toBe(1)
+        const output = result.stdout + result.stderr
+        expect(output).toContain("DiscoveryError")
+        expect(output).toContain(`SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${missing}`)
+        expect(output).not.toContain("All fibers interrupted")
+      } finally {
+        rmSync(cwd, { recursive: true, force: true })
+        rmSync(home, { recursive: true, force: true })
+      }
+    }
+  )
+
   it("writes a seat the host can resolve, chosen from the environment doctor reads", () => {
     const cwd = stageEmptyProject()
     try {
