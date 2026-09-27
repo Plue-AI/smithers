@@ -28,6 +28,7 @@ import { ModelCallCardPayloadSchema, ModelsCardPayloadSchema } from "./Configure
 import { FactoryRuleSchema } from "./FactoryProjection.ts"
 import { GatewayWorkspaceIdSchema } from "./GatewayWorkspace.ts"
 import { StatusRollupSchema } from "./Health.ts"
+import { IntegrationRowSchema, PersonaRefSchema, TaskMetaSchema } from "./Threads.ts"
 import { HARNESS_IDS, RepoSchema, TargetSchema } from "./LocalApp.ts"
 import { LSP_DIAGNOSTICS_CAP, LspDiagnosticSchema, LspHoverSchema } from "./LocalLsp.ts"
 import { PLUE_FAULTS } from "./PlueFailureCodes.ts"
@@ -981,7 +982,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       /** Authentication evidence; legacy cards do not establish a GitHub connection. */
       provider: z.enum(["github", "local"]).optional(),
       github: z.object({ connected: z.boolean(), login: z.string().nullable() }),
-      nativeAvailable: z.boolean()
+      nativeAvailable: z.boolean(),
+      /** The services that sync with conversations, issues and the wiki (smithers-ui-DESIGN.md §3.6), read by integrations.list. */
+      integrations: z.object({ repo: z.string(), rows: z.array(IntegrationRowSchema) }).optional()
     })
   }),
   /* A world query's embedded answer card (the agent's world form; §2c″). */
@@ -1154,7 +1157,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
        * Progressive inspection uses one card: a cheap turn list by default,
        * the full timeline or the run's graph on demand.
        */
-      traceView: z.enum(["turns", "timeline", "graph"]).optional(),
+      traceView: z.enum(["turns", "timeline", "graph", "steps"]).optional(),
       /**
        * The plan the launch was approved on, snapshotted when the run started.
        *
@@ -1465,9 +1468,27 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           decidedAt: z.number().optional(),
           decisionError: z.string().optional(),
           /** A decision is in flight: the buttons hide until the server answers, so a second click cannot send a contradicting decision. */
-          pending: z.boolean().optional()
+          pending: z.boolean().optional(),
+          /** The agent profile whose run asked, when the run is one of the configured profiles'. */
+          agent: PersonaRefSchema.optional(),
+          /** The conversation (`owner/repo#number`) the run was working, when recorded. */
+          thread: z.string().optional()
         })
-      )
+      ),
+      /*
+       * Runaway incidents (smithers-ui-DESIGN.md §3.4): a budget or time guard
+       * parked a run. The row offers Continue (runs.resume) and Stop
+       * (flow.run.stop); the guard's detail is the record's own words.
+       */
+      incidents: z.array(z.object({
+        runId: z.string(),
+        title: z.string(),
+        guard: z.enum(["budget", "time"]),
+        detail: z.string(),
+        parkedAt: z.number(),
+        agent: PersonaRefSchema.optional(),
+        thread: z.string().optional()
+      })).optional()
     })
   }),
   /*
@@ -1500,12 +1521,24 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({
       repo: z.string(),
       filter: z.enum(["open", "closed", "all"]),
+      /** Which rows the list shows: every issue, only conversations, or only issues (issues.list --kind). */
+      kind: z.enum(["all", "conversation", "issue"]).optional(),
       issues: z.array(
         z.object({
           number: z.number().int(),
           kind: z.enum(["issue", "chat"]).optional(),
+          /*
+           * Conversations and issues (smithers-ui-DESIGN.md §3.1, §3.2): a
+           * conversation rows with its last message, an issue with its state
+           * and intent metadata; `synced` marks a mirrored conversation. Each
+           * is present only when the read carried it.
+           */
+          task: TaskMetaSchema.optional(),
+          last: z.object({ persona: PersonaRefSchema, text: z.string(), at: z.string() }).optional(),
+          synced: z.boolean().optional(),
           title: z.string(),
-          state: z.enum(["open", "closed"]),
+          /** The backend's states: an issue moves open → fixed → verified → closed; a conversation opens and closes. */
+          state: z.enum(["open", "fixed", "verified", "closed"]),
           author: z.string().nullable(),
           comments: z.number().int().nonnegative(),
           updatedAt: z.string().nullable(),
@@ -1550,8 +1583,10 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       number: z.number().int(),
       kind: z.enum(["issue", "chat"]).optional(),
       visibility: z.enum(["public", "private"]).optional(),
+      /** Intent metadata (smithers-ui-DESIGN.md §3.2): owner, due, priority, parent, fixer and verifier, when the issue carries them. */
+      task: TaskMetaSchema.optional(),
       title: z.string(),
-      state: z.enum(["open", "closed"]),
+      state: z.enum(["open", "fixed", "verified", "closed"]),
       author: z.string().nullable(),
       issueBody: z.string(),
       source: z.enum(["smithers-cloud", "github"]).optional(),
@@ -1578,6 +1613,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           idempotencyKey: z.string().optional(),
           reactions: z.array(z.object({ name: z.string(), actor: z.string(), active: z.boolean() })).optional(),
           persona: z.object({ username: z.string(), iconEmoji: z.string().optional(), iconUrl: z.string().optional() }).optional(),
+          /** Where the record says the message came from; absent until the backend carries it. */
+          origin: z.enum(["app", "slack", "telegram"]).optional(),
           commentBody: z.string(),
           createdAt: z.string().nullable(),
           authorAvatar: z.string().optional()
@@ -2709,6 +2746,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
             harnessName: z.string(),
             model: AgentRoleModelSchema,
             builtin: z.boolean(),
+            /** Profile metadata (smithers-ui-DESIGN.md §3.3): who this profile reports to, and whether it is a hired specialist. */
+            reportsTo: z.string().optional(),
+            kind: z.enum(["core", "specialist", "helper"]).optional(),
             available: z.boolean(),
             /** Why it cannot launch here (roleMenuEntries); empty when available. */
             reason: z.string(),
@@ -2934,8 +2974,11 @@ export const CardSchema = Object.assign(
             if (typeof entry !== "object" || entry === null) return []
             const saved = entry as Record<string, unknown>
             const role = AGENT_ROLES.find((candidate) => candidate.id === saved.id)
+            // A built-in row reads its facts from the table; a configured
+            // profile the table does not know (smithers-ui-DESIGN.md §3.3)
+            // keeps its own, and the schema below still validates it.
             return role === undefined ?
-              [] :
+              [saved] :
               [{
                 ...saved,
                 id: role.id,

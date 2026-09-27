@@ -211,7 +211,7 @@ describe("the file card", () => {
 describe("the agent cards", () => {
   const row = builtInCardRow
 
-  test("the agents card retains availability but resets custom definitions and edited built-in models", () => {
+  test("the agents card retains availability, resets edited built-in facts to the table, and keeps configured profiles as read", () => {
     const card = CardSchema.parse({
       ...base,
       kind: "agents",
@@ -219,11 +219,12 @@ describe("the agent cards", () => {
         native: true,
         agents: [
           { ...row, model: { provider: "openai", id: "gpt 5", label: "Edited" }, label: "Edited" },
-          { ...row, id: "custom-reviewer", builtin: false }
+          { ...row, id: "custom-reviewer", builtin: false, kind: "specialist", reportsTo: "orchestrator" }
         ]
       }
     })
-    expect(card.payload).toEqual({ native: true, agents: [row] })
+    // A built-in reads its facts from the table; a configured profile (smithers-ui-DESIGN.md §3.3) keeps its own.
+    expect(card.payload).toEqual({ native: true, agents: [row, { ...row, id: "custom-reviewer", builtin: false, kind: "specialist", reportsTo: "orchestrator" }] })
   })
 
   test("the flow-form card holds the flow, who asked, the derived fields, the draft and what was given; a bad kind or provider is rejected", () => {
@@ -888,7 +889,10 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
   },
   connect: {
     minimal: { github: { connected: false, login: null }, nativeAvailable: false },
-    full: { provider: "github", github: { connected: true, login: "will" }, nativeAvailable: true }
+    full: {
+      provider: "github", github: { connected: true, login: "will" }, nativeAvailable: true,
+      integrations: { repo: "smithersai/smithers", rows: [{ id: "linear", state: "error", detail: "ENG", error: "token revoked", lastSyncAt: "2026-09-26T09:40:00Z", action: { label: "Sync ops", flow: "sync.ops", args: "smithersai/smithers" } }] }
+    }
   },
   world: {
     minimal: { documents: [] },
@@ -1168,7 +1172,18 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         decision: "denied",
         decidedAt: 1_757_000_060_000,
         decisionError: "the gateway refused (503)",
-        pending: true
+        pending: true,
+        agent: { id: "assistant", name: "Assistant", agentId: "assistant" },
+        thread: "example/app#2101"
+      }],
+      incidents: [{
+        runId: "run-2",
+        title: "Daily audit",
+        guard: "budget",
+        detail: "2.1% of the week",
+        parkedAt: 1_757_000_000_000,
+        agent: { id: "engineer", name: "Engineer", agentId: "engineer" },
+        thread: "example/app#2101"
       }]
     }
   },
@@ -1186,15 +1201,20 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     full: {
       repo: "smithersai/smithers",
       filter: "all",
+      kind: "issue",
       issues: [{
         number: 1634,
         title: "rc0 CI green",
-        state: "closed",
+        state: "fixed",
         author: "will",
         comments: 4,
         updatedAt: "2026-09-05T09:00:00Z",
         source: "github",
-        htmlUrl: "https://github.com/smithersai/smithers/issues/1634"
+        htmlUrl: "https://github.com/smithersai/smithers/issues/1634",
+        kind: "chat",
+        task: { owner: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, due: "2026-09-27", priority: 1, parent: { number: 1600, title: "CI" }, fixedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, verifiedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" } },
+        last: { persona: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, text: "Tests pass.", at: "2026-09-26T09:40:00Z" },
+        synced: true
       }],
       github: {
         source: "synced",
@@ -1222,17 +1242,18 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       title: "rc0 CI green",
       kind: "chat",
       visibility: "private",
+      task: { owner: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, due: "2026-09-27", priority: 0, parent: { number: 1600 }, fixedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" }, verifiedBy: { id: "assistant", name: "Assistant", iconUrl: "https://example.com/assistant.png", agentId: "assistant" } },
       conversation: { branchId: "branch-main", owner: "will", creationKey: "conversation-1" },
       commentDraft: "Reply",
       pendingComments: [{ id: "request-1", text: "Hello", actor: "user", status: "requested" }],
       sync: { provider: "slack", connectionId: "slack", scopeId: "T1", conversationId: "C1", threadId: "1.1" },
-      state: "closed",
+      state: "verified",
       author: "will",
       issueBody: "shard-3 wedges on sqlite",
       source: "github",
       htmlUrl: "https://github.com/smithersai/smithers/issues/1634",
       labels: ["ci", "flaky"],
-      comments: [{ id: 31, author: null, persona: { username: "Reviewer", iconEmoji: ":robot_face:", iconUrl: "https://example.com/avatar.png" }, commentBody: "reproduced", createdAt: "2026-09-05T09:00:00Z" }],
+      comments: [{ id: 31, author: null, persona: { username: "Reviewer", iconEmoji: ":robot_face:", iconUrl: "https://example.com/avatar.png" }, commentBody: "reproduced", createdAt: "2026-09-05T09:00:00Z", origin: "slack" }],
       createdAt: "2026-09-04T08:00:00Z",
       assignees: [{ login: "ada", avatar: "https://avatars.githubusercontent.com/u/1" }],
       labelColors: { ci: "0e8a16", flaky: "d93f0b" },
