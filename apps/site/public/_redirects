@@ -2,6 +2,15 @@
 # Renamed pages lead to their current topic. Removed JSX components, UI APIs,
 # and workflow packs lead to the 1.0 migration guide, which explains removal.
 # Keep these literal rules before the legacy reference splat below.
+# Concept and tutorial renames (2026-09-26): user-facing names are Conversation and Issue.
+/docs/how-it-works/threads  /docs/how-it-works/conversations/  301
+/docs/how-it-works/threads/  /docs/how-it-works/conversations/  301
+/docs/how-it-works/tasks  /docs/how-it-works/issues/  301
+/docs/how-it-works/tasks/  /docs/how-it-works/issues/  301
+/docs/learn/mirror-a-thread  /docs/learn/sync-a-conversation/  301
+/docs/learn/mirror-a-thread/  /docs/learn/sync-a-conversation/  301
+/docs/learn/create-a-task  /docs/learn/create-an-issue/  301
+/docs/learn/create-a-task/  /docs/learn/create-an-issue/  301
 /agents/claude-code  /docs/guides/model-seats/  301
 /agents/claude-code/  /docs/guides/model-seats/  301
 /agents/codex  /docs/guides/model-seats/  301

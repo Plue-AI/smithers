@@ -8,7 +8,7 @@ sidebar:
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-An agent profile is a flow, so an agent's history is the runs of its flow. Each run has a timeline.
+An agent's history is its runs. Each run has a timeline.
 
 ## Flags to look for
 
@@ -24,11 +24,11 @@ An agent profile is a flow, so an agent's history is the runs of its flow. Each 
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** Enter `/runs.list` and set **Flow** to the profile's id, such as `reviewer`. Select a run to open it.
+**Available now.** Enter `/runs.list` and set **Flow** to the agent's id, such as `reviewer`. Select a run to open it.
 
-**Planned.** An **Agents** list with a **Runs** button per profile ([#2113](https://github.com/smithersai/smithers/issues/2113)).
+**Planned.** An **Agents** list with a **Runs** button per agent ([#2113](https://github.com/smithersai/smithers/issues/2113)).
 
-<AppScreenshot src="/images/learn/preview-agents.png" alt="Design preview of the Agents list: profiles grouped by who they report to, each with a Runs button." caption="Design preview with example data. Not released." width={868} height={380} />
+<AppScreenshot src="/images/learn/preview-agents.png" alt="Design preview of the Agents list, each agent with a Runs button." caption="Design preview with example data. Not released." width={868} height={380} />
 
 </TabItem>
 <TabItem label="TUI">
@@ -48,7 +48,7 @@ smthrs runs list --status waiting-approval
 </TabItem>
 <TabItem label="API">
 
-**Available now.** Control RPC `List { _tag: "runs", filters: { flowId: "reviewer" } }`. Over HTTP, `GET /api/repos/{owner}/{repo}/workflows/{id}/runs` lists one flow's runs.
+**Available now.** API procedure `List { _tag: "runs", filters: { flowId: "reviewer" } }`. Over HTTP, `GET /api/repos/{owner}/{repo}/workflows/{id}/runs` lists one flow's runs.
 
 </TabItem>
 </Tabs>
@@ -88,7 +88,7 @@ smthrs runs logs <run> --follow
 </TabItem>
 <TabItem label="API">
 
-**Available now.** Control RPC `Watch { runId, follow: true }` streams events. `Projection.Snapshot` with selector `run-events` or `run-tree` returns the recorded trace.
+**Available now.** API procedure `Watch { runId, follow: true }` streams events. `Projection.Snapshot` with selector `run-events` or `run-tree` returns the recorded trace.
 
 </TabItem>
 </Tabs>

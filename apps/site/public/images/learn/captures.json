@@ -17,7 +17,7 @@
     "revision": "1c831a6974",
     "captured": "2026-09-26"
   },
-  "preview-chat-thread.png": {
+  "preview-chat.png": {
     "source": "preview",
     "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2105).",
     "revision": "1c831a6974",
@@ -35,15 +35,15 @@
     "revision": "1c831a6974",
     "captured": "2026-09-26"
   },
-  "preview-run-steps.png": {
+  "preview-issues.png": {
     "source": "preview",
-    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114, #2115).",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2112).",
     "revision": "1c831a6974",
     "captured": "2026-09-26"
   },
-  "preview-threads.png": {
+  "preview-run-steps.png": {
     "source": "preview",
-    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2112).",
+    "detail": "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114, #2115).",
     "revision": "1c831a6974",
     "captured": "2026-09-26"
   },

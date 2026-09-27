@@ -44,8 +44,8 @@ export const tuiRecordings = [
 
 /** Design previews: real app components over fixture data, from an unlanded branch. */
 export const previews = [
-  { id: "threads", file: "issue-list-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2112)." },
-  { id: "chat-thread", file: "issue-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2105)." },
+  { id: "issues", file: "issue-list-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2112)." },
+  { id: "chat", file: "issue-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2111, #2105)." },
   { id: "agents", file: "agents-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2113)." },
   { id: "run-steps", file: "run-trace-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114, #2115)." },
   { id: "inbox", file: "approvals-inbox-1280-light.png", detail: "Design preview: ui-surfaces probe, branch ui-threads-org, fixture data (#2114)." },

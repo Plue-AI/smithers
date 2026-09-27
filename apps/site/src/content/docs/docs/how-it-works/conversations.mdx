@@ -1,0 +1,40 @@
+---
+title: "Conversations"
+description: "A conversation is a chat with Smithers or the discussion on an issue. Conversations last, and can sync with Slack or Telegram."
+sidebar:
+  order: 2
+---
+
+A **conversation** lasts: a subject, its messages, and the people and agents taking part. Work starts in a conversation and reports back to it.
+
+| Kind | What it is for |
+| --- | --- |
+| Chat | A private conversation with Smithers and your agents. |
+| Issue discussion | Comments on an [issue](/docs/how-it-works/issues/), visible to the repository's team. |
+
+## Chats
+
+**Available now.** [Chat](/docs/learn/chat/) with Smithers in the app or the TUI. The app keeps your chats for your account; the TUI keeps sessions in the project.
+
+**Planned.** Private chats are kept, searchable, and can sync with Slack or Telegram, with agents replying under their own names ([#2111](https://github.com/smithersai/smithers/issues/2111)).
+
+## Issue discussions
+
+**Available now.** Every issue has comments, and every change to it is recorded. The list shows the repository's Smithers issues with its GitHub issues.
+
+## Messages start work
+
+A message can trigger a flow. The assistant answers, or hands the request to the right [agent](/docs/how-it-works/agents/) and posts its reply in the same conversation.
+
+**Planned.** Message triggers for chats. See [Triggers and flows](/docs/how-it-works/triggers-and-flows/).
+
+## Sync with Slack and Telegram
+
+A conversation can sync with one Slack thread or Telegram chat. Sync is two-way: a message, edit, or delete on either side appears once on the other. Agents post under their own names.
+
+**Planned.** Set up from the app ([#2105](https://github.com/smithersai/smithers/issues/2105)). Telegram reactions are not synced ([#2110](https://github.com/smithersai/smithers/issues/2110)). See [Sync a conversation](/docs/learn/sync-a-conversation/).
+
+## Next
+
+- [Issues](/docs/how-it-works/issues/): work to get done.
+- [Chat with an agent](/docs/learn/chat/): the first tutorial.

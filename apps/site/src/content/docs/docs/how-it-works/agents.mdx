@@ -1,13 +1,13 @@
 ---
 title: "Agents"
-description: "An agent is a profile, and a profile is a flow file: its charter, its model, what it may touch, and how much it may spend."
+description: "An agent is a file in your repository: its instructions, its model, what it may do, and how much it may spend."
 sidebar:
   order: 5
 ---
 
-An **agent** in Smithers is a **profile**, and a profile is a flow: a `flows/<id>/flow.mdx` file in your repository. The front matter says which model runs it, what it may touch, and how much it may spend. The body is its charter.
+An **agent** is a file in your repository, `flows/<id>/flow.mdx`. An agent profile is a flow, so everything that runs flows runs agents. The front matter sets the model, what the agent may do, and its budget. The body is its instructions.
 
-## A profile
+## An agent
 
 **Available now.**
 
@@ -29,34 +29,34 @@ with the evidence for each finding.
 
 | Part | What it decides |
 | --- | --- |
-| `description` | One line shown wherever the profile is listed. |
-| `model` | The model seat, such as `openai:gpt-6-sol`. |
-| `capabilities` | What it may touch. Anything not granted is refused. |
+| `description` | One line shown wherever the agent is listed. |
+| `model` | The model, such as `openai:gpt-6-sol`. |
+| `capabilities` | What it may do. Anything else is refused. |
 | `budget` | The most tokens and time one run may spend. |
-| `flows` | Other flows it may call, such as a specialist. |
-| Body | The charter: the job, the output, and when to stop and ask. |
+| `flows` | Other agents or flows it may call. |
+| Body | The instructions: the job, the output, and when to stop and ask. |
 
 Skills are `SKILL.md` files beside your flows. A skill adds instructions, never permissions. [flow.mdx frontmatter](/docs/reference/flow-mdx/) lists every key.
 
 ## Agents call agents
 
-**Available now.** A profile lists the flows it may call under `flows`. A called flow runs as a child run, with its own model, grants, and timeline. A child can only narrow what its parent may touch.
+**Available now.** An agent lists what it may call under `flows`. Each call is its own run, with its own model, permissions, and timeline. A called agent can only do less than its caller, never more.
 
 ## See what an agent did
 
-**Available now.** A profile's runs are the runs of its flow. Filter the run list by flow to see one agent's history, then open a run's timeline. See [Watch an agent work](/docs/learn/watch-an-agent/).
+**Available now.** Filter the run list by the agent's id to see its history, then open a run's timeline. See [Watch an agent work](/docs/learn/watch-an-agent/).
 
-**Planned.** An Agents list in the app showing every configured profile, who it reports to, and a **Runs** button ([#2113](https://github.com/smithersai/smithers/issues/2113)).
+**Planned.** An Agents list in the app, with a **Runs** button per agent ([#2113](https://github.com/smithersai/smithers/issues/2113)).
 
-## Guards
+## Budgets
 
-**Available now.** `budget` bounds a run's tokens and time.
+**Available now.** `budget` caps a run's tokens and time.
 
-**Planned.** When a run hits its budget or time limit, it parks and asks you to continue or stop, in the thread and the inbox ([#2114](https://github.com/smithersai/smithers/issues/2114)).
+**Planned.** When a run hits its budget or time limit, it pauses and asks you to continue or stop ([#2114](https://github.com/smithersai/smithers/issues/2114)).
 
 ## Memory
 
-**Planned.** Each run starts with the memories relevant to its thread, from banks its capabilities grant. See [Memory](/docs/concepts/memory/) for the store underneath.
+**Planned.** Each run starts with the memories relevant to its conversation. See [Memory](/docs/concepts/memory/).
 
 ## Next
 

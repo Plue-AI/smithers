@@ -1,47 +1,46 @@
 ---
 title: "How Smithers works"
-description: "The six ideas behind Smithers: threads, tasks, wiki, agents, triggers, and flows, and how the coding factory ties them together."
+description: "The ideas behind Smithers: conversations, issues, the wiki, agents, triggers, flows, and runs, and how they fit together."
 sidebar:
   order: 1
 ---
 
 import DocsDiagram from "../../../../components/DocsDiagram.astro"
 
-Smithers is built from six ideas. One loop, the **coding factory**, runs them.
+Smithers is built from a few ideas.
 
 | Idea | In one line |
 | --- | --- |
-| [Thread](/docs/how-it-works/threads/) | A conversation that lasts: an issue, or a private chat. |
-| [Task](/docs/how-it-works/tasks/) | An issue someone intends to finish, with state. |
+| [Conversation](/docs/how-it-works/conversations/) | A chat with Smithers, or the discussion on an issue. |
+| [Issue](/docs/how-it-works/issues/) | Something to get done, from open to verified. |
 | [Wiki](/docs/how-it-works/wiki/) | What the project knows, versioned and kept current. |
-| [Agent](/docs/how-it-works/agents/) | A profile: a flow file with a charter, a model, grants, and a budget. |
+| [Agent](/docs/how-it-works/agents/) | Instructions, a model, what it may do, and a budget. |
 | [Trigger](/docs/how-it-works/triggers-and-flows/) | Something that happens: a message, a schedule, an issue or code event. |
 | [Flow](/docs/how-it-works/triggers-and-flows/) | The steps Smithers runs when a trigger fires. |
+| Run | One durable execution of a flow; it resumes after a restart. |
 
 ## How they fit
 
 <DocsDiagram
   id="how-smithers-works"
   title="How the pieces connect"
-  caption="A trigger starts a flow. An agent profile is itself a flow, so the flow runs the right profile for the job. Agents answer in threads, move tasks, and update the wiki. Every step is recorded."
+  caption="A trigger starts a flow. The flow puts agents to work. Agents reply in conversations, move issues forward, and update the wiki. Every step is recorded."
   rows={[
     [{ label: "Trigger", detail: "A message, a schedule, an event" }],
     [{ label: "Flow", detail: "Recorded as it runs" }],
-    [{ label: "Agents", detail: "Profiles are flows" }],
+    [{ label: "Agents", detail: "The right one for the job" }],
     [
-      { label: "Threads", detail: "Issues and chats" },
-      { label: "Tasks", detail: "Issues with state" },
+      { label: "Conversations", detail: "Chats and discussion" },
+      { label: "Issues", detail: "Work to get done" },
       { label: "Wiki", detail: "Versioned knowledge" }
     ]
   ]}
 />
 
-1. **Something happens.** A message arrives in a thread, a schedule comes due, or an issue is labeled.
-2. **The factory admits it.** Each event is recorded once, queued, and dispatched to the flow its rule names.
-3. **A flow runs.** An agent profile is a flow, so the run uses that profile's model, grants, and budget.
-4. **Work comes back.** Replies land in the thread. Code changes arrive as pull requests. The wiki refreshes when code lands.
-
-There is no separate "organization" to set up. Your repository's flows, rules, and wiki are the whole configuration.
+1. **Something happens.** A message arrives, a schedule comes due, or an issue is labeled.
+2. **Its rule picks a flow.**
+3. **The flow runs.** Each agent uses its own model, permissions, and budget.
+4. **Work comes back.** Replies land in the conversation. Code changes arrive as pull requests. The wiki refreshes when code lands.
 
 ## Four ways in
 
@@ -52,31 +51,10 @@ Everything is meant to be reachable four ways. The tutorials show each one in a 
 | GUI | People | The Smithers app |
 | TUI | People | `smthrs tui` |
 | CLI | Scripts and agents | `smthrs <command>` |
-| API | Scripts and services | HTTP and the control RPC |
+| API | Scripts and services | HTTP |
 
 ## Nothing is lost
 
 Smithers records each step as it finishes. After a restart, a run picks up where it stopped without repeating finished work. [Durable execution](/docs/concepts/durable-execution/) explains the engine.
 
-## What is available today
-
 Smithers is in alpha. Each page marks its sections **Available now**, **Partly available**, or **Planned**.
-
-| Capability | Status |
-| --- | --- |
-| Chat with Smithers in the app and the TUI | Available now |
-| Issues in the app | Available now |
-| Fixed and verified task states | Partly available |
-| Chats stored as private issues | Planned |
-| Two-way Slack and Telegram sync for threads | Planned |
-| Two-way Linear sync for issues | Partly available |
-| Wiki notes and generated repository pages | Available now |
-| Wiki refresh after each landed change | Partly available |
-| Agent profiles as `flow.mdx` files | Available now |
-| Each profile's runs in the app | Available now |
-| Profiles listed in the app | Planned |
-| Schedule triggers | Available now |
-| Issue and code rules in `.smithers/FACTORY.ts` | Partly available |
-| Message triggers | Planned |
-| Run timelines with thrashing, blocked, and approval flags | Available now |
-| Budget and time guards that park a run and ask you | Planned |

@@ -1,5 +1,5 @@
 ---
-title: "Create a task"
+title: "Create an issue"
 description: "Open an issue, hand it to the coding factory, and move it from open to fixed to verified."
 sidebar:
   order: 3
@@ -8,7 +8,7 @@ sidebar:
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-A task is an issue someone intends to finish. It moves `open → fixed → verified → closed`. The person who verifies it cannot be the one who fixed it.
+An issue is something to get done. It moves `open → fixed → verified → closed`. The person who verifies it cannot be the one who fixed it.
 
 ## Open the issue
 
@@ -64,7 +64,7 @@ Set `SMITHERS_API` to your Smithers API origin and `SMITHERS_TOKEN` to a persona
 </TabItem>
 <TabItem label="API">
 
-**Partly available.** On a repository whose factory stack is on, label the issue `smithers`:
+**Available now.** Label the issue `smithers`:
 
 ```sh
 curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
@@ -83,7 +83,7 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 
 **Available now:** `/issues.close 42` and `/issues.reopen 42`. **Planned:** **Fixed** and **Verify** buttons, and owner, due date, and priority ([#2112](https://github.com/smithersai/smithers/issues/2112)).
 
-<AppScreenshot src="/images/learn/preview-threads.png" alt="Design preview of the Threads list with All, Chats, and Tasks filters and task rows showing state and priority." caption="Design preview with example data. Not released." width={868} height={560} />
+<AppScreenshot src="/images/learn/preview-issues.png" alt="Design preview of the issue list with filters and rows showing state and priority." caption="Design preview with example data. Not released." width={868} height={560} />
 
 </TabItem>
 <TabItem label="TUI">
@@ -115,4 +115,4 @@ Verifying your own fix fails with `self_verification`. Verifying an issue that i
 ## Next
 
 - [Watch an agent work](/docs/learn/watch-an-agent/): follow the factory's run.
-- [Tasks](/docs/how-it-works/tasks/): the idea behind this page.
+- [Issues](/docs/how-it-works/issues/): the idea behind this page.

@@ -14,12 +14,12 @@ A **trigger** is something that happens. A **flow** is the steps Smithers runs w
 | Schedule | Every weekday at 9:00, run the review. | Available now |
 | Issue event | An issue is labeled `smithers`. | Partly available |
 | Code event | A change opens, lands, or main moves. | Partly available |
-| Message | A message arrives in a chat thread. | Planned |
+| Message | A message arrives in a chat. | Planned |
 | Manual | You run a registered rule now. | Available now |
 
 ## Flows
 
-A flow lives at `flows/<name>/`: a `flow.mdx` whose body is the prompt, or a `flow.ts`. Every step is recorded as it finishes, so a stopped run resumes without redoing work. An [agent profile](/docs/how-it-works/agents/) is a flow.
+A flow lives at `flows/<name>/`: a `flow.mdx` whose body is the prompt, or a `flow.ts`. Each execution is a run. Every step is recorded as it finishes, so a stopped run resumes without redoing work. [Agents](/docs/how-it-works/agents/) are flows too.
 
 **Available now.** Run flows from the app's `/` menu, the TUI's `/flow`, `smthrs flow start`, or the API. See [Flows, actions, and plans](/docs/concepts/flows-actions-plans/).
 
@@ -42,15 +42,15 @@ export const factory = S.Factory({
 
 The app's **Dispatcher** lists each rule as declared.
 
-**Partly available.** The coding factory runs its own rules: implementing labeled issues, and refreshing history and the wiki when code lands. Other declared rules do not run yet.
+**Partly available.** Smithers runs its built-in rules: fixing issues labeled `smithers`, and refreshing history and the wiki when code lands. Other declared rules do not run yet.
 
 **Available now.** Schedules register directly: in the app with **Dispatcher**, **Register a rule**, or for a local project with `smthrs triggers register`. See [Configure an agent and a trigger](/docs/learn/agent-and-trigger/).
 
 **Planned.** Declared rules become live registrations when main moves. Message rules let a chat message start the assistant.
 
-## One loop
+## Once only
 
-Every trigger goes through the same loop. It is recorded once, queued, dispatched to its flow, and run as a durable run. A repeated delivery is ignored. A crash does not start the work twice.
+A repeated event never runs twice.
 
 ## Next
 

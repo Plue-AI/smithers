@@ -1,6 +1,6 @@
 ---
 title: "Configure an agent and a trigger"
-description: "Write an agent profile as a flow.mdx file, run it once, then put it on a schedule."
+description: "Write an agent as a flow.mdx file, run it once, then put it on a schedule."
 sidebar:
   order: 4
 ---
@@ -8,9 +8,9 @@ sidebar:
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-An agent profile is a flow file in your repository. A trigger starts it.
+An agent is a file in your repository. A trigger starts it.
 
-## Write the profile
+## Write the agent
 
 **Available now.** Every surface reads the same file. Create `flows/reviewer/flow.mdx`:
 
@@ -30,7 +30,7 @@ Read the diff and run the tests. Return approve or request changes,
 with the evidence for each finding.
 ```
 
-Grant only what the job needs. [flow.mdx frontmatter](/docs/reference/flow-mdx/) lists every key. On Smithers Cloud, commit it to the default branch.
+Allow only what the job needs. [flow.mdx frontmatter](/docs/reference/flow-mdx/) lists every key. On Smithers Cloud, commit it to the default branch.
 
 ## Run it once
 
@@ -70,7 +70,7 @@ curl -X POST "$SMITHERS_API/api/repos/acme/app/invoke" \
   -d '{"flow":"reviewer","input":{"args":"Review main"}}'
 ```
 
-The response carries the `run_id`. Over the control RPC, `Plan` then `Run` does the same.
+The response carries the `run_id`. The API's `Plan` then `Run` procedures do the same.
 
 </TabItem>
 </Tabs>
@@ -128,4 +128,4 @@ export const factory = S.Factory({
 ## Next
 
 - [Watch an agent work](/docs/learn/watch-an-agent/): read the runs it produces.
-- [Agents](/docs/how-it-works/agents/): the idea behind profiles.
+- [Agents](/docs/how-it-works/agents/): the idea behind agents.
