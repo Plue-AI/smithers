@@ -19,7 +19,7 @@
 - [How Smithers works](https://smithers.sh/docs/how-it-works/): The ideas behind Smithers: conversations, issues, the wiki, agents, triggers, flows, and runs, and how they fit together.
 - [Conversations](https://smithers.sh/docs/how-it-works/conversations/): A conversation is a chat with Smithers or the discussion on an issue. Conversations last, and can sync with Slack or Telegram.
 - [Issues](https://smithers.sh/docs/how-it-works/issues/): An issue is something to get done: it moves from open to fixed to verified, and the verifier is never the fixer.
-- [Wiki](https://smithers.sh/docs/how-it-works/wiki/): The wiki is what the project knows: versioned, tied to its sources, and refreshed when code lands.
+- [Wiki](https://smithers.sh/docs/how-it-works/wiki/): One wiki per repository, with a public part and a private part: Markdown pages in folders, linked like an Obsidian vault, versioned and kept current.
 - [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a file in your repository: its instructions, its model, what it may do, and how much it may spend. Start one from the app, the TUI, the CLI, or the API.
 - [Triggers and flows](https://smithers.sh/docs/how-it-works/triggers-and-flows/): A trigger is something that happens; a flow is the steps Smithers runs in response. Rules in .smithers/FACTORY.ts connect them.
 

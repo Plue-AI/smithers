@@ -511,15 +511,19 @@ open → fixed → verified → closed
 # Wiki
 https://smithers.sh/docs/how-it-works/wiki/
 
-The **wiki** is what people and agents know about the project. Both read it and write it. Agents read it before they plan.
+The **wiki** is what people and agents know about a repository. Both read it and write it. Agents read it before they plan.
+
+## One wiki, two parts
+
+**Available now.** Each repository has one wiki with a **public** part and a **private** part. The public part is readable by anyone who can read the repository. The private part is for people with explicit access to it. A page stays in the part it was written in.
+
+## Shaped like a vault
+
+**Available now.** Pages are Markdown files in folders, like an Obsidian vault. `[[Page]]` links another page, `[[Page#Heading|label]]` a heading, and `![[assets/logo.png]]` embeds a file. Every page shows what links to it. Front matter, tags, and aliases are kept as written.
 
 ## Versioned
 
-**Available now.** Every edit is a new revision; earlier revisions are kept. Edits never silently overwrite each other.
-
-## Tied to sources
-
-**Available now.** Generated pages say which code they describe. See [Use the wiki](/docs/learn/wiki/).
+**Available now.** Every edit, rename, and delete is a revision; earlier revisions stay readable, even after a delete. Edits never silently overwrite each other.
 
 ## Kept current
 
@@ -527,13 +531,9 @@ When a change lands, Smithers regenerates the pages it affects, reviews each aga
 
 **Partly available.** Refresh runs when main moves, for repositories with the stack on and a declared wiki. Hosted proof is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923).
 
-## Public and private
+## Sync with Notion and Obsidian
 
-**Backend available; app connection pending** ([#1922](https://github.com/smithersai/smithers/issues/1922)). Public pages follow repository visibility. Private pages require explicit repository access. Both spaces retain Markdown paths, navigation and versioned content.
-
-## Sync with knowledge tools
-
-**Planned.** Two-way sync with Notion, and with a local Markdown folder.
+**Planned.** Two-way sync with Notion and with a local Obsidian folder ([#2122](https://github.com/smithersai/smithers/issues/2122)).
 
 ## Next
 
