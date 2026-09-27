@@ -343,14 +343,14 @@ describe("parseEnvironment: secret metadata", () => {
 
   test("reads hosts, match headers and the updated time per secret", () => {
     expect(parseEnvironment(document)?.secrets).toEqual([
-      { name: "NPM_TOKEN", hosts: ["registry.npmjs.org"], matchHeaders: ["authorization"], updatedAt: "2026-08-01T00:00:00Z" },
-      { name: "SETUP_ONLY", hosts: [], matchHeaders: [], updatedAt: "2026-08-02T00:00:00Z" }
+      { name: "NPM_TOKEN", hosts: ["registry.npmjs.org"], matchHeaders: ["authorization"], updatedAt: "2026-08-01T00:00:00Z", reconnect: false },
+      { name: "SETUP_ONLY", hosts: [], matchHeaders: [], updatedAt: "2026-08-02T00:00:00Z", reconnect: false }
     ])
   })
 
   test("a secret row without binding or time fields is a setup-only secret with no updated time", () => {
     const config = parseEnvironment({ ...document, secrets: [{ name: "LEGACY" }] })
-    expect(config?.secrets).toEqual([{ name: "LEGACY", hosts: [], matchHeaders: [], updatedAt: null }])
+    expect(config?.secrets).toEqual([{ name: "LEGACY", hosts: [], matchHeaders: [], updatedAt: null, reconnect: false }])
   })
 
   test("a value field on the wire is never carried into the config", () => {
@@ -426,5 +426,37 @@ test("a refused subscription token is removed on purpose, never by an unrelated 
     expect(puts).toEqual([{ setup_script: "export CLAUDE_CODE_OAUTH_TOKEN=[redacted]\nnpm ci", env: [{ name: "CI", value: "1" }] }])
     await seam.removeSubscriptionToken("will/flows")
     expect(puts).toHaveLength(1)
+  } finally { await store.dispose?.() }
+})
+
+test("Remove token deletes a flagged secret and leaves an unflagged environment as it is", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await ready(store)
+  const writes: string[] = []
+  let flagged = true
+  const answer = () => ({ setup_script: "npm ci", env: [], secrets: [
+    { name: "OK", hosts: [], match_headers: [] },
+    ...(flagged ? [{ name: "CLAUDE", hosts: [], match_headers: [], reconnect_required: true }] : [])
+  ], ...(flagged ? { reconnect_required: true } : {}) })
+  const actors = createActorBindings(() => {})
+  let ordinal = 0
+  const seam = actors.pair({
+    store, baseUrl: "", actor: () => "user" as const,
+    dispatch: store.dispatch,
+    nextOrdinal: () => ++ordinal,
+    http: async (input: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        writes.push(`DELETE ${input}`)
+        flagged = false
+        return new Response(null, { status: 204 })
+      }
+      if (init?.method === "PUT") writes.push("PUT")
+      return new Response(JSON.stringify(answer()), { status: 200, headers: { "content-type": "application/json" } })
+    }
+  }, createEnvironmentSeam)
+  try {
+    expect(parseEnvironment(answer())?.secrets.map((secret) => secret.reconnect)).toEqual([false, true])
+    await seam.removeSubscriptionToken("will/flows")
+    expect(writes).toEqual(["DELETE /api/repos/will/flows/agent-environment/secrets/CLAUDE"])
   } finally { await store.dispose?.() }
 })

@@ -547,7 +547,8 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
           name: secret.name,
           hosts: [...secret.hosts],
           matchHeaders: [...secret.matchHeaders],
-          updatedAt: secret.updatedAt
+          updatedAt: secret.updatedAt,
+          ...(secret.reconnect ? { reconnect: true } : {})
         }))
       }
     }

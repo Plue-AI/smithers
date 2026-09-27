@@ -1716,7 +1716,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           name: z.string(),
           hosts: z.array(z.string()),
           matchHeaders: z.array(z.string()),
-          updatedAt: z.string().nullable()
+          updatedAt: z.string().nullable(),
+          /** The secret held a subscription token the platform refuses; it is unused until replaced or removed. */
+          reconnect: z.boolean().optional()
         })
       )
     })

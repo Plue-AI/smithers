@@ -40,6 +40,8 @@ export interface SecretMetadata {
   readonly matchHeaders: ReadonlyArray<string>
   /** The wire's ISO timestamp, or null when the answer carries none. */
   readonly updatedAt: string | null
+  /** The platform found a subscription token in it and refuses to use it. */
+  readonly reconnect: boolean
 }
 
 /** The platform's answer, camel-cased; secret VALUES never exist here. */
@@ -85,7 +87,7 @@ export const parseEnvironment = (wire: unknown): EnvironmentConfig | null => {
   }
   const secrets: SecretMetadata[] = []
   for (const entry of row.secrets) {
-    const secret = entry as { name?: unknown; hosts?: unknown; match_headers?: unknown; updated_at?: unknown } | null
+    const secret = entry as { name?: unknown; hosts?: unknown; match_headers?: unknown; updated_at?: unknown; reconnect_required?: unknown } | null
     if (typeof secret !== "object" || secret === null) return null
     if (typeof secret.name !== "string" || secret.name === "") return null
     const hosts = parseStrings(secret.hosts)
@@ -95,7 +97,8 @@ export const parseEnvironment = (wire: unknown): EnvironmentConfig | null => {
       name: secret.name,
       hosts,
       matchHeaders,
-      updatedAt: typeof secret.updated_at === "string" && secret.updated_at !== "" ? secret.updated_at : null
+      updatedAt: typeof secret.updated_at === "string" && secret.updated_at !== "" ? secret.updated_at : null,
+      reconnect: secret.reconnect_required === true
     })
   }
   return { setupScript: row.setup_script, env, secrets, reconnect: row.reconnect_required === true }
@@ -229,6 +232,19 @@ export const createEnvironmentSeam = (ctx: SeamContext): EnvironmentSeam => {
     return null
   }
 
+  /** DELETE one secret; an honest string on failure, null once removed. */
+  const deleteSecret = async (repo: string, name: string): Promise<string | null> => {
+    let response: Response
+    try {
+      response = await ctx.http(`${environmentUrl(ctx, repo)}/secrets/${encodeURIComponent(name)}`, { method: "DELETE" })
+    } catch {
+      return `${name} couldn't be removed from ${repo} — the platform didn't answer.`
+    }
+    if (!response.ok) return readErrorMessage(response, `${name} couldn't be removed from ${repo} (HTTP ${response.status}).`)
+    await response.body?.cancel()
+    return null
+  }
+
   const setEnvironmentVar = async (assignment: string, repo?: string): ReturnType<ViewAction<[repo?: string]>> => {
     const pair = parseAssignment(assignment)
     if (typeof pair === "string") return pair
@@ -254,10 +270,20 @@ export const createEnvironmentSeam = (ctx: SeamContext): EnvironmentSeam => {
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
     return serialize(target.repo, async () => {
+      let current = await fetchEnvironment(target.repo)
+      if (typeof current === "string") return current
+      // A flagged secret is deleted; its name is all the answer carries.
+      const flagged = current.secrets.filter((secret) => secret.reconnect)
+      for (const secret of flagged) {
+        const failure = await deleteSecret(target.repo, secret.name)
+        if (failure !== null) return failure
+      }
+      if (flagged.length > 0) {
+        current = await fetchEnvironment(target.repo)
+        if (typeof current === "string") return current
+      }
       // The platform's answer already has the token redacted and its
       // variables left out; saving it back replaces the stored value.
-      const current = await fetchEnvironment(target.repo)
-      if (typeof current === "string") return current
       if (current.reconnect) {
         const failure = await putEnvironment(target.repo, current.setupScript, current.env, "The agent environment")
         if (failure !== null) return failure

@@ -22,9 +22,10 @@ const updatedLabel = (updatedAt: string | null): string => {
 }
 
 export const SecretsCardBody = ({
-  card
+  card, onRunCommand
 }: {
   readonly card: Extract<Card, { kind: "secrets" }>
+  readonly onRunCommand: RunCommand
 }) => (
   <div className="world-card-list">
     <p className="world-card-path">{card.payload.repo}</p>
@@ -46,7 +47,12 @@ export const SecretsCardBody = ({
           <tbody>
             {card.payload.secrets.map((secret) => (
               <tr key={secret.name} data-testid={`secret-${secret.name}`}>
-                <td className="world-card-title">{secret.name}</td>
+                <td className="world-card-title">
+                  {secret.name}
+                  {secret.reconnect === true ?
+                    <Button size="sm" {...flowAction(onRunCommand, "env.remove-token", card.payload.repo)}>Remove token</Button> :
+                    null}
+                </td>
                 <td>{secret.hosts.length === 0 ? "setup only" : secret.hosts.join(", ")}</td>
                 <td>{secret.matchHeaders.join(", ")}</td>
                 <td>{updatedLabel(secret.updatedAt)}</td>
@@ -130,7 +136,7 @@ export const ProviderAccountsCardBody = ({
 }
 
 export const secretsCardFamily: CardFamily<"secrets" | "provider-accounts"> = {
-  secrets: { render: (card) => <SecretsCardBody card={card} />, pill: settledPill },
+  secrets: { render: (card, actions) => <SecretsCardBody card={card} onRunCommand={actions.onRunCommand} />, pill: settledPill },
   "provider-accounts": {
     render: (card, actions) => <ProviderAccountsCardBody card={card} onRunCommand={actions.onRunCommand} />,
     pill: settledPill
