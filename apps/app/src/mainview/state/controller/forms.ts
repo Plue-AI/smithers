@@ -151,6 +151,8 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     new Map<string, { readonly invocation: AgentInvocation; readonly payload: string }>())
   // One slot, shared by both principals, holding the card id the human's own act just rendered.
   const focus = actorSharedState(ctx, "form-focus", () => ({ cardId: undefined as string | undefined }))
+  // A door that asked for a form while it was being submitted; it opens fresh once that submission is acted on.
+  const reopens = actorSharedState(ctx, "form-reopens", () => new Map<string, () => void>())
   const focusHandoff: FormFocusHandoff = {
     take: (cardId) => {
       if (focus.cardId !== cardId) return false
@@ -484,6 +486,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     if (request.via === "user" && ctx.commandActor === "user" && store.session().maximizedCardId === MODELS_CARD_ID) deps.minimizeCard?.()
     const existing = collections.cards.get(cardId)
     if (existing?.kind === "flow-form" && existing.payload.submitting === true) {
+      reopens.set(cardId, () => { renderFlowForm(request) })
       return { cardId, missing: missingFields(existing.payload.fields, existing.payload.draft) }
     }
     continuations.delete(cardId)
@@ -647,6 +650,8 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       outcome = { status: "failed", error: card.payload.fields.some(field => field.kind === "write-only") ? "Submission failed." : cause instanceof Error ? cause.message : String(cause) }
     }
     if (accountEnded()) continuations.delete(cardId)
+    const reopen = reopens.get(cardId)
+    reopens.delete(cardId)
     if (ctx.disposed || accountEnded() || (outcome.status === "failed" && outcome.persistenceFailed)) return describe(outcome)
     // A form the conversation cleared mid-submission stays cleared.
     const current = formCard(cardId)
@@ -656,6 +661,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         const { error: _dropped, ...payload } = current.payload
         await patch(current, { ...payload, submitting: false }, "acted")
       }
+      reopen?.()
       return { value: outcome.value ?? `submitted /${flow}${args === "" ? "" : ` ${args}`}` }
     }
     const error = describe(outcome)
