@@ -219,10 +219,17 @@ func (h *BuildCacheHandler) ActionCache(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	keyDigest, decodeErr := url.PathUnescape(chi.URLParam(r, "keyDigest"))
-	if decodeErr != nil {
-		buildCacheError(w, errors.CodeBadRequest, "keyDigest must be valid URL encoding")
-		return
+	// chi matches on RawPath when the request has one, and on the already
+	// decoded Path otherwise; decode the parameter only in the first case so a
+	// key is decoded exactly once, as the Worker and self-hosted service do.
+	keyDigest := chi.URLParam(r, "keyDigest")
+	if r.URL.RawPath != "" {
+		decoded, decodeErr := url.PathUnescape(keyDigest)
+		if decodeErr != nil {
+			buildCacheError(w, errors.CodeBadRequest, "keyDigest must be valid URL encoding")
+			return
+		}
+		keyDigest = decoded
 	}
 	if prefix := middleware.BuildCacheNamespacePrefixFromContext(r.Context()); prefix != "" && !strings.HasPrefix(keyDigest, prefix) {
 		buildCacheError(w, errors.CodeForbidden, "this credential may not read that cache namespace")

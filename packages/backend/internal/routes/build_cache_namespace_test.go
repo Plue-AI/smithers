@@ -66,6 +66,13 @@ func TestBuildCacheReadTokenNamespaceIsEnforcedByRoute(t *testing.T) {
 		router.ServeHTTP(rec, req)
 		require.Equal(t, tc.status, rec.Code, tc.key+": "+rec.Body.String())
 	}
+	// A key is decoded exactly once: a double-encoded separator stays literal,
+	// so it names a different key than pr-1/<key> and is outside the namespace.
+	req := httptest.NewRequest(http.MethodGet, "/api/repos/acme/app/build-cache/ac/pr-1%252F"+key, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodGet, "/cas/" + key},
 		{http.MethodPost, "/cas/findMissing"},
