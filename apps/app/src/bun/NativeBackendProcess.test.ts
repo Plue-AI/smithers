@@ -23,20 +23,13 @@ const packagedRuntime = (): { backend: string; postgresBin: string; root: string
   const backend = join(root, "smithers-backend")
   writeFileSync(backend, "x", { mode: 0o755 })
   const coding = join(root, "smithers-coding-host")
-  const librarian = join(root, "smithers-librarian-host")
   writeFileSync(join(root, "node"), "x", { mode: 0o755 })
   writeFileSync(coding, "coding", { mode: 0o755 })
-  writeFileSync(librarian, "librarian", { mode: 0o755 })
   const digest = (value: string): string => createHash("sha256").update(value).digest("hex")
   writeFileSync(join(root, "flow-hosts.json"), `${JSON.stringify({
     version: 1,
     hosts: {
-      coding: { executable: "smithers-coding-host", sha256: digest("coding"), flows: ["coding/dispatch"] },
-      librarian: {
-        executable: "smithers-librarian-host",
-        sha256: digest("librarian"),
-        flows: []
-      }
+      coding: { executable: "smithers-coding-host", sha256: digest("coding"), flows: ["coding/dispatch"] }
     }
   })}\n`)
   writeFileSync(join(root, "smithers-jj-export"), "x", { mode: 0o755 })
@@ -151,7 +144,6 @@ describe("native backend ownership", () => {
       process.platform === "darwin" ? "libsmithers_ffi.dylib" : process.platform === "linux" ? "libsmithers_ffi.so" : "smithers_ffi.dll"
     ))
     expect(env.SMITHERS_WORKSPACE_CODING_HOST_BINARY).toEndWith("smithers-coding-host")
-    expect(env.SMITHERS_WORKSPACE_LIBRARIAN_HOST_BINARY).toEndWith("smithers-librarian-host")
     expect(env.SMITHERS_MODEL_HOST_BUNDLE).toEndWith("smithers-model-host")
     expect(env.SMITHERS_FLOW_HOST_MANIFEST).toEndWith("flow-hosts.json")
     expect(env.PATH?.split(delimiter)[0]).toBe(runtime.root)
@@ -270,8 +262,6 @@ describe("native backend ownership", () => {
       "SMITHERS_WORKSPACE_CODING_HOST_BINARY",
       "SMITHERS_WORKSPACE_CODING_HOST_SHA256",
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY",
-      "SMITHERS_WORKSPACE_LIBRARIAN_HOST_BINARY",
-      "SMITHERS_WORKSPACE_LIBRARIAN_HOST_SHA256",
       "TMPDIR",
       "no_proxy"
     ])

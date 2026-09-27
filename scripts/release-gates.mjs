@@ -74,7 +74,6 @@ export const releaseGates = [
   { name: "Judge egress", verb: "test", target: "//flows:egress" },
   { name: "Repository flow fixtures", verb: "test", target: "//flows:repository" },
   { name: "Wiki and release fixtures", verb: "test", target: "//flows:fixtures" },
-  { name: "Product gateway", verb: "test", target: "//flows:productHost" },
   { name: "Repository flows lint", verb: "lint", target: "//flows/..." },
   {
     name: "Root flows typecheck", verb: "ci", target: "//flows:check",

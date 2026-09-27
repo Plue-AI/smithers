@@ -160,7 +160,6 @@ interface FlowHostEntry {
 interface FlowHostBundle {
   readonly manifest: string
   readonly coding: FlowHostEntry & { readonly path: string }
-  readonly librarian: FlowHostEntry & { readonly path: string }
   readonly node: string
 }
 
@@ -190,29 +189,24 @@ const packagedPath = (root: string, relativePath: string, label: string): string
   }
 }
 
-const flowHost = (
-  root: string,
-  value: unknown,
-  catalog: "coding" | "librarian",
-  requiredFlows: ReadonlyArray<string>
-): FlowHostEntry & { readonly path: string } => {
+const codingFlowHost = (root: string, value: unknown): FlowHostEntry & { readonly path: string } => {
   if (
     !isRecord(value) || typeof value.executable !== "string" ||
     typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.sha256) ||
     !Array.isArray(value.flows) || value.flows.some((flow) => typeof flow !== "string")
-  ) throw new Error(`Packaged ${catalog} Flow host manifest is invalid.`)
+  ) throw new Error("Packaged coding Flow host manifest is invalid.")
   const flows = value.flows as ReadonlyArray<string>
-  if (requiredFlows.some((flow) => !flows.includes(flow))) {
-    throw new Error(`Packaged ${catalog} Flow host catalog is incomplete.`)
+  if (!flows.includes("coding/dispatch")) {
+    throw new Error("Packaged coding Flow host catalog is incomplete.")
   }
-  const path = packagedPath(root, value.executable, `Packaged ${catalog} Flow host`)
+  const path = packagedPath(root, value.executable, "Packaged coding Flow host")
   try {
     accessSync(path, constants.X_OK)
   } catch {
-    throw new Error(`Packaged ${catalog} Flow host is not executable: ${path}`)
+    throw new Error(`Packaged coding Flow host is not executable: ${path}`)
   }
   const actual = createHash("sha256").update(readFileSync(path)).digest("hex")
-  if (actual !== value.sha256) throw new Error(`Packaged ${catalog} Flow host checksum failed.`)
+  if (actual !== value.sha256) throw new Error("Packaged coding Flow host checksum failed.")
   return { executable: value.executable, sha256: value.sha256, flows, path }
 }
 
@@ -230,8 +224,7 @@ const flowHostBundle = (manifestPath: string): FlowHostBundle => {
   const root = dirname(manifest)
   return {
     manifest,
-    coding: flowHost(root, decoded.hosts.coding, "coding", ["coding/dispatch"]),
-    librarian: flowHost(root, decoded.hosts.librarian, "librarian", []),
+    coding: codingFlowHost(root, decoded.hosts.coding),
     node: packagedPath(root, "node", "Packaged Flow host runtime")
   }
 }
@@ -303,7 +296,6 @@ export const startNativeBackend = async (
     backend,
     hosts.node,
     hosts.coding.path,
-    hosts.librarian.path,
     modelHost,
     resolve(binaryRoot, "smithers-jj-export"),
     jj,
@@ -365,8 +357,6 @@ export const startNativeBackend = async (
   environment.SMITHERS_FLOW_HOST_MANIFEST = hosts.manifest
   environment.SMITHERS_WORKSPACE_CODING_HOST_BINARY = hosts.coding.path
   environment.SMITHERS_WORKSPACE_CODING_HOST_SHA256 = hosts.coding.sha256
-  environment.SMITHERS_WORKSPACE_LIBRARIAN_HOST_BINARY = hosts.librarian.path
-  environment.SMITHERS_WORKSPACE_LIBRARIAN_HOST_SHA256 = hosts.librarian.sha256
   environment.SMITHERS_MODEL_HOST_BUNDLE = modelHost
   environment.SMITHERS_NODE_BINARY = resolve(binaryRoot, "node")
   environment.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY = resolve(

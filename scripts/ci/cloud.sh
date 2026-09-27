@@ -329,7 +329,6 @@ gate_tools() {
     flows-egress) echo 'js' ;;
     flows-repository) echo 'js jj' ;;
     flows-fixtures) echo 'js jj' ;;
-    flows-product-host) echo 'js' ;;
     flows-lint) echo 'js' ;;
     swebench-lint) echo 'js' ;;
     jsdoc) echo 'js' ;;
@@ -428,9 +427,6 @@ run_gate() {
       ;;
     flows-fixtures)
       pnpm exec smthrs test '//flows:fixtures' --known-red '.github/ci-known-red.json' --verbose
-      ;;
-    flows-product-host)
-      pnpm exec smthrs test '//flows:productHost' --known-red '.github/ci-known-red.json' --verbose
       ;;
     flows-lint)
       pnpm exec smthrs lint '//flows/...' --known-red '.github/ci-known-red.json' --verbose

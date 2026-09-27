@@ -359,23 +359,10 @@ const fixtures = Smithers.NodeTest({
     fixture("run-record.test.ts"),
     fixture("canary-coding-setup.test.mjs"),
     fixture("invoke-native-host.test.ts"),
-    fixture("librarian-state.test.ts"),
-    fixture("product-host-source.test.mjs"),
     fixture("decide-with-jev-docs.test.ts")
   ]),
   // `decide-with-jev-docs` reads the guide.
   srcs: [...codingSources, Smithers.file("//packages/smithers/agent/model/docs/guides/decide-with-jev.md")],
-  deps: codingDependencies,
-  cwd,
-  timeout: "20m"
-})
-
-// The standalone product gateway, built from source by the fixture itself. It
-// starts no runs, so it needs no evaluator credential.
-const productHost = Smithers.NodeTest({
-  runtime: node,
-  runner: Smithers.testRunner([fixture("product-host.test.mjs")]),
-  srcs: codingSources,
   deps: codingDependencies,
   cwd,
   timeout: "20m"
@@ -397,7 +384,6 @@ export const Package = Smithers.Package({
     check,
     lint,
     fmt,
-    productHost,
     repository,
     suite,
     recording,

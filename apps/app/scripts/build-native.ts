@@ -211,13 +211,6 @@ await run(
   root,
   nodeEnvironment
 )
-const librarianHost = join(nativeDir, "bin", "smithers-librarian-host")
-await run(
-  "canonical librarian host",
-  [nodeBinary, "flows/librarian/build.mjs", librarianHost],
-  root,
-  nodeEnvironment
-)
 const modelHost = join(nativeDir, "bin", "smithers-model-host")
 await run("canonical model host", [nodeBinary, "apps/model-host/build.mjs", modelHost], root, nodeEnvironment)
 verifyChecksumSidecar(modelHost)
@@ -227,8 +220,7 @@ await run(
     nodeBinary,
     "distribution/flow-host-manifest.mjs",
     join(nativeDir, "bin", "flow-hosts.json"),
-    codingHost,
-    librarianHost
+    codingHost
   ],
   root,
   nodeEnvironment
@@ -243,7 +235,6 @@ cpSync(nodeLicense, join(nativeDir, "licenses", "node-LICENSE"))
 cpSync(join(root, "distribution", "licenses", "jj-LICENSE"), join(nativeDir, "licenses", "jj-LICENSE"))
 cpSync(join(root, "distribution", "licenses", "git-COPYING"), join(nativeDir, "licenses", "git-COPYING"))
 await run("packaged coding host", [hostRuntime, codingHost, "--help"])
-await run("packaged librarian host", [hostRuntime, librarianHost, "--help"])
 await run("packaged model host", [hostRuntime, modelHost, "--help"])
 
 const packagedGitRoot = nativeDir
