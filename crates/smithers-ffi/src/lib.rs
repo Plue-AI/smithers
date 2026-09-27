@@ -691,8 +691,21 @@ impl RepoHandle {
         name: &str,
         target: Option<&CommitId>,
     ) -> Result<(), JjError> {
-        let heads = self.bookmark_heads(name);
-        if heads.is_empty()
+        let mut forward = true;
+        for head in &self.bookmark_heads(name) {
+            forward &= match target {
+                Some(target) => self
+                    .repo
+                    .index()
+                    .is_ancestor(head, target)
+                    .block_on()
+                    .map_err(|err| JjError::Internal(err.to_string()))?,
+                None => false,
+            };
+        }
+        // Only a rewind or deletion needs the default, so an unreadable one
+        // refuses nothing else.
+        if forward
             || !self
                 .append_only_bookmarks()?
                 .iter()
@@ -700,24 +713,9 @@ impl RepoHandle {
         {
             return Ok(());
         }
-        let refused = || {
-            JjError::Conflict(format!(
-                "{name} only moves forward; its history is never rewritten"
-            ))
-        };
-        let target = target.ok_or_else(refused)?;
-        for head in &heads {
-            if !self
-                .repo
-                .index()
-                .is_ancestor(head, target)
-                .block_on()
-                .map_err(|err| JjError::Internal(err.to_string()))?
-            {
-                return Err(refused());
-            }
-        }
-        Ok(())
+        Err(JjError::Conflict(format!(
+            "{name} only moves forward; its history is never rewritten"
+        )))
     }
 
     /// Move the selected paths' diff into a new parent change while preserving

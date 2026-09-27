@@ -221,9 +221,10 @@ type ChangeConflictAgent interface {
 
 // ChangeReviewResponse is one submitted review anchored to a stable change
 // revision. Human reviews carry Type (approve, request_changes, or comment).
-// Agent reviews carry ReviewerKind "agent" and Verdict lgtm or concerns.
-// Confidence is nullable for human reviews and can only contain a
-// server-validated bucket for agent reviews.
+// Agent reviews carry ReviewerKind "agent" and Verdict lgtm or concerns, or,
+// for an agent's comment or change request, that type and no confidence.
+// Confidence is otherwise a server-validated bucket for agent reviews and
+// nullable for human reviews.
 type ChangeReviewResponse struct {
 	Reviewer         string  `json:"reviewer"`
 	ReviewerLogin    string  `json:"reviewer_login"`

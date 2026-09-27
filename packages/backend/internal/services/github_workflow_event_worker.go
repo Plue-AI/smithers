@@ -74,7 +74,7 @@ type GitHubWebhookEventWorker struct {
 // gitHubMainPuller is the GitHub main pull as the webhook worker uses it.
 type gitHubMainPuller interface {
 	RequestForGitHub(ctx context.Context, owner, repo string) error
-	PullPolicyRecorded(ctx context.Context, repositoryID int64) (bool, error)
+	PullsBranch(ctx context.Context, repositoryID int64, branch string) (bool, error)
 }
 
 // SetMythical admits issue events into repositories' mythical stacks.
@@ -315,7 +315,7 @@ func (w *GitHubWebhookEventWorker) mainPulled(ctx context.Context, repositoryID 
 	if w.mainPull == nil || eventType != "push" || !gitHubDefaultBranchPush(payload) {
 		return false, nil
 	}
-	return w.mainPull.PullPolicyRecorded(ctx, repositoryID)
+	return w.mainPull.PullsBranch(ctx, repositoryID, strings.TrimSpace(payload.Repository.DefaultBranch))
 }
 
 func gitHubDefaultBranchPush(payload gitHubWorkflowEventPayload) bool {

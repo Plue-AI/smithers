@@ -230,6 +230,23 @@ func (s *GitHubMainPullService) PullPolicyRecorded(ctx context.Context, reposito
 	return row.Policy == gitHubMainPullPolicyPull, nil
 }
 
+// PullsBranch reports whether the last evaluation found `mirror: "pull"` and
+// pulled GitHub's branch of this name, so the pull's own push starts that
+// branch's runs.
+func (s *GitHubMainPullService) PullsBranch(ctx context.Context, repositoryID int64, branch string) (bool, error) {
+	if s == nil || s.store == nil {
+		return false, nil
+	}
+	row, err := s.store.GetGithubMainPull(ctx, repositoryID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return row.Policy == gitHubMainPullPolicyPull && row.Branch == branch, nil
+}
+
 // PullMirror reports whether the Smithers repository owner/repo follows
 // GitHub; the external ref-push mirror feed withholds such repositories.
 func (s *GitHubMainPullService) PullMirror(ctx context.Context, owner, repo string) (bool, error) {
@@ -557,7 +574,7 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	}
 	if !ancestor {
 		return fail("Smithers " + branch + " (" + smithersHead + ") is not an ancestor of GitHub " + branch + " (" + tip +
-			"); it diverged and is never overwritten. Move Smithers " + branch + " onto GitHub's history, then retry")
+			"); it diverged and is never overwritten. Merge Smithers " + branch + " into GitHub's " + branch + ", then retry")
 	}
 	bridge.allow(tip)
 	if err := s.git.Push(ctx, dir, bridgeURL, tip, ref); err != nil {

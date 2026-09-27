@@ -120,6 +120,6 @@ func TestGitHubWebhookPushSavesCachesOnlyForAPersonsDefaultBranchPushPostgres(t 
 type pulledMain struct{}
 
 func (pulledMain) RequestForGitHub(context.Context, string, string) error { return nil }
-func (pulledMain) PullPolicyRecorded(context.Context, int64) (bool, error) {
-	return true, nil
+func (pulledMain) PullsBranch(_ context.Context, _ int64, branch string) (bool, error) {
+	return branch == "main", nil
 }

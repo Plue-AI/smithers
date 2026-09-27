@@ -2,18 +2,21 @@ package repohostserver
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 )
 
 // Git stores loose refs as files, so on a case-insensitive filesystem
@@ -87,8 +90,9 @@ func serveCaseRef(t *testing.T, f *laneHTTPFixture, method, path, body string) *
 	return rec
 }
 
-// A bookmark jj created but has not exported yet still counts: the bookmark
-// API, a landing target and the default bookmark refuse its case variants.
+// A bookmark jj created but never exported (the export failed) still counts:
+// the bookmark API, a landing target and the default bookmark refuse its case
+// variants.
 func TestBookmarkWritesRefuseCaseVariantOfJJBookmark(t *testing.T) {
 	f := newLaneHTTPFixture(t, nil)
 	mock := f.srv.ffi.(*mockFFI)
@@ -96,7 +100,14 @@ func TestBookmarkWritesRefuseCaseVariantOfJJBookmark(t *testing.T) {
 		f.repo.jj("bookmark", "create", name, "-r", "main")
 		return repohost.Bookmark{Name: name}, nil
 	}
-	mock.exportGitRefsFn = func(string) error { f.repo.jj("git", "export"); return nil }
+	mock.exportGitRefsFn = func(string) error { return errors.New("export failed") }
+	mock.listBookmarksFn = func(string, uint32, uint32) (repohostffi.Paginated[repohost.Bookmark], error) {
+		var items []repohost.Bookmark
+		for _, name := range strings.Fields(f.repo.jj("bookmark", "list", "-T", `name ++ "\n"`)) {
+			items = append(items, repohost.Bookmark{Name: name})
+		}
+		return repohostffi.Paginated[repohost.Bookmark]{Items: items, TotalCount: len(items)}, nil
+	}
 	landed := 0
 	mock.landChangesFn = func(string, repohost.LandRequest) (repohost.LandResult, error) {
 		landed++

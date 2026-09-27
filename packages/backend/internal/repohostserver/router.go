@@ -888,7 +888,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 		pusherID, r.Header.Get("X-Smithers-Control-Plane") == "mythical"); msg != "" {
 		return forbidden(msg)
 	}
-	if err := refuseCaseVariantRefs(beforeRefs, commandRefNames(commands)...); err != nil {
+	if err := refuseCaseVariantRefs(beforeRefs, writtenRefNames(commands)...); err != nil {
 		return err
 	}
 	if sender.PusherCredential == jjmiddleware.CredentialAgentRun {

@@ -373,18 +373,21 @@ func refuseCaseVariantRefs(existing map[string]string, refs ...string) error {
 	return nil
 }
 
-func commandRefNames(commands []repohost.ReceivePackCommand) []string {
+// writtenRefNames names the refs a push creates or moves. A deletion writes
+// nothing, so a legacy variant or invisible-character ref stays deletable.
+func writtenRefNames(commands []repohost.ReceivePackCommand) []string {
 	refs := make([]string, 0, len(commands))
 	for _, command := range commands {
-		refs = append(refs, command.RefName)
+		if strings.Trim(command.NewOID, "0") != "" {
+			refs = append(refs, command.RefName)
+		}
 	}
 	return refs
 }
 
 // refuseCaseVariantBookmark applies refuseCaseVariantRefs to a bookmark the
-// bookmark API, a landing or the default-bookmark choice would name. jj
-// bookmarks reach git only on export, so it exports first; the caller holds
-// the repository lock.
+// bookmark API, a landing or the default-bookmark choice would name, against
+// Git's branches and jj's bookmarks; the caller holds the repository lock.
 func (s *Server) refuseCaseVariantBookmark(ctx context.Context, repoID, bookmark string) error {
 	owner, repo, err := parseRepoID(repoID)
 	if err != nil {
@@ -394,10 +397,24 @@ func (s *Server) refuseCaseVariantBookmark(ctx context.Context, repoID, bookmark
 	if _, err := os.Stat(gitDir); errors.Is(err, os.ErrNotExist) {
 		return nil // no repository: the write itself reports it
 	}
-	s.warmGitRefs(s.config.RepoPath(owner, repo))
 	refs, err := listGitRefs(ctx, gitDir, "refs/heads/")
 	if err != nil {
 		return internalError("failed to list refs", err)
+	}
+	// jj bookmarks reach git only on export, which may fail or skip a
+	// conflicted bookmark, so jj's own list counts too.
+	repoPath := s.config.RepoPath(owner, repo)
+	for page := uint32(1); ; page++ {
+		listed, err := s.ffi.ListBookmarks(repoPath, page, 100)
+		if err != nil {
+			return internalError("failed to list bookmarks", err)
+		}
+		for _, existing := range listed.Items {
+			refs["refs/heads/"+existing.Name] = existing.TargetCommitID
+		}
+		if len(listed.Items) == 0 || int(page)*100 >= listed.TotalCount {
+			break
+		}
 	}
 	return refuseCaseVariantRefs(refs, "refs/heads/"+bookmark)
 }

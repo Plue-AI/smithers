@@ -699,7 +699,7 @@ type recordingMainPull struct {
 	pulled   bool
 }
 
-func (r *recordingMainPull) PullPolicyRecorded(context.Context, int64) (bool, error) {
+func (r *recordingMainPull) PullsBranch(context.Context, int64, string) (bool, error) {
 	return r.pulled, nil
 }
 
