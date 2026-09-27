@@ -621,8 +621,8 @@ test("every shape this repo declares a failure code in is read off the real tree
   expect(only("model_failed")).toEqual(["/harness/HarnessError"])
   /* 2. A code schema another file declares: `code: GrantStoreErrorCode`, imported from `./GrantStoreErrorCode.ts`. */
   expect(only("request_not_found")).toEqual(["@smthrs/capability/GrantStoreError"])
-  /* 3. `Data.TaggedError("tag")<{ readonly code?: WorkerFailureCode; … }>`, members in a type argument. */
-  expect(only("workspace_gone")).toEqual(["SetupStoreError", "TokenError"])
+  /* 3. `TokenError` declares `Data.TaggedError("tag")<{ readonly code: WorkerFailureCode; … }>`. */
+  expect(only("workspace_gone")).toEqual(["TokenError"])
   /* 4. A closed set reached through `.annotate({ identifier })`, which read as an OPEN class
    * until `annotate` joined `pipe`: an annotation keeps its receiver's members. */
   expect(only("lineage_changed")).toEqual(["@smthrs/sync/SyncError"])
