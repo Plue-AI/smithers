@@ -21,6 +21,7 @@ A step's large outputs belong in the content-addressed artifact store, and a sea
 ```ts
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -31,7 +32,7 @@ const program = Effect.gen(function*() {
   return yield* store.get(digest)
 })
 
-const store = ArtifactStore.layerFileSystem().pipe(Layer.provide(NodeFileSystem.layer))
+const store = ArtifactStore.layerFileSystem().pipe(Layer.provide(Layer.merge(NodeFileSystem.layer, NodePath.layer)))
 
 await Effect.runPromise(
   program.pipe(Effect.provide(store), Effect.provide(NodeCrypto.layer))
@@ -50,16 +51,17 @@ A valid address with no bytes behind it fails with `ArtifactMissing`; bytes that
 import * as CombinedArtifacts from "@smthrs/artifacts/CombinedArtifacts"
 import * as RemoteArtifacts from "@smthrs/artifacts/RemoteArtifacts"
 import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
 
 const combined = Effect.gen(function*() {
   const fileSystem = yield* FileSystem.FileSystem
-  const local = ArtifactStore.makeFileSystem(fileSystem)
+  const local = ArtifactStore.makeFileSystem(fileSystem, yield* Path.Path)
   const remote = yield* RemoteArtifacts.make({ endpoint: "https://cas.example.com" })
   return yield* CombinedArtifacts.make({ local, remote })
 })
 ```
 
-The composition needs a `FileSystem` and an `HttpClient` in scope. The remote tier declares its materialization policy, and `CombinedArtifacts.Options.downloadPolicy` overrides it for one composition; with neither, the policy is `all`:
+The composition needs a `FileSystem`, a `Path`, and an `HttpClient` in scope. The remote tier declares its materialization policy, and `CombinedArtifacts.Options.downloadPolicy` overrides it for one composition; with neither, the policy is `all`:
 
 | Policy | Read-through behavior |
 | --- | --- |

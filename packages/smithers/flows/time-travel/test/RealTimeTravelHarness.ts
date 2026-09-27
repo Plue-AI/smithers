@@ -1,5 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
@@ -21,6 +22,7 @@ import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
 import { execFileSync, spawnSync } from "node:child_process"
 import { once } from "node:events"
@@ -107,7 +109,7 @@ export const realEngineLayer = (filename: string, hostId: string) => {
   ).pipe(Layer.provideMerge(migrated))
   const hostAndArtifacts = Layer.provideMerge(
     ArtifactStore.layerFileSystem({ directory: join(dirname(filename), "artifacts") }),
-    NodeFileSystem.layer
+    Layer.merge(NodeFileSystem.layer, NodePath.layer)
   )
   const boundary = Layer.provideMerge(StepBoundary.layer, hostAndArtifacts)
   const infrastructure = Layer.mergeAll(
@@ -120,7 +122,7 @@ export const realEngineLayer = (filename: string, hostId: string) => {
   return Layer.merge(
     EngineStore.layer({ owner: { hostId }, journalSource: `${hostId}-time-travel-e2e`, isAlive: ownerIsAlive }),
     TimeTravel.layer
-  ).pipe(Layer.provideMerge(infrastructure))
+  ).pipe(Layer.provideMerge(infrastructure)) satisfies Layer.Layer<never, unknown, Scope.Scope>
 }
 
 export const runRealEngine = <A, E, R>(
