@@ -206,7 +206,7 @@ func TestLandingAppendWorkerReplaysExactReceiptOrRechecksPolicyAndRevision(t *te
 			// changes a protected path.
 			if strings.HasPrefix(mode, "outsider") {
 				q.outsider = true
-				rh.files = []repohost.ChangeFile{{Path: "src/fix.ts"}, {Path: ".github/workflows/pwn.yml"}}
+				rh.files = []repohost.ChangeFile{{Path: "src/fix.ts"}, {Path: ".github/workflows/extra.yml"}}
 				if mode == "outsider-unprotected" {
 					rh.files = rh.files[:1]
 				}
@@ -232,7 +232,7 @@ func TestLandingAppendWorkerReplaysExactReceiptOrRechecksPolicyAndRevision(t *te
 			default:
 				require.Error(t, err)
 				if mode == "outsider" {
-					require.ErrorContains(t, err, "protected paths: .github/workflows/pwn.yml")
+					require.ErrorContains(t, err, "protected paths: .github/workflows/extra.yml")
 				}
 				require.Equal(t, 1, calls)
 				require.False(t, q.markLandingStartedCalled)

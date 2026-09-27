@@ -377,7 +377,7 @@ func TestLandingGitHubPullRefusesOutsiderProtectedPaths(t *testing.T) {
 		files   []string
 		refused string
 	}{
-		"workflow":   {[]string{"src/a.ts", ".github/workflows/pwn.yml"}, ".github/workflows/pwn.yml"},
+		"workflow":   {[]string{"src/a.ts", ".github/workflows/extra.yml"}, ".github/workflows/extra.yml"},
 		"agents":     {[]string{"apps/app/AGENTS.md"}, "apps/app/AGENTS.md"},
 		"configured": {[]string{"infra/keys/prod.pem"}, "infra/keys/prod.pem"},
 		"ordinary":   {[]string{"src/a.ts"}, ""},

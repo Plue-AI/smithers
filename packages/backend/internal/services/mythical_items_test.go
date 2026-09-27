@@ -653,9 +653,9 @@ func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
 	outsider := mythicalIssue{Number: 31, Title: "Outsider", Body: "fix ci", State: "open", AuthorAssociation: "NONE", Labels: []string{"smithers"}}
 	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, outsider, gitHubLabelApplication{Label: "smithers", SenderType: "User"}))
 	require.True(t, o.item(31).Outsider)
-	item := submit(31, map[string]string{"src/fix.ts": "fix\n", ".github/workflows/pwn.yml": "on: push\n"})
+	item := submit(31, map[string]string{"src/fix.ts": "fix\n", ".github/workflows/extra.yml": "on: push\n"})
 	require.Equal(t, "blocked", item.State)
-	assert.Equal(t, "a maintainer changes protected paths: .github/workflows/pwn.yml", item.Reason)
+	assert.Equal(t, "a maintainer changes protected paths: .github/workflows/extra.yml", item.Reason)
 	assert.Empty(t, o.git(o.github.dir, "branch", "--list", "smithers/issue-31"), "nothing is pushed")
 
 	maintainer := mythicalIssue{Number: 32, Title: "Maintainer", Body: "fix ci", State: "open", AuthorAssociation: "MEMBER"}

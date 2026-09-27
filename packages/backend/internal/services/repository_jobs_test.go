@@ -832,9 +832,9 @@ func TestProtectedPathMatching(t *testing.T) {
 	t.Parallel()
 	entries := append([]string(nil), protectedPathRoots...)
 	entries = append(entries, "deploy/keys")
-	require.Equal(t, []string{".github/workflows/pwn.yml", ".smithers/factory.json", "apps/app/AGENTS.md", "deploy/keys/prod.pem", "flows/PACKAGE.ts"},
+	require.Equal(t, []string{".github/workflows/extra.yml", ".smithers/factory.json", "apps/app/AGENTS.md", "deploy/keys/prod.pem", "flows/PACKAGE.ts"},
 		protectedPathsTouched([]string{"src/fix.ts", "flows/PACKAGE.ts", ".smithers/factory.json", "apps/app/AGENTS.md",
-			".github/workflows/pwn.yml", "deploy/keys/prod.pem", "src/deploy/keys/x", "docs/github.md", "AGENTS.md.bak"}, entries))
+			".github/workflows/extra.yml", "deploy/keys/prod.pem", "src/deploy/keys/x", "docs/github.md", "AGENTS.md.bak"}, entries))
 }
 
 // A run started from an outsider's labeled issue marks its workspace before
