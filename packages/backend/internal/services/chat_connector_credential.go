@@ -26,7 +26,7 @@ func (s *IssueService) IssueChatConnectorCredential(ctx context.Context, store C
 		return "", nil, api.Unauthorized("invalid connector bootstrap credential")
 	}
 	scopes := row.TokenScopes
-	if row.TokenSystemIssued || row.ProhibitLogin || !middleware.ParseTokenScopes(scopes).Has(middleware.ScopeWriteRepository) ||
+	if middleware.TokenCredentialKind(row.TokenSystemIssued, scopes, row.UserType) != middleware.CredentialPerson || row.ProhibitLogin || !middleware.ParseTokenScopes(scopes).Has(middleware.ScopeWriteRepository) ||
 		middleware.ParseTokenWorkspaceRestriction(scopes) != "" || middleware.ParseTokenAgentSessionRestriction(scopes) != "" ||
 		middleware.ParseTokenLandingWorkspace(scopes) != "" || len(middleware.ParseTokenPathRestrictions(scopes)) != 0 {
 		return "", nil, api.Forbidden("connector bootstrap requires an owner repository write credential")

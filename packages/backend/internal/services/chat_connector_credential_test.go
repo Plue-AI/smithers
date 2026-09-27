@@ -27,7 +27,7 @@ func (s connectorTokenStore) GetAuthInfoByTokenHash(_ context.Context, hash stri
 }
 func TestChatConnectorCredential(t *testing.T) {
 	for _, tc := range []struct {
-		name, scopes               string
+		name, scopes, userType     string
 		system, prohibited, denied bool
 	}{
 		{name: "owner", scopes: "write:repository"},
@@ -35,6 +35,8 @@ func TestChatConnectorCredential(t *testing.T) {
 		{name: "read only", scopes: "read:repository", denied: true},
 		{name: "other repository", scopes: "write:repository,repo:315", denied: true},
 		{name: "run", scopes: "write:repository", system: true, denied: true},
+		{name: "bot", scopes: "write:repository", userType: "bot", denied: true},
+		{name: "service", scopes: "write:repository", userType: "service", denied: true},
 		{name: "suspended", scopes: "write:repository", prohibited: true, denied: true},
 		{name: "workspace", scopes: "write:repository," + middleware.WorkspaceRestrictionScope("one"), denied: true},
 		{name: "paths", scopes: "write:repository," + middleware.PathRestrictionScopes([]string{"src/**"})[0], denied: true},
@@ -45,7 +47,7 @@ func TestChatConnectorCredential(t *testing.T) {
 			}}
 			var created db.CreateAccessTokenParams
 			revoked := false
-			store := connectorTokenStore{row: db.GetAuthInfoByTokenHashRow{ID: 42, TokenScopes: tc.scopes, TokenSystemIssued: tc.system, ProhibitLogin: tc.prohibited}, sandboxHelperTokenStore: sandboxHelperTokenStore{
+			store := connectorTokenStore{row: db.GetAuthInfoByTokenHashRow{ID: 42, TokenScopes: tc.scopes, TokenSystemIssued: tc.system, ProhibitLogin: tc.prohibited, UserType: tc.userType}, sandboxHelperTokenStore: sandboxHelperTokenStore{
 				createFn: func(_ context.Context, arg db.CreateAccessTokenParams) (db.AccessToken, error) {
 					created = arg
 					return db.AccessToken{ID: 7}, nil
@@ -67,7 +69,7 @@ func TestChatConnectorCredential(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, token)
 			require.Equal(t, int64(42), created.UserID)
-			require.Equal(t, middleware.CredentialSync, middleware.TokenCredentialKind(created.SystemIssued, created.Scopes))
+			require.Equal(t, middleware.CredentialSync, middleware.TokenCredentialKind(created.SystemIssued, created.Scopes, ""))
 			require.Equal(t, int64(314), middleware.ParseTokenRepositoryRestriction(created.Scopes))
 			require.WithinDuration(t, time.Now().Add(time.Hour), created.ExpiresAt.Time, time.Second)
 			revoke()
