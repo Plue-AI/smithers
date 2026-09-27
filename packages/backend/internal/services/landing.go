@@ -1414,8 +1414,8 @@ type changesRequestedQuerier interface {
 }
 
 // changesRequestedBlocks names each person whose current review requests
-// changes: it blocks landing, for everyone, until that person approves or
-// comments later or the review is dismissed (D-21). An agent's
+// changes: it blocks landing, for everyone, until that person approves
+// later or the review is dismissed (D-21). An agent's
 // request-changes review blocks no one; required_agent_lgtm is the agent
 // review policy.
 func changesRequestedBlocks(ctx context.Context, q changesRequestedQuerier, landingRequestID int64) ([]LandingBlock, error) {

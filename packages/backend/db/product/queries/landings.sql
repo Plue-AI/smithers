@@ -365,9 +365,10 @@ WHERE lrr.landing_request_id = sqlc.arg(landing_request_id)
   );
 
 -- name: ListChangesRequestedLandingReviewers :many
--- A person's latest review stands until they review again or it is
--- dismissed; an agent's review, or one given through a run credential,
--- never stands for a person.
+-- A person's request for changes stands until they approve later or it is
+-- dismissed (D-21, as on GitHub: a later comment does not clear it); an
+-- agent's review, or one given through a run credential, never stands for a
+-- person.
 SELECT u.username
 FROM (
     SELECT DISTINCT ON (reviewer_id) reviewer_id, type, state
@@ -375,7 +376,7 @@ FROM (
     WHERE landing_request_id = $1
       AND reviewer_kind = 'human'
       AND reviewer_id IS NOT NULL
-      AND type IN ('approve', 'comment', 'request_changes')
+      AND type IN ('approve', 'request_changes')
     ORDER BY reviewer_id, id DESC
 ) AS latest
 JOIN users AS u ON u.id = latest.reviewer_id

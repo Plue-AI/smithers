@@ -13,7 +13,7 @@ import (
 
 // A person's current request-changes review blocks landing for everyone,
 // the landing's author and its runs included, until the same person later
-// approves or comments, or someone allowed to dismiss it does. An agent's
+// approves, or someone allowed to dismiss it does (D-21, as on GitHub). An agent's
 // request-changes review (a run credential's) blocks no one.
 func TestChangesRequestedBlocksLandingPostgres(t *testing.T) {
 	commits := map[string]string{
@@ -71,12 +71,16 @@ func TestChangesRequestedBlocksLandingPostgres(t *testing.T) {
 	code, body = land(author, landing, commit)
 	assert.Equal(t, http.StatusAccepted, code, body)
 
-	// The reviewer's later comment supersedes it too.
+	// The reviewer's later comment does not supersede it; their approval does.
 	landing, commit = path("commentedccccccc")
 	review(reviewer, landing, "request_changes", commit)
 	code, body = land(author, landing, commit)
 	require.Equal(t, http.StatusUnprocessableEntity, code, body)
 	review(reviewer, landing, "comment", commit)
+	code, body = land(author, landing, commit)
+	assert.Equal(t, http.StatusUnprocessableEntity, code, body)
+	assert.Contains(t, body, blocked)
+	review(reviewer, landing, "approve", commit)
 	code, body = land(author, landing, commit)
 	assert.Equal(t, http.StatusAccepted, code, body)
 

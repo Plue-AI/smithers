@@ -1562,7 +1562,7 @@ FROM (
     WHERE landing_request_id = $1
       AND reviewer_kind = 'human'
       AND reviewer_id IS NOT NULL
-      AND type IN ('approve', 'comment', 'request_changes')
+      AND type IN ('approve', 'request_changes')
     ORDER BY reviewer_id, id DESC
 ) AS latest
 JOIN users AS u ON u.id = latest.reviewer_id
@@ -1571,9 +1571,10 @@ WHERE latest.type = 'request_changes'
 ORDER BY u.lower_username
 `
 
-// A person's latest review stands until they review again or it is
-// dismissed; an agent's review, or one given through a run credential,
-// never stands for a person.
+// A person's request for changes stands until they approve later or it is
+// dismissed (D-21, as on GitHub: a later comment does not clear it); an
+// agent's review, or one given through a run credential, never stands for a
+// person.
 func (q *Queries) ListChangesRequestedLandingReviewers(ctx context.Context, landingRequestID int64) ([]string, error) {
 	rows, err := q.db.Query(ctx, listChangesRequestedLandingReviewers, landingRequestID)
 	if err != nil {
