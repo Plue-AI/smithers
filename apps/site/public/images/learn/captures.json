@@ -11,6 +11,30 @@
     "revision": "7490338de8",
     "captured": "2026-09-27"
   },
+  "app-connect.png": {
+    "source": "app",
+    "detail": "The Connect card's Slack channels and Linear team from the registered routes, driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against fixture routes.",
+    "revision": "0a33ae7fa4",
+    "captured": "2026-09-27"
+  },
+  "app-conversation.png": {
+    "source": "app",
+    "detail": "A conversation read through the chat = issues contract (personas, reactions, the Slack thread), driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against the contract's fixture routes.",
+    "revision": "0a33ae7fa4",
+    "captured": "2026-09-27"
+  },
+  "app-issues.png": {
+    "source": "app",
+    "detail": "The app's issue list with a conversation and a fixed issue, driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against the contract's fixture routes.",
+    "revision": "0a33ae7fa4",
+    "captured": "2026-09-27"
+  },
+  "app-run-steps.png": {
+    "source": "app",
+    "detail": "A run's Steps view leading with its recorded triggers (a schedule, an approval decision), driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against fixture routes.",
+    "revision": "0a33ae7fa4",
+    "captured": "2026-09-27"
+  },
   "app-wiki-private.png": {
     "source": "app",
     "detail": "The app's Wiki pane, driven by apps/app/e2e/playwright/wiki-spaces.spec.ts against its fixture repository.",
@@ -23,33 +47,9 @@
     "revision": "fd4e78ec6b",
     "captured": "2026-09-27"
   },
-  "preview-chat.png": {
-    "source": "preview",
-    "detail": "Design preview: apps/app ui-surfaces probe on main, fixture data (#2111, #2105).",
-    "revision": "7490338de8",
-    "captured": "2026-09-27"
-  },
   "preview-inbox.png": {
     "source": "preview",
     "detail": "Design preview: apps/app ui-surfaces probe on main, fixture data (#2114).",
-    "revision": "7490338de8",
-    "captured": "2026-09-27"
-  },
-  "preview-integrations.png": {
-    "source": "preview",
-    "detail": "Design preview: apps/app ui-surfaces probe on main, fixture data (#2116).",
-    "revision": "7490338de8",
-    "captured": "2026-09-27"
-  },
-  "preview-issues.png": {
-    "source": "preview",
-    "detail": "Design preview: apps/app ui-surfaces probe on main, fixture data (#2111, #2112).",
-    "revision": "7490338de8",
-    "captured": "2026-09-27"
-  },
-  "preview-run-steps.png": {
-    "source": "preview",
-    "detail": "Design preview: apps/app ui-surfaces probe on main, fixture data (#2114, #2115).",
     "revision": "7490338de8",
     "captured": "2026-09-27"
   },

@@ -77,11 +77,18 @@ export const tuiRecordings = [
   { id: "provider-failure", detail: "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording provider-failure)." }
 ]
 
-/** Design previews: real app components over fixture data, from an unlanded branch. */
+/**
+ * The surfaces apps/app/e2e/playwright/finish-surfaces.spec.ts drives in the
+ * real app against the backend's DTO shapes and captures as stills.
+ */
+export const surfaces = [
+  { id: "app-issues", detail: "The app's issue list with a conversation and a fixed issue, driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against the contract's fixture routes." },
+  { id: "app-conversation", detail: "A conversation read through the chat = issues contract (personas, reactions, the Slack thread), driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against the contract's fixture routes." },
+  { id: "app-connect", detail: "The Connect card's Slack channels and Linear team from the registered routes, driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against fixture routes." },
+  { id: "app-run-steps", detail: "A run's Steps view leading with its recorded triggers (a schedule, an approval decision), driven by apps/app/e2e/playwright/finish-surfaces.spec.ts against fixture routes." }
+]
+
+/** Design previews: real app components over fixture data, for a screen not connected yet. */
 export const previews = [
-  { id: "issues", file: "issue-list-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2111, #2112)." },
-  { id: "chat", file: "issue-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2111, #2105)." },
-  { id: "run-steps", file: "run-trace-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2114, #2115)." },
-  { id: "inbox", file: "approvals-inbox-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2114)." },
-  { id: "integrations", file: "connect-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2116)." }
+  { id: "inbox", file: "approvals-inbox-1280-light.png", detail: "Design preview: apps/app ui-surfaces probe on main, fixture data (#2114)." }
 ]

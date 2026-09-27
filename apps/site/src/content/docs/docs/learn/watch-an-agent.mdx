@@ -62,9 +62,9 @@ smthrs runs list --status waiting-approval
 
 <AppScreenshot src="/images/app/run-example.png" alt="A run card with status, trace filters, a call tree, and controls to stop or steer the run." caption="A run card, with example data." width={712} height={592} />
 
-**Available now.** Select **Steps** for one row per step: time, type, description, duration, and tokens. Select a step for its detail. **Partly available:** the first row names what started the run only for code pushes so far ([#2115](https://github.com/smithersai/smithers/issues/2115)).
+**Available now.** Select **Steps** for one row per step: time, type, description, duration, and tokens. Select a step for its detail. The first rows are the run's recorded triggers: the pushed ref a change request started from, the schedule that fired it, and each approval decision with who made it. **Planned:** the chat message that started a run ([#2115](https://github.com/smithersai/smithers/issues/2115)).
 
-<AppScreenshot src="/images/learn/preview-run-steps.png" alt="The Steps view: a run flagged Runaway, with a Resume button and five steps with durations and tokens." caption="The Steps view, with example data." width={868} height={562} />
+<AppScreenshot src="/images/learn/app-run-steps.png" alt="The Steps view of a finished run: two trigger rows, the schedule that fired it and an approval by will, then three steps with durations." caption="The Steps view, with example data." width={2264} height={1162} />
 
 </TabItem>
 <TabItem label="TUI">

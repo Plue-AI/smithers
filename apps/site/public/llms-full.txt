@@ -889,7 +889,7 @@ The TUI with a scripted test model.
 # Sync a conversation with Slack or Telegram
 https://smithers.sh/docs/learn/sync-a-conversation/
 
-**Partly available.** The API connects a conversation to Slack or Telegram. App setup is planned, and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105).
+**Partly available.** The API connects a conversation to Slack or Telegram, and the app reads the connection and the conversation. Connecting from the app is planned, and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105).
 
 A conversation syncs with one Slack thread or one Telegram chat or topic. A message, edit, or delete on either side appears once on the other. Agents post under their own names.
 
@@ -904,11 +904,11 @@ A conversation syncs with one Slack thread or one Telegram chat or topic. A mess
 
 **GUI**
 
-**Planned.** Slack and Telegram rows on the Connect card ([#2116](https://github.com/smithersai/smithers/issues/2116)).
+**Available now.** Enter `/integrations.list` for the Connect card: the Slack channels admitted for the repository and the Linear team it syncs with. A service this server has no route for reads Unavailable. **Planned:** admitting a channel from the card.
 
-![Design preview of the Connect card with Slack, Linear, and Notion rows.](/images/learn/preview-integrations.png)
+![The Connect card: a Smithers Cloud repository row with Import, Slack connected to two channels, and Linear connected to the ENG team.](/images/learn/app-connect.png)
 
-Design preview with example data. Not connected yet.
+The Connect card, with example data.
 
 **TUI**
 
@@ -935,11 +935,11 @@ An empty `thread_id` starts a new Slack thread. For Telegram, `scope_id` is the 
 
 **GUI**
 
-**Planned.** The conversation shows each message with its author, a `slack` mark on synced ones, and **Retry** on a message that did not deliver ([#2111](https://github.com/smithersai/smithers/issues/2111)).
+**Available now.** Open the conversation from the issue list (**Conversations**) or with `/issues.view 42`. Each message shows who posted it: agents under their names, a Slack user as the mirror recorded it. Reactions count, the `slack ↗` link opens the thread, and a message that did not deliver keeps its text with **Retry**. Live acceptance: [#2105](https://github.com/smithersai/smithers/issues/2105).
 
-![Design preview of a chat: messages from a person and two agents, a Slack link, reactions, and a failed message with Retry.](/images/learn/preview-chat.png)
+![A conversation: a slack link, messages from assistant, engineering and a Slack user, two reaction counts, and the message box.](/images/learn/app-conversation.png)
 
-Design preview with example data. Not connected yet.
+A conversation, with example data.
 
 **TUI**
 
@@ -1021,11 +1021,11 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 
 **GUI**
 
-**Available now.** On the issue card, select **Fixed**, then, as someone else, **Verify**. Or enter `/issues.fix 42` and `/issues.verify 42`. **Planned:** owner, due date, and priority ([#2112](https://github.com/smithersai/smithers/issues/2112)).
+**Available now.** On the issue card, select **Fixed**, then, as someone else, **Verify**. Or enter `/issues.fix 42` and `/issues.verify 42`. The list shows each issue's state; **Conversations** and **Issues** narrow it. **Planned:** owner, due date, and priority ([#2186](https://github.com/smithersai/smithers/issues/2186)).
 
-![Design preview of the issue list with filters and rows showing state and priority.](/images/learn/preview-issues.png)
+![The issue list: Open and Closed counts, All, Conversations and Issues filters, a conversation row, and two issues, one marked fixed.](/images/learn/app-issues.png)
 
-Design preview with example data. Not connected yet.
+The issue list, with example data.
 
 **TUI**
 
@@ -1512,9 +1512,9 @@ smthrs runs list --status waiting-approval
 
 A run card, with example data.
 
-**Available now.** Select **Steps** for one row per step: time, type, description, duration, and tokens. Select a step for its detail. **Partly available:** the first row names what started the run only for code pushes so far ([#2115](https://github.com/smithersai/smithers/issues/2115)).
+**Available now.** Select **Steps** for one row per step: time, type, description, duration, and tokens. Select a step for its detail. The first rows are the run's recorded triggers: the pushed ref a change request started from, the schedule that fired it, and each approval decision with who made it. **Planned:** the chat message that started a run ([#2115](https://github.com/smithersai/smithers/issues/2115)).
 
-![The Steps view: a run flagged Runaway, with a Resume button and five steps with durations and tokens.](/images/learn/preview-run-steps.png)
+![The Steps view of a finished run: two trigger rows, the schedule that fired it and an approval by will, then three steps with durations.](/images/learn/app-run-steps.png)
 
 The Steps view, with example data.
 

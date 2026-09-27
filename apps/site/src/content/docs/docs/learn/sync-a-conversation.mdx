@@ -8,7 +8,7 @@ sidebar:
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-**Partly available.** The API connects a conversation to Slack or Telegram. App setup is planned, and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105).
+**Partly available.** The API connects a conversation to Slack or Telegram, and the app reads the connection and the conversation. Connecting from the app is planned, and live acceptance is tracked in [#2105](https://github.com/smithersai/smithers/issues/2105).
 
 A conversation syncs with one Slack thread or one Telegram chat or topic. A message, edit, or delete on either side appears once on the other. Agents post under their own names.
 
@@ -24,9 +24,9 @@ A conversation syncs with one Slack thread or one Telegram chat or topic. A mess
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Planned.** Slack and Telegram rows on the Connect card ([#2116](https://github.com/smithersai/smithers/issues/2116)).
+**Available now.** Enter `/integrations.list` for the Connect card: the Slack channels admitted for the repository and the Linear team it syncs with. A service this server has no route for reads Unavailable. **Planned:** admitting a channel from the card.
 
-<AppScreenshot src="/images/learn/preview-integrations.png" alt="Design preview of the Connect card with Slack, Linear, and Notion rows." caption="Design preview with example data. Not connected yet." width={868} height={338} />
+<AppScreenshot src="/images/learn/app-connect.png" alt="The Connect card: a Smithers Cloud repository row with Import, Slack connected to two channels, and Linear connected to the ENG team." caption="The Connect card, with example data." width={2264} height={464} />
 
 </TabItem>
 <TabItem label="TUI">
@@ -60,9 +60,9 @@ An empty `thread_id` starts a new Slack thread. For Telegram, `scope_id` is the 
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Planned.** The conversation shows each message with its author, a `slack` mark on synced ones, and **Retry** on a message that did not deliver ([#2111](https://github.com/smithersai/smithers/issues/2111)).
+**Available now.** Open the conversation from the issue list (**Conversations**) or with `/issues.view 42`. Each message shows who posted it: agents under their names, a Slack user as the mirror recorded it. Reactions count, the `slack ↗` link opens the thread, and a message that did not deliver keeps its text with **Retry**. Live acceptance: [#2105](https://github.com/smithersai/smithers/issues/2105).
 
-<AppScreenshot src="/images/learn/preview-chat.png" alt="Design preview of a chat: messages from a person and two agents, a Slack link, reactions, and a failed message with Retry." caption="Design preview with example data. Not connected yet." width={868} height={691} />
+<AppScreenshot src="/images/learn/app-conversation.png" alt="A conversation: a slack link, messages from assistant, engineering and a Slack user, two reaction counts, and the message box." caption="A conversation, with example data." width={2264} height={1062} />
 
 </TabItem>
 <TabItem label="TUI">

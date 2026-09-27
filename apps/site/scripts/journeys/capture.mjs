@@ -6,6 +6,7 @@
  *   node scripts/journeys/capture.mjs app        # only the app GIFs
  *   node scripts/journeys/capture.mjs tui        # only the TUI GIFs
  *   node scripts/journeys/capture.mjs wiki       # only the Wiki pane
+ *   node scripts/journeys/capture.mjs surfaces   # issues, a conversation, Connect, a run's Steps
  *   node scripts/journeys/capture.mjs previews <dir>
  *
  * app: the real app server and built SPA (build first with
@@ -22,9 +23,14 @@
  * generated page with its freshness chip) and the private space (a
  * hand-written page), against the spec's fixture repository.
  *
+ * surfaces: runs the app's finish-surfaces Playwright spec (apps/app) with
+ * SMITHERS_SURFACES_CAPTURE set; it captures the issue list, a conversation,
+ * the Connect card and a run's Steps view in the real app against the
+ * backend's DTO shapes on fixture routes.
+ *
  * previews: copies design previews rendered from fixture data by the app's
  * ui-surfaces probe (`UI_EVIDENCE_DIR=<dir> bun test e2e/probes/ui-surfaces.test.ts`).
- * They illustrate Planned or Partly available screens only.
+ * They illustrate a Planned screen only (the Inbox's guard incidents, #2114).
  *
  * Needs Node, Bun >= 1.4, ffmpeg, and apps/app's Playwright Chromium. The TUI
  * recorder also needs Python 3, Chrome, and SMITHERS_WORKSPACE_JJ_EXPORT_BINARY.
@@ -35,7 +41,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { createRequire } from "node:module"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { appJourneys, previews, tuiRecordings } from "./journeys.mjs"
+import { appJourneys, previews, surfaces, tuiRecordings } from "./journeys.mjs"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const site = resolve(here, "../..")
@@ -132,6 +138,17 @@ function captureWiki() {
   }
 }
 
+function captureSurfaces() {
+  run("pnpm", ["exec", "playwright", "test", "e2e/playwright/finish-surfaces.spec.ts"], {
+    cwd: join(root, "apps/app"),
+    env: { ...process.env, SMITHERS_SURFACES_CAPTURE: out }
+  })
+  for (const entry of surfaces) {
+    note(`${entry.id}.png`, "app", entry.detail)
+    console.log(`captured ${entry.id}`)
+  }
+}
+
 function copyPreviews(dir) {
   if (!dir || !existsSync(dir)) throw new Error("Pass the ui-surfaces probe output directory")
   for (const entry of previews) {
@@ -145,5 +162,6 @@ const [mode, arg] = process.argv.slice(2)
 if (mode === undefined || mode === "app") await captureApp()
 if (mode === undefined || mode === "tui") captureTui()
 if (mode === undefined || mode === "wiki") captureWiki()
+if (mode === undefined || mode === "surfaces") captureSurfaces()
 if (mode === "previews") copyPreviews(arg)
 writeFileSync(ledgerPath, JSON.stringify(Object.fromEntries(Object.entries(ledger).sort()), null, 2) + "\n")
