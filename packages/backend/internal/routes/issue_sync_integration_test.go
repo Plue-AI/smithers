@@ -36,6 +36,7 @@ func TestIssueSyncHTTPMappingsAndCommentLookup(t *testing.T) {
 		r.Put("/{number}/sync", h.IssueSync)
 		r.Get("/{number}/sync", h.IssueSync)
 		r.Put("/sync/channels", h.IssueSyncChannel)
+		r.Get("/sync/channels", h.IssueSyncChannels)
 		r.Post("/sync/events", h.IssueSyncEvent)
 		r.Post("/{number}/comments", h.PostIssueComment)
 		r.Get("/{number}/comments", h.ListIssueComments)
@@ -68,8 +69,25 @@ func TestIssueSyncHTTPMappingsAndCommentLookup(t *testing.T) {
 	require.NoError(t, svc.DeleteIssueComment(ctx, &user, user.Username, "repo", int64(out["id"].(float64))))
 	status, _ = call("GET", path+"/comments?idempotency_key=dispatch%3Astep", "")
 	require.Equal(t, 409, status)
+	channels := func() []map[string]any {
+		req := httptest.NewRequest("GET", "/api/repos/phase2/repo/issues/sync/channels", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		require.Equal(t, 200, rec.Code, rec.Body.String())
+		var rows []map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows), rec.Body.String())
+		return rows
+	}
+	// The connect card reads the admissions the owner wrote: none yet, then the one the PUT admits.
+	require.Empty(t, channels())
 	status, out = call("PUT", "/sync/channels", `{"provider":"telegram","connection_id":"bot","scope_id":"123","conversation_id":"-100"}`)
 	require.Equal(t, 200, status, out)
+	admitted := channels()
+	require.Len(t, admitted, 1)
+	require.Equal(t, "telegram", admitted[0]["provider"])
+	require.Equal(t, "bot", admitted[0]["connection_id"])
+	require.Equal(t, "123", admitted[0]["scope_id"])
+	require.Equal(t, "-100", admitted[0]["conversation_id"])
 	status, out = call("POST", "/sync/events", `{"provider":"telegram","connection_id":"bot","scope_id":"123","conversation_id":"-100","delivery_key":"update:1","message_id":"7","version":"100.0000000001","user_id":"42","kind":"message","body":"sync test"}`)
 	require.Equal(t, 200, status, out)
 	telegram, err := q.GetIssueByID(ctx, int64(out["issue_id"].(float64)))

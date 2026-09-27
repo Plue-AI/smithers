@@ -75,6 +75,7 @@ export const ConnectCardBody = ({
         </span>
         {row.state === "connected" ? <Badge variant="success">Connected ✓</Badge>
           : row.state === "coming-soon" ? <Badge variant="outline">Coming soon</Badge>
+          : row.state === "unavailable" ? <Badge variant="outline">Unavailable</Badge>
           : row.state === "error" ? <Badge variant="destructive">Error</Badge>
           : null}
         {row.action === undefined ? null : (

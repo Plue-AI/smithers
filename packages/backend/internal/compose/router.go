@@ -1259,6 +1259,7 @@ func buildRouter(
 				r.With(append(writeRepo, gateIssues)...).Put("/issues/{number}/sync", issueHandler.IssueSync)
 				r.With(append(readRepo, gateIssues)...).Get("/issues/{number}/sync", issueHandler.IssueSync)
 				r.With(append(writeRepo, gateIssues)...).Put("/issues/sync/channels", issueHandler.IssueSyncChannel)
+				r.With(append(readRepo, gateIssues)...).Get("/issues/sync/channels", issueHandler.IssueSyncChannels)
 				r.With(append(writeRepo, gateIssues)...).Post("/issues/sync/events", issueHandler.IssueSyncEvent)
 				r.With(append(writeRepo, gateIssues)...).Get("/issues/sync/deliveries", issueHandler.IssueSyncDeliveries)
 				r.With(append(writeRepo, gateIssues)...).Post("/issues/sync/deliveries/{id}", issueHandler.IssueSyncReceipt)

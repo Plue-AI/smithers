@@ -80,6 +80,31 @@ func (h *IssueHandler) IssueSyncChannel(w http.ResponseWriter, r *http.Request) 
 	}
 	api.WriteJSON(w, 200, in)
 }
+
+// IssueSyncChannels answers GET /issues/sync/channels: the actor's admitted channels for the repository.
+func (h *IssueHandler) IssueSyncChannels(w http.ResponseWriter, r *http.Request) {
+	actor, err := requireRouteUser(r)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	owner, repo, err := repoOwnerAndName(r)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	svc, ok := h.Service.(*services.IssueService)
+	if !ok {
+		writeRouteError(w, r, api.Internal("issue sync unavailable"))
+		return
+	}
+	out, err := svc.ListIssueSyncChannels(r.Context(), actor, owner, repo)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	api.WriteJSON(w, 200, out)
+}
 func (h *IssueHandler) IssueSyncEvent(w http.ResponseWriter, r *http.Request) {
 	actor, err := requireRouteUser(r)
 	if err != nil {

@@ -179,6 +179,26 @@ type IssueSyncIgnored struct{ Reason string }
 
 func (e IssueSyncIgnored) Error() string { return e.Reason }
 
+// ListIssueSyncChannels lists the actor's admitted channels for a repository the actor can read.
+// The connect card reads it; the answer is the same rows ConfigureIssueSyncChannel wrote.
+func (s *IssueService) ListIssueSyncChannels(ctx context.Context, actor *db.User, owner, repo string) ([]db.IssueSyncChannel, error) {
+	if actor == nil {
+		return nil, api.Unauthorized("authentication required")
+	}
+	r, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.requireReadAccess(ctx, r, actor); err != nil {
+		return nil, err
+	}
+	q, err := s.syncQueries()
+	if err != nil {
+		return nil, err
+	}
+	return q.ListIssueSyncChannels(ctx, actor.ID, r.ID)
+}
+
 type IssueSyncEvent struct {
 	Reaction string `json:"reaction"`
 	IssueSyncInput
