@@ -1,5 +1,5 @@
 import { useLiveQuery } from "@tanstack/react-db"
-import { BookOpen,Download,History,KeyRound,Moon,RotateCcw,Sun,Timer,UserRound,Workflow } from "lucide-react"
+import { BookOpen,Download,History,Inbox,KeyRound,MessagesSquare,Moon,RotateCcw,Sun,Timer,UserRound,Users,Workflow } from "lucide-react"
 import { useController } from "./ControllerContext"
 import { flowAction } from "./flows/FlowAction"
 
@@ -35,6 +35,12 @@ export function ChromeDock() {
   const canHistory = controller.commands.find("history.show") !== undefined
   // Account (factory mock 21): account.show, registered where an identity seam exists.
   const canAccount = controller.commands.find("account.show") !== undefined
+  // Inbox (DESIGN §3.4): approvals.list, the one place the person answers things; cloud hosts only.
+  const canInbox = controller.commands.find("approvals.list") !== undefined
+  // Conversations (DESIGN §3.1): issues.list narrowed to conversations (a conversation is an issue).
+  const canConversations = controller.commands.find("issues.list") !== undefined
+  // Agents (DESIGN §3.3): agent.list, the configured agent profiles.
+  const canAgents = controller.commands.find("agent.list") !== undefined
   // Admin chrome follows the same capability-filtered registry as every act.
   const isAdmin = controller.commands.find("admin.devtools") !== undefined
 
@@ -67,6 +73,51 @@ export function ChromeDock() {
             {...flowAction(controller.runCommand, "wiki")}
           >
             <BookOpen size={14} aria-hidden="true" />
+          </button>
+        ) :
+        null}
+      {/* Inbox: the button door of approvals.list. */}
+      {canInbox ?
+        (
+          <button
+            type="button"
+            className="chrome-icon-action"
+            aria-label="Inbox"
+            title="Inbox"
+            data-testid="chrome-inbox"
+            {...flowAction(controller.runCommand, "approvals.list")}
+          >
+            <Inbox size={14} aria-hidden="true" />
+          </button>
+        ) :
+        null}
+      {/* Conversations: the button door of issues.list --kind conversation. */}
+      {canConversations ?
+        (
+          <button
+            type="button"
+            className="chrome-icon-action"
+            aria-label="Conversations"
+            title="Conversations"
+            data-testid="chrome-conversations"
+            {...flowAction(controller.runCommand, "issues.list", "open --kind conversation")}
+          >
+            <MessagesSquare size={14} aria-hidden="true" />
+          </button>
+        ) :
+        null}
+      {/* Agents: the button door of agent.list. */}
+      {canAgents ?
+        (
+          <button
+            type="button"
+            className="chrome-icon-action"
+            aria-label="Agents"
+            title="Agents"
+            data-testid="chrome-agents"
+            {...flowAction(controller.runCommand, "agent.list")}
+          >
+            <Users size={14} aria-hidden="true" />
           </button>
         ) :
         null}

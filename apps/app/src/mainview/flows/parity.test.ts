@@ -523,7 +523,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * harness maps) went with the local backend
        * (docs/LOCAL-BACKEND-RETIREMENT.md).
        */
-      "../ChromeDock.tsx": 9,
+      "../ChromeDock.tsx": 12, // + Inbox, Threads and Agents doors (smithers-ui-DESIGN.md §1).
       /* The live-process close question: confirm through tab.close.confirm. */
       "../tabs/TabBodies.tsx": 1
     })
