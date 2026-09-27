@@ -98,7 +98,7 @@ func run(ctx context.Context, args []string) (runErr error) {
 	}()
 
 	dataRoot := os.Getenv("SMITHERS_DATA_ROOT")
-	runtimes, err := openExecutionRuntimes(ctx, dataRoot)
+	runtimes, err := openExecutionRuntimes(ctx, dataRoot, filepath.Dir(registry.Coding.Executable))
 	if err != nil {
 		return err
 	}

@@ -285,6 +285,17 @@ func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec
 	if command.Args[0], err = r.plantArtifact(ctx, ws.Machine, command.Args[0]); err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
 	}
+	// A bundled helper the host is pointed at (the workspace helper) is
+	// planted the same way, so no host path reaches the guest.
+	if len(command.Environment) > 0 {
+		environment := make(map[string]string, len(command.Environment))
+		for name, value := range command.Environment {
+			if environment[name], err = r.plantArtifact(ctx, ws.Machine, value); err != nil {
+				return workspaceapi.ManagedHostConnection{}, err
+			}
+		}
+		command.Environment = environment
+	}
 	timeout := spec.ReadyTimeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -402,26 +413,38 @@ func (r *Runtime) freeGuestPort(ctx context.Context, machine string) (uint16, er
 // the guest path. Anything else is returned unchanged: it must already be a
 // guest program.
 func (r *Runtime) plantArtifact(ctx context.Context, machine, program string) (string, error) {
-	for hostDir, guestDir := range r.config.Artifacts {
-		relative, err := filepath.Rel(hostDir, program)
-		if err != nil || relative == "." || strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
+	target, ok := guestArtifactPath(r.config.Artifacts, program)
+	if !ok {
+		return program, nil
+	}
+	contents, err := os.ReadFile(program)
+	if err != nil {
+		return "", fmt.Errorf("read managed host artifact: %w", err)
+	}
+	sum := sha256.Sum256(contents)
+	want := hex.EncodeToString(sum[:])
+	script := fmt.Sprintf(`set -e; t=%s; if [ "$(sha256sum "$t" 2>/dev/null | cut -d' ' -f1)" != %s ]; then mkdir -p "$(dirname "$t")"; cat > "$t.tmp"; chmod 0755 "$t.tmp"; mv "$t.tmp" "$t"; fi; test "$(sha256sum "$t" | cut -d' ' -f1)" = %s`,
+		shellQuote(target), want, want)
+	if _, err := r.cli.run(ctx, contents, "exec", machine, "--", "sh", "-c", script); err != nil {
+		return "", fmt.Errorf("%w: plant managed host artifact: %v", ErrUnavailable, err)
+	}
+	return target, nil
+}
+
+// guestArtifactPath maps a host path under an artifact directory to its
+// guest path; any other value is not an artifact.
+func guestArtifactPath(artifacts map[string]string, value string) (string, bool) {
+	if !filepath.IsAbs(value) {
+		return "", false
+	}
+	for hostDir, guestDir := range artifacts {
+		relative, err := filepath.Rel(hostDir, value)
+		if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, "../") || filepath.IsAbs(relative) {
 			continue
 		}
-		contents, err := os.ReadFile(program)
-		if err != nil {
-			return "", fmt.Errorf("read managed host artifact: %w", err)
-		}
-		sum := sha256.Sum256(contents)
-		want := hex.EncodeToString(sum[:])
-		target := path.Join(guestDir, filepath.ToSlash(relative))
-		script := fmt.Sprintf(`set -e; t=%s; if [ "$(sha256sum "$t" 2>/dev/null | cut -d' ' -f1)" != %s ]; then mkdir -p "$(dirname "$t")"; cat > "$t.tmp"; chmod 0755 "$t.tmp"; mv "$t.tmp" "$t"; fi; test "$(sha256sum "$t" | cut -d' ' -f1)" = %s`,
-			shellQuote(target), want, want)
-		if _, err := r.cli.run(ctx, contents, "exec", machine, "--", "sh", "-c", script); err != nil {
-			return "", fmt.Errorf("%w: plant managed host artifact: %v", ErrUnavailable, err)
-		}
-		return target, nil
+		return path.Join(guestDir, filepath.ToSlash(relative)), true
 	}
-	return program, nil
+	return "", false
 }
 
 func shellQuote(value string) string {

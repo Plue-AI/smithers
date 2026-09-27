@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -51,7 +53,10 @@ func workspaceIsolation() (string, error) {
 	}
 }
 
-func openExecutionRuntimes(ctx context.Context, dataRoot string) (executionRuntimes, error) {
+// openExecutionRuntimes composes the workspace runtime. hostBundle is the
+// directory of the packaged Flow hosts; in microvm mode its files are planted
+// in a guest when a host or the helper it names runs there.
+func openExecutionRuntimes(ctx context.Context, dataRoot, hostBundle string) (executionRuntimes, error) {
 	mode, err := workspaceIsolation()
 	if err != nil {
 		return executionRuntimes{}, err
@@ -63,7 +68,7 @@ func openExecutionRuntimes(ctx context.Context, dataRoot string) (executionRunti
 		}
 		return executionRuntimes{workspace: runtime, control: runtime}, nil
 	}
-	config, err := microVMConfig(dataRoot)
+	config, err := microVMConfig(dataRoot, hostBundle)
 	if err != nil {
 		return executionRuntimes{}, err
 	}
@@ -78,7 +83,10 @@ func openExecutionRuntimes(ctx context.Context, dataRoot string) (executionRunti
 	return executionRuntimes{workspace: isolated, control: control}, nil
 }
 
-func microVMConfig(dataRoot string) (microsandbox.Config, error) {
+// guestHostBundle is where a guest receives the packaged Flow host files.
+const guestHostBundle = "/opt/smithers/hosts"
+
+func microVMConfig(dataRoot, hostBundle string) (microsandbox.Config, error) {
 	port, err := backendPort()
 	if err != nil {
 		return microsandbox.Config{}, err
@@ -88,10 +96,14 @@ func microVMConfig(dataRoot string) (microsandbox.Config, error) {
 		Root:         filepath.Join(dataRoot, "microvm"),
 		HostPorts:    []uint16{port},
 		Environments: &microsandbox.EnvironmentConfig{},
+		Artifacts:    map[string]string{hostBundle: guestHostBundle},
 	}
 	if config.Binary == "" {
 		return config, fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w: set SMITHERS_MICROSANDBOX_BIN to the msb %s binary",
 			microsandbox.ErrUnavailable, microsandbox.RequiredVersion)
+	}
+	if err := requireGuestHelper(hostBundle); err != nil {
+		return config, fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err)
 	}
 	integers := []struct {
 		name   string
@@ -124,6 +136,36 @@ func microVMConfig(dataRoot string) (microsandbox.Config, error) {
 		}
 	}
 	return config, nil
+}
+
+// requireGuestHelper refuses a coding host that could not run in a guest:
+// the workspace helper it uses must be a Linux executable in the host bundle,
+// which is planted beside the host.
+func requireGuestHelper(hostBundle string) error {
+	helper := strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"))
+	if hostBundle == "" || !filepath.IsAbs(hostBundle) {
+		return errors.New("the Flow host bundle directory is required")
+	}
+	relative, err := filepath.Rel(hostBundle, helper)
+	if helper == "" || !filepath.IsAbs(helper) || err != nil || relative == "." || strings.HasPrefix(relative, "..") {
+		return fmt.Errorf("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY must name the Linux smithers-jj-export in %s", hostBundle)
+	}
+	file, err := os.Open(helper)
+	if err != nil {
+		return fmt.Errorf("guest workspace helper: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	header := make([]byte, 20)
+	if err == nil {
+		_, err = io.ReadFull(file, header)
+	}
+	// ELF, 64-bit, little-endian, e_machine EM_AARCH64 (183).
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 ||
+		string(header[:4]) != "\x7fELF" || header[4] != 2 || header[5] != 1 || binary.LittleEndian.Uint16(header[18:20]) != 183 {
+		return fmt.Errorf("guest workspace helper %s is not a Linux arm64 executable", helper)
+	}
+	return nil
 }
 
 // backendPort is the port guests reach at 127.0.0.1 through the bridge: the
