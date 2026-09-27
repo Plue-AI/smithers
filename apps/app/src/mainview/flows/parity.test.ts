@@ -391,7 +391,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* Mark-all-read. */
       "../cards/NotificationsCard.tsx": 1,
     "../cards/RegistrationCard.tsx": 2,
-      "../cards/EnvCard.tsx": 2,
+      "../cards/EnvCard.tsx": 3,
       /* The account card's Sign out door (auth.sign-out through onRunCommand). */
       "../cards/AccountCard.tsx": 2,
       /* 2 = Try again + the done state's Open the workspace (lane sync). */

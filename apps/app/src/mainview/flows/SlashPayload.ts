@@ -837,6 +837,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "billing.upgrade": (args) => optional("plan", args),
   "env.view": (args) => repoOnly("env.view", args),
+  "env.remove-token": (args) => repoOnly("env.remove-token", args),
   "env.set": (args, known) => {
     const { rest, repo } = splitTrailingRepo(args, known)
     if (rest === "") return no("env.set needs a NAME=value pair")

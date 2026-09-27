@@ -40,7 +40,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "billing.upgrade", "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",
     "change.revert", "change.split", "change.split-ready", "chores.setup", "ci.setup", "code.definition",
     "code.diagnostics", "code.hover", "commits.list", "commits.read", "connect", "desktop", "egress.session",
-    "env.set", "env.view", "feature.prototype", "feature.setup", "files.list", "files.open-diff",
+    "env.remove-token", "env.set", "env.view", "feature.prototype", "feature.setup", "files.list", "files.open-diff",
     /* Threads, tasks and integrations (smithers-ui-DESIGN.md): the chat backend and the task metadata are still landing. */
     "integrations.list", "issues.comment.react", "issues.comment.retry", "issues.fix", "issues.verify",
     "files.read", "findings.not-useful", "findings.please-fix", "flow.plan", "flow.run.retry", "flows",

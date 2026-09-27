@@ -103,6 +103,11 @@ type AgentEnvironmentResponse struct {
 	Env         []AgentEnvironmentVariable       `json:"env"`
 	Secrets     []AgentEnvironmentSecretMetadata `json:"secrets"`
 	UpdatedAt   *time.Time                       `json:"updated_at"`
+	// ReconnectRequired reports that the stored setup script or variables
+	// held a Claude or ChatGPT subscription token this deployment refuses to
+	// use. The token is redacted from this answer and nothing runs with the
+	// environment until it is saved without one.
+	ReconnectRequired bool `json:"reconnect_required,omitempty"`
 }
 
 type AgentEnvironmentSecretWrite struct {
@@ -160,6 +165,9 @@ func (s *AgentEnvironmentService) PutAgentEnvironment(ctx context.Context, actor
 
 	normalizedEnv, envNames, err := validateAgentEnvironment(input.SetupScript, input.Env)
 	if err != nil {
+		return AgentEnvironmentResponse{}, err
+	}
+	if err := refuseSubscriptionToken(s.subscriptionTokens, "", input.SetupScript); err != nil {
 		return AgentEnvironmentResponse{}, err
 	}
 	for _, variable := range normalizedEnv {
@@ -383,6 +391,9 @@ func (s *AgentEnvironmentService) LoadVariables(ctx context.Context, repositoryI
 	if err != nil {
 		return nil, err
 	}
+	if config.SubscriptionToken {
+		return nil, storedSubscriptionTokenRefused()
+	}
 	return append([]AgentEnvironmentVariable(nil), config.Env...), nil
 }
 
@@ -395,6 +406,9 @@ func (s *AgentEnvironmentService) LoadForProvisioning(ctx context.Context, repos
 	config, err := s.loadAgentEnvironmentRow(ctx, repositoryID)
 	if err != nil {
 		return AgentEnvironmentProvisioningConfig{}, err
+	}
+	if config.SubscriptionToken {
+		return AgentEnvironmentProvisioningConfig{}, storedSubscriptionTokenRefused()
 	}
 	result := AgentEnvironmentProvisioningConfig{SetupScript: config.SetupScript, Env: config.Env}
 	rows, err := s.queries.ListRepositoryAgentEnvironmentSecretValues(ctx, repositoryID)
@@ -435,6 +449,9 @@ type agentEnvironmentConfigRow struct {
 	SetupScript string
 	Env         []AgentEnvironmentVariable
 	UpdatedAt   *time.Time
+	// SubscriptionToken reports a stored Claude or ChatGPT subscription token
+	// that this deployment refuses (saved before the setup-script check).
+	SubscriptionToken bool
 }
 
 func (s *AgentEnvironmentService) loadAgentEnvironmentRow(ctx context.Context, repositoryID int64) (agentEnvironmentConfigRow, error) {
@@ -454,7 +471,14 @@ func (s *AgentEnvironmentService) loadAgentEnvironmentRow(ctx context.Context, r
 		return agentEnvironmentConfigRow{}, pkgerrors.Internal("invalid stored agent environment").WithCause(err)
 	}
 	updatedAt := row.UpdatedAt
-	return agentEnvironmentConfigRow{SetupScript: row.SetupScript, Env: normalized, UpdatedAt: &updatedAt}, nil
+	config := agentEnvironmentConfigRow{SetupScript: row.SetupScript, Env: normalized, UpdatedAt: &updatedAt}
+	if !s.subscriptionTokens {
+		config.SubscriptionToken = isSubscriptionToken("", config.SetupScript)
+		for _, variable := range config.Env {
+			config.SubscriptionToken = config.SubscriptionToken || isSubscriptionToken(variable.Name, variable.Value)
+		}
+	}
+	return config, nil
 }
 
 func (s *AgentEnvironmentService) agentEnvironmentResponse(ctx context.Context, repositoryID int64) (AgentEnvironmentResponse, error) {
@@ -472,12 +496,25 @@ func (s *AgentEnvironmentService) agentEnvironmentResponse(ctx context.Context, 
 			Name: row.Name, Hosts: nonNilStrings(row.Hosts), MatchHeaders: nonNilStrings(row.MatchHeaders), UpdatedAt: row.UpdatedAt,
 		})
 	}
-	return AgentEnvironmentResponse{
+	response := AgentEnvironmentResponse{
 		SetupScript: config.SetupScript,
 		Env:         config.Env,
 		Secrets:     secrets,
 		UpdatedAt:   config.UpdatedAt,
-	}, nil
+	}
+	if config.SubscriptionToken {
+		// Never hand a refused token back. Saving this answer as-is drops the
+		// token variables and keeps the redacted script.
+		response.ReconnectRequired = true
+		response.SetupScript = redactSubscriptionTokens(config.SetupScript)
+		response.Env = make([]AgentEnvironmentVariable, 0, len(config.Env))
+		for _, variable := range config.Env {
+			if !isSubscriptionToken(variable.Name, variable.Value) {
+				response.Env = append(response.Env, variable)
+			}
+		}
+	}
+	return response, nil
 }
 
 func validateAgentEnvironment(setupScript string, variables []AgentEnvironmentVariable) ([]AgentEnvironmentVariable, map[string]struct{}, error) {

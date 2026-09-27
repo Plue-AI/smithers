@@ -1684,7 +1684,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         name: z.string(),
         value: z.string().transform((value) => value.length > 3 ? `${value.slice(0, 3)}…` : "…")
       })),
-      setupScript: z.string().nullable()
+      setupScript: z.string().nullable(),
+      /** The environment held a subscription token the platform refuses; it is redacted and unused. */
+      reconnect: z.boolean().optional()
     })
   }),
   /*

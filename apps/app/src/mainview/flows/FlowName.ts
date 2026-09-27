@@ -135,6 +135,7 @@ export const FLOW_NAMES = [
   "debug.verbose",
   "desktop",
   "egress.session",
+  "env.remove-token",
   "env.set",
   "env.view",
   "experimental.set",

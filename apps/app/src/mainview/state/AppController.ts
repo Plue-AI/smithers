@@ -534,6 +534,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly markNotificationsRead: NotificationsSeam["markNotificationsRead"]
   readonly viewEnvironment: EnvironmentSeam["viewEnvironment"]
   readonly setEnvironmentVar: EnvironmentSeam["setEnvironmentVar"]
+  readonly removeSubscriptionToken: EnvironmentSeam["removeSubscriptionToken"]
   readonly connectCodingProvider: SecretsSeam["connectCodingProvider"]
   readonly listCodingProviders: SecretsSeam["listCodingProviders"]
   readonly revokeCodingProvider: SecretsSeam["revokeCodingProvider"]
@@ -1868,6 +1869,7 @@ export const createAppController = (
     markNotificationsRead: notificationsSeam.markNotificationsRead,
     viewEnvironment: environmentSeam.viewEnvironment,
     setEnvironmentVar: environmentSeam.setEnvironmentVar,
+    removeSubscriptionToken: environmentSeam.removeSubscriptionToken,
     connectCodingProvider: secretsSeam.connectCodingProvider,
     listCodingProviders: secretsSeam.listCodingProviders,
     revokeCodingProvider: secretsSeam.revokeCodingProvider,

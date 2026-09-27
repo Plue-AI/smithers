@@ -1371,12 +1371,14 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     full: {
       repo: "smithersai/smithers",
       vars: [{ name: "DATABASE_URL", value: "postgres://user:password@host/db" }, { name: "PIN", value: "12" }],
-      setupScript: "pnpm install"
+      setupScript: "pnpm install",
+      reconnect: true
     },
     decodedFull: {
       repo: "smithersai/smithers",
       vars: [{ name: "DATABASE_URL", value: "pos…" }, { name: "PIN", value: "…" }],
-      setupScript: "pnpm install"
+      setupScript: "pnpm install",
+      reconnect: true
     }
   },
   stack: {

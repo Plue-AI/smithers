@@ -14,6 +14,9 @@ export const EnvCardBody = ({
 }) => (
   <div className="world-card-list">
     <p className="world-card-path">{card.payload.repo}</p>
+    {card.payload.reconnect === true ?
+      <Button size="sm" {...flowAction(onRunCommand, "env.remove-token", card.payload.repo)}>Remove token</Button> :
+      null}
     {card.payload.vars.length === 0 ?
       <Button size="sm" {...flowAction(onRunCommand, "env.set")}>Add variable</Button> :
       (

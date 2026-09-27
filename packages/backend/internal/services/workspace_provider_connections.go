@@ -31,7 +31,7 @@ func (s *WorkspaceService) resolveWorkspaceProviderBindings(ctx context.Context,
 	if s.agentEnvironment != nil {
 		binding.environment, err = s.agentEnvironment.LoadForProvisioning(ctx, workspace.RepositoryID)
 		if err != nil {
-			return nil, pkgerrors.Internal("load agent environment for workspace setup").WithCause(err)
+			return nil, agentEnvironmentLoadError(err)
 		}
 	}
 	// Copy slices before adding runtime values; providers may cache their config.

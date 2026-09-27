@@ -391,3 +391,40 @@ test("user and agent environment writes share the repository queue", async () =>
     ] })
   } finally { await store.dispose?.() }
 })
+
+test("parseEnvironment: reconnect_required marks a refused subscription token", () => {
+  const document = { setup_script: "", env: [], secrets: [] }
+  expect(parseEnvironment(document)?.reconnect).toBe(false)
+  expect(parseEnvironment({ ...document, reconnect_required: true })?.reconnect).toBe(true)
+})
+
+test("a refused subscription token is removed on purpose, never by an unrelated write", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await ready(store)
+  const puts: unknown[] = []
+  let reconnect = true
+  const answer = () => ({ setup_script: "export CLAUDE_CODE_OAUTH_TOKEN=[redacted]\nnpm ci", env: [{ name: "CI", value: "1" }], secrets: [],
+    ...(reconnect ? { reconnect_required: true } : {}) })
+  const actors = createActorBindings(() => {})
+  let ordinal = 0
+  const seam = actors.pair({
+    store, baseUrl: "", actor: () => "user" as const,
+    dispatch: store.dispatch,
+    nextOrdinal: () => ++ordinal,
+    http: async (_input: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        puts.push(JSON.parse(String(init.body)))
+        reconnect = false
+      }
+      return new Response(JSON.stringify(answer()), { status: 200, headers: { "content-type": "application/json" } })
+    }
+  }, createEnvironmentSeam)
+  try {
+    expect(await seam.setEnvironmentVar("USER=1", "will/flows")).toBe("Remove the subscription token from will/flows first.")
+    expect(puts).toHaveLength(0)
+    await seam.removeSubscriptionToken("will/flows")
+    expect(puts).toEqual([{ setup_script: "export CLAUDE_CODE_OAUTH_TOKEN=[redacted]\nnpm ci", env: [{ name: "CI", value: "1" }] }])
+    await seam.removeSubscriptionToken("will/flows")
+    expect(puts).toHaveLength(1)
+  } finally { await store.dispose?.() }
+})

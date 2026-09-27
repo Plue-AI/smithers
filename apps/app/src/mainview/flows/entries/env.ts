@@ -31,5 +31,14 @@ export const envFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     requires: ["signed-in"],
     input: Schema.Struct({ assignment: Schema.String, repo: Schema.optional(Schema.String) }),
     handler: ({ assignment, repo }) => actions.setEnvironmentVar(assignment, repo)
+  }),
+  flow({
+    name: "env.remove-token",
+    summary: "Remove a refused subscription token from a repository's agent environment",
+    runtime: ["cloud"],
+    args: "[owner/repo]",
+    requires: ["signed-in"],
+    input: RepoTarget,
+    handler: ({ repo }) => actions.removeSubscriptionToken(repo)
   })
 ]

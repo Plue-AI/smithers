@@ -53,7 +53,7 @@ func (s *WorkspaceService) runWorkspaceAgentEnvironmentSetup(ctx context.Context
 	}
 	if err != nil {
 		s.setWorkspaceProvisioningStageBestEffort(ctx, workspace.ID, "environment_setup_failed")
-		return pkgerrors.Internal("load agent environment for workspace setup").WithCause(err)
+		return agentEnvironmentLoadError(err)
 	}
 
 	client, ok := s.sandbox.(workspaceAgentEnvironmentVMClient)

@@ -16,6 +16,8 @@ export interface EnvironmentSeam {
   readonly viewEnvironment: ViewAction<[repo?: string]>
   /** `assignment` is one `NAME=value` pair; the seam validates the shape. */
   readonly setEnvironmentVar: (assignment: string, repo?: string) => ReturnType<ViewAction<[repo?: string]>>
+  /** Saves the platform's redacted answer back, which drops a refused subscription token. */
+  readonly removeSubscriptionToken: ViewAction<[repo?: string]>
 }
 
 /** The variable-name shape the platform accepts (multi environmentStore.ts). */
@@ -45,6 +47,8 @@ export interface EnvironmentConfig {
   readonly setupScript: string
   readonly env: ReadonlyArray<EnvironmentVariable>
   readonly secrets: ReadonlyArray<SecretMetadata>
+  /** The platform redacted a subscription token it refuses to use. */
+  readonly reconnect: boolean
 }
 
 /** A list of strings, or null when the field is present with another shape; an absent field is an empty list. */
@@ -68,7 +72,7 @@ const parseStrings = (value: unknown): ReadonlyArray<string> | null => {
  */
 export const parseEnvironment = (wire: unknown): EnvironmentConfig | null => {
   if (typeof wire !== "object" || wire === null) return null
-  const row = wire as { setup_script?: unknown; env?: unknown; secrets?: unknown }
+  const row = wire as { setup_script?: unknown; env?: unknown; secrets?: unknown; reconnect_required?: unknown }
   if (typeof row.setup_script !== "string" || !Array.isArray(row.env) || !Array.isArray(row.secrets)) {
     return null
   }
@@ -94,7 +98,7 @@ export const parseEnvironment = (wire: unknown): EnvironmentConfig | null => {
       updatedAt: typeof secret.updated_at === "string" && secret.updated_at !== "" ? secret.updated_at : null
     })
   }
-  return { setupScript: row.setup_script, env, secrets }
+  return { setupScript: row.setup_script, env, secrets, reconnect: row.reconnect_required === true }
 }
 
 /** The one agent-environment document URL for a repository. */
@@ -182,7 +186,8 @@ export const createEnvironmentSeam = (ctx: SeamContext): EnvironmentSeam => {
       payload: {
         repo,
         vars: config.env.map((variable) => ({ name: variable.name, value: variable.value })),
-        setupScript: config.setupScript === "" ? null : config.setupScript
+        setupScript: config.setupScript === "" ? null : config.setupScript,
+        ...(config.reconnect ? { reconnect: true } : {})
       }
     }
     return card
@@ -197,6 +202,33 @@ export const createEnvironmentSeam = (ctx: SeamContext): EnvironmentSeam => {
     } }
   })
 
+  /** PUT the whole document; an honest string on failure, null once saved. */
+  const putEnvironment = async (
+    repo: string,
+    setupScript: string,
+    env: ReadonlyArray<EnvironmentVariable>,
+    subject: string
+  ): Promise<string | null> => {
+    let response: Response
+    try {
+      response = await ctx.http(environmentUrl(ctx, repo), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          setup_script: setupScript,
+          env: env.map((variable) => ({ name: variable.name, value: variable.value }))
+        })
+      })
+    } catch {
+      return `${subject} couldn't be saved to ${repo} — the platform didn't answer.`
+    }
+    if (!response.ok) {
+      return readErrorMessage(response, `${subject} couldn't be saved to ${repo} (HTTP ${response.status}).`)
+    }
+    await response.body?.cancel()
+    return null
+  }
+
   const setEnvironmentVar = async (assignment: string, repo?: string): ReturnType<ViewAction<[repo?: string]>> => {
     const pair = parseAssignment(assignment)
     if (typeof pair === "string") return pair
@@ -208,33 +240,31 @@ export const createEnvironmentSeam = (ctx: SeamContext): EnvironmentSeam => {
       // back (multi set-env-var/command.ts).
       const current = await fetchEnvironment(target.repo)
       if (typeof current === "string") return current
-      let response: Response
-      try {
-        response = await ctx.http(environmentUrl(ctx, target.repo), {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            setup_script: current.setupScript,
-            env: mergeVariable(current.env, pair.name, pair.value).map((variable) => ({
-              name: variable.name,
-              value: variable.value
-            }))
-          })
-        })
-      } catch {
-        return `${pair.name} couldn't be saved to ${target.repo} — the platform didn't answer.`
-      }
-      if (!response.ok) {
-        return readErrorMessage(
-          response,
-          `${pair.name} couldn't be saved to ${target.repo} (HTTP ${response.status}).`
-        )
-      }
-      await response.body?.cancel()
+      // A refused token is removed on purpose (env.remove-token), never as a
+      // side effect that could also drop a withheld setup script.
+      if (current.reconnect) return `Remove the subscription token from ${target.repo} first.`
+      const failure = await putEnvironment(target.repo, current.setupScript, mergeVariable(current.env, pair.name, pair.value), pair.name)
+      if (failure !== null) return failure
       // The refreshed card states the platform's answer, not the local merge.
       return viewEnvironment(target.repo)
     })
   }
 
-  return { viewEnvironment, setEnvironmentVar }
+  const removeSubscriptionToken = async (repo?: string): ReturnType<ViewAction<[repo?: string]>> => {
+    const target = resolveTargetRepo(ctx.store, repo)
+    if ("error" in target) return target.error
+    return serialize(target.repo, async () => {
+      // The platform's answer already has the token redacted and its
+      // variables left out; saving it back replaces the stored value.
+      const current = await fetchEnvironment(target.repo)
+      if (typeof current === "string") return current
+      if (current.reconnect) {
+        const failure = await putEnvironment(target.repo, current.setupScript, current.env, "The agent environment")
+        if (failure !== null) return failure
+      }
+      return viewEnvironment(target.repo)
+    })
+  }
+
+  return { viewEnvironment, setEnvironmentVar, removeSubscriptionToken }
 }
