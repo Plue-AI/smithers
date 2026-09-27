@@ -23,7 +23,7 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, DurableDeferred, Flow, type FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, type FlowRuntime, Interpreter, RetryPolicy, WaitFor } from "@smthrs/flow"
 import * as Jj from "@smthrs/jj"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import { NotificationQueue } from "@smthrs/notifications"
@@ -41,11 +41,22 @@ import * as ControlLive from "../src/ControlLive.ts"
 import { ControlRuntime } from "../src/ControlRuntime.ts"
 import * as SqlControlRuntime from "../src/SqlControlRuntime.ts"
 
+/**
+ * No elapsed-poll resume within a case. A caller following a parked run
+ * re-drives it on that timer as the fallback for a lost wake, and a re-drive
+ * clears the waiting row until replay parks again: a signal that lands inside
+ * it finds no open wait, is recorded as `unknown`, and waits for a host inbox
+ * this bridge does not run. Every wake here is delivered, so only a wake may
+ * re-drive a run.
+ */
+const suspendedRetryPolicy = RetryPolicy.make({ initialMs: 3_600_000, factor: 1, maxMs: 3_600_000 })
+
 /** One step before the wait, so a replay after the wake is observable. */
 const Mark = Action.make("engine-waits/mark", { payload: { label: Schema.String }, success: Schema.String })
 
 const Gated = Flow.make("engine-waits/gated", {
   payload: { name: Schema.String },
+  suspendedRetryPolicy,
   success: Schema.Json,
   error: WaitFor.WaitForRequestInvalid,
   body: ({ name }) =>
@@ -64,6 +75,7 @@ const Gated = Flow.make("engine-waits/gated", {
  */
 const Twice = Flow.make("engine-waits/twice", {
   payload: {},
+  suspendedRetryPolicy,
   success: Schema.Json,
   error: WaitFor.WaitForRequestInvalid,
   body: () =>

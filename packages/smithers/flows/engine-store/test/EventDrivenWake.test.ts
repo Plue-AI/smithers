@@ -235,6 +235,63 @@ describe("event-driven wake", () => {
       expect(result.values).toEqual(["followed:open", "followed:open"])
     }))
 
+  it.effect("a follower joins a run parked on an event instead of driving it again", () =>
+    Effect.gen(function*() {
+      const JoinedFlow = Flow.make("Wake/joined", {
+        payload: {},
+        success: Schema.String,
+        body: opaqueHandlerBody
+      })
+      const gate = DurableDeferred.make("joined-gate", { success: Schema.String })
+      let drives = 0
+      const handler = () =>
+        Effect.suspend(() => {
+          drives++
+          return Effect.map(DurableDeferred.await(gate), (value) => `joined:${value}`)
+        })
+
+      const result = yield* withEngine(WakeBus.layer, (makeEngine) =>
+        Effect.gen(function*() {
+          const bus = yield* WakeBus.WakeBus
+          const state = yield* DurableEngineState.DurableEngineState
+          const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
+          yield* engine.register(JoinedFlow as never, handler as never)
+          // Admission drives the run to its park; the discard follower then
+          // dispatches the round again and parks on the bus.
+          yield* engine.execute(JoinedFlow as never, {
+            executionId: "wake-joined",
+            payload: {},
+            discard: true,
+            suspendedRetryPolicy: hourPolicy
+          })
+          yield* untilWaiters(bus, "wake-joined", 1)
+          const parked = { drives, waiting: yield* state.waiting("wake-joined") }
+
+          yield* engine.deferredDone(gate as never, {
+            flowName: JoinedFlow._tag,
+            executionId: "wake-joined",
+            deferredName: gate.name,
+            exit: Exit.succeed("open")
+          })
+          // A parked run already polls as `Suspended`; wait for the answer.
+          yield* TestDatabase.until(
+            Effect.map(
+              engine.poll(JoinedFlow as never, "wake-joined"),
+              (result) => result._tag === "Some" && result.value._tag === "Complete"
+            )
+          )
+          return { parked, drives, value: yield* engine.poll(JoinedFlow as never, "wake-joined") }
+        }))
+
+      // The follower's dispatch joined the park: no second claim, no replay,
+      // and the waiting row a signal would complete stayed in place.
+      expect(result.parked.drives).toBe(1)
+      expect(result.parked.waiting._tag).toBe("Some")
+      // One wake, one re-drive.
+      expect(result.drives).toBe(2)
+      expect(result.value).toMatchObject({ _tag: "Some", value: { _tag: "Complete" } })
+    }))
+
   it.effect("the polling fallback still resumes the caller when the bus misses the wake", () =>
     Effect.gen(function*() {
       const FallbackFlow = Flow.make("Wake/fallback", {

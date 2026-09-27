@@ -167,7 +167,8 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
     const runRound = (
       step: LineageRound,
       parent: FlowRuntime.FlowInstance["Service"] | undefined,
-      previousExecutionId?: string
+      previousExecutionId?: string,
+      follow = false
     ): Effect.Effect<Flow.Result<Success["Type"], Error["Type"]>> =>
       options.execute(step.flow, {
         executionId: step.executionId,
@@ -176,9 +177,12 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
         parent,
         round: previousExecutionId === undefined
           ? step.round
-          : { ...step.round, previousExecutionId }
+          : { ...step.round, previousExecutionId },
+        ...(follow ? { follow } : {})
       }) as Effect.Effect<Flow.Result<Success["Type"], Error["Type"]>>
-    let current = runRound(lineage, Option.getOrUndefined(parentInstance))
+    // A discarded execution was admitted below, so its follower's first
+    // dispatch already follows the round.
+    let current = runRound(lineage, Option.getOrUndefined(parentInstance), undefined, opts.discard === true)
 
     const follow = Effect.gen(function*() {
       // The lineage this caller is following. Round 0 is the execution it
@@ -286,7 +290,7 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
         // callers following one parked run would wake each other forever,
         // re-driving it back to back with no delay.
         if (!woken) yield* options.resume(lineage.flow, lineage.executionId)
-        current = runRound(lineage, Option.getOrUndefined(parentInstance))
+        current = runRound(lineage, Option.getOrUndefined(parentInstance), undefined, true)
       }
     })
     if (opts.discard) {

@@ -35,6 +35,13 @@ export interface RunCoordinator<Key, E> {
    */
   readonly run: (key: Key) => Effect.Effect<void, E>
   /**
+   * Joins the active drain for the key, and starts none while idle.
+   *
+   * @since 1.0.0
+   * @category operations
+   */
+  readonly join: (key: Key) => Effect.Effect<void, E>
+  /**
    * Ensures one coalesced drain follows the active drain for the key.
    *
    * @since 0.1.0
@@ -128,6 +135,12 @@ export const make = <Key, E, R>(options: {
         return restore(Deferred.await(next.done))
       })
 
+    const join = (key: Key): Effect.Effect<void, E> =>
+      Effect.suspend(() => {
+        const entry = active.get(key)
+        return entry === undefined ? Effect.void : Deferred.await(entry.done)
+      })
+
     const wake = (key: Key): Effect.Effect<void> =>
       Effect.sync(() => {
         const entry = active.get(key)
@@ -164,6 +177,7 @@ export const make = <Key, E, R>(options: {
     return {
       active: Effect.fn("RunCoordinator.active")(() => Effect.sync(() => new Set(active.keys())))(),
       run: Effect.fn("RunCoordinator.run")(run),
+      join: Effect.fn("RunCoordinator.join")(join),
       wake: Effect.fn("RunCoordinator.wake")(wake),
       interrupt: Effect.fn("RunCoordinator.interrupt")(interrupt),
       requestInterrupt: Effect.fn("RunCoordinator.requestInterrupt")(requestInterrupt)

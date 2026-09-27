@@ -23,6 +23,26 @@ describe("RunCoordinator", () => {
       expect(runs).toBe(1)
     })))
 
+  effect("join waits for the active drain and starts none while idle", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const gate = yield* Deferred.make<void>()
+      let runs = 0
+      const coordinator = yield* RunCoordinator.make({
+        drain: () => Effect.sync(() => runs++).pipe(Effect.andThen(Deferred.await(gate)))
+      })
+
+      yield* coordinator.join("run")
+      expect(runs).toBe(0)
+      const first = yield* coordinator.run("run").pipe(Effect.forkChild)
+      yield* Effect.yieldNow
+      const joined = yield* coordinator.join("run").pipe(Effect.forkChild)
+      yield* Effect.yieldNow
+      expect(joined.pollUnsafe()).toBeUndefined()
+      yield* Deferred.succeed(gate, undefined)
+      yield* Effect.all([Fiber.join(first), Fiber.join(joined)])
+      expect(runs).toBe(1)
+    })))
+
   effect("runs different keys concurrently", () =>
     Effect.scoped(Effect.gen(function*() {
       const gate = yield* Deferred.make<void>()

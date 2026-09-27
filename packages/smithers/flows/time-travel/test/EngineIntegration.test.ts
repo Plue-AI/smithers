@@ -668,7 +668,11 @@ describe("time travel over an engine-written journal", () => {
           exit: Exit.succeed("approved")
         })
         const runs = yield* RunStore.RunStore
-        yield* TestDatabase.until(runs.get("approval-run").pipe(Effect.map((row) => row.status === "suspended")))
+        // The run is still `suspended` before the completion's re-drive claims
+        // it, so the park that counts is the one after the step advanced.
+        yield* TestDatabase.until(
+          runs.get("approval-run").pipe(Effect.map((row) => advances > 0 && row.status === "suspended"))
+        )
         expect((yield* runs.get("approval-run")).status).toBe("suspended")
         const state = yield* DurableEngineState.DurableEngineState
         let beforeRewind = advances
