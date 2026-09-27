@@ -41,19 +41,27 @@ func registrationAdmin(w http.ResponseWriter, r *http.Request, write bool) bool 
 }
 
 func registrationDecision(payload json.RawMessage, procedure string) bool {
-	var input struct {
-		Target struct {
-			RequestID string `json:"requestId"`
-		} `json:"target"`
-		Signal struct {
-			Name string `json:"name"`
-		} `json:"signal"`
+	var field, name string
+	switch procedure {
+	case "Approval.Submit":
+		field, name = "target", "requestId"
+	case "Signal":
+		field, name = "signal", "name"
+	default:
+		return false
 	}
+	// Match the runtime's case-sensitive JSON keys. Struct decoding folds case
+	// and lets an unrelated field hide the real target from this guard.
+	var input map[string]json.RawMessage
 	if json.Unmarshal(payload, &input) != nil {
 		return false
 	}
-	return (procedure == "Approval.Submit" && registrationWait(input.Target.RequestID)) ||
-		(procedure == "Signal" && registrationWait(input.Signal.Name))
+	var target map[string]json.RawMessage
+	if json.Unmarshal(input[field], &target) != nil {
+		return false
+	}
+	var wait string
+	return json.Unmarshal(target[name], &wait) == nil && registrationWait(wait)
 }
 
 type registrationDestination struct {

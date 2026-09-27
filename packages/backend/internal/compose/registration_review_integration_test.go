@@ -163,6 +163,15 @@ func TestAdminRegistrationReviewPostgresRestart(t *testing.T) {
 			denied := registrationRequest(api, actor.user, actor.run, string(body))
 			require.Equal(t, 403, denied.Code, denied.Body.String())
 		}
+		// The runtime reads exact JSON keys. A second, differently cased key
+		// must not conceal this real wait from the backend's admin guard.
+		canonical, err := json.Marshal(item.Payload)
+		require.NoError(t, err)
+		shadowed := json.RawMessage(string(canonical[:len(canonical)-1]) + `,"Target":{"requestId":"other"}}`)
+		shadowBody, err := json.Marshal(map[string]any{"repo": "registrant/repo", "workspaceId": workspace, "procedure": "Approval.Submit", "payload": shadowed})
+		require.NoError(t, err)
+		denied := registrationRequest(api, &owner, false, string(shadowBody))
+		require.Equal(t, 403, denied.Code, denied.Body.String())
 		var forged map[string]any
 		require.NoError(t, json.Unmarshal(body, &forged))
 		forged["payload"].(map[string]any)["target"].(map[string]any)["digest"] = "different-wait"

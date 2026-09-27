@@ -72,6 +72,26 @@ func TestRegistrationReviewCannotBypassAdminThroughOrdinaryRelay(t *testing.T) {
 	}
 }
 
+func TestRegistrationReviewIgnoresExtraneousJSONFields(t *testing.T) {
+	for _, tc := range []struct{ procedure, payload string }{
+		{"Approval.Submit", `{"target":{"requestId":"register-repository/review#1"},"Target":{"requestId":"other"}}`},
+		{"Approval.Submit", `{"target":{"requestId":"register-repository/review#1","RequestID":"other"}}`},
+		{"Approval.Submit", `{"target":{"requestId":"register-repository/review#1"},"signal":42}`},
+		{"Signal", `{"signal":{"name":"register-repository/review"},"Signal":{"name":"other"}}`},
+		{"Signal", `{"signal":{"name":"register-repository/decline-note","Name":"other"}}`},
+		{"Signal", `{"signal":{"name":"register-repository/review"},"target":42}`},
+	} {
+		t.Run(tc.procedure+tc.payload, func(t *testing.T) {
+			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
+			dispatcher := &reviewDispatcher{}
+			api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}
+			w := registrationRequest(api, &db.User{ID: 17}, false, `{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"`+tc.procedure+`","payload":`+tc.payload+`}`)
+			require.Equal(t, 403, w.Code, w.Body.String())
+			require.Zero(t, dispatcher.calls)
+		})
+	}
+}
+
 // Cross-account reads expose neither grants nor similarly named questions in
 // other flows. The workspace's stored wait token must match its decision target.
 type registrationProjectionDispatcher struct{ reviewDispatcher }
